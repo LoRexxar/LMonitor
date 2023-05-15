@@ -55,7 +55,7 @@ class BiliMonitor(BaseScan):
 
             for video in videos:
                 video_time = video.find_elements(By.CLASS_NAME, 'time')[0]
-                if "小时" in video_time.text:
+                if "分钟" in video_time.text:
                     video_dic = video.find_elements(By.CLASS_NAME, 'title')[0]
                     video_link = video_dic.get_attribute("href")
                     video_name = video_dic.text
