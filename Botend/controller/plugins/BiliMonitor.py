@@ -14,6 +14,7 @@ from utils.log import logger
 from Botend.controller.BaseScan import BaseScan
 from Botend.models import MonitorTask
 from Botend.webhook.qiyeWechat import QiyeWechatWebhook
+from Botend.webhook.aibotkWechat import AibotkWechatWebhook
 
 import selenium
 from selenium.webdriver.common.by import By
@@ -91,5 +92,5 @@ class BiliMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        qw = QiyeWechatWebhook()
-        qw.publish_text(self.video_desp)
+        aw = AibotkWechatWebhook()
+        aw.publish_text(self.video_desp)
