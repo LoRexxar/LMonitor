@@ -12,6 +12,7 @@
 import requests
 import json
 
+from utils.log import logger
 from LMonitor.settings import AIBOTK_WECHAT_SECRET, ACTIVE_WECHAT_GROUP
 
 
@@ -40,6 +41,8 @@ class AibotkWechatWebhook:
 
             result = self.s.post(url, json=content)
             r = result.text
+            logger.info("[Aibotk] Aibotk return {}".format(r))
+
 
         return True
 

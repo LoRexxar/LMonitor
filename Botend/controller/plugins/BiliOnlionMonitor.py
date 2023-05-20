@@ -48,7 +48,8 @@ class BiliOnlionMonitor(BaseScan):
     def resolve_data(self, driver):
 
         try:
-            wait = WebDriverWait(driver, 15)
+            driver.implicitly_wait(15)
+            wait = WebDriverWait(driver, 20)
             wait.until(EC.presence_of_element_located((By.CLASS_NAME, "live-status")))
 
             status = driver.find_elements(By.CLASS_NAME, 'live-status')[0].text
@@ -72,11 +73,11 @@ class BiliOnlionMonitor(BaseScan):
                 self.task.flag = "0"
 
         except selenium.common.exceptions.NoSuchElementException:
-            logger.warning("[BiliMonitor] BiliMonitor can't get target element.")
+            logger.warning("[BiliOnlionMonitor] BiliOnlionMonitor can't get target element.")
             return False
 
         except selenium.common.exceptions.TimeoutException:
-            logger.warning("[BiliMonitor] BiliMonitor timeout.")
+            logger.warning("[BiliOnlionMonitor] BiliOnlionMonitor timeout.")
             return False
 
         except:
