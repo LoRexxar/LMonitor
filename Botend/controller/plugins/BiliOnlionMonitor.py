@@ -15,6 +15,7 @@ from Botend.models import MonitorTask
 from Botend.webhook.qiyeWechat import QiyeWechatWebhook
 from Botend.webhook.aibotkWechat import AibotkWechatWebhook
 
+import json
 import selenium
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -29,6 +30,7 @@ class BiliOnlionMonitor(BaseScan):
         super().__init__(req, task)
 
         self.video_desp = ""
+        self.title = ""
         self.task = task
 
     def scan(self, url):
@@ -38,39 +40,28 @@ class BiliOnlionMonitor(BaseScan):
         :return:
         """
         cookies = ""
-        driver = self.req.get(url, 'RespByChrome', 0, cookies, is_origin=1)
+
+        # 通过live页面检测
+        url1 = "https://live.bilibili.com/{}".format(url)
+        driver = self.req.get(url1, 'RespByChrome', 0, cookies, is_origin=1)
 
         # 处理返回内容
-        self.resolve_data(driver)
+        self.resolve_data_live(driver)
+
+        # 通过api检测
+        url2 = "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id={}".format(url)
+        self.resolve_data(url2)
 
         return True
 
-    def resolve_data(self, driver):
+    def resolve_data_live(self, driver):
 
         try:
-            driver.implicitly_wait(15)
-            wait = WebDriverWait(driver, 20)
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "live-status")))
+            wait = WebDriverWait(driver, 25)
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "live-skin-main-text")))
 
-            status = driver.find_elements(By.CLASS_NAME, 'live-status')[0].text
-            title = driver.find_elements(By.CLASS_NAME, 'live-skin-main-text')[0].text
-
-            if "直播" in status:
-                # 检查当前直播状态
-                if self.task.flag == "1":
-                    return
-
-                self.video_desp = """你关注的up主LoRexxar开启直播啦！！
-{}
-{}
-                """.format(self.task.target, title)
-                self.task.flag = "1"
-
-                self.trigger_webhook()
-                return
-
-            if "轮播" in status:
-                self.task.flag = "0"
+            # status = driver.find_elements(By.CLASS_NAME, 'live-status')[0].text
+            self.title = driver.find_elements(By.CLASS_NAME, 'live-skin-main-text')[0].text
 
         except selenium.common.exceptions.NoSuchElementException:
             logger.warning("[BiliOnlionMonitor] BiliOnlionMonitor can't get target element.")
@@ -82,6 +73,32 @@ class BiliOnlionMonitor(BaseScan):
 
         except:
             raise
+
+    def resolve_data(self, url):
+
+        r = self.req.get(url, 'Resp', 0, "")
+        status = json.loads(r)
+        status_code = status['code']
+        # print(self.title)
+
+        if status_code != 0:
+            # 检查当前直播状态
+            if self.task.flag == "1":
+                return
+
+            self.video_desp = """你关注的up主LoRexxar开启直播啦！！
+        {}
+        {}
+                        """.format(self.task.target, self.title)
+            self.task.flag = "1"
+
+            self.trigger_webhook()
+            return
+
+        if status_code == 0:
+            self.task.flag = "0"
+            # print(status_code)
+
 
     def trigger_webhook(self):
         """
