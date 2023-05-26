@@ -42,8 +42,8 @@ class BiliOnlionMonitor(BaseScan):
         cookies = ""
 
         # 通过live页面检测
-        url1 = "https://live.bilibili.com/{}".format(url)
-        driver = self.req.get(url1, 'RespByChrome', 0, cookies, is_origin=1)
+        self.url1 = "https://live.bilibili.com/{}".format(url)
+        driver = self.req.get(self.url1, 'RespByChrome', 0, cookies, is_origin=1)
 
         # 处理返回内容
         self.resolve_data_live(driver)
@@ -89,7 +89,7 @@ class BiliOnlionMonitor(BaseScan):
             self.video_desp = """你关注的up主LoRexxar开启直播啦！！
         {}
         {}
-                        """.format(self.task.target, self.title)
+                        """.format(self.url1, self.title)
             self.task.flag = "1"
 
             self.trigger_webhook()
