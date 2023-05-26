@@ -46,6 +46,22 @@ class AibotkWechatWebhook:
 
         return True
 
+    def publish_admin(self, text):
+        url = "https://api-bot.aibotk.com/openapi/v1/chat/contact"
+
+        content = {
+          "apiKey": self.secret["apikey"],
+          "name": "LoRexxar'",
+          "message": {
+            "type": 1,
+            "content": text
+          }
+        }
+
+        result = self.s.post(url, json=content)
+        r = result.text
+        logger.info("[Aibotk] Aibotk return {}".format(r))
+
 
 if __name__ == "__main__":
     aw = AibotkWechatWebhook()
