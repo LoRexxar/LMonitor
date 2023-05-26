@@ -12,9 +12,13 @@
 from Botend.controller.BaseScan import BaseScan
 from Botend.controller.plugins.BiliMonitor import BiliMonitor
 from Botend.controller.plugins.BiliOnlionMonitor import BiliOnlionMonitor
+from Botend.controller.plugins.wechatMonitor import WechatMonitor
+from Botend.controller.plugins.wechatArticleScan import WechatArticleScan
 
 Monitor_Type_BaseObject_List = [
     BaseScan,
     BiliMonitor,
     BiliOnlionMonitor,
+    WechatMonitor,
+    WechatArticleScan,
 ]

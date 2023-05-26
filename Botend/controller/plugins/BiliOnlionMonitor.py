@@ -99,7 +99,6 @@ class BiliOnlionMonitor(BaseScan):
             self.task.flag = "0"
             # print(status_code)
 
-
     def trigger_webhook(self):
         """
         触发企业微信推送

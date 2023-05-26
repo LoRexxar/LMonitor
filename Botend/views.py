@@ -70,7 +70,7 @@ class LMonitorCore:
 
                 for task in tasks:
                     # 扫描每10分钟只会扫一次
-                    if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < 600:
+                    if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < task.wait_time:
                         continue
 
                     task_type = task.type
