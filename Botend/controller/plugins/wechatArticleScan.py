@@ -79,10 +79,11 @@ class WechatArticleScan(BaseScan):
                 # title = driver.find_elements(By.CLASS_NAME, 'rich_media_title')[0].text
 
                 author = driver.find_elements(By.CLASS_NAME, 'rich_media_meta_text')[0].text
+                if "202" in author:
+                    author = ""
+
                 account = driver.find_elements(By.ID, 'js_name')[0].text
-                summary = driver.find_elements(By.CLASS_NAME, 'profile_meta_value')[1].text
                 create_time = driver.find_elements(By.ID, 'publish_time')[0].text
-                print(summary)
                 content = driver.find_elements(By.ID, 'js_content')[0].get_attribute('innerHTML')
 
                 # 正则
@@ -94,19 +95,23 @@ class WechatArticleScan(BaseScan):
                 if match:
                     source_url = match.group(1)
 
+                summary_regex = r'class="profile_meta_value">(.*?)</span>'
+                results = re.findall(summary_regex, page_source, re.M|re.I)
+                summary = results[1]
+
                 # 检查account的信息是否获得
                 waccount = WechatAccountTask.objects.filter(biz=wa.biz).first()
                 if not waccount.account:
                     waccount.account = account
                     waccount.summary = summary
-                    waccount.last_publish_time = create_time
+                    waccount.last_publish_time = datetime.datetime.strptime(create_time, "%Y-%m-%d %H:%M")
 
                 # 更新扫描时间
-                if datetime.datetime.strptime(create_time, "%Y-%m-%d %H:%M") > waccount.last_publish_time:
+                elif datetime.datetime.strptime(create_time, "%Y-%m-%d %H:%M").replace(tzinfo=local_tz) > waccount.last_publish_time:
                     waccount.last_publish_time = create_time
 
                 # 检查是否超过半年没更新
-                if datetime.datetime.now(local_tz) - waccount.last_publish_time > datetime.timedelta(days=180):
+                if datetime.datetime.now() - waccount.last_publish_time > datetime.timedelta(days=180):
                     waccount.is_zombie = 1
 
                 waccount.last_spider_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
