@@ -32,6 +32,7 @@ class WechatMonitor(BaseScan):
     """
     微信公众号监控监控
     """
+
     def __init__(self, req, task):
         super().__init__(req, task)
 
@@ -100,12 +101,16 @@ class WechatMonitor(BaseScan):
                 query_params = parse_qs(parsed_url.query)
                 sn = query_params.get('sn')[0]
 
-                obj, created = WechatArticle.objects.get_or_create(title=title, url=link, publish_time=create_time,
-                                                                   biz=wat.biz, digest=digest, cover=cover,
-                                                                   sn=sn, state=0)
+                waa = WechatArticle.objects.filter(sn=sn).first()
 
-                if created:
-                    logger.info("[Wechat Monitor] Found new Wechat article.")
+                if waa:
+                    continue
+
+                obj = WechatArticle(title=title, url=link, publish_time=create_time,
+                                    biz=wat.biz, digest=digest, cover=cover,
+                                    sn=sn, state=0)
+                obj.save()
+                logger.info("[Wechat Monitor] Found new Wechat article.")
 
             time.sleep(random.randint(120, 300))
 
