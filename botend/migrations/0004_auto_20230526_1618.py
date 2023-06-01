@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('Botend', '0003_monitortask_wait_time'),
+        ('botend', '0003_monitortask_wait_time'),
     ]
 
     operations = [
