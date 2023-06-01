@@ -28,7 +28,7 @@ class WechatAccountTask(models.Model):
     biz = models.CharField(max_length=50)
     account = models.CharField(max_length=255, null=True)
     summary = models.CharField(max_length=500, null=True)
-    last_publish_time = models.DateTimeField(auto_now=True, null=True)
+    last_publish_time = models.DateTimeField(auto_now_add=True, null=True)
     last_spider_time = models.DateTimeField(auto_now=True, null=True)
     is_zombie = models.IntegerField(default=0)
 

@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('Botend', '0002_monitortask_flag'),
+        ('botend', '0002_monitortask_flag'),
     ]
 
     operations = [
