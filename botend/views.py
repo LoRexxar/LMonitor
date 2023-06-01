@@ -11,7 +11,7 @@ from utils.LReq import LReq
 from utils.log import logger
 from core.threadingpool import ThreadPool
 
-from Botend.models import MonitorTask, MonitorWebhook
+from botend.models import MonitorTask, MonitorWebhook
 from LMonitor.config import Monitor_Type_BaseObject_List
 
 

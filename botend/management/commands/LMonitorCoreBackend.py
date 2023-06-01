@@ -10,7 +10,7 @@
 
 
 from django.core.management.base import BaseCommand
-from Botend.views import LMonitorCoreBackend
+from botend.views import LMonitorCoreBackend
 
 from utils.log import logger
 

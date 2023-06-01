@@ -11,10 +11,10 @@
 
 from utils.log import logger
 
-from Botend.models import MonitorTask, WechatArticle, WechatAccountTask, TargetAuth
+from botend.models import MonitorTask, WechatArticle, WechatAccountTask, TargetAuth
 
-from Botend.controller.BaseScan import BaseScan
-from Botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.controller.BaseScan import BaseScan
+from botend.webhook.aibotkWechat import AibotkWechatWebhook
 
 import re
 import json
