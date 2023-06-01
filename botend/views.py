@@ -73,15 +73,15 @@ class LMonitorCore:
                     if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < task.wait_time:
                         continue
 
+                    # 更新扫描时间
+                    task.last_scan_time = datetime.datetime.now(local_tz)
+                    task.save()
+
                     task_type = task.type
                     task_url = task.target
                     task_class = Monitor_Type_BaseObject_List[task_type]
                     t = task_class(Lreq, task)
                     t.scan(task_url)
-
-                    # 更新扫描时间
-                    task.last_scan_time = datetime.datetime.now(local_tz)
-                    task.save()
 
         except KeyboardInterrupt:
             logger.error("[Scan] Stop Scaning.")
