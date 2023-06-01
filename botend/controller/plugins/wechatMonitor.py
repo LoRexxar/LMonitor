@@ -18,6 +18,7 @@ from botend.webhook.aibotkWechat import AibotkWechatWebhook
 
 import json
 import time
+import pytz
 import random
 import datetime
 import urllib.parse
@@ -64,6 +65,10 @@ class WechatMonitor(BaseScan):
 
         for wat in self.wats:
             logger.info("[Wechat Monitor] Try to get {} article list".format(wat.account))
+
+            local_tz = pytz.timezone('Asia/Shanghai')
+            wat.last_spider_time = datetime.datetime.now(local_tz)
+            wat.save()
 
             params = {
                 "token": self.rfcode,
