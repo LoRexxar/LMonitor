@@ -10,10 +10,10 @@
 '''
 
 from utils.log import logger
-from Botend.controller.BaseScan import BaseScan
-from Botend.models import MonitorTask
-from Botend.webhook.qiyeWechat import QiyeWechatWebhook
-from Botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.controller.BaseScan import BaseScan
+from botend.models import MonitorTask
+from botend.webhook.qiyeWechat import QiyeWechatWebhook
+from botend.webhook.aibotkWechat import AibotkWechatWebhook
 
 import json
 import selenium

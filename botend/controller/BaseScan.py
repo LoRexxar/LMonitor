@@ -11,7 +11,7 @@
 
 
 from utils.LReq import LReq
-from Botend.models import TargetAuth
+from botend.models import TargetAuth
 
 from urllib.parse import urlparse
 
