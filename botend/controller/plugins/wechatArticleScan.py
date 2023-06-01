@@ -130,11 +130,11 @@ class WechatArticleScan(BaseScan):
 
             except selenium.common.exceptions.NoSuchElementException:
                 logger.warning("[WechatArticleScan] Wechat Article Scan can't get target element.")
-                return False
+                continue
 
             except selenium.common.exceptions.TimeoutException:
                 logger.warning("[WechatArticleScan] Wechat Article Scan timeout.")
-                return False
+                continue
 
             except:
                 raise
