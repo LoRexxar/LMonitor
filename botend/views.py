@@ -46,7 +46,7 @@ class LMonitorCoreBackend:
                     logger.debug("[LMonitor Core] New Thread {} for LMonitor Core.".format(i))
 
                     self.threadpool.new(botcore.scan)
-                    time.sleep(0.5)
+                    time.sleep(3)
 
             # self.threadpool.wait_all_thread()
             time.sleep(1)
