@@ -125,4 +125,4 @@ class WechatMonitor(BaseScan):
         :return:
         """
         aw = AibotkWechatWebhook()
-        aw.publish_text(self.hint)
+        aw.publish_admin(self.hint)
