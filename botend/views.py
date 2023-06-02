@@ -83,6 +83,8 @@ class LMonitorCore:
                     t = task_class(Lreq, task)
                     t.scan(task_url)
 
+                    task.save()
+
         except KeyboardInterrupt:
             logger.error("[Scan] Stop Scaning.")
             Lreq.close_driver()
