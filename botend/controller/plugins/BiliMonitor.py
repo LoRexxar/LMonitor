@@ -67,6 +67,7 @@ class BiliMonitor(BaseScan):
 
                     logger.info("[Bili Monitor] Task {} found update.".format(self.task.id))
                     self.task.flag = video_link
+                    self.task.save()
 
                     self.video_desp = """你关注的up主更新视频啦！！
 《{}》
