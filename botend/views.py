@@ -80,6 +80,7 @@ class LMonitorCore:
                     task_type = task.type
                     task_url = task.target
                     task_class = Monitor_Type_BaseObject_List[task_type]
+
                     t = task_class(Lreq, task)
                     t.scan(task_url)
 
