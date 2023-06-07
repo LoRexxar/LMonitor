@@ -10,10 +10,12 @@
 '''
 
 from botend.controller.BaseScan import BaseScan
-from botend.controller.plugins.BiliMonitor import BiliMonitor
-from botend.controller.plugins.BiliOnlionMonitor import BiliOnlionMonitor
-from botend.controller.plugins.wechatMonitor import WechatMonitor
-from botend.controller.plugins.wechatArticleScan import WechatArticleScan
+from botend.controller.plugins.bili.BiliMonitor import BiliMonitor
+from botend.controller.plugins.bili.BiliOnlionMonitor import BiliOnlionMonitor
+from botend.controller.plugins.wechat.wechatMonitor import WechatMonitor
+from botend.controller.plugins.wechat.wechatArticleScan import WechatArticleScan
+from botend.controller.plugins.vuln.aliyunAvdMonitor import AliyunAvdMonitor
+from botend.controller.plugins.vuln.aliyunAvdScan import AliyunAvdScan
 
 Monitor_Type_BaseObject_List = [
     BaseScan,
@@ -21,4 +23,6 @@ Monitor_Type_BaseObject_List = [
     BiliOnlionMonitor,
     WechatMonitor,
     WechatArticleScan,
+    AliyunAvdMonitor,
+    AliyunAvdScan
 ]
