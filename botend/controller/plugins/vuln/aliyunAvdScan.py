@@ -67,8 +67,12 @@ class AliyunAvdScan(BaseScan):
                 wait = WebDriverWait(driver, 25)
                 wait.until(EC.presence_of_element_located((By.CLASS_NAME, "text-detail")))
 
-                details = driver.find_elements(By.CLASS_NAME, 'text-detail')[0].text
-                solutions = driver.find_elements(By.CLASS_NAME, 'text-detail')[1].text
+                detail_driver = driver.find_elements(By.CLASS_NAME, 'text-detail')
+
+                details = detail_driver[0].text
+                solutions = ""
+                if len(detail_driver) > 1:
+                    solutions = detail_driver[1].text
                 reference = driver.find_elements(By.CLASS_NAME, 'reference')[0].text
                 score = driver.find_elements(By.CLASS_NAME, 'cvss-breakdown__score')[0].text
 
