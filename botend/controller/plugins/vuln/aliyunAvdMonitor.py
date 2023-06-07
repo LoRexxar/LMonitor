@@ -107,7 +107,7 @@ class AliyunAvdMonitor(BaseScan):
                     if va or vc:
                         continue
 
-                    logger.info("[Aliyun Avd Monitor] Found new Vuln {]".format(title))
+                    logger.info("[Aliyun Avd Monitor] Found new Vuln {}".format(title))
                     vn = VulnData(sid=avid, cveid=cveid, title=title, type=type, publish_time=publish_time,
                                   reference=link, source="avd", status=0,
                                   is_poc=is_poc, is_exp=is_exp, is_active=1)
