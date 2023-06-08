@@ -95,6 +95,7 @@ class AliyunAvdMonitor(BaseScan):
 
                     if "POC 已公开" in poc_status:
                         is_poc = 1
+
                     elif "EXP 已公开" in poc_status:
                         is_exp = 1
 
