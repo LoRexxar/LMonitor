@@ -111,7 +111,7 @@ class AliyunAvdMonitor(BaseScan):
                     logger.info("[Aliyun Avd Monitor] Found new Vuln {}".format(title))
                     vn = VulnData(sid=avid, cveid=cveid, title=title, type=type, publish_time=publish_time,
                                   link=link, source="avd",
-                                  is_poc=is_poc, is_exp=is_exp, is_active=1, status=0)
+                                  is_poc=is_poc, is_exp=is_exp, is_active=1, state=0)
                     vn.save()
 
             except selenium.common.exceptions.NoSuchElementException:
