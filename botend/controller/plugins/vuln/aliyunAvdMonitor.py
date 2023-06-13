@@ -12,6 +12,7 @@
 from utils.log import logger
 
 from botend.models import VulnMonitorTask, VulnData
+from botend.controller.plugins.vuln import Vul_List, Vul_link_Type_Dict
 
 from botend.controller.BaseScan import BaseScan
 from botend.webhook.aibotkWechat import AibotkWechatWebhook
@@ -77,8 +78,20 @@ class AliyunAvdMonitor(BaseScan):
                     link = tds[0].find_elements(By.TAG_NAME, 'a')[0].get_attribute("href")
                     avid = tds[0].text
                     title = tds[1].text
-                    type = tds[2].find_elements(By.TAG_NAME, 'button')[0].get_attribute("data-original-title")
                     publish_time = tds[3].text
+                    type = ""
+
+                    # check type
+                    for vtype in Vul_List:
+                        if vtype in title:
+                            type = vtype
+                            break
+
+                    if not type:
+                        type = tds[2].find_elements(By.TAG_NAME, 'button')[0].get_attribute("data-original-title")
+
+                        if type in Vul_link_Type_Dict:
+                            type = Vul_link_Type_Dict[type]
 
                     status = tds[4].find_elements(By.TAG_NAME, 'button')
                     cve = status[0].get_attribute("data-original-title")
