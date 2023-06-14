@@ -16,6 +16,8 @@ from botend.controller.plugins.wechat.wechatMonitor import WechatMonitor
 from botend.controller.plugins.wechat.wechatArticleScan import WechatArticleScan
 from botend.controller.plugins.vuln.aliyunAvdMonitor import AliyunAvdMonitor
 from botend.controller.plugins.vuln.aliyunAvdScan import AliyunAvdScan
+from botend.controller.plugins.vuln.oscsMonitor import OscsMonitor
+from botend.controller.plugins.vuln.oscsScan import OscsScan
 
 Monitor_Type_BaseObject_List = [
     BaseScan,
@@ -24,5 +26,7 @@ Monitor_Type_BaseObject_List = [
     WechatMonitor,
     WechatArticleScan,
     AliyunAvdMonitor,
-    AliyunAvdScan
+    AliyunAvdScan,
+    OscsMonitor,
+    OscsScan,
 ]
