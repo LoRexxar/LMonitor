@@ -40,12 +40,14 @@ class LReq:
     def get_timeout():
         return random.randint(1, 5) * 0.5
 
-    def get_header(self, url="", cookies=""):
-        return {
+    def get_header(self, url="", cookies="", ext={}):
+        header = {
             "User-Agent": random.choice(self.ua),
             "Referer": url,
             "Cookie": cookies
         }
+        header.update(ext)
+        return header
 
     def check_url(self, url):
 
@@ -178,21 +180,21 @@ class LReq:
 
         return self.cs.get_resp(url, cookies, is_origin=is_origin)
 
-    def postResp(self, url, data, cookies):
+    def postResp(self, url, data, cookies, headers={}):
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
         cookies = cookies[0] if cookies else ""
 
-        r = self.s.post(url, data=data, headers=self.get_header(url, cookies), timeout=3)
+        r = self.s.post(url, data=data, headers=self.get_header(url, cookies, headers), timeout=3)
 
         return r.content
 
-    def postJsonResp(self, url, data, cookies):
+    def postJsonResp(self, url, data, cookies, headers={}):
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
         cookies = cookies[0] if cookies else ""
 
-        header = self.get_header(url, cookies)
+        header = self.get_header(url, cookies, headers)
         header['Content-Type'] = 'application/json'
 
         r = self.s.post(url, data=json.dumps(data), headers=header, timeout=3)
