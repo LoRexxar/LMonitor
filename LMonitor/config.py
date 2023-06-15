@@ -18,6 +18,8 @@ from botend.controller.plugins.vuln.aliyunAvdMonitor import AliyunAvdMonitor
 from botend.controller.plugins.vuln.aliyunAvdScan import AliyunAvdScan
 from botend.controller.plugins.vuln.oscsMonitor import OscsMonitor
 from botend.controller.plugins.vuln.oscsScan import OscsScan
+from botend.controller.plugins.vuln.qaxMonitor import QaxMonitor
+from botend.controller.plugins.vuln.qaxScan import QaxScan
 
 Monitor_Type_BaseObject_List = [
     BaseScan,
@@ -29,4 +31,6 @@ Monitor_Type_BaseObject_List = [
     AliyunAvdScan,
     OscsMonitor,
     OscsScan,
+    QaxMonitor,
+    QaxScan,
 ]
