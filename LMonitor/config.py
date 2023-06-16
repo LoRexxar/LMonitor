@@ -12,14 +12,16 @@
 from botend.controller.BaseScan import BaseScan
 from botend.controller.plugins.bili.BiliMonitor import BiliMonitor
 from botend.controller.plugins.bili.BiliOnlionMonitor import BiliOnlionMonitor
-from botend.controller.plugins.wechat.wechatMonitor import WechatMonitor
-from botend.controller.plugins.wechat.wechatArticleScan import WechatArticleScan
+from botend.controller.plugins.info.wechatMonitor import WechatMonitor
+from botend.controller.plugins.info.wechatArticleScan import WechatArticleScan
 from botend.controller.plugins.vuln.aliyunAvdMonitor import AliyunAvdMonitor
 from botend.controller.plugins.vuln.aliyunAvdScan import AliyunAvdScan
 from botend.controller.plugins.vuln.oscsMonitor import OscsMonitor
 from botend.controller.plugins.vuln.oscsScan import OscsScan
 from botend.controller.plugins.vuln.qaxMonitor import QaxMonitor
 from botend.controller.plugins.vuln.qaxScan import QaxScan
+from botend.controller.plugins.vuln.seebugMonitor import SeebugMonitor
+from botend.controller.plugins.info.RssMonitor import RssArticleMonitor
 
 Monitor_Type_BaseObject_List = [
     BaseScan,
@@ -33,4 +35,6 @@ Monitor_Type_BaseObject_List = [
     OscsScan,
     QaxMonitor,
     QaxScan,
+    SeebugMonitor,
+    RssArticleMonitor,
 ]

@@ -80,7 +80,7 @@ class ChromeDriver:
         self.driver = webdriver.Chrome(chrome_options=self.chrome_options, executable_path=self.chromedriver_path)
 
         self.driver.set_page_load_timeout(15)
-        self.driver.set_script_timeout(5)
+        # self.driver.set_script_timeout(5)
 
     def get_resp(self, url, cookies=None, is_origin=0, times=0):
         """
