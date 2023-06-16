@@ -49,7 +49,7 @@ class LMonitorCoreBackend:
                     time.sleep(3)
 
             # self.threadpool.wait_all_thread()
-            time.sleep(1)
+            time.sleep(3)
 
 
 class LMonitorCore:
@@ -63,7 +63,7 @@ class LMonitorCore:
             Lreq = LReq(is_chrome=True)
             while 1:
                 # sleep
-                time.sleep(3)
+                time.sleep(20)
 
                 tasks = MonitorTask.objects.filter(is_active=1).order_by('-last_scan_time')
                 local_tz = pytz.timezone('Asia/Shanghai')
@@ -85,6 +85,7 @@ class LMonitorCore:
                     t.scan(task_url)
 
                     task.save()
+                    time.sleep(3)
 
         except KeyboardInterrupt:
             logger.error("[Scan] Stop Scaning.")
