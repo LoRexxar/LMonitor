@@ -81,15 +81,16 @@ class QaxScan(BaseScan):
             content = self.req.post(self.url, 'JsonResp', 0, params, "", headers)
             r = json.loads(content)
 
-            for tab in r['data']['residence_latest']:
-                if tab['key'] == 'description':
-                    vd.description = tab['value']
+            if 'residence_latest' in r['data']:
+                for tab in r['data']['residence_latest']:
+                    if tab['key'] == 'description':
+                        vd.description = tab['value']
 
-                elif tab['key'] == 'fix_method':
-                    vd.solutions = tab['value']
+                    elif tab['key'] == 'fix_method':
+                        vd.solutions = tab['value']
 
-                elif tab['key'] == 'related_links':
-                    vd.reference = tab['value']
+                    elif tab['key'] == 'related_links':
+                        vd.reference = tab['value']
 
             content = self.req.post(self.url2, 'JsonResp', 0, params, "", headers)
             r2 = json.loads(content)
