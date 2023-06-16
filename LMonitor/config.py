@@ -20,6 +20,7 @@ from botend.controller.plugins.vuln.oscsMonitor import OscsMonitor
 from botend.controller.plugins.vuln.oscsScan import OscsScan
 from botend.controller.plugins.vuln.qaxMonitor import QaxMonitor
 from botend.controller.plugins.vuln.qaxScan import QaxScan
+from botend.controller.plugins.vuln.seebugMonitor import SeebugMonitor
 
 Monitor_Type_BaseObject_List = [
     BaseScan,
@@ -33,4 +34,5 @@ Monitor_Type_BaseObject_List = [
     OscsScan,
     QaxMonitor,
     QaxScan,
+    SeebugMonitor
 ]

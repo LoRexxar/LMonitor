@@ -33,7 +33,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 class SeebugMonitor(BaseScan):
     """
-    阿里云漏洞监控
+    seebug漏洞监控
     """
 
     def __init__(self, req, task):
@@ -45,7 +45,8 @@ class SeebugMonitor(BaseScan):
 
         # 从表获取任务
         self.vmt = VulnMonitorTask.objects.filter(task_name=self.task_name, is_active=1)
-        self.avd_url = "https://www.seebug.org/vuldb/vulnerabilities"
+        self.seebug = "https://www.seebug.org"
+        self.seebug_url = "https://www.seebug.org/vuldb/vulnerabilities"
 
     def scan(self, url):
         """
@@ -61,12 +62,11 @@ class SeebugMonitor(BaseScan):
 
         if self.vmt:
             logger.info("[seebug Monitor] Monitor seebug start.")
-
-            driver = self.req.get(self.avd_url, 'RespByChrome', 0, "", is_origin=1)
+            driver = self.req.get(self.seebug_url, 'RespByChrome', 0, "", is_origin=1)
 
             try:
                 wait = WebDriverWait(driver, 25)
-                wait.until(EC.presence_of_element_located((By.CLASS_NAME, "table")))
+                wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
 
                 tr_list = driver.find_elements(By.TAG_NAME, 'tr')
 
