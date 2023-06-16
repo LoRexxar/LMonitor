@@ -74,3 +74,21 @@ class VulnData(models.Model):
     is_verify = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     state = models.IntegerField(default=0)
+
+
+class RssMonitorTask(models.Model):
+    name = models.CharField(max_length=255)
+    link = models.CharField(max_length=1000)
+    tag = models.CharField(max_length=255, null=True)
+    last_spider_time = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+
+
+class RssArticle(models.Model):
+    rss_id = models.IntegerField()
+    title = models.CharField(max_length=255, default=None, null=True)
+    url = models.CharField(max_length=255, default=None, null=True)
+    author = models.CharField(max_length=255, default=None, null=True)
+    publish_time = models.DateTimeField(default=None, null=True)
+    content_html = models.TextField(null=True)
+    is_active = models.BooleanField(default=True)
