@@ -45,7 +45,7 @@ class QaxScan(BaseScan):
 
         # 从表获取任务
         self.vds = VulnData.objects.filter(source="qax", state=0)
-        self.url = "https://ti.qianxin.com/alpha-api/v2/nox/api/web/portal/vuln/residence/temp/show"
+        self.url = "https://ti.qianxin.com/alpha-api/v2/vuln/vuln-detail"
         self.url2 = "https://ti.qianxin.com/alpha-api/v2/nox/api/web/portal/vuln_repo/show"
 
     def scan(self, url):
@@ -69,7 +69,7 @@ class QaxScan(BaseScan):
             id = vd.link.split('/')[-1]
 
             params = {
-                "id": id,
+                "vuln_ids": id,
             }
 
             headers = {
@@ -81,27 +81,17 @@ class QaxScan(BaseScan):
             content = self.req.post(self.url, 'JsonResp', 0, params, "", headers)
             r = json.loads(content)
 
-            if 'residence_latest' in r['data']:
-                for tab in r['data']['residence_latest']:
-                    if tab['key'] == 'description':
-                        vd.description = tab['value']
+            msg = r['data'][0]
+            vd.description = msg['vuln_description_cn']
 
-                    elif tab['key'] == 'fix_method':
-                        vd.solutions = tab['value']
+            reference = ""
+            reference_list = [d['url'] for d in msg['reference']['other']]
+            vd.reference = ','.join(reference_list)
 
-                    elif tab['key'] == 'related_links':
-                        vd.reference = tab['value']
-
-            content = self.req.post(self.url2, 'JsonResp', 0, params, "", headers)
-            r2 = json.loads(content)
-
-            score = r2['data']['qvc_score']
+            score = msg['risk']['qvc']['base_score']
             vd.score = score
 
-            for tab in r2['data']['info']:
-                if tab['label'] == '公开POC | EXP':
-                    if not tab['value'] == 1:
-                        vd.is_poc = 1
+            vd.solutions = msg['residence_info']['fix_method_cn']
 
             vd.state = 2
             vd.save()

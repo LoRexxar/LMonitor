@@ -45,7 +45,7 @@ class QaxMonitor(BaseScan):
 
         # 从表获取任务
         self.vmt = VulnMonitorTask.objects.filter(task_name=self.task_name, is_active=1).first()
-        self.url = "https://ti.qianxin.com/alpha-api/v2/nox/api/web/portal/key_vuln/list"
+        self.url = "https://ti.qianxin.com/alpha-api/v2/vuln/vuln-list"
 
     def scan(self, url):
         """
@@ -69,7 +69,7 @@ class QaxMonitor(BaseScan):
             params = {
                 "page_no": 1,
                 "page_size": 30,
-                "vuln_keyword": ""
+                "rating_flag": True
             }
 
             headers = {
@@ -83,11 +83,11 @@ class QaxMonitor(BaseScan):
 
             r = json.loads(content)
             for msg in r['data']['data']:
-                sid = msg['qvd_code']
-                create_time = msg['create_time']
+                sid = msg['qvd_id']
+                create_time = msg['publish_date']
                 url = "https://ti.qianxin.com/vulnerability/detail/{}".format(msg['id'])
-                title = msg['vuln_name']
-                cve_id = msg['cve_code']
+                title = msg['vuln_name_cn']
+                cve_id = msg['cve_id']
 
                 # check level
                 level = msg['rating_level']
@@ -115,12 +115,16 @@ class QaxMonitor(BaseScan):
                         break
 
                 if not type:
-                    type = msg['vuln_type']
+                    type = msg['threat_category_cn'][0]
 
-                # chek tag
-                tag_list = msg['tag']
-                tag_name_list = [d['name'] for d in tag_list]
-                tag = ','.join(tag_name_list)
+                # # chek tag
+                # tag_list = msg['tag']
+                # tag_name_list = [d['name'] for d in tag_list]
+                # tag = ','.join(tag_name_list)
+
+                # check poc exp
+                is_poc = msg['public_poc']
+                is_exp = msg['public_exp']
 
                 # check exist
                 va = VulnData.objects.filter(sid=sid).first()
@@ -134,7 +138,7 @@ class QaxMonitor(BaseScan):
                 logger.info("[qax Monitor] Found new Vuln {}".format(title))
                 vn = VulnData(sid=sid, cveid=cve_id, title=title, type=type, publish_time=create_time,
                               link=url, source="qax", score=score, severity=severity,
-                              tag=tag, is_active=1, state=0)
+                              is_poc=is_poc, is_exp=is_exp, is_active=1, state=0)
                 vn.save()
 
     def trigger_webhook(self):
