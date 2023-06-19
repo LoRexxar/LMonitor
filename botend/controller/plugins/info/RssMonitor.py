@@ -12,15 +12,16 @@
 from utils.log import logger
 
 from botend.models import RssArticle, RssMonitorTask
-
 from botend.controller.BaseScan import BaseScan
 
+import re
 import json
 import time
 import pytz
 import random
 import datetime
 import feedparser
+from django.db import connection
 import urllib.parse
 from urllib.parse import urlparse, parse_qs
 
@@ -66,7 +67,8 @@ class RssArticleMonitor(BaseScan):
                 url = msg.link
                 author = rmt.name
                 publish_time = msg.published
-                content = msg.content[0].value.encode('utf-8')
+                content = msg.content[0].value
+                content_clean_str = re.sub('<[^<]+?>', '', content)
 
                 ra = RssArticle.objects.filter(title=title).first()
 
@@ -74,7 +76,7 @@ class RssArticleMonitor(BaseScan):
                     continue
 
                 obj = RssArticle(rss_id=rmt.id, title=title, url=url, author=author,
-                                 publish_time=publish_time, content_html=content)
+                                 publish_time=publish_time, content_html=content_clean_str)
                 obj.save()
                 logger.info("[Rss Monitor] Found new Rss article.{}".format(title))
 
