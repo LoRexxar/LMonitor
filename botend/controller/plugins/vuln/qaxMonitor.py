@@ -68,7 +68,7 @@ class QaxMonitor(BaseScan):
 
             params = {
                 "page_no": 1,
-                "page_size": 30,
+                "page_size": 20,
                 "rating_flag": "true"
             }
 
