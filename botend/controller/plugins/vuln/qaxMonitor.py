@@ -69,19 +69,21 @@ class QaxMonitor(BaseScan):
             params = {
                 "page_no": 1,
                 "page_size": 30,
-                "rating_flag": True
+                "rating_flag": "true"
             }
 
             headers = {
                 "Origin": "https://ti.qianxin.com",
                 "Referer": "https://ti.qianxin.com/vulnerability",
+                "Content-Type": "application/json",
             }
 
             url = self.url
-
             content = self.req.post(url, 'JsonResp', 0, params, "", headers)
-
             r = json.loads(content)
+
+            print(r)
+
             for msg in r['data']['data']:
                 sid = msg['qvd_id']
                 create_time = msg['publish_date']
@@ -115,7 +117,7 @@ class QaxMonitor(BaseScan):
                         break
 
                 if not type:
-                    type = msg['threat_category_cn'][0]
+                    type = ",".join(msg['threat_category_cn'])
 
                 # # chek tag
                 # tag_list = msg['tag']
