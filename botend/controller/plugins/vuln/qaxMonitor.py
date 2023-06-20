@@ -82,7 +82,9 @@ class QaxMonitor(BaseScan):
             content = self.req.post(url, 'JsonResp', 0, params, "", headers)
             r = json.loads(content)
 
-            print(r)
+            if "data" not in r['data']:
+                logger.warning("[qax Monitor] error: {}".format(r['data']))
+                return
 
             for msg in r['data']['data']:
                 sid = msg['qvd_id']
