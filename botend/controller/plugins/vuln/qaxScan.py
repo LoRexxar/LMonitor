@@ -81,6 +81,10 @@ class QaxScan(BaseScan):
             content = self.req.post(self.url, 'JsonResp', 0, params, "", headers)
             r = json.loads(content)
 
+            if "data" not in r:
+                logger.warning("[qax Scan] error: {}".format(r))
+                return
+
             msg = r['data'][0]
             vd.description = msg['vuln_description_cn']
 
