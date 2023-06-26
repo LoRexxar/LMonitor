@@ -66,7 +66,7 @@ class RssArticleMonitor(BaseScan):
                 title = msg.title
                 url = msg.link
                 author = rmt.name
-                publish_time = msg.published
+                publish_time = msg.published.published_parsed.strftime("%Y-%m-%d %H:%M:%S.%f%Z")
                 content = msg.content[0].value
                 content_clean_str = re.sub('<[^<]+?>', '', content)
 
