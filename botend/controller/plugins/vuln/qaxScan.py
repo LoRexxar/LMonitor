@@ -81,7 +81,7 @@ class QaxScan(BaseScan):
             content = self.req.post(self.url, 'JsonResp', 0, params, "", headers)
             r = json.loads(content)
 
-            if "data" not in r:
+            if "data" not in r or len(r['data']) == 0:
                 logger.warning("[qax Scan] error: {}".format(r))
                 return
 
