@@ -71,8 +71,12 @@ class RssArticleMonitor(BaseScan):
                 dt = datetime.datetime.fromtimestamp(time.mktime(msg.published_parsed))
                 publish_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f%Z")
 
-                content = msg.content[0].value
-                content_clean_str = re.sub('<[^<]+?>', '', content)
+                content = ""
+                if "summary" in msg:
+                    content = msg.summary
+                elif "content" in msg:
+                    content = msg.content[0].value
+                    content = re.sub('<[^<]+?>', '', content)
 
                 ra = RssArticle.objects.filter(title=title).first()
 
@@ -80,7 +84,7 @@ class RssArticleMonitor(BaseScan):
                     continue
 
                 obj = RssArticle(rss_id=rmt.id, title=title, url=url, author=author,
-                                 publish_time=publish_time, content_html=content_clean_str)
+                                 publish_time=publish_time, content_html=content)
                 obj.save()
                 logger.info("[Rss Monitor] Found new Rss article.{}".format(title))
 
