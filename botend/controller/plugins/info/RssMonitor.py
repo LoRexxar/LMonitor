@@ -68,8 +68,12 @@ class RssArticleMonitor(BaseScan):
                 author = rmt.name
 
                 # check time
-                dt = datetime.datetime.fromtimestamp(time.mktime(msg.published_parsed))
-                publish_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f%Z")
+                publish_time = "2000-01-01 02:44:46"
+                if "published_parsed" in msg:
+                    dt = datetime.datetime.fromtimestamp(time.mktime(msg.published_parsed))
+                    publish_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f%Z")
+                elif "updated_date" in msg:
+                    publish_time = msg.updated_date
 
                 content = ""
                 if "summary" in msg:
