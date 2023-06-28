@@ -73,7 +73,7 @@ class RssArticleMonitor(BaseScan):
 
                 content = ""
                 if "summary" in msg:
-                    content = msg.summary
+                    content = re.sub('<[^<]+?>', '', msg.summary)
                 elif "content" in msg:
                     content = msg.content[0].value
                     content = re.sub('<[^<]+?>', '', content)
