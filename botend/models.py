@@ -36,11 +36,11 @@ class WechatAccountTask(models.Model):
 class WechatArticle(models.Model):
     account = models.CharField(max_length=255, null=True)
     title = models.CharField(max_length=255, default=None, null=True)
-    url = models.CharField(max_length=255, default=None, null=True)
+    url = models.CharField(max_length=2000, default=None, null=True)
     author = models.CharField(max_length=255, default=None, null=True)
     publish_time = models.DateTimeField(default=None, null=True)
     biz = models.CharField(max_length=50)
-    digest = models.CharField(max_length=255, default=None, null=True)
+    digest = models.CharField(max_length=2000, default=None, null=True)
     cover = models.CharField(max_length=255, default=None, null=True)
     content_html = models.TextField(default=None, null=True)
     source_url = models.CharField(max_length=255, default=None, null=True)
@@ -87,7 +87,7 @@ class RssMonitorTask(models.Model):
 class RssArticle(models.Model):
     rss_id = models.IntegerField()
     title = models.CharField(max_length=255, default=None, null=True)
-    url = models.CharField(max_length=255, default=None, null=True)
+    url = models.CharField(max_length=2000, default=None, null=True)
     author = models.CharField(max_length=255, default=None, null=True)
     publish_time = models.DateTimeField(default=None, null=True)
     content_html = models.TextField(null=True)
