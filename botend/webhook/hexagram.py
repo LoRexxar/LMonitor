@@ -45,6 +45,7 @@ class GetHexagramView(View):
         return HttpResponse("online..")
 
     def post(self, request):
+        print(request.body)
         uname = request.POST['uname']
         message = self.get_hexagram()
 
