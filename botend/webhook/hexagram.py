@@ -45,15 +45,12 @@ class GetHexagramView(View):
         return HttpResponse("online..")
 
     def post(self, request):
-        params = json.loads(request.body)
-        uname = params['uname']
         message = self.get_hexagram()
 
         mess = """
-此算卦与任何玄学无关，仅供娱乐
-@{},你的卦象如下：
+此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：
 {}
-    """.format(uname, message)
+    """.format(message)
 
         return JsonResponse(
             {
