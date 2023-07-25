@@ -15,7 +15,13 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from django.views.decorators.csrf import csrf_exempt
+
+from botend.webhook.hexagram import GetHexagramView
+from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
+    # path('', HttpResponse("no plz.")),
+    path('webhook/gethexagram', csrf_exempt(GetHexagramView.as_view()), name="gethexagram")
 ]
