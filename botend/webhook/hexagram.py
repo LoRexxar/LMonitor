@@ -140,8 +140,7 @@ class GetHexagramView(View):
 
         mess = """
 此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：
-{}
-    """.format(message)
+{}""".format(message)
 
         return JsonResponse(
             {
