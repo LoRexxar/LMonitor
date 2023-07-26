@@ -25,7 +25,7 @@ class GetHexagramView(View):
     @staticmethod
     def get_hexagram():
         datalist = []
-        hexalist = {
+        hexalist = [
             "上上签-天命且唯一\n----------\n此卦为lorexxar钦定的天命之子签，你就是唯一.",
             "上签-锺离成道\n----------\n开天辟地作良缘　吉日良时万物全　\n若得此签非小可　人行忠正帝王宣　\n----------\n此卦盘古初开天地之象　诸事皆吉也　",
             "中下签-苏秦不第\n----------\n鲸鱼未变守江河　不可升腾更望高　\n异日峥嵘身变化　许君一跃跳龙门　\n高有作闻\n----------\n此卦鲸鱼未变之象　凡事忍耐待时也　",
@@ -127,13 +127,9 @@ class GetHexagramView(View):
             "下签-吉平遇难\n----------\n出入求谋事宜迟　急恐忧愁惹是非　\n如鸟飞入罗网内　脱困能有几多时　\n急恐忧愁本作办恐开愁　\n脱困本作相逢　\n----------\n此卦守旧随缘之象　凡事不如意主凶也　",
             "下签-陶三春挂帅\n----------\n勒马持鞭直过来　半有忧危半有灾　\n恰似遭火焚烧屋　天降时雨荡成灰　\n勒有作策\n----------\n此卦半忧半喜之象　凡事只宜行善也　",
             "下签-三教谈道\n----------\n佛神灵变与君知　痴人说事转昏迷　\n老人求得灵签去　不如守旧待时来　\n灵变即灵通　\n若求二签　肯定前签　勿生　心　\n----------\n此卦守常勿动之象　凡事宜待时吉也　",
-        }
+        ]
 
-        for hexa in hexalist:
-            for _ in range(hexalist[hexa]):
-                datalist.append(hexa)
-
-        return random.choice(datalist)
+        return random.choice(hexalist)
 
     @staticmethod
     def get(request):
