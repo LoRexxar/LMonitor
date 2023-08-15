@@ -163,6 +163,7 @@ class GetHexagramView(View):
             self.now_user_list = []
         elif self.old_date == now_date:
             # 检查uname的存在性
+            print(uname)
             if uname in self.now_user_list:
                 mess = "你今天已经摇过签了，本签每日只能摇一次噢."
             else:
