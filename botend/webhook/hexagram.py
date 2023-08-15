@@ -144,8 +144,8 @@ class GetHexagramView(View):
     def post(self, request):
         message = self.get_hexagram()
         mess = """
-        此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：
-        {}""".format(message)
+此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：
+{}""".format(message)
 
         params = json.loads(request.body)
         uname = params['uname']
@@ -168,6 +168,8 @@ class GetHexagramView(View):
             else:
                 self.now_user_list.append(uname)
 
+        print(self.old_date)
+        print(self.now_user_list)
         return JsonResponse(
             {
                 "code": 200,
