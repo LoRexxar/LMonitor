@@ -17,6 +17,9 @@ import random
 import requests
 from datetime import datetime
 
+old_date = ""
+now_user_list = []
+
 
 class GetHexagramView(View):
     """
@@ -24,9 +27,6 @@ class GetHexagramView(View):
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
-        self.old_date = ""
-        self.now_user_list = []
 
     @staticmethod
     def get_hexagram():
@@ -155,22 +155,25 @@ class GetHexagramView(View):
         current_date = datetime.now().date()
         now_date = current_date.strftime('%Y-%m-%d')
 
-        if self.old_date == "":
-            self.old_date = now_date
-            self.now_user_list = []
-        elif self.old_date != now_date:
-            self.old_date = now_date
-            self.now_user_list = []
-        elif self.old_date == now_date:
+        global old_date
+        global now_user_list
+
+        if old_date == "":
+            old_date = now_date
+            now_user_list = []
+        elif old_date != now_date:
+            old_date = now_date
+            now_user_list = []
+        elif old_date == now_date:
             # 检查uname的存在性
             print(uname)
-            if uname in self.now_user_list:
+            if uname in now_user_list:
                 mess = "你今天已经摇过签了，本签每日只能摇一次噢."
             else:
-                self.now_user_list.append(uname)
+                now_user_list.append(uname)
 
-        print(self.old_date)
-        print(self.now_user_list)
+        print(old_date)
+        print(now_user_list)
         return JsonResponse(
             {
                 "code": 200,
