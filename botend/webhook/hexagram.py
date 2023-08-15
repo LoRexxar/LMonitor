@@ -15,12 +15,18 @@ from django.http import HttpResponse, JsonResponse
 import json
 import random
 import requests
+from datetime import datetime
 
 
 class GetHexagramView(View):
     """
     算一卦吧，再别说了
     """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.old_date = ""
+        self.now_user_list = []
 
     @staticmethod
     def get_hexagram():
@@ -137,10 +143,30 @@ class GetHexagramView(View):
 
     def post(self, request):
         message = self.get_hexagram()
-
         mess = """
-此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：
-{}""".format(message)
+        此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：
+        {}""".format(message)
+
+        params = json.loads(request.body)
+        uname = params['uname']
+
+        # add date check
+        # now_user_list = []
+        current_date = datetime.now().date()
+        now_date = current_date.strftime('%Y-%m-%d')
+
+        if self.old_date == "":
+            self.old_date = now_date
+            self.now_user_list = []
+        elif self.old_date != now_date:
+            self.old_date = now_date
+            self.now_user_list = []
+        elif self.old_date == now_date:
+            # 检查uname的存在性
+            if uname in self.now_user_list:
+                mess = "你今天已经摇过签了，本签每日只能摇一次噢."
+            else:
+                self.now_user_list.append(uname)
 
         return JsonResponse(
             {
