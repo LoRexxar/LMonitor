@@ -166,14 +166,11 @@ class GetHexagramView(View):
             now_user_list = []
         elif old_date == now_date:
             # 检查uname的存在性
-            print(uname)
             if uname in now_user_list:
                 mess = "你今天已经摇过签了，本签每日只能摇一次噢."
             else:
                 now_user_list.append(uname)
 
-        print(old_date)
-        print(now_user_list)
         return JsonResponse(
             {
                 "code": 200,
