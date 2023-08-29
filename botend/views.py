@@ -13,6 +13,7 @@ from core.threadingpool import ThreadPool
 
 from botend.models import MonitorTask, MonitorWebhook
 from LMonitor.config import Monitor_Type_BaseObject_List
+from LMonitor.settings import THREAD_LIMIT_NUM
 
 
 class LMonitorCoreBackend:
@@ -35,8 +36,8 @@ class LMonitorCoreBackend:
         while 1:
             while self.threadpool.get_free_num():
 
-                if i > 20:
-                    logger.warning("[LMonitor Core] More than 20 thread init. stop new Thread.")
+                if i > THREAD_LIMIT_NUM:
+                    logger.warning("[LMonitor Core] More than {} thread init. stop new Thread.".format(THREAD_LIMIT_NUM))
                     self.threadpool.wait_all_thread()
                     break
 
