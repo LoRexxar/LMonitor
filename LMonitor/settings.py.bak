@@ -139,6 +139,7 @@ CHROME_WEBDRIVER_PATH = os.path.join(BASE_DIR, 'bin/')
 
 # threading
 THREADPOOL_MAX_THREAD_NUM = 1
+THREAD_LIMIT_NUM = 50
 
 # qiye wechat
 BASE_SECRET = {
