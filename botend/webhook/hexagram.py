@@ -147,6 +147,8 @@ class GetHexagramView(View):
 此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：
 {}""".format(message)
 
+        print(mess)
+
         params = json.loads(request.body)
         uname = params['uname']
         uid = params['uid']
