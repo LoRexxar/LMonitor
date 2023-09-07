@@ -143,9 +143,7 @@ class GetHexagramView(View):
 
     def post(self, request):
         message = self.get_hexagram()
-        mess = """
-此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：
-{}""".format(message)
+        mess = "此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：\n{}".format(message)
 
         print(mess)
 
