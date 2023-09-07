@@ -149,6 +149,7 @@ class GetHexagramView(View):
 
         params = json.loads(request.body)
         uname = params['uname']
+        uid = params['uid']
 
         # add date check
         # now_user_list = []
@@ -160,16 +161,16 @@ class GetHexagramView(View):
 
         if old_date == "":
             old_date = now_date
-            now_user_list = []
+            now_user_list = [uid]
         elif old_date != now_date:
             old_date = now_date
-            now_user_list = []
+            now_user_list = [uid]
         elif old_date == now_date:
             # 检查uname的存在性
-            if uname in now_user_list:
+            if uid in now_user_list:
                 mess = "你今天已经摇过签了，本签每日只能摇一次噢."
             else:
-                now_user_list.append(uname)
+                now_user_list.append(uid)
 
         return JsonResponse(
             {
