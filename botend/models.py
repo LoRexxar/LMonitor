@@ -43,7 +43,7 @@ class WechatArticle(models.Model):
     digest = models.CharField(max_length=2000, default=None, null=True)
     cover = models.CharField(max_length=255, default=None, null=True)
     content_html = models.TextField(default=None, null=True)
-    source_url = models.CharField(max_length=255, default=None, null=True)
+    source_url = models.CharField(max_length=555, default=None, null=True)
     sn = models.CharField(unique=True, max_length=50, default=None, null=True)
     state = models.IntegerField(default=0)
 
