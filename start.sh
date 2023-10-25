@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 while :
 do
     if [ $(ps aux | grep LMonitorCoreBackend|grep -v grep|wc -l) -eq 0 ];then
