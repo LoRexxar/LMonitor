@@ -65,5 +65,5 @@ class AibotkWechatWebhook:
 
 if __name__ == "__main__":
     aw = AibotkWechatWebhook()
-    aw.publish_text("ttt")
+    aw.publish_admin("ttt")
 
