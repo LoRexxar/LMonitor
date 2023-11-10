@@ -21,9 +21,7 @@ import pytz
 import random
 import datetime
 import feedparser
-from django.db import connection
-import urllib.parse
-from urllib.parse import urlparse, parse_qs
+import socket
 
 
 class RssArticleMonitor(BaseScan):
@@ -60,6 +58,7 @@ class RssArticleMonitor(BaseScan):
             rmt.last_spider_time = datetime.datetime.now(local_tz)
             rmt.save()
 
+            socket.setdefaulttimeout(20)
             f = feedparser.parse(rmt.link)
 
             for msg in f.entries:
