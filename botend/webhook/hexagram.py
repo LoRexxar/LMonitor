@@ -146,8 +146,24 @@ class GetHexagramView(View):
         mess = "此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：\n{}".format(message)
 
         params = json.loads(request.body)
+        roomName = params['roomName']
         uname = params['uname']
         uid = params['uid']
+
+        if roomName != "英灵殿精英保安交流群":
+            mess = "算卦功能暂时在本群关闭，过段时间开启~"
+            return JsonResponse(
+                {
+                    "code": 200,
+                    "msg": "success",
+                    "data": [
+                        {
+                            "type": 1,
+                            "content": mess
+                        }
+                    ]
+                }
+            )
 
         # add date check
         # now_user_list = []
