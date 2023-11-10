@@ -52,6 +52,7 @@ class AibotkWechatWebhook:
         content = {
           "apiKey": self.secret["apikey"],
           "name": "LoRexxar'",
+          "alias": "LoRexxar",
           "message": {
             "type": 1,
             "content": text
@@ -65,5 +66,5 @@ class AibotkWechatWebhook:
 
 if __name__ == "__main__":
     aw = AibotkWechatWebhook()
-    aw.publish_admin("ttt")
+    aw.publish_admin("tt\r\n s")
 
