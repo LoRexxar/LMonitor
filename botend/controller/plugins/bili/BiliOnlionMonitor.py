@@ -87,7 +87,8 @@ class BiliOnlionMonitor(BaseScan):
                 return
 
             self.video_desp = """你关注的up主LoRexxar开启直播啦！！
-        {}
+        B站：{}
+        Douyu: https://www.douyu.com/499738
         {}
                         """.format(self.url1, self.title)
             self.task.flag = "1"
