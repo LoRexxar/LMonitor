@@ -16,10 +16,7 @@ from botend.webhook.qiyeWechat import QiyeWechatWebhook
 from botend.webhook.aibotkWechat import AibotkWechatWebhook
 
 import json
-import selenium
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from DrissionPage.common import By
 
 
 class BiliOnlionMonitor(BaseScan):
@@ -57,19 +54,7 @@ class BiliOnlionMonitor(BaseScan):
     def resolve_data_live(self, driver):
 
         try:
-            wait = WebDriverWait(driver, 25)
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "live-skin-main-text")))
-
-            # status = driver.find_elements(By.CLASS_NAME, 'live-status')[0].text
-            self.title = driver.find_elements(By.CLASS_NAME, 'live-skin-main-text')[0].text
-
-        except selenium.common.exceptions.NoSuchElementException:
-            logger.warning("[BiliOnlionMonitor] BiliOnlionMonitor can't get target element.")
-            return False
-
-        except selenium.common.exceptions.TimeoutException:
-            logger.warning("[BiliOnlionMonitor] BiliOnlionMonitor timeout.")
-            return False
+            self.title = driver.eles(By.CLASS_NAME, 'live-skin-main-text')[0].text
 
         except:
             raise
