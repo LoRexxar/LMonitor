@@ -63,23 +63,23 @@ class SeebugMonitor(BaseScan):
             driver = self.req.get(self.seebug_url, 'RespByChrome', 0, "", is_origin=1)
 
             try:
-                tr_list = driver.eles(By.TAG_NAME, 'tr')
+                tr_list = driver.eles('tag:tr')
 
                 for tr in tr_list:
-                    tds = tr.eles(By.TAG_NAME, 'td')
+                    tds = tr.eles('tag:td')
 
                     if not tds:
                         continue
 
                     sid = tds[0].text
                     publish_time = tds[1].text
-                    level = tds[2].eles(By.TAG_NAME, 'div')[0].attre("data-original-title")
+                    level = tds[2].eles('tag:div')[0].attre("data-original-title")
 
-                    link_tag = tds[3].eles(By.TAG_NAME, 'a')[0]
+                    link_tag = tds[3].eles('tag:a')[0]
                     title = link_tag.text
                     link = link_tag.link
 
-                    tag_list = tds[4].eles(By.TAG_NAME, 'i')
+                    tag_list = tds[4].eles('tag:i')
 
                     if level == "严重":
                         severity = 4

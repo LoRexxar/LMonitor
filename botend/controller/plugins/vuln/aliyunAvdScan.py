@@ -62,14 +62,14 @@ class AliyunAvdScan(BaseScan):
 
             try:
 
-                detail_driver = driver.eles(By.CLASS_NAME, 'text-detail')
+                detail_driver = driver.eles('.:text-detail')
 
                 details = detail_driver[0].text
                 solutions = ""
                 if len(detail_driver) > 1:
                     solutions = detail_driver[1].text
-                reference = driver.eles(By.CLASS_NAME, 'reference')[0].text
-                score = driver.eles(By.CLASS_NAME, 'cvss-breakdown__score')[0].text
+                reference = driver.eles('.:reference')[0].text
+                score = driver.eles('.:cvss-breakdown__score')[0].text
 
                 if float(score) > 9:
                     severity = 4
