@@ -25,10 +25,8 @@ import random
 import datetime
 import urllib.parse
 from urllib.parse import urlparse, parse_qs
-import selenium
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+# import selenium
+from DrissionPage.common import By
 
 
 class SeebugMonitor(BaseScan):
@@ -65,26 +63,23 @@ class SeebugMonitor(BaseScan):
             driver = self.req.get(self.seebug_url, 'RespByChrome', 0, "", is_origin=1)
 
             try:
-                wait = WebDriverWait(driver, 25)
-                wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
-
-                tr_list = driver.find_elements(By.TAG_NAME, 'tr')
+                tr_list = driver.eles(By.TAG_NAME, 'tr')
 
                 for tr in tr_list:
-                    tds = tr.find_elements(By.TAG_NAME, 'td')
+                    tds = tr.eles(By.TAG_NAME, 'td')
 
                     if not tds:
                         continue
 
                     sid = tds[0].text
                     publish_time = tds[1].text
-                    level = tds[2].find_elements(By.TAG_NAME, 'div')[0].get_attribute("data-original-title")
+                    level = tds[2].eles(By.TAG_NAME, 'div')[0].attre("data-original-title")
 
-                    link_tag = tds[3].find_elements(By.TAG_NAME, 'a')[0]
+                    link_tag = tds[3].eles(By.TAG_NAME, 'a')[0]
                     title = link_tag.text
-                    link = link_tag.get_attribute("href")
+                    link = link_tag.link
 
-                    tag_list = tds[4].find_elements(By.TAG_NAME, 'i')
+                    tag_list = tds[4].eles(By.TAG_NAME, 'i')
 
                     if level == "严重":
                         severity = 4
@@ -114,14 +109,14 @@ class SeebugMonitor(BaseScan):
                     is_exp = 0
                     cveid = ""
 
-                    if "无 CVE" not in tag_list[0].get_attribute("data-original-title"):
-                        cveid = tag_list[0].get_attribute("data-original-title")
+                    if "无 CVE" not in tag_list[0].attre("data-original-title"):
+                        cveid = tag_list[0].attre("data-original-title")
                         is_cve = 1
 
-                    if "有 PoC" in tag_list[1].get_attribute("data-original-title"):
+                    if "有 PoC" in tag_list[1].attre("data-original-title"):
                         is_poc = 1
 
-                    elif "有 ExP" in tag_list[1].get_attribute("data-original-title"):
+                    elif "有 ExP" in tag_list[1].attre("data-original-title"):
                         is_exp = 1
 
                     # check exist
@@ -138,14 +133,6 @@ class SeebugMonitor(BaseScan):
                                   link=link, source="seebug", score=score, severity=severity,
                                   is_poc=is_poc, is_exp=is_exp, is_active=1, state=0)
                     vn.save()
-
-            except selenium.common.exceptions.NoSuchElementException:
-                logger.warning("[seebug Monitor] seebug Monitor can't get target element.")
-                return
-
-            except selenium.common.exceptions.TimeoutException:
-                logger.warning("[seebug Monitor] seebug Monitor Scan timeout.")
-                return
 
             except:
                 raise

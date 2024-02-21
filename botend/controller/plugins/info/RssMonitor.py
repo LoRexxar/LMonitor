@@ -91,4 +91,3 @@ class RssArticleMonitor(BaseScan):
                 obj.save()
                 logger.info("[Rss Monitor] Found new Rss article.{}".format(title))
 
-            time.sleep(random.randint(1, 4))

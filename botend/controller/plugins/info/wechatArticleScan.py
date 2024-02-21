@@ -24,10 +24,7 @@ import random
 import datetime
 import urllib.parse
 from urllib.parse import urlparse, parse_qs
-import selenium
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from DrissionPage.common import By
 
 
 class WechatArticleScan(BaseScan):
@@ -73,21 +70,19 @@ class WechatArticleScan(BaseScan):
 
             try:
                 driver.get(wa.url)
-                wait = WebDriverWait(driver, 25)
-                wait.until(EC.presence_of_element_located((By.ID, "js_content")))
 
-                # title = driver.find_elements(By.CLASS_NAME, 'rich_media_title')[0].text
+                # title = driver.eles(By.CLASS_NAME, 'rich_media_title')[0].text
 
-                author = driver.find_elements(By.CLASS_NAME, 'rich_media_meta_text')[0].text
+                author = driver.eles(By.CLASS_NAME, 'rich_media_meta_text')[0].text
                 if "202" in author:
                     author = ""
 
-                account = driver.find_elements(By.ID, 'js_name')[0].text
-                create_time = driver.find_elements(By.ID, 'publish_time')[0].text
-                content = driver.find_elements(By.ID, 'js_content')[0].get_attribute('innerHTML')
+                account = driver.eles(By.ID, 'js_name')[0].text
+                create_time = driver.eles(By.ID, 'publish_time')[0].text
+                content = driver.eles(By.ID, 'js_content')[0].attre('innerHTML')
 
                 # 正则
-                page_source = driver.page_source
+                page_source = driver.html
 
                 source_url = ""
                 source_url_regex = r"var msg_source_url = '(.*?)';"
@@ -126,15 +121,7 @@ class WechatArticleScan(BaseScan):
                 wa.state = 2
                 wa.save()
 
-                time.sleep(random.randint(10, 30))
-
-            except selenium.common.exceptions.NoSuchElementException:
-                logger.warning("[WechatArticleScan] Wechat Article Scan can't get target element.")
-                continue
-
-            except selenium.common.exceptions.TimeoutException:
-                logger.warning("[WechatArticleScan] Wechat Article Scan timeout.")
-                continue
+                time.sleep(random.randint(10, 20))
 
             except:
                 raise

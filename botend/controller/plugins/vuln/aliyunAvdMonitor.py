@@ -24,10 +24,7 @@ import random
 import datetime
 import urllib.parse
 from urllib.parse import urlparse, parse_qs
-import selenium
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from DrissionPage.common import By
 
 
 class AliyunAvdMonitor(BaseScan):
@@ -64,18 +61,16 @@ class AliyunAvdMonitor(BaseScan):
             driver = self.req.get(self.avd_url, 'RespByChrome', 0, "", is_origin=1)
 
             try:
-                wait = WebDriverWait(driver, 25)
-                wait.until(EC.presence_of_element_located((By.CLASS_NAME, "table")))
 
-                tr_list = driver.find_elements(By.TAG_NAME, 'tr')
+                tr_list = driver.eles(By.TAG_NAME, 'tr')
 
                 for tr in tr_list:
-                    tds = tr.find_elements(By.TAG_NAME, 'td')
+                    tds = tr.eles(By.TAG_NAME, 'td')
 
                     if not tds:
                         continue
 
-                    link = tds[0].find_elements(By.TAG_NAME, 'a')[0].get_attribute("href")
+                    link = tds[0].eles(By.TAG_NAME, 'a')[0].attre("href")
                     avid = tds[0].text
                     title = tds[1].text
                     publish_time = tds[3].text
@@ -88,14 +83,14 @@ class AliyunAvdMonitor(BaseScan):
                             break
 
                     if not type:
-                        type = tds[2].find_elements(By.TAG_NAME, 'button')[0].get_attribute("data-original-title")
+                        type = tds[2].eles(By.TAG_NAME, 'button')[0].attre("data-original-title")
 
                         if type in Vul_link_Type_Dict:
                             type = Vul_link_Type_Dict[type]
 
-                    status = tds[4].find_elements(By.TAG_NAME, 'button')
-                    cve = status[0].get_attribute("data-original-title")
-                    poc_status = status[1].get_attribute("data-original-title")
+                    status = tds[4].eles(By.TAG_NAME, 'button')
+                    cve = status[0].attre("data-original-title")
+                    poc_status = status[1].attre("data-original-title")
 
                     is_cve = 0
                     is_poc = 0
@@ -127,18 +122,10 @@ class AliyunAvdMonitor(BaseScan):
                                   is_poc=is_poc, is_exp=is_exp, is_active=1, state=0)
                     vn.save()
 
-            except selenium.common.exceptions.NoSuchElementException:
-                logger.warning("[Aliyun Avd Monitor] Aliyun Avd Monitor can't get target element.")
-                return
-
-            except selenium.common.exceptions.TimeoutException:
-                logger.warning("[Aliyun Avd Monitor] Aliyun Avd Monitor Scan timeout.")
-                return
-
             except:
                 raise
 
-            time.sleep(random.randint(10, 30))
+            time.sleep(random.randint(10, 20))
 
     def trigger_webhook(self):
         """

@@ -23,10 +23,7 @@ import random
 import datetime
 import urllib.parse
 from urllib.parse import urlparse, parse_qs
-import selenium
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from DrissionPage.common import By
 
 
 class AliyunAvdScan(BaseScan):
@@ -64,17 +61,15 @@ class AliyunAvdScan(BaseScan):
             driver = self.req.get(vd.link, 'RespByChrome', 0, "", is_origin=1)
 
             try:
-                wait = WebDriverWait(driver, 25)
-                wait.until(EC.presence_of_element_located((By.CLASS_NAME, "text-detail")))
 
-                detail_driver = driver.find_elements(By.CLASS_NAME, 'text-detail')
+                detail_driver = driver.eles(By.CLASS_NAME, 'text-detail')
 
                 details = detail_driver[0].text
                 solutions = ""
                 if len(detail_driver) > 1:
                     solutions = detail_driver[1].text
-                reference = driver.find_elements(By.CLASS_NAME, 'reference')[0].text
-                score = driver.find_elements(By.CLASS_NAME, 'cvss-breakdown__score')[0].text
+                reference = driver.eles(By.CLASS_NAME, 'reference')[0].text
+                score = driver.eles(By.CLASS_NAME, 'cvss-breakdown__score')[0].text
 
                 if float(score) > 9:
                     severity = 4
@@ -93,20 +88,12 @@ class AliyunAvdScan(BaseScan):
                 vd.state = 2
                 vd.save()
 
-                time.sleep(random.randint(10, 30))
-
-            except selenium.common.exceptions.NoSuchElementException:
-                logger.warning("[Aliyun Avd Monitor] Aliyun Avd Monitor can't get target element.")
-                return
-
-            except selenium.common.exceptions.TimeoutException:
-                logger.warning("[Aliyun Avd Monitor] Aliyun Avd Monitor Scan timeout.")
-                return
+                time.sleep(random.randint(10, 20))
 
             except:
                 raise
 
-            time.sleep(random.randint(10, 30))
+            time.sleep(random.randint(10, 20))
 
     def trigger_webhook(self):
         """

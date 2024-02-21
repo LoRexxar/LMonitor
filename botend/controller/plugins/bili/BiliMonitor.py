@@ -16,10 +16,7 @@ from botend.models import MonitorTask
 from botend.webhook.qiyeWechat import QiyeWechatWebhook
 from botend.webhook.aibotkWechat import AibotkWechatWebhook
 
-import selenium
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from DrissionPage.common import By
 
 
 class BiliMonitor(BaseScan):
@@ -49,16 +46,13 @@ class BiliMonitor(BaseScan):
     def resolve_data(self, driver):
 
         try:
-            wait = WebDriverWait(driver, 15)
-            wait.until(EC.presence_of_element_located((By.ID, "video-list-style")))
-
-            videos = driver.find_elements(By.CLASS_NAME, 'fakeDanmu-item')
+            videos = driver.eles(By.CLASS_NAME, 'fakeDanmu-item')
 
             for video in videos:
-                video_time = video.find_elements(By.CLASS_NAME, 'time')[0]
+                video_time = video.eles(By.CLASS_NAME, 'time')[0]
                 if "分钟" in video_time.text:
-                    video_dic = video.find_elements(By.CLASS_NAME, 'title')[0]
-                    video_link = video_dic.get_attribute("href")
+                    video_dic = video.eles(By.CLASS_NAME, 'title')[0]
+                    video_link = video_dic.attre("href")
                     video_name = video_dic.text
 
                     # 检查视频是否更新
@@ -76,14 +70,6 @@ class BiliMonitor(BaseScan):
 
                     self.trigger_webhook()
                     return
-
-        except selenium.common.exceptions.NoSuchElementException:
-            logger.warning("[BiliMonitor] BiliMonitor can't get target element.")
-            return False
-
-        except selenium.common.exceptions.TimeoutException:
-            logger.warning("[BiliMonitor] BiliMonitor timeout.")
-            return False
 
         except:
             raise
