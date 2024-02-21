@@ -71,15 +71,15 @@ class WechatArticleScan(BaseScan):
             try:
                 driver.get(wa.url)
 
-                # title = driver.eles(By.CLASS_NAME, 'rich_media_title')[0].text
+                # title = driver.eles('.:rich_media_title')[0].text
 
-                author = driver.eles(By.CLASS_NAME, 'rich_media_meta_text')[0].text
+                author = driver.eles('.:rich_media_meta_text')[0].text
                 if "202" in author:
                     author = ""
 
-                account = driver.eles(By.ID, 'js_name')[0].text
-                create_time = driver.eles(By.ID, 'publish_time')[0].text
-                content = driver.eles(By.ID, 'js_content')[0].attre('innerHTML')
+                account = driver.eles('#js_name')[0].text
+                create_time = driver.eles('#publish_time')[0].text
+                content = driver.eles('#js_content')[0].attre('innerHTML')
 
                 # 正则
                 page_source = driver.html

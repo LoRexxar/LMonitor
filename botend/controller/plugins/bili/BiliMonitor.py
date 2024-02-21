@@ -46,12 +46,12 @@ class BiliMonitor(BaseScan):
     def resolve_data(self, driver):
 
         try:
-            videos = driver.eles(By.CLASS_NAME, 'fakeDanmu-item')
+            videos = driver.eles('.:fakeDanmu-item')
 
             for video in videos:
-                video_time = video.eles(By.CLASS_NAME, 'time')[0]
+                video_time = video.eles('.:time')[0]
                 if "分钟" in video_time.text:
-                    video_dic = video.eles(By.CLASS_NAME, 'title')[0]
+                    video_dic = video.eles('.:title')[0]
                     video_link = video_dic.attre("href")
                     video_name = video_dic.text
 

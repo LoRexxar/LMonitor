@@ -54,7 +54,7 @@ class BiliOnlionMonitor(BaseScan):
     def resolve_data_live(self, driver):
 
         try:
-            self.title = driver.eles(By.CLASS_NAME, 'live-skin-main-text')[0].text
+            self.title = driver.eles('.:live-skin-main-text')[0].text
 
         except:
             raise

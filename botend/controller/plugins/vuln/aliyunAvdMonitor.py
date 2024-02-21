@@ -62,15 +62,15 @@ class AliyunAvdMonitor(BaseScan):
 
             try:
 
-                tr_list = driver.eles(By.TAG_NAME, 'tr')
+                tr_list = driver.eles('tag:tr')
 
                 for tr in tr_list:
-                    tds = tr.eles(By.TAG_NAME, 'td')
+                    tds = tr.eles('tag:td')
 
                     if not tds:
                         continue
 
-                    link = tds[0].eles(By.TAG_NAME, 'a')[0].attre("href")
+                    link = tds[0].eles('tag:a')[0].attre("href")
                     avid = tds[0].text
                     title = tds[1].text
                     publish_time = tds[3].text
@@ -83,12 +83,12 @@ class AliyunAvdMonitor(BaseScan):
                             break
 
                     if not type:
-                        type = tds[2].eles(By.TAG_NAME, 'button')[0].attre("data-original-title")
+                        type = tds[2].eles('tag:button')[0].attre("data-original-title")
 
                         if type in Vul_link_Type_Dict:
                             type = Vul_link_Type_Dict[type]
 
-                    status = tds[4].eles(By.TAG_NAME, 'button')
+                    status = tds[4].eles('tag:button')
                     cve = status[0].attre("data-original-title")
                     poc_status = status[1].attre("data-original-title")
 
