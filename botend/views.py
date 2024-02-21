@@ -15,6 +15,8 @@ from botend.models import MonitorTask, MonitorWebhook
 from LMonitor.config import Monitor_Type_BaseObject_List
 from LMonitor.settings import THREAD_LIMIT_NUM
 
+is_Block = False
+
 
 class LMonitorCoreBackend:
     """
@@ -61,8 +63,16 @@ class LMonitorCore:
     def scan(self):
 
         try:
+            global is_Block
+
             Lreq = LReq(is_chrome=True)
             while 1:
+                if is_Block:
+                    time.sleep(20)
+                    continue
+
+                is_Block = True
+
                 tasks = MonitorTask.objects.filter(is_active=1).order_by('-last_scan_time')
                 local_tz = pytz.timezone('Asia/Shanghai')
 
@@ -70,6 +80,9 @@ class LMonitorCore:
                     # 扫描每10分钟只会扫一次
                     if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < task.wait_time:
                         continue
+
+                    is_Block = False
+                    logger.info("[Main] New Task start...")
 
                     # 更新扫描时间
                     task.last_scan_time = datetime.datetime.now(local_tz)
