@@ -79,7 +79,7 @@ class WechatArticleScan(BaseScan):
 
                 account = driver.eles('#js_name')[0].text
                 create_time = driver.eles('#publish_time')[0].text
-                content = driver.eles('#js_content')[0].attre('innerHTML')
+                content = driver.eles('#js_content')[0].inner_html
 
                 # 正则
                 page_source = driver.html
