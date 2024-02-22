@@ -20,6 +20,7 @@ from DrissionPage.errors import ElementNotFoundError
 
 import os
 import traceback
+import DrissionPage
 from urllib.parse import urlparse
 
 from LMonitor.settings import CHROME_WEBDRIVER_PATH
@@ -71,12 +72,20 @@ class ChromeDriver:
                 self.driver.set.cookies(cookies)
                 self.driver.get(url)
 
+            self.driver.wait.load_start()
             source = self.driver.html
 
             if is_origin:
                 return self.driver
 
             return source
+
+        except DrissionPage.errors.ContextLostError:
+            logger.warning("[ChromeHeadless] page get error..{}".format(url))
+
+            logger.warning("[ChromeHeadless]retry once..{}".format(url))
+            self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
+            return False
 
         except ElementNotFoundError:
             logger.warning("[ChromeHeadless] Not found target element..{}".format(url))
