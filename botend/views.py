@@ -79,34 +79,34 @@ class LMonitorCore:
                 tasks = MonitorTask.objects.filter(is_active=1).order_by('-last_scan_time')
                 local_tz = pytz.timezone('Asia/Shanghai')
 
+                now_task = False
+
                 for task in tasks:
                     # 扫描每10分钟只会扫一次
                     if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < task.wait_time:
                         continue
 
-                    logger.info("[Main] New Task start...")
+                    logger.info("[Main] New Task {} start...".format(task.name))
+                    now_task = task
 
                     # 更新扫描时间
                     task.last_scan_time = datetime.datetime.now(local_tz)
                     task.save()
-
-                    is_Block = False
-                    lock.release()
-
-                    task_type = task.type
-                    task_url = task.target
-                    task_class = Monitor_Type_BaseObject_List[task_type]
-
-                    t = task_class(Lreq, task)
-                    t.scan(task_url)
-
-                    task.save()
-                    time.sleep(10)
                     break
 
-                if lock.locked():
-                    is_Block = False
-                    lock.release()
+                is_Block = False
+                lock.release()
+
+                if now_task:
+                    task_type = now_task.type
+                    task_url = now_task.target
+                    task_class = Monitor_Type_BaseObject_List[task_type]
+
+                    t = task_class(Lreq, now_task)
+                    t.scan(task_url)
+
+                    now_task.save()
+                    time.sleep(10)
 
         except KeyboardInterrupt:
             logger.error("[Scan] Stop Scaning.")
