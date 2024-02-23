@@ -84,25 +84,22 @@ class ChromeDriver:
             return source
 
         except DrissionPage.errors.PageDisconnectedError:
-            logger.warning("[ChromeHeadless] page get error..{}".format(url))
+            logger.warning("[ChromeHeadless] PageDisconnectedError..{}".format(url))
 
-            logger.warning("[ChromeHeadless]retry once..{}".format(url))
-            self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
-            return False
+            logger.warning("[ChromeHeadless]restart once..{}".format(url))
+            return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
 
         except DrissionPage.errors.ContextLostError:
             logger.warning("[ChromeHeadless] page get error..{}".format(url))
 
             logger.warning("[ChromeHeadless]retry once..{}".format(url))
-            self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
-            return False
+            return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
 
         except ElementNotFoundError:
             logger.warning("[ChromeHeadless] Not found target element..{}".format(url))
 
             logger.warning("[ChromeHeadless]retry once..{}".format(url))
-            self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
-            return False
+            return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
 
         except:
             logger.error("[Chrome Headless] {}".format(traceback.format_exc()))
