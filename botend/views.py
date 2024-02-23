@@ -105,8 +105,8 @@ class LMonitorCore:
                     break
 
                 if lock.locked():
-                    lock.release()
                     is_Block = False
+                    lock.release()
 
         except KeyboardInterrupt:
             logger.error("[Scan] Stop Scaning.")
