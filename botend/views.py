@@ -6,7 +6,7 @@ import time
 import pytz
 import datetime
 import traceback
-
+import threading
 from utils.LReq import LReq
 from utils.log import logger
 from core.threadingpool import ThreadPool
@@ -16,6 +16,7 @@ from LMonitor.config import Monitor_Type_BaseObject_List
 from LMonitor.settings import THREAD_LIMIT_NUM
 
 is_Block = False
+lock = threading.Lock()
 
 
 class LMonitorCoreBackend:
@@ -67,36 +68,44 @@ class LMonitorCore:
 
             Lreq = LReq(is_chrome=True)
             while 1:
-                if is_Block:
-                    time.sleep(20)
-                    continue
-
-                is_Block = True
-
-                tasks = MonitorTask.objects.filter(is_active=1).order_by('-last_scan_time')
-                local_tz = pytz.timezone('Asia/Shanghai')
-
-                for task in tasks:
-                    # 扫描每10分钟只会扫一次
-                    if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < task.wait_time:
+                try:
+                    lock.acquire()
+                    if is_Block:
+                        time.sleep(20)
                         continue
 
-                    is_Block = False
-                    logger.info("[Main] New Task start...")
+                    is_Block = True
 
-                    # 更新扫描时间
-                    task.last_scan_time = datetime.datetime.now(local_tz)
-                    task.save()
+                    tasks = MonitorTask.objects.filter(is_active=1).order_by('-last_scan_time')
+                    local_tz = pytz.timezone('Asia/Shanghai')
 
-                    task_type = task.type
-                    task_url = task.target
-                    task_class = Monitor_Type_BaseObject_List[task_type]
+                    for task in tasks:
+                        # 扫描每10分钟只会扫一次
+                        if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < task.wait_time:
+                            continue
 
-                    t = task_class(Lreq, task)
-                    t.scan(task_url)
+                        is_Block = False
+                        lock.release()
+                        logger.info("[Main] New Task start...")
 
-                    task.save()
-                    time.sleep(5)
+                        # 更新扫描时间
+                        task.last_scan_time = datetime.datetime.now(local_tz)
+                        task.save()
+
+                        task_type = task.type
+                        task_url = task.target
+                        task_class = Monitor_Type_BaseObject_List[task_type]
+
+                        t = task_class(Lreq, task)
+                        t.scan(task_url)
+
+                        task.save()
+                        time.sleep(5)
+                except:
+                    raise
+
+                finally:
+                    lock.release()
 
         except KeyboardInterrupt:
             logger.error("[Scan] Stop Scaning.")
