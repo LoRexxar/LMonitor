@@ -66,6 +66,9 @@ class ChromeDriver:
         """
         """
         try:
+            if times > 3:
+                return False
+
             self.driver.get(url)
 
             if cookies:
