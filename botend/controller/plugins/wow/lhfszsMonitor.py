@@ -9,7 +9,7 @@
 
 '''
 
-
+from datetime import datetime
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.models import MonitorTask
@@ -58,13 +58,16 @@ class LhfszsMonitor(BaseScan):
                 post_link = post_time.link
                 post_name = post.ele('.post-title').text
 
+                original_datetime = datetime.strptime(post_time.text, "%H:%M %Y/%m/%d")
+                django_date_time = original_datetime.strftime("%Y-%m-%d %H:%M")
+
                 wa = WowArticle.objects.filter(url=post_link).first()
 
                 if wa:
                     continue
 
                 obj = WowArticle(title=post_name, url=post_link, author="lhfszs",
-                                 publish_time=post_time.text, description=post_dic)
+                                 publish_time=django_date_time, description=post_dic)
                 obj.save()
                 logger.info("[wow Monitor] Found new wow article.{}".format(post_name))
 
