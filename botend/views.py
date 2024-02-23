@@ -84,13 +84,14 @@ class LMonitorCore:
                     if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < task.wait_time:
                         continue
 
-                    is_Block = False
-                    lock.release()
                     logger.info("[Main] New Task start...")
 
                     # 更新扫描时间
                     task.last_scan_time = datetime.datetime.now(local_tz)
                     task.save()
+
+                    is_Block = False
+                    lock.release()
 
                     task_type = task.type
                     task_url = task.target
