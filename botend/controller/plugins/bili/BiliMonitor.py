@@ -52,7 +52,7 @@ class BiliMonitor(BaseScan):
                 video_time = video.eles('.:time')[0]
                 if "分钟" in video_time.text:
                     video_dic = video.eles('.:title')[0]
-                    video_link = video_dic.attre("href")
+                    video_link = video_dic.attr("href")
                     video_name = video_dic.text
 
                     # 检查视频是否更新
