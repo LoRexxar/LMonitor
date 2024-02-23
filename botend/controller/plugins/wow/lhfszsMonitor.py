@@ -82,7 +82,6 @@ class LhfszsMonitor(BaseScan):
 """.format(post_name, post_link, post_dic)
 
                 self.trigger_webhook()
-                return
 
         except:
             raise
