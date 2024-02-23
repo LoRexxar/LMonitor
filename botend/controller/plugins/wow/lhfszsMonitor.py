@@ -54,7 +54,7 @@ class LhfszsMonitor(BaseScan):
                 update_state = post.ele('.post-excerpt').text
                 # print(update_state)
 
-                post_dic = post.ele('.post-excerpt').ele('tag:p').text
+                post_dic = post.ele('.post-excerpt').text
                 post_link = post_time.link
                 post_name = post.ele('.post-title').text
 
