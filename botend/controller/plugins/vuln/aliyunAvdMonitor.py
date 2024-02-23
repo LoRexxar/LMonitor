@@ -70,7 +70,7 @@ class AliyunAvdMonitor(BaseScan):
                     if not tds:
                         continue
 
-                    link = tds[0].eles('tag:a')[0].attre("href")
+                    link = tds[0].eles('tag:a')[0].attr("href")
                     avid = tds[0].text
                     title = tds[1].text
                     publish_time = tds[3].text
@@ -83,14 +83,14 @@ class AliyunAvdMonitor(BaseScan):
                             break
 
                     if not type:
-                        type = tds[2].eles('tag:button')[0].attre("data-original-title")
+                        type = tds[2].eles('tag:button')[0].attr("data-original-title")
 
                         if type in Vul_link_Type_Dict:
                             type = Vul_link_Type_Dict[type]
 
                     status = tds[4].eles('tag:button')
-                    cve = status[0].attre("data-original-title")
-                    poc_status = status[1].attre("data-original-title")
+                    cve = status[0].attr("data-original-title")
+                    poc_status = status[1].attr("data-original-title")
 
                     is_cve = 0
                     is_poc = 0

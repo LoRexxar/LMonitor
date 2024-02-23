@@ -73,7 +73,7 @@ class SeebugMonitor(BaseScan):
 
                     sid = tds[0].text
                     publish_time = tds[1].text
-                    level = tds[2].eles('tag:div')[0].attre("data-original-title")
+                    level = tds[2].eles('tag:div')[0].attr("data-original-title")
 
                     link_tag = tds[3].eles('tag:a')[0]
                     title = link_tag.text
@@ -109,14 +109,14 @@ class SeebugMonitor(BaseScan):
                     is_exp = 0
                     cveid = ""
 
-                    if "无 CVE" not in tag_list[0].attre("data-original-title"):
-                        cveid = tag_list[0].attre("data-original-title")
+                    if "无 CVE" not in tag_list[0].attr("data-original-title"):
+                        cveid = tag_list[0].attr("data-original-title")
                         is_cve = 1
 
-                    if "有 PoC" in tag_list[1].attre("data-original-title"):
+                    if "有 PoC" in tag_list[1].attr("data-original-title"):
                         is_poc = 1
 
-                    elif "有 ExP" in tag_list[1].attre("data-original-title"):
+                    elif "有 ExP" in tag_list[1].attr("data-original-title"):
                         is_exp = 1
 
                     # check exist

@@ -9,12 +9,14 @@
 
 '''
 
-
+from datetime import datetime
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.models import MonitorTask
 from botend.webhook.qiyeWechat import QiyeWechatWebhook
 from botend.webhook.aibotkWechat import AibotkWechatWebhook
+
+from botend.models import WowArticle
 
 
 class LhfszsMonitor(BaseScan):
@@ -24,7 +26,7 @@ class LhfszsMonitor(BaseScan):
     def __init__(self, req, task):
         super().__init__(req, task)
 
-        self.video_desp = ""
+        self.post_desp = ""
         self.task = task
 
     def scan(self, url):
@@ -52,28 +54,34 @@ class LhfszsMonitor(BaseScan):
                 update_state = post.ele('.post-excerpt').text
                 # print(update_state)
 
-                if "最近更新" in update_state:
-                    video_dic = post.ele('.post-excerpt').ele('tag:p').text
-                    video_link = post_time.link
-                    video_name = post.ele('.post-title').text
+                post_dic = post.ele('.post-excerpt').ele('tag:p').text
+                post_link = post_time.link
+                post_name = post.ele('.post-title').text
 
-                    # 检查视频是否更新
-                    if self.task.flag == video_link:
-                        return
+                original_datetime = datetime.strptime(post_time.text, "%H:%M %Y/%m/%d")
+                django_date_time = original_datetime.strftime("%Y-%m-%d %H:%M")
 
-                    logger.info("[wow Monitor] Task {} found update.".format(self.task.id))
-                    self.task.flag = video_link
-                    self.task.save()
+                wa = WowArticle.objects.filter(url=post_link).first()
 
-                    self.video_desp = """检测到最新的魔兽世界新闻：
+                if wa:
+                    continue
+
+                obj = WowArticle(title=post_name, url=post_link, author="lhfszs",
+                                 publish_time=django_date_time, description=post_dic)
+                obj.save()
+                logger.info("[wow Monitor] Found new wow article.{}".format(post_name))
+
+                self.task.flag = post_link
+                self.task.save()
+
+                self.post_desp = """检测到最新的魔兽世界新闻：
 《{}》
 {}
 ------------------
 {}
-""".format(video_name, video_link, video_dic)
+""".format(post_name, post_link, post_dic)
 
-                    self.trigger_webhook()
-                    return
+                self.trigger_webhook()
 
         except:
             raise
@@ -84,4 +92,4 @@ class LhfszsMonitor(BaseScan):
         :return:
         """
         aw = AibotkWechatWebhook()
-        aw.publish_text(self.video_desp)
+        aw.publish_text(self.post_desp)

@@ -6,7 +6,7 @@ import time
 import pytz
 import datetime
 import traceback
-
+import threading
 from utils.LReq import LReq
 from utils.log import logger
 from core.threadingpool import ThreadPool
@@ -16,6 +16,7 @@ from LMonitor.config import Monitor_Type_BaseObject_List
 from LMonitor.settings import THREAD_LIMIT_NUM
 
 is_Block = False
+lock = threading.Lock()
 
 
 class LMonitorCoreBackend:
@@ -67,8 +68,10 @@ class LMonitorCore:
 
             Lreq = LReq(is_chrome=True)
             while 1:
+                lock.acquire()
                 if is_Block:
                     time.sleep(20)
+                    lock.release()
                     continue
 
                 is_Block = True
@@ -82,6 +85,7 @@ class LMonitorCore:
                         continue
 
                     is_Block = False
+                    lock.release()
                     logger.info("[Main] New Task start...")
 
                     # 更新扫描时间
@@ -96,7 +100,12 @@ class LMonitorCore:
                     t.scan(task_url)
 
                     task.save()
-                    time.sleep(5)
+                    time.sleep(10)
+                    break
+
+                if lock.locked():
+                    lock.release()
+                    is_Block = False
 
         except KeyboardInterrupt:
             logger.error("[Scan] Stop Scaning.")
