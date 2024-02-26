@@ -95,27 +95,28 @@ class WechatMonitor(BaseScan):
                 return
 
             r = json.loads(content)
-            for msg in r['app_msg_list']:
-                cover = msg['cover']
-                create_time = datetime.datetime.fromtimestamp(msg['create_time'])
-                digest = msg['digest']
-                link = msg['link']
-                title = msg['title']
+            if 'app_msg_list' in r:
+                for msg in r['app_msg_list']:
+                    cover = msg['cover']
+                    create_time = datetime.datetime.fromtimestamp(msg['create_time'])
+                    digest = msg['digest']
+                    link = msg['link']
+                    title = msg['title']
 
-                parsed_url = urlparse(link)
-                query_params = parse_qs(parsed_url.query)
-                sn = query_params.get('sn')[0]
+                    parsed_url = urlparse(link)
+                    query_params = parse_qs(parsed_url.query)
+                    sn = query_params.get('sn')[0]
 
-                waa = WechatArticle.objects.filter(sn=sn).first()
+                    waa = WechatArticle.objects.filter(sn=sn).first()
 
-                if waa:
-                    continue
+                    if waa:
+                        continue
 
-                obj = WechatArticle(title=title, url=link, publish_time=create_time,
-                                    biz=wat.biz, digest=digest, cover=cover,
-                                    sn=sn, state=0)
-                obj.save()
-                logger.info("[Wechat Monitor] Found new Wechat article.")
+                    obj = WechatArticle(title=title, url=link, publish_time=create_time,
+                                        biz=wat.biz, digest=digest, cover=cover,
+                                        sn=sn, state=0)
+                    obj.save()
+                    logger.info("[Wechat Monitor] Found new Wechat article.")
 
             time.sleep(random.randint(120, 300))
 
