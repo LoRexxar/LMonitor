@@ -32,7 +32,6 @@ class GetHexagramView(View):
     def get_hexagram():
         datalist = []
         hexalist = [
-            "上上签-天命且唯一\n----------\n此卦为lorexxar钦定的天命之子签，你就是唯一.",
             "上签-锺离成道\n----------\n开天辟地作良缘　吉日良时万物全　\n若得此签非小可　人行忠正帝王宣　\n----------\n此卦盘古初开天地之象　诸事皆吉也　",
             "中下签-苏秦不第\n----------\n鲸鱼未变守江河　不可升腾更望高　\n异日峥嵘身变化　许君一跃跳龙门　\n高有作闻\n----------\n此卦鲸鱼未变之象　凡事忍耐待时也　",
             "下签-董永遇仙\n----------\n临风冒雨去还乡　正是其身似燕儿　\n衔得坭来欲作垒　到头垒坏复须坭　\n----------\n此卦燕子衔坭之象　凡事劳心费力也　",
@@ -143,6 +142,11 @@ class GetHexagramView(View):
 
     def post(self, request):
         message = self.get_hexagram()
+
+        # 天命卦
+        if random.randint(1, 10000) < 2:
+            message = "上上签-天命且唯一\n----------\n此卦为lorexxar钦定的天命之子签，你就是唯一."
+
         mess = "此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：\n{}".format(message)
 
         params = json.loads(request.body)
@@ -150,20 +154,20 @@ class GetHexagramView(View):
         uname = params['uname']
         uid = params['uid']
 
-        # if roomName != "英灵殿精英保安交流群":
-        #     mess = "算卦功能暂时在本群关闭，过段时间开启~"
-        #     return JsonResponse(
-        #         {
-        #             "code": 200,
-        #             "msg": "success",
-        #             "data": [
-        #                 {
-        #                     "type": 1,
-        #                     "content": mess
-        #                 }
-        #             ]
-        #         }
-        #     )
+        if roomName != "英灵殿精英保安交流群":
+            mess = "算卦功能暂时在本群关闭，下次一定开启~"
+            return JsonResponse(
+                {
+                    "code": 200,
+                    "msg": "success",
+                    "data": [
+                        {
+                            "type": 1,
+                            "content": mess
+                        }
+                    ]
+                }
+            )
 
         # add date check
         # now_user_list = []
