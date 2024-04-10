@@ -50,7 +50,7 @@ class LhfszsMonitor(BaseScan):
             posts = driver.eles('.post-container')
 
             for post in posts:
-                post_time = post.ele('.post-date')
+                post_time = post.ele('.post-date wp-dark-mode-ignore')
                 update_state = post.ele('.post-excerpt').text
                 # print(update_state)
 
