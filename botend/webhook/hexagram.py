@@ -154,20 +154,20 @@ class GetHexagramView(View):
         uname = params['uname']
         uid = params['uid']
 
-        if roomName != "英灵殿精英保安交流群":
-            mess = "算卦功能暂时在本群关闭，下次一定开启~"
-            return JsonResponse(
-                {
-                    "code": 200,
-                    "msg": "success",
-                    "data": [
-                        {
-                            "type": 1,
-                            "content": mess
-                        }
-                    ]
-                }
-            )
+        # if roomName != "英灵殿精英保安交流群":
+        #     mess = "算卦功能暂时在本群关闭，下次一定开启~"
+        #     return JsonResponse(
+        #         {
+        #             "code": 200,
+        #             "msg": "success",
+        #             "data": [
+        #                 {
+        #                     "type": 1,
+        #                     "content": mess
+        #                 }
+        #             ]
+        #         }
+        #     )
 
         # add date check
         # now_user_list = []
