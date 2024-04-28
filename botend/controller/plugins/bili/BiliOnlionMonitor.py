@@ -8,6 +8,7 @@
 @desc:
 
 '''
+from DrissionPage.errors import PageDisconnectedError
 
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
@@ -55,6 +56,9 @@ class BiliOnlionMonitor(BaseScan):
 
         try:
             self.title = driver.eles('.:live-skin-main-text')[0].text
+
+        except PageDisconnectedError:
+            self.title = "直播标题可能被妖怪抓走了"
 
         except:
             raise
