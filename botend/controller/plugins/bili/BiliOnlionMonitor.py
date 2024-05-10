@@ -57,7 +57,7 @@ class BiliOnlionMonitor(BaseScan):
         try:
             self.title = driver.eles('.:live-skin-main-text')[0].text
 
-        except PageDisconnectedError:
+        except IndexError:
             self.title = "直播标题可能被妖怪抓走了"
 
         except:

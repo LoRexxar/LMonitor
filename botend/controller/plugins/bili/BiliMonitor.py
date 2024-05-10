@@ -46,6 +46,9 @@ class BiliMonitor(BaseScan):
     def resolve_data(self, driver):
 
         try:
+            if not driver:
+                return
+
             videos = driver.eles('.:fakeDanmu-item')
 
             for video in videos:
