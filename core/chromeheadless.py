@@ -66,7 +66,7 @@ class ChromeDriver:
         """
         """
         try:
-            if times > 3:
+            if times > 1:
                 return False
 
             self.driver.get(url)
@@ -87,6 +87,8 @@ class ChromeDriver:
             logger.warning("[ChromeHeadless] PageDisconnectedError..{}".format(url))
 
             logger.warning("[ChromeHeadless]restart once..{}".format(url))
+            self.init_object()
+
             return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
 
         except DrissionPage.errors.ContextLostError:
