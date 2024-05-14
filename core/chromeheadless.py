@@ -87,6 +87,7 @@ class ChromeDriver:
             logger.warning("[ChromeHeadless] PageDisconnectedError..{}".format(url))
 
             logger.warning("[ChromeHeadless]restart once..{}".format(url))
+            self.close_driver()
             self.init_object()
 
             return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
