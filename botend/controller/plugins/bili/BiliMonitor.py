@@ -10,9 +10,10 @@
 '''
 
 
+from datetime import datetime
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
-from botend.models import MonitorTask
+from botend.models import WowArticle
 from botend.webhook.qiyeWechat import QiyeWechatWebhook
 from botend.webhook.aibotkWechat import AibotkWechatWebhook
 
@@ -52,19 +53,27 @@ class BiliMonitor(BaseScan):
             videos = driver.eles('.:fakeDanmu-item')
 
             for video in videos:
-                video_time = video.eles('.:time')[0]
-                if "分钟" in video_time.text:
-                    video_dic = video.eles('.:title')[0]
+                video_time = video.ele('.time')
+                if video_time:
+                    video_dic = video.ele('.title')
                     video_link = video_dic.attr("href")
                     video_name = video_dic.text
 
                     # 检查视频是否更新
-                    if self.task.flag == video_link:
-                        return
+                    wa = WowArticle.objects.filter(url=video_link).first()
 
-                    logger.info("[Bili Monitor] Task {} found update.".format(self.task.id))
-                    self.task.flag = video_link
-                    self.task.save()
+                    if wa:
+                        continue
+
+                    current_time = datetime.now()
+
+                    # 将时间格式化为 "%Y-%m-%d %H:%M" 格式
+                    formatted_time = current_time.strftime("%Y-%m-%d %H:%M")
+
+                    obj = WowArticle(title=video_name, url=video_link, author="lorexxarbilibili",
+                                     publish_time=formatted_time, description=video_name)
+                    obj.save()
+                    logger.info("[Bili Monitor] Found new Bilibili.{}".format(video_name))
 
                     self.video_desp = """你关注的up主更新视频啦！！
 《{}》
@@ -72,7 +81,6 @@ class BiliMonitor(BaseScan):
 """.format(video_name, video_link)
 
                     self.trigger_webhook()
-                    return
 
         except:
             raise
