@@ -10,6 +10,7 @@
 '''
 
 
+from DrissionPage import errors
 from datetime import datetime
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
@@ -50,7 +51,7 @@ class BiliMonitor(BaseScan):
             if not driver:
                 return
 
-            videos = driver.eles('.:fakeDanmu-item')
+            videos = driver.wait.eles_loaded('.:fakeDanmu-item')
 
             for video in videos:
                 video_time = video.ele('.time')
@@ -82,6 +83,8 @@ class BiliMonitor(BaseScan):
 
                     self.trigger_webhook()
 
+        except errors.ContextLostError:
+            self.resolve_data(driver)
         except:
             raise
 
