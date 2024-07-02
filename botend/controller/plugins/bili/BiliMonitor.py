@@ -10,6 +10,7 @@
 '''
 
 
+import time
 from DrissionPage import errors
 from datetime import datetime
 from utils.log import logger
@@ -51,7 +52,8 @@ class BiliMonitor(BaseScan):
             if not driver:
                 return
 
-            videos = driver.wait.eles_loaded('.:fakeDanmu-item')
+            time.sleep(5)
+            videos = driver.eles('.:fakeDanmu-item')
 
             for video in videos:
                 video_time = video.ele('.time')
