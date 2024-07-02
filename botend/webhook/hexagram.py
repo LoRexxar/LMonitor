@@ -177,6 +177,10 @@ class GetHexagramView(View):
         global old_date
         global now_user_list
 
+        # 检查是不是星期4，如果不是则返回
+        print(current_date.weekday())
+        print(roomName)
+
         if old_date == "":
             old_date = now_date
             now_user_list = [uid]
