@@ -178,7 +178,7 @@ class GetHexagramView(View):
         global now_user_list
 
         # 检查是不是星期4，如果不是则返回
-        if current_date.weekday() != 3 and not roomName:
+        if current_date.weekday() != 3 and roomName:
             mess = "来一卦功能只在周四开放群聊，平日你可以私信机器人获取哦:>"
 
         else:
