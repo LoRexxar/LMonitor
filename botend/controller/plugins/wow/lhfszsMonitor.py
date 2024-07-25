@@ -36,7 +36,7 @@ class LhfszsMonitor(BaseScan):
         :return:
         """
         cookies = ""
-        url = "https://lhfszs.com/"
+        url = "https://www.ngasb.com/"
         driver = self.req.get(url, 'RespByChrome', 0, cookies, is_origin=1)
 
         # 处理返回内容
@@ -50,7 +50,7 @@ class LhfszsMonitor(BaseScan):
             posts = driver.eles('.post-container')
 
             for post in posts:
-                post_time = post.ele('.post-date wp-dark-mode-ignore')
+                post_time = post.ele('.post-date')
                 update_state = post.ele('.post-excerpt').text
                 # print(update_state)
 
