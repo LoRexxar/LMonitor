@@ -46,6 +46,49 @@ class AibotkWechatWebhook:
 
         return True
 
+    def publish_img(self, aurl):
+        url = "https://api-bot.aibotk.com/openapi/v1/chat/room"
+
+        for group_name in self.active_wechat_group:
+            content = {
+                "apiKey": self.secret["apikey"],
+                "roomName": group_name,
+                "message": {
+                  "type": 2,
+                  "url": aurl
+                }
+            }
+
+            result = self.s.post(url, json=content)
+            r = result.text
+            logger.info("[Aibotk] Aibotk return {}".format(r))
+
+
+        return True
+
+    def publish_card(self, text, aurl):
+        url = "https://api-bot.aibotk.com/openapi/v1/chat/room"
+
+        for group_name in self.active_wechat_group:
+            content = {
+                "apiKey": self.secret["apikey"],
+                "roomName": group_name,
+                "message": {
+                  "type": 4,
+                  "title": text,
+                  "description": "",
+                  "thumbUrl": aurl,
+                  "url": aurl,
+                }
+            }
+
+            result = self.s.post(url, json=content)
+            r = result.text
+            logger.info("[Aibotk] Aibotk return {}".format(r))
+
+
+        return True
+
     def publish_admin(self, text):
         url = "https://api-bot.aibotk.com/openapi/v1/chat/contact"
 
