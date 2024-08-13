@@ -48,7 +48,7 @@ class LhfszsMonitor(BaseScan):
     def resolve_data(self, driver):
 
         try:
-            posts = driver.eles('.:card')
+            posts = driver.eles('.posts-item card ajax-item')
 
             for post in posts:
                 post_title = post.ele('.item-thumbnail')
