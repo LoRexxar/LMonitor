@@ -32,8 +32,9 @@ class LReq:
                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:59.0) Gecko/20100101 Firefox/59.0"]
 
         self.s = requests.Session()
+        self.is_chrome = is_chrome
 
-        if is_chrome:
+        if self.is_chrome:
             self.cs = ChromeDriver()
 
     @staticmethod
@@ -93,7 +94,13 @@ class LReq:
         except urllib3.exceptions.NewConnectionError:
             logger.warning("[LReq] Request {} error...".format(url))
             if times > 0:
-                return False
+                # 做重启尝试
+                if self.is_chrome:
+                    self.cs = ChromeDriver()
+
+                method = getattr(self, 'get' + type)
+                return method(url, args, **kwargs)
+
             logger.warning("[LReq] Retry Request {} once...".format(url))
             return self.get(url, type, 1, *args, **kwargs)
 
