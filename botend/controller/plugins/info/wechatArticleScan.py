@@ -62,7 +62,7 @@ class WechatArticleScan(BaseScan):
     def parse_wechat_article(self, driver):
 
         for wa in self.was:
-            logger.info("[WechatArticleScan] Try to get article {}".format(wa.title))
+            logger.info("[WechatArticleScan] Try to get article {}".format(wa.url))
             wa.state = 1
             wa.save()
 
@@ -92,7 +92,7 @@ class WechatArticleScan(BaseScan):
 
                 summary_regex = r'class="profile_meta_value">(.*?)</span>'
                 results = re.findall(summary_regex, page_source, re.M|re.I)
-                summary = results[1]
+                summary = results[1] if len(results) > 1 else ""
 
                 # 检查account的信息是否获得
                 waccount = WechatAccountTask.objects.filter(biz=wa.biz).first()
