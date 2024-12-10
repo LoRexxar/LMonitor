@@ -23,6 +23,7 @@ from botend.controller.plugins.vuln.qaxScan import QaxScan
 from botend.controller.plugins.vuln.seebugMonitor import SeebugMonitor
 from botend.controller.plugins.info.RssMonitor import RssArticleMonitor
 from botend.controller.plugins.wow.lhfszsMonitor import LhfszsMonitor
+from botend.controller.plugins.wow.ngaMonitor import ngaMonitor
 
 Monitor_Type_BaseObject_List = [
     BaseScan,
@@ -39,4 +40,5 @@ Monitor_Type_BaseObject_List = [
     SeebugMonitor,
     RssArticleMonitor,
     LhfszsMonitor,
+    ngaMonitor,
 ]
