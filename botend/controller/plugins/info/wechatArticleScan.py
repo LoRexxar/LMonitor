@@ -100,11 +100,11 @@ class WechatArticleScan(BaseScan):
                 if not waccount.account:
                     waccount.account = account
                     waccount.summary = summary
-                    waccount.last_publish_time = datetime.datetime.strptime(create_time, "%Y-%m-%d %H:%M").replace(tzinfo=local_tz)
+                    waccount.last_publish_time = datetime.datetime.strptime(create_time, "%Y年%m月%d日 %H:%M").replace(tzinfo=local_tz)
 
                 # 更新扫描时间
-                elif datetime.datetime.strptime(create_time, "%Y-%m-%d %H:%M").replace(tzinfo=local_tz) > waccount.last_publish_time.replace(tzinfo=local_tz):
-                    waccount.last_publish_time = datetime.datetime.strptime(create_time, "%Y-%m-%d %H:%M").replace(tzinfo=local_tz)
+                elif datetime.datetime.strptime(create_time, "%Y年%m月%d日 %H:%M").replace(tzinfo=local_tz) > waccount.last_publish_time.replace(tzinfo=local_tz):
+                    waccount.last_publish_time = datetime.datetime.strptime(create_time, "%Y年%m月%d日 %H:%M").replace(tzinfo=local_tz)
 
                 # 检查是否超过半年没更新
                 if (datetime.datetime.now(local_tz) - waccount.last_publish_time.replace(tzinfo=local_tz)) > datetime.timedelta(days=180):
