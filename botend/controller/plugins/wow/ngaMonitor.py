@@ -10,6 +10,7 @@
 '''
 
 from datetime import datetime
+
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.models import MonitorTask
@@ -27,7 +28,7 @@ class ngaMonitor(BaseScan):
         super().__init__(req, task)
 
         self.post_desp = ""
-        self.post_img = ""
+        self.black_list = ["公益", "代工", "支持跨服"]
         self.task = task
 
     def scan(self, url):
@@ -56,6 +57,8 @@ class ngaMonitor(BaseScan):
                 if not tds:
                     continue
 
+                is_bad = False
+
                 post_count = tds[0].text
                 post_head = tds[1].ele('.:topic')
                 post_link = post_head.link
@@ -67,9 +70,16 @@ class ngaMonitor(BaseScan):
                 if not post_count or int(post_count) < 50:
                     continue
 
+                for black in self.black_list:
+                    if black in post_name:
+                        is_bad = True
+
                 wa = WowArticle.objects.filter(url=post_link).first()
 
                 if wa:
+                    continue
+
+                if is_bad:
                     continue
 
                 obj = WowArticle(title=post_name, url=post_link, author="nga", description="")
