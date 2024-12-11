@@ -67,11 +67,11 @@ class ngaMonitor(BaseScan):
 
                 # original_datetime = datetime.strptime(post_date, "%m-%d %H:%M")
                 # django_date_time = original_datetime.strftime("%Y-%m-%d %H:%M")
-                if not post_count or int(post_count) < 50:
+                if not post_count or int(post_count) < 100:
                     continue
 
                 for black in self.black_list:
-                    if black in post_name:
+                    if black in str(post_name):
                         is_bad = True
 
                 wa = WowArticle.objects.filter(url=post_link).first()
