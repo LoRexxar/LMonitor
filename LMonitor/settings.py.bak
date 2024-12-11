@@ -150,3 +150,6 @@ BASE_SECRET = {
 QIYE_WECHAT_SECRET_LIST = [
     BASE_SECRET
 ]
+
+DIFY_API = "https://api.dify.ai/v1"
+DIFY_API_SECRET = ""
