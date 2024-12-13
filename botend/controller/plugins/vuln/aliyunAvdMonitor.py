@@ -61,7 +61,6 @@ class AliyunAvdMonitor(BaseScan):
             driver = self.req.get(self.avd_url, 'RespByChrome', 0, "", is_origin=1)
 
             try:
-
                 tr_list = driver.eles('tag:tr')
 
                 for tr in tr_list:
@@ -121,6 +120,9 @@ class AliyunAvdMonitor(BaseScan):
                                   link=link, source="avd",
                                   is_poc=is_poc, is_exp=is_exp, is_active=1, state=0)
                     vn.save()
+
+            except AttributeError:
+                logger.error("[Aliyun Avd Monitor] Monitor aliyun avd start error.")
 
             except:
                 raise

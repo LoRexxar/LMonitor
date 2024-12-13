@@ -80,6 +80,9 @@ class LhfszsMonitor(BaseScan):
 
                 self.trigger_webhook()
 
+        except AttributeError:
+            logger.error("[wow Monitor] No posts found.")
+
         except:
             raise
 

@@ -61,7 +61,6 @@ class AliyunAvdScan(BaseScan):
             driver = self.req.get(vd.link, 'RespByChrome', 0, "", is_origin=1)
 
             try:
-
                 detail_driver = driver.eles('.:text-detail')
 
                 details = detail_driver[0].text
@@ -89,6 +88,9 @@ class AliyunAvdScan(BaseScan):
                 vd.save()
 
                 time.sleep(random.randint(10, 20))
+
+            except AttributeError:
+                logger.error("[Aliyun Avd Scan] bad request.")
 
             except:
                 raise
