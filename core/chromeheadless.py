@@ -86,11 +86,7 @@ class ChromeDriver:
         except DrissionPage.errors.PageDisconnectedError:
             logger.warning("[ChromeHeadless] PageDisconnectedError..{}".format(url))
 
-            logger.warning("[ChromeHeadless]restart once..{}".format(url))
-            self.close_driver()
-            self.init_object()
-
-            return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
+            return False
 
         except DrissionPage.errors.ContextLostError:
             logger.warning("[ChromeHeadless] page get error..{}".format(url))
