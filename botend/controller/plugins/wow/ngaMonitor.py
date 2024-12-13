@@ -29,6 +29,20 @@ class ngaMonitor(BaseScan):
 
         self.post_desp = ""
         self.black_list = ["公益", "代工", "支持跨服"]
+        self.target_list = {
+            "前瞻区": {
+                "url": "https://nga.178.com/thread.php?fid=310&ff=7",
+                "limit": 10
+            },
+            # "cos区": {
+            #     "url": "https://nga.178.com/thread.php?fid=472",
+            #     "limit": 10
+            # },
+            "水区": {
+                "url": "https://nga.178.com/thread.php?fid=7",
+                "limit": 200
+            }
+        }
         self.task = task
 
     def scan(self, url):
@@ -38,15 +52,16 @@ class ngaMonitor(BaseScan):
         :return:
         """
         cookies = ""
-        url = "https://nga.178.com/thread.php?fid=7"
-        driver = self.req.get(url, 'RespByChrome', 0, cookies, is_origin=1)
 
-        # 处理返回内容
-        self.resolve_data(driver)
+        for title in self.target_list:
+            url = self.target_list[title]["url"]
+            driver = self.req.get(url, 'RespByChrome', 0, cookies, is_origin=1)
+            # 处理返回内容
+            self.resolve_data(driver, title, self.target_list[title]["limit"])
 
         return True
 
-    def resolve_data(self, driver):
+    def resolve_data(self, driver, title="", limit=10):
 
         try:
             posts = driver.ele('#topicrows').eles('tag:tbody')
@@ -67,7 +82,7 @@ class ngaMonitor(BaseScan):
 
                 # original_datetime = datetime.strptime(post_date, "%m-%d %H:%M")
                 # django_date_time = original_datetime.strftime("%Y-%m-%d %H:%M")
-                if not post_count or int(post_count) < 100:
+                if not post_count or int(post_count) < limit:
                     continue
 
                 for black in self.black_list:
@@ -89,9 +104,9 @@ class ngaMonitor(BaseScan):
                 self.task.flag = post_link
                 self.task.save()
 
-                self.post_desp = """检测到NGA热门贴，回帖数{}，发帖时间{}
+                self.post_desp = """NGA带逛<{}>，回帖数{}，发帖时间{}
 《{}》
-{}""".format(post_count, post_date, post_name, post_link)
+{}""".format(title, post_count, post_date, post_name, post_link)
 
                 self.trigger_webhook()
 
