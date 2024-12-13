@@ -95,6 +95,9 @@ class ngaMonitor(BaseScan):
 
                 self.trigger_webhook()
 
+        except AttributeError:
+            logger.error("[ngaMonitor] No posts found.")
+
         except:
             raise
 

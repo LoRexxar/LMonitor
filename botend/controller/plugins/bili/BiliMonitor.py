@@ -85,8 +85,9 @@ class BiliMonitor(BaseScan):
 
                     self.trigger_webhook()
 
-        except errors.ContextLostError:
-            self.resolve_data(driver)
+
+        except AttributeError:
+            logger.error("[BiliMonitor] Can't find videos.")
         except:
             raise
 

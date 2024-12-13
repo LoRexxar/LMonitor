@@ -115,13 +115,15 @@ class WechatArticleScan(BaseScan):
                 # 更新
                 wa.account = account
                 wa.author = author
-                wa.publish_time = create_time
                 wa.content_html = content
                 wa.source_url = source_url
                 wa.state = 2
                 wa.save()
 
                 time.sleep(random.randint(10, 20))
+
+            except AttributeError:
+                logger.error("[WechatArticleScan] Fail to get article {}".format(wa.url))
 
             except:
                 raise

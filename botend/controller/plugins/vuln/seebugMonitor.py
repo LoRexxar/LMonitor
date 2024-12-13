@@ -134,6 +134,9 @@ class SeebugMonitor(BaseScan):
                                   is_poc=is_poc, is_exp=is_exp, is_active=1, state=0)
                     vn.save()
 
+            except AttributeError:
+                logger.info("[seebug Monitor] bad requests.")
+
             except:
                 raise
 
