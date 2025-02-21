@@ -18,10 +18,12 @@ from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 
 from botend.webhook.hexagram import GetHexagramView
+from botend.webhook.wechat import WechatWebhookView
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
     # path('', HttpResponse("no plz.")),
-    path('webhook/gethexagram', csrf_exempt(GetHexagramView.as_view()), name="gethexagram")
+    path('webhook/gethexagram', csrf_exempt(GetHexagramView.as_view()), name="gethexagram"),
+    path('webhook/gewechat', csrf_exempt(WechatWebhookView.as_view()), name="gewechat"),
 ]

@@ -101,3 +101,24 @@ class WowArticle(models.Model):
     description = models.TextField(null=True)
     publish_time = models.DateTimeField(default=None, null=True)
     is_active = models.BooleanField(default=True)
+
+
+class GeWechatAuth(models.Model):
+    appId = models.CharField(max_length=100)
+    qrImgBase64 = models.TextField(null=True)
+    uuid = models.CharField(max_length=100, null=True)
+    create_time = models.DateTimeField(auto_now_add=True)
+    is_login = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+
+class GeWechatRoomList(models.Model):
+    room_id = models.CharField(max_length=100)
+    room_name = models.CharField(max_length=100, null=True)
+    room_member_count = models.IntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+class GeWechatTask(models.Model):
+    msg_type = models.IntegerField(default=1)
+    content_regex = models.CharField(max_length=100, null=True)
+    response = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)

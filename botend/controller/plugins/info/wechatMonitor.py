@@ -11,10 +11,10 @@
 
 from utils.log import logger
 
-from botend.models import MonitorTask, WechatArticle, WechatAccountTask, TargetAuth
+from botend.models import WechatArticle, WechatAccountTask, TargetAuth
 
 from botend.controller.BaseScan import BaseScan
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.aibotkWechat import AibotkWechatWebhook
 
 import json
 import time
@@ -23,10 +23,6 @@ import random
 import datetime
 import urllib.parse
 from urllib.parse import urlparse, parse_qs
-import selenium
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 
 class WechatMonitor(BaseScan):

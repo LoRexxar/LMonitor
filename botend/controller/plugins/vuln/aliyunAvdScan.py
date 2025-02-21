@@ -11,19 +11,13 @@
 
 from utils.log import logger
 
-from botend.models import VulnMonitorTask, VulnData
+from botend.models import VulnData
 
 from botend.controller.BaseScan import BaseScan
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.aibotkWechat import AibotkWechatWebhook
 
-import json
 import time
-import pytz
 import random
-import datetime
-import urllib.parse
-from urllib.parse import urlparse, parse_qs
-from DrissionPage.common import By
 
 
 class AliyunAvdScan(BaseScan):

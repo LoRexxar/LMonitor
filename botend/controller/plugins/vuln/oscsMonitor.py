@@ -13,22 +13,14 @@
 from utils.log import logger
 
 from botend.models import VulnData, VulnMonitorTask
-from botend.controller.plugins.vuln import Vul_List, Vul_link_Type_Dict
+from botend.controller.plugins.vuln import Vul_List
 
 from botend.controller.BaseScan import BaseScan
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.aibotkWechat import AibotkWechatWebhook
 
 import json
-import time
 import pytz
-import random
 import datetime
-import urllib.parse
-from urllib.parse import urlparse, parse_qs
-import selenium
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 
 class OscsMonitor(BaseScan):

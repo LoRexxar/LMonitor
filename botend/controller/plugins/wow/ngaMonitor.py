@@ -9,13 +9,9 @@
 
 '''
 
-from datetime import datetime
-
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
-from botend.models import MonitorTask
-from botend.webhook.qiyeWechat import QiyeWechatWebhook
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.aibotkWechat import AibotkWechatWebhook
 
 from botend.models import WowArticle
 

@@ -11,15 +11,11 @@
 
 
 import time
-from DrissionPage import errors
 from datetime import datetime
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.models import WowArticle
-from botend.webhook.qiyeWechat import QiyeWechatWebhook
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
-
-from DrissionPage.common import By
+from botend.interface.aibotkWechat import AibotkWechatWebhook
 
 
 class BiliMonitor(BaseScan):

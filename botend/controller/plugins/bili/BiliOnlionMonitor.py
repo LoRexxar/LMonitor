@@ -8,16 +8,11 @@
 @desc:
 
 '''
-from DrissionPage.errors import PageDisconnectedError
 
-from utils.log import logger
 from botend.controller.BaseScan import BaseScan
-from botend.models import MonitorTask
-from botend.webhook.qiyeWechat import QiyeWechatWebhook
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.aibotkWechat import AibotkWechatWebhook
 
 import json
-from DrissionPage.common import By
 
 
 class BiliOnlionMonitor(BaseScan):
