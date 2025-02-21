@@ -199,8 +199,8 @@ class GeWechatInterface:
                             # 获取群聊的基本信息
                             url2 = f"{self.config['base_url']}/group/getChatroomInfo"
                             data2 = {
-                                "appId": self.appId
-                                   "chatroomId": room_id
+                                "appId": self.appId,
+                                "chatroomId": room_id
                             }
                             result2 = self.s.post(url2, headers=headers, json=data2)
                             response2 = result2.json()
