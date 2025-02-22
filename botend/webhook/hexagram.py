@@ -36,54 +36,8 @@ class GetHexagramView(View):
         return HttpResponse("online..")
 
     def post(self, request):
-        message = self.hexagram.get_hexagram()
-        mess = "此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：\n{}".format(message)
-
-        params = json.loads(request.body)
-        roomName = params['roomName']
-        uname = params['uname']
-        uid = params['uid']
-
-        # if roomName != "英灵殿精英保安交流群":
-        #     mess = "算卦功能暂时在本群关闭，下次一定开启~"
-        #     return JsonResponse(
-        #         {
-        #             "code": 200,
-        #             "msg": "success",
-        #             "data": [
-        #                 {
-        #                     "type": 1,
-        #                     "content": mess
-        #                 }
-        #             ]
-        #         }
-        #     )
-
-        # add date check
-        # now_user_list = []
-        current_date = datetime.now().date()
-        now_date = current_date.strftime('%Y-%m-%d')
-
-        global old_date
-        global now_user_list
-
-        # 检查是不是星期4，如果不是则返回
-        if current_date.weekday() != 3 and roomName:
-            mess = "来一卦功能只在周四开放群聊，平日你可以私信机器人获取哦:>"
-
-        else:
-            if old_date == "":
-                old_date = now_date
-                now_user_list = [uid]
-            elif old_date != now_date:
-                old_date = now_date
-                now_user_list = [uid]
-            elif old_date == now_date:
-                # 检查uname的存在性
-                if uid in now_user_list:
-                    mess = "你今天已经摇过签了，本签每日只能摇一次噢."
-                else:
-                    now_user_list.append(uid)
+        mess = self.hexagram.get_hexagram_mess()
+        
 
         return JsonResponse(
             {

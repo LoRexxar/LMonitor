@@ -33,9 +33,23 @@ class GeWechatInterface:
 
         self.auth = GeWechatAuth.objects.filter(is_active=True).first()
         if self.auth:
-            self.appId = self.auth.app_id
+            self.appId = self.auth.appId
 
-        self.room_list = GeWechatRoomList.objects.filter(is_active=True).all()
+        self.room_list = []
+        gwrs = GeWechatRoomList.objects.all()
+        for gwr in gwrs:
+            self.room_list.append(gwr.room_id)
+
+    def init(self):
+        """
+        初始化GeWechat接口
+        """
+        self.get_access_token()
+        if self.check_login():
+            self.set_callback_url(self.callback_url)
+            self.update_chatrooms_list()
+        else:
+            self.get_login_qrcode()
 
     def get_access_token(self):
         """
@@ -47,7 +61,7 @@ class GeWechatInterface:
         try:
             result = self.s.post(url, json=data)
             response = result.json()
-            if response.get('code') == 200:
+            if response.get('ret') == 200:
                 self.access_token = response['data']
                 return True
             logger.error(f"[GeWechatWebhook] 获取access token失败: {response.get('msg', '未知错误')}")
@@ -55,7 +69,6 @@ class GeWechatInterface:
         except Exception as e:
             logger.error(f"[GeWechatWebhook] 获取access token失败: {str(e)}\n{traceback.format_exc()}")
             return False
-
 
     def get_login_qrcode(self):
         """
@@ -75,12 +88,12 @@ class GeWechatInterface:
         try:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
-            if response.get('code') == 200:
+            if response.get('ret') == 200:
                 qr_data = response['data']
                 # 更新二维码数据到数据库
                 auth = GeWechatAuth.objects.filter(is_active=True).first()
                 if not auth:
-                    auth = GeWechatAuth(app_id=qr_data.get('appId'))
+                    auth = GeWechatAuth(appId=qr_data.get('appId'))
                 auth.uuid = qr_data.get('uuid')
                 auth.qr_img_base64 = qr_data.get('qrImgBase64')
                 auth.is_active = True
@@ -104,26 +117,26 @@ class GeWechatInterface:
 
         auth = GeWechatAuth.objects.filter(is_active=True).first()
         if not auth:
-            logger.error("[GeWechatWebhook] 没有找到活跃的GeWechat认证信息")
+            logger.error("[GeWechatWebhook] 没有找到活跃的GeWechat认证信息，初始化登录.")
+            self.get_login_qrcode()
             return False
 
-        url = f"{self.config['base_url']}/login/checkLogin"
+        url = f"{self.config['base_url']}/login/checkOnline"
         headers = {"X-GEWE-TOKEN": self.access_token}
         data = {
-            "appId": auth.app_id,
-            "uuid": auth.uuid
+            "appId": auth.appId,
         }
 
         try:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
-            if response.get('code') == 200:
-                qr_data = response['data']
-                if qr_data.get('status') == 1:
+            if response.get('ret') == 200:
+                is_login = response['data']
+                if is_login:
                     auth.is_login = True
                     self.is_login = True
                     auth.save()
-                    logger.info(f"[GeWechatWebhook] 登录成功，nickName: {qr_data.get('nickName')}, loginInfo: {qr_data.get('loginInfo')}")
+                    logger.info(f"[GeWechatWebhook] 登录成功")
                     return True
                 else:
                     auth.is_login = False
@@ -157,7 +170,8 @@ class GeWechatInterface:
         try:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
-            if response.get('code') == 200:
+            if response.get('ret') == 200:
+                logger.info(f"[GeWechatWebhook] 回调地址{self.callback_url}设置成功")
                 return True
             logger.error(f"[GeWechatWebhook] 设置回调地址失败: {response.get('msg', '未知错误')}")
             return False
@@ -186,12 +200,11 @@ class GeWechatInterface:
         try:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
-            if response.get('code') == 200:
+            if response.get('ret') == 200:
                 data = response['data']
-                roomlist = data.get('roomlist')
+                roomlist = data.get('chatrooms')
                 if roomlist:
-                    for room in roomlist:
-                        room_id = room.get('roomId')
+                    for room_id in roomlist:
                         if room_id not in self.room_list:
                             wr = GeWechatRoomList(room_id=room_id)
                             logger.info(f"[GeWechatWebhook] New 群ID: {room_id}")
@@ -204,7 +217,7 @@ class GeWechatInterface:
                             }
                             result2 = self.s.post(url2, headers=headers, json=data2)
                             response2 = result2.json()
-                            if response2.get('code') == 200:
+                            if response2.get('ret') == 200:
                                 data2 = response2['data']
                                 wr.room_name = data2.get('nickName')
                                 wr.room_member_count = len(data2.get('memberList'))
@@ -223,7 +236,7 @@ class GeWechatInterface:
         邀请成员加入群聊
         :param chatroom_id: 群聊ID
         :param wxid: 待邀请成员的wxid
-        :return: 成功返回True，失败返回False
+        :return: 成功返回True，失败返回False    
         """
         if not self.access_token:
             if not self.get_access_token():
@@ -244,7 +257,7 @@ class GeWechatInterface:
         try:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
-            if response.get('code') == 200:
+            if response.get('ret') == 200:
                 logger.info(f"[GeWechatWebhook] 邀请成员加入群聊成功，群ID: {chatroom_id}, wxid: {wxid}")
                 return True
             logger.error(f"[GeWechatWebhook] 邀请成员加入群聊失败: {response.get('msg', '未知错误')}")
@@ -285,7 +298,7 @@ class GeWechatInterface:
         try:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
-            if response.get('code') == 200:
+            if response.get('ret') == 200:
                 logger.info(f"[GeWechatWebhook] 发送消息成功，接收者: {to_wxid}")
                 return True
             logger.error(f"[GeWechatWebhook] 发送消息失败: {response.get('msg', '未知错误')}")
@@ -325,7 +338,7 @@ class GeWechatInterface:
         try:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
-            if response.get('code') == 200:
+            if response.get('ret') == 200:
                 logger.info(f"[GeWechatWebhook] 发送链接消息成功，接收者: {to_wxid}")
                 return True
             logger.error(f"[GeWechatWebhook] 发送链接消息失败: {response.get('msg', '未知错误')}")
@@ -364,7 +377,8 @@ class GeWechatInterface:
         try:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
-            if response.get('code') == 200:
+            print(response)
+            if response.get('ret') == 200:
                 logger.info(f"[GeWechatWebhook] 添加联系人成功")
                 return True
             logger.error(f"[GeWechatWebhook] 添加联系人失败: {response.get('msg', '未知错误')}")
@@ -377,4 +391,4 @@ class GeWechatInterface:
 if __name__ == "__main__":
     # 测试代码
     gw = GeWechatInterface()
-    gw.send_text_message("测试消息")
+    gw.init()

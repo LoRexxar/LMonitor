@@ -9,12 +9,13 @@
 '''
 
 import random
+from datetime import datetime
 
 class HexagramInterface:
     """
     算卦接口实现
     """
-    def get_hexagram():
+    def get_hexagram(self):
         datalist = []
         hexalist = [
             "上签-锺离成道\n----------\n开天辟地作良缘　吉日良时万物全　\n若得此签非小可　人行忠正帝王宣　\n----------\n此卦盘古初开天地之象　诸事皆吉也　",
@@ -126,3 +127,37 @@ class HexagramInterface:
             message = "上上签-天命且唯一\n----------\n此卦为lorexxar钦定的天命之子签，你就是唯一."
 
         return message
+
+    def get_hexagram_mess(self):
+        """
+        随机获取一个卦象
+        :return:
+        """
+        message = self.get_hexagram()
+        mess = "此算卦与任何玄学无关，仅供娱乐:>,你的卦象如下：\n{}".format(message)
+
+        current_date = datetime.now().date()
+        now_date = current_date.strftime('%Y-%m-%d')
+
+        global old_date
+        global now_user_list
+
+        # 检查是不是星期4，如果不是则返回
+        if current_date.weekday() != 3:
+            mess = "来一卦功能只在周四开放群聊，平日你可以私信机器人获取哦:>"
+
+        else:
+            if old_date == "":
+                old_date = now_date
+                now_user_list = [uid]
+            elif old_date != now_date:
+                old_date = now_date
+                now_user_list = [uid]
+            elif old_date == now_date:
+                # 检查uname的存在性
+                if uid in now_user_list:
+                    mess = "你今天已经摇过签了，本签每日只能摇一次噢."
+                else:
+                    now_user_list.append(uid)
+
+        return mess

@@ -120,5 +120,7 @@ class GeWechatRoomList(models.Model):
 class GeWechatTask(models.Model):
     msg_type = models.IntegerField(default=1)
     content_regex = models.CharField(max_length=100, null=True)
-    response = models.DateTimeField(auto_now=True)
+    response = models.TextField(null=True)
+    # 0: admin 1: all 2：self 3：room
+    active_type = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True)
