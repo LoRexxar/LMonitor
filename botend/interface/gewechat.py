@@ -387,6 +387,84 @@ class GeWechatInterface:
             logger.error(f"[GeWechatWebhook] 添加联系人失败: {str(e)}\n{traceback.format_exc()}")
             return False
 
+    def publish_text(self, content):
+        """
+        发布群消息
+        :param content: 消息内容
+        :return: 成功返回True，失败返回False
+        """
+        if not self.access_token:
+            if not self.get_access_token():
+                return False
+
+        if not self.check_login():
+            logger.error("[GeWechatWebhook] 未登录")
+            return False
+
+        url = f"{self.config['base_url']}/message/postText"
+        headers = {
+            "X-GEWE-TOKEN": self.access_token,
+            "Content-Type": "application/json"
+        }
+
+        wx_list = GeWechatRoomList.objects.filter(is_active=True)
+
+        for wx in wx_list:
+            try:
+                data = {
+                    "appId": self.appId,
+                    "toWxid": wx.room_id,
+                    "content": content,
+                    "ats": "",
+                }
+
+                result = self.s.post(url, headers=headers, json=data)
+                response = result.json()
+                if response.get('ret') == 200:
+                    logger.info(f"[GeWechatWebhook] 发布消息到{wx.room_name}成功")
+                logger.error(f"[GeWechatWebhook] 发布消息失败: {response.get('msg', '未知错误')}")
+            except Exception as e:
+                logger.error(f"[GeWechatWebhook] 发布消息失败: {str(e)}\n{traceback.format_exc()}")
+        
+    def publish_admin(self, content):
+        """
+        发布群消息
+        :param content: 消息内容
+        :return: 成功返回True，失败返回False
+        """
+        if not self.access_token:
+            if not self.get_access_token():
+                return False
+
+        if not self.check_login():
+            logger.error("[GeWechatWebhook] 未登录")
+            return False
+
+        url = f"{self.config['base_url']}/message/postText"
+        headers = {
+            "X-GEWE-TOKEN": self.access_token,
+            "Content-Type": "application/json"
+        }
+
+        try:
+            data = {
+                "appId": self.appId,
+                "toWxid": "guoyingqi0",
+                "content": content,
+                "ats": "",
+            }
+
+            result = self.s.post(url, headers=headers, json=data)
+            response = result.json()
+            if response.get('ret') == 200:
+                return True
+            logger.error(f"[GeWechatWebhook] 发布消息失败: {response.get('msg', '未知错误')}")
+            return False
+        except Exception as e:
+            logger.error(f"[GeWechatWebhook] 发布消息失败: {str(e)}\n{traceback.format_exc()}")
+            return False
+        
+
 
 if __name__ == "__main__":
     # 测试代码

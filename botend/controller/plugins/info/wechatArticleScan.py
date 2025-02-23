@@ -14,7 +14,7 @@ from utils.log import logger
 from botend.models import WechatArticle, WechatAccountTask
 
 from botend.controller.BaseScan import BaseScan
-from botend.interface.aibotkWechat import AibotkWechatWebhook
+from botend.interface.gewechat import GeWechatInterface
 
 import re
 import time
@@ -131,5 +131,6 @@ class WechatArticleScan(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
+        aw = GeWechatInterface()
+        aw.init()
         aw.publish_admin(self.hint)

@@ -46,7 +46,6 @@ class GeWechatWebhookView(View):
         try:
             # 获取请求体中的JSON数据
             data = json.loads(request.body).get('Data', {})
-            print(data)
             # 获取消息类型
             msgtype = data.get('MsgType')
 
@@ -105,7 +104,7 @@ class GeWechatWebhookView(View):
                 content = msg_data.get('Content', {}).get('string').split(':\n', 1)[1]
                 logger.info(f"[GeWechatWebhook] 收到群聊消息: room={from_user}, content={content}")
             else:
-                content = msg_data.get('Content', {}).get('string').split()
+                content = msg_data.get('Content', {}).get('string').strip()
                 logger.info(f"[GeWechatWebhook] 收到私聊消息: from={to_user}, content={content}")
 
 

@@ -11,7 +11,7 @@
 
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
-from botend.interface.aibotkWechat import AibotkWechatWebhook
+from botend.interface.gewechat import GeWechatInterface
 
 from botend.models import WowArticle
 
@@ -88,7 +88,6 @@ class LhfszsMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
+        aw = GeWechatInterface()
+        aw.init()
         aw.publish_text(self.post_desp)
-        aw.publish_img(self.post_img)
-        # aw.publish_card(self.post_desp, self.post_img)

@@ -16,7 +16,7 @@ from botend.models import VulnMonitorTask, VulnData
 from botend.controller.plugins.vuln import Vul_List
 
 from botend.controller.BaseScan import BaseScan
-from botend.interface.aibotkWechat import AibotkWechatWebhook
+from botend.interface.gewechat import GeWechatInterface
 
 import time
 import random
@@ -143,5 +143,6 @@ class SeebugMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
+        aw = GeWechatInterface()
+        aw.init()
         aw.publish_admin(self.hint)

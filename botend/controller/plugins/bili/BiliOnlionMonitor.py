@@ -10,7 +10,7 @@
 '''
 
 from botend.controller.BaseScan import BaseScan
-from botend.interface.aibotkWechat import AibotkWechatWebhook
+from botend.interface.gewechat import GeWechatInterface
 
 import json
 
@@ -89,5 +89,6 @@ class BiliOnlionMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
+        aw = GeWechatInterface()
+        aw.init()
         aw.publish_text(self.video_desp)
