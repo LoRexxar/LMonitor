@@ -95,7 +95,7 @@ class GeWechatInterface:
                 if not auth:
                     auth = GeWechatAuth(appId=qr_data.get('appId'))
                 auth.uuid = qr_data.get('uuid')
-                auth.qr_img_base64 = qr_data.get('qrImgBase64')
+                auth.qrImgBase64 = qr_data.get('qrImgBase64')
                 auth.is_active = True
                 self.appId = qr_data.get('appId')
                 auth.save()
@@ -136,12 +136,25 @@ class GeWechatInterface:
                     auth.is_login = True
                     self.is_login = True
                     auth.save()
-                    logger.info(f"[GeWechatWebhook] 登录成功")
+                    logger.info(f"[GeWechatWebhook] 已登录")
                     return True
                 else:
+                    # 先检查是否扫码成功
+                    url2 = f"{self.config['base_url']}/login/checkLogin"
+                    data2 = {
+                        "appId": auth.appId,
+                        "uuid": auth.uuid,
+                    }
+                    result = self.s.post(url2, headers=headers, json=data2)
+                    response = result.json()
+                    if response.get('ret') == 200:
+                        logger.info(f"[GeWechatWebhook] 已登录")
+                        return True
+
                     auth.is_login = False
                     self.is_login = False
                     auth.save()
+                    self.get_login_qrcode()
                     logger.warning(f"[GeWechatWebhook] 未登录")
                     return False
             logger.error(f"[GeWechatWebhook] 检查登录状态失败: {response.get('msg', '未知错误')}")

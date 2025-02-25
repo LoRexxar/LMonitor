@@ -295,7 +295,7 @@ class GeWechatWebhookView(View):
                     <div class="title">GeWechat 登录</div>
                     <div class="subtitle">请使用微信扫描下方二维码登录</div>
                     <div class="qr-container">
-                        <img src="data:image/png;base64,{qr_data.get('qrImgBase64', '')}" alt="登录二维码">
+                        <img src="{qr_data.get('qrImgBase64', '')}" alt="登录二维码">
                     </div>
                 </body>
                 </html>
