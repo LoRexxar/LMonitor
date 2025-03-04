@@ -191,7 +191,7 @@ class GeWechatWebhookView(View):
                 if response:
                     logger.info(f"[GeWechatWebhook] 自动通过好友请求成功: nickname={fromnickname}")
                     
-                    time.sleep(random.uniform(1,3))
+                    time.sleep(random.uniform(20,30))
                     # 发送欢迎消息
                     response = self.gewechat.send_text_message(fromusername, active_task.response)
                 else:
