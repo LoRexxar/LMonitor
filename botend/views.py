@@ -7,6 +7,7 @@ import pytz
 import datetime
 import traceback
 import threading
+from django.db.utils import OperationalError
 from utils.LReq import LReq
 from utils.log import logger
 from core.threadingpool import ThreadPool
@@ -63,11 +64,11 @@ class LMonitorCore:
 
     def scan(self):
 
-        try:
-            global is_Block
+        while 1:
+            try:
+                global is_Block
 
-            Lreq = LReq(is_chrome=True)
-            while 1:
+                Lreq = LReq(is_chrome=True)
                 lock.acquire()
                 if is_Block:
                     time.sleep(20)
@@ -108,11 +109,16 @@ class LMonitorCore:
                     now_task.save()
                     time.sleep(10)
 
-        except KeyboardInterrupt:
-            logger.error("[Scan] Stop Scaning.")
-            Lreq.close_driver()
-            exit(0)
+            except KeyboardInterrupt:
+                logger.error("[Scan] Stop Scaning.")
+                Lreq.close_driver()
+                exit(0)
 
-        except:
-            logger.warning('[Scan] something error, {}'.format(traceback.format_exc()))
-            raise
+            except OperationalError:
+                logger.error("[Scan] mysql link timeout. wait start.")
+                time.sleep(600)
+                continue
+
+            except:
+                logger.warning('[Scan] something error, {}'.format(traceback.format_exc()))
+                raise
