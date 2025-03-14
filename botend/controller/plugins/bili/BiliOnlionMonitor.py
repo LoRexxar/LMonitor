@@ -39,7 +39,8 @@ class BiliOnlionMonitor(BaseScan):
         driver = self.req.get(self.url1, 'RespByChrome', 0, cookies, is_origin=1)
 
         # 处理返回内容
-        self.resolve_data_live(driver)
+        if driver:
+            self.resolve_data_live(driver)
 
         # 通过api检测
         url2 = "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id={}".format(url)

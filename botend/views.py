@@ -63,12 +63,12 @@ class LMonitorCore:
     """
 
     def scan(self):
+        Lreq = LReq(is_chrome=True)
 
         while 1:
             try:
                 global is_Block
 
-                Lreq = LReq(is_chrome=True)
                 lock.acquire()
                 if is_Block:
                     time.sleep(20)

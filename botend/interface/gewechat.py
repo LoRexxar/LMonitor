@@ -96,7 +96,9 @@ class GeWechatInterface:
                     auth = GeWechatAuth(appId=qr_data.get('appId'))
                 auth.uuid = qr_data.get('uuid')
                 auth.qrImgBase64 = qr_data.get('qrImgBase64')
+                auth.login_status = 1
                 auth.is_active = True
+                auth.appId = qr_data.get('appId')
                 self.appId = qr_data.get('appId')
                 auth.save()
                 return qr_data
@@ -128,30 +130,32 @@ class GeWechatInterface:
         }
 
         try:
+            # 先检查扫码状态
+            if auth.login_status == 1:
+                # 先检查是否扫码成功
+                url2 = f"{self.config['base_url']}/login/checkLogin"
+                data2 = {
+                    "appId": auth.appId,
+                    "uuid": auth.uuid,
+                }
+                result = self.s.post(url2, headers=headers, json=data2)
+                response = result.json()
+                if response.get('ret') == 200:
+                    logger.info(f"[GeWechatWebhook] 二维码扫描成功，检查登录状态.")
+
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
             if response.get('ret') == 200:
+                print(response)
                 is_login = response['data']
                 if is_login:
-                    auth.is_login = True
+                    auth.login_status = 2
                     self.is_login = True
                     auth.save()
                     logger.info(f"[GeWechatWebhook] 已登录")
                     return True
                 else:
-                    # 先检查是否扫码成功
-                    url2 = f"{self.config['base_url']}/login/checkLogin"
-                    data2 = {
-                        "appId": auth.appId,
-                        "uuid": auth.uuid,
-                    }
-                    result = self.s.post(url2, headers=headers, json=data2)
-                    response = result.json()
-                    if response.get('ret') == 200:
-                        logger.info(f"[GeWechatWebhook] 已登录")
-                        return True
-
-                    auth.is_login = False
+                    auth.login_status = 0
                     self.is_login = False
                     auth.save()
                     self.get_login_qrcode()

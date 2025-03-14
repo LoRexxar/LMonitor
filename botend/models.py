@@ -108,7 +108,7 @@ class GeWechatAuth(models.Model):
     qrImgBase64 = models.TextField(null=True)
     uuid = models.CharField(max_length=100, null=True)
     create_time = models.DateTimeField(auto_now_add=True)
-    is_login = models.BooleanField(default=False)
+    login_status = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True)
 
 class GeWechatRoomList(models.Model):

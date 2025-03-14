@@ -19,6 +19,7 @@ from botend.interface.gewechat import GeWechatInterface
 
 import time
 import random
+import DrissionPage
 
 
 class AliyunAvdMonitor(BaseScan):
@@ -52,9 +53,9 @@ class AliyunAvdMonitor(BaseScan):
         if self.vmt:
             logger.info("[Aliyun Avd Monitor] Monitor aliyun avd start.")
 
-            driver = self.req.get(self.avd_url, 'RespByChrome', 0, "", is_origin=1)
-
             try:
+                driver = self.req.get(self.avd_url, 'RespByChrome', 0, "", is_origin=1)
+
                 tr_list = driver.eles('tag:tr')
 
                 for tr in tr_list:
@@ -117,6 +118,11 @@ class AliyunAvdMonitor(BaseScan):
 
             except AttributeError:
                 logger.error("[Aliyun Avd Monitor] Monitor aliyun avd start error.")
+                return
+
+            except DrissionPage.errors.ContextLostError:
+                logger.error("[Aliyun Avd Monitor] page refresh. return back")
+                return
 
             except:
                 raise
