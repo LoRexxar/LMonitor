@@ -128,7 +128,7 @@ class HexagramInterface:
 
         return message
 
-    def get_hexagram_mess(self):
+    def get_hexagram_mess(self, content_type=0):
         """
         随机获取一个卦象
         :return:
@@ -143,21 +143,21 @@ class HexagramInterface:
         global now_user_list
 
         # 检查是不是星期4，如果不是则返回
-        if current_date.weekday() != 3:
+        if current_date.weekday() != 3 and content_type == 2:
             mess = "来一卦功能只在周四开放群聊，平日你可以私信机器人获取哦:>"
 
-        else:
-            if old_date == "":
-                old_date = now_date
-                now_user_list = [uid]
-            elif old_date != now_date:
-                old_date = now_date
-                now_user_list = [uid]
-            elif old_date == now_date:
-                # 检查uname的存在性
-                if uid in now_user_list:
-                    mess = "你今天已经摇过签了，本签每日只能摇一次噢."
-                else:
-                    now_user_list.append(uid)
+        # else:
+        #     if old_date == "":
+        #         old_date = now_date
+        #         # now_user_list = [uid]
+        #     elif old_date != now_date:
+        #         old_date = now_date
+        #         now_user_list = [uid]
+        #     elif old_date == now_date:
+        #         # 检查uname的存在性
+        #         if uid in now_user_list:
+        #             mess = "你今天已经摇过签了，本签每日只能摇一次噢."
+        #         else:
+        #             now_user_list.append(uid)
 
         return mess

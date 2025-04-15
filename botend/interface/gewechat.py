@@ -394,7 +394,6 @@ class GeWechatInterface:
         try:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
-            print(response)
             if response.get('ret') == 200:
                 logger.info(f"[GeWechatWebhook] 添加联系人成功")
                 return True

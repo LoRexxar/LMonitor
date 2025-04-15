@@ -114,20 +114,20 @@ class GeWechatWebhookView(View):
             # 遍历所有活跃任务，尝试匹配消息内容
             for task in active_tasks:
                 if task.active_type == 0 and content_type == 0:
-                    self._send_back_messge(resp_target, content, task.content_regex, task.response)
+                    self._send_back_messge(resp_target, content, task.content_regex, task.response, content_type)
                 elif task.active_type == 1:
-                    self._send_back_messge(resp_target, content, task.content_regex, task.response)
+                    self._send_back_messge(resp_target, content, task.content_regex, task.response, content_type)
                 elif task.active_type == 2 and (content_type == 1 or content_type == 0):
-                    self._send_back_messge(resp_target, content, task.content_regex, task.response)
+                    self._send_back_messge(resp_target, content, task.content_regex, task.response, content_type)
                 elif task.active_type == 3 and content_type == 2:
-                    self._send_back_messge(resp_target, content, task.content_regex, task.response)
+                    self._send_back_messge(resp_target, content, task.content_regex, task.response, content_type)
 
             return JsonResponse({"code": 200, "msg": "success"})
         except Exception as e:
             logger.error(f"[GeWechatWebhook] 处理文本消息失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({"code": 500, "msg": "处理文本消息失败"})
 
-    def _send_back_messge(self, target, content, regex, resp):
+    def _send_back_messge(self, target, content, regex, resp, content_type=0):
         try:
             if regex and re.search(regex, content):
                 logger.info(f"[GeWechatWebhook] 匹配到任务: regex={regex}")
@@ -139,7 +139,7 @@ class GeWechatWebhookView(View):
                 # 发送回复消息
                 if retext in self.special_task:
                     if retext == "#hexagram":
-                        retext = self.hexagram.get_hexagram_mess()
+                        retext = self.hexagram.get_hexagram_mess(content_type)
                     elif retext == "#addgroup":
                         room_id = "52012712485@chatroom"
                         self.gewechat.invite_member_to_chatroom(room_id,target)
