@@ -54,6 +54,26 @@ class xxxbotInterface:
             except Exception as e:
                 logger.error("send msg to {} failed".format(room))
 
+    def publish_admin(self, content="", at_str=""):
+        url = "{}/VXAPI/Msg/SendTxt".format(self.base_url)
+        data = {
+                "Wxid": self.wxid, 
+                "ToWxid": "guoyingqi0", 
+                "Content": content, 
+                "Type": 1, 
+                "At": at_str
+                }
+        try:
+            r = self.s.post(url, json=data)
+            # print(r.text)
+            if r.status_code == 200:
+                logger.info("send msg to {} success".format(content))
+            else:
+                logger.error("send msg to {} failed".format(content))
+        except Exception as e:
+            logger.error("send msg to {} failed".format(content))
+
+
 if __name__ == "__main__":
     xi = xxxbotInterface()
     xi.send_msg("321321")

@@ -9,6 +9,7 @@
 
 '''
 
+import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
@@ -60,6 +61,7 @@ class ngaMonitor(BaseScan):
     def resolve_data(self, driver, title="", limit=10):
 
         try:
+            driver.run_js("g()")
             posts = driver.ele('#topicrows').eles('tag:tbody')
 
             for post in posts:
@@ -105,6 +107,12 @@ class ngaMonitor(BaseScan):
 {}""".format(title, post_count, post_date, post_name, post_link)
 
                 self.trigger_webhook()
+
+        except DrissionPage.errors.ElementNotFoundError:
+            logger.error("[ngaMonitor] bad request.")
+
+        except DrissionPage.errors.PageDisconnectedError:
+            logger.error("[ngaMonitor] PageDisconnectedError.")
 
         except AttributeError:
             logger.error("[ngaMonitor] No posts found.")
