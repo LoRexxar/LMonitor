@@ -15,7 +15,7 @@ from utils.log import logger
 from botend.models import VulnData
 
 from botend.controller.BaseScan import BaseScan
-from botend.interface.gewechat import GeWechatInterface
+from botend.interface.xxxbot import xxxbotInterface
 
 import json
 import time
@@ -104,6 +104,6 @@ class OscsScan(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = GeWechatInterface()
-        aw.init()
-        aw.publish_admin(self.hint)
+        xi = xxxbotInterface()
+
+        xi.publish_admin(self.hint)

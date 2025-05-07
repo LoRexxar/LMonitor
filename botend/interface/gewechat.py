@@ -84,10 +84,12 @@ class GeWechatInterface:
         data = {
             "appId": self.appId
         }
+        print(data)
 
         try:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
+            print(response)
             if response.get('ret') == 200:
                 qr_data = response['data']
                 # 更新二维码数据到数据库
@@ -146,7 +148,6 @@ class GeWechatInterface:
             result = self.s.post(url, headers=headers, json=data)
             response = result.json()
             if response.get('ret') == 200:
-                print(response)
                 is_login = response['data']
                 if is_login:
                     auth.login_status = 2

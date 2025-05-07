@@ -11,7 +11,7 @@
 
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
-from botend.interface.gewechat import GeWechatInterface
+from botend.interface.xxxbot import xxxbotInterface
 
 from botend.models import WowArticle
 
@@ -88,6 +88,6 @@ class LhfszsMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = GeWechatInterface()
-        aw.init()
-        aw.publish_text(self.post_desp)
+        xi = xxxbotInterface()
+
+        xi.send_msg(self.post_desp)

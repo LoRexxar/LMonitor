@@ -16,7 +16,7 @@ from botend.models import VulnData, VulnMonitorTask
 from botend.controller.plugins.vuln import Vul_List
 
 from botend.controller.BaseScan import BaseScan
-from botend.interface.gewechat import GeWechatInterface
+from botend.interface.xxxbot import xxxbotInterface
 
 import json
 import pytz
@@ -123,6 +123,6 @@ class OscsMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = GeWechatInterface()
-        aw.init()
-        aw.publish_admin(self.hint)
+        xi = xxxbotInterface()
+
+        xi.publish_admin(self.hint)

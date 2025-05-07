@@ -10,7 +10,7 @@
 '''
 
 from botend.controller.BaseScan import BaseScan
-from botend.interface.gewechat import GeWechatInterface
+from botend.interface.xxxbot import xxxbotInterface
 
 import json
 
@@ -90,6 +90,6 @@ class BiliOnlionMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = GeWechatInterface()
-        aw.init()
-        aw.publish_text(self.video_desp)
+        xi = xxxbotInterface()
+
+        xi.send_msg(self.video_desp)
