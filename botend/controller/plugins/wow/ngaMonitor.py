@@ -9,6 +9,7 @@
 
 '''
 
+import time
 import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
@@ -61,7 +62,12 @@ class ngaMonitor(BaseScan):
     def resolve_data(self, driver, title="", limit=10):
 
         try:
-            driver.run_js("g()")
+            time.sleep(3)
+            try:
+                driver.run_js("g()")
+            except DrissionPage.errors.JavaScriptError:
+                pass
+
             posts = driver.ele('#topicrows').eles('tag:tbody')
 
             for post in posts:

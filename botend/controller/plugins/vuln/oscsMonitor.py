@@ -52,71 +52,75 @@ class OscsMonitor(BaseScan):
     def parse_oscs_list(self):
 
         if self.vmt:
-            logger.info("[oscs Monitor] Monitor oscs vuln start.")
+            try:
+                logger.info("[oscs Monitor] Monitor oscs vuln start.")
 
-            local_tz = pytz.timezone('Asia/Shanghai')
-            self.vmt.last_spider_time = datetime.datetime.now(local_tz)
-            self.vmt.save()
+                local_tz = pytz.timezone('Asia/Shanghai')
+                self.vmt.last_spider_time = datetime.datetime.now(local_tz)
+                self.vmt.save()
 
-            params = {
-                "page": 1,
-                "per_page": 30,
-            }
+                params = {
+                    "page": 1,
+                    "per_page": 30,
+                }
 
-            headers = {
-                "Origin": "https://www.oscs1024.com",
-                "Referer": "https://www.oscs1024.com/cm",
-            }
+                headers = {
+                    "Origin": "https://www.oscs1024.com",
+                    "Referer": "https://www.oscs1024.com/cm",
+                }
 
-            url = self.url
+                url = self.url
 
-            content = self.req.post(url, 'JsonResp', 0, params, "", headers)
+                content = self.req.post(url, 'JsonResp', 0, params, "", headers)
 
-            r = json.loads(content)
-            for msg in r['data']['data']:
-                sid = msg['mps']
-                create_time = msg['created_at']
-                url = msg['url']
-                title = msg['title']
+                r = json.loads(content)
+                for msg in r['data']['data']:
+                    sid = msg['mps']
+                    create_time = msg['created_at']
+                    url = msg['url']
+                    title = msg['title']
 
-                # check level
-                level = msg['level']
-                if level == "严重":
-                    severity = 4
-                    score = 10
-                elif level == "高危":
-                    severity = 3
-                    score = 8
-                elif level == "中危":
-                    severity = 2
-                    score = 5
-                elif level == "低危":
-                    severity = 1
-                    score = 3
-                else:
-                    severity = 0
-                    score = 1
+                    # check level
+                    level = msg['level']
+                    if level == "严重":
+                        severity = 4
+                        score = 10
+                    elif level == "高危":
+                        severity = 3
+                        score = 8
+                    elif level == "中危":
+                        severity = 2
+                        score = 5
+                    elif level == "低危":
+                        severity = 1
+                        score = 3
+                    else:
+                        severity = 0
+                        score = 1
 
-                # check type
-                type = ""
-                for vtype in Vul_List:
-                    if vtype in title:
-                        type = vtype
-                        break
+                    # check type
+                    type = ""
+                    for vtype in Vul_List:
+                        if vtype in title:
+                            type = vtype
+                            break
 
-                is_poc = msg['is_poc']
-                is_exp = msg['is_exp']
+                    is_poc = msg['is_poc']
+                    is_exp = msg['is_exp']
 
-                # check exist
-                va = VulnData.objects.filter(sid=sid).first()
-                if va:
-                    continue
+                    # check exist
+                    va = VulnData.objects.filter(sid=sid).first()
+                    if va:
+                        continue
 
-                logger.info("[Oscs Monitor] Found new Vuln {}".format(title))
-                vn = VulnData(sid=sid, title=title, type=type, publish_time=create_time,
-                              link=url, source="oscs", score=score, severity=severity,
-                              is_poc=is_poc, is_exp=is_exp, is_active=1, state=0)
-                vn.save()
+                    logger.info("[Oscs Monitor] Found new Vuln {}".format(title))
+                    vn = VulnData(sid=sid, title=title, type=type, publish_time=create_time,
+                                link=url, source="oscs", score=score, severity=severity,
+                                is_poc=is_poc, is_exp=is_exp, is_active=1, state=0)
+                    vn.save()
+            except TypeError:
+                logger.error("[Oscs Monitor] Monitor oscs vuln error.")
+                return False
 
     def trigger_webhook(self):
         """
