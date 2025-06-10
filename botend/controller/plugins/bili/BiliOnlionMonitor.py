@@ -62,28 +62,32 @@ class BiliOnlionMonitor(BaseScan):
     def resolve_data(self, url):
 
         r = self.req.get(url, 'Resp', 0, "")
-        status = json.loads(r)
-        status_code = status['code']
-        # print(self.title)
+        try :
+            status = json.loads(r)
+            status_code = status['code']
+            # print(self.title)
 
-        if status_code != 0:
-            # 检查当前直播状态
-            if self.task.flag == "1":
+            if status_code != 0:
+                # 检查当前直播状态
+                if self.task.flag == "1":
+                    return
+
+                self.video_desp = """你关注的up主LoRexxar开启直播啦！！
+            B站：{}
+            Douyu: https://www.douyu.com/499738
+            {}
+                            """.format(self.url1, self.title)
+                self.task.flag = "1"
+
+                self.trigger_webhook()
                 return
 
-            self.video_desp = """你关注的up主LoRexxar开启直播啦！！
-        B站：{}
-        Douyu: https://www.douyu.com/499738
-        {}
-                        """.format(self.url1, self.title)
-            self.task.flag = "1"
-
-            self.trigger_webhook()
-            return
-
-        if status_code == 0:
-            self.task.flag = "0"
-            # print(status_code)
+            if status_code == 0:
+                self.task.flag = "0"
+                # print(status_code)
+        except TypeError:
+            logger.error("[bilionline Monitor] bilionline Monitor error.")
+            return False
 
     def trigger_webhook(self):
         """

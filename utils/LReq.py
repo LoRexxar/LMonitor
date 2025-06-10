@@ -75,7 +75,7 @@ class LReq:
 
         try:
             method = getattr(self, 'get'+type)
-            return method(url, args, **kwargs)
+            return method(url, *args, **kwargs)  # 修改这里，移除了args作为单独参数
 
         except requests.exceptions.ReadTimeout:
             logger.warning("[LReq] Request {} timeout...".format(url))
@@ -128,7 +128,7 @@ class LReq:
 
         try:
             method = getattr(self, 'post'+type)
-            return method(url, *args, **kwargs)
+            return method(url, *args, **kwargs)  # 修改这里，确保参数正确传递
 
         except requests.exceptions.ReadTimeout:
             logger.warning("[LReq] Request {} timeout...".format(url))

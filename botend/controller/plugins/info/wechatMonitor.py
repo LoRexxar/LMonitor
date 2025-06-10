@@ -45,7 +45,7 @@ class WechatMonitor(BaseScan):
         self.rfcode = auth.ext
 
         # 获取列表
-        self.url1 = "https://mp.weixin.qq.com/cgi-bin/appmsg"
+        self.url1 = "https://mp.weixin.qq.com/cgi-bin/appmsgpublish"
 
     def scan(self, url):
         """
@@ -71,12 +71,15 @@ class WechatMonitor(BaseScan):
                 "lang": "zh_CN",
                 "f": "json",
                 "ajax": "1",
-                "action": "list_ex",
+                "sub_action": "list_ex",
                 "begin": 0,
                 "count": 5,
                 "query": "",
                 "fakeid": wat.biz,
-                "type": "9",
+                "type": "101_1",
+                "sub": "list",
+                "fringerprint": "",
+                "free_publish_type" : 1
             }
             params_str = urllib.parse.urlencode(params)
             url = self.url1 + '?' + params_str
