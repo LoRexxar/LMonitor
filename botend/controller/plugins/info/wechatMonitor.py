@@ -99,7 +99,7 @@ class WechatMonitor(BaseScan):
                 if "publish_list" in content_full:
                     for msg in content_full['publish_list']:
                         article_content = json.loads(msg["publish_info"])
-                        article_data = article_content["data"]
+                        article_data = article_content["appmsgex"][0]
                         cover = article_data['cover']
                         create_time = datetime.datetime.fromtimestamp(article_data['create_time'])
                         digest = article_data['digest']
@@ -110,7 +110,7 @@ class WechatMonitor(BaseScan):
                         # query_params = parse_qs(parsed_url.query)
                         # sn = query_params.get('sn')[0]
 
-                        waa = WechatArticle.objects.filter(link=link).first()
+                        waa = WechatArticle.objects.filter(url=link).first()
 
                         if waa:
                             continue
