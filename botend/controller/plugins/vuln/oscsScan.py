@@ -12,23 +12,14 @@
 
 from utils.log import logger
 
-from botend.models import VulnData, VulnMonitorTask
-from botend.controller.plugins.vuln import Vul_List, Vul_link_Type_Dict
+from botend.models import VulnData
 
 from botend.controller.BaseScan import BaseScan
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.xxxbot import xxxbotInterface
 
 import json
 import time
-import pytz
 import random
-import datetime
-import urllib.parse
-from urllib.parse import urlparse, parse_qs
-import selenium
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 
 class OscsScan(BaseScan):
@@ -113,5 +104,6 @@ class OscsScan(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
-        aw.publish_admin(self.hint)
+        xi = xxxbotInterface()
+
+        xi.publish_admin(self.hint)

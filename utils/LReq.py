@@ -75,7 +75,7 @@ class LReq:
 
         try:
             method = getattr(self, 'get'+type)
-            return method(url, args, **kwargs)
+            return method(url, *args, **kwargs)  # 修改这里，移除了args作为单独参数
 
         except requests.exceptions.ReadTimeout:
             logger.warning("[LReq] Request {} timeout...".format(url))
@@ -128,7 +128,7 @@ class LReq:
 
         try:
             method = getattr(self, 'post'+type)
-            return method(url, *args, **kwargs)
+            return method(url, *args, **kwargs)  # 修改这里，确保参数正确传递
 
         except requests.exceptions.ReadTimeout:
             logger.warning("[LReq] Request {} timeout...".format(url))
@@ -174,7 +174,7 @@ class LReq:
     def getResp(self, url, cookies):
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
-        cookies = cookies[0] if cookies else ""
+        cookies = cookies if cookies else ""
 
         r = self.s.get(url, headers=self.get_header(url, cookies), timeout=3)
 
@@ -183,14 +183,14 @@ class LReq:
     def getRespByChrome(self, url, cookies, is_origin=0):
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
-        cookies = cookies[0] if cookies else ""
+        cookies = cookies if cookies else ""
 
         return self.cs.get_resp(url, cookies, is_origin=is_origin)
 
     def postResp(self, url, data, cookies, headers={}):
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
-        cookies = cookies[0] if cookies else ""
+        cookies = cookies if cookies else ""
 
         r = self.s.post(url, data=data, headers=self.get_header(url, cookies, headers), timeout=3)
 
@@ -199,7 +199,7 @@ class LReq:
     def postJsonResp(self, url, data, cookies, headers={}):
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
-        cookies = cookies[0] if cookies else ""
+        cookies = cookies if cookies else ""
 
         header = self.get_header(url, cookies, headers)
         header['Content-Type'] = 'application/json'

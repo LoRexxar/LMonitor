@@ -11,10 +11,10 @@
 
 from utils.log import logger
 
-from botend.models import MonitorTask, WechatArticle, WechatAccountTask, TargetAuth
+from botend.models import WechatArticle, WechatAccountTask, TargetAuth
 
 from botend.controller.BaseScan import BaseScan
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.xxxbot import xxxbotInterface
 
 import json
 import time
@@ -23,10 +23,6 @@ import random
 import datetime
 import urllib.parse
 from urllib.parse import urlparse, parse_qs
-import selenium
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 
 class WechatMonitor(BaseScan):
@@ -49,7 +45,7 @@ class WechatMonitor(BaseScan):
         self.rfcode = auth.ext
 
         # 获取列表
-        self.url1 = "https://mp.weixin.qq.com/cgi-bin/appmsg"
+        self.url1 = "https://mp.weixin.qq.com/cgi-bin/appmsgpublish"
 
     def scan(self, url):
         """
@@ -75,12 +71,15 @@ class WechatMonitor(BaseScan):
                 "lang": "zh_CN",
                 "f": "json",
                 "ajax": "1",
-                "action": "list_ex",
+                "sub_action": "list_ex",
                 "begin": 0,
                 "count": 5,
                 "query": "",
                 "fakeid": wat.biz,
-                "type": "9",
+                "type": "101_1",
+                "sub": "list",
+                "fringerprint": "",
+                "free_publish_type" : 1
             }
             params_str = urllib.parse.urlencode(params)
             url = self.url1 + '?' + params_str
@@ -95,28 +94,32 @@ class WechatMonitor(BaseScan):
                 return
 
             r = json.loads(content)
-            if 'app_msg_list' in r:
-                for msg in r['app_msg_list']:
-                    cover = msg['cover']
-                    create_time = datetime.datetime.fromtimestamp(msg['create_time'])
-                    digest = msg['digest']
-                    link = msg['link']
-                    title = msg['title']
+            if 'publish_page' in r:
+                content_full = json.loads(r['publish_page'])
+                if "publish_list" in content_full:
+                    for msg in content_full['publish_list']:
+                        article_content = json.loads(msg["publish_info"])
+                        article_data = article_content["appmsgex"][0]
+                        cover = article_data['cover']
+                        create_time = datetime.datetime.fromtimestamp(article_data['create_time'])
+                        digest = article_data['digest']
+                        link = article_data['link']
+                        title = article_data['title']
 
-                    parsed_url = urlparse(link)
-                    query_params = parse_qs(parsed_url.query)
-                    sn = query_params.get('sn')[0]
+                        # parsed_url = urlparse(link)
+                        # query_params = parse_qs(parsed_url.query)
+                        # sn = query_params.get('sn')[0]
 
-                    waa = WechatArticle.objects.filter(sn=sn).first()
+                        waa = WechatArticle.objects.filter(url=link).first()
 
-                    if waa:
-                        continue
+                        if waa:
+                            continue
 
-                    obj = WechatArticle(title=title, url=link, publish_time=create_time,
-                                        biz=wat.biz, digest=digest, cover=cover,
-                                        sn=sn, state=0)
-                    obj.save()
-                    logger.info("[Wechat Monitor] Found new Wechat article.")
+                        obj = WechatArticle(title=title, url=link, publish_time=create_time,
+                                            biz=wat.biz, digest=digest, cover=cover,
+                                            sn="", state=0)
+                        obj.save()
+                        logger.info("[Wechat Monitor] Found new Wechat article.")
 
             time.sleep(random.randint(120, 300))
 
@@ -125,5 +128,6 @@ class WechatMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
-        aw.publish_admin(self.hint)
+        xi = xxxbotInterface()
+
+        xi.publish_admin(self.hint)

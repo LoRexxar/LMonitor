@@ -11,20 +11,16 @@
 
 from utils.log import logger
 
-from botend.models import MonitorTask, WechatArticle, WechatAccountTask, TargetAuth
+from botend.models import WechatArticle, WechatAccountTask
 
 from botend.controller.BaseScan import BaseScan
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.xxxbot import xxxbotInterface
 
 import re
-import json
 import time
 import pytz
 import random
 import datetime
-import urllib.parse
-from urllib.parse import urlparse, parse_qs
-from DrissionPage.common import By
 
 
 class WechatArticleScan(BaseScan):
@@ -135,5 +131,6 @@ class WechatArticleScan(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
-        aw.publish_admin(self.hint)
+        xi = xxxbotInterface()
+
+        xi.publish_admin(self.hint)

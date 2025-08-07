@@ -13,20 +13,16 @@
 from utils.log import logger
 
 from botend.models import VulnMonitorTask, VulnData
-from botend.controller.plugins.vuln import Vul_List, Vul_link_Type_Dict
+from botend.controller.plugins.vuln import Vul_List
 
 from botend.controller.BaseScan import BaseScan
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.xxxbot import xxxbotInterface
 
-import json
 import time
-import pytz
 import random
-import datetime
-import urllib.parse
-from urllib.parse import urlparse, parse_qs
+
+
 # import selenium
-from DrissionPage.common import By
 
 
 class SeebugMonitor(BaseScan):
@@ -147,5 +143,6 @@ class SeebugMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
-        aw.publish_admin(self.hint)
+        xi = xxxbotInterface()
+
+        xi.publish_admin(self.hint)

@@ -9,12 +9,9 @@
 
 '''
 
-from datetime import datetime
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
-from botend.models import MonitorTask
-from botend.webhook.qiyeWechat import QiyeWechatWebhook
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.xxxbot import xxxbotInterface
 
 from botend.models import WowArticle
 
@@ -91,7 +88,6 @@ class LhfszsMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
-        aw.publish_text(self.post_desp)
-        aw.publish_img(self.post_img)
-        # aw.publish_card(self.post_desp, self.post_img)
+        xi = xxxbotInterface()
+
+        xi.send_msg(self.post_desp)

@@ -11,15 +11,12 @@
 
 
 import time
-from DrissionPage import errors
+import DrissionPage
 from datetime import datetime
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.models import WowArticle
-from botend.webhook.qiyeWechat import QiyeWechatWebhook
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
-
-from DrissionPage.common import By
+from botend.interface.xxxbot import xxxbotInterface
 
 
 class BiliMonitor(BaseScan):
@@ -85,6 +82,11 @@ class BiliMonitor(BaseScan):
 
                     self.trigger_webhook()
 
+        except DrissionPage.errors.ElementNotFoundError:
+            logger.error("[ngaMonitor] bad request.")
+
+        except DrissionPage.errors.PageDisconnectedError:
+            logger.error("[ngaMonitor] PageDisconnectedError.")
 
         except AttributeError:
             logger.error("[BiliMonitor] Can't find videos.")
@@ -96,5 +98,6 @@ class BiliMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
-        aw.publish_text(self.video_desp)
+        xi = xxxbotInterface()
+
+        xi.send_msg(self.video_desp)

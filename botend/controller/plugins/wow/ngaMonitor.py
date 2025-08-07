@@ -9,13 +9,11 @@
 
 '''
 
-from datetime import datetime
-
+import time
+import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
-from botend.models import MonitorTask
-from botend.webhook.qiyeWechat import QiyeWechatWebhook
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.xxxbot import xxxbotInterface
 
 from botend.models import WowArticle
 
@@ -64,6 +62,12 @@ class ngaMonitor(BaseScan):
     def resolve_data(self, driver, title="", limit=10):
 
         try:
+            time.sleep(3)
+            try:
+                driver.run_js("g()")
+            except DrissionPage.errors.JavaScriptError:
+                pass
+
             posts = driver.ele('#topicrows').eles('tag:tbody')
 
             for post in posts:
@@ -110,6 +114,12 @@ class ngaMonitor(BaseScan):
 
                 self.trigger_webhook()
 
+        except DrissionPage.errors.ElementNotFoundError:
+            logger.error("[ngaMonitor] bad request.")
+
+        except DrissionPage.errors.PageDisconnectedError:
+            logger.error("[ngaMonitor] PageDisconnectedError.")
+
         except AttributeError:
             logger.error("[ngaMonitor] No posts found.")
 
@@ -121,7 +131,6 @@ class ngaMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
-        aw.publish_text(self.post_desp)
-        # aw.publish_img(self.post_img)
-        # aw.publish_card(self.post_desp, self.post_img)
+        xi = xxxbotInterface()
+
+        xi.send_msg(self.post_desp)

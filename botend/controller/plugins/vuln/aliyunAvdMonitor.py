@@ -15,16 +15,11 @@ from botend.models import VulnMonitorTask, VulnData
 from botend.controller.plugins.vuln import Vul_List, Vul_link_Type_Dict
 
 from botend.controller.BaseScan import BaseScan
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.xxxbot import xxxbotInterface
 
-import json
 import time
-import pytz
 import random
-import datetime
-import urllib.parse
-from urllib.parse import urlparse, parse_qs
-from DrissionPage.common import By
+import DrissionPage
 
 
 class AliyunAvdMonitor(BaseScan):
@@ -58,9 +53,9 @@ class AliyunAvdMonitor(BaseScan):
         if self.vmt:
             logger.info("[Aliyun Avd Monitor] Monitor aliyun avd start.")
 
-            driver = self.req.get(self.avd_url, 'RespByChrome', 0, "", is_origin=1)
-
             try:
+                driver = self.req.get(self.avd_url, 'RespByChrome', 0, "", is_origin=1)
+
                 tr_list = driver.eles('tag:tr')
 
                 for tr in tr_list:
@@ -123,6 +118,11 @@ class AliyunAvdMonitor(BaseScan):
 
             except AttributeError:
                 logger.error("[Aliyun Avd Monitor] Monitor aliyun avd start error.")
+                return
+
+            except DrissionPage.errors.ContextLostError:
+                logger.error("[Aliyun Avd Monitor] page refresh. return back")
+                return
 
             except:
                 raise
@@ -134,5 +134,6 @@ class AliyunAvdMonitor(BaseScan):
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
-        aw.publish_admin(self.hint)
+        xi = xxxbotInterface()
+
+        xi.publish_admin(self.hint)

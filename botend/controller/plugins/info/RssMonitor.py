@@ -45,7 +45,11 @@ class RssArticleMonitor(BaseScan):
         :return:
         """
         logger.info("[Rss Monitor] Start Rss check.")
-        self.parse_rss_article_list()
+        try:
+            self.parse_rss_article_list()
+        except OverflowError:
+            logger.error("[Rss Monitor] bad timestamp.")
+            return False
 
         return True
 

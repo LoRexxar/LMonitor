@@ -8,16 +8,11 @@
 @desc:
 
 '''
-from DrissionPage.errors import PageDisconnectedError
 
-from utils.log import logger
 from botend.controller.BaseScan import BaseScan
-from botend.models import MonitorTask
-from botend.webhook.qiyeWechat import QiyeWechatWebhook
-from botend.webhook.aibotkWechat import AibotkWechatWebhook
+from botend.interface.xxxbot import xxxbotInterface
 
 import json
-from DrissionPage.common import By
 
 
 class BiliOnlionMonitor(BaseScan):
@@ -44,7 +39,8 @@ class BiliOnlionMonitor(BaseScan):
         driver = self.req.get(self.url1, 'RespByChrome', 0, cookies, is_origin=1)
 
         # 处理返回内容
-        self.resolve_data_live(driver)
+        if driver:
+            self.resolve_data_live(driver)
 
         # 通过api检测
         url2 = "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id={}".format(url)
@@ -66,33 +62,38 @@ class BiliOnlionMonitor(BaseScan):
     def resolve_data(self, url):
 
         r = self.req.get(url, 'Resp', 0, "")
-        status = json.loads(r)
-        status_code = status['code']
-        # print(self.title)
+        try :
+            status = json.loads(r)
+            status_code = status['code']
+            # print(self.title)
 
-        if status_code != 0:
-            # 检查当前直播状态
-            if self.task.flag == "1":
+            if status_code != 0:
+                # 检查当前直播状态
+                if self.task.flag == "1":
+                    return
+
+                self.video_desp = """你关注的up主LoRexxar开启直播啦！！
+            B站：{}
+            Douyu: https://www.douyu.com/499738
+            {}
+                            """.format(self.url1, self.title)
+                self.task.flag = "1"
+
+                self.trigger_webhook()
                 return
 
-            self.video_desp = """你关注的up主LoRexxar开启直播啦！！
-        B站：{}
-        Douyu: https://www.douyu.com/499738
-        {}
-                        """.format(self.url1, self.title)
-            self.task.flag = "1"
-
-            self.trigger_webhook()
-            return
-
-        if status_code == 0:
-            self.task.flag = "0"
-            # print(status_code)
+            if status_code == 0:
+                self.task.flag = "0"
+                # print(status_code)
+        except TypeError:
+            logger.error("[bilionline Monitor] bilionline Monitor error.")
+            return False
 
     def trigger_webhook(self):
         """
         触发企业微信推送
         :return:
         """
-        aw = AibotkWechatWebhook()
-        aw.publish_text(self.video_desp)
+        xi = xxxbotInterface()
+
+        xi.send_msg(self.video_desp)
