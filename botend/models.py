@@ -102,7 +102,6 @@ class WowArticle(models.Model):
     publish_time = models.DateTimeField(default=None, null=True)
     is_active = models.BooleanField(default=True)
 
-
 class GeWechatAuth(models.Model):
     appId = models.CharField(max_length=100)
     qrImgBase64 = models.TextField(null=True)
@@ -124,3 +123,22 @@ class GeWechatTask(models.Model):
     # 0: admin 1: all 2：self 3：room
     active_type = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True)
+
+
+class SimcAplKeywordPair(models.Model):
+    """
+    SimC APL关键字对照表
+    """
+    apl_keyword = models.CharField(max_length=100, help_text="APL格式关键字")
+    cn_keyword = models.CharField(max_length=100, help_text="CN关键字")
+    description = models.CharField(max_length=500, null=True, blank=True, help_text="描述")
+    create_time = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True, help_text="是否启用")
+    
+    class Meta:
+        db_table = 'simc_apl_keyword_pair'
+        verbose_name = 'SimC APL关键字对'
+        verbose_name_plural = 'SimC APL关键字对'
+    
+    def __str__(self):
+        return f"{self.apl_keyword} <-> {self.cn_keyword}"

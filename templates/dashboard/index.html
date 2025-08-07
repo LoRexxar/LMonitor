@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    {% load static %}
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom styles -->
+    <style>
+        .sidebar-transition { transition: all 0.3s ease; }
+        .card-hover:hover { transform: translateY(-2px); }
+        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .glass-effect { backdrop-filter: blur(10px); background: rgba(255, 255, 255, 0.1); }
+        .rotate-180 { transform: rotate(180deg); }
+        .fa-chevron-down { transition: transform 0.3s ease; }
+        .submenu { transition: max-height 0.3s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .content-section.active { animation: fadeIn 0.3s ease-out; }
+        
+        /* 确保侧边栏固定宽度 */
+        .sidebar-fixed {
+            width: 16rem !important;
+            min-width: 16rem !important;
+            max-width: 16rem !important;
+            flex-shrink: 0 !important;
+        }
+        
+        /* 移动端侧边栏样式 */
+        @media (max-width: 1023px) {
+            .sidebar-fixed {
+                position: fixed;
+                top: 0;
+                left: -16rem;
+                height: 100vh;
+                z-index: 40;
+                transition: left 0.3s ease;
+            }
+            
+            .sidebar-fixed.open {
+                left: 0;
+            }
+            
+            .main-content {
+                margin-left: 0;
+            }
+            
+            .sidebar-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: rgba(0, 0, 0, 0.5);
+                z-index: 30;
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 0.3s ease, visibility 0.3s ease;
+            }
+            
+            .sidebar-overlay.show {
+                opacity: 1;
+                visibility: visible;
+            }
+        }
+        
+        /* 确保主内容区域不会影响侧边栏 */
+        .main-content {
+            flex: 1;
+            min-width: 0;
+            overflow-x: auto;
+        }
+        
+        /* 防止长文本破坏布局 */
+        .text-truncate {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    </style>
+    <script src="{% static 'dashboard/js/main.js' %}" defer></script>
+</head>
+<body class="bg-gray-50 font-sans">
+    <!-- 添加CSRF令牌隐藏字段 -->
+    <form id="csrf-form" style="display:none;">
+        {% csrf_token %}
+    </form>
+    
+    <!-- 顶部导航栏 -->
+    <header class="gradient-bg text-white shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <!-- 汉堡菜单按钮 -->
+                    <button id="sidebar-toggle" class="lg:hidden text-white hover:text-gray-200 focus:outline-none focus:text-gray-200 transition-colors duration-200">
+                        <i class="fas fa-bars text-xl"></i>
+                    </button>
+                    <i class="fas fa-chart-line text-2xl"></i>
+                    <h1 class="text-2xl font-bold">{{ title }}</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm opacity-90">LMonitor v1.0</span>
+                    <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                        <i class="fas fa-user text-sm"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <div class="flex min-h-screen">
+        <!-- 侧边栏遮罩层 -->
+        <div id="sidebar-overlay" class="sidebar-overlay"></div>
+        
+        <!-- 左侧导航菜单 -->
+        <div id="sidebar" class="sidebar-fixed bg-white shadow-xl sidebar-transition">
+
+            <nav class="mt-6">
+                <ul class="space-y-2 px-4">
+                    <li class="nav-item" data-section="dashboard-home">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-home mr-3"></i>
+                            首页
+                        </a>
+                    </li>
+                    <li class="nav-item has-submenu" data-section="database-tables">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-database mr-3"></i>
+                            Info
+                            <i class="fas fa-chevron-down ml-auto text-xs"></i>
+                        </a>
+                        <ul class="submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                            {% for table in tables_info %}
+                            {% if table.name != 'SimcAplKeywordPair' %}
+                            <li class="submenu-item" data-table="{{ table.name }}">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-table mr-2 text-xs"></i>
+                                    {{ table.description }}
+                                </a>
+                            </li>
+                            {% endif %}
+                            {% endfor %}
+                        </ul>
+                    </li>
+                    <li class="nav-item has-submenu" data-section="tools">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-tools mr-3"></i>
+                            Tools
+                            <i class="fas fa-chevron-down ml-auto text-xs"></i>
+                        </a>
+                        <ul class="submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                            <li class="submenu-item" data-tool="simc-apl-converter">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-exchange-alt mr-2 text-xs"></i>
+                                    SimC APL互转
+                                </a>
+                            </li>
+                            <li class="submenu-item" data-table="SimcAplKeywordPair">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-key mr-2 text-xs"></i>
+                                    关键字管理
+                                </a>
+                            </li>
+                        </ul>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+        
+        <!-- 右侧内容区域 -->
+        <div class="main-content p-8 bg-gray-50">
+            <!-- 首页内容区域 -->
+            <div class="content-section" id="dashboard-home" style="display: none;">
+                <div class="mb-8">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2">数据统计概览</h2>
+                    <p class="text-gray-600">实时监控系统运行状态和数据统计</p>
+                </div>
+                
+                <!-- 统计卡片 -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <!-- 监控任务统计 -->
+                    <div class="bg-white rounded-xl shadow-lg p-6 card-hover transition-all duration-300 border-l-4 border-blue-500">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide">活跃监控任务</h3>
+                                <div class="text-3xl font-bold text-gray-900 mt-2">{{ stats.monitor_tasks.active }}</div>
+                                <div class="text-sm text-gray-600 mt-1">共 {{ stats.monitor_tasks.total }} 个任务</div>
+                                <div class="text-xs text-green-600 mt-1">{{ stats.monitor_tasks.percentage }}% 活跃</div>
+                            </div>
+                            <div class="bg-blue-100 p-3 rounded-full">
+                                <i class="fas fa-tasks text-blue-600 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 漏洞数据统计 -->
+                    <div class="bg-white rounded-xl shadow-lg p-6 card-hover transition-all duration-300 border-l-4 border-red-500">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide">漏洞数据</h3>
+                                <div class="text-3xl font-bold text-gray-900 mt-2">{{ stats.vulnerabilities.total }}</div>
+                                <div class="text-sm text-gray-600 mt-1">高危: {{ stats.vulnerabilities.high_severity }}</div>
+                                <div class="text-xs text-orange-600 mt-1">近7天: {{ stats.vulnerabilities.recent }}</div>
+                            </div>
+                            <div class="bg-red-100 p-3 rounded-full">
+                                <i class="fas fa-shield-alt text-red-600 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 微信文章统计 -->
+                    <div class="bg-white rounded-xl shadow-lg p-6 card-hover transition-all duration-300 border-l-4 border-green-500">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide">微信文章</h3>
+                                <div class="text-3xl font-bold text-gray-900 mt-2">{{ stats.wechat.total_articles }}</div>
+                                <div class="text-sm text-gray-600 mt-1">活跃账号: {{ stats.wechat.active_accounts }}</div>
+                                <div class="text-xs text-green-600 mt-1">近7天: {{ stats.wechat.recent_articles }}</div>
+                            </div>
+                            <div class="bg-green-100 p-3 rounded-full">
+                                <i class="fab fa-weixin text-green-600 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 系统活跃度 -->
+                    <div class="bg-white rounded-xl shadow-lg p-6 card-hover transition-all duration-300 border-l-4 border-purple-500">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide">系统活跃度</h3>
+                                <div class="text-3xl font-bold text-gray-900 mt-2">{{ stats.activity.score }}</div>
+                                <div class="text-sm text-gray-600 mt-1">RSS: {{ stats.rss.total_articles }}</div>
+                                <div class="text-xs {% if stats.activity.level == 'high' %}text-green-600{% elif stats.activity.level == 'medium' %}text-yellow-600{% else %}text-red-600{% endif %} mt-1">
+                                    {% if stats.activity.level == 'high' %}高活跃{% elif stats.activity.level == 'medium' %}中活跃{% else %}低活跃{% endif %}
+                                </div>
+                            </div>
+                            <div class="bg-purple-100 p-3 rounded-full">
+                                <i class="fas fa-chart-line text-purple-600 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 详细统计信息 -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    <!-- RSS统计 -->
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">内容监控统计</h3>
+                        <div class="space-y-4">
+                            <div class="flex justify-between items-center">
+                                <span class="text-gray-600">RSS文章总数</span>
+                                <span class="font-semibold text-gray-900">{{ stats.rss.total_articles }}</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-gray-600">活跃RSS任务</span>
+                                <span class="font-semibold text-gray-900">{{ stats.rss.active_tasks }}</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-gray-600">近7天RSS文章</span>
+                                <span class="font-semibold text-green-600">{{ stats.rss.recent_articles }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+
+                </div>
+                
+
+            </div>
+            
+            <!-- Tools内容区域 -->
+            <div class="content-section" id="tools" style="display: none;">
+                <div class="mb-6">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2" id="selected-tool-name">工具箱</h2>
+                </div>
+                
+                <!-- SimC APL互转工具 -->
+                <div class="tool-content" id="simc-apl-converter" style="display: none;">
+                    <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-4">SimC APL互转工具</h3>
+                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                            <!-- 左侧输入框 -->
+                            <div class="lg:col-span-5">
+                                <div class="bg-gray-50 rounded-lg p-4">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">APL代码</label>
+                                    <textarea id="apl-input" class="w-full p-3 border border-gray-300 rounded-md resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" style="height: calc(100vh - 400px);" placeholder="请输入APL格式的代码..."></textarea>
+                                </div>
+                            </div>
+                            
+                            <!-- 中间转换按钮 -->
+                            <div class="lg:col-span-2 flex flex-col items-center space-y-4">
+                                <button id="convert-to-simc" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center space-x-2">
+                                    <i class="fas fa-arrow-right"></i>
+                                    <span>翻译</span>
+                                </button>
+                                <button id="convert-to-apl" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center space-x-2">
+                                    <i class="fas fa-arrow-left"></i>
+                                    <span>反向</span>
+                                </button>
+                            </div>
+                            
+                            <!-- 右侧输出框 -->
+                            <div class="lg:col-span-5">
+                                <div class="bg-gray-50 rounded-lg p-4">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">翻译后代码</label>
+                                    <textarea id="simc-input" class="w-full p-3 border border-gray-300 rounded-md resize-none focus:ring-2 focus:ring-green-500 focus:border-transparent" style="height: calc(100vh - 400px);" placeholder="翻译结果将显示在这里..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 操作按钮 -->
+                        <div class="mt-6 flex justify-center space-x-4">
+                            <button id="clear-all" class="bg-gray-500 hover:bg-gray-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
+                                <i class="fas fa-trash mr-2"></i>清空所有
+                            </button>
+                            <button id="copy-result" class="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
+                                <i class="fas fa-copy mr-2"></i>复制结果
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+
+                
+
+                
+
+            </div>
+            
+            <!-- 数据库表内容区域 -->
+            <div class="content-section active" id="database-tables" style="display: block;">
+                <div class="mb-6">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2" id="selected-table-name">请选择一个表查看数据</h2>
+                    <p class="text-gray-600">浏览和管理数据库表中的数据</p>
+                </div>
+                
+                <!-- 表格操作栏 -->
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <div class="flex items-center space-x-4">
+                            <div class="relative">
+                                <input type="text" id="search-input" placeholder="搜索数据..." class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                            </div>
+                            <select id="page-size-select" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="10">显示 10 条</option>
+                                <option value="25">显示 25 条</option>
+                                <option value="50" selected>显示 50 条</option>
+                                <option value="100">显示 100 条</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button id="add-record-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center">
+                                <i class="fas fa-plus mr-2"></i>
+                                新增记录
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 数据表格 -->
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table id="data-table" class="min-w-full table-fixed">
+                            <thead id="table-header" class="bg-gray-50"></thead>
+                            <tbody id="table-body" class="divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- 分页 -->
+                    <div id="pagination-container" class="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                        <div class="flex items-center justify-between">
+                            <div id="page-info" class="text-sm text-gray-700">
+                                显示 1-10 条，共 0 条记录
+                            </div>
+                            <div id="pagination-buttons" class="flex items-center space-x-2">
+                                <!-- 分页按钮将由JavaScript动态生成 -->
+                            </div>
+                        </div>
+                    </div>
+     </div>
+    
+    <!-- 现代化Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-auto">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <p class="text-gray-600 text-sm">&copy; 2024 LMonitor Dashboard. All rights reserved.</p>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <a href="#" class="text-gray-500 hover:text-gray-700 transition-colors duration-200">
+                        <i class="fab fa-github"></i>
+                    </a>
+                    <a href="#" class="text-gray-500 hover:text-gray-700 transition-colors duration-200">
+                        <i class="fas fa-question-circle"></i>
+                    </a>
+                    <a href="#" class="text-gray-500 hover:text-gray-700 transition-colors duration-200">
+                        <i class="fas fa-cog"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+    
+    <!-- 关键字编辑模态框 -->
+    <div id="keyword-modal" class="fixed inset-0 bg-black bg-opacity-60 overflow-y-auto h-full w-full hidden z-50 flex items-center justify-center p-4">
+        <div class="relative w-full max-w-lg max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <!-- 弹窗头部 -->
+            <div class="bg-gradient-to-r from-green-500 to-teal-600 px-8 py-6">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                            <i class="fas fa-key text-white text-lg"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold text-white" id="keyword-modal-title">新增关键字</h3>
+                    </div>
+                    <button id="close-keyword-modal" class="text-white hover:text-gray-200 transition-colors duration-200 p-2 hover:bg-white hover:bg-opacity-20 rounded-full">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 弹窗内容 -->
+            <div class="overflow-y-auto max-h-[calc(90vh-140px)]">
+                <div class="px-8 py-6">
+                    <form id="keyword-form">
+                        <input type="hidden" id="keyword-id" value="">
+                        <div class="space-y-6">
+                            <div>
+                                <label for="apl-keyword" class="block text-sm font-semibold text-gray-700 mb-3">APL关键字</label>
+                                <input type="text" id="apl-keyword" name="apl_keyword" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200" required>
+                            </div>
+                            <div>
+                                <label for="cn-keyword" class="block text-sm font-semibold text-gray-700 mb-3">中文关键字</label>
+                                <input type="text" id="cn-keyword" name="cn_keyword" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200" required>
+                            </div>
+                            <div>
+                                <label for="description" class="block text-sm font-semibold text-gray-700 mb-3">描述</label>
+                                <textarea id="description" name="description" rows="4" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200 resize-none"></textarea>
+                            </div>
+                            <div class="bg-gray-50 p-4 rounded-lg">
+                                <label class="flex items-center cursor-pointer">
+                                    <input type="checkbox" id="is-active" name="is_active" class="w-5 h-5 rounded border-gray-300 text-green-600 shadow-sm focus:border-green-300 focus:ring focus:ring-green-200 focus:ring-opacity-50" checked>
+                                    <span class="ml-3 text-sm font-medium text-gray-700">启用状态</span>
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- 弹窗底部 -->
+            <div class="bg-gray-50 px-8 py-6 border-t border-gray-200">
+                <div class="flex justify-end space-x-4">
+                    <button type="button" id="cancel-keyword-btn" class="px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 font-medium">
+                        <i class="fas fa-times mr-2"></i>取消
+                    </button>
+                    <button type="submit" id="save-keyword-btn" class="px-6 py-3 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-lg hover:from-green-600 hover:to-teal-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl">
+                        <i class="fas fa-save mr-2"></i>保存
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 新增记录弹窗 -->
+    <div id="add-record-modal" class="fixed inset-0 bg-black bg-opacity-60 overflow-y-auto h-full w-full hidden z-50 flex items-center justify-center p-4">
+        <div class="relative w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <!-- 弹窗头部 -->
+            <div class="bg-gradient-to-r from-blue-500 to-purple-600 px-8 py-6">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                            <i class="fas fa-plus text-white text-lg"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold text-white" id="modal-title">新增记录</h3>
+                    </div>
+                    <button id="close-modal-btn" class="text-white hover:text-gray-200 transition-colors duration-200 p-2 hover:bg-white hover:bg-opacity-20 rounded-full">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 弹窗内容 -->
+            <div class="overflow-y-auto max-h-[calc(90vh-140px)]">
+                <div class="px-8 py-6">
+                    <form id="add-record-form">
+                        <div id="form-fields" class="space-y-6">
+                            <!-- 表单字段将由JavaScript动态生成 -->
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- 弹窗底部 -->
+            <div class="bg-gray-50 px-8 py-6 border-t border-gray-200">
+                <div class="flex justify-end space-x-4">
+                    <button type="button" id="cancel-btn" class="px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 font-medium">
+                        <i class="fas fa-times mr-2"></i>取消
+                    </button>
+                    <button type="submit" id="submit-btn" class="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl">
+                        <i class="fas fa-save mr-2"></i>保存
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

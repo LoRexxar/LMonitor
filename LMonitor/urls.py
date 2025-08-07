@@ -16,14 +16,20 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import redirect
 
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
+from botend.dashboard.dashboard import DashboardView
+from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
-    # path('', HttpResponse("no plz.")),
+    path('', lambda request: redirect('/dashboard/'), name='home'),  # 根路径重定向到dashboard
     path('webhook/gethexagram', csrf_exempt(GetHexagramView.as_view()), name="gethexagram"),
     path('webhook/gewechat', csrf_exempt(GeWechatWebhookView.as_view()), name="gewechat"),
+    path('dashboard/', DashboardView.as_view(), name="dashboard"),
+    path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),
+    path('api/keyword-manager/', csrf_exempt(KeywordManagerAPIView.as_view()), name="keyword_manager"),
 ]
