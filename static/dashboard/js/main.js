@@ -1860,7 +1860,7 @@ function submitAddRecord() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken()
+            'X-CSRFToken': getCSRFToken()
         },
         body: JSON.stringify(requestData)
     })
@@ -1881,20 +1881,7 @@ function submitAddRecord() {
     });
 }
 
-/**
- * 获取CSRF Token
- */
-function getCsrfToken() {
-    // 首先尝试从meta标签获取
-    const metaToken = document.querySelector('meta[name="csrf-token"]');
-    if (metaToken) {
-        return metaToken.getAttribute('content');
-    }
-    
-    // 然后尝试从表单字段获取
-    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
-    return csrfToken ? csrfToken.value : '';
-}
+
 
 /**
  * 初始化侧边栏切换功能
