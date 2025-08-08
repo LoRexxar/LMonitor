@@ -260,6 +260,381 @@ function initNavigation() {
 }
 
 /**
+ * 初始化APL保存功能
+ */
+function initAplSaveFeature() {
+    const saveAplBtn = document.getElementById('save-apl');
+    const viewSavedAplBtn = document.getElementById('view-saved-apl');
+    const aplSaveSection = document.getElementById('apl-save-section');
+    const savedAplSection = document.getElementById('saved-apl-section');
+    const cancelSaveBtn = document.getElementById('cancel-save');
+    const confirmSaveBtn = document.getElementById('confirm-save');
+    const refreshAplListBtn = document.getElementById('refresh-apl-list');
+    
+    if (!saveAplBtn || !viewSavedAplBtn) {
+        return;
+    }
+    
+    // 保存APL按钮
+    saveAplBtn.addEventListener('click', function() {
+        const aplText = document.getElementById('apl-input').value.trim();
+        const simcText = document.getElementById('simc-input').value.trim();
+        
+        if (!aplText && !simcText) {
+            showMessage('请先输入APL代码内容', 'warning');
+            return;
+        }
+        
+        // 显示保存表单
+        aplSaveSection.style.display = 'block';
+        savedAplSection.style.display = 'none';
+        
+        // 清空表单并填充当前APL代码
+        document.getElementById('apl-title').value = '';
+        document.getElementById('apl-edit-input').value = aplText;
+    });
+    
+    // 查看已保存APL按钮
+    viewSavedAplBtn.addEventListener('click', function() {
+        aplSaveSection.style.display = 'none';
+        savedAplSection.style.display = 'block';
+        loadSavedAplList();
+    });
+    
+    // 取消保存
+    if (cancelSaveBtn) {
+        cancelSaveBtn.addEventListener('click', function() {
+            aplSaveSection.style.display = 'none';
+        });
+    }
+    
+    // 确认保存
+    if (confirmSaveBtn) {
+        confirmSaveBtn.addEventListener('click', function() {
+            saveAplCode();
+        });
+    }
+    
+    // 刷新APL列表
+    if (refreshAplListBtn) {
+        refreshAplListBtn.addEventListener('click', function() {
+            loadSavedAplList();
+        });
+    }
+    
+    // 关闭APL列表
+    const closeAplListBtn = document.getElementById('close-apl-list');
+    if (closeAplListBtn) {
+        closeAplListBtn.addEventListener('click', function() {
+            savedAplSection.style.display = 'none';
+        });
+    }
+    
+    // 点击浮窗外部关闭浮窗
+    if (aplSaveSection) {
+        aplSaveSection.addEventListener('click', function(e) {
+            if (e.target === aplSaveSection) {
+                aplSaveSection.style.display = 'none';
+            }
+        });
+    }
+    
+    if (savedAplSection) {
+        savedAplSection.addEventListener('click', function(e) {
+            if (e.target === savedAplSection) {
+                savedAplSection.style.display = 'none';
+            }
+        });
+    }
+}
+
+/**
+ * 保存APL代码
+ */
+async function saveAplCode() {
+    const title = document.getElementById('apl-title').value.trim();
+    const aplCode = document.getElementById('apl-edit-input').value.trim();
+    
+    if (!title) {
+        showMessage('请输入APL标题', 'warning');
+        return;
+    }
+    
+    if (!aplCode) {
+        showMessage('请先输入APL代码内容', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/apl-storage/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({
+                title: title,
+                apl_code: aplCode
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage('APL保存成功', 'success');
+            document.getElementById('apl-save-section').style.display = 'none';
+            // 如果已保存列表正在显示，刷新它
+            if (document.getElementById('saved-apl-section').style.display !== 'none') {
+                loadSavedAplList();
+            }
+        } else {
+            showMessage('保存失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('保存APL失败:', error);
+        showMessage('保存失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 加载已保存的APL列表
+ */
+async function loadSavedAplList() {
+    try {
+        const response = await fetch('/api/apl-storage/', {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken()
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            displaySavedAplList(data.data);
+        } else {
+            showMessage('加载APL列表失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('加载APL列表失败:', error);
+        showMessage('加载APL列表失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 显示已保存的APL列表
+ */
+function displaySavedAplList(aplList) {
+    const container = document.getElementById('saved-apl-list');
+    
+    if (aplList.length === 0) {
+        container.innerHTML = '<div class="text-gray-500 text-center py-4">暂无保存的APL</div>';
+        return;
+    }
+    
+    container.innerHTML = aplList.map(apl => `
+        <div class="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:border-gray-300 transition-colors duration-200">
+            <div class="flex justify-between items-center">
+                <div class="flex-1">
+                    <h5 class="font-semibold text-gray-800">${escapeHtml(apl.title)}</h5>
+                </div>
+                <div class="flex space-x-2 ml-4">
+                    <button onclick="loadAplCode(${apl.id})" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200">
+                        <i class="fas fa-download mr-1"></i>加载
+                    </button>
+                    <button onclick="editAplCode(${apl.id})" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200">
+                        <i class="fas fa-edit mr-1"></i>编辑
+                    </button>
+                    <button onclick="deleteAplCode(${apl.id})" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200">
+                        <i class="fas fa-trash mr-1"></i>删除
+                    </button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+/**
+ * 加载APL代码到编辑器
+ */
+async function loadAplCode(aplId) {
+    try {
+        const response = await fetch(`/api/apl-storage/${aplId}/`, {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken()
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const aplData = data.data;
+            document.getElementById('apl-input').value = aplData.apl_code || '';
+            // 清空右侧输入框，因为模型中不再存储cn_code
+            document.getElementById('simc-input').value = '';
+            
+            // 隐藏已保存列表
+            document.getElementById('saved-apl-section').style.display = 'none';
+            
+            showMessage(`已加载APL: ${aplData.title}`, 'success');
+        } else {
+            showMessage('加载APL失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('加载APL失败:', error);
+        showMessage('加载APL失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 编辑APL代码
+ */
+async function editAplCode(aplId) {
+    try {
+        // 获取APL详细信息
+        const response = await fetch(`/api/apl-storage/${aplId}/`, {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken()
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const aplData = data.data;
+            
+            // 填充编辑表单
+             document.getElementById('apl-title').value = aplData.title;
+             document.getElementById('apl-edit-input').value = aplData.apl_code || '';
+             
+             // 显示保存表单，但修改为编辑模式
+            const aplSaveSection = document.getElementById('apl-save-section');
+            const confirmSaveBtn = document.getElementById('confirm-save');
+            
+            aplSaveSection.style.display = 'block';
+            document.getElementById('saved-apl-section').style.display = 'none';
+            
+            // 修改按钮文本和功能
+            confirmSaveBtn.innerHTML = '<i class="fas fa-save mr-2"></i>更新保存';
+            
+            // 移除之前的事件监听器并添加新的
+            const newConfirmBtn = confirmSaveBtn.cloneNode(true);
+            confirmSaveBtn.parentNode.replaceChild(newConfirmBtn, confirmSaveBtn);
+            
+            newConfirmBtn.addEventListener('click', function() {
+                updateAplCode(aplId);
+            });
+            
+        } else {
+            showMessage('获取APL信息失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('获取APL信息失败:', error);
+        showMessage('获取APL信息失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 更新APL代码
+ */
+async function updateAplCode(aplId) {
+    const title = document.getElementById('apl-title').value.trim();
+    const aplCode = document.getElementById('apl-edit-input').value.trim();
+    
+    if (!title) {
+        showMessage('请输入APL标题', 'warning');
+        return;
+    }
+    
+    if (!aplCode) {
+        showMessage('请先输入APL代码内容', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/apl-storage/', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({
+                id: aplId,
+                title: title,
+                apl_code: aplCode
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage('APL更新成功', 'success');
+            document.getElementById('apl-save-section').style.display = 'none';
+            
+            // 恢复按钮原始状态
+            const confirmSaveBtn = document.getElementById('confirm-save');
+            confirmSaveBtn.innerHTML = '<i class="fas fa-save mr-2"></i>确认保存';
+            
+            // 重新初始化APL保存功能
+            initAplSaveFeature();
+            
+            // 如果已保存列表正在显示，刷新它
+            if (document.getElementById('saved-apl-section').style.display !== 'none') {
+                loadSavedAplList();
+            }
+        } else {
+            showMessage('更新失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('更新APL失败:', error);
+        showMessage('更新失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 删除APL代码
+ */
+async function deleteAplCode(aplId) {
+    if (!confirm('确定要删除这个APL吗？')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/apl-storage/', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({ id: aplId })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage('APL删除成功', 'success');
+            loadSavedAplList(); // 刷新列表
+        } else {
+            showMessage('删除失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('删除APL失败:', error);
+        showMessage('删除失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * HTML转义函数
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/**
  * 处理子菜单展开/收起
  */
 function initSubmenuToggle() {
@@ -1499,12 +1874,15 @@ function initSimcAplConverter() {
         const textToCopy = aplText || simcText;
         navigator.clipboard.writeText(textToCopy)
             .then(() => {
-                showMessage('内容已复制到剪贴板', 'success');
+                showMessage('复制成功', 'success');
             })
             .catch(() => {
-                showMessage('复制失败，请手动复制', 'error');
+                showMessage('复制失败', 'error');
             });
     });
+    
+    // 初始化APL保存功能
+    initAplSaveFeature();
 }
 
 /**

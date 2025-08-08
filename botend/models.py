@@ -142,3 +142,23 @@ class SimcAplKeywordPair(models.Model):
     
     def __str__(self):
         return f"{self.apl_keyword} <-> {self.cn_keyword}"
+
+
+class UserAplStorage(models.Model):
+    """
+    用户APL代码存储表
+    """
+    from django.contrib.auth.models import User
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, help_text="用户")
+    title = models.CharField(max_length=200, help_text="APL标题/标识")
+    apl_code = models.TextField(help_text="APL代码内容")
+    is_active = models.BooleanField(default=True, help_text="是否启用")
+    
+    class Meta:
+        db_table = 'user_apl_storage'
+        verbose_name = '用户APL存储'
+        verbose_name_plural = '用户APL存储'
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.title}"

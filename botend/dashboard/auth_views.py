@@ -31,7 +31,12 @@ class LoginView(View):
         """显示登录页面"""
         if request.user.is_authenticated:
             return redirect('/dashboard/')
-        return render(request, 'dashboard/login.html')
+        
+        # 传递注册功能开关状态到模板
+        context = {
+            'allow_registration': getattr(settings, 'ALLOW_REGISTRATION', True)
+        }
+        return render(request, 'dashboard/login.html', context)
     
     @method_decorator(csrf_exempt)
     def post(self, request):
