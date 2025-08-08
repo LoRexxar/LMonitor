@@ -18,6 +18,7 @@ from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
+from django.conf import settings
 import json
 
 
@@ -81,11 +82,25 @@ class RegisterView(View):
         """显示注册页面"""
         if request.user.is_authenticated:
             return redirect('/dashboard/')
+        
+        # 检查是否允许注册
+        if not getattr(settings, 'ALLOW_REGISTRATION', True):
+            return render(request, 'dashboard/login.html', {
+                'error_message': '注册功能已关闭，请联系管理员'
+            })
+        
         return render(request, 'dashboard/register.html')
     
     @method_decorator(csrf_exempt)
     def post(self, request):
         """处理注册请求"""
+        # 检查是否允许注册
+        if not getattr(settings, 'ALLOW_REGISTRATION', True):
+            return JsonResponse({
+                'status': 'error',
+                'message': '注册功能已关闭，请联系管理员'
+            })
+        
         try:
             data = json.loads(request.body)
             username = data.get('username')
@@ -179,3 +194,81 @@ class LogoutView(View):
             'message': '已成功登出',
             'redirect_url': '/auth/login/'
         })
+
+
+class ChangePasswordView(View):
+    """
+    修改密码视图
+    """
+    
+    @method_decorator(login_required)
+    def get(self, request):
+        """显示修改密码页面"""
+        return render(request, 'dashboard/change_password.html')
+    
+    @method_decorator([csrf_exempt, login_required])
+    def post(self, request):
+        """处理修改密码请求"""
+        try:
+            data = json.loads(request.body)
+            current_password = data.get('current_password')
+            new_password = data.get('new_password')
+            confirm_password = data.get('confirm_password')
+            
+            # 验证必填字段
+            if not all([current_password, new_password, confirm_password]):
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '所有字段都是必填的'
+                })
+            
+            # 验证当前密码
+            if not request.user.check_password(current_password):
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '当前密码不正确'
+                })
+            
+            # 验证新密码确认
+            if new_password != confirm_password:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '两次输入的新密码不一致'
+                })
+            
+            # 验证新密码长度
+            if len(new_password) < 6:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '新密码长度至少6位'
+                })
+            
+            # 检查新密码是否与当前密码相同
+            if request.user.check_password(new_password):
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '新密码不能与当前密码相同'
+                })
+            
+            # 修改密码
+            request.user.set_password(new_password)
+            request.user.save()
+            
+            # 重新登录用户（因为密码改变会使session失效）
+            login(request, request.user)
+            
+            return JsonResponse({
+                'status': 'success',
+                'message': '密码修改成功'
+            })
+            
+        except json.JSONDecodeError:
+            return JsonResponse({
+                'status': 'error',
+                'message': '请求数据格式错误'
+            })
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': f'密码修改失败: {str(e)}'
+            })
