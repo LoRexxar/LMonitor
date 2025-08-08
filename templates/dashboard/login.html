@@ -79,9 +79,9 @@
             </div>
             
             <!-- 错误信息显示 -->
-            <div id="error-message" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+            <div id="error-message" class="{% if not error_message %}hidden{% endif %} bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
                 <i class="fas fa-exclamation-circle mr-2"></i>
-                <span id="error-text"></span>
+                <span id="error-text">{% if error_message %}{{ error_message }}{% endif %}</span>
             </div>
             
             <!-- 登录按钮 -->

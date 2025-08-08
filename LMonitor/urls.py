@@ -22,7 +22,7 @@ from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView
 from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView
-from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView
+from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
@@ -33,6 +33,7 @@ urlpatterns = [
     path('auth/login/', LoginView.as_view(), name='login'),
     path('auth/register/', RegisterView.as_view(), name='register'),
     path('auth/logout/', LogoutView.as_view(), name='logout'),
+    path('auth/change-password/', ChangePasswordView.as_view(), name='change_password'),
     
     # Webhook路由
     path('webhook/gethexagram', csrf_exempt(GetHexagramView.as_view()), name="gethexagram"),
