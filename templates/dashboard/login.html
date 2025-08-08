@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - LMonitor</title>
+    {% load static %}
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .glass-effect { backdrop-filter: blur(10px); background: rgba(255, 255, 255, 0.1); }
+        .login-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .input-focus:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .btn-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .btn-gradient:hover {
+            background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center p-4">
+    <!-- 背景装饰 -->
+    <div class="absolute inset-0 overflow-hidden">
+        <div class="absolute -top-40 -right-40 w-80 h-80 bg-white opacity-10 rounded-full"></div>
+        <div class="absolute -bottom-40 -left-40 w-80 h-80 bg-white opacity-10 rounded-full"></div>
+        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white opacity-5 rounded-full"></div>
+    </div>
+    
+    <!-- 登录卡片 -->
+    <div class="login-card rounded-2xl shadow-2xl p-8 w-full max-w-md relative z-10">
+        <!-- Logo和标题 -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mb-4">
+                <i class="fas fa-chart-line text-white text-2xl"></i>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">LMonitor</h1>
+            <p class="text-gray-600">登录到您的账户</p>
+        </div>
+        
+        <!-- 登录表单 -->
+        <form id="login-form" class="space-y-6">
+            {% csrf_token %}
+            
+            <!-- 用户名输入 -->
+            <div>
+                <label for="username" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-user mr-2"></i>用户名
+                </label>
+                <input type="text" id="username" name="username" required
+                       class="input-focus w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none transition-all duration-200"
+                       placeholder="请输入用户名">
+            </div>
+            
+            <!-- 密码输入 -->
+            <div>
+                <label for="password" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-lock mr-2"></i>密码
+                </label>
+                <div class="relative">
+                    <input type="password" id="password" name="password" required
+                           class="input-focus w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none transition-all duration-200 pr-12"
+                           placeholder="请输入密码">
+                    <button type="button" id="toggle-password" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 错误信息显示 -->
+            <div id="error-message" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                <i class="fas fa-exclamation-circle mr-2"></i>
+                <span id="error-text"></span>
+            </div>
+            
+            <!-- 登录按钮 -->
+            <button type="submit" id="login-btn"
+                    class="btn-gradient w-full py-3 px-4 text-white font-medium rounded-lg hover:shadow-lg transform hover:scale-105 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-blue-300">
+                <i class="fas fa-sign-in-alt mr-2"></i>
+                <span id="login-btn-text">登录</span>
+                <i id="login-spinner" class="fas fa-spinner fa-spin ml-2 hidden"></i>
+            </button>
+        </form>
+        
+        <!-- 注册链接 -->
+        <div class="mt-6 text-center">
+            <p class="text-gray-600">
+                还没有账户？
+                <a href="/auth/register/" class="text-blue-600 hover:text-blue-800 font-medium transition-colors duration-200">
+                    立即注册
+                </a>
+            </p>
+        </div>
+    </div>
+    
+    <script>
+        // 获取CSRF令牌
+        function getCSRFToken() {
+            const token = document.querySelector('[name=csrfmiddlewaretoken]')?.value ||
+                         document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            return token;
+        }
+        
+        // 显示错误信息
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            const errorText = document.getElementById('error-text');
+            errorText.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+        
+        // 隐藏错误信息
+        function hideError() {
+            document.getElementById('error-message').classList.add('hidden');
+        }
+        
+        // 设置加载状态
+        function setLoading(loading) {
+            const btn = document.getElementById('login-btn');
+            const btnText = document.getElementById('login-btn-text');
+            const spinner = document.getElementById('login-spinner');
+            
+            if (loading) {
+                btn.disabled = true;
+                btnText.textContent = '登录中...';
+                spinner.classList.remove('hidden');
+                btn.classList.add('opacity-75');
+            } else {
+                btn.disabled = false;
+                btnText.textContent = '登录';
+                spinner.classList.add('hidden');
+                btn.classList.remove('opacity-75');
+            }
+        }
+        
+        // 密码显示/隐藏切换
+        document.getElementById('toggle-password').addEventListener('click', function() {
+            const passwordInput = document.getElementById('password');
+            const icon = this.querySelector('i');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                passwordInput.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        });
+        
+        // 表单提交处理
+        document.getElementById('login-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            hideError();
+            setLoading(true);
+            
+            const formData = new FormData(this);
+            const data = {
+                username: formData.get('username'),
+                password: formData.get('password')
+            };
+            
+            try {
+                const response = await fetch('/auth/login/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCSRFToken()
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // 登录成功，跳转到dashboard
+                    window.location.href = result.redirect_url || '/dashboard/';
+                } else {
+                    showError(result.message || '登录失败');
+                }
+            } catch (error) {
+                showError('网络错误，请稍后重试');
+            } finally {
+                setLoading(false);
+            }
+        });
+        
+        // 输入时隐藏错误信息
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('input', hideError);
+        });
+    </script>
+</body>
+</html>

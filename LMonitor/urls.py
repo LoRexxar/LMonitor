@@ -22,14 +22,26 @@ from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView
 from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView
+from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
     path('', lambda request: redirect('/dashboard/'), name='home'),  # 根路径重定向到dashboard
+    
+    # 认证相关路由
+    path('auth/login/', LoginView.as_view(), name='login'),
+    path('auth/register/', RegisterView.as_view(), name='register'),
+    path('auth/logout/', LogoutView.as_view(), name='logout'),
+    
+    # Webhook路由
     path('webhook/gethexagram', csrf_exempt(GetHexagramView.as_view()), name="gethexagram"),
     path('webhook/gewechat', csrf_exempt(GeWechatWebhookView.as_view()), name="gewechat"),
+    
+    # Dashboard路由
     path('dashboard/', DashboardView.as_view(), name="dashboard"),
+    
+    # API路由
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),
     path('api/keyword-manager/', csrf_exempt(KeywordManagerAPIView.as_view()), name="keyword_manager"),
 ]
