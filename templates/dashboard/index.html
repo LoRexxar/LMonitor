@@ -107,8 +107,27 @@
                 </div>
                 <div class="flex items-center space-x-4">
                     <span class="text-sm opacity-90">LMonitor v1.0</span>
-                    <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
-                        <i class="fas fa-user text-sm"></i>
+                    <!-- 用户信息下拉菜单 -->
+                    <div class="relative">
+                        <button id="user-menu-button" class="flex items-center space-x-2 text-white hover:text-gray-200 focus:outline-none focus:text-gray-200 transition-colors duration-200">
+                            <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                                <i class="fas fa-user text-sm"></i>
+                            </div>
+                            <span class="text-sm">{{ user.username }}</span>
+                            <i class="fas fa-chevron-down text-xs"></i>
+                        </button>
+                        
+                        <!-- 下拉菜单 -->
+                        <div id="user-menu" class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50 hidden">
+                            <div class="px-4 py-2 border-b border-gray-100">
+                                <p class="text-sm font-medium text-gray-900">{{ user.username }}</p>
+                                <p class="text-xs text-gray-500">{{ user.email }}</p>
+                            </div>
+                            <button id="logout-btn" class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors duration-200">
+                                <i class="fas fa-sign-out-alt mr-2"></i>
+                                登出
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

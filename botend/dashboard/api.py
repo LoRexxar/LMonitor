@@ -12,6 +12,7 @@ from django.views import View
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from django.contrib.auth.decorators import login_required
 
 import json
 import traceback
@@ -21,7 +22,7 @@ from botend.models import SimcAplKeywordPair
 from django.db import models
 
 
-@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator([csrf_exempt, login_required], name='dispatch')
 class ConvertTextAPIView(View):
     """
     SimC APL文本转换API
@@ -76,6 +77,9 @@ class ConvertTextAPIView(View):
             # 获取所有关键字对
             keyword_pairs = SimcAplKeywordPair.objects.filter(is_active=True)
             
+            # 按APL关键字长度降序排列，优先替换更长的关键字
+            keyword_pairs = sorted(keyword_pairs, key=lambda x: len(x.apl_keyword), reverse=True)
+            
             result = text
             for pair in keyword_pairs:
                 # 从SimC转换到APL
@@ -94,6 +98,9 @@ class ConvertTextAPIView(View):
             # 获取所有关键字对
             keyword_pairs = SimcAplKeywordPair.objects.filter(is_active=True)
             
+            # 按中文关键字长度降序排列，优先替换更长的关键字
+            keyword_pairs = sorted(keyword_pairs, key=lambda x: len(x.cn_keyword), reverse=True)
+            
             result = text
             for pair in keyword_pairs:
                 # 从APL转换到SimC
@@ -106,7 +113,7 @@ class ConvertTextAPIView(View):
             raise e
 
 
-@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator([csrf_exempt, login_required], name='dispatch')
 class KeywordManagerAPIView(View):
     """
     关键字管理API

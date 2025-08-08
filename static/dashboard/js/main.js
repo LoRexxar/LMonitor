@@ -35,6 +35,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化页面大小选择器
     initPageSizeSelector();
     
+    // 初始化用户菜单
+    initUserMenu();
+    
     // 默认显示首页内容
     const homeMenuItem = document.querySelector('.nav-item[data-section="dashboard-home"]');
     const homeSection = document.getElementById('dashboard-home');
@@ -2059,6 +2062,59 @@ function clearSearch() {
     if (currentTableName) {
         currentPage = 1;
         fetchTableData(currentTableName, currentPage);
+    }
+}
+
+/**
+ * 初始化用户菜单功能
+ */
+function initUserMenu() {
+    const userMenuButton = document.getElementById('user-menu-button');
+    const userMenu = document.getElementById('user-menu');
+    const logoutBtn = document.getElementById('logout-btn');
+    
+    if (userMenuButton && userMenu) {
+        // 点击用户菜单按钮切换菜单显示
+        userMenuButton.addEventListener('click', function(e) {
+            e.stopPropagation();
+            userMenu.classList.toggle('hidden');
+        });
+        
+        // 点击页面其他地方关闭菜单
+        document.addEventListener('click', function(e) {
+            if (!userMenuButton.contains(e.target) && !userMenu.contains(e.target)) {
+                userMenu.classList.add('hidden');
+            }
+        });
+    }
+    
+    // 登出功能
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            
+            try {
+                const response = await fetch('/auth/logout/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCSRFToken()
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // 登出成功，跳转到登录页面
+                    window.location.href = result.redirect_url || '/auth/login/';
+                } else {
+                    showMessage('登出失败: ' + (result.message || '未知错误'), 'error');
+                }
+            } catch (error) {
+                console.error('登出错误:', error);
+                showMessage('登出失败，请稍后重试', 'error');
+            }
+        });
     }
 }
 

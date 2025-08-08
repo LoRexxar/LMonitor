@@ -10,9 +10,11 @@
 
 from django.views import View
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.db.models import Count, Q
 from django.apps import apps
+from django.contrib.auth.decorators import login_required
+from django.utils.decorators import method_decorator
 
 import json
 import traceback
@@ -39,6 +41,7 @@ MODEL_DESCRIPTIONS = {
 
 }
 
+@method_decorator(login_required, name='dispatch')
 class DashboardView(View):
     """
     处理Dashboard页面请求
