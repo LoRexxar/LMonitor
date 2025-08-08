@@ -21,7 +21,7 @@ from django.shortcuts import redirect
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView
-from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView
+from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from django.http import HttpResponse, JsonResponse
 
@@ -45,4 +45,6 @@ urlpatterns = [
     # API路由
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),
     path('api/keyword-manager/', csrf_exempt(KeywordManagerAPIView.as_view()), name="keyword_manager"),
+    path('api/apl-storage/', csrf_exempt(AplStorageAPIView.as_view()), name="apl_storage"),
+    path('api/apl-storage/<int:apl_id>/', csrf_exempt(AplDetailAPIView.as_view()), name="apl_detail"),
 ]

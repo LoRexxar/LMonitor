@@ -18,7 +18,7 @@ import json
 import traceback
 
 from utils.log import logger
-from botend.models import SimcAplKeywordPair
+from botend.models import SimcAplKeywordPair, UserAplStorage
 from django.db import models
 
 
@@ -319,4 +319,237 @@ class KeywordManagerAPIView(View):
             return JsonResponse({
                 'success': False,
                 'error': '删除失败'
+            })
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class AplStorageAPIView(View):
+    """
+    APL存储API
+    """
+    
+    def get(self, request):
+        """获取用户的APL列表"""
+        try:
+            user = request.user
+            apl_list = UserAplStorage.objects.filter(
+                user=user, 
+                is_active=True
+            ).order_by('-id')
+            
+            result = []
+            for apl in apl_list:
+                result.append({
+                    'id': apl.id,
+                    'title': apl.title
+                })
+            
+            return JsonResponse({
+                'success': True,
+                'data': result
+            })
+            
+        except Exception as e:
+            logger.error(f"获取APL列表失败: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': '获取APL列表失败'
+            })
+    
+    def post(self, request):
+        """保存新的APL"""
+        try:
+            data = json.loads(request.body)
+            title = data.get('title', '').strip()
+            apl_code = data.get('apl_code', '').strip()
+            
+            if not title:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'APL标题不能为空'
+                })
+            
+            if not apl_code:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'APL代码不能为空'
+                })
+            
+            # 检查标题是否重复
+            if UserAplStorage.objects.filter(
+                user=request.user, 
+                title=title, 
+                is_active=True
+            ).exists():
+                return JsonResponse({
+                    'success': False,
+                    'error': '该标题已存在，请使用其他标题'
+                })
+            
+            # 创建新的APL存储记录
+            apl_storage = UserAplStorage.objects.create(
+                user=request.user,
+                title=title,
+                apl_code=apl_code
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'APL保存成功',
+                'data': {
+                    'id': apl_storage.id,
+                    'title': apl_storage.title
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"保存APL失败: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': '保存APL失败'
+            })
+    
+    def put(self, request):
+        """更新APL"""
+        try:
+            data = json.loads(request.body)
+            apl_id = data.get('id')
+            title = data.get('title', '').strip()
+            apl_code = data.get('apl_code', '').strip()
+            
+            if not apl_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'APL ID不能为空'
+                })
+            
+            if not title:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'APL标题不能为空'
+                })
+            
+            if not apl_code:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'APL代码不能为空'
+                })
+            
+            try:
+                apl_storage = UserAplStorage.objects.get(
+                    id=apl_id, 
+                    user=request.user, 
+                    is_active=True
+                )
+                
+                # 检查标题是否与其他记录重复
+                if UserAplStorage.objects.filter(
+                    user=request.user, 
+                    title=title, 
+                    is_active=True
+                ).exclude(id=apl_id).exists():
+                    return JsonResponse({
+                        'success': False,
+                        'error': '该标题已存在，请使用其他标题'
+                    })
+                
+                # 更新记录
+                apl_storage.title = title
+                apl_storage.apl_code = apl_code
+                apl_storage.save()
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': 'APL更新成功'
+                })
+                
+            except UserAplStorage.DoesNotExist:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'APL记录不存在'
+                })
+                
+        except Exception as e:
+            logger.error(f"更新APL失败: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': '更新APL失败'
+            })
+    
+    def delete(self, request):
+        """删除APL"""
+        try:
+            data = json.loads(request.body)
+            apl_id = data.get('id')
+            
+            if not apl_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'APL ID不能为空'
+                })
+            
+            try:
+                apl_storage = UserAplStorage.objects.get(
+                    id=apl_id, 
+                    user=request.user, 
+                    is_active=True
+                )
+                
+                # 软删除
+                apl_storage.is_active = False
+                apl_storage.save()
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': 'APL删除成功'
+                })
+                
+            except UserAplStorage.DoesNotExist:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'APL记录不存在'
+                })
+                
+        except Exception as e:
+            logger.error(f"删除APL失败: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': '删除APL失败'
+            })
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class AplDetailAPIView(View):
+    """
+    APL详情API
+    """
+    
+    def get(self, request, apl_id):
+        """获取APL详情"""
+        try:
+            apl_storage = UserAplStorage.objects.get(
+                id=apl_id, 
+                user=request.user, 
+                is_active=True
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'data': {
+                    'id': apl_storage.id,
+                    'title': apl_storage.title,
+                    'apl_code': apl_storage.apl_code
+                }
+            })
+            
+        except UserAplStorage.DoesNotExist:
+            return JsonResponse({
+                'success': False,
+                'error': 'APL记录不存在'
+            })
+        except Exception as e:
+            logger.error(f"获取APL详情失败: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': '获取APL详情失败'
             })

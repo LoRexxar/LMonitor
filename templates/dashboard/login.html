@@ -95,12 +95,14 @@
         
         <!-- 注册链接 -->
         <div class="mt-6 text-center">
-            <p class="text-gray-600">
+            {% if allow_registration %}
+            <p class="text-center text-sm text-gray-600">
                 还没有账户？
                 <a href="/auth/register/" class="text-blue-600 hover:text-blue-800 font-medium transition-colors duration-200">
                     立即注册
                 </a>
             </p>
+            {% endif %}
         </div>
     </div>
     
