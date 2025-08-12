@@ -21,7 +21,7 @@ from django.shortcuts import redirect
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView
-from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView
+from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from django.http import HttpResponse, JsonResponse
 
@@ -47,4 +47,7 @@ urlpatterns = [
     path('api/keyword-manager/', csrf_exempt(KeywordManagerAPIView.as_view()), name="keyword_manager"),
     path('api/apl-storage/', csrf_exempt(AplStorageAPIView.as_view()), name="apl_storage"),
     path('api/apl-storage/<int:apl_id>/', csrf_exempt(AplDetailAPIView.as_view()), name="apl_detail"),
+    path('api/simc-task/', csrf_exempt(SimcTaskAPIView.as_view()), name="simc_task"),
+    path('api/simc-profile/', csrf_exempt(SimcProfileAPIView.as_view()), name="simc_profile"),
+    path('api/simc-template/', csrf_exempt(SimcTemplateAPIView.as_view()), name="simc_template"),
 ]

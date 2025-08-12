@@ -235,29 +235,131 @@ function initNavigation() {
                 // 处理数据库表菜单项
                 const tableTitle = this.querySelector('a').textContent;
                 
-                // 显示数据库表内容区域
-                contentSections.forEach(section => {
-                    section.style.display = 'none';
-                    section.classList.remove('active');
-                });
-                const databaseTablesSection = document.getElementById('database-tables');
-                if (databaseTablesSection) {
-                    databaseTablesSection.style.display = 'block';
-                    databaseTablesSection.classList.add('active');
-                    
-                    // 更新选中的表名显示
-                    const selectedTableName = document.getElementById('selected-table-name');
-                    if (selectedTableName) {
-                        selectedTableName.textContent = tableName;
+                if (tableName === 'SimcTask') {
+                    // 特殊处理SimcTask，显示专门的SimC任务管理界面
+                    contentSections.forEach(section => {
+                        section.style.display = 'none';
+                        section.classList.remove('active');
+                    });
+                    const toolsSection = document.getElementById('tools');
+                    if (toolsSection) {
+                        toolsSection.style.display = 'block';
+                        toolsSection.classList.add('active');
+                        
+                        // 更新选中的工具名显示
+                        const selectedToolName = document.getElementById('selected-tool-name');
+                        if (selectedToolName) {
+                            selectedToolName.textContent = 'SimC任务管理';
+                        }
+                        
+                        // 隐藏所有工具内容
+                        const toolContents = document.querySelectorAll('.tool-content');
+                        toolContents.forEach(content => {
+                            content.style.display = 'none';
+                        });
+                        
+                        // 显示SimC任务管理内容
+                        const simcTaskContent = document.getElementById('simc-task-management');
+                        if (simcTaskContent) {
+                            simcTaskContent.style.display = 'block';
+                            // 获取SimC任务数据
+                            fetchSimcTaskData();
+                        }
                     }
-                    
-                    // 获取表数据
-                    fetchTableData(tableName);
+                } else {
+                    // 显示数据库表内容区域
+                    contentSections.forEach(section => {
+                        section.style.display = 'none';
+                        section.classList.remove('active');
+                    });
+                    const databaseTablesSection = document.getElementById('database-tables');
+                    if (databaseTablesSection) {
+                        databaseTablesSection.style.display = 'block';
+                        databaseTablesSection.classList.add('active');
+                        
+                        // 更新选中的表名显示
+                        const selectedTableName = document.getElementById('selected-table-name');
+                        if (selectedTableName) {
+                            selectedTableName.textContent = tableName;
+                        }
+                        
+                        // 获取表数据
+                        fetchTableData(tableName);
+                    }
                 }
             }
         });
     });
 }
+
+// 初始化SimC任务管理事件监听器
+function initSimcTaskManagement() {
+    // 新增任务按钮
+    const addSimcTaskBtn = document.getElementById('add-simc-task-btn');
+    if (addSimcTaskBtn) {
+        addSimcTaskBtn.addEventListener('click', openAddSimcTaskModal);
+    }
+    
+    // 取消新增任务
+    const cancelAddBtn = document.getElementById('cancel-add-simc-task');
+    if (cancelAddBtn) {
+        cancelAddBtn.addEventListener('click', function() {
+            document.getElementById('add-simc-task-modal').style.display = 'none';
+            // 清空表单
+            document.getElementById('simc-task-name').value = '';
+            document.getElementById('simc-task-profile').value = '';
+        });
+    }
+    
+    // 确认新增任务
+    const confirmAddBtn = document.getElementById('confirm-add-simc-task');
+    if (confirmAddBtn) {
+        confirmAddBtn.addEventListener('click', submitAddSimcTask);
+    }
+    
+    // 取消编辑任务
+    const cancelEditBtn = document.getElementById('cancel-edit-simc-task');
+    if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', function() {
+            document.getElementById('edit-simc-task-modal').style.display = 'none';
+        });
+    }
+    
+    // 确认编辑任务
+    const confirmEditBtn = document.getElementById('confirm-edit-simc-task');
+    if (confirmEditBtn) {
+        confirmEditBtn.addEventListener('click', updateSimcTask);
+    }
+    
+    // 关闭查看任务模态框
+    const closeViewBtn = document.getElementById('close-view-simc-task');
+    if (closeViewBtn) {
+        closeViewBtn.addEventListener('click', function() {
+            document.getElementById('view-simc-task-modal').style.display = 'none';
+        });
+    }
+    
+    // 复制SimC代码
+    const copyCodeBtn = document.getElementById('copy-simc-code');
+    if (copyCodeBtn) {
+        copyCodeBtn.addEventListener('click', function() {
+            const codeTextarea = document.getElementById('view-simc-task-code');
+            if (codeTextarea) {
+                codeTextarea.select();
+                document.execCommand('copy');
+                showMessage('SimC代码已复制到剪贴板', 'success');
+            }
+        });
+    }
+    
+    // 加载初始数据
+    fetchSimcTaskData();
+}
+
+// 在DOMContentLoaded事件中初始化SimC任务管理
+document.addEventListener('DOMContentLoaded', function() {
+    initSimcTaskManagement();
+});
 
 /**
  * 初始化APL保存功能
@@ -724,6 +826,16 @@ function fetchTableData(tableName, page = 1) {
     }
     tableBody.innerHTML = '<tr><td colspan="10">加载中...</td></tr>';
     
+    // 保存当前表名和页码
+    currentTableName = tableName;
+    currentPage = page;
+    
+    // 如果是SimcTask表，使用专门的API
+    if (tableName === 'SimcTask') {
+        fetchSimcTaskData(page);
+        return;
+    }
+    
     // 获取CSRF令牌
     const csrfToken = getCSRFToken();
     if (!csrfToken) {
@@ -737,10 +849,6 @@ function fetchTableData(tableName, page = 1) {
     
     console.log('正在获取表数据:', tableName, 'page:', page);
     console.log('使用的CSRF令牌:', csrfToken);
-    
-    // 保存当前表名和页码
-    currentTableName = tableName;
-    currentPage = page;
     
     // 构建请求数据
     const requestData = {
@@ -1051,6 +1159,34 @@ function displayTableData(data, fields) {
                     td.title = cellText;
                 }
             }
+            else if (currentTableName === 'SimcProfile' && field === 'fight_style') {
+                // SimcProfile表的战斗风格字段特殊处理
+                const fightStyleMap = {
+                    'Patchwerk': '木桩战斗',
+                    'HecticAddCleave': '混乱小怪切换',
+                    'HelterSkelter': '随机目标切换',
+                    'Ultraxion': '奥创之源',
+                    'Beastlord': '兽王',
+                    'CastingPatchwerk': '施法木桩'
+                };
+                const displayText = fightStyleMap[cellText] || cellText;
+                const badge = document.createElement('span');
+                badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800';
+                badge.textContent = displayText;
+                badge.title = cellText;
+                td.appendChild(badge);
+            }
+            else if (currentTableName === 'SimcProfile' && (field === 'gear_strength' || field === 'gear_crit' || field === 'gear_haste' || field === 'gear_mastery' || field === 'gear_versatility')) {
+                // SimcProfile表的装备属性字段右对齐并添加样式
+                td.className += ' text-right font-mono';
+                td.textContent = cellText || '0';
+            }
+            else if (currentTableName === 'SimcProfile' && field === 'action_list') {
+                // SimcProfile表的动作列表字段截断显示
+                td.textContent = truncateText(cellText, 30);
+                td.title = cellText;
+                td.className += ' truncate font-mono text-sm';
+            }
             else if (isLongTextField(field) || cellText.length > 50) {
                 // 长文本字段截断显示
                 td.textContent = truncateText(cellText, 50);
@@ -1072,16 +1208,31 @@ function displayTableData(data, fields) {
         if (currentTableName !== 'WechatArticle' && currentTableName !== 'WowArticle' && currentTableName !== 'RssArticle') {
             const actionTd = document.createElement('td');
             actionTd.className = 'px-4 py-4 whitespace-nowrap text-sm font-medium w-32';
-            actionTd.innerHTML = `
-                <div class="flex space-x-2">
-                    <button class="edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-row-id="${rowId}">
-                        <i class="fas fa-edit mr-1"></i>编辑
-                    </button>
-                    <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
-                        <i class="fas fa-trash mr-1"></i>删除
-                    </button>
-                </div>
-            `;
+            
+            // SimcProfile表使用特殊的操作按钮
+            if (currentTableName === 'SimcProfile') {
+                actionTd.innerHTML = `
+                    <div class="flex space-x-2">
+                        <button class="simc-profile-edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-edit mr-1"></i>编辑
+                        </button>
+                        <button class="simc-profile-delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-trash mr-1"></i>删除
+                        </button>
+                    </div>
+                `;
+            } else {
+                actionTd.innerHTML = `
+                    <div class="flex space-x-2">
+                        <button class="edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-row-id="${rowId}">
+                            <i class="fas fa-edit mr-1"></i>编辑
+                        </button>
+                        <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
+                            <i class="fas fa-trash mr-1"></i>删除
+                        </button>
+                    </div>
+                `;
+            }
             tr.appendChild(actionTd);
         }
         
@@ -1114,6 +1265,23 @@ function bindTableActions() {
             if (confirm('确定要删除这条记录吗？')) {
                 deleteTableRow(rowId);
             }
+        });
+    });
+    
+    // 绑定SimcProfile表的特殊操作按钮事件
+    document.querySelectorAll('.simc-profile-edit-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const profileId = this.getAttribute('data-profile-id');
+            editSimcProfile(profileId);
+        });
+    });
+    
+    document.querySelectorAll('.simc-profile-delete-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const profileId = this.getAttribute('data-profile-id');
+            deleteSimcProfile(profileId);
         });
     });
 }
@@ -1963,6 +2131,12 @@ function initAddRecord() {
  * 打开新增记录弹窗
  */
 function openAddRecordModal() {
+    // SimcProfile表使用专门的模态框
+    if (currentTableName === 'SimcProfile') {
+        openAddSimcProfileModal();
+        return;
+    }
+    
     const modal = document.getElementById('add-record-modal');
     const modalTitle = document.getElementById('modal-title');
     const formFields = document.getElementById('form-fields');
@@ -2498,3 +2672,844 @@ function initUserMenu() {
 
 // 在DOMContentLoaded事件中初始化SimC APL转换工具
 // 关键字管理功能的初始化已移至主要的DOMContentLoaded事件中
+
+// SimcTask 相关函数
+function fetchSimcTaskData(page = 1) {
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-task/', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            // 用户未登录，重定向到登录页面
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return; // 处理重定向情况
+        if (data.success) {
+            displaySimcTaskData(data.data);
+        } else {
+            showMessage('获取SimC任务数据失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching SimC task data:', error);
+        showMessage('获取SimC任务数据时发生错误', 'error');
+    });
+}
+
+function displaySimcTaskData(tasks) {
+    const taskListContainer = document.getElementById('simc-task-list');
+    if (!taskListContainer) return;
+    
+    if (!tasks || tasks.length === 0) {
+        taskListContainer.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center py-8 text-gray-500">
+                    <i class="fas fa-tasks text-4xl mb-4"></i>
+                    <p>暂无任务数据</p>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    let html = '';
+    tasks.forEach(task => {
+        // 获取状态显示文本和样式
+        let statusText, statusClass;
+        switch(task.current_status) {
+            case 0:
+                statusText = '未开始';
+                statusClass = 'bg-gray-100 text-gray-800';
+                break;
+            case 1:
+                statusText = '进行中';
+                statusClass = 'bg-blue-100 text-blue-800';
+                break;
+            case 2:
+                statusText = '完成';
+                statusClass = 'bg-green-100 text-green-800';
+                break;
+            case 3:
+                statusText = '失败';
+                statusClass = 'bg-red-100 text-red-800';
+                break;
+            default:
+                statusText = '未知';
+                statusClass = 'bg-gray-100 text-gray-800';
+        }
+        
+        html += `
+            <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${task.id}</td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="text-sm font-medium text-gray-900">${escapeHtml(task.name || '')}</div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusClass}">
+                        ${statusText}
+                    </span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDateTime(task.create_time)}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDateTime(task.modified_time)}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                    <div class="flex justify-center space-x-2">
+                        <button onclick="viewSimcTask(${task.id})" class="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 text-sm">
+                            <i class="fas fa-eye mr-1"></i>查看
+                        </button>
+                        <button onclick="editSimcTask(${task.id})" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 text-sm">
+                            <i class="fas fa-edit mr-1"></i>编辑
+                        </button>
+                        <button onclick="deleteSimcTask(${task.id})" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition-colors duration-200 text-sm">
+                            <i class="fas fa-trash mr-1"></i>删除
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+    
+    taskListContainer.innerHTML = html;
+}
+
+async function openAddSimcTaskModal() {
+    const modal = document.getElementById('add-simc-task-modal');
+    if (!modal) {
+        console.error('SimC任务新增模态框未找到');
+        return;
+    }
+    
+    // 清空表单
+    document.getElementById('simc-task-name').value = '';
+    
+    // 加载SimC配置列表
+    await loadSimcProfileOptions('simc-task-profile');
+    
+    modal.style.display = 'block';
+}
+
+function submitAddSimcTask() {
+    const taskName = document.getElementById('simc-task-name').value.trim();
+    const simcProfileId = document.getElementById('simc-task-profile').value;
+    
+    if (!taskName) {
+        showMessage('请输入任务名称', 'error');
+        return;
+    }
+    
+    if (!simcProfileId) {
+        showMessage('请选择SimC配置', 'error');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-task/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            name: taskName,
+            simc_profile_id: simcProfileId
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC任务创建成功', 'success');
+            document.getElementById('add-simc-task-modal').style.display = 'none';
+            fetchSimcTaskData();
+        } else {
+            showMessage('创建失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error creating SimC task:', error);
+        showMessage('创建SimC任务时发生错误', 'error');
+    });
+}
+
+function editSimcTask(taskId) {
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-task/', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success && data.data) {
+            // 查找指定ID的任务
+            const task = data.data.find(t => t.id === parseInt(taskId));
+            if (task) {
+                openEditSimcTaskModal(task);
+            } else {
+                showMessage('未找到指定的任务', 'error');
+            }
+        } else {
+            showMessage('获取任务信息失败: ' + (data.error || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching task:', error);
+        showMessage('获取任务信息时发生错误', 'error');
+    });
+}
+
+async function openEditSimcTaskModal(task) {
+    const modal = document.getElementById('edit-simc-task-modal');
+    if (!modal) {
+        console.error('Edit SimC task modal not found');
+        return;
+    }
+    
+    // 加载SimC配置列表
+    await loadSimcProfileOptions('edit-simc-task-profile');
+    
+    // 填充表单数据
+    document.getElementById('edit-simc-task-name').value = task.name || '';
+    document.getElementById('edit-simc-task-profile').value = task.simc_profile_id || '';
+    
+    // 存储任务ID用于更新
+    modal.setAttribute('data-task-id', task.id);
+    
+    modal.style.display = 'block';
+}
+
+function updateSimcTask() {
+    const modal = document.getElementById('edit-simc-task-modal');
+    const taskId = modal.getAttribute('data-task-id');
+    const taskName = document.getElementById('edit-simc-task-name').value.trim();
+    const simcProfileId = document.getElementById('edit-simc-task-profile').value;
+    
+    if (!taskName) {
+        showMessage('请输入任务名称', 'error');
+        return;
+    }
+    
+    if (!simcProfileId) {
+        showMessage('请选择SimC配置', 'error');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-task/', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            id: parseInt(taskId),
+            name: taskName,
+            simc_profile_id: simcProfileId
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC任务更新成功', 'success');
+            modal.style.display = 'none';
+            fetchSimcTaskData();
+        } else {
+            showMessage('更新失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error updating SimC task:', error);
+        showMessage('更新SimC任务时发生错误', 'error');
+    });
+}
+
+function deleteSimcTask(taskId) {
+    if (!confirm('确定要删除这个SimC任务吗？')) {
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-task/', {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            id: taskId
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC任务删除成功', 'success');
+            fetchSimcTaskData();
+        } else {
+            showMessage('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting SimC task:', error);
+        showMessage('删除SimC任务时发生错误', 'error');
+    });
+}
+
+function viewSimcTask(taskId) {
+    // 获取任务详情
+    fetch('/api/simc-task/', {
+        method: 'GET',
+        headers: {
+            'X-CSRFToken': getCSRFToken(),
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error('获取任务列表失败');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data && data.success) {
+            const task = data.data.find(t => t.id == taskId);
+            if (task) {
+                openViewSimcTaskModal(task);
+            } else {
+                throw new Error('未找到指定的任务');
+            }
+        } else {
+            throw new Error(data.message || '获取任务详情失败');
+        }
+    })
+    .catch(error => {
+        console.error('获取SimC任务详情失败:', error);
+        showMessage('获取SimC任务详情失败: ' + error.message, 'error');
+    });
+}
+
+function openViewSimcTaskModal(task) {
+    const modal = document.getElementById('view-simc-task-modal');
+    if (!modal) {
+        console.error('SimC任务查看模态框未找到');
+        return;
+    }
+    
+    // 填充任务名称
+    document.getElementById('view-simc-task-name').value = task.name || '';
+    
+    // 生成SimC代码
+    generateSimcCode(task.simc_profile_id, task.result_file)
+        .then(simcCode => {
+            document.getElementById('view-simc-task-code').value = simcCode;
+            modal.style.display = 'block';
+        })
+        .catch(error => {
+            console.error('生成SimC代码失败:', error);
+            showMessage('生成SimC代码失败: ' + error.message, 'error');
+        });
+}
+
+async function loadSimcProfileOptions(selectElementId) {
+    try {
+        const response = await fetch('/api/simc-profile/', {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken(),
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('获取SimC配置列表失败');
+        }
+        
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || '获取SimC配置列表失败');
+        }
+        
+        const selectElement = document.getElementById(selectElementId);
+        if (!selectElement) {
+            console.error('选择器元素未找到:', selectElementId);
+            return;
+        }
+        
+        // 清空现有选项，保留默认选项
+        selectElement.innerHTML = '<option value="">请选择SimC配置...</option>';
+        
+        // 添加配置选项
+        data.data.forEach(profile => {
+            const option = document.createElement('option');
+            option.value = profile.id;
+            option.textContent = profile.name;
+            selectElement.appendChild(option);
+        });
+        
+    } catch (error) {
+        console.error('加载SimC配置选项失败:', error);
+        showMessage('加载SimC配置选项失败: ' + error.message, 'error');
+    }
+}
+
+async function generateSimcCode(profileId, resultFile = '') {
+    try {
+        // 获取SimC配置详情
+        const profileResponse = await fetch('/api/simc-profile/', {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken(),
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!profileResponse.ok) {
+            throw new Error('获取SimC配置失败');
+        }
+        
+        const profileData = await profileResponse.json();
+        if (!profileData.success) {
+            throw new Error(profileData.error || '获取SimC配置失败');
+        }
+        
+        const profile = profileData.data.find(p => p.id == profileId);
+        if (!profile) {
+            throw new Error('未找到指定的SimC配置');
+        }
+        
+        // 获取模板文件内容
+        const templateResponse = await fetch('/api/simc-template/', {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken(),
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!templateResponse.ok) {
+            throw new Error('获取SimC模板失败');
+        }
+        
+        const templateData = await templateResponse.json();
+        if (!templateData.success) {
+            throw new Error(templateData.error || '获取SimC模板失败');
+        }
+        
+        let simcCode = templateData.template;
+        
+        // 替换模板中的占位符
+        simcCode = simcCode.replace(/{fight_style}/g, profile.fight_style || 'Patchwerk');
+        simcCode = simcCode.replace(/{time}/g, profile.time || '300');
+        simcCode = simcCode.replace(/{target_count}/g, profile.target_count || '1');
+        simcCode = simcCode.replace(/{talent}/g, profile.talent || '');
+        simcCode = simcCode.replace(/{gear_strength}/g, profile.gear_strength || '93330');
+        simcCode = simcCode.replace(/{gear_crit}/g, profile.gear_crit || '10730');
+        simcCode = simcCode.replace(/{gear_haste}/g, profile.gear_haste || '18641');
+        simcCode = simcCode.replace(/{gear_mastery}/g, profile.gear_mastery || '21785');
+        simcCode = simcCode.replace(/{gear_versatility}/g, profile.gear_versatility || '6757');
+        simcCode = simcCode.replace(/{result_file}/g, resultFile || 'result.html');
+        
+        return simcCode;
+    } catch (error) {
+        throw error;
+    }
+}
+
+// SimC配置管理相关函数
+function initSimcProfileManagement() {
+    // 新增配置模态框事件
+    const addModal = document.getElementById('add-simc-profile-modal');
+    const editModal = document.getElementById('edit-simc-profile-modal');
+    
+    if (addModal) {
+        // 取消按钮
+        const cancelBtn = document.getElementById('cancel-add-simc-profile');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                addModal.classList.add('hidden');
+            });
+        }
+        
+        // 确认新增按钮
+        const confirmBtn = document.getElementById('confirm-add-simc-profile');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', submitAddSimcProfile);
+        }
+        
+        // 点击背景关闭
+        addModal.addEventListener('click', (e) => {
+            if (e.target === addModal) {
+                addModal.classList.add('hidden');
+            }
+        });
+    }
+    
+    if (editModal) {
+        // 取消按钮
+        const cancelBtn = document.getElementById('cancel-edit-simc-profile');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                editModal.classList.add('hidden');
+            });
+        }
+        
+        // 确认保存按钮
+        const confirmBtn = document.getElementById('confirm-edit-simc-profile');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', updateSimcProfile);
+        }
+        
+        // 点击背景关闭
+        editModal.addEventListener('click', (e) => {
+            if (e.target === editModal) {
+                editModal.classList.add('hidden');
+            }
+        });
+    }
+}
+
+// 页面加载完成后初始化SimC配置管理
+document.addEventListener('DOMContentLoaded', function() {
+    initSimcProfileManagement();
+});
+
+function openAddSimcProfileModal() {
+    const modal = document.getElementById('add-simc-profile-modal');
+    if (!modal) {
+        console.error('Add SimC profile modal not found');
+        return;
+    }
+    
+    // 清空表单
+    document.getElementById('add-simc-profile-name').value = '';
+    document.getElementById('add-simc-profile-fight-style').value = 'Patchwerk';
+    document.getElementById('add-simc-profile-time').value = '40';
+    document.getElementById('add-simc-profile-target-count').value = '1';
+    document.getElementById('add-simc-profile-strength').value = '93330';
+    document.getElementById('add-simc-profile-crit').value = '10730';
+    document.getElementById('add-simc-profile-haste').value = '18641';
+    document.getElementById('add-simc-profile-mastery').value = '21785';
+    document.getElementById('add-simc-profile-versatility').value = '6757';
+    document.getElementById('add-simc-profile-action-list').value = '';
+    
+    modal.classList.remove('hidden');
+}
+
+function submitAddSimcProfile() {
+    const profileName = document.getElementById('add-simc-profile-name').value.trim();
+    const fightStyle = document.getElementById('add-simc-profile-fight-style').value;
+    const time = parseInt(document.getElementById('add-simc-profile-time').value);
+    const targetCount = parseInt(document.getElementById('add-simc-profile-target-count').value);
+    const strength = parseInt(document.getElementById('add-simc-profile-strength').value);
+    const crit = parseInt(document.getElementById('add-simc-profile-crit').value);
+    const haste = parseInt(document.getElementById('add-simc-profile-haste').value);
+    const mastery = parseInt(document.getElementById('add-simc-profile-mastery').value);
+    const versatility = parseInt(document.getElementById('add-simc-profile-versatility').value);
+    const actionList = document.getElementById('add-simc-profile-action-list').value.trim();
+    
+    if (!profileName) {
+        showMessage('请输入配置名称', 'error');
+        return;
+    }
+    
+    if (!actionList) {
+        showMessage('请输入动作列表', 'error');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-profile/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            name: profileName,
+            fight_style: fightStyle,
+            time: time,
+            target_count: targetCount,
+            gear_strength: strength,
+             gear_crit: crit,
+             gear_haste: haste,
+             gear_mastery: mastery,
+             gear_versatility: versatility,
+            action_list: actionList
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC配置创建成功', 'success');
+            document.getElementById('add-simc-profile-modal').classList.add('hidden');
+            // 如果当前显示的是SimcProfile表，刷新数据
+            if (currentTableName === 'SimcProfile') {
+                fetchTableData('SimcProfile', currentPage);
+            }
+        } else {
+            showMessage('创建失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error creating SimC profile:', error);
+        showMessage('创建SimC配置时发生错误', 'error');
+    });
+}
+
+function editSimcProfile(profileId) {
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-profile/', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            // 确保类型一致性，将profileId转换为数字进行比较
+            const profile = data.data.find(p => p.id == profileId);
+            if (profile) {
+                openEditSimcProfileModal(profile);
+            } else {
+                showMessage('未找到指定的配置', 'error');
+                console.log('Available profiles:', data.data.map(p => ({id: p.id, name: p.name})));
+                console.log('Looking for profile ID:', profileId, 'Type:', typeof profileId);
+            }
+        } else {
+            showMessage('获取配置信息失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching SimC profile:', error);
+        showMessage('获取配置信息时发生错误', 'error');
+    });
+}
+
+function openEditSimcProfileModal(profile) {
+    const modal = document.getElementById('edit-simc-profile-modal');
+    if (!modal) {
+        console.error('Edit SimC profile modal not found');
+        return;
+    }
+    
+    // 填充表单数据
+    document.getElementById('edit-simc-profile-name').value = profile.name || '';
+    document.getElementById('edit-simc-profile-fight-style').value = profile.fight_style || 'Patchwerk';
+    document.getElementById('edit-simc-profile-time').value = profile.time || 40;
+    document.getElementById('edit-simc-profile-target-count').value = profile.target_count || 1;
+    document.getElementById('edit-simc-profile-strength').value = profile.gear_strength || 0;
+    document.getElementById('edit-simc-profile-crit').value = profile.gear_crit || 0;
+    document.getElementById('edit-simc-profile-haste').value = profile.gear_haste || 0;
+    document.getElementById('edit-simc-profile-mastery').value = profile.gear_mastery || 0;
+    document.getElementById('edit-simc-profile-versatility').value = profile.gear_versatility || 0;
+    document.getElementById('edit-simc-profile-action-list').value = profile.action_list || '';
+    
+    // 存储配置ID用于更新
+    modal.setAttribute('data-profile-id', profile.id);
+    
+    modal.classList.remove('hidden');
+}
+
+function updateSimcProfile() {
+    const modal = document.getElementById('edit-simc-profile-modal');
+    const profileId = modal.getAttribute('data-profile-id');
+    const profileName = document.getElementById('edit-simc-profile-name').value.trim();
+    const fightStyle = document.getElementById('edit-simc-profile-fight-style').value;
+    const time = parseInt(document.getElementById('edit-simc-profile-time').value);
+    const targetCount = parseInt(document.getElementById('edit-simc-profile-target-count').value);
+    const strength = parseInt(document.getElementById('edit-simc-profile-strength').value);
+    const crit = parseInt(document.getElementById('edit-simc-profile-crit').value);
+    const haste = parseInt(document.getElementById('edit-simc-profile-haste').value);
+    const mastery = parseInt(document.getElementById('edit-simc-profile-mastery').value);
+    const versatility = parseInt(document.getElementById('edit-simc-profile-versatility').value);
+    const actionList = document.getElementById('edit-simc-profile-action-list').value.trim();
+    
+    if (!profileName) {
+        showMessage('请输入配置名称', 'error');
+        return;
+    }
+    
+    if (!actionList) {
+        showMessage('请输入动作列表', 'error');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-profile/', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            id: parseInt(profileId),
+            name: profileName,
+            fight_style: fightStyle,
+            time: time,
+            target_count: targetCount,
+            gear_strength: strength,
+            gear_crit: crit,
+            gear_haste: haste,
+            gear_mastery: mastery,
+            gear_versatility: versatility,
+            action_list: actionList
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC配置更新成功', 'success');
+            modal.classList.add('hidden');
+            // 如果当前显示的是SimcProfile表，刷新数据
+            if (currentTableName === 'SimcProfile') {
+                fetchTableData('SimcProfile', currentPage);
+            }
+        } else {
+            showMessage('更新失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error updating SimC profile:', error);
+        showMessage('更新SimC配置时发生错误', 'error');
+    });
+}
+
+function deleteSimcProfile(profileId) {
+    if (!confirm('确定要删除这个SimC配置吗？')) {
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-profile/', {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            id: profileId
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC配置删除成功', 'success');
+            // 如果当前显示的是SimcProfile表，刷新数据
+            if (currentTableName === 'SimcProfile') {
+                fetchTableData('SimcProfile', currentPage);
+            }
+        } else {
+            showMessage('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting SimC profile:', error);
+        showMessage('删除SimC配置时发生错误', 'error');
+    });
+}

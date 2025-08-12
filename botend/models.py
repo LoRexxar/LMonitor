@@ -148,9 +148,7 @@ class UserAplStorage(models.Model):
     """
     用户APL代码存储表
     """
-    from django.contrib.auth.models import User
-    
-    user = models.ForeignKey(User, on_delete=models.CASCADE, help_text="用户")
+    user_id = models.IntegerField(help_text="用户ID")
     title = models.CharField(max_length=200, help_text="APL标题/标识")
     apl_code = models.TextField(help_text="APL代码内容")
     is_active = models.BooleanField(default=True, help_text="是否启用")
@@ -160,5 +158,46 @@ class UserAplStorage(models.Model):
         verbose_name = '用户APL存储'
         verbose_name_plural = '用户APL存储'
     
-    def __str__(self):
-        return f"{self.user.username} - {self.title}"
+
+
+class SimcTask(models.Model):
+    """
+    SimC任务
+    """
+    user_id = models.IntegerField(help_text="用户ID")
+    name = models.CharField(max_length=200, help_text="任务名称")
+    simc_profile_id = models.IntegerField(help_text="用户ID")
+    result_file = models.CharField(max_length=200, help_text="任务结果", null=True)
+    modified_time = models.DateTimeField(auto_now=True, help_text="修改时间")
+    current_status = models.IntegerField(default=0, help_text="当前状态")
+    create_time = models.DateTimeField(auto_now_add=True, help_text="创建时间")
+    is_active = models.BooleanField(default=True, help_text="是否启用")
+    
+    class Meta:
+        db_table = 'simc_task'
+        verbose_name = 'SimC任务'
+        verbose_name_plural = 'SimC任务'
+        ordering = ['-modified_time']
+    
+class SimcProfile(models.Model):
+    """
+    SimC配置
+    """
+    user_id = models.IntegerField(help_text="用户ID")
+    name = models.CharField(max_length=200, help_text="配置名称")
+    fight_style = models.CharField(max_length=200, default="Patchwerk")
+    time = models.IntegerField(default="40")
+    target_count = models.IntegerField(default=1)
+    action_list = models.TextField(default="", null=True)
+    gear_strength = models.IntegerField(default=93330)
+    gear_crit = models.IntegerField(default=10730)
+    gear_haste = models.IntegerField(default=18641)
+    gear_mastery = models.IntegerField(default=21785)
+    gear_versatility = models.IntegerField(default=6757)
+    is_active = models.BooleanField(default=True, help_text="是否启用")
+    
+    class Meta:
+        db_table = 'simc_profile'
+        verbose_name = 'SimC配置'
+        verbose_name_plural = 'SimC配置'
+    

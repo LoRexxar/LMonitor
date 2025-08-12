@@ -23,7 +23,7 @@ import datetime
 from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask, 
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
-                          RssArticle, WowArticle, SimcAplKeywordPair)
+                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile)
 
 # 模型描述映射
 MODEL_DESCRIPTIONS = {
@@ -38,6 +38,8 @@ MODEL_DESCRIPTIONS = {
     'RssArticle': 'RSS文章',
     'WowArticle': 'Wow文章',
     'SimcAplKeywordPair': '关键字管理',
+    'SimcTask': 'SimC任务管理',
+    'SimcProfile': 'SimC配置管理',
 
 }
 
@@ -61,7 +63,7 @@ class DashboardView(View):
             models = [
                 MonitorTask, TargetAuth, WechatAccountTask, 
                 WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
-                RssArticle, WowArticle, SimcAplKeywordPair
+                RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile
             ]
             
             total_records = 0
@@ -159,6 +161,8 @@ class DashboardView(View):
                 'RssArticle': RssArticle,
                 'WowArticle': WowArticle,
                 'SimcAplKeywordPair': SimcAplKeywordPair,
+                'SimcTask': SimcTask,
+                'SimcProfile': SimcProfile,
 
             }
             
@@ -312,6 +316,7 @@ class DashboardView(View):
                 'RssArticle': RssArticle,
                 'WowArticle': WowArticle,
                 'SimcAplKeywordPair': SimcAplKeywordPair,
+                'SimcTask': SimcTask,
 
             }
             
@@ -395,6 +400,7 @@ class DashboardView(View):
                 'RssArticle': RssArticle,
                 'WowArticle': WowArticle,
                 'SimcAplKeywordPair': SimcAplKeywordPair,
+                'SimcTask': SimcTask,
 
             }
             
@@ -528,6 +534,8 @@ class DashboardView(View):
                 'RssArticle': RssArticle,
                 'WowArticle': WowArticle,
                 'SimcAplKeywordPair': SimcAplKeywordPair,
+                'SimcTask': SimcTask,
+                'SimcProfile': SimcProfile,
             }
             
             # 获取模型
