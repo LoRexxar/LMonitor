@@ -188,6 +188,7 @@ class SimcProfile(models.Model):
     fight_style = models.CharField(max_length=200, default="Patchwerk")
     time = models.IntegerField(default="40")
     target_count = models.IntegerField(default=1)
+    talent = models.CharField(max_length=2000, default="")
     action_list = models.TextField(default="", null=True)
     gear_strength = models.IntegerField(default=93330)
     gear_crit = models.IntegerField(default=10730)

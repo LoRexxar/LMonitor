@@ -813,6 +813,7 @@ class SimcProfileAPIView(View):
                     'fight_style': profile.fight_style,
                     'time': profile.time,
                     'target_count': profile.target_count,
+                    'talent': profile.talent,
                     'action_list': profile.action_list,
                     'gear_strength': profile.gear_strength,
                     'gear_crit': profile.gear_crit,
@@ -865,6 +866,7 @@ class SimcProfileAPIView(View):
                 fight_style=data.get('fight_style', 'Patchwerk'),
                 time=data.get('time', 40),
                 target_count=data.get('target_count', 1),
+                talent=data.get('talent', ''),
                 action_list=data.get('action_list', ''),
                 gear_strength=data.get('gear_strength', 93330),
                 gear_crit=data.get('gear_crit', 10730),
@@ -938,6 +940,7 @@ class SimcProfileAPIView(View):
             profile.fight_style = data.get('fight_style', profile.fight_style)
             profile.time = data.get('time', profile.time)
             profile.target_count = data.get('target_count', profile.target_count)
+            profile.talent = data.get('talent', profile.talent)
             profile.action_list = data.get('action_list', profile.action_list)
             profile.gear_strength = data.get('gear_strength', profile.gear_strength)
             profile.gear_crit = data.get('gear_crit', profile.gear_crit)

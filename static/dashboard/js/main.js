@@ -2769,6 +2769,13 @@ function displaySimcTaskData(tasks) {
                         <button onclick="viewSimcTask(${task.id})" class="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 text-sm">
                             <i class="fas fa-eye mr-1"></i>查看
                         </button>
+                        ${task.current_status === 2 && task.result_file ? `
+                        <button onclick="viewSimcResult('${escapeHtml(task.result_file)}')" class="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors duration-200 text-sm">
+                            <i class="fas fa-file-alt mr-1"></i>查看结果
+                        </button>
+                        <button onclick="viewSimcAnalysis('${escapeHtml(task.result_file)}')" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors duration-200 text-sm">
+                            <i class="fas fa-chart-bar mr-1"></i>查看分析
+                        </button>` : ''}
                         <button onclick="editSimcTask(${task.id})" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 text-sm">
                             <i class="fas fa-edit mr-1"></i>编辑
                         </button>
@@ -2906,6 +2913,7 @@ async function openEditSimcTaskModal(task) {
     // 填充表单数据
     document.getElementById('edit-simc-task-name').value = task.name || '';
     document.getElementById('edit-simc-task-profile').value = task.simc_profile_id || '';
+    document.getElementById('edit-simc-task-status').value = task.current_status || '0';
     
     // 存储任务ID用于更新
     modal.setAttribute('data-task-id', task.id);
@@ -2918,6 +2926,7 @@ function updateSimcTask() {
     const taskId = modal.getAttribute('data-task-id');
     const taskName = document.getElementById('edit-simc-task-name').value.trim();
     const simcProfileId = document.getElementById('edit-simc-task-profile').value;
+    const currentStatus = document.getElementById('edit-simc-task-status').value;
     
     if (!taskName) {
         showMessage('请输入任务名称', 'error');
@@ -2940,7 +2949,8 @@ function updateSimcTask() {
         body: JSON.stringify({
             id: parseInt(taskId),
             name: taskName,
-            simc_profile_id: simcProfileId
+            simc_profile_id: simcProfileId,
+            current_status: parseInt(currentStatus)
         })
     })
     .then(response => {
@@ -3070,6 +3080,32 @@ function openViewSimcTaskModal(task) {
         });
 }
 
+function viewSimcResult(resultFile) {
+    if (!resultFile) {
+        showMessage('结果文件路径不存在', 'error');
+        return;
+    }
+    
+    // 构建完整的结果文件路径
+    const fullPath = `/static/simc_results/${resultFile}`;
+    
+    // 打开结果文件路径
+    window.open(fullPath, '_blank');
+}
+
+function viewSimcAnalysis(resultFile) {
+    if (!resultFile) {
+        showMessage('结果文件路径不存在', 'error');
+        return;
+    }
+    
+    // 构建自定义分析页面的URL
+    const analysisUrl = `/simc-result/?file=${encodeURIComponent(resultFile)}`;
+    
+    // 在新标签页中打开自定义分析页面
+    window.open(analysisUrl, '_blank');
+}
+
 async function loadSimcProfileOptions(selectElementId) {
     try {
         const response = await fetch('/api/simc-profile/', {
@@ -3162,6 +3198,7 @@ async function generateSimcCode(profileId, resultFile = '') {
         simcCode = simcCode.replace(/{time}/g, profile.time || '300');
         simcCode = simcCode.replace(/{target_count}/g, profile.target_count || '1');
         simcCode = simcCode.replace(/{talent}/g, profile.talent || '');
+        simcCode = simcCode.replace(/{action_list}/g, profile.action_list || '');
         simcCode = simcCode.replace(/{gear_strength}/g, profile.gear_strength || '93330');
         simcCode = simcCode.replace(/{gear_crit}/g, profile.gear_crit || '10730');
         simcCode = simcCode.replace(/{gear_haste}/g, profile.gear_haste || '18641');
@@ -3250,6 +3287,7 @@ function openAddSimcProfileModal() {
     document.getElementById('add-simc-profile-haste').value = '18641';
     document.getElementById('add-simc-profile-mastery').value = '21785';
     document.getElementById('add-simc-profile-versatility').value = '6757';
+    document.getElementById('add-simc-profile-talent').value = '';
     document.getElementById('add-simc-profile-action-list').value = '';
     
     modal.classList.remove('hidden');
@@ -3265,6 +3303,7 @@ function submitAddSimcProfile() {
     const haste = parseInt(document.getElementById('add-simc-profile-haste').value);
     const mastery = parseInt(document.getElementById('add-simc-profile-mastery').value);
     const versatility = parseInt(document.getElementById('add-simc-profile-versatility').value);
+    const talent = document.getElementById('add-simc-profile-talent').value.trim();
     const actionList = document.getElementById('add-simc-profile-action-list').value.trim();
     
     if (!profileName) {
@@ -3295,6 +3334,7 @@ function submitAddSimcProfile() {
              gear_haste: haste,
              gear_mastery: mastery,
              gear_versatility: versatility,
+            talent: talent,
             action_list: actionList
         })
     })
@@ -3386,6 +3426,7 @@ function openEditSimcProfileModal(profile) {
     document.getElementById('edit-simc-profile-haste').value = profile.gear_haste || 0;
     document.getElementById('edit-simc-profile-mastery').value = profile.gear_mastery || 0;
     document.getElementById('edit-simc-profile-versatility').value = profile.gear_versatility || 0;
+    document.getElementById('edit-simc-profile-talent').value = profile.talent || '';
     document.getElementById('edit-simc-profile-action-list').value = profile.action_list || '';
     
     // 存储配置ID用于更新
@@ -3406,6 +3447,7 @@ function updateSimcProfile() {
     const haste = parseInt(document.getElementById('edit-simc-profile-haste').value);
     const mastery = parseInt(document.getElementById('edit-simc-profile-mastery').value);
     const versatility = parseInt(document.getElementById('edit-simc-profile-versatility').value);
+    const talent = document.getElementById('edit-simc-profile-talent').value.trim();
     const actionList = document.getElementById('edit-simc-profile-action-list').value.trim();
     
     if (!profileName) {
@@ -3437,6 +3479,7 @@ function updateSimcProfile() {
             gear_haste: haste,
             gear_mastery: mastery,
             gear_versatility: versatility,
+            talent: talent,
             action_list: actionList
         })
     })

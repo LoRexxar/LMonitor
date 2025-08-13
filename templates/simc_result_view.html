@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SimC 结果查看</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .ability-row {
+            transition: all 0.3s ease;
+        }
+        .ability-row:hover {
+            background-color: #f8f9fa;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+        }
+        .sortable-header:hover {
+            background-color: #495057;
+        }
+        .sort-indicator {
+            margin-left: 5px;
+            opacity: 0.5;
+        }
+        .sort-indicator.active {
+            opacity: 1;
+        }
+        .percentage-bar {
+            background: linear-gradient(90deg, #28a745 0%, #ffc107 50%, #dc3545 100%);
+            height: 20px;
+            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+        .percentage-fill {
+            background: rgba(255,255,255,0.8);
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+        .percentage-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-weight: bold;
+            color: #000;
+            font-size: 0.8rem;
+        }
+        .dps-highlight {
+            font-size: 2.5rem;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 20px 0;
+        }
+        .loading {
+            text-align: center;
+            padding: 50px;
+        }
+        .error {
+            color: #dc3545;
+            text-align: center;
+            padding: 20px;
+        }
+        .talent-info {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="text-primary">SimC 结果分析</h1>
+                    <button class="btn btn-secondary" onclick="window.close()">关闭</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+            <p class="mt-3">正在解析 SimC 结果...</p>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <h3>加载失败</h3>
+            <p>无法解析 SimC 结果文件，请检查文件是否存在或格式是否正确。</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- 基本信息卡片 -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="stat-card">
+                        <h3>角色信息</h3>
+                        <div id="character-info">
+                            <p><strong>名称:</strong> <span id="char-name">-</span></p>
+                            <p><strong>职业:</strong> <span id="char-class">-</span></p>
+                            <p><strong>专精:</strong> <span id="char-spec">-</span></p>
+                            <p><strong>等级:</strong> <span id="char-level">-</span></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="stat-card">
+                        <h3>DPS 统计</h3>
+                        <div class="dps-highlight" id="total-dps">-</div>
+                        <div class="mt-2">
+                            <small>DPS 误差: <span id="dps-error">-</span></small><br>
+                            <small>DPS 范围: <span id="dps-range">-</span></small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 模拟信息 -->
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h4>模拟设置</h4>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <strong>迭代次数:</strong> <span id="iterations">-</span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>战斗时长:</strong> <span id="fight-length">-</span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>战斗风格:</strong> <span id="fight-style">-</span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>时间戳:</strong> <span id="timestamp">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 天赋信息 -->
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h4>天赋配置</h4>
+                        </div>
+                        <div class="card-body">
+                            <div class="talent-info">
+                                <p><strong>天赋字符串:</strong> <span id="talent-string" class="font-monospace">-</span></p>
+                                <div id="set-bonus" class="mt-2">
+                                    <strong>套装效果:</strong>
+                                    <ul id="set-bonus-list"></ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 技能伤害统计 -->
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h4>技能伤害统计</h4>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th class="sortable-header" onclick="sortTable(0)">技能名称 <span class="sort-indicator">↕</span></th>
+                                            <th class="sortable-header" onclick="sortTable(1)">DPS <span class="sort-indicator">↕</span></th>
+                                            <th class="sortable-header" onclick="sortTable(2)">DPS% <span class="sort-indicator active">↓</span></th>
+                                            <th class="sortable-header" onclick="sortTable(3)">执行次数 <span class="sort-indicator">↕</span></th>
+                                            <th class="sortable-header" onclick="sortTable(4)">间隔 <span class="sort-indicator">↕</span></th>
+                                            <th class="sortable-header" onclick="sortTable(5)">平均伤害 <span class="sort-indicator">↕</span></th>
+                                            <th class="sortable-header" onclick="sortTable(6)">暴击率 <span class="sort-indicator">↕</span></th>
+                                            <th>类型</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="abilities-table">
+                                        <!-- 技能数据将在这里动态填充 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 行动序列表格 -->
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h4>行动序列 <small class="text-muted">(前50个行动)</small></h4>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover table-sm">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>时间</th>
+                                            <th>#</th>
+                                            <th>技能名称</th>
+                                            <th>目标</th>
+                                            <th>资源</th>
+                                            <th>增益效果</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="action-sequence-table">
+                                        <!-- 行动序列数据将在这里动态填充 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DPS 分布图表 -->
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>技能 DPS 分布</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="dps-pie-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>技能执行频率</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="execution-bar-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 技能名称中文翻译映射
+        const skillTranslations = {
+            'Auto Attack': '自动攻击',
+            'Bloodthirst': '嗜血',
+            'Raging Blow': '狂怒打击',
+            'Rampage': '暴怒',
+            'Execute': '斩杀',
+            'Whirlwind': '旋风斩',
+            'Bloodbath': '血浴',
+            'Onslaught': '猛攻',
+            'Crushing Blow': '粉碎打击',
+            'Slam': '猛击',
+            'Thunder Clap': '雷霆一击',
+            'Heroic Throw': '英勇投掷',
+            'Victory Rush': '胜利急奔',
+            'Berserker Rage': '狂暴之怒',
+            'Enraged Regeneration': '狂怒回复',
+            'Intimidating Shout': '破胆怒吼',
+            'Pummel': '拳击',
+            'Rallying Cry': '集结呐喊',
+            'Spell Reflection': '法术反射',
+            'Storm Bolt': '风暴之锤',
+            'Taunt': '嘲讽',
+            'Charge': '冲锋',
+            'Intercept': '拦截',
+            'Heroic Leap': '英勇飞跃',
+            'Bladestorm': '剑刃风暴',
+            'Dragon Roar': '巨龙咆哮',
+            'Shockwave': '震荡波',
+            'Avatar': '天神下凡',
+            'Recklessness': '鲁莽',
+            'Berserking': '狂暴',
+            'Blood Fury': '血性狂怒',
+            'Arcane Torrent': '奥术洪流',
+            'War Stomp': '战争践踏',
+            'Stoneform': '石像形态',
+            'Gift of the Naaru': '纳鲁的赐福',
+            'Every Man for Himself': '人人为己',
+            'Will of the Forsaken': '被遗忘者的意志',
+            'Cannibalize': '食尸',
+            'Shadow Meld': '影遁',
+            'Escape Artist': '逃脱大师',
+            'Rocket Barrage': '火箭弹幕',
+            'Pack Hobgoblin': '装袋地精',
+            'Rocket Jump': '火箭跳跃',
+            'Time is Money': '时间就是金钱',
+            'Darkflight': '暗影疾行',
+            'Viciousness': '凶残',
+            'Aberrant': '异常',
+            'Two Forms': '双重形态',
+            'Tail Swipe': '尾击',
+            'Wing Buffet': '翼击',
+            'Glide': '滑翔',
+            'Demonic': '恶魔',
+            'Fel Resilience': '邪能韧性'
+        };
+
+        // 获取URL参数
+        function getUrlParameter(name) {
+            name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+            var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+            var results = regex.exec(location.search);
+            return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+        }
+
+        // 翻译技能名称
+        function translateSkillName(englishName) {
+            return skillTranslations[englishName] || englishName;
+        }
+
+        // 表格排序变量
+        let currentSortColumn = 2; // 默认按DPS%排序
+        let sortDirection = 'desc'; // 默认降序
+        let abilitiesData = [];
+
+        // 表格排序函数
+        function sortTable(columnIndex) {
+            if (currentSortColumn === columnIndex) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSortColumn = columnIndex;
+                sortDirection = 'desc';
+            }
+
+            // 更新排序指示器
+            document.querySelectorAll('.sort-indicator').forEach(indicator => {
+                indicator.classList.remove('active');
+                indicator.textContent = '↕';
+            });
+
+            const activeIndicator = document.querySelectorAll('.sort-indicator')[columnIndex];
+            activeIndicator.classList.add('active');
+            activeIndicator.textContent = sortDirection === 'asc' ? '↑' : '↓';
+
+            // 排序数据
+            abilitiesData.sort((a, b) => {
+                let aVal, bVal;
+                switch (columnIndex) {
+                    case 0: // 技能名称
+                        aVal = translateSkillName(a.name);
+                        bVal = translateSkillName(b.name);
+                        break;
+                    case 1: // DPS
+                        aVal = parseFloat(a.dps.replace(/,/g, '')) || 0;
+                        bVal = parseFloat(b.dps.replace(/,/g, '')) || 0;
+                        break;
+                    case 2: // DPS%
+                        aVal = parseFloat(a.dpsPercent.replace('%', '')) || 0;
+                        bVal = parseFloat(b.dpsPercent.replace('%', '')) || 0;
+                        break;
+                    case 3: // 执行次数
+                        aVal = parseFloat(a.executions) || 0;
+                        bVal = parseFloat(b.executions) || 0;
+                        break;
+                    case 4: // 间隔
+                        aVal = parseFloat(a.interval.replace('s', '')) || 0;
+                        bVal = parseFloat(b.interval.replace('s', '')) || 0;
+                        break;
+                    case 5: // 平均伤害
+                        aVal = parseFloat(a.avgDamage.replace(/,/g, '')) || 0;
+                        bVal = parseFloat(b.avgDamage.replace(/,/g, '')) || 0;
+                        break;
+                    case 6: // 暴击率
+                        aVal = parseFloat(a.critPercent.replace('%', '')) || 0;
+                        bVal = parseFloat(b.critPercent.replace('%', '')) || 0;
+                        break;
+                    default:
+                        return 0;
+                }
+
+                if (typeof aVal === 'string') {
+                    return sortDirection === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+                } else {
+                    return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+                }
+            });
+
+            // 重新渲染表格
+            renderAbilitiesTable();
+        }
+
+        // 解析HTML内容
+        function parseSimcResults(htmlContent) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlContent, 'text/html');
+            
+            const results = {
+                character: {},
+                simulation: {},
+                abilities: [],
+                talents: {}
+            };
+
+            try {
+                // 解析角色信息
+                const playerSection = doc.querySelector('.player');
+                if (playerSection) {
+                    const playerTitle = playerSection.querySelector('h2');
+                    if (playerTitle) {
+                        const titleText = playerTitle.textContent;
+                        const match = titleText.match(/(.+?)\s*:\s*([\d,]+)\s*dps/);
+                        if (match) {
+                            results.character.name = match[1].trim();
+                            results.character.dps = match[2].replace(/,/g, '');
+                        }
+                    }
+
+                    // 解析角色详细信息
+                    const params = playerSection.querySelectorAll('.params li');
+                    params.forEach(param => {
+                        const text = param.textContent;
+                        if (text.includes('Race:')) results.character.race = text.split(':')[1].trim();
+                        if (text.includes('Class:')) results.character.class = text.split(':')[1].trim();
+                        if (text.includes('Spec:')) results.character.spec = text.split(':')[1].trim();
+                        if (text.includes('Level:')) results.character.level = text.split(':')[1].trim();
+                    });
+
+                    // 解析DPS统计
+                    const dpsTable = playerSection.querySelector('table.sc');
+                    if (dpsTable) {
+                        const rows = dpsTable.querySelectorAll('tr');
+                        if (rows.length > 1) {
+                            const cells = rows[1].querySelectorAll('td');
+                            if (cells.length >= 4) {
+                                results.character.dpsError = cells[2].textContent.trim();
+                                results.character.dpsRange = cells[3].textContent.trim();
+                            }
+                        }
+                    }
+
+                    // 解析天赋信息
+                    const talentRow = playerSection.querySelector('tr.left');
+                    if (talentRow) {
+                        const talentCell = talentRow.querySelector('td');
+                        if (talentCell) {
+                            results.talents.string = talentCell.textContent.trim();
+                        }
+                    }
+
+                    // 解析套装效果
+                    const setBonusRow = playerSection.querySelector('tr.left.nowrap');
+                    if (setBonusRow) {
+                        const setBonusCell = setBonusRow.querySelector('td');
+                        if (setBonusCell) {
+                            const setBonusList = setBonusCell.querySelectorAll('li');
+                            results.talents.setBonuses = Array.from(setBonusList).map(li => li.textContent.trim());
+                        }
+                    }
+
+                    // 解析技能数据 - 只提取主技能行，忽略子技能行
+                    const abilitiesTable = playerSection.querySelector('table.sc.sort');
+                    if (abilitiesTable) {
+                        const rows = abilitiesTable.querySelectorAll('tbody tr.toprow:not(.childrow)');
+                        rows.forEach(row => {
+                            const cells = row.querySelectorAll('td');
+                            if (cells.length >= 8) {
+                                // 提取DPS值，优先使用括号内的值
+                                const dpsText = cells[1].textContent.trim();
+                                const dpsMatch = dpsText.match(/\(([\d,]+)\)/);
+                                const actualDps = dpsMatch ? dpsMatch[1] : dpsText;
+                                
+                                // 提取DPS百分比，优先使用括号内的值
+                                const dpsPercentText = cells[2].textContent.trim();
+                                const dpsPercentMatch = dpsPercentText.match(/\(([\d.]+%)\)/);
+                                const actualDpsPercent = dpsPercentMatch ? dpsPercentMatch[1] : dpsPercentText;
+                                
+                                const ability = {
+                                    name: cells[0].textContent.trim(),
+                                    dps: actualDps,
+                                    dpsPercent: actualDpsPercent,
+                                    executions: cells[3].textContent.trim(),
+                                    interval: cells[4].textContent.trim(),
+                                    avgDamage: cells[5].textContent.trim(),
+                                    type: cells[7] ? cells[7].textContent.trim() : '',
+                                    critPercent: cells[12] ? cells[12].textContent.trim() : ''
+                                };
+                                results.abilities.push(ability);
+                            }
+                        });
+                    }
+                }
+
+                // 解析模拟设置
+                const masthead = doc.querySelector('#masthead');
+                if (masthead) {
+                    const params = masthead.querySelectorAll('.params li');
+                    params.forEach(param => {
+                        const text = param.textContent;
+                        if (text.includes('Timestamp:')) results.simulation.timestamp = text.split(':').slice(1).join(':').trim();
+                        if (text.includes('Iterations:')) results.simulation.iterations = text.split(':')[1].trim();
+                        if (text.includes('Fight Length:')) results.simulation.fightLength = text.split(':')[1].trim();
+                        if (text.includes('Fight Style:')) results.simulation.fightStyle = text.split(':')[1].trim();
+                    })
+                }
+
+                // 解析行动序列表格 - 查找包含"Sample Sequence Table"的表格
+                const allTables = doc.querySelectorAll('table.sc');
+                results.actionSequence = [];
+                console.log('找到的表格数量:', allTables.length);
+                
+                for (let tableIndex = 0; tableIndex < allTables.length; tableIndex++) {
+                    const table = allTables[tableIndex];
+                    console.log('检查表格', tableIndex + 1);
+                    
+                    // 查找表格前面的标题，看是否包含"Sample Sequence"或"Action Sequence"
+                    let prevElement = table.previousElementSibling;
+                    let isSequenceTable = false;
+                    
+                    // 向前查找几个元素，寻找相关标题
+                    for (let i = 0; i < 5 && prevElement; i++) {
+                        const text = prevElement.textContent || '';
+                        console.log('检查前置元素文本:', text.substring(0, 100));
+                        if (text.includes('Sample Sequence') || text.includes('Action Sequence') || text.includes('Sequence Table')) {
+                            isSequenceTable = true;
+                            console.log('通过标题找到序列表格');
+                            break;
+                        }
+                        prevElement = prevElement.previousElementSibling;
+                    }
+                    
+                    // 或者检查表格头部是否包含Time、#、Name等列
+                    if (!isSequenceTable) {
+                        const headers = table.querySelectorAll('th');
+                        const headerTexts = Array.from(headers).map(th => th.textContent.trim().toLowerCase());
+                        console.log('表格头部:', headerTexts);
+                        if (headerTexts.includes('time') && headerTexts.includes('#') && (headerTexts.includes('name') || headerTexts.includes('name [list]'))) {
+                            isSequenceTable = true;
+                            console.log('通过表头找到序列表格');
+                        }
+                    }
+                    
+                    if (isSequenceTable) {
+                        const sequenceRows = table.querySelectorAll('tbody tr');
+                        console.log('找到行动序列表格，行数:', sequenceRows.length);
+                        
+                        // 限制显示前50个行动
+                        const maxActions = Math.min(sequenceRows.length, 50);
+                        for (let i = 0; i < maxActions; i++) {
+                            const row = sequenceRows[i];
+                            const cells = row.querySelectorAll('td');
+                            if (cells.length >= 6) {
+                                const action = {
+                                    time: cells[0] ? cells[0].textContent.trim() : '',
+                                    number: cells[1] ? cells[1].textContent.trim() : '',
+                                    name: cells[2] ? (cells[2].querySelector('b') ? cells[2].querySelector('b').textContent.trim() : cells[2].textContent.trim()) : '',
+                                    target: cells[3] ? cells[3].textContent.trim() : '',
+                                    resources: cells[4] ? cells[4].textContent.trim() : '',
+                                    buffs: cells[5] ? cells[5].textContent.trim() : ''
+                                };
+                                results.actionSequence.push(action);
+                            }
+                        }
+                        console.log('解析到的行动数量:', results.actionSequence.length);
+                        break; // 找到第一个匹配的表格后退出
+                    }
+                }
+                
+                if (results.actionSequence.length === 0) {
+                    console.log('未找到行动序列数据');
+                }
+
+            } catch (error) {
+                console.error('解析SimC结果时出错:', error);
+                throw error;
+            }
+
+            return results;
+        }
+
+        // 更新页面内容
+        function updatePageContent(results) {
+            // 更新角色信息
+            document.getElementById('char-name').textContent = results.character.name || '-';
+            document.getElementById('char-class').textContent = results.character.class || '-';
+            document.getElementById('char-spec').textContent = results.character.spec || '-';
+            document.getElementById('char-level').textContent = results.character.level || '-';
+            document.getElementById('total-dps').textContent = results.character.dps ? Number(results.character.dps).toLocaleString() : '-';
+            document.getElementById('dps-error').textContent = results.character.dpsError || '-';
+            document.getElementById('dps-range').textContent = results.character.dpsRange || '-';
+
+            // 更新模拟信息
+            document.getElementById('iterations').textContent = results.simulation.iterations || '-';
+            document.getElementById('fight-length').textContent = results.simulation.fightLength || '-';
+            document.getElementById('fight-style').textContent = results.simulation.fightStyle || '-';
+            document.getElementById('timestamp').textContent = results.simulation.timestamp || '-';
+
+            // 更新天赋信息
+            document.getElementById('talent-string').textContent = results.talents.string || '-';
+            const setBonusList = document.getElementById('set-bonus-list');
+            setBonusList.innerHTML = '';
+            if (results.talents.setBonuses && results.talents.setBonuses.length > 0) {
+                results.talents.setBonuses.forEach(bonus => {
+                    const li = document.createElement('li');
+                    li.textContent = bonus;
+                    setBonusList.appendChild(li);
+                });
+            } else {
+                setBonusList.innerHTML = '<li>无套装效果</li>';
+            }
+
+            // 保存技能数据并渲染表格
+            abilitiesData = results.abilities;
+            // 默认按DPS%降序排序
+            abilitiesData.sort((a, b) => {
+                const aVal = parseFloat(a.dpsPercent.replace('%', '')) || 0;
+                const bVal = parseFloat(b.dpsPercent.replace('%', '')) || 0;
+                return bVal - aVal;
+            });
+            renderAbilitiesTable();
+
+            // 渲染行动序列表格
+            if (results.actionSequence) {
+                renderActionSequenceTable(results.actionSequence);
+            }
+
+            // 创建图表
+            createCharts(results.abilities);
+        }
+
+        // 渲染技能表格
+        function renderAbilitiesTable() {
+            const abilitiesTable = document.getElementById('abilities-table');
+            abilitiesTable.innerHTML = '';
+            
+            abilitiesData.forEach(ability => {
+                const row = document.createElement('tr');
+                row.className = 'ability-row';
+                
+                const translatedName = translateSkillName(ability.name);
+                const dpsPercent = parseFloat(ability.dpsPercent.replace('%', '')) || 0;
+                const critPercent = parseFloat(ability.critPercent.replace('%', '')) || 0;
+                
+                // 获取技能类型的中文翻译
+                const typeTranslations = {
+                    'melee': '近战',
+                    'spell': '法术',
+                    'ranged': '远程',
+                    'ability': '技能',
+                    'passive': '被动',
+                    'proc': '触发',
+                    'dot': '持续伤害',
+                    'hot': '持续治疗',
+                    'buff': '增益',
+                    'debuff': '减益'
+                };
+                const translatedType = typeTranslations[ability.type.toLowerCase()] || ability.type;
+                
+                row.innerHTML = `
+                    <td><strong>${translatedName}</strong>
+                        ${ability.name !== translatedName ? `<br><small class="text-muted">${ability.name}</small>` : ''}
+                    </td>
+                    <td>${Number(ability.dps.replace(/,/g, '')).toLocaleString()}</td>
+                    <td>
+                        <div class="percentage-bar" style="width: 100px;">
+                            <div class="percentage-fill" style="width: ${Math.min(dpsPercent * 2, 100)}%;"></div>
+                            <div class="percentage-text">${ability.dpsPercent}</div>
+                        </div>
+                    </td>
+                    <td>${Number(ability.executions).toLocaleString()}</td>
+                    <td>${ability.interval}</td>
+                    <td>${Number(ability.avgDamage.replace(/,/g, '')).toLocaleString()}</td>
+                    <td>
+                        ${critPercent > 0 ? `
+                            <div class="percentage-bar" style="width: 80px;">
+                                <div class="percentage-fill" style="width: ${critPercent}%; background: rgba(255,193,7,0.8);"></div>
+                                <div class="percentage-text">${ability.critPercent}</div>
+                            </div>
+                        ` : ability.critPercent}
+                    </td>
+                    <td><span class="badge bg-secondary">${translatedType}</span></td>
+                `;
+                abilitiesTable.appendChild(row);
+            });
+        }
+
+        // 渲染行动序列表格
+        function renderActionSequenceTable(actionSequence) {
+            const sequenceTable = document.getElementById('action-sequence-table');
+            sequenceTable.innerHTML = '';
+            
+            actionSequence.forEach(action => {
+                const row = document.createElement('tr');
+                
+                const translatedName = translateSkillName(action.name);
+                
+                row.innerHTML = `
+                    <td>${action.time}</td>
+                    <td>${action.number}</td>
+                    <td><strong>${translatedName}</strong>
+                        ${action.name !== translatedName ? `<br><small class="text-muted">${action.name}</small>` : ''}
+                    </td>
+                    <td>${action.target}</td>
+                    <td><small>${action.resources}</small></td>
+                    <td><small>${action.buffs}</small></td>
+                `;
+                sequenceTable.appendChild(row);
+            });
+        }
+
+        // 创建图表
+        function createCharts(abilities) {
+            // DPS饼图 - 使用中文翻译的技能名称
+            const dpsData = abilities.slice(0, 8).map(ability => ({
+                label: translateSkillName(ability.name),
+                originalLabel: ability.name,
+                value: parseFloat(ability.dpsPercent.replace('%', '')) || 0
+            }));
+
+            const pieCtx = document.getElementById('dps-pie-chart').getContext('2d');
+            new Chart(pieCtx, {
+                type: 'pie',
+                data: {
+                    labels: dpsData.map(d => d.label),
+                    datasets: [{
+                        data: dpsData.map(d => d.value),
+                        backgroundColor: [
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                            '#9966FF', '#FF9F40', '#E7E9ED', '#71B37C'
+                        ],
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 15,
+                                usePointStyle: true,
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const data = dpsData[context.dataIndex];
+                                    return `${data.label}: ${data.value.toFixed(1)}%`;
+                                },
+                                afterLabel: function(context) {
+                                    const data = dpsData[context.dataIndex];
+                                    return data.originalLabel !== data.label ? `(${data.originalLabel})` : '';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // 执行频率柱状图 - 使用中文翻译的技能名称
+            const executionData = abilities.slice(0, 6).map(ability => ({
+                label: translateSkillName(ability.name),
+                originalLabel: ability.name,
+                value: parseFloat(ability.executions) || 0
+            }));
+
+            const barCtx = document.getElementById('execution-bar-chart').getContext('2d');
+            new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: executionData.map(d => d.label),
+                    datasets: [{
+                        label: '执行次数',
+                        data: executionData.map(d => d.value),
+                        backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 0
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const data = executionData[context.dataIndex];
+                                    return `${data.label}: ${data.value.toLocaleString()} 次`;
+                                },
+                                afterLabel: function(context) {
+                                    const data = executionData[context.dataIndex];
+                                    return data.originalLabel !== data.label ? `(${data.originalLabel})` : '';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 加载SimC结果
+        async function loadSimcResults() {
+            const resultFile = getUrlParameter('file');
+            if (!resultFile) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/static/simc_results/${resultFile}`);
+                if (!response.ok) {
+                    throw new Error('文件加载失败');
+                }
+                
+                const htmlContent = await response.text();
+                const results = parseSimcResults(htmlContent);
+                
+                updatePageContent(results);
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+            } catch (error) {
+                console.error('加载SimC结果失败:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', loadSimcResults);
+    </script>
+</body>
+</html>

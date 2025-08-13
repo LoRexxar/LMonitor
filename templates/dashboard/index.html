@@ -679,6 +679,15 @@
                         <option value="">请选择SimC配置...</option>
                     </select>
                 </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">任务状态</label>
+                    <select id="edit-simc-task-status" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="0">等待中</option>
+                        <option value="1">进行中</option>
+                        <option value="2">已完成</option>
+                        <option value="3">失败</option>
+                    </select>
+                </div>
                 <div class="mt-4 flex justify-end space-x-3">
                     <button id="cancel-edit-simc-task" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
                         取消
@@ -773,6 +782,10 @@
                             </div>
                         </div>
                         <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">天赋</label>
+                            <textarea id="add-simc-profile-talent" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="5" placeholder="请输入天赋配置..."></textarea>
+                        </div>
+                        <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">动作列表</label>
                             <textarea id="add-simc-profile-action-list" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入动作列表..."></textarea>
                         </div>
@@ -844,6 +857,10 @@
                                 <label class="block text-sm font-medium text-gray-700 mb-2">全能</label>
                                 <input type="number" id="edit-simc-profile-versatility" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="0" min="0">
                             </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">天赋</label>
+                            <textarea id="edit-simc-profile-talent" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="5" placeholder="请输入天赋配置..."></textarea>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">动作列表</label>
