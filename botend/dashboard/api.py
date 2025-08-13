@@ -1016,6 +1016,36 @@ class SimcProfileAPIView(View):
             })
 
 
+@method_decorator([csrf_exempt], name='dispatch')
+class KeywordTranslationAPIView(View):
+    """
+    关键字翻译API - 用于SimC结果分析页面
+    """
+    
+    def get(self, request):
+        """获取所有活跃的关键字映射"""
+        try:
+            # 获取所有活跃的关键字映射
+            keywords = SimcAplKeywordPair.objects.filter(is_active=True)
+            
+            # 构建映射字典
+            translation_map = {}
+            for keyword in keywords:
+                translation_map[keyword.apl_keyword] = keyword.cn_keyword
+            
+            return JsonResponse({
+                'success': True,
+                'translations': translation_map
+            })
+            
+        except Exception as e:
+            logger.error(f"获取关键字翻译映射失败: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': '获取翻译映射失败'
+            })
+
+
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class SimcTemplateAPIView(View):
     """

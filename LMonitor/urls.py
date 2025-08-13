@@ -21,7 +21,7 @@ from django.shortcuts import redirect
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView, SimcResultView
-from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView
+from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, KeywordTranslationAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from django.http import HttpResponse, JsonResponse
 
@@ -50,6 +50,7 @@ urlpatterns = [
     path('api/simc-task/', csrf_exempt(SimcTaskAPIView.as_view()), name="simc_task"),
     path('api/simc-profile/', csrf_exempt(SimcProfileAPIView.as_view()), name="simc_profile"),
     path('api/simc-template/', csrf_exempt(SimcTemplateAPIView.as_view()), name="simc_template"),
+    path('api/keyword-translation/', csrf_exempt(KeywordTranslationAPIView.as_view()), name="keyword_translation"),
     
     # SimC结果查看页面
     path('simc-result/', SimcResultView.as_view(), name="simc_result"),

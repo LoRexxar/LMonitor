@@ -274,8 +274,8 @@
     </div>
 
     <script>
-        // 技能名称中文翻译映射
-        const skillTranslations = {
+        // 技能名称中文翻译映射（默认映射）
+        let skillTranslations = {
             'Auto Attack': '自动攻击',
             'Bloodthirst': '嗜血',
             'Raging Blow': '狂怒打击',
@@ -331,6 +331,22 @@
             'Fel Resilience': '邪能韧性'
         };
 
+        // 从数据库加载关键字翻译映射
+        async function loadKeywordTranslations() {
+            try {
+                const response = await fetch('/api/keyword-translation/');
+                const data = await response.json();
+                
+                if (data.success && data.translations) {
+                    // 合并数据库中的翻译映射到默认映射中
+                    skillTranslations = { ...skillTranslations, ...data.translations };
+                    console.log('关键字翻译映射已加载:', Object.keys(data.translations).length + '个关键字');
+                }
+            } catch (error) {
+                console.warn('加载关键字翻译映射失败:', error);
+            }
+        }
+
         // 获取URL参数
         function getUrlParameter(name) {
             name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
@@ -342,6 +358,24 @@
         // 翻译技能名称
         function translateSkillName(englishName) {
             return skillTranslations[englishName] || englishName;
+        }
+
+        // 通用文本翻译函数 - 对文本中的关键字进行替换
+        function translateText(text) {
+            if (!text || typeof text !== 'string') {
+                return text;
+            }
+            
+            let translatedText = text;
+            
+            // 遍历所有关键字映射进行替换
+            for (const [englishKeyword, chineseKeyword] of Object.entries(skillTranslations)) {
+                // 使用正则表达式进行全局替换，支持单词边界匹配
+                const regex = new RegExp('\\b' + englishKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+                translatedText = translatedText.replace(regex, chineseKeyword);
+            }
+            
+            return translatedText;
         }
 
         // 表格排序变量
@@ -445,9 +479,9 @@
                     const params = playerSection.querySelectorAll('.params li');
                     params.forEach(param => {
                         const text = param.textContent;
-                        if (text.includes('Race:')) results.character.race = text.split(':')[1].trim();
-                        if (text.includes('Class:')) results.character.class = text.split(':')[1].trim();
-                        if (text.includes('Spec:')) results.character.spec = text.split(':')[1].trim();
+                        if (text.includes('Race:')) results.character.race = translateText(text.split(':')[1].trim());
+                        if (text.includes('Class:')) results.character.class = translateText(text.split(':')[1].trim());
+                        if (text.includes('Spec:')) results.character.spec = translateText(text.split(':')[1].trim());
                         if (text.includes('Level:')) results.character.level = text.split(':')[1].trim();
                     });
 
@@ -505,9 +539,9 @@
                                     dps: actualDps,
                                     dpsPercent: actualDpsPercent,
                                     executions: cells[3].textContent.trim(),
-                                    interval: cells[4].textContent.trim(),
+                                    interval: translateText(cells[4].textContent.trim()),
                                     avgDamage: cells[5].textContent.trim(),
-                                    type: cells[7] ? cells[7].textContent.trim() : '',
+                                    type: translateText(cells[7] ? cells[7].textContent.trim() : ''),
                                     critPercent: cells[12] ? cells[12].textContent.trim() : ''
                                 };
                                 results.abilities.push(ability);
@@ -532,11 +566,9 @@
                 // 解析行动序列表格 - 查找包含"Sample Sequence Table"的表格
                 const allTables = doc.querySelectorAll('table.sc');
                 results.actionSequence = [];
-                console.log('找到的表格数量:', allTables.length);
                 
                 for (let tableIndex = 0; tableIndex < allTables.length; tableIndex++) {
                     const table = allTables[tableIndex];
-                    console.log('检查表格', tableIndex + 1);
                     
                     // 查找表格前面的标题，看是否包含"Sample Sequence"或"Action Sequence"
                     let prevElement = table.previousElementSibling;
@@ -545,10 +577,8 @@
                     // 向前查找几个元素，寻找相关标题
                     for (let i = 0; i < 5 && prevElement; i++) {
                         const text = prevElement.textContent || '';
-                        console.log('检查前置元素文本:', text.substring(0, 100));
                         if (text.includes('Sample Sequence') || text.includes('Action Sequence') || text.includes('Sequence Table')) {
                             isSequenceTable = true;
-                            console.log('通过标题找到序列表格');
                             break;
                         }
                         prevElement = prevElement.previousElementSibling;
@@ -558,16 +588,13 @@
                     if (!isSequenceTable) {
                         const headers = table.querySelectorAll('th');
                         const headerTexts = Array.from(headers).map(th => th.textContent.trim().toLowerCase());
-                        console.log('表格头部:', headerTexts);
                         if (headerTexts.includes('time') && headerTexts.includes('#') && (headerTexts.includes('name') || headerTexts.includes('name [list]'))) {
                             isSequenceTable = true;
-                            console.log('通过表头找到序列表格');
                         }
                     }
                     
                     if (isSequenceTable) {
                         const sequenceRows = table.querySelectorAll('tbody tr');
-                        console.log('找到行动序列表格，行数:', sequenceRows.length);
                         
                         // 限制显示前50个行动
                         const maxActions = Math.min(sequenceRows.length, 50);
@@ -579,20 +606,15 @@
                                     time: cells[0] ? cells[0].textContent.trim() : '',
                                     number: cells[1] ? cells[1].textContent.trim() : '',
                                     name: cells[2] ? (cells[2].querySelector('b') ? cells[2].querySelector('b').textContent.trim() : cells[2].textContent.trim()) : '',
-                                    target: cells[3] ? cells[3].textContent.trim() : '',
-                                    resources: cells[4] ? cells[4].textContent.trim() : '',
-                                    buffs: cells[5] ? cells[5].textContent.trim() : ''
+                                    target: cells[3] ? translateText(cells[3].textContent.trim()) : '',
+                                    resources: cells[4] ? translateText(cells[4].textContent.trim()) : '',
+                                    buffs: cells[5] ? translateText(cells[5].textContent.trim()) : ''
                                 };
                                 results.actionSequence.push(action);
                             }
                         }
-                        console.log('解析到的行动数量:', results.actionSequence.length);
                         break; // 找到第一个匹配的表格后退出
                     }
-                }
-                
-                if (results.actionSequence.length === 0) {
-                    console.log('未找到行动序列数据');
                 }
 
             } catch (error) {
@@ -617,7 +639,7 @@
             // 更新模拟信息
             document.getElementById('iterations').textContent = results.simulation.iterations || '-';
             document.getElementById('fight-length').textContent = results.simulation.fightLength || '-';
-            document.getElementById('fight-style').textContent = results.simulation.fightStyle || '-';
+            document.getElementById('fight-style').textContent = translateText(results.simulation.fightStyle) || '-';
             document.getElementById('timestamp').textContent = results.simulation.timestamp || '-';
 
             // 更新天赋信息
@@ -627,7 +649,7 @@
             if (results.talents.setBonuses && results.talents.setBonuses.length > 0) {
                 results.talents.setBonuses.forEach(bonus => {
                     const li = document.createElement('li');
-                    li.textContent = bonus;
+                    li.textContent = translateText(bonus);
                     setBonusList.appendChild(li);
                 });
             } else {
@@ -874,8 +896,17 @@
             }
         }
 
+        // 页面初始化函数
+        async function initializePage() {
+            // 先加载关键字翻译映射
+            await loadKeywordTranslations();
+            
+            // 然后加载SimC结果
+            await loadSimcResults();
+        }
+
         // 页面加载完成后执行
-        document.addEventListener('DOMContentLoaded', loadSimcResults);
+        document.addEventListener('DOMContentLoaded', initializePage);
     </script>
 </body>
 </html>
