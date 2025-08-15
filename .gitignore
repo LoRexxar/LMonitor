@@ -103,3 +103,6 @@ settings.py
 bin/*
 ghostdriver.log
 debug.log
+
+# result
+static/simc_results/*

@@ -1084,6 +1084,7 @@ class SimcResultProxyAPIView(View):
         """代理获取OSS文件内容"""
         try:
             import requests
+            import os
             from django.conf import settings
             
             result_file = request.GET.get('file')
@@ -1093,39 +1094,54 @@ class SimcResultProxyAPIView(View):
                     'error': '文件名不能为空'
                 })
             
-            # 获取OSS配置
+            # 首先尝试从OSS获取文件
             oss_config = getattr(settings, 'OSS_CONFIG', {})
             base_url = oss_config.get('base_url', '')
             
-            if not base_url:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'OSS配置未找到'
-                })
+            if base_url:
+                try:
+                    # 构建完整的OSS文件URL
+                    file_url = base_url + result_file
+                    
+                    # 从OSS获取文件内容
+                    response = requests.get(file_url, timeout=30)
+                    
+                    if response.status_code == 200:
+                        return JsonResponse({
+                            'success': True,
+                            'content': response.text
+                        })
+                    else:
+                        logger.warning(f"OSS文件获取失败，状态码: {response.status_code}，尝试本地文件")
+                        
+                except requests.RequestException as e:
+                    logger.warning(f"OSS请求失败: {str(e)}，尝试本地文件")
             
-            # 构建完整的OSS文件URL
-            file_url = base_url + result_file
+            # OSS获取失败，尝试从本地static目录获取
+            local_file_path = os.path.join(settings.BASE_DIR, 'static', 'simc_results', result_file)
             
-            # 从OSS获取文件内容
-            response = requests.get(file_url, timeout=30)
-            
-            if response.status_code == 200:
-                return JsonResponse({
-                    'success': True,
-                    'content': response.text
-                })
+            if os.path.exists(local_file_path):
+                try:
+                    with open(local_file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    return JsonResponse({
+                        'success': True,
+                        'content': content
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"读取本地文件失败: {str(e)}")
+                    return JsonResponse({
+                        'success': False,
+                        'error': f'读取本地文件失败: {str(e)}'
+                    })
             else:
                 return JsonResponse({
                     'success': False,
-                    'error': f'文件获取失败，状态码: {response.status_code}'
+                    'error': f'文件未找到: {result_file}'
                 })
             
-        except requests.RequestException as e:
-            logger.error(f"从OSS获取文件错误: {str(e)}\n{traceback.format_exc()}")
-            return JsonResponse({
-                'success': False,
-                'error': f'网络请求失败: {str(e)}'
-            })
         except Exception as e:
             logger.error(f"SimC结果代理错误: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({
