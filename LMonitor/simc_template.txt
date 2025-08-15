@@ -10,7 +10,8 @@ fight_style={fight_style}
 max_time={time}
 html={result_file}
 desired_targets={target_count}
-
+optimal_raid=0
+override.battle_shout=1
 
 talents={talent}
 

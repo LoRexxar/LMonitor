@@ -93,6 +93,8 @@ class SimcTaskAPIView(View):
                     'simc_profile_id': task.simc_profile_id,
                     'current_status': task.current_status,
                     'result_file': task.result_file,
+                    'task_type': task.task_type,
+                    'ext': task.ext,
                     'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
                     'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
                 })
@@ -117,6 +119,8 @@ class SimcTaskAPIView(View):
             name = data.get('name', '').strip()
             simc_profile_id = data.get('simc_profile_id')
             current_status = data.get('current_status', 0)
+            task_type = data.get('task_type', 1)
+            ext = data.get('ext', '')
             
             if not name:
                 return JsonResponse({
@@ -154,7 +158,9 @@ class SimcTaskAPIView(View):
                 name=name,
                 simc_profile_id=simc_profile_id,
                 current_status=current_status,
-                result_file=result_file
+                result_file=result_file,
+                task_type=task_type,
+                ext=ext
             )
             
             return JsonResponse({
@@ -166,6 +172,8 @@ class SimcTaskAPIView(View):
                     'simc_profile_id': task.simc_profile_id,
                     'current_status': task.current_status,
                     'result_file': task.result_file,
+                    'task_type': task.task_type,
+                    'ext': task.ext,
                     'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
                     'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
                 }
@@ -191,6 +199,8 @@ class SimcTaskAPIView(View):
             name = data.get('name', '').strip()
             simc_profile_id = data.get('simc_profile_id')
             current_status = data.get('current_status', 0)
+            task_type = data.get('task_type', 1)
+            ext = data.get('ext', '')
             
             if not task_id:
                 return JsonResponse({
@@ -236,6 +246,8 @@ class SimcTaskAPIView(View):
             task.name = name
             task.simc_profile_id = simc_profile_id
             task.current_status = current_status
+            task.task_type = task_type
+            task.ext = ext
             task.save()
             
             return JsonResponse({
@@ -247,6 +259,8 @@ class SimcTaskAPIView(View):
                     'simc_profile_id': task.simc_profile_id,
                     'current_status': task.current_status,
                     'result_file': task.result_file,
+                    'task_type': task.task_type,
+                    'ext': task.ext,
                     'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
                     'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
                 }

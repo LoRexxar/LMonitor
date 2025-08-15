@@ -300,6 +300,38 @@ function initSimcTaskManagement() {
         addSimcTaskBtn.addEventListener('click', openAddSimcTaskModal);
     }
     
+    // 任务类型选择事件监听器（新增任务）
+    const addTaskTypeSelect = document.getElementById('simc-task-type');
+    if (addTaskTypeSelect) {
+        addTaskTypeSelect.addEventListener('change', function() {
+            const profileSelect = document.getElementById('simc-task-profile');
+            if (this.value === '2') { // 属性模拟
+                profileSelect.style.display = 'block';
+                profileSelect.parentElement.style.display = 'block';
+            } else { // 常规模拟
+                profileSelect.style.display = 'none';
+                profileSelect.parentElement.style.display = 'none';
+                profileSelect.value = ''; // 清空选择
+            }
+        });
+    }
+    
+    // 编辑任务类型选择事件监听器（编辑任务）
+    const editTaskTypeSelect = document.getElementById('edit-simc-task-type');
+    if (editTaskTypeSelect) {
+        editTaskTypeSelect.addEventListener('change', function() {
+            const profileSelect = document.getElementById('edit-simc-task-profile');
+            if (this.value === '2') { // 属性模拟
+                profileSelect.style.display = 'block';
+                profileSelect.parentElement.style.display = 'block';
+            } else { // 常规模拟
+                profileSelect.style.display = 'none';
+                profileSelect.parentElement.style.display = 'none';
+                profileSelect.value = ''; // 清空选择
+            }
+        });
+    }
+    
     // 取消新增任务
     const cancelAddBtn = document.getElementById('cancel-add-simc-task');
     if (cancelAddBtn) {
@@ -307,6 +339,7 @@ function initSimcTaskManagement() {
             document.getElementById('add-simc-task-modal').style.display = 'none';
             // 清空表单
             document.getElementById('simc-task-name').value = '';
+            document.getElementById('simc-task-type').value = '1';
             document.getElementById('simc-task-profile').value = '';
         });
     }
@@ -2716,7 +2749,7 @@ function displaySimcTaskData(tasks) {
     if (!tasks || tasks.length === 0) {
         taskListContainer.innerHTML = `
             <tr>
-                <td colspan="6" class="text-center py-8 text-gray-500">
+                <td colspan="7" class="text-center py-8 text-gray-500">
                     <i class="fas fa-tasks text-4xl mb-4"></i>
                     <p>暂无任务数据</p>
                 </td>
@@ -2751,11 +2784,40 @@ function displaySimcTaskData(tasks) {
                 statusClass = 'bg-gray-100 text-gray-800';
         }
         
+        // 获取任务类型显示文本
+        let taskTypeText;
+        switch(task.task_type) {
+            case 1:
+                taskTypeText = '常规模拟';
+                break;
+            case 2:
+                taskTypeText = '属性模拟';
+                // 如果是属性模拟且有ext数据，显示选中的属性
+                if (task.ext) {
+                    const statMap = {
+                        'crit': '暴击',
+                        'haste': '急速', 
+                        'mastery': '精通',
+                        'versatility': '全能'
+                    };
+                    const selectedStats = task.ext.split(',').map(stat => statMap[stat.trim()] || stat.trim()).join('、');
+                    taskTypeText += `<br><span class="text-xs text-gray-600">(${selectedStats})</span>`;
+                }
+                break;
+            default:
+                taskTypeText = '常规模拟';
+        }
+        
         html += `
             <tr class="hover:bg-gray-50">
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${task.id}</td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(task.name || '')}</div>
+                </td>
+                <td class="px-6 py-4">
+                    <div class="inline-flex flex-col px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                        ${taskTypeText}
+                    </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusClass}">
@@ -2791,37 +2853,68 @@ function displaySimcTaskData(tasks) {
     taskListContainer.innerHTML = html;
 }
 
-async function openAddSimcTaskModal() {
+function openAddSimcTaskModal() {
     const modal = document.getElementById('add-simc-task-modal');
     if (!modal) {
         console.error('SimC任务新增模态框未找到');
         return;
     }
     
+    // 加载SimC配置选项到配置选择下拉框中
+    loadSimcProfileOptions('simc-config-select');
+    
     // 清空表单
     document.getElementById('simc-task-name').value = '';
+    document.getElementById('simc-task-type').value = '1';
+    document.getElementById('simc-config-select').value = '';
+    document.getElementById('simc-task-profile').value = '';
     
-    // 加载SimC配置列表
-    await loadSimcProfileOptions('simc-task-profile');
+    // 默认隐藏属性组合下拉框
+    const profileSelect = document.getElementById('simc-task-profile');
+    profileSelect.parentElement.style.display = 'none';
     
     modal.style.display = 'block';
 }
 
 function submitAddSimcTask() {
     const taskName = document.getElementById('simc-task-name').value.trim();
-    const simcProfileId = document.getElementById('simc-task-profile').value;
+    const taskType = document.getElementById('simc-task-type').value;
+    const simcConfigId = document.getElementById('simc-config-select').value;
     
     if (!taskName) {
         showMessage('请输入任务名称', 'error');
         return;
     }
     
-    if (!simcProfileId) {
+    if (!taskType) {
+        showMessage('请选择任务类型', 'error');
+        return;
+    }
+    
+    if (!simcConfigId) {
         showMessage('请选择SimC配置', 'error');
         return;
     }
     
     const csrfToken = getCSRFToken();
+    
+    const requestData = {
+        name: taskName,
+        task_type: parseInt(taskType),
+        simc_profile_id: parseInt(simcConfigId)
+    };
+    
+    if (taskType === '2') { // 属性模拟
+        const profileSelect = document.getElementById('simc-task-profile');
+        const extData = profileSelect.value;
+        
+        if (!extData) {
+            showMessage('属性模拟任务请选择属性组合', 'error');
+            return;
+        }
+        
+        requestData.ext = extData;
+    }
     
     fetch('/api/simc-task/', {
         method: 'POST',
@@ -2829,10 +2922,7 @@ function submitAddSimcTask() {
             'Content-Type': 'application/json',
             'X-CSRFToken': csrfToken
         },
-        body: JSON.stringify({
-            name: taskName,
-            simc_profile_id: simcProfileId
-        })
+        body: JSON.stringify(requestData)
     })
     .then(response => {
         if (response.status === 302 || response.redirected) {
@@ -2907,13 +2997,26 @@ async function openEditSimcTaskModal(task) {
         return;
     }
     
-    // 加载SimC配置列表
-    await loadSimcProfileOptions('edit-simc-task-profile');
+    // 加载SimC配置选项到编辑模态框
+    await loadSimcProfileOptions('edit-simc-config-select');
     
     // 填充表单数据
     document.getElementById('edit-simc-task-name').value = task.name || '';
-    document.getElementById('edit-simc-task-profile').value = task.simc_profile_id || '';
+    document.getElementById('edit-simc-task-type').value = task.task_type || '1';
+    document.getElementById('edit-simc-config-select').value = task.simc_profile_id || '';
     document.getElementById('edit-simc-task-status').value = task.current_status || '0';
+    
+    // 处理属性模拟的扩展信息 - 设置属性组合选择框
+    const profileSelect = document.getElementById('edit-simc-task-profile');
+    if (task.task_type === 2) { // 属性模拟
+        profileSelect.parentElement.style.display = 'block';
+        if (task.ext) {
+            profileSelect.value = task.ext;
+        }
+    } else { // 常规模拟
+        profileSelect.parentElement.style.display = 'none';
+        profileSelect.value = '';
+    }
     
     // 存储任务ID用于更新
     modal.setAttribute('data-task-id', task.id);
@@ -2925,7 +3028,8 @@ function updateSimcTask() {
     const modal = document.getElementById('edit-simc-task-modal');
     const taskId = modal.getAttribute('data-task-id');
     const taskName = document.getElementById('edit-simc-task-name').value.trim();
-    const simcProfileId = document.getElementById('edit-simc-task-profile').value;
+    const taskType = document.getElementById('edit-simc-task-type').value;
+    const simcConfigId = document.getElementById('edit-simc-config-select').value;
     const currentStatus = document.getElementById('edit-simc-task-status').value;
     
     if (!taskName) {
@@ -2933,12 +3037,42 @@ function updateSimcTask() {
         return;
     }
     
-    if (!simcProfileId) {
+    if (!taskType) {
+        showMessage('请选择任务类型', 'error');
+        return;
+    }
+    
+    if (!simcConfigId) {
         showMessage('请选择SimC配置', 'error');
         return;
     }
     
+    // 处理属性模拟的扩展信息
+    let extData = '';
+    if (taskType === '2') { // 属性模拟
+        const profileSelect = document.getElementById('edit-simc-task-profile');
+        extData = profileSelect.value;
+        
+        if (!extData) {
+            showMessage('属性模拟任务请选择属性组合', 'error');
+            return;
+        }
+    }
+    
     const csrfToken = getCSRFToken();
+    
+    const requestData = {
+        id: parseInt(taskId),
+        name: taskName,
+        task_type: parseInt(taskType),
+        simc_profile_id: parseInt(simcConfigId),
+        current_status: parseInt(currentStatus)
+    };
+    
+    // 只有当extData不为空时才添加ext字段
+    if (extData) {
+        requestData.ext = extData;
+    }
     
     fetch('/api/simc-task/', {
         method: 'PUT',
@@ -2946,12 +3080,7 @@ function updateSimcTask() {
             'Content-Type': 'application/json',
             'X-CSRFToken': csrfToken
         },
-        body: JSON.stringify({
-            id: parseInt(taskId),
-            name: taskName,
-            simc_profile_id: simcProfileId,
-            current_status: parseInt(currentStatus)
-        })
+        body: JSON.stringify(requestData)
     })
     .then(response => {
         if (response.status === 302 || response.redirected) {
@@ -3178,6 +3307,7 @@ async function loadSimcProfileOptions(selectElementId) {
         showMessage('加载SimC配置选项失败: ' + error.message, 'error');
     }
 }
+
 
 async function generateSimcCode(profileId, resultFile = '') {
     try {
