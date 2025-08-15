@@ -1046,6 +1046,94 @@ class KeywordTranslationAPIView(View):
             })
 
 
+@method_decorator([csrf_exempt], name='dispatch')
+class OssConfigAPIView(View):
+    """
+    OSS配置API
+    """
+    
+    def get(self, request):
+        """获取OSS配置信息"""
+        try:
+            from django.conf import settings
+            oss_config = getattr(settings, 'OSS_CONFIG', {})
+            
+            # 只返回前端需要的配置信息，不暴露敏感信息
+            return JsonResponse({
+                'success': True,
+                'data': {
+                    'base_url': oss_config.get('base_url', '')
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"获取OSS配置错误: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({
+                'success': False,
+                'error': f'获取OSS配置失败: {str(e)}'
+            })
+
+
+@method_decorator([csrf_exempt], name='dispatch')
+class SimcResultProxyAPIView(View):
+    """
+    SimC结果文件代理API - 用于从OSS获取文件内容
+    """
+    
+    def get(self, request):
+        """代理获取OSS文件内容"""
+        try:
+            import requests
+            from django.conf import settings
+            
+            result_file = request.GET.get('file')
+            if not result_file:
+                return JsonResponse({
+                    'success': False,
+                    'error': '文件名不能为空'
+                })
+            
+            # 获取OSS配置
+            oss_config = getattr(settings, 'OSS_CONFIG', {})
+            base_url = oss_config.get('base_url', '')
+            
+            if not base_url:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'OSS配置未找到'
+                })
+            
+            # 构建完整的OSS文件URL
+            file_url = base_url + result_file
+            
+            # 从OSS获取文件内容
+            response = requests.get(file_url, timeout=30)
+            
+            if response.status_code == 200:
+                return JsonResponse({
+                    'success': True,
+                    'content': response.text
+                })
+            else:
+                return JsonResponse({
+                    'success': False,
+                    'error': f'文件获取失败，状态码: {response.status_code}'
+                })
+            
+        except requests.RequestException as e:
+            logger.error(f"从OSS获取文件错误: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({
+                'success': False,
+                'error': f'网络请求失败: {str(e)}'
+            })
+        except Exception as e:
+            logger.error(f"SimC结果代理错误: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({
+                'success': False,
+                'error': f'获取文件失败: {str(e)}'
+            })
+
+
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class SimcTemplateAPIView(View):
     """

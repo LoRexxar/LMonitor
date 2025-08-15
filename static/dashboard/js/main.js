@@ -3086,11 +3086,42 @@ function viewSimcResult(resultFile) {
         return;
     }
     
-    // 构建完整的结果文件路径
-    const fullPath = `/static/simc_results/${resultFile}`;
+    // 从API获取OSS配置
+    const csrfToken = getCSRFToken();
     
-    // 打开结果文件路径
-    window.open(fullPath, '_blank');
+    fetch('/api/oss-config/', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            const ossBaseUrl = data.data.base_url || '';
+            const fullPath = ossBaseUrl + resultFile;
+            
+            // 打开OSS结果文件路径
+            window.open(fullPath, '_blank');
+        } else {
+            showMessage('获取OSS配置失败: ' + (data.error || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching OSS config:', error);
+        showMessage('获取OSS配置时发生错误', 'error');
+    });
 }
 
 function viewSimcAnalysis(resultFile) {

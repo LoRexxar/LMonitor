@@ -877,12 +877,18 @@
             }
 
             try {
-                const response = await fetch(`/static/simc_results/${resultFile}`);
+                // 通过代理API获取OSS文件内容
+                const response = await fetch(`/api/simc-result-proxy/?file=${encodeURIComponent(resultFile)}`);
                 if (!response.ok) {
                     throw new Error('文件加载失败');
                 }
                 
-                const htmlContent = await response.text();
+                const data = await response.json();
+                if (!data.success) {
+                    throw new Error('文件获取失败: ' + (data.error || '未知错误'));
+                }
+                
+                const htmlContent = data.content;
                 const results = parseSimcResults(htmlContent);
                 
                 updatePageContent(results);

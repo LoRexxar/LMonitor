@@ -189,6 +189,22 @@ class SimcMonitor(BaseScan):
                 logger.info(f"[SimC Monitor] SimC execution successful for task {simc_task.id}")
                 if result.stdout:
                     logger.debug(f"[SimC Monitor] SimC output: {result.stdout[:500]}...")  # 只记录前500字符
+                
+                # 上传结果文件到OSS
+                result_file_path = os.path.join(self.result_path, simc_task.result_file)
+                if os.path.exists(result_file_path):
+                    from botend.interface.ossupload import ossUpload
+                    try:
+                        upload_success = ossUpload(result_file_path)
+                        if upload_success:
+                            logger.info(f"[SimC Monitor] Result file uploaded to OSS successfully for task {simc_task.id}")
+                        else:
+                            logger.error(f"[SimC Monitor] Failed to upload result file to OSS for task {simc_task.id}")
+                    except Exception as e:
+                        logger.error(f"[SimC Monitor] Error uploading result file to OSS: {str(e)}")
+                else:
+                    logger.warning(f"[SimC Monitor] Result file not found: {result_file_path}")
+                
                 return True
             else:
                 logger.error(f"[SimC Monitor] SimC execution failed for task {simc_task.id}")
