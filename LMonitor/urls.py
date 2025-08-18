@@ -20,8 +20,8 @@ from django.shortcuts import redirect
 
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
-from botend.dashboard.dashboard import DashboardView, SimcResultView
-from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView
+from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttributeAnalysisView
+from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from django.http import HttpResponse, JsonResponse
 
@@ -53,7 +53,9 @@ urlpatterns = [
     path('api/keyword-translation/', csrf_exempt(KeywordTranslationAPIView.as_view()), name="keyword_translation"),
     path('api/oss-config/', csrf_exempt(OssConfigAPIView.as_view()), name="oss_config"),
     path('api/simc-result-proxy/', csrf_exempt(SimcResultProxyAPIView.as_view()), name="simc_result_proxy"),
+    path('api/simc-attribute-analysis/', csrf_exempt(SimcAttributeAnalysisAPIView.as_view()), name="simc_attribute_analysis"),
     
     # SimC结果查看页面
     path('simc-result/', SimcResultView.as_view(), name="simc_result"),
+    path('simc-attribute-analysis/', SimcAttributeAnalysisView.as_view(), name="simc_attribute_analysis"),
 ]

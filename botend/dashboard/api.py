@@ -18,7 +18,10 @@ import json
 import traceback
 import hashlib
 import time
+import re
+import requests
 
+from django.conf import settings
 from utils.log import logger
 from botend.models import SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile
 from django.db import models
@@ -1162,6 +1165,191 @@ class SimcResultProxyAPIView(View):
                 'success': False,
                 'error': f'获取文件失败: {str(e)}'
             })
+
+
+@method_decorator([csrf_exempt], name='dispatch')
+class SimcAttributeAnalysisAPIView(View):
+    """
+    属性模拟分析API - 解析所有结果文件并提取DPS数据
+    """
+    
+    def get(self, request):
+        """获取属性模拟任务的分析数据"""
+        try:
+            import requests
+            import re
+            from bs4 import BeautifulSoup
+            from django.conf import settings
+            
+            task_id = request.GET.get('task_id')
+            if not task_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': '任务ID不能为空'
+                })
+            
+            # 获取任务信息
+            try:
+                task = SimcTask.objects.get(id=task_id)
+            except SimcTask.DoesNotExist:
+                return JsonResponse({
+                    'success': False,
+                    'error': '任务不存在'
+                })
+            
+            if task.task_type != 2:
+                return JsonResponse({
+                    'success': False,
+                    'error': '该任务不是属性模拟任务'
+                })
+            
+            if not task.result_file:
+                return JsonResponse({
+                    'success': False,
+                    'error': '任务尚未完成或无结果文件'
+                })
+            
+            # 解析结果文件列表
+            result_files = task.result_file.split(',')
+            analysis_data = []
+            
+            # OSS配置
+            oss_config = getattr(settings, 'OSS_CONFIG', {})
+            base_url = oss_config.get('base_url', '')
+            
+            for result_file in result_files:
+                result_file = result_file.strip()
+                if not result_file:
+                    continue
+                
+                try:
+                    # 从文件名解析属性信息
+                    # 格式: {任务ID}_{属性1}_{值1}_{属性2}_{值2}.html
+                    filename_parts = result_file.replace('.html', '').split('_')
+                    if len(filename_parts) >= 5:
+                        attr1_name = filename_parts[1]
+                        attr2_name = filename_parts[3]
+                        
+                        # 尝试转换为数字，如果失败则保持字符串
+                        try:
+                            attr1_value = int(filename_parts[2])
+                        except ValueError:
+                            attr1_value = filename_parts[2]
+                        
+                        try:
+                            attr2_value = int(filename_parts[4])
+                        except ValueError:
+                            attr2_value = filename_parts[4]
+                    else:
+                        logger.warning(f"无法解析文件名格式: {result_file}")
+                        continue
+                    
+                    # 获取文件内容
+                    file_content = None
+                    
+                    # 首先尝试从OSS获取
+                    if base_url:
+                        try:
+                            file_url = base_url + result_file
+                            response = requests.get(file_url, timeout=30)
+                            if response.status_code == 200:
+                                file_content = response.text
+                        except requests.RequestException as e:
+                            logger.warning(f"OSS获取失败: {str(e)}，尝试本地文件")
+                    
+                    # OSS失败，尝试本地文件
+                    if not file_content:
+                        import os
+                        local_file_path = os.path.join(settings.BASE_DIR, 'static', 'simc_results', result_file)
+                        if os.path.exists(local_file_path):
+                            with open(local_file_path, 'r', encoding='utf-8') as f:
+                                file_content = f.read()
+                    
+                    if not file_content:
+                        logger.warning(f"无法获取文件内容: {result_file}")
+                        continue
+                    
+                    # 解析DPS数据
+                    dps_value = self.extract_dps_from_html(file_content)
+                    
+                    if dps_value is not None:
+                        analysis_data.append({
+                            'file_name': result_file,
+                            'attr1_name': attr1_name,
+                            'attr1_value': attr1_value,
+                            'attr2_name': attr2_name,
+                            'attr2_value': attr2_value,
+                            'dps': dps_value
+                        })
+                    
+                except Exception as e:
+                    logger.error(f"解析文件 {result_file} 失败: {str(e)}")
+                    continue
+            
+            # 按属性1值排序（处理混合类型）
+            def sort_key(x):
+                value = x['attr1_value']
+                if isinstance(value, int):
+                    return (0, value)  # 数字优先，按数值排序
+                else:
+                    return (1, str(value))  # 字符串其次，按字母排序
+            
+            analysis_data.sort(key=sort_key)
+            
+            return JsonResponse({
+                'success': True,
+                'data': {
+                    'task_name': task.name,
+                    'task_id': task.id,
+                    'results': analysis_data,
+                    'total_count': len(analysis_data)
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"属性模拟分析失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({
+                'success': False,
+                'error': f'分析失败: {str(e)}'
+            })
+    
+    def extract_dps_from_html(self, html_content):
+        """
+        从HTML内容中提取DPS值
+        """
+        try:
+            # 使用正则表达式查找DPS值
+            # 查找类似 "角色名: 123,456 dps" 的模式
+            dps_pattern = r':\s*([\d,]+)\s*dps'
+            match = re.search(dps_pattern, html_content, re.IGNORECASE)
+            
+            if match:
+                dps_str = match.group(1).replace(',', '')
+                return int(dps_str)
+            
+            # 备用方法：使用BeautifulSoup解析
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html_content, 'html.parser')
+                
+                # 查找包含DPS的元素
+                player_section = soup.find(class_='player')
+                if player_section:
+                    h2_tag = player_section.find('h2')
+                    if h2_tag:
+                        text = h2_tag.get_text()
+                        match = re.search(r':\s*([\d,]+)\s*dps', text, re.IGNORECASE)
+                        if match:
+                            dps_str = match.group(1).replace(',', '')
+                            return int(dps_str)
+            except ImportError:
+                pass  # BeautifulSoup不可用，继续使用正则表达式
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"提取DPS失败: {str(e)}")
+            return None
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')

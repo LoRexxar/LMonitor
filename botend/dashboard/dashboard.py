@@ -589,3 +589,21 @@ class SimcResultView(View):
             logger.error(f"渲染SimC结果页面失败: {str(e)}")
             logger.error(traceback.format_exc())
             return HttpResponse("页面加载失败", status=500)
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcAttributeAnalysisView(View):
+    """
+    处理SimC属性模拟分析页面请求
+    """
+    
+    def get(self, request):
+        """
+        渲染SimC属性模拟分析页面
+        """
+        try:
+            return render(request, 'simc_attribute_analysis.html')
+        except Exception as e:
+            logger.error(f"渲染SimC属性模拟分析页面失败: {str(e)}")
+            logger.error(traceback.format_exc())
+            return HttpResponse("页面加载失败", status=500)

@@ -2832,12 +2832,75 @@ function displaySimcTaskData(tasks) {
                             <i class="fas fa-eye mr-1"></i>查看
                         </button>
                         ${task.current_status === 2 && task.result_file ? `
-                        <button onclick="viewSimcResult('${escapeHtml(task.result_file)}')" class="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors duration-200 text-sm">
+                        ${task.task_type === 2 && task.result_file.includes(',') ? `
+                        <div class="relative inline-block">
+                            <button onclick="toggleResultDropdown(${task.id})" class="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors duration-200 text-sm">
+                                <i class="fas fa-file-alt mr-1"></i>查看结果 <i class="fas fa-chevron-down ml-1"></i>
+                            </button>
+                            <div id="result-dropdown-${task.id}" class="hidden fixed bg-white border border-gray-300 rounded shadow-xl z-50 min-w-64 max-w-80 max-h-80 overflow-y-auto">
+                                ${task.result_file.split(',').map((file, index) => {
+                                    const fileName = file.trim();
+                                    const parts = fileName.replace('.html', '').split('_');
+                                    const attrName = parts[1] || 'unknown';
+                                    const stepValue = parts[2] || '0';
+                                    
+                                    // 属性名称映射
+                                    const attrMap = {
+                                        'crit': '暴击',
+                                        'haste': '急速', 
+                                        'mastery': '精通',
+                                        'versatility': '全能',
+                                        'vers': '全能'
+                                    };
+                                    const displayAttrName = attrMap[attrName.toLowerCase()] || attrName;
+                                    
+                                    return `
+                                    <button onclick="viewSimcResult('${escapeHtml(fileName)}'); toggleResultDropdown(${task.id})" class="block w-full text-left px-3 py-2 hover:bg-gray-100 text-sm text-gray-700">
+                                        <div class="font-medium">${displayAttrName} +${stepValue}</div>
+                                        <div class="text-xs text-gray-500">${fileName}</div>
+                                    </button>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                        <div class="relative inline-block">
+                            <button onclick="toggleAnalysisDropdown(${task.id})" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors duration-200 text-sm">
+                                <i class="fas fa-chart-bar mr-1"></i>查看分析 <i class="fas fa-chevron-down ml-1"></i>
+                            </button>
+                            <div id="analysis-dropdown-${task.id}" class="hidden fixed bg-white border border-gray-300 rounded shadow-xl z-50 min-w-64 max-w-80 max-h-80 overflow-y-auto">
+                                ${task.result_file.split(',').map((file, index) => {
+                                    const fileName = file.trim();
+                                    const parts = fileName.replace('.html', '').split('_');
+                                    const attrName = parts[1] || 'unknown';
+                                    const stepValue = parts[2] || '0';
+                                    
+                                    // 属性名称映射
+                                    const attrNameMap = {
+                                        'crit': '暴击',
+                                        'haste': '急速', 
+                                        'mastery': '精通',
+                                        'versatility': '全能',
+                                        'vers': '全能'
+                                    };
+                                    const displayAttrName = attrNameMap[attrName.toLowerCase()] || attrName;
+                                    
+                                    return `
+                                    <button onclick="viewSimcAnalysis('${escapeHtml(fileName)}'); toggleAnalysisDropdown(${task.id})" class="block w-full text-left px-3 py-2 hover:bg-gray-100 text-sm">
+                                        <div class="font-medium text-gray-900">${displayAttrName} +${stepValue}</div>
+                                        <div class="text-xs text-gray-500">${fileName}</div>
+                                    </button>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                        <button onclick="viewAttributeAnalysis(${task.id})" class="px-3 py-1 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors duration-200 text-sm">
+                            <i class="fas fa-chart-line mr-1"></i>综合分析
+                        </button>` : `
+                        <button onclick="viewSimcResult('${escapeHtml(task.result_file)}')") class="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors duration-200 text-sm">
                             <i class="fas fa-file-alt mr-1"></i>查看结果
                         </button>
-                        <button onclick="viewSimcAnalysis('${escapeHtml(task.result_file)}')" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors duration-200 text-sm">
+                        <button onclick="viewSimcAnalysis('${escapeHtml(task.result_file)}')") class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors duration-200 text-sm">
                             <i class="fas fa-chart-bar mr-1"></i>查看分析
-                        </button>` : ''}
+                        </button>`}
+                        ` : ''}
                         <button onclick="editSimcTask(${task.id})" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 text-sm">
                             <i class="fas fa-edit mr-1"></i>编辑
                         </button>
@@ -3716,4 +3779,72 @@ function deleteSimcProfile(profileId) {
         console.error('Error deleting SimC profile:', error);
         showMessage('删除SimC配置时发生错误', 'error');
     });
+}
+
+// 控制结果文件下拉菜单
+function toggleResultDropdown(taskId) {
+    const dropdown = document.getElementById(`result-dropdown-${taskId}`);
+    if (dropdown) {
+        if (dropdown.classList.contains('hidden')) {
+            // 获取按钮位置并定位下拉菜单
+            const button = document.querySelector(`[onclick*="toggleResultDropdown(${taskId})"]`);
+            if (button) {
+                const rect = button.getBoundingClientRect();
+                dropdown.style.top = `${rect.bottom + 4}px`;
+                dropdown.style.left = `${rect.left}px`;
+            }
+            dropdown.classList.remove('hidden');
+            
+            // 点击其他地方时关闭下拉菜单
+            document.addEventListener('click', function closeDropdown(e) {
+                if (!dropdown.contains(e.target) && !e.target.closest(`[onclick*="toggleResultDropdown(${taskId})"]`)) {
+                    dropdown.classList.add('hidden');
+                    document.removeEventListener('click', closeDropdown);
+                }
+            });
+        } else {
+            dropdown.classList.add('hidden');
+        }
+    }
+}
+
+// 控制分析文件下拉菜单
+function toggleAnalysisDropdown(taskId) {
+    const dropdown = document.getElementById(`analysis-dropdown-${taskId}`);
+    if (dropdown) {
+        if (dropdown.classList.contains('hidden')) {
+            // 获取按钮位置并定位下拉菜单
+            const button = document.querySelector(`[onclick*="toggleAnalysisDropdown(${taskId})"]`);
+            if (button) {
+                const rect = button.getBoundingClientRect();
+                dropdown.style.top = `${rect.bottom + 4}px`;
+                dropdown.style.left = `${rect.left}px`;
+            }
+            dropdown.classList.remove('hidden');
+            
+            // 点击其他地方时关闭下拉菜单
+            document.addEventListener('click', function closeDropdown(e) {
+                if (!dropdown.contains(e.target) && !e.target.closest(`[onclick*="toggleAnalysisDropdown(${taskId})"]`)) {
+                    dropdown.classList.add('hidden');
+                    document.removeEventListener('click', closeDropdown);
+                }
+            });
+        } else {
+            dropdown.classList.add('hidden');
+        }
+    }
+}
+
+// 属性模拟分析功能
+function viewAttributeAnalysis(taskId) {
+    if (!taskId) {
+        showMessage('任务ID不存在', 'error');
+        return;
+    }
+    
+    // 构建属性模拟分析页面的URL
+    const analysisUrl = `/simc-attribute-analysis/?task_id=${taskId}`;
+    
+    // 在新标签页中打开属性模拟分析页面
+    window.open(analysisUrl, '_blank');
 }

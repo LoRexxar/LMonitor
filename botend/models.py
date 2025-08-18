@@ -167,7 +167,7 @@ class SimcTask(models.Model):
     user_id = models.IntegerField(help_text="用户ID")
     name = models.CharField(max_length=200, help_text="任务名称")
     simc_profile_id = models.IntegerField(help_text="用户ID")
-    result_file = models.CharField(max_length=200, help_text="任务结果", null=True)
+    result_file = models.TextField(help_text="任务结果，多个文件以逗号分割", null=True)
     task_type = models.IntegerField(default=1, help_text="任务类型：1=常规模拟，2=属性模拟")
     ext = models.CharField(max_length=500, null=True, blank=True, help_text="扩展信息")
     modified_time = models.DateTimeField(auto_now=True, help_text="修改时间")
