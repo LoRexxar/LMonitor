@@ -327,7 +327,7 @@
                                 title: function(context) {
                                     const index = context[0].dataIndex;
                                     const result = data.results[index];
-                                    return `${result.attr1_name}: ${result.attr1_value} / ${result.attr2_name}: ${result.attr2_value}`;
+                                    return `${translateAttributeName(result.attr1_name)}: ${result.attr1_value} / ${translateAttributeName(result.attr2_name)}: ${result.attr2_value}`;
                                 },
                                 label: function(context) {
                                     return `DPS: ${context.parsed.y.toFixed(2)}`;
@@ -408,6 +408,21 @@
             });
         }
 
+        // 属性名称映射
+        function translateAttributeName(attrName) {
+            const attrMap = {
+                'gear_crit': '暴击',
+                'gear_haste': '急速',
+                'gear_mastery': '精通',
+                'gear_versatility': '全能',
+                'crit': '暴击',
+                'haste': '急速',
+                'mastery': '精通',
+                'versatility': '全能'
+            };
+            return attrMap[attrName] || attrName;
+        }
+
         // 填充数据表格
         function fillDataTable(data) {
             const tbody = document.getElementById('data-table-body');
@@ -456,11 +471,11 @@
                         </div>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div class="font-medium">${result.attr1_name}</div>
+                        <div class="font-medium">${translateAttributeName(result.attr1_name)}</div>
                         <div class="text-lg font-bold text-blue-600">${result.attr1_value}</div>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div class="font-medium">${result.attr2_name}</div>
+                        <div class="font-medium">${translateAttributeName(result.attr2_name)}</div>
                         <div class="text-lg font-bold text-purple-600">${result.attr2_value}</div>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">

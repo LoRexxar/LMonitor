@@ -1227,19 +1227,19 @@ class SimcAttributeAnalysisAPIView(View):
                     # 格式: {任务ID}_{属性1}_{值1}_{属性2}_{值2}.html
                     filename_parts = result_file.replace('.html', '').split('_')
                     if len(filename_parts) >= 5:
-                        attr1_name = filename_parts[1]
-                        attr2_name = filename_parts[3]
+                        attr1_name = filename_parts[2]
+                        attr2_name = filename_parts[5]
                         
                         # 尝试转换为数字，如果失败则保持字符串
                         try:
-                            attr1_value = int(filename_parts[2])
+                            attr1_value = int(filename_parts[3])
                         except ValueError:
-                            attr1_value = filename_parts[2]
+                            attr1_value = filename_parts[3]
                         
                         try:
-                            attr2_value = int(filename_parts[4])
+                            attr2_value = int(filename_parts[6])
                         except ValueError:
-                            attr2_value = filename_parts[4]
+                            attr2_value = filename_parts[6]
                     else:
                         logger.warning(f"无法解析文件名格式: {result_file}")
                         continue
