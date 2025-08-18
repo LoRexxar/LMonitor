@@ -1,6 +1,7 @@
 import alibabacloud_oss_v2 as oss
 import os
 from LMonitor.settings import OSS_CONFIG
+from utils.log import logger
 
 def ossUpload(file_path: str):
 
@@ -63,10 +64,10 @@ def ossUpload(file_path: str):
 
     # 输出请求的结果信息，包括状态码、请求ID、内容MD5、ETag、CRC64校验码、版本ID和服务器响应时间
     if result.status_code == 200:
-        print("文件上传成功")
+        logger.info("文件上传成功")
         return True
     else:
-        print("文件上传失败")
+        logger.error("文件上传失败")
         return False
 
 # 当此脚本被直接运行时，调用main函数
