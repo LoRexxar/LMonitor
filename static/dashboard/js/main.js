@@ -3539,6 +3539,24 @@ function initSimcTemplateManagement() {
         refreshBtn.addEventListener('click', loadTemplateList);
     }
     
+    // 初始化新增模板按钮事件
+    const addBtn = document.getElementById('add-template-btn');
+    if (addBtn) {
+        addBtn.addEventListener('click', openAddTemplateModal);
+    }
+    
+    // 初始化新增模态框事件
+    const cancelAddBtn = document.getElementById('cancel-add-template');
+    const confirmAddBtn = document.getElementById('confirm-add-template');
+    
+    if (cancelAddBtn) {
+        cancelAddBtn.addEventListener('click', closeAddTemplateModal);
+    }
+    
+    if (confirmAddBtn) {
+        confirmAddBtn.addEventListener('click', saveTemplateAdd);
+    }
+    
     // 初始化编辑模态框事件
     const cancelEditBtn = document.getElementById('cancel-edit-template');
     const confirmEditBtn = document.getElementById('confirm-edit-template');
@@ -3705,6 +3723,80 @@ function closeEditTemplateModal() {
     if (modal) {
         modal.classList.add('hidden');
     }
+}
+
+// 打开新增模板模态框
+function openAddTemplateModal() {
+    const modal = document.getElementById('add-template-modal');
+    const contentTextarea = document.getElementById('add-template-content');
+    
+    // 清空表单
+    if (contentTextarea) contentTextarea.value = '';
+    
+    // 显示模态框
+    if (modal) {
+        modal.classList.remove('hidden');
+    }
+}
+
+// 关闭新增模板模态框
+function closeAddTemplateModal() {
+    const modal = document.getElementById('add-template-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+    
+    // 清空表单
+    const contentTextarea = document.getElementById('add-template-content');
+    if (contentTextarea) contentTextarea.value = '';
+}
+
+// 保存新增模板
+function saveTemplateAdd() {
+    const contentTextarea = document.getElementById('add-template-content');
+    const templateContent = contentTextarea ? contentTextarea.value.trim() : '';
+    
+    if (!templateContent) {
+        showMessage('模板内容不能为空', 'error');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-template/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            template_content: templateContent
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage(data.message || '模板创建成功', 'success');
+            closeAddTemplateModal();
+            loadTemplateList(); // 重新加载模板列表
+        } else {
+            showMessage('创建模板失败: ' + (data.error || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error creating template:', error);
+        showMessage('创建模板时发生错误', 'error');
+    });
 }
 
 // 保存模板编辑

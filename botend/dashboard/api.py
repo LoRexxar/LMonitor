@@ -1502,3 +1502,37 @@ class SimcTemplateAPIView(View):
                 'success': False,
                 'error': '更新模板状态失败'
             })
+    
+    def post(self, request):
+        """新增SimC模板"""
+        try:
+            # 解析请求数据
+            data = json.loads(request.body)
+            template_content = data.get('template_content', '')
+            
+            if not template_content:
+                return JsonResponse({
+                    'success': False,
+                    'error': '模板内容不能为空'
+                })
+            
+            # 创建新模板
+            template = SimcTemplate.objects.create(
+                template_content=template_content,
+                is_active=False  # 新创建的模板默认为禁用状态
+            )
+            
+            logger.info(f"SimC模板已创建: ID {template.id}")
+            
+            return JsonResponse({
+                'success': True,
+                'message': '模板创建成功',
+                'template_id': template.id
+            })
+                
+        except Exception as e:
+            logger.error(f"创建SimC模板失败: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': '创建SimC模板失败'
+            })
