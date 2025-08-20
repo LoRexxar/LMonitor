@@ -185,7 +185,7 @@ class SimcMonitor(BaseScan):
             
             # 以500为步长进行分配模拟，从attr1=0到attr1=total_value
             # 生成所有需要测试的步长点，确保包含0和total_value
-            test_points = list(range(0, total_value, 500))
+            test_points = list(range(0, total_value, 1000))
             if total_value not in test_points:
                 test_points.append(total_value)
             
