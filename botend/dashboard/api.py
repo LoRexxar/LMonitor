@@ -23,7 +23,7 @@ import requests
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile
+from botend.models import SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate
 from django.db import models
 
 
@@ -1359,34 +1359,45 @@ class SimcAttributeAnalysisAPIView(View):
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class SimcTemplateAPIView(View):
     """
-    SimC模板文件API
+    SimC模板API
     """
     
     def get(self, request):
-        """获取SimC模板文件内容"""
+        """获取SimC模板列表或单个模板内容"""
         try:
-            from django.conf import settings
-            import os
+            template_id = request.GET.get('id')
             
-            # 获取模板文件路径
-            template_path = getattr(settings, 'SIMC_TEMPLATE_PATH', None)
-            if not template_path:
-                # 默认路径
-                template_path = os.path.join(settings.BASE_DIR, 'LMonitor', 'simc_template.txt')
-            
-            # 读取模板文件内容
-            if os.path.exists(template_path):
-                with open(template_path, 'r', encoding='utf-8') as f:
-                    template_content = f.read()
+            if template_id:
+                # 获取单个模板的完整内容
+                try:
+                    template = SimcTemplate.objects.get(id=template_id)
+                    return JsonResponse({
+                        'success': True,
+                        'template_content': template.template_content,
+                        'is_active': template.is_active
+                    })
+                except SimcTemplate.DoesNotExist:
+                    return JsonResponse({
+                        'success': False,
+                        'error': '模板不存在'
+                    })
+            else:
+                # 获取所有模板的列表
+                templates = SimcTemplate.objects.all().order_by('-id')
+                template_list = []
+                
+                for template in templates:
+                    # 获取模板内容的前100个字符作为预览
+                    preview = template.template_content[:100] + '...' if len(template.template_content) > 100 else template.template_content
+                    template_list.append({
+                        'id': template.id,
+                        'template_content': template.template_content,
+                        'is_active': template.is_active
+                    })
                 
                 return JsonResponse({
                     'success': True,
-                    'template': template_content
-                })
-            else:
-                return JsonResponse({
-                    'success': False,
-                    'error': '模板文件不存在'
+                    'templates': template_list
                 })
                 
         except Exception as e:
@@ -1394,4 +1405,100 @@ class SimcTemplateAPIView(View):
             return JsonResponse({
                 'success': False,
                 'error': '获取SimC模板失败'
+            })
+    
+    def put(self, request):
+        """更新SimC模板内容"""
+        try:
+            # 解析请求数据
+            data = json.loads(request.body)
+            template_id = request.GET.get('id') or data.get('id')
+            template_content = data.get('template_content', '') or data.get('template', '')
+            
+            if not template_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': '模板ID不能为空'
+                })
+            
+            if not template_content:
+                return JsonResponse({
+                    'success': False,
+                    'error': '模板内容不能为空'
+                })
+            
+            # 获取并更新模板
+            try:
+                template = SimcTemplate.objects.get(id=template_id)
+                template.template_content = template_content
+                template.save()
+                
+                logger.info(f"SimC模板已更新: ID {template.id}")
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': '模板更新成功'
+                })
+            except SimcTemplate.DoesNotExist:
+                return JsonResponse({
+                    'success': False,
+                    'error': '模板不存在'
+                })
+                
+        except Exception as e:
+            logger.error(f"更新SimC模板失败: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': '更新SimC模板失败'
+            })
+    
+    def patch(self, request):
+        """更新模板状态（启用/禁用）"""
+        try:
+            # 解析请求数据
+            data = json.loads(request.body)
+            template_id = request.GET.get('id') or data.get('id')
+            is_active = data.get('is_active')
+            
+            if not template_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': '模板ID不能为空'
+                })
+            
+            if is_active is None:
+                return JsonResponse({
+                    'success': False,
+                    'error': '状态参数不能为空'
+                })
+            
+            # 获取并更新模板状态
+            try:
+                template = SimcTemplate.objects.get(id=template_id)
+                
+                if is_active:
+                    # 如果要启用此模板，先禁用所有其他模板
+                    SimcTemplate.objects.exclude(id=template_id).update(is_active=False)
+                
+                template.is_active = is_active
+                template.save()
+                
+                status_text = '启用' if is_active else '禁用'
+                logger.info(f"SimC模板已{status_text}: ID {template.id}")
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': f'模板{status_text}成功'
+                })
+            except SimcTemplate.DoesNotExist:
+                return JsonResponse({
+                    'success': False,
+                    'error': '模板不存在'
+                })
+                
+        except Exception as e:
+            logger.error(f"更新模板状态失败: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': '更新模板状态失败'
             })

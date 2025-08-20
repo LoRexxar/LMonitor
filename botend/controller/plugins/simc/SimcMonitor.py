@@ -185,7 +185,7 @@ class SimcMonitor(BaseScan):
             
             # 以500为步长进行分配模拟，从attr1=0到attr1=total_value
             # 生成所有需要测试的步长点，确保包含0和total_value
-            test_points = list(range(0, total_value, 500))
+            test_points = list(range(0, total_value, 1000))
             if total_value not in test_points:
                 test_points.append(total_value)
             
@@ -250,9 +250,12 @@ class SimcMonitor(BaseScan):
         :return: 生成的SimC代码字符串
         """
         try:
-            # 读取模板文件
-            with open(self.simc_template_path, 'r', encoding='utf-8') as f:
-                template = f.read()
+            # 从数据库获取模板
+            from botend.models import SimcTemplate
+            template_obj = SimcTemplate.objects.filter(is_active=True).first()
+            if not template_obj:
+                raise Exception("未找到启用的SimC模板")
+            template = template_obj.template_content
             
             # 替换模板中的占位符
             simc_code = template.replace('{fight_style}', profile.fight_style or 'Patchwerk')
@@ -397,7 +400,8 @@ class SimcMonitor(BaseScan):
                 'crit_versatility': ['gear_crit', 'gear_versatility'],
                 'mastery_haste': ['gear_mastery', 'gear_haste'],
                 'mastery_versatility': ['gear_mastery', 'gear_versatility'],
-                'haste_versatility': ['gear_haste', 'gear_versatility']
+                'haste_versatility': ['gear_haste', 'gear_versatility'],
+                'haste_mastery': ['gear_haste', 'gear_mastery']
             }
             
             # 获取选中的属性
@@ -434,9 +438,12 @@ class SimcMonitor(BaseScan):
         :return: 生成的SimC代码字符串
         """
         try:
-            # 读取模板文件
-            with open(self.simc_template_path, 'r', encoding='utf-8') as f:
-                template = f.read()
+            # 从数据库获取模板
+            from botend.models import SimcTemplate
+            template_obj = SimcTemplate.objects.filter(is_active=True).first()
+            if not template_obj:
+                raise Exception("未找到启用的SimC模板")
+            template = template_obj.template_content
             
             # 替换模板中的占位符
             simc_code = template.replace('{fight_style}', profile.fight_style or 'Patchwerk')

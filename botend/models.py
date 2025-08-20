@@ -183,7 +183,7 @@ class SimcTask(models.Model):
     
 class SimcProfile(models.Model):
     """
-    SimC配置
+    SimC配置模型
     """
     user_id = models.IntegerField(help_text="用户ID")
     name = models.CharField(max_length=200, help_text="配置名称")
@@ -203,4 +203,20 @@ class SimcProfile(models.Model):
         db_table = 'simc_profile'
         verbose_name = 'SimC配置'
         verbose_name_plural = 'SimC配置'
+
+
+class SimcTemplate(models.Model):
+    """
+    SimC模板模型
+    """
+    template_content = models.TextField(help_text="模板内容")
+    is_active = models.BooleanField(default=True, help_text="是否启用")
+    
+    class Meta:
+        db_table = 'simc_template'
+        verbose_name = 'SimC模板'
+        verbose_name_plural = 'SimC模板'
+    
+    def __str__(self):
+        return f"SimC模板 (ID: {self.id})"
     
