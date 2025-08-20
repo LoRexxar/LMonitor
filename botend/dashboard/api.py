@@ -74,6 +74,50 @@ class ConvertTextAPIView(View):
                 'success': False,
                 'error': f'获取APL详情失败: {str(e)}'
             })
+    
+    def convert_apl_to_cn(self, text):
+        """
+        将APL关键字转换为中文
+        """
+        try:
+            # 获取所有关键字对
+            keyword_pairs = SimcAplKeywordPair.objects.filter(is_active=True)
+            
+            # 按APL关键字长度降序排列，优先替换更长的关键字
+            keyword_pairs = sorted(keyword_pairs, key=lambda x: len(x.apl_keyword), reverse=True)
+            
+            result = text
+            for pair in keyword_pairs:
+                # 从APL转换到中文
+                result = result.replace(pair.apl_keyword, pair.cn_keyword)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"APL2CN错误: {str(e)}")
+            raise e
+    
+    def convert_cn_to_apl(self, text):
+        """
+        将中文关键字转换为APL
+        """
+        try:
+            # 获取所有关键字对
+            keyword_pairs = SimcAplKeywordPair.objects.filter(is_active=True)
+            
+            # 按中文关键字长度降序排列，优先替换更长的关键字
+            keyword_pairs = sorted(keyword_pairs, key=lambda x: len(x.cn_keyword), reverse=True)
+            
+            result = text
+            for pair in keyword_pairs:
+                # 从中文转换到APL
+                result = result.replace(pair.cn_keyword, pair.apl_keyword)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"CN2APL错误: {str(e)}")
+            raise e
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
@@ -323,47 +367,7 @@ class SimcTaskAPIView(View):
                 'error': f'删除任务失败: {str(e)}'
             })
     
-    def convert_apl_to_cn(self, text):
-        """
-        """
-        try:
-            # 获取所有关键字对
-            keyword_pairs = SimcAplKeywordPair.objects.filter(is_active=True)
-            
-            # 按APL关键字长度降序排列，优先替换更长的关键字
-            keyword_pairs = sorted(keyword_pairs, key=lambda x: len(x.apl_keyword), reverse=True)
-            
-            result = text
-            for pair in keyword_pairs:
-                # 从SimC转换到APL
-                result = result.replace(pair.apl_keyword, pair.cn_keyword)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"APL2CN错误: {str(e)}")
-            raise e
-    
-    def convert_cn_to_apl(self, text):
-        """
-        """
-        try:
-            # 获取所有关键字对
-            keyword_pairs = SimcAplKeywordPair.objects.filter(is_active=True)
-            
-            # 按中文关键字长度降序排列，优先替换更长的关键字
-            keyword_pairs = sorted(keyword_pairs, key=lambda x: len(x.cn_keyword), reverse=True)
-            
-            result = text
-            for pair in keyword_pairs:
-                # 从APL转换到SimC
-                result = result.replace(pair.cn_keyword, pair.apl_keyword)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"CN2APL错误: {str(e)}")
-            raise e
+
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')

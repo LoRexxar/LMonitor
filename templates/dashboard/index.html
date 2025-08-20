@@ -922,5 +922,37 @@
         </div>
     </div>
 
+    <!-- 错误信息模态框 -->
+    <div id="error-info-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+                <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                    <h3 class="text-lg font-semibold text-gray-900">
+                        <i class="fas fa-exclamation-triangle text-red-500 mr-2"></i>
+                        任务错误信息 - ID: <span id="error-task-id"></span>
+                    </h3>
+                    <button onclick="document.getElementById('error-info-modal').style.display='none'" class="text-gray-400 hover:text-gray-600 transition-colors duration-200">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                <div class="p-6 overflow-y-auto max-h-[60vh]">
+                    <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <h4 class="text-sm font-medium text-red-800 mb-3">
+                            <i class="fas fa-bug mr-1"></i>
+                            错误详情：
+                        </h4>
+                        <pre id="error-content" class="text-sm text-red-700 whitespace-pre-wrap font-mono bg-white border border-red-200 rounded p-3 overflow-x-auto"></pre>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3 px-6 py-4 bg-gray-50 border-t border-gray-200">
+                    <button onclick="document.getElementById('error-info-modal').style.display='none'" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                        <i class="fas fa-times mr-2"></i>
+                        关闭
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
