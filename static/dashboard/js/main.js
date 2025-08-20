@@ -266,6 +266,37 @@ function initNavigation() {
                             fetchSimcTaskData();
                         }
                     }
+                } else if (tableName === 'SimcTemplate') {
+                    // 特殊处理SimcTemplate，显示专门的SimC模板管理界面
+                    contentSections.forEach(section => {
+                        section.style.display = 'none';
+                        section.classList.remove('active');
+                    });
+                    const toolsSection = document.getElementById('tools');
+                    if (toolsSection) {
+                        toolsSection.style.display = 'block';
+                        toolsSection.classList.add('active');
+                        
+                        // 更新选中的工具名显示
+                        const selectedToolName = document.getElementById('selected-tool-name');
+                        if (selectedToolName) {
+                            selectedToolName.textContent = 'SimC模板管理';
+                        }
+                        
+                        // 隐藏所有工具内容
+                        const toolContents = document.querySelectorAll('.tool-content');
+                        toolContents.forEach(content => {
+                            content.style.display = 'none';
+                        });
+                        
+                        // 显示SimC模板管理内容
+                        const simcTemplateContent = document.getElementById('simc-template-management');
+                        if (simcTemplateContent) {
+                            simcTemplateContent.style.display = 'block';
+                            // 加载模板数据
+                            loadSimcTemplate();
+                        }
+                    }
                 } else {
                     // 显示数据库表内容区域
                     contentSections.forEach(section => {
@@ -3497,7 +3528,284 @@ function initSimcProfileManagement() {
 // 页面加载完成后初始化SimC配置管理
 document.addEventListener('DOMContentLoaded', function() {
     initSimcProfileManagement();
+    initSimcTemplateManagement();
 });
+
+// SimC模板管理相关函数
+function initSimcTemplateManagement() {
+    // 初始化刷新列表按钮事件
+    const refreshBtn = document.getElementById('refresh-template-list');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', loadTemplateList);
+    }
+    
+    // 初始化编辑模态框事件
+    const cancelEditBtn = document.getElementById('cancel-edit-template');
+    const confirmEditBtn = document.getElementById('confirm-edit-template');
+    
+    if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', closeEditTemplateModal);
+    }
+    
+    if (confirmEditBtn) {
+        confirmEditBtn.addEventListener('click', saveTemplateEdit);
+    }
+    
+    // 页面加载时自动加载模板列表
+    loadTemplateList();
+}
+
+// 加载模板列表
+function loadTemplateList() {
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-template/', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            displayTemplateList(data.templates || []);
+        } else {
+            showMessage('加载模板列表失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error loading template list:', error);
+        showMessage('加载模板列表时发生错误', 'error');
+    });
+}
+
+// 显示模板列表
+function displayTemplateList(templates) {
+    const tbody = document.getElementById('template-list');
+    const emptyState = document.getElementById('template-empty-state');
+    
+    if (!tbody) return;
+    
+    tbody.innerHTML = '';
+    
+    if (templates.length === 0) {
+        if (emptyState) {
+            emptyState.style.display = 'block';
+        }
+        return;
+    }
+    
+    if (emptyState) {
+        emptyState.style.display = 'none';
+    }
+    
+    templates.forEach(template => {
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-gray-50';
+        
+        // 截取模板内容预览
+        const preview = template.template_content.length > 100 
+            ? template.template_content.substring(0, 100) + '...' 
+            : template.template_content;
+        
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${template.id}</td>
+            <td class="px-6 py-4 text-sm text-gray-900">
+                <div class="max-w-xs truncate" title="${escapeHtml(template.template_content)}">
+                    ${escapeHtml(preview)}
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                    template.is_active 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-gray-100 text-gray-800'
+                }">
+                    ${template.is_active ? '启用' : '禁用'}
+                </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <button onclick="editTemplate(${template.id})" class="text-blue-600 hover:text-blue-900 mr-3">
+                    <i class="fas fa-edit mr-1"></i>编辑
+                </button>
+                <button onclick="toggleTemplateStatus(${template.id}, ${!template.is_active})" 
+                        class="${template.is_active ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}">
+                    <i class="fas fa-${template.is_active ? 'ban' : 'check'} mr-1"></i>
+                    ${template.is_active ? '禁用' : '启用'}
+                </button>
+            </td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+}
+
+// 编辑模板
+function editTemplate(templateId) {
+    const csrfToken = getCSRFToken();
+    
+    fetch(`/api/simc-template/?id=${templateId}`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            openEditTemplateModal(templateId, data.template_content);
+        } else {
+            showMessage('加载模板内容失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error loading template for edit:', error);
+        showMessage('加载模板内容时发生错误', 'error');
+    });
+}
+
+// 打开编辑模板模态框
+function openEditTemplateModal(templateId, content) {
+    const modal = document.getElementById('edit-template-modal');
+    const idInput = document.getElementById('edit-template-id');
+    const contentTextarea = document.getElementById('edit-template-content');
+    
+    if (modal && idInput && contentTextarea) {
+        idInput.value = templateId;
+        contentTextarea.value = content;
+        modal.classList.remove('hidden');
+    }
+}
+
+// 关闭编辑模板模态框
+function closeEditTemplateModal() {
+    const modal = document.getElementById('edit-template-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+// 保存模板编辑
+function saveTemplateEdit() {
+    const idInput = document.getElementById('edit-template-id');
+    const contentTextarea = document.getElementById('edit-template-content');
+    
+    if (!idInput || !contentTextarea) {
+        showMessage('找不到必要的表单元素', 'error');
+        return;
+    }
+    
+    const templateId = idInput.value;
+    const content = contentTextarea.value.trim();
+    
+    if (!content) {
+        showMessage('请输入模板内容', 'warning');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch(`/api/simc-template/?id=${templateId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            template_content: content
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('模板保存成功', 'success');
+            closeEditTemplateModal();
+            loadTemplateList(); // 重新加载列表
+        } else {
+            showMessage('保存模板失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error saving template:', error);
+        showMessage('保存模板时发生错误', 'error');
+    });
+}
+
+// 切换模板状态（启用/禁用）
+function toggleTemplateStatus(templateId, newStatus) {
+    const csrfToken = getCSRFToken();
+    
+    fetch(`/api/simc-template/?id=${templateId}`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            is_active: newStatus
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage(`模板已${newStatus ? '启用' : '禁用'}`, 'success');
+            loadTemplateList(); // 重新加载列表
+        } else {
+            showMessage(`${newStatus ? '启用' : '禁用'}模板失败: ` + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error toggling template status:', error);
+        showMessage('更新模板状态时发生错误', 'error');
+    });
+}
+
+// 兼容旧版本的loadSimcTemplate函数，用于菜单点击时调用
+function loadSimcTemplate() {
+    loadTemplateList();
+}
 
 function openAddSimcProfileModal() {
     const modal = document.getElementById('add-simc-profile-modal');

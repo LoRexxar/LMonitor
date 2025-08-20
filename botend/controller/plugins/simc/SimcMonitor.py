@@ -250,9 +250,12 @@ class SimcMonitor(BaseScan):
         :return: 生成的SimC代码字符串
         """
         try:
-            # 读取模板文件
-            with open(self.simc_template_path, 'r', encoding='utf-8') as f:
-                template = f.read()
+            # 从数据库获取模板
+            from botend.models import SimcTemplate
+            template_obj = SimcTemplate.objects.filter(is_active=True).first()
+            if not template_obj:
+                raise Exception("未找到启用的SimC模板")
+            template = template_obj.template_content
             
             # 替换模板中的占位符
             simc_code = template.replace('{fight_style}', profile.fight_style or 'Patchwerk')
@@ -435,9 +438,12 @@ class SimcMonitor(BaseScan):
         :return: 生成的SimC代码字符串
         """
         try:
-            # 读取模板文件
-            with open(self.simc_template_path, 'r', encoding='utf-8') as f:
-                template = f.read()
+            # 从数据库获取模板
+            from botend.models import SimcTemplate
+            template_obj = SimcTemplate.objects.filter(is_active=True).first()
+            if not template_obj:
+                raise Exception("未找到启用的SimC模板")
+            template = template_obj.template_content
             
             # 替换模板中的占位符
             simc_code = template.replace('{fight_style}', profile.fight_style or 'Patchwerk')
