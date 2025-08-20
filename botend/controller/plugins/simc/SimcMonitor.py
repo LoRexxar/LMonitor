@@ -323,16 +323,36 @@ class SimcMonitor(BaseScan):
             else:
                 logger.error(f"[SimC Monitor] SimC execution failed for task {simc_task.id}")
                 logger.error(f"[SimC Monitor] Return code: {result.returncode}")
+                
+                # 构建错误信息并直接存储到result_file字段
+                error_info = f"SimC执行失败\n返回码: {result.returncode}\n"
                 if result.stderr:
                     logger.error(f"[SimC Monitor] Error output: {result.stderr}")
+                    error_info += f"错误输出: {result.stderr}\n"
+                if result.stdout:
+                    error_info += f"标准输出: {result.stdout}\n"
+                
+                # 直接将错误信息存储到result_file字段
+                simc_task.result_file = error_info
+                simc_task.save()
                 return False
                 
         except subprocess.TimeoutExpired:
+            error_info = f"SimC执行超时\n任务ID: {simc_task.id}\n超时时间: 300秒"
             logger.error(f"[SimC Monitor] SimC execution timeout for task {simc_task.id}")
+            # 直接将错误信息存储到result_file字段
+            simc_task.result_file = error_info
+            simc_task.save()
             return False
         except Exception as e:
+            error_info = f"SimC执行异常\n任务ID: {simc_task.id}\n异常信息: {str(e)}"
             logger.error(f"[SimC Monitor] Error executing SimC command: {str(e)}")
+            # 直接将错误信息存储到result_file字段
+            simc_task.result_file = error_info
+            simc_task.save()
             return False
+
+
 
     def check_status(self, result):
         """

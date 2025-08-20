@@ -2901,6 +2901,11 @@ function displaySimcTaskData(tasks) {
                             <i class="fas fa-chart-bar mr-1"></i>查看分析
                         </button>`}
                         ` : ''}
+                        ${task.current_status === 3 && task.result_file ? `
+                        <button onclick="viewErrorInfo(${task.id}, '${escapeHtml(task.result_file)}')" class="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors duration-200 text-sm">
+                            <i class="fas fa-exclamation-triangle mr-1"></i>查看错误
+                        </button>
+                        ` : ''}
                         <button onclick="editSimcTask(${task.id})" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 text-sm">
                             <i class="fas fa-edit mr-1"></i>编辑
                         </button>
@@ -3847,4 +3852,54 @@ function viewAttributeAnalysis(taskId) {
     
     // 在新标签页中打开属性模拟分析页面
     window.open(analysisUrl, '_blank');
+}
+
+function viewErrorInfo(taskId, resultFile) {
+    /**
+     * 查看任务错误信息
+     * @param {number} taskId - 任务ID
+     * @param {string} resultFile - 错误信息内容（直接从数据库字段获取）
+     */
+    try {
+        // 检查是否包含错误信息
+        if (!resultFile) {
+            showMessage('未找到错误信息', 'warning');
+            return;
+        }
+        
+        // 直接展示错误信息
+        openErrorInfoModal(taskId, resultFile);
+        
+    } catch (error) {
+        console.error('查看错误信息失败:', error);
+        showMessage(`查看错误信息失败: ${error.message}`, 'error');
+    }
+}
+
+function openErrorInfoModal(taskId, errorContent) {
+    /**
+     * 打开错误信息模态框
+     * @param {number} taskId - 任务ID
+     * @param {string} errorContent - 错误内容
+     */
+    const modal = document.getElementById('error-info-modal');
+    if (!modal) {
+        console.error('错误信息模态框未找到');
+        return;
+    }
+    
+    // 填充错误信息
+    const taskIdElement = document.getElementById('error-task-id');
+    const errorContentElement = document.getElementById('error-content');
+    
+    if (taskIdElement) {
+        taskIdElement.textContent = taskId;
+    }
+    
+    if (errorContentElement) {
+        errorContentElement.textContent = errorContent;
+    }
+    
+    // 显示模态框
+    modal.style.display = 'block';
 }
