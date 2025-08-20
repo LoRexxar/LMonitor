@@ -397,7 +397,8 @@ class SimcMonitor(BaseScan):
                 'crit_versatility': ['gear_crit', 'gear_versatility'],
                 'mastery_haste': ['gear_mastery', 'gear_haste'],
                 'mastery_versatility': ['gear_mastery', 'gear_versatility'],
-                'haste_versatility': ['gear_haste', 'gear_versatility']
+                'haste_versatility': ['gear_haste', 'gear_versatility'],
+                'haste_mastery': ['gear_haste', 'gear_mastery']
             }
             
             # 获取选中的属性
