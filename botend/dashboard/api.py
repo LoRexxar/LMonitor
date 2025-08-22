@@ -63,10 +63,11 @@ class ConvertTextAPIView(View):
                 'result': result
             })
             
-        except json.JSONDecodeError:
+        except Exception as e:
+            logger.error(f"一键模拟SimC配置失败: {str(e)}")
             return JsonResponse({
                 'success': False,
-                'error': '无效的JSON数据'
+                'error': '一键模拟SimC配置失败'
             })
         except Exception as e:
             logger.error(f"文本转换API错误: {str(e)}\n{traceback.format_exc()}")
@@ -818,49 +819,124 @@ class SimcProfileAPIView(View):
     SimC配置管理API
     """
     
-    def get(self, request):
-        """获取SimC配置列表"""
+    def get(self, request, profile_id=None):
+        """获取SimC配置列表或单个配置"""
         try:
-            profiles = SimcProfile.objects.filter(
-                user_id=request.user.id,
-                is_active=True
-            ).order_by('-id')
-            
-            profile_list = []
-            for profile in profiles:
-                profile_list.append({
-                    'id': profile.id,
-                    'name': profile.name,
-                    'fight_style': profile.fight_style,
-                    'time': profile.time,
-                    'target_count': profile.target_count,
-                    'talent': profile.talent,
-                    'action_list': profile.action_list,
-                    'gear_strength': profile.gear_strength,
-                    'gear_crit': profile.gear_crit,
-                    'gear_haste': profile.gear_haste,
-                    'gear_mastery': profile.gear_mastery,
-                    'gear_versatility': profile.gear_versatility,
-                    'is_active': profile.is_active
+            if profile_id:
+                # 获取单个配置
+                try:
+                    profile = SimcProfile.objects.get(
+                        id=profile_id,
+                        user_id=request.user.id,
+                        is_active=True
+                    )
+                    
+                    return JsonResponse({
+                        'success': True,
+                        'id': profile.id,
+                        'name': profile.name,
+                        'fight_style': profile.fight_style,
+                        'time': profile.time,
+                        'target_count': profile.target_count,
+                        'talent': profile.talent,
+                        'action_list': profile.action_list,
+                        'gear_strength': profile.gear_strength,
+                        'gear_crit': profile.gear_crit,
+                        'gear_haste': profile.gear_haste,
+                        'gear_mastery': profile.gear_mastery,
+                        'gear_versatility': profile.gear_versatility,
+                        'is_active': profile.is_active
+                    })
+                    
+                except SimcProfile.DoesNotExist:
+                    return JsonResponse({
+                        'success': False,
+                        'error': '配置不存在或无权限访问'
+                    })
+            else:
+                # 获取配置列表
+                profiles = SimcProfile.objects.filter(
+                    user_id=request.user.id,
+                    is_active=True
+                ).order_by('-id')
+                
+                profile_list = []
+                for profile in profiles:
+                    profile_list.append({
+                        'id': profile.id,
+                        'name': profile.name,
+                        'fight_style': profile.fight_style,
+                        'time': profile.time,
+                        'target_count': profile.target_count,
+                        'talent': profile.talent,
+                        'action_list': profile.action_list,
+                        'gear_strength': profile.gear_strength,
+                        'gear_crit': profile.gear_crit,
+                        'gear_haste': profile.gear_haste,
+                        'gear_mastery': profile.gear_mastery,
+                        'gear_versatility': profile.gear_versatility,
+                        'is_active': profile.is_active
+                    })
+                
+                return JsonResponse({
+                    'success': True,
+                    'data': profile_list
                 })
             
-            return JsonResponse({
-                'success': True,
-                'data': profile_list
-            })
-            
         except Exception as e:
-            logger.error(f"获取SimC配置列表失败: {str(e)}")
+            logger.error(f"获取SimC配置失败: {str(e)}")
             return JsonResponse({
                 'success': False,
-                'error': '获取SimC配置列表失败'
+                'error': '获取SimC配置失败'
             })
     
     def post(self, request):
-        """创建新的SimC配置"""
+        """创建新的SimC配置或复制现有配置，或者为现有配置创建模拟任务"""
         try:
             data = json.loads(request.body)
             
+            # 检查是否为一键模拟操作
+            simulate_now = data.get('simulate_now', False)
+            profile_id = data.get('profile_id')
+            
+            # 如果是一键模拟操作且提供了profile_id，直接创建任务
+            if simulate_now and profile_id:
+                try:
+                    profile = SimcProfile.objects.get(
+                        id=profile_id,
+                        user_id=request.user.id,
+                        is_active=True
+                    )
+                    
+                    task_type = data.get('task_type', 1)
+                    selected_attributes = data.get('selected_attributes')
+                    
+                    task_result = self._create_simulation_task(
+                        request.user.id, 
+                        profile, 
+                        task_type=task_type,
+                        selected_attributes=selected_attributes
+                    )
+                    
+                    if task_result['success']:
+                        return JsonResponse({
+                            'success': True,
+                            'message': '模拟任务创建成功',
+                            'task_id': task_result['data']['id']
+                        })
+                    else:
+                        return JsonResponse({
+                            'success': False,
+                            'message': '模拟任务创建失败: ' + task_result['error']
+                        })
+                        
+                except SimcProfile.DoesNotExist:
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'SimC配置不存在'
+                    })
+            
+            # 原有的创建配置逻辑
             # 验证必填字段
             name = data.get('name', '').strip()
             if not name:
@@ -880,31 +956,111 @@ class SimcProfileAPIView(View):
                     'error': '配置名称已存在'
                 })
             
-            # 创建新配置
-            profile = SimcProfile.objects.create(
-                user_id=request.user.id,
-                name=name,
-                fight_style=data.get('fight_style', 'Patchwerk'),
-                time=data.get('time', 40),
-                target_count=data.get('target_count', 1),
-                talent=data.get('talent', ''),
-                action_list=data.get('action_list', ''),
-                gear_strength=data.get('gear_strength', 93330),
-                gear_crit=data.get('gear_crit', 10730),
-                gear_haste=data.get('gear_haste', 18641),
-                gear_mastery=data.get('gear_mastery', 21785),
-                gear_versatility=data.get('gear_versatility', 6757),
-                is_active=data.get('is_active', True)
-            )
+            # 检查是否为复制操作
+            copy_from_id = data.get('copy_from_id')
             
-            return JsonResponse({
-                'success': True,
-                'message': 'SimC配置创建成功',
-                'data': {
-                    'id': profile.id,
-                    'name': profile.name
+            if copy_from_id:
+                try:
+                    # 获取要复制的配置
+                    source_profile = SimcProfile.objects.get(
+                        id=copy_from_id,
+                        user_id=request.user.id,
+                        is_active=True
+                    )
+                    
+                    # 复制配置数据
+                    profile = SimcProfile.objects.create(
+                        user_id=request.user.id,
+                        name=name,
+                        fight_style=source_profile.fight_style,
+                        time=source_profile.time,
+                        target_count=source_profile.target_count,
+                        talent=source_profile.talent,
+                        action_list=source_profile.action_list,
+                        gear_strength=source_profile.gear_strength,
+                        gear_crit=source_profile.gear_crit,
+                        gear_haste=source_profile.gear_haste,
+                        gear_mastery=source_profile.gear_mastery,
+                        gear_versatility=source_profile.gear_versatility,
+                        is_active=True
+                    )
+                    
+                    response_data = {
+                        'success': True,
+                        'message': 'SimC配置复制成功',
+                        'data': {
+                            'id': profile.id,
+                            'name': profile.name
+                        }
+                    }
+                    
+                    # 如果需要立即模拟，创建SimcTask
+                    if simulate_now:
+                        task_type = data.get('task_type', 1)
+                        selected_attributes = data.get('selected_attributes')
+                        task_result = self._create_simulation_task(
+                            request.user.id, 
+                            profile, 
+                            task_type=task_type,
+                            selected_attributes=selected_attributes
+                        )
+                        if task_result['success']:
+                            response_data['message'] += '，模拟任务已创建'
+                            response_data['task_data'] = task_result['data']
+                        else:
+                            response_data['message'] += '，但模拟任务创建失败: ' + task_result['error']
+                    
+                    return JsonResponse(response_data)
+                    
+                except SimcProfile.DoesNotExist:
+                    return JsonResponse({
+                        'success': False,
+                        'error': '要复制的配置不存在'
+                    })
+            else:
+                # 创建新配置
+                profile = SimcProfile.objects.create(
+                    user_id=request.user.id,
+                    name=name,
+                    fight_style=data.get('fight_style', 'Patchwerk'),
+                    time=data.get('time', 40),
+                    target_count=data.get('target_count', 1),
+                    talent=data.get('talent', ''),
+                    action_list=data.get('action_list', ''),
+                    gear_strength=data.get('gear_strength', 93330),
+                    gear_crit=data.get('gear_crit', 10730),
+                    gear_haste=data.get('gear_haste', 18641),
+                    gear_mastery=data.get('gear_mastery', 21785),
+                    gear_versatility=data.get('gear_versatility', 6757),
+                    is_active=data.get('is_active', True)
+                )
+                
+                response_data = {
+                    'success': True,
+                    'message': 'SimC配置创建成功',
+                    'data': {
+                        'id': profile.id,
+                        'name': profile.name
+                    }
                 }
-            })
+                
+                # 如果需要立即模拟，创建SimcTask
+                if simulate_now:
+                    task_type = data.get('task_type', 1)
+                    selected_attributes = data.get('selected_attributes')
+                    task_result = self._create_simulation_task(
+                        request.user.id, 
+                        profile, 
+                        task_type=task_type,
+                        selected_attributes=selected_attributes
+                    )
+                    if task_result['success']:
+                        response_data['message'] += '，模拟任务已创建'
+                        response_data['task_data'] = task_result['data']
+                    else:
+                        response_data['message'] += '，但模拟任务创建失败: ' + task_result['error']
+                
+                return JsonResponse(response_data)
             
         except json.JSONDecodeError:
             return JsonResponse({
@@ -917,6 +1073,50 @@ class SimcProfileAPIView(View):
                 'success': False,
                 'error': '创建SimC配置失败'
             })
+    
+    def _create_simulation_task(self, user_id, profile, task_type=1, selected_attributes=None):
+        """创建模拟任务的辅助方法"""
+        try:
+            # 生成result_file
+            timestamp = str(int(time.time()))
+            content_to_hash = timestamp + profile.name + str(user_id)
+            if selected_attributes:
+                content_to_hash += selected_attributes
+            result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
+            
+            # 根据任务类型生成任务名称
+            if task_type == 2 and selected_attributes:
+                task_name = f"{profile.name}_属性模拟_{selected_attributes}"
+            else:
+                task_name = f"{profile.name}_常规模拟"
+            
+            # 创建SimcTask
+            task = SimcTask.objects.create(
+                user_id=user_id,
+                name=task_name,
+                simc_profile_id=profile.id,
+                current_status=0,  # 待执行
+                result_file=result_file,
+                task_type=task_type,
+                ext=selected_attributes or ''
+            )
+            
+            return {
+                'success': True,
+                'data': {
+                    'id': task.id,
+                    'name': task.name,
+                    'current_status': task.current_status,
+                    'result_file': task.result_file
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"创建模拟任务失败: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
     
     def put(self, request):
         """更新SimC配置"""
@@ -1034,6 +1234,51 @@ class SimcProfileAPIView(View):
             return JsonResponse({
                 'success': False,
                 'error': '删除SimC配置失败'
+            })
+    
+    def patch(self, request, profile_id=None):
+        """一键模拟SimC配置"""
+        try:
+            # 从URL参数获取profile_id
+            if not profile_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': '配置ID不能为空'
+                })
+            
+            # 获取配置并检查权限
+            try:
+                profile = SimcProfile.objects.get(
+                    id=profile_id,
+                    user_id=request.user.id,
+                    is_active=True
+                )
+            except SimcProfile.DoesNotExist:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'SimC配置不存在或无权限访问'
+                })
+            
+            # 创建模拟任务
+            task_result = self._create_simulation_task(request.user.id, profile)
+            
+            if task_result['success']:
+                return JsonResponse({
+                    'success': True,
+                    'message': '模拟任务创建成功，正在执行模拟',
+                    'data': task_result['data']
+                })
+            else:
+                return JsonResponse({
+                    'success': False,
+                    'error': f'创建模拟任务失败: {task_result["error"]}'
+                })
+            
+        except Exception as e:
+            logger.error(f"一键模拟失败: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': '一键模拟失败'
             })
 
 
