@@ -2980,6 +2980,11 @@ function displaySimcTaskData(tasks) {
                             <i class="fas fa-exclamation-triangle mr-1"></i>查看错误
                         </button>
                         ` : ''}
+                        ${task.current_status === 2 || task.current_status === 3 ? `
+                        <button onclick="rerunSimcTask(${task.id})" class="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 text-sm">
+                            <i class="fas fa-redo mr-1"></i>重跑
+                        </button>
+                        ` : ''}
                         <button onclick="editSimcTask(${task.id})" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 text-sm">
                             <i class="fas fa-edit mr-1"></i>编辑
                         </button>
@@ -4598,9 +4603,41 @@ async function viewSimcProfileActionList(profileId) {
         } else {
             showMessage('未找到APL互转页面链接', 'error');
         }
-        
     } catch (error) {
-        console.error('获取SimcProfile action_list失败:', error);
-        showMessage('获取Action List失败: ' + error.message, 'error');
+        console.error('查看SimC配置Action List错误:', error);
+        showMessage('查看Action List失败', 'error');
     }
+}
+
+// 重跑SimC任务
+function rerunSimcTask(taskId) {
+    if (!confirm('确定要重跑这个任务吗？任务将重新加入队列并生成新的结果。')) {
+        return;
+    }
+    
+    fetch('/api/simc-task/', {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCSRFToken()
+        },
+        body: JSON.stringify({
+            id: taskId,
+            action: 'rerun'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showMessage(data.message || '任务重跑成功', 'success');
+            // 刷新任务列表
+            fetchSimcTaskData();
+        } else {
+            showMessage(data.error || '重跑任务失败', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('重跑任务错误:', error);
+        showMessage('重跑任务失败', 'error');
+    });
 }
