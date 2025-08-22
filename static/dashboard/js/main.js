@@ -2823,7 +2823,7 @@ function displaySimcTaskData(tasks) {
     if (!tasks || tasks.length === 0) {
         taskListContainer.innerHTML = `
             <tr>
-                <td colspan="7" class="text-center py-8 text-gray-500">
+                <td colspan="5" class="text-center py-8 text-gray-500">
                     <i class="fas fa-tasks text-4xl mb-4"></i>
                     <p>暂无任务数据</p>
                 </td>
@@ -2898,8 +2898,7 @@ function displaySimcTaskData(tasks) {
                         ${statusText}
                     </span>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDateTime(task.create_time)}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDateTime(task.modified_time)}</td>
+
                 <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                     <div class="flex justify-center space-x-2">
                         <button onclick="viewSimcTask(${task.id})" class="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 text-sm">
