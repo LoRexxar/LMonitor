@@ -368,7 +368,78 @@ class SimcTaskAPIView(View):
                 'error': f'删除任务失败: {str(e)}'
             })
     
-
+    def patch(self, request):
+        """重跑SimC任务"""
+        try:
+            data = json.loads(request.body)
+            task_id = data.get('id')
+            action = data.get('action')
+            
+            if not task_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': '任务ID不能为空'
+                })
+            
+            if action != 'rerun':
+                return JsonResponse({
+                    'success': False,
+                    'error': '不支持的操作类型'
+                })
+            
+            # 获取任务并检查权限
+            try:
+                task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
+            except SimcTask.DoesNotExist:
+                return JsonResponse({
+                    'success': False,
+                    'error': '任务不存在或无权限访问'
+                })
+            
+            # 检查任务是否可以重跑（只有已完成或失败的任务才能重跑）
+            if task.current_status not in [2, 3]:  # 2=已完成, 3=失败
+                return JsonResponse({
+                    'success': False,
+                    'error': '只有已完成或失败的任务才能重跑'
+                })
+            
+            # 生成新的结果文件名
+            timestamp = str(int(time.time()))
+            content_to_hash = timestamp + task.name + str(request.user.id)
+            new_result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
+            
+            # 重置任务状态
+            task.current_status = 0  # 待处理
+            task.result_file = new_result_file
+            task.save()
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'SimC任务重跑成功，任务已重新加入队列',
+                'data': {
+                    'id': task.id,
+                    'name': task.name,
+                    'simc_profile_id': task.simc_profile_id,
+                    'current_status': task.current_status,
+                    'result_file': task.result_file,
+                    'task_type': task.task_type,
+                    'ext': task.ext,
+                    'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
+                }
+            })
+            
+        except json.JSONDecodeError:
+            return JsonResponse({
+                'success': False,
+                'error': '无效的JSON数据'
+            })
+        except Exception as e:
+            logger.error(f"重跑SimC任务错误: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({
+                'success': False,
+                'error': f'重跑任务失败: {str(e)}'
+            })
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
