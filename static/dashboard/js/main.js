@@ -3433,7 +3433,7 @@ async function generateSimcCode(profileId, resultFile = '') {
             throw new Error('未找到指定的SimC配置');
         }
         
-        // 获取模板文件内容
+        // 获取启用的模板内容
         const templateResponse = await fetch('/api/simc-template/', {
             method: 'GET',
             headers: {
@@ -3451,7 +3451,13 @@ async function generateSimcCode(profileId, resultFile = '') {
             throw new Error(templateData.error || '获取SimC模板失败');
         }
         
-        let simcCode = templateData.template;
+        // 查找启用的模板
+        const activeTemplate = templateData.templates.find(t => t.is_active);
+        if (!activeTemplate) {
+            throw new Error('没有找到启用的SimC模板');
+        }
+        
+        let simcCode = activeTemplate.template_content;
         
         // 替换模板中的占位符
         simcCode = simcCode.replace(/{fight_style}/g, profile.fight_style || 'Patchwerk');
