@@ -1028,6 +1028,105 @@
         </div>
     </div>
 
+    <!-- 模拟类型选择模态框 -->
+    <div id="simulation-type-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
+                <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                    <h3 class="text-lg font-semibold text-gray-900">
+                        <i class="fas fa-play-circle text-blue-500 mr-2"></i>
+                        选择模拟类型
+                    </h3>
+                    <button onclick="closeSimulationTypeModal()" class="text-gray-400 hover:text-gray-600 transition-colors duration-200">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                <div class="p-6 overflow-y-auto max-h-[60vh]">
+                    <div class="space-y-6">
+                        <!-- 模拟类型选择 -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-3">模拟类型</label>
+                            <div class="space-y-3">
+                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                    <input type="radio" name="simulation-type" value="1" class="mr-3 text-blue-600" checked>
+                                    <div>
+                                        <div class="font-medium text-gray-900">常规模拟</div>
+                                        <div class="text-sm text-gray-500">执行标准的DPS模拟分析</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                    <input type="radio" name="simulation-type" value="2" class="mr-3 text-blue-600">
+                                    <div>
+                                        <div class="font-medium text-gray-900">属性模拟</div>
+                                        <div class="text-sm text-gray-500">分析不同属性组合的DPS表现</div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <!-- 属性组合选择 -->
+                        <div id="attribute-combinations" class="hidden">
+                            <label class="block text-sm font-medium text-gray-700 mb-3">属性组合选择 <span class="text-red-500">*</span></label>
+                            <div class="grid grid-cols-1 gap-3">
+                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                    <input type="checkbox" name="attribute-combination" value="crit_mastery" class="mr-3 text-blue-600">
+                                    <div>
+                                        <div class="font-medium text-gray-900">暴击 + 精通</div>
+                                        <div class="text-sm text-gray-500">分析暴击和精通属性的组合效果</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                    <input type="checkbox" name="attribute-combination" value="crit_haste" class="mr-3 text-blue-600">
+                                    <div>
+                                        <div class="font-medium text-gray-900">暴击 + 急速</div>
+                                        <div class="text-sm text-gray-500">分析暴击和急速属性的组合效果</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                    <input type="checkbox" name="attribute-combination" value="crit_versatility" class="mr-3 text-blue-600">
+                                    <div>
+                                        <div class="font-medium text-gray-900">暴击 + 全能</div>
+                                        <div class="text-sm text-gray-500">分析暴击和全能属性的组合效果</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                    <input type="checkbox" name="attribute-combination" value="mastery_haste" class="mr-3 text-blue-600">
+                                    <div>
+                                        <div class="font-medium text-gray-900">精通 + 急速</div>
+                                        <div class="text-sm text-gray-500">分析精通和急速属性的组合效果</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                    <input type="checkbox" name="attribute-combination" value="mastery_versatility" class="mr-3 text-blue-600">
+                                    <div>
+                                        <div class="font-medium text-gray-900">精通 + 全能</div>
+                                        <div class="text-sm text-gray-500">分析精通和全能属性的组合效果</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                    <input type="checkbox" name="attribute-combination" value="haste_versatility" class="mr-3 text-blue-600">
+                                    <div>
+                                        <div class="font-medium text-gray-900">急速 + 全能</div>
+                                        <div class="text-sm text-gray-500">分析急速和全能属性的组合效果</div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3 px-6 py-4 bg-gray-50 border-t border-gray-200">
+                    <button onclick="closeSimulationTypeModal()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                        <i class="fas fa-times mr-2"></i>
+                        取消
+                    </button>
+                    <button onclick="startSimulation()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                        <i class="fas fa-play mr-2"></i>开始模拟
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 错误信息模态框 -->
     <div id="error-info-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
         <div class="flex items-center justify-center min-h-screen p-4">

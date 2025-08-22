@@ -49,6 +49,7 @@ urlpatterns = [
     path('api/apl-storage/<int:apl_id>/', csrf_exempt(AplDetailAPIView.as_view()), name="apl_detail"),
     path('api/simc-task/', csrf_exempt(SimcTaskAPIView.as_view()), name="simc_task"),
     path('api/simc-profile/', csrf_exempt(SimcProfileAPIView.as_view()), name="simc_profile"),
+    path('api/simc-profile/<int:profile_id>/', csrf_exempt(SimcProfileAPIView.as_view()), name="simc_profile_detail"),
     path('api/simc-template/', csrf_exempt(SimcTemplateAPIView.as_view()), name="simc_template"),
     path('api/keyword-translation/', csrf_exempt(KeywordTranslationAPIView.as_view()), name="keyword_translation"),
     path('api/oss-config/', csrf_exempt(OssConfigAPIView.as_view()), name="oss_config"),

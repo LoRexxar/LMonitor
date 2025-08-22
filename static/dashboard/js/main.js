@@ -1052,6 +1052,10 @@ function displayTableData(data, fields) {
             !['rss_id', 'url', 'content_html'].includes(field)
         );
     }
+    // SimcProfile表只显示指定字段
+    else if (currentTableName === 'SimcProfile') {
+        displayFields = ['name', 'fight_style', 'time', 'target_count'];
+    }
     
     // 创建表头
     const headerRow = document.createElement('tr');
@@ -1276,9 +1280,18 @@ function displayTableData(data, fields) {
             // SimcProfile表使用特殊的操作按钮
             if (currentTableName === 'SimcProfile') {
                 actionTd.innerHTML = `
-                    <div class="flex space-x-2">
+                    <div class="flex space-x-1">
                         <button class="simc-profile-edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-profile-id="${rowId}">
                             <i class="fas fa-edit mr-1"></i>编辑
+                        </button>
+                        <button class="simc-profile-copy-btn text-green-600 hover:text-green-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-copy mr-1"></i>复制
+                        </button>
+                        <button class="simc-profile-apl-btn text-orange-600 hover:text-orange-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-list mr-1"></i>APL
+                        </button>
+                        <button class="simc-profile-simulate-btn text-purple-600 hover:text-purple-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-play mr-1"></i>模拟
                         </button>
                         <button class="simc-profile-delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-profile-id="${rowId}">
                             <i class="fas fa-trash mr-1"></i>删除
@@ -1341,11 +1354,37 @@ function bindTableActions() {
         });
     });
     
+    document.querySelectorAll('.simc-profile-copy-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const profileId = this.getAttribute('data-profile-id');
+            copySimcProfile(profileId);
+        });
+    });
+    
+    document.querySelectorAll('.simc-profile-simulate-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const profileId = this.getAttribute('data-profile-id');
+            window.currentSimulationProfileId = profileId;
+            openSimulationTypeModal();
+        });
+    });
+    
     document.querySelectorAll('.simc-profile-delete-btn').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
             const profileId = this.getAttribute('data-profile-id');
             deleteSimcProfile(profileId);
+        });
+    });
+    
+    // 绑定SimcProfile表的APL查看按钮事件
+    document.querySelectorAll('.simc-profile-apl-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const profileId = this.getAttribute('data-profile-id');
+            viewSimcProfileActionList(profileId);
         });
     });
 }
@@ -1798,6 +1837,10 @@ function isTimeField(field) {
     const timeFields = ['time', 'date', 'created_at', 'updated_at', 'publish_time', 'last_scan_time', 'last_spider_time', 'last_publish_time', 'create_time'];
     // 排除wait_time，它应该显示为数值而不是时间
     if (field.toLowerCase() === 'wait_time') {
+        return false;
+    }
+    // 排除SimcProfile表中的time字段，它是纯数字而不是日期
+    if (currentTableName === 'SimcProfile' && field.toLowerCase() === 'time') {
         return false;
     }
     return timeFields.some(timeField => field.toLowerCase().includes(timeField));
@@ -4192,6 +4235,208 @@ function deleteSimcProfile(profileId) {
     });
 }
 
+function copySimcProfile(profileId) {
+    // 提示用户输入新配置名称
+    const newName = prompt('请输入新配置的名称:');
+    if (!newName || !newName.trim()) {
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-profile/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            name: newName.trim(),
+            copy_from_id: profileId
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC配置复制成功', 'success');
+            // 如果当前显示的是SimcProfile表，刷新数据
+            if (currentTableName === 'SimcProfile') {
+                fetchTableData('SimcProfile', currentPage);
+            }
+        } else {
+            showMessage('复制失败: ' + (data.error || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error copying SimC profile:', error);
+        showMessage('复制SimC配置时发生错误', 'error');
+    });
+}
+
+// 打开模拟类型选择弹窗
+function openSimulationTypeModal() {
+    document.getElementById('simulation-type-modal').classList.remove('hidden');
+    
+    // 重置表单状态
+    document.querySelector('input[name="simulation-type"][value="1"]').checked = true;
+    document.getElementById('attribute-combinations').classList.add('hidden');
+    document.querySelectorAll('input[name="attribute-combination"]').forEach(cb => cb.checked = false);
+    
+    // 绑定模拟类型切换事件
+    document.querySelectorAll('input[name="simulation-type"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            const attributeCombinations = document.getElementById('attribute-combinations');
+            if (this.value === '2') {
+                attributeCombinations.classList.remove('hidden');
+            } else {
+                attributeCombinations.classList.add('hidden');
+            }
+        });
+    });
+}
+
+// 关闭模拟类型选择弹窗
+function closeSimulationTypeModal() {
+    document.getElementById('simulation-type-modal').classList.add('hidden');
+}
+
+// 开始模拟
+function startSimulation() {
+    const profileId = window.currentSimulationProfileId;
+    const simulationType = document.querySelector('input[name="simulation-type"]:checked').value;
+    
+    if (simulationType === '1') {
+        // 常规模拟
+        createSimulationTask(profileId, 1, null);
+    } else if (simulationType === '2') {
+        // 属性模拟
+        const selectedCombinations = Array.from(document.querySelectorAll('input[name="attribute-combination"]:checked'))
+            .map(cb => cb.value);
+        
+        if (selectedCombinations.length === 0) {
+            showMessage('请至少选择一个属性组合', 'error');
+            return;
+        }
+        
+        // 批量创建属性模拟任务
+        createBatchSimulationTasks(profileId, selectedCombinations);
+    }
+    
+    closeSimulationTypeModal();
+}
+
+// 创建模拟任务
+function createSimulationTask(profileId, taskType, attributeCombination) {
+    const requestBody = {
+        task_type: taskType
+    };
+    
+    if (attributeCombination) {
+        requestBody.selected_attributes = attributeCombination;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    // 发送POST请求到后端API
+    return fetch(`/api/simc-profile/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            profile_id: profileId,
+            simulate_now: true,
+            ...requestBody
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return { success: false, error: '无响应数据' };
+        if (data.success) {
+            const taskTypeText = taskType === 1 ? '常规模拟' : `属性模拟(${attributeCombination})`;
+            showMessage(`${taskTypeText}任务创建成功！任务ID: ${data.task_id}`, 'success');
+            return { success: true, taskId: data.task_id, combination: attributeCombination };
+        } else {
+            showMessage(`创建模拟任务失败: ${data.message || data.error || '未知错误'}`, 'error');
+            return { success: false, error: data.message || data.error || '未知错误', combination: attributeCombination };
+        }
+    })
+    .catch(error => {
+        console.error('Error creating simulation task:', error);
+        showMessage('创建模拟任务时发生错误', 'error');
+        return { success: false, error: error.message, combination: attributeCombination };
+    });
+}
+
+// 批量创建属性模拟任务
+function createBatchSimulationTasks(profileId, selectedCombinations) {
+    let completedTasks = 0;
+    let successfulTasks = 0;
+    let failedTasks = [];
+    const totalTasks = selectedCombinations.length;
+    
+    showMessage(`开始创建 ${totalTasks} 个属性模拟任务...`, 'info');
+    
+    selectedCombinations.forEach(async (combination) => {
+        try {
+            const result = await createSimulationTask(profileId, 2, combination);
+            completedTasks++;
+            
+            if (result.success) {
+                successfulTasks++;
+            } else {
+                failedTasks.push({ combination, error: result.error });
+            }
+            
+            // 所有任务都处理完成后显示汇总结果
+            if (completedTasks === totalTasks) {
+                if (successfulTasks === totalTasks) {
+                    showMessage(`所有 ${totalTasks} 个属性模拟任务创建成功！`, 'success');
+                } else if (successfulTasks > 0) {
+                    showMessage(`成功创建 ${successfulTasks} 个任务，${failedTasks.length} 个任务创建失败`, 'warning');
+                    console.error('失败的任务:', failedTasks);
+                } else {
+                    showMessage('所有属性模拟任务创建失败', 'error');
+                    console.error('失败的任务:', failedTasks);
+                }
+                
+                // 刷新页面显示新任务
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            }
+        } catch (error) {
+            completedTasks++;
+            failedTasks.push({ combination, error: error.message });
+            console.error(`任务创建异常 (${combination}):`, error);
+            
+            if (completedTasks === totalTasks) {
+                showMessage('批量任务创建过程中发生错误', 'error');
+            }
+        }
+    });
+}
+
 // 控制结果文件下拉菜单
 function toggleResultDropdown(taskId) {
     const dropdown = document.getElementById(`result-dropdown-${taskId}`);
@@ -4308,4 +4553,54 @@ function openErrorInfoModal(taskId, errorContent) {
     
     // 显示模态框
     modal.style.display = 'block';
+}
+
+/**
+ * 查看SimcProfile的action_list并跳转到APL互转页面
+ */
+async function viewSimcProfileActionList(profileId) {
+    try {
+        // 获取SimcProfile数据
+        const response = await fetch(`/api/simc-profile/${profileId}/`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const profile = await response.json();
+        const actionList = profile.action_list || '';
+        
+        // 跳转到APL互转页面
+        const aplConverterItem = document.querySelector('li[data-tool="simc-apl-converter"] a');
+        if (aplConverterItem) {
+            aplConverterItem.click();
+            
+            // 等待页面切换完成后填充内容
+            setTimeout(() => {
+                const aplInput = document.getElementById('apl-input');
+                if (aplInput) {
+                    aplInput.value = actionList;
+                    // 触发输入事件以确保任何监听器都能响应
+                    aplInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    
+                    // 显示成功消息
+                    showMessage(`已将配置"${profile.name}"的Action List加载到APL输入框`, 'success');
+                } else {
+                    showMessage('未找到APL输入框，请手动切换到APL互转页面', 'error');
+                }
+            }, 300);
+        } else {
+            showMessage('未找到APL互转页面链接', 'error');
+        }
+        
+    } catch (error) {
+        console.error('获取SimcProfile action_list失败:', error);
+        showMessage('获取Action List失败: ' + error.message, 'error');
+    }
 }
