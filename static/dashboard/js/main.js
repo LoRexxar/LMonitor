@@ -3460,10 +3460,10 @@ async function generateSimcCode(profileId, resultFile = '') {
         simcCode = simcCode.replace(/{talent}/g, profile.talent || '');
         simcCode = simcCode.replace(/{action_list}/g, profile.action_list || '');
         simcCode = simcCode.replace(/{gear_strength}/g, profile.gear_strength || '93330');
-        simcCode = simcCode.replace(/{gear_crit}/g, profile.gear_crit || '10730');
-        simcCode = simcCode.replace(/{gear_haste}/g, profile.gear_haste || '18641');
+        simcCode = simcCode.replace(/{gear_crit}/g, profile.gear_crit || '8730');
+        simcCode = simcCode.replace(/{gear_haste}/g, profile.gear_haste || '20141');
         simcCode = simcCode.replace(/{gear_mastery}/g, profile.gear_mastery || '21785');
-        simcCode = simcCode.replace(/{gear_versatility}/g, profile.gear_versatility || '6757');
+        simcCode = simcCode.replace(/{gear_versatility}/g, profile.gear_versatility || '7257');
         simcCode = simcCode.replace(/{result_file}/g, resultFile || 'result.html');
         
         return simcCode;
@@ -3912,10 +3912,10 @@ function openAddSimcProfileModal() {
     document.getElementById('add-simc-profile-time').value = '40';
     document.getElementById('add-simc-profile-target-count').value = '1';
     document.getElementById('add-simc-profile-strength').value = '93330';
-    document.getElementById('add-simc-profile-crit').value = '10730';
-    document.getElementById('add-simc-profile-haste').value = '18641';
+    document.getElementById('add-simc-profile-crit').value = '8730';
+    document.getElementById('add-simc-profile-haste').value = '20141';
     document.getElementById('add-simc-profile-mastery').value = '21785';
-    document.getElementById('add-simc-profile-versatility').value = '6757';
+    document.getElementById('add-simc-profile-versatility').value = '7257';
     document.getElementById('add-simc-profile-talent').value = '';
     document.getElementById('add-simc-profile-action-list').value = '';
     
