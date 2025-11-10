@@ -1035,14 +1035,15 @@ function displayTableData(data, fields) {
         displayFields = orderedFields.filter(field => fields.includes(field));
     }
     
-    // 针对WowArticle表的特殊处理：只显示序号、title和author
+    // 针对WowArticle表的特殊处理：显示序号、title、author、publish_time
     else if (currentTableName === 'WowArticle') {
         displayFields = fields.filter(field => 
             field === 'title' || 
-            field === 'author'
+            field === 'author' ||
+            field === 'publish_time'
         );
         // 确保关键字段存在并按顺序排列
-        const orderedFields = ['title', 'author'];
+        const orderedFields = ['title', 'author', 'publish_time'];
         displayFields = orderedFields.filter(field => fields.includes(field));
     }
     

@@ -221,32 +221,32 @@ class DashboardView(View):
             # 根据表名获取对应的数据
             try:
                 if table_name == 'WechatArticle':
-                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time', 'biz').order_by('-publish_time')
+                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time', 'biz').order_by('publish_time')
                     queryset = apply_search_filter(queryset, ['title', 'author', 'url'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'VulnData':
-                    queryset = model.objects.values('id', 'cveid', 'title', 'score', 'publish_time', 'link').order_by('-publish_time')
+                    queryset = model.objects.values('id', 'cveid', 'title', 'score', 'publish_time', 'link').order_by('publish_time')
                     queryset = apply_search_filter(queryset, ['cveid', 'title', 'link'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'RssArticle':
-                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time').order_by('-publish_time')
+                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time').order_by('publish_time')
                     queryset = apply_search_filter(queryset, ['title', 'author', 'url'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'WowArticle':
-                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time').order_by('-publish_time')
+                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time').order_by('publish_time', 'id')
                     queryset = apply_search_filter(queryset, ['title', 'author', 'url'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'GeWechatAuth':
-                    queryset = model.objects.values('id', 'appId', 'uuid', 'create_time', 'login_status').order_by('-create_time')
+                    queryset = model.objects.values('id', 'appId', 'uuid', 'create_time', 'login_status').order_by('create_time')
                     queryset = apply_search_filter(queryset, ['appId', 'uuid'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'SimcAplKeywordPair':
-                    queryset = model.objects.values('id', 'apl_keyword', 'cn_keyword', 'description', 'is_active', 'create_time').order_by('-create_time')
+                    queryset = model.objects.values('id', 'apl_keyword', 'cn_keyword', 'description', 'is_active', 'create_time').order_by('create_time')
                     queryset = apply_search_filter(queryset, ['apl_keyword', 'cn_keyword', 'description'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
