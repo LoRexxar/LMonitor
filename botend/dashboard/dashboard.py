@@ -236,7 +236,7 @@ class DashboardView(View):
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'WowArticle':
-                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time').order_by('publish_time', 'id')
+                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time', 'description').order_by('publish_time', 'id')
                     queryset = apply_search_filter(queryset, ['title', 'author', 'url'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])

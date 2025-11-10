@@ -174,6 +174,9 @@ function initNavigation() {
             if (targetSection) {
                 targetSection.style.display = 'block';
                 targetSection.classList.add('active');
+                if (sectionId === 'news') {
+                    loadNewsWowArticles();
+                }
             }
         });
     });
@@ -321,6 +324,90 @@ function initNavigation() {
             }
         });
     });
+}
+
+function loadNewsWowArticles(page = 1) {
+    const container = document.getElementById('news-wow-list');
+    if (!container) return;
+    container.innerHTML = '<div class="text-gray-500">加载中...</div>';
+    const csrfToken = getCSRFToken();
+    if (!csrfToken) {
+        container.innerHTML = '<div class="text-red-500">错误: 无法获取CSRF令牌</div>';
+        return;
+    }
+    const requestData = { action: 'get_table_data', table_name: 'WowArticle', page: page, page_size: 20 };
+    fetch('/dashboard/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify(requestData)
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status !== 'success') {
+            container.innerHTML = `<div class="text-red-500">获取数据失败: ${data.message || '未知错误'}</div>`;
+            return;
+        }
+        const items = data.data || [];
+        displayNewsWowArticles(items);
+        displayNewsWowPagination(data.page || page, data.total_pages || 1, data.total_count || items.length);
+    })
+    .catch(err => {
+        container.innerHTML = `<div class="text-red-500">请求错误: ${err.message}</div>`;
+    });
+}
+
+function displayNewsWowArticles(items) {
+    const container = document.getElementById('news-wow-list');
+    if (!container) return;
+    if (!items.length) {
+        container.innerHTML = '<div class="text-gray-500">暂无新闻</div>';
+        return;
+    }
+    const html = items.map(item => {
+        const title = item.title || '';
+        const url = item.url || '#';
+        const description = item.description || '';
+        const author = item.author || '';
+        const time = item.publish_time ? formatDateTime(item.publish_time) : '';
+        return `
+        <div class="bg-white rounded-xl shadow p-6">
+            <div class="mb-2">
+                <a href="${url}" target="_blank" rel="noopener" class="text-blue-600 hover:underline font-semibold">${escapeHtml(title)}</a>
+            </div>
+            <div class="text-gray-700 text-sm mb-3">${escapeHtml(description)}</div>
+            <div class="flex items-center justify-between">
+                <div class="text-gray-600 text-xs">作者：${escapeHtml(author)}</div>
+                <div class="inline-block px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">发布时间：${time}</div>
+            </div>
+        </div>`;
+    }).join('');
+    container.innerHTML = html;
+}
+
+function displayNewsWowPagination(currentPage, totalPages, totalCount) {
+    const pager = document.getElementById('news-wow-pagination');
+    if (!pager) return;
+    if (totalPages <= 1) {
+        pager.innerHTML = '';
+        return;
+    }
+    const prevDisabled = currentPage <= 1 ? 'opacity-50 cursor-not-allowed' : '';
+    const nextDisabled = currentPage >= totalPages ? 'opacity-50 cursor-not-allowed' : '';
+    pager.innerHTML = `
+        <div class="text-sm text-gray-600">共 ${totalCount} 条，页 ${currentPage}/${totalPages}</div>
+        <div class="space-x-2">
+            <button id="news-wow-prev" class="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded ${prevDisabled}">上一页</button>
+            <button id="news-wow-next" class="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded ${nextDisabled}">下一页</button>
+        </div>
+    `;
+    const prevBtn = document.getElementById('news-wow-prev');
+    const nextBtn = document.getElementById('news-wow-next');
+    if (prevBtn) {
+        prevBtn.onclick = () => { if (currentPage > 1) loadNewsWowArticles(currentPage - 1); };
+    }
+    if (nextBtn) {
+        nextBtn.onclick = () => { if (currentPage < totalPages) loadNewsWowArticles(currentPage + 1); };
+    }
 }
 
 // 初始化SimC任务管理事件监听器
