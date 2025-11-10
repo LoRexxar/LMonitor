@@ -221,17 +221,17 @@ class DashboardView(View):
             # 根据表名获取对应的数据
             try:
                 if table_name == 'WechatArticle':
-                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time', 'biz').order_by('publish_time')
+                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time', 'biz').order_by('-id')
                     queryset = apply_search_filter(queryset, ['title', 'author', 'url'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'VulnData':
-                    queryset = model.objects.values('id', 'cveid', 'title', 'score', 'publish_time', 'link').order_by('publish_time')
+                    queryset = model.objects.values('id', 'cveid', 'title', 'score', 'publish_time', 'link').order_by('-id')
                     queryset = apply_search_filter(queryset, ['cveid', 'title', 'link'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'RssArticle':
-                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time').order_by('publish_time')
+                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time').order_by('-id')
                     queryset = apply_search_filter(queryset, ['title', 'author', 'url'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
