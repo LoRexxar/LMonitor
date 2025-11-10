@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class MonitorTask(models.Model):
@@ -99,7 +100,7 @@ class WowArticle(models.Model):
     url = models.CharField(max_length=2000, default=None, null=True)
     author = models.CharField(max_length=255, default=None, null=True)
     description = models.TextField(null=True)
-    publish_time = models.DateTimeField(default=None, null=True)
+    publish_time = models.DateTimeField(default=timezone.now, null=True)
     is_active = models.BooleanField(default=True)
 
 class GeWechatAuth(models.Model):
