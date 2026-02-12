@@ -25,6 +25,7 @@ from botend.controller.plugins.info.RssMonitor import RssArticleMonitor
 from botend.controller.plugins.wow.lhfszsMonitor import LhfszsMonitor
 from botend.controller.plugins.wow.ngaMonitor import ngaMonitor
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+from botend.controller.plugins.wow.wowheadMonitor import wowheadMonitor
 
 Monitor_Type_BaseObject_List = [
     BaseScan,
@@ -43,4 +44,5 @@ Monitor_Type_BaseObject_List = [
     LhfszsMonitor,
     ngaMonitor,
     SimcMonitor,
+    wowheadMonitor,
 ]

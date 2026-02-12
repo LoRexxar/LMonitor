@@ -101,7 +101,7 @@ class ngaMonitor(BaseScan):
                 if is_bad:
                     continue
 
-                obj = WowArticle(title=post_name, url=post_link, author="nga", description="")
+                obj = WowArticle(title=post_name, url=post_link, author="nga{}".format(title), description="")
                 obj.save()
                 logger.info("[wow Monitor] Found new wow article.{}".format(post_name))
 
