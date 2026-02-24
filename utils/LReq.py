@@ -33,9 +33,14 @@ class LReq:
 
         self.s = requests.Session()
         self.is_chrome = is_chrome
+        self.csp = False
 
         if self.is_chrome:
             self.cs = ChromeDriver()
+
+    def init_porxy(self):
+        if not self.csp:
+            self.csp = ChromeDriver(is_proxy=True)
 
     @staticmethod
     def get_timeout():
@@ -180,10 +185,14 @@ class LReq:
 
         return r.content
 
-    def getRespByChrome(self, url, cookies, is_origin=0):
+    def getRespByChrome(self, url, cookies, is_origin=0, is_proxy=False):
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
         cookies = cookies if cookies else ""
+
+        if is_proxy:
+            self.init_porxy()
+            return self.csp.get_resp(url, cookies, is_origin=is_origin)
 
         return self.cs.get_resp(url, cookies, is_origin=is_origin)
 

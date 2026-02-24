@@ -23,18 +23,18 @@ import traceback
 import DrissionPage
 from urllib.parse import urlparse
 
-from LMonitor.settings import CHROME_WEBDRIVER_PATH
+from LMonitor.settings import CHROME_WEBDRIVER_PATH, PROXY_CONFIG
 from utils.base import random_string
 from utils.log import logger
 
 
 class ChromeDriver:
-    def __init__(self):
+    def __init__(self, is_proxy=False):
         # self.chromedriver_path = CHROME_WEBDRIVER_PATH
         # self.checkos()
 
         try:
-            self.init_object()
+            self.init_object(is_proxy)
 
         except:
             logger.error("[Chrome Headless] {}".format(traceback.format_exc()))
@@ -59,6 +59,9 @@ class ChromeDriver:
         self.chrome_options.set_argument('--no-sandbox')  # 无沙盒模式
         self.chrome_options.set_argument("--log-level=3")
         self.chrome_options.set_tmp_path("/tmp")
+        
+        if is_proxy:
+            self.chrome_options.set_proxy('{}'.format(PROXY_CONFIG["http"]))
 
         self.driver = ChromiumPage(self.chrome_options)
 
