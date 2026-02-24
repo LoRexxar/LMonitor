@@ -51,7 +51,7 @@ class ChromeDriver:
         else:
             self.chromedriver_path = os.path.join(self.chromedriver_path, "chromedriver_mac64")
 
-    def init_object(self):
+    def init_object(self, is_proxy=False):
 
         self.chrome_options = ChromiumOptions()
         self.chrome_options.no_imgs(True).mute(True)
