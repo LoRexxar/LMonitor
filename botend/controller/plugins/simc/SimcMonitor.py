@@ -183,9 +183,9 @@ class SimcMonitor(BaseScan):
             result_files = []
             stage = 0
             
-            # 以500为步长进行分配模拟，从attr1=0到attr1=total_value
+            # 以50为步长进行分配模拟，从attr1=0到attr1=total_value
             # 生成所有需要测试的步长点，确保包含0和total_value
-            test_points = list(range(0, total_value, 1000))
+            test_points = list(range(0, total_value, 50))
             if total_value not in test_points:
                 test_points.append(total_value)
             
@@ -263,11 +263,11 @@ class SimcMonitor(BaseScan):
             simc_code = simc_code.replace('{target_count}', str(profile.target_count) or '1')
             simc_code = simc_code.replace('{talent}', profile.talent or '')
             simc_code = simc_code.replace('{action_list}', profile.action_list or '')
-            simc_code = simc_code.replace('{gear_strength}', str(profile.gear_strength) or '93330')
-            simc_code = simc_code.replace('{gear_crit}', str(profile.gear_crit) or '10730')
-            simc_code = simc_code.replace('{gear_haste}', str(profile.gear_haste) or '18641')
-            simc_code = simc_code.replace('{gear_mastery}', str(profile.gear_mastery) or '21785')
-            simc_code = simc_code.replace('{gear_versatility}', str(profile.gear_versatility) or '6757')
+            simc_code = simc_code.replace('{gear_strength}', str(profile.gear_strength) or '2277')
+            simc_code = simc_code.replace('{gear_crit}', str(profile.gear_crit) or '300')
+            simc_code = simc_code.replace('{gear_haste}', str(profile.gear_haste) or '1200')
+            simc_code = simc_code.replace('{gear_mastery}', str(profile.gear_mastery) or '1040')
+            simc_code = simc_code.replace('{gear_versatility}', str(profile.gear_versatility) or '200')
             simc_code = simc_code.replace('{result_file}', self.result_path + result_file)
             
             return simc_code
