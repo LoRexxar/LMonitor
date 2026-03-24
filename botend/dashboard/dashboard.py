@@ -641,7 +641,6 @@ class SimcAttributeAnalysisSSRView(View):
             import os
             import re
             import requests
-            from bs4 import BeautifulSoup
             
             try:
                 task = SimcTask.objects.get(id=task_id)
@@ -676,14 +675,18 @@ class SimcAttributeAnalysisSSRView(View):
                     m = re.search(r':\s*([\d,]+)\s*dps', html, re.IGNORECASE)
                     if m:
                         return int(m.group(1).replace(',', ''))
-                    soup = BeautifulSoup(html, 'html.parser')
-                    player = soup.find(class_='player')
-                    if player:
-                        h2 = player.find('h2')
-                        if h2:
-                            mm = re.search(r':\s*([\d,]+)\s*dps', h2.get_text(), re.IGNORECASE)
-                            if mm:
-                                return int(mm.group(1).replace(',', ''))
+                    try:
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(html, 'html.parser')
+                        player = soup.find(class_='player')
+                        if player:
+                            h2 = player.find('h2')
+                            if h2:
+                                mm = re.search(r':\s*([\d,]+)\s*dps', h2.get_text(), re.IGNORECASE)
+                                if mm:
+                                    return int(mm.group(1).replace(',', ''))
+                    except ImportError:
+                        return None
                 except Exception:
                     return None
                 return None
@@ -737,6 +740,8 @@ class SimcAttributeAnalysisSSRView(View):
             above_avg = sum(1 for d in dps_list if d > avg_dps)
             best = next(i for i in analysis if i['dps'] == max_dps)
             worst = next(i for i in analysis if i['dps'] == min_dps)
+            improvement_abs = max_dps - min_dps
+            improvement_percent = (improvement_abs * 100.0 / min_dps) if min_dps else 0.0
             
             # 增加相对性能百分比，供模板渲染进度条
             for item in analysis:
@@ -745,10 +750,13 @@ class SimcAttributeAnalysisSSRView(View):
                 else:
                     item['relative_percent'] = (item['dps'] - min_dps) * 100.0 / (max_dps - min_dps)
             
+            results_by_dps = sorted(analysis, key=lambda x: x.get('dps', 0), reverse=True)
+            
             context = {
                 'task_id': task.id,
                 'task_name': task.name,
-                'results': analysis,  # 已排序
+                'results': analysis,
+                'results_by_dps': results_by_dps,
                 'stats': {
                     'max_dps': max_dps,
                     'min_dps': min_dps,
@@ -757,6 +765,8 @@ class SimcAttributeAnalysisSSRView(View):
                     'count': len(analysis),
                     'best': best,
                     'worst': worst,
+                    'improvement_abs': improvement_abs,
+                    'improvement_percent': improvement_percent,
                 }
             }
             

@@ -43,13 +43,9 @@
                     <div class="text-xs opacity-75">{{ stats.worst.attr1_name }}:{{ stats.worst.attr1_value }} / {{ stats.worst.attr2_name }}:{{ stats.worst.attr2_value }}</div>
                 </div>
                 <div class="bg-white bg-opacity-20 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold">
-                        {% if stats.min_dps < stats.max_dps %}
-                            +{{ ((stats.max_dps|floatformat:6|floatformat:"g")|floatformat:0) }}
-                        {% endif %}
-                    </div>
-                    <div class="text-sm opacity-90">性能提升（绝对）</div>
-                    <div class="text-xs opacity-75">相对于最低配置</div>
+                    <div class="text-2xl font-bold">+{{ stats.improvement_abs|floatformat:0 }}</div>
+                    <div class="text-sm opacity-90">性能提升</div>
+                    <div class="text-xs opacity-75">+{{ stats.improvement_percent|floatformat:1 }}%（相对最低）</div>
                 </div>
                 <div class="bg-white bg-opacity-20 rounded-lg p-4 text-center">
                     <div class="text-2xl font-bold">{{ stats.avg_dps|floatformat:0 }}</div>
@@ -65,7 +61,7 @@
                     <i class="fas fa-table text-purple-500 mr-2"></i>
                     详细数据（{{ stats.count }} 条）
                 </h2>
-                <div class="text-sm text-gray-500">按属性1值排序</div>
+                <div class="text-sm text-gray-500">按DPS排序</div>
             </div>
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
@@ -79,7 +75,7 @@
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
-                        {% for item in results|dictsortreversed:'dps' %}
+                        {% for item in results_by_dps %}
                         <tr class="hover:bg-gray-50 {% if forloop.first %}bg-green-50{% elif forloop.last %}bg-red-50{% endif %}">
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                 <div class="flex items-center space-x-2">
