@@ -1863,29 +1863,25 @@ class SimcRegularCompareAPIView(View):
                 if set_bonus_items:
                     result['talents']['set_bonuses'] = [li.get_text(' ', strip=True) for li in set_bonus_items if li.get_text(strip=True)]
                 
-                abilities_table = player.find('table', class_=['sc', 'sort'])
+                abilities_table = soup.select_one('.player table.sc.sort') or soup.select_one('table.sc.sort')
                 if abilities_table:
                     abilities = []
-                    for row in abilities_table.find_all('tr'):
-                        classes = row.get('class') or []
-                        if 'toprow' not in classes:
-                            continue
-                        if 'childrow' in classes:
-                            continue
-                        cells = row.find_all('td')
+                    rows = abilities_table.select('tbody tr.toprow:not(.childrow)')
+                    for row in rows:
+                        cells = row.find_all('td', recursive=False)
+                        if len(cells) < 3:
+                            cells = row.find_all('td')
                         if len(cells) < 3:
                             continue
                         
                         name = cells[0].get_text(' ', strip=True)
                         dps_text = cells[1].get_text(' ', strip=True)
                         dps_match = re.search(r'\(([\d,]+)\)', dps_text)
-                        dps_value_text = dps_match.group(1) if dps_match else dps_text
-                        dps_value_text = dps_value_text.replace(',', '').strip()
+                        dps_value_text = (dps_match.group(1) if dps_match else dps_text).replace(',', '').strip()
                         
                         dps_percent_text = cells[2].get_text(' ', strip=True)
                         dps_percent_match = re.search(r'\(([\d.]+%)\)', dps_percent_text)
-                        dps_percent_value_text = dps_percent_match.group(1) if dps_percent_match else dps_percent_text
-                        dps_percent_value_text = dps_percent_value_text.strip()
+                        dps_percent_value_text = (dps_percent_match.group(1) if dps_percent_match else dps_percent_text).strip()
                         
                         dps_percent_number = None
                         percent_match = re.search(r'([\d.]+)', dps_percent_value_text)
@@ -1895,22 +1891,20 @@ class SimcRegularCompareAPIView(View):
                             except ValueError:
                                 dps_percent_number = None
                         
-                        abilities.append({
-                            'name': name,
-                            'dps': dps_value_text,
-                            'dps_percent': dps_percent_value_text,
-                            'dps_percent_number': dps_percent_number
-                        })
+                        if name:
+                            abilities.append({
+                                'name': name,
+                                'dps': dps_value_text,
+                                'dps_percent': dps_percent_value_text,
+                                'dps_percent_number': dps_percent_number
+                            })
                     
                     abilities.sort(key=lambda x: x.get('dps_percent_number') if x.get('dps_percent_number') is not None else -1, reverse=True)
-                    top_abilities = []
-                    for a in abilities[:12]:
-                        top_abilities.append({
-                            'name': a.get('name', ''),
-                            'dps': a.get('dps', ''),
-                            'dps_percent': a.get('dps_percent', '')
-                        })
-                    result['top_abilities'] = top_abilities
+                    result['top_abilities'] = [{
+                        'name': a.get('name', ''),
+                        'dps': a.get('dps', ''),
+                        'dps_percent': a.get('dps_percent', '')
+                    } for a in abilities[:12]]
             
             masthead = soup.find(id='masthead')
             if masthead:

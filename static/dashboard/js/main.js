@@ -4680,7 +4680,7 @@ function viewAttributeAnalysis(taskId) {
     }
     
     // 构建属性模拟分析页面的URL
-    const analysisUrl = `/simc-attribute-analysis/?task_id=${taskId}`;
+    const analysisUrl = `/simc-attribute-analysis-ssr/?task_id=${taskId}`;
     
     // 在新标签页中打开属性模拟分析页面
     window.open(analysisUrl, '_blank');
