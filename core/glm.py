@@ -6,7 +6,7 @@ class GLMClient:
     def __init__(self):
         # 初始化客户端
         self.client = ZhipuAiClient(api_key=ZHIYU_API_CONFIG["api_key"])
-        self.system_prompt = "你是一个冷酷无情的AI助手，你不需要展示思考过程，只需要直接回答用户的问题和结果"
+        self.system_prompt = "你是一个冷酷无情的AI助手，你不需要展示思考过程，也不允许问我问题，只需要直接回答用户的问题和结果"
 
     def send_message(self, message):
         """

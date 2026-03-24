@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>常规模拟对比 - LMonitor</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #10b981;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .chart-container {
+            position: relative;
+            height: 420px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900 mb-2">
+                        <i class="fas fa-balance-scale text-emerald-600 mr-3"></i>
+                        常规模拟对比
+                    </h1>
+                    <p class="text-gray-600">任务ID: <span id="task-ids" class="font-semibold"></span></p>
+                </div>
+                <button onclick="window.close()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">
+                    <i class="fas fa-times mr-2"></i>关闭
+                </button>
+            </div>
+        </div>
+
+        <div id="loading-section" class="bg-white rounded-lg shadow-md p-8 text-center">
+            <div class="loading mx-auto mb-4"></div>
+            <p class="text-gray-600">正在加载对比数据...</p>
+        </div>
+
+        <div id="error-section" class="bg-red-50 border border-red-200 rounded-lg p-6 mb-6 hidden">
+            <div class="flex items-center">
+                <i class="fas fa-exclamation-triangle text-red-500 mr-3"></i>
+                <div>
+                    <h3 class="text-red-800 font-semibold">加载失败</h3>
+                    <p id="error-message" class="text-red-600 mt-1"></p>
+                </div>
+            </div>
+        </div>
+
+        <div id="compare-content" class="hidden space-y-6">
+            <div id="invalid-section" class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 hidden">
+                <div class="flex items-center mb-3">
+                    <i class="fas fa-exclamation-circle text-yellow-600 mr-3"></i>
+                    <h3 class="text-yellow-800 font-semibold">部分任务无法参与对比</h3>
+                </div>
+                <ul id="invalid-list" class="list-disc list-inside text-yellow-800 space-y-1"></ul>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                    <i class="fas fa-chart-bar text-emerald-600 mr-2"></i>
+                    DPS对比
+                </h2>
+                <div class="chart-container">
+                    <canvas id="dps-chart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                    <i class="fas fa-table text-blue-500 mr-2"></i>
+                    任务详情
+                </h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full border border-gray-200 rounded-lg">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务ID</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务名称</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">DPS</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">职业/专精</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">天赋</th>
+                                <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="task-compare-table" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                    <i class="fas fa-bolt text-purple-500 mr-2"></i>
+                    技能占比对比（Top）
+                </h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full border border-gray-200 rounded-lg">
+                        <thead class="bg-gray-50" id="abilities-compare-thead"></thead>
+                        <tbody class="bg-white divide-y divide-gray-200" id="abilities-compare-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function getUrlParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
+        function showError(message) {
+            document.getElementById('loading-section').classList.add('hidden');
+            const errorSection = document.getElementById('error-section');
+            errorSection.classList.remove('hidden');
+            document.getElementById('error-message').textContent = message || '未知错误';
+        }
+
+        function renderInvalid(invalid) {
+            const section = document.getElementById('invalid-section');
+            const list = document.getElementById('invalid-list');
+            if (!invalid || invalid.length === 0) {
+                section.classList.add('hidden');
+                list.innerHTML = '';
+                return;
+            }
+            section.classList.remove('hidden');
+            list.innerHTML = invalid.map(item => {
+                const title = item.name ? `${escapeHtml(item.name)}(#${item.id})` : `#${item.id}`;
+                return `<li>${title}: ${escapeHtml(item.error || '')}</li>`;
+            }).join('');
+        }
+
+        function renderDpsChart(tasks) {
+            const labels = tasks.map(t => `${t.name || '任务'}(#${t.id})`);
+            const values = tasks.map(t => t.dps || 0);
+            const ctx = document.getElementById('dps-chart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'DPS',
+                        data: values,
+                        backgroundColor: 'rgba(16, 185, 129, 0.75)',
+                        borderColor: 'rgba(5, 150, 105, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const value = context.parsed.y || 0;
+                                    return `DPS: ${value.toLocaleString()}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderTaskTable(tasks) {
+            const tbody = document.getElementById('task-compare-table');
+            tbody.innerHTML = tasks.map(t => {
+                const classSpec = `${escapeHtml((t.character && t.character.class) || '')}${(t.character && t.character.spec) ? ' / ' + escapeHtml(t.character.spec) : ''}`;
+                const talents = escapeHtml((t.talents && t.talents.string) || '');
+                const viewUrl = `/simc-result/?file=${encodeURIComponent(t.result_file || '')}`;
+                return `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 text-sm text-gray-900">${t.id}</td>
+                        <td class="px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(t.name || '')}</td>
+                        <td class="px-4 py-3 text-sm text-gray-900">${(t.dps || 0).toLocaleString()}</td>
+                        <td class="px-4 py-3 text-sm text-gray-700">${classSpec || '-'}</td>
+                        <td class="px-4 py-3 text-sm text-gray-700 break-all">${talents || '-'}</td>
+                        <td class="px-4 py-3 text-center">
+                            <a href="${viewUrl}" target="_blank" class="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors duration-200 text-sm">
+                                <i class="fas fa-file-alt mr-1"></i>查看结果
+                            </a>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderAbilityCompare(tasks) {
+            const thead = document.getElementById('abilities-compare-thead');
+            const tbody = document.getElementById('abilities-compare-tbody');
+
+            const names = new Set();
+            tasks.forEach(t => {
+                const abilities = (t.top_abilities || []);
+                abilities.forEach(a => {
+                    if (a && a.name) names.add(a.name);
+                });
+            });
+            const abilityNames = Array.from(names);
+            if (abilityNames.length === 0) {
+                thead.innerHTML = '';
+                tbody.innerHTML = `<tr><td class="px-4 py-6 text-center text-gray-500" colspan="${tasks.length + 1}">未解析到技能占比数据</td></tr>`;
+                return;
+            }
+
+            thead.innerHTML = `
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">技能</th>
+                    ${tasks.map(t => `<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">${escapeHtml(t.name || '')}(#${t.id})</th>`).join('')}
+                </tr>
+            `;
+
+            const abilityMap = new Map();
+            tasks.forEach(t => {
+                const m = new Map();
+                (t.top_abilities || []).forEach(a => {
+                    if (!a || !a.name) return;
+                    m.set(a.name, a.dps_percent || '');
+                });
+                abilityMap.set(t.id, m);
+            });
+
+            tbody.innerHTML = abilityNames.map(name => {
+                const cols = tasks.map(t => {
+                    const m = abilityMap.get(t.id);
+                    const v = m ? m.get(name) : '';
+                    return `<td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(v || '-')}</td>`;
+                }).join('');
+                return `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(name)}</td>
+                        ${cols}
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function loadCompare() {
+            const taskIds = getUrlParameter('task_ids') || '';
+            document.getElementById('task-ids').textContent = taskIds || '-';
+            if (!taskIds) {
+                showError('缺少 task_ids 参数');
+                return;
+            }
+
+            try {
+                const resp = await fetch(`/api/simc-regular-compare/?task_ids=${encodeURIComponent(taskIds)}`, {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                });
+
+                if (resp.redirected) {
+                    window.location.href = resp.url;
+                    return;
+                }
+
+                const data = await resp.json();
+                if (!data || !data.success) {
+                    showError((data && data.error) || '加载失败');
+                    return;
+                }
+
+                const tasks = (data.data && data.data.tasks) || [];
+                const invalid = (data.data && data.data.invalid) || [];
+
+                if (!tasks || tasks.length < 2) {
+                    showError('可用于对比的任务不足2个');
+                    return;
+                }
+
+                renderInvalid(invalid);
+                renderDpsChart(tasks);
+                renderTaskTable(tasks);
+                renderAbilityCompare(tasks);
+
+                document.getElementById('loading-section').classList.add('hidden');
+                document.getElementById('compare-content').classList.remove('hidden');
+            } catch (e) {
+                showError('加载失败');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadCompare);
+    </script>
+</body>
+</html>

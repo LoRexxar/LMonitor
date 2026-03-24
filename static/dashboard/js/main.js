@@ -417,6 +417,11 @@ function initSimcTaskManagement() {
     if (addSimcTaskBtn) {
         addSimcTaskBtn.addEventListener('click', openAddSimcTaskModal);
     }
+
+    const compareBtn = document.getElementById('compare-simc-regular-tasks-btn');
+    if (compareBtn) {
+        compareBtn.addEventListener('click', openSimcRegularCompare);
+    }
     
     // 任务类型选择事件监听器（新增任务）
     const addTaskTypeSelect = document.getElementById('simc-task-type');
@@ -2869,6 +2874,64 @@ function initUserMenu() {
 // 关键字管理功能的初始化已移至主要的DOMContentLoaded事件中
 
 // SimcTask 相关函数
+let selectedRegularSimcTaskIds = new Set();
+
+function setSimcRegularCompareButtonEnabled(enabled) {
+    const btn = document.getElementById('compare-simc-regular-tasks-btn');
+    if (!btn) return;
+    btn.disabled = !enabled;
+    if (enabled) {
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+        btn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+}
+
+function openSimcRegularCompare() {
+    const ids = Array.from(selectedRegularSimcTaskIds);
+    if (ids.length < 2) {
+        showMessage('请至少选择 2 个已完成的常规模拟任务进行对比', 'warning');
+        return;
+    }
+    window.open(`/simc-compare/?task_ids=${encodeURIComponent(ids.join(','))}`, '_blank');
+}
+
+function toggleSimcRegularTaskSelection(taskId, checked) {
+    const id = parseInt(taskId);
+    if (!Number.isFinite(id)) return;
+    if (checked) {
+        selectedRegularSimcTaskIds.add(id);
+    } else {
+        selectedRegularSimcTaskIds.delete(id);
+    }
+    setSimcRegularCompareButtonEnabled(selectedRegularSimcTaskIds.size >= 2);
+}
+
+function updateSimcTaskSelectAllState(selectableIds) {
+    const selectAll = document.getElementById('simc-task-select-all');
+    if (!selectAll) return;
+
+    if (!selectableIds || selectableIds.length === 0) {
+        selectAll.checked = false;
+        selectAll.indeterminate = false;
+        return;
+    }
+
+    const selectedCount = selectableIds.filter(id => selectedRegularSimcTaskIds.has(id)).length;
+    selectAll.checked = selectedCount === selectableIds.length;
+    selectAll.indeterminate = selectedCount > 0 && selectedCount < selectableIds.length;
+}
+
+function toggleSelectAllRegularSimcTasks(selectableIds, checked) {
+    if (!selectableIds || selectableIds.length === 0) return;
+    selectableIds.forEach(id => {
+        const checkbox = document.querySelector(`input[data-simc-regular-task-checkbox="1"][data-task-id="${id}"]`);
+        if (checkbox) checkbox.checked = checked;
+        toggleSimcRegularTaskSelection(id, checked);
+    });
+    updateSimcTaskSelectAllState(selectableIds);
+}
+
 function fetchSimcTaskData(page = 1) {
     const csrfToken = getCSRFToken();
     
@@ -2911,15 +2974,19 @@ function displaySimcTaskData(tasks) {
     if (!tasks || tasks.length === 0) {
         taskListContainer.innerHTML = `
             <tr>
-                <td colspan="5" class="text-center py-8 text-gray-500">
+                <td colspan="6" class="text-center py-8 text-gray-500">
                     <i class="fas fa-tasks text-4xl mb-4"></i>
                     <p>暂无任务数据</p>
                 </td>
             </tr>
         `;
+        selectedRegularSimcTaskIds = new Set();
+        setSimcRegularCompareButtonEnabled(false);
+        updateSimcTaskSelectAllState([]);
         return;
     }
     
+    const selectableIds = [];
     let html = '';
     tasks.forEach(task => {
         // 获取状态显示文本和样式
@@ -2969,9 +3036,20 @@ function displaySimcTaskData(tasks) {
             default:
                 taskTypeText = '常规模拟';
         }
+
+        const isRegularTask = task.task_type === 1;
+        const isCompleted = task.current_status === 2;
+        const resultFile = task.result_file || '';
+        const canCompare = isRegularTask && isCompleted && typeof resultFile === 'string' && resultFile.endsWith('.html') && !resultFile.includes('\n');
+        if (canCompare) selectableIds.push(task.id);
+
+        const compareCheckboxCell = canCompare
+            ? `<input type="checkbox" data-simc-regular-task-checkbox="1" data-task-id="${task.id}" class="h-4 w-4 text-blue-600 border-gray-300 rounded" ${selectedRegularSimcTaskIds.has(task.id) ? 'checked' : ''} onchange="toggleSimcRegularTaskSelection(${task.id}, this.checked)">`
+            : '';
         
         html += `
             <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${compareCheckboxCell}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${task.id}</td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(task.name || '')}</div>
@@ -3055,10 +3133,10 @@ function displaySimcTaskData(tasks) {
                         <button onclick="viewAttributeAnalysis(${task.id})" class="px-3 py-1 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors duration-200 text-sm">
                             <i class="fas fa-chart-line mr-1"></i>综合分析
                         </button>` : `
-                        <button onclick="viewSimcResult('${escapeHtml(task.result_file)}')") class="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors duration-200 text-sm">
+                        <button onclick="viewSimcResult('${escapeHtml(task.result_file)}')" class="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors duration-200 text-sm">
                             <i class="fas fa-file-alt mr-1"></i>查看结果
                         </button>
-                        <button onclick="viewSimcAnalysis('${escapeHtml(task.result_file)}')") class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors duration-200 text-sm">
+                        <button onclick="viewSimcAnalysis('${escapeHtml(task.result_file)}')" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors duration-200 text-sm">
                             <i class="fas fa-chart-bar mr-1"></i>查看分析
                         </button>`}
                         ` : ''}
@@ -3085,6 +3163,17 @@ function displaySimcTaskData(tasks) {
     });
     
     taskListContainer.innerHTML = html;
+
+    selectedRegularSimcTaskIds = new Set(Array.from(selectedRegularSimcTaskIds).filter(id => selectableIds.includes(id)));
+    setSimcRegularCompareButtonEnabled(selectedRegularSimcTaskIds.size >= 2);
+    updateSimcTaskSelectAllState(selectableIds);
+
+    const selectAll = document.getElementById('simc-task-select-all');
+    if (selectAll) {
+        selectAll.onchange = function() {
+            toggleSelectAllRegularSimcTasks(selectableIds, this.checked);
+        };
+    }
 }
 
 function openAddSimcTaskModal() {

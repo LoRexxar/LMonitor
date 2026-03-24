@@ -442,10 +442,16 @@
                     <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="text-xl font-semibold text-gray-800">SimC任务管理</h3>
-                            <button id="add-simc-task-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center">
-                                <i class="fas fa-plus mr-2"></i>
-                                新增任务
-                            </button>
+                            <div class="flex items-center space-x-3">
+                                <button id="compare-simc-regular-tasks-btn" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors duration-200 flex items-center opacity-50 cursor-not-allowed" disabled>
+                                    <i class="fas fa-balance-scale mr-2"></i>
+                                    对比常规模拟
+                                </button>
+                                <button id="add-simc-task-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center">
+                                    <i class="fas fa-plus mr-2"></i>
+                                    新增任务
+                                </button>
+                            </div>
                         </div>
                         
                         <!-- 任务列表 -->
@@ -453,6 +459,9 @@
                             <table class="min-w-full bg-white border border-gray-200 rounded-lg">
                                 <thead class="bg-gray-50">
                                     <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                                            <input id="simc-task-select-all" type="checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                        </th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">ID</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务名称</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务类型</th>
@@ -464,7 +473,7 @@
                                 <tbody id="simc-task-list" class="bg-white divide-y divide-gray-200">
                                     <!-- 任务列表将通过JavaScript动态加载 -->
                                     <tr>
-                                        <td colspan="7" class="text-center py-8 text-gray-500">
+                                        <td colspan="6" class="text-center py-8 text-gray-500">
                                             <i class="fas fa-tasks text-4xl mb-4"></i>
                                             <p>暂无任务数据</p>
                                         </td>

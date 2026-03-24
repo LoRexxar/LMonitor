@@ -1673,6 +1673,266 @@ class SimcAttributeAnalysisAPIView(View):
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
+class SimcRegularCompareAPIView(View):
+    """
+    常规模拟对比API - 解析多个任务的结果文件并返回可对比数据
+    """
+    
+    def get(self, request):
+        try:
+            task_ids_raw = request.GET.get('task_ids', '')
+            task_ids = []
+            for part in task_ids_raw.split(','):
+                part = part.strip()
+                if not part:
+                    continue
+                try:
+                    task_id = int(part)
+                except ValueError:
+                    continue
+                task_ids.append(task_id)
+            
+            unique_task_ids = []
+            seen = set()
+            for task_id in task_ids:
+                if task_id in seen:
+                    continue
+                seen.add(task_id)
+                unique_task_ids.append(task_id)
+            
+            if len(unique_task_ids) < 2:
+                return JsonResponse({
+                    'success': False,
+                    'error': '请至少选择2个任务进行对比'
+                })
+            
+            if len(unique_task_ids) > 8:
+                unique_task_ids = unique_task_ids[:8]
+            
+            tasks_data = []
+            invalid = []
+            
+            for task_id in unique_task_ids:
+                try:
+                    task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
+                except SimcTask.DoesNotExist:
+                    invalid.append({'id': task_id, 'error': '任务不存在或无权限访问'})
+                    continue
+                
+                if task.task_type != 1:
+                    invalid.append({'id': task.id, 'name': task.name, 'error': '仅支持常规模拟任务对比'})
+                    continue
+                
+                if task.current_status != 2:
+                    invalid.append({'id': task.id, 'name': task.name, 'error': '任务未完成'})
+                    continue
+                
+                if not task.result_file or not isinstance(task.result_file, str) or not task.result_file.endswith('.html') or '\n' in task.result_file:
+                    invalid.append({'id': task.id, 'name': task.name, 'error': '任务结果文件无效'})
+                    continue
+                
+                html_content = self._get_result_file_content(task.result_file)
+                if not html_content:
+                    invalid.append({'id': task.id, 'name': task.name, 'error': '无法获取结果文件内容'})
+                    continue
+                
+                parsed = self._parse_regular_result(html_content)
+                if not parsed.get('dps'):
+                    invalid.append({'id': task.id, 'name': task.name, 'error': '无法从结果文件中解析DPS'})
+                    continue
+                
+                tasks_data.append({
+                    'id': task.id,
+                    'name': task.name,
+                    'result_file': task.result_file,
+                    'dps': parsed.get('dps'),
+                    'character': parsed.get('character', {}),
+                    'simulation': parsed.get('simulation', {}),
+                    'talents': parsed.get('talents', {}),
+                    'top_abilities': parsed.get('top_abilities', [])
+                })
+            
+            if len(tasks_data) < 2:
+                return JsonResponse({
+                    'success': False,
+                    'error': '可用于对比的任务不足2个',
+                    'invalid': invalid,
+                    'data': {
+                        'tasks': tasks_data
+                    }
+                })
+            
+            return JsonResponse({
+                'success': True,
+                'data': {
+                    'tasks': tasks_data,
+                    'invalid': invalid
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"常规模拟对比失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({
+                'success': False,
+                'error': f'对比失败: {str(e)}'
+            })
+    
+    def _get_result_file_content(self, result_file):
+        try:
+            import os
+            import requests
+            from django.conf import settings
+            
+            oss_config = getattr(settings, 'OSS_CONFIG', {})
+            base_url = oss_config.get('base_url', '')
+            
+            if base_url:
+                try:
+                    file_url = base_url + result_file
+                    response = requests.get(file_url, timeout=30)
+                    if response.status_code == 200:
+                        return response.text
+                except requests.RequestException:
+                    pass
+            
+            local_file_path = os.path.join(settings.BASE_DIR, 'static', 'simc_results', result_file)
+            if os.path.exists(local_file_path):
+                with open(local_file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            
+            return None
+        except Exception:
+            return None
+    
+    def _parse_regular_result(self, html_content):
+        result = {
+            'dps': None,
+            'character': {},
+            'simulation': {},
+            'talents': {},
+            'top_abilities': []
+        }
+        
+        try:
+            dps_pattern = r':\s*([\d,]+)\s*dps'
+            match = re.search(dps_pattern, html_content, re.IGNORECASE)
+            if match:
+                dps_str = match.group(1).replace(',', '')
+                try:
+                    result['dps'] = int(dps_str)
+                except ValueError:
+                    result['dps'] = None
+        except Exception:
+            result['dps'] = None
+        
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            player = soup.find(class_='player')
+            if player:
+                h2_tag = player.find('h2')
+                if h2_tag and not result['dps']:
+                    text = h2_tag.get_text(' ', strip=True)
+                    match = re.search(r':\s*([\d,]+)\s*dps', text, re.IGNORECASE)
+                    if match:
+                        try:
+                            result['dps'] = int(match.group(1).replace(',', ''))
+                        except ValueError:
+                            pass
+                
+                params = player.select('.params li')
+                for li in params:
+                    text = li.get_text(' ', strip=True)
+                    if 'Race:' in text:
+                        result['character']['race'] = text.split(':', 1)[1].strip()
+                    elif 'Class:' in text:
+                        result['character']['class'] = text.split(':', 1)[1].strip()
+                    elif 'Spec:' in text:
+                        result['character']['spec'] = text.split(':', 1)[1].strip()
+                    elif 'Level:' in text:
+                        result['character']['level'] = text.split(':', 1)[1].strip()
+                
+                talent_row = player.select_one('tr.left td')
+                if talent_row:
+                    talent_string = talent_row.get_text(' ', strip=True)
+                    if talent_string:
+                        result['talents']['string'] = talent_string
+                
+                set_bonus_items = player.select('tr.left.nowrap td li')
+                if set_bonus_items:
+                    result['talents']['set_bonuses'] = [li.get_text(' ', strip=True) for li in set_bonus_items if li.get_text(strip=True)]
+                
+                abilities_table = player.find('table', class_=['sc', 'sort'])
+                if abilities_table:
+                    abilities = []
+                    for row in abilities_table.find_all('tr'):
+                        classes = row.get('class') or []
+                        if 'toprow' not in classes:
+                            continue
+                        if 'childrow' in classes:
+                            continue
+                        cells = row.find_all('td')
+                        if len(cells) < 3:
+                            continue
+                        
+                        name = cells[0].get_text(' ', strip=True)
+                        dps_text = cells[1].get_text(' ', strip=True)
+                        dps_match = re.search(r'\(([\d,]+)\)', dps_text)
+                        dps_value_text = dps_match.group(1) if dps_match else dps_text
+                        dps_value_text = dps_value_text.replace(',', '').strip()
+                        
+                        dps_percent_text = cells[2].get_text(' ', strip=True)
+                        dps_percent_match = re.search(r'\(([\d.]+%)\)', dps_percent_text)
+                        dps_percent_value_text = dps_percent_match.group(1) if dps_percent_match else dps_percent_text
+                        dps_percent_value_text = dps_percent_value_text.strip()
+                        
+                        dps_percent_number = None
+                        percent_match = re.search(r'([\d.]+)', dps_percent_value_text)
+                        if percent_match:
+                            try:
+                                dps_percent_number = float(percent_match.group(1))
+                            except ValueError:
+                                dps_percent_number = None
+                        
+                        abilities.append({
+                            'name': name,
+                            'dps': dps_value_text,
+                            'dps_percent': dps_percent_value_text,
+                            'dps_percent_number': dps_percent_number
+                        })
+                    
+                    abilities.sort(key=lambda x: x.get('dps_percent_number') if x.get('dps_percent_number') is not None else -1, reverse=True)
+                    top_abilities = []
+                    for a in abilities[:12]:
+                        top_abilities.append({
+                            'name': a.get('name', ''),
+                            'dps': a.get('dps', ''),
+                            'dps_percent': a.get('dps_percent', '')
+                        })
+                    result['top_abilities'] = top_abilities
+            
+            masthead = soup.find(id='masthead')
+            if masthead:
+                params = masthead.select('.params li')
+                for li in params:
+                    text = li.get_text(' ', strip=True)
+                    if 'Timestamp:' in text:
+                        result['simulation']['timestamp'] = text.split(':', 1)[1].strip()
+                    elif 'Iterations:' in text:
+                        result['simulation']['iterations'] = text.split(':', 1)[1].strip()
+                    elif 'Fight Length:' in text:
+                        result['simulation']['fight_length'] = text.split(':', 1)[1].strip()
+                    elif 'Fight Style:' in text:
+                        result['simulation']['fight_style'] = text.split(':', 1)[1].strip()
+        
+        except Exception:
+            pass
+        
+        return result
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
 class SimcTemplateAPIView(View):
     """
     SimC模板API
