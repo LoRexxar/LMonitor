@@ -6,10 +6,12 @@
     <title>属性模拟分析（后端渲染） - LMonitor</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         .bar-bg { height: 8px; border-radius: 9999px; background-color: #e5e7eb; }
         .bar-fill { height: 8px; border-radius: 9999px; background: linear-gradient(90deg, #ef4444, #10b981); }
         .badge { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 9999px; }
+        .chart-container { position: relative; height: 380px; width: 100%; }
     </style>
     </head>
 <body class="bg-gray-100">
@@ -52,6 +54,16 @@
                     <div class="text-sm opacity-90">平均DPS</div>
                     <div class="text-xs opacity-75">{{ stats.above_avg }}/{{ stats.count }} 高于平均</div>
                 </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6" id="chart-container">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                <i class="fas fa-chart-line text-blue-500 mr-2"></i>
+                属性配置与DPS关系图
+            </h2>
+            <div class="chart-container">
+                <canvas id="dps-chart"></canvas>
             </div>
         </div>
 
@@ -117,5 +129,102 @@
             </div>
         </div>
     </div>
+
+    <script>
+        (function () {
+            const results = [
+                {% for item in results %}
+                {
+                    attr1Name: "{{ item.attr1_name|escapejs }}",
+                    attr1Value: "{{ item.attr1_value|escapejs }}",
+                    attr2Name: "{{ item.attr2_name|escapejs }}",
+                    attr2Value: "{{ item.attr2_value|escapejs }}",
+                    dps: {{ item.dps|default:0 }},
+                    fileName: "{{ item.file_name|escapejs }}"
+                }{% if not forloop.last %},{% endif %}
+                {% endfor %}
+            ];
+
+            const canvas = document.getElementById('dps-chart');
+            if (!canvas || !results || results.length === 0) return;
+
+            const ctx = canvas.getContext('2d');
+            const labels = results.map((_, index) => `配置${index + 1}`);
+            const dpsValues = results.map(r => r.dps || 0);
+            const maxDps = Math.max(...dpsValues);
+            const minDps = Math.min(...dpsValues);
+
+            const pointColors = dpsValues.map((dps) => {
+                if (maxDps === minDps) return 'rgb(59, 130, 246)';
+                const ratio = (dps - minDps) / (maxDps - minDps);
+                const red = Math.floor(255 * (1 - ratio));
+                const green = Math.floor(255 * ratio);
+                return `rgb(${red}, ${green}, 0)`;
+            });
+
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'DPS',
+                        data: dpsValues,
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.35,
+                        pointBackgroundColor: pointColors,
+                        pointBorderColor: pointColors,
+                        pointRadius: 6,
+                        pointHoverRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: function (context) {
+                                    const index = context[0].dataIndex;
+                                    const r = results[index];
+                                    return `${r.attr1Name}:${r.attr1Value} / ${r.attr2Name}:${r.attr2Value}`;
+                                },
+                                label: function (context) {
+                                    const value = context.parsed.y || 0;
+                                    const deltaPercent = maxDps > 0 ? ((value / maxDps - 1) * 100) : 0;
+                                    const sign = deltaPercent >= 0 ? '+' : '';
+                                    return [`DPS: ${value.toLocaleString()}`, `差异: ${sign}${deltaPercent.toFixed(1)}%`];
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: '属性配置' }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            title: { display: true, text: 'DPS' },
+                            ticks: {
+                                callback: function (value) { return value.toLocaleString(); }
+                            }
+                        }
+                    },
+                    onClick: function (event, activeElements) {
+                        if (!activeElements || activeElements.length === 0) return;
+                        const index = activeElements[0].index;
+                        const r = results[index];
+                        if (!r || !r.fileName) return;
+                        window.open(`/simc-result/?file=${encodeURIComponent(r.fileName)}`, '_blank');
+                    }
+                }
+            });
+
+            window.__simcAttrChart = chart;
+        })();
+    </script>
 </body>
 </html>

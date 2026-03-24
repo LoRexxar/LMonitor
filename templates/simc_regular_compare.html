@@ -118,6 +118,9 @@
     </div>
 
     <script>
+        let keywordTranslations = {};
+        let keywordTranslationsLoaded = false;
+
         function escapeHtml(text) {
             if (text === null || text === undefined) return '';
             return String(text)
@@ -131,6 +134,42 @@
         function getUrlParameter(name) {
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get(name);
+        }
+
+        async function loadKeywordTranslations() {
+            if (keywordTranslationsLoaded) return;
+            keywordTranslationsLoaded = true;
+            try {
+                const response = await fetch('/api/keyword-translation/', { method: 'GET', credentials: 'same-origin' });
+                const data = await response.json();
+                if (data && data.success && data.translations) {
+                    keywordTranslations = data.translations;
+                }
+            } catch (e) {
+                keywordTranslations = {};
+            }
+        }
+
+        function translateText(text) {
+            if (!text || typeof text !== 'string') {
+                return text;
+            }
+
+            let translatedText = text;
+
+            for (const [englishKeyword, chineseKeyword] of Object.entries(keywordTranslations)) {
+                const escaped = englishKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp('\\b' + escaped + '\\b', 'gi');
+                translatedText = translatedText.replace(regex, chineseKeyword);
+            }
+
+            return translatedText;
+        }
+
+        function translateSkillName(name) {
+            if (!name) return name;
+            if (keywordTranslations && keywordTranslations[name]) return keywordTranslations[name];
+            return translateText(name);
         }
 
         function showError(message) {
@@ -245,7 +284,7 @@
             tasks.forEach(t => {
                 const abilities = (t.top_abilities || []);
                 abilities.forEach(a => {
-                    if (a && a.name) names.add(a.name);
+                    if (a && a.name) names.add(translateSkillName(a.name));
                 });
             });
             const abilityNames = Array.from(names);
@@ -255,10 +294,21 @@
                 return;
             }
 
+            const baselineTask = tasks[0];
+            const baselineTaskId = baselineTask ? baselineTask.id : null;
+
+            function parsePercent(text) {
+                if (!text || typeof text !== 'string') return null;
+                const m = text.match(/([\d.]+)/);
+                if (!m) return null;
+                const v = parseFloat(m[1]);
+                return Number.isFinite(v) ? v : null;
+            }
+
             thead.innerHTML = `
                 <tr>
                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">技能</th>
-                    ${tasks.map(t => `<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">${escapeHtml(t.name || '')}(#${t.id})</th>`).join('')}
+                    ${tasks.map(t => `<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">${escapeHtml(t.name || '')}(#${t.id})${baselineTaskId === t.id ? '（基准）' : ''}</th>`).join('')}
                 </tr>
             `;
 
@@ -267,16 +317,34 @@
                 const m = new Map();
                 (t.top_abilities || []).forEach(a => {
                     if (!a || !a.name) return;
-                    m.set(a.name, a.dps_percent || '');
+                    m.set(translateSkillName(a.name), a.dps_percent || '');
                 });
                 abilityMap.set(t.id, m);
             });
 
             tbody.innerHTML = abilityNames.map(name => {
+                const baselineMap = baselineTaskId ? abilityMap.get(baselineTaskId) : null;
+                const baselineText = baselineMap ? (baselineMap.get(name) || '') : '';
+                const baselineValue = parsePercent(baselineText);
                 const cols = tasks.map(t => {
                     const m = abilityMap.get(t.id);
                     const v = m ? m.get(name) : '';
-                    return `<td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(v || '-')}</td>`;
+                    const valueText = v || '';
+                    const valueNumber = parsePercent(valueText);
+                    if (!valueText) {
+                        return `<td class="px-4 py-3 text-sm text-gray-700">-</td>`;
+                    }
+                    if (!baselineTaskId || baselineTaskId === t.id || baselineValue === null || valueNumber === null) {
+                        return `<td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(valueText)}</td>`;
+                    }
+
+                    const delta = valueNumber - baselineValue;
+                    const deltaSign = delta >= 0 ? '+' : '';
+                    const deltaClass = delta >= 0 ? 'text-emerald-700' : 'text-red-700';
+                    return `<td class="px-4 py-3 text-sm text-gray-700">
+                        <div>${escapeHtml(valueText)}</div>
+                        <div class="text-xs ${deltaClass}">${deltaSign}${delta.toFixed(1)}%</div>
+                    </td>`;
                 }).join('');
                 return `
                     <tr class="hover:bg-gray-50">
@@ -296,6 +364,7 @@
             }
 
             try {
+                await loadKeywordTranslations();
                 const resp = await fetch(`/api/simc-regular-compare/?task_ids=${encodeURIComponent(taskIds)}`, {
                     method: 'GET',
                     credentials: 'same-origin'
