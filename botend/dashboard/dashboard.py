@@ -607,3 +607,161 @@ class SimcAttributeAnalysisView(View):
             logger.error(f"渲染SimC属性模拟分析页面失败: {str(e)}")
             logger.error(traceback.format_exc())
             return HttpResponse("页面加载失败", status=500)
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcRegularCompareView(View):
+    """
+    处理SimC常规模拟对比页面请求
+    """
+    
+    def get(self, request):
+        try:
+            return render(request, 'simc_regular_compare.html')
+        except Exception as e:
+            logger.error(f"渲染SimC常规模拟对比页面失败: {str(e)}")
+            logger.error(traceback.format_exc())
+            return HttpResponse("页面加载失败", status=500)
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcAttributeAnalysisSSRView(View):
+    """
+    属性模拟分析SSR页面：后端渲染对比结果，无需前端JS计算
+    """
+    def get(self, request):
+        try:
+            task_id = request.GET.get('task_id')
+            if not task_id:
+                return HttpResponse("缺少任务ID参数", status=400)
+            
+            # 组装分析数据（复用API中的解析思路）
+            from django.conf import settings
+            from botend.models import SimcTask
+            import os
+            import re
+            import requests
+            from bs4 import BeautifulSoup
+            
+            try:
+                task = SimcTask.objects.get(id=task_id)
+            except SimcTask.DoesNotExist:
+                return HttpResponse("任务不存在", status=404)
+            
+            if task.task_type != 2 or not task.result_file:
+                return HttpResponse("该任务不是属性模拟或尚无结果文件", status=400)
+            
+            result_files = [x.strip() for x in task.result_file.split(',') if x.strip()]
+            oss_config = getattr(settings, 'OSS_CONFIG', {})
+            base_url = oss_config.get('base_url', '')
+            
+            def read_file_content(result_file):
+                # 先OSS
+                if base_url:
+                    try:
+                        resp = requests.get(base_url + result_file, timeout=30)
+                        if resp.status_code == 200:
+                            return resp.text
+                    except requests.RequestException:
+                        pass
+                # 再本地
+                local_file_path = os.path.join(settings.BASE_DIR, 'static', 'simc_results', result_file)
+                if os.path.exists(local_file_path):
+                    with open(local_file_path, 'r', encoding='utf-8') as f:
+                        return f.read()
+                return None
+            
+            def extract_dps(html):
+                try:
+                    m = re.search(r':\s*([\d,]+)\s*dps', html, re.IGNORECASE)
+                    if m:
+                        return int(m.group(1).replace(',', ''))
+                    soup = BeautifulSoup(html, 'html.parser')
+                    player = soup.find(class_='player')
+                    if player:
+                        h2 = player.find('h2')
+                        if h2:
+                            mm = re.search(r':\s*([\d,]+)\s*dps', h2.get_text(), re.IGNORECASE)
+                            if mm:
+                                return int(mm.group(1).replace(',', ''))
+                except Exception:
+                    return None
+                return None
+            
+            analysis = []
+            for rf in result_files:
+                # 文件名格式: {任务ID}_{attr1}_{val1}_{attr2}_{val2}.html
+                parts = rf.replace('.html', '').split('_')
+                if len(parts) < 7:
+                    continue
+                attr1_name = parts[2]
+                attr2_name = parts[5]
+                try:
+                    attr1_value = int(parts[3])
+                except ValueError:
+                    attr1_value = parts[3]
+                try:
+                    attr2_value = int(parts[6])
+                except ValueError:
+                    attr2_value = parts[6]
+                
+                content = read_file_content(rf)
+                if not content:
+                    continue
+                dps_val = extract_dps(content)
+                if dps_val is None:
+                    continue
+                
+                analysis.append({
+                    'file_name': rf,
+                    'attr1_name': attr1_name,
+                    'attr1_value': attr1_value,
+                    'attr2_name': attr2_name,
+                    'attr2_value': attr2_value,
+                    'dps': dps_val
+                })
+            
+            # 排序
+            def sort_key(x):
+                v = x['attr1_value']
+                return (0, v) if isinstance(v, int) else (1, str(v))
+            analysis.sort(key=sort_key)
+            
+            if not analysis:
+                return HttpResponse("未能解析到有效的分析数据", status=500)
+            
+            dps_list = [i['dps'] for i in analysis]
+            max_dps = max(dps_list)
+            min_dps = min(dps_list)
+            avg_dps = sum(dps_list) / len(dps_list)
+            above_avg = sum(1 for d in dps_list if d > avg_dps)
+            best = next(i for i in analysis if i['dps'] == max_dps)
+            worst = next(i for i in analysis if i['dps'] == min_dps)
+            
+            # 增加相对性能百分比，供模板渲染进度条
+            for item in analysis:
+                if max_dps == min_dps:
+                    item['relative_percent'] = 100.0
+                else:
+                    item['relative_percent'] = (item['dps'] - min_dps) * 100.0 / (max_dps - min_dps)
+            
+            context = {
+                'task_id': task.id,
+                'task_name': task.name,
+                'results': analysis,  # 已排序
+                'stats': {
+                    'max_dps': max_dps,
+                    'min_dps': min_dps,
+                    'avg_dps': avg_dps,
+                    'above_avg': above_avg,
+                    'count': len(analysis),
+                    'best': best,
+                    'worst': worst,
+                }
+            }
+            
+            return render(request, 'simc_attribute_analysis_ssr.html', context)
+        except Exception as e:
+            logger.error(f"渲染属性模拟SSR页面失败: {str(e)}")
+            logger.error(traceback.format_exc())
+            return HttpResponse("页面加载失败", status=500)
