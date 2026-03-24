@@ -1362,13 +1362,49 @@ class KeywordTranslationAPIView(View):
     def get(self, request):
         """获取所有活跃的关键字映射"""
         try:
+            import re
             # 获取所有活跃的关键字映射
             keywords = SimcAplKeywordPair.objects.filter(is_active=True)
             
             # 构建映射字典
             translation_map = {}
+            
+            def title_case(s):
+                parts = re.split(r'[\s_\-]+', s.strip())
+                return ' '.join(p.capitalize() for p in parts if p)
+            
             for keyword in keywords:
-                translation_map[keyword.apl_keyword] = keyword.cn_keyword
+                apl = (keyword.apl_keyword or '').strip()
+                cn = (keyword.cn_keyword or '').strip()
+                if not apl or not cn:
+                    continue
+                
+                # 原始键
+                translation_map[apl] = cn
+                
+                # 常见变体：下划线、空格、连字符、大小写、标题化
+                variants = set()
+                variants.add(apl.lower())
+                variants.add(apl.replace('_', ' '))
+                variants.add(apl.replace('_', '-'))
+                
+                v_space = apl.replace('_', ' ')
+                variants.add(v_space.lower())
+                variants.add(title_case(v_space))
+                
+                v_hyphen = apl.replace('_', '-')
+                variants.add(v_hyphen.lower())
+                variants.add(title_case(v_hyphen))
+                
+                # 下划线标题化（少见，但兼容）
+                v_underscore_title = '_'.join(w.capitalize() for w in apl.split('_') if w)
+                if v_underscore_title:
+                    variants.add(v_underscore_title)
+                
+                for v in variants:
+                    if not v:
+                        continue
+                    translation_map.setdefault(v, cn)
             
             return JsonResponse({
                 'success': True,

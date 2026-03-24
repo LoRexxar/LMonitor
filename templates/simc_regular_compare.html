@@ -255,7 +255,7 @@
                 const dps = t.dps || 0;
                 const deltaPercent = maxDps > 0 ? ((dps / maxDps - 1) * 100) : 0;
                 const deltaSign = deltaPercent >= 0 ? '+' : '';
-                const deltaClass = deltaPercent === 0 ? 'text-emerald-700' : (deltaPercent < 0 ? 'text-red-700' : 'text-emerald-700');
+                const deltaClass = deltaPercent === 0 ? 'text-green-700' : (deltaPercent < 0 ? 'text-red-700' : 'text-green-700');
                 return `
                     <tr class="hover:bg-gray-50">
                         <td class="px-4 py-3 text-sm text-gray-900">${t.id}</td>
@@ -340,7 +340,7 @@
 
                     const delta = valueNumber - baselineValue;
                     const deltaSign = delta >= 0 ? '+' : '';
-                    const deltaClass = delta >= 0 ? 'text-emerald-700' : 'text-red-700';
+                    const deltaClass = delta >= 0 ? 'text-green-700' : 'text-red-700';
                     return `<td class="px-4 py-3 text-sm text-gray-700">
                         <div>${escapeHtml(valueText)}</div>
                         <div class="text-xs ${deltaClass}">${deltaSign}${delta.toFixed(1)}%</div>
