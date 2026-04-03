@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WCL 分析任务</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="max-w-6xl mx-auto px-4 py-8">
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <h1 class="text-2xl font-bold text-gray-900 mb-4">WCL 日志分析</h1>
+            <div class="flex flex-col md:flex-row gap-3">
+                <input id="wcl-url-input" type="text" class="flex-1 border border-gray-300 rounded px-3 py-2" placeholder="输入 WCL 单场 fight 链接，例如 https://cn.warcraftlogs.com/reports/xxx?fight=4">
+                <button id="submit-btn" class="px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">提交分析</button>
+            </div>
+            <div id="submit-msg" class="mt-3 text-sm text-gray-600"></div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('submit-btn').addEventListener('click', async function () {
+            const msg = document.getElementById('submit-msg');
+            const url = (document.getElementById('wcl-url-input').value || '').trim();
+            if (!url) {
+                msg.className = 'mt-3 text-sm text-red-600';
+                msg.textContent = '请输入 WCL 链接';
+                return;
+            }
+            msg.className = 'mt-3 text-sm text-gray-600';
+            msg.textContent = '任务创建中...';
+            try {
+                const resp = await fetch('/api/wcl-analysis-task/', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ wcl_url: url })
+                });
+                const data = await resp.json();
+                if (!data || !data.success) {
+                    msg.className = 'mt-3 text-sm text-red-600';
+                    msg.textContent = (data && data.error) || '创建失败';
+                    return;
+                }
+                window.location.href = data.data.report_url;
+            } catch (e) {
+                msg.className = 'mt-3 text-sm text-red-600';
+                msg.textContent = '创建失败';
+            }
+        });
+    </script>
+</body>
+</html>

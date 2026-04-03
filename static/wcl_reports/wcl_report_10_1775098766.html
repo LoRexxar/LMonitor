@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WCL战斗分析报告 #10</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#f3f4f6;margin:0;padding:24px;color:#111827}
+.container{max-width:1100px;margin:0 auto}
+.panel{background:#fff;border-radius:10px;padding:20px;margin-bottom:16px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.card{border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-top:10px}
+h1,h2,h3{margin:0 0 10px 0}
+ul{margin:6px 0 10px 20px}
+pre{white-space:pre-wrap;word-break:break-all;background:#111827;color:#e5e7eb;padding:12px;border-radius:8px}
+.muted{color:#6b7280}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="panel">
+<h1>WCL战斗分析报告</h1>
+<div class="muted">任务ID: 10 | report_code: tWyndNFfbmGJB4K1 | fight: 4</div>
+<div class="muted">原始链接: <a href="https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=4" target="_blank">https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=4</a></div>
+</div>
+<div class="panel">
+<h2>战斗总览</h2>
+<p>数据获取失败：目标WCL页面被Cloudflare安全验证拦截，返回的是验证页面而非战斗数据。HTTP请求返回403 Forbidden，页面内容显示&#x27;执行安全验证&#x27;，无法获取任何战斗日志、玩家列表、伤害/治疗数据或事件记录。原始数据中players数组为空，tables为空，events_text仅包含验证提示文本。</p>
+<h2>横向差距结论</h2>
+<p>无法生成基准对比：缺少副本名称和层数信息，无法抓取同层数全球前20样本。即使有副本信息，当前数据源被完全拦截，无法获取任何可用于对比的数据。</p>
+<h2>关键失败点</h2>
+<ul>
+
+<li>数据源完全不可用：Cloudflare反机器人验证阻止了数据抓取</li>
+
+<li>无法识别副本名称、层数、战斗时长等基础信息</li>
+
+<li>无法获取任何玩家数据，无法进行六维分析</li>
+
+<li>无法获取伤害/治疗/承伤等战斗统计</li>
+
+<li>无法获取死亡事件、断法记录、技能使用等关键事件</li>
+
+<li>无法进行横向基准对比分析</li>
+
+</ul>
+</div>
+<div class="panel">
+<h2>玩家逐个复盘（六维）</h2>
+
+<div class="card">未解析到玩家复盘数据</div>
+
+</div>
+<div class="panel">
+<h2>责任排序</h2>
+<ul>
+
+<li>数据抓取工具：未能绕过Cloudflare验证机制</li>
+
+<li>WCL网站：启用了严格的反爬虫保护</li>
+
+<li>用户：提供的URL需要通过浏览器手动访问并完成验证后重新提交</li>
+
+</ul>
+<h2>优先修复项</h2>
+<ul>
+
+<li>解决方案1：使用浏览器手动访问 https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=4，完成Cloudflare验证后，将完整HTML源码或截图提供给分析系统</li>
+
+<li>解决方案2：使用WCL官方API获取数据（需要API密钥），绕过Cloudflare验证</li>
+
+<li>解决方案3：在WCL网站上导出战斗日志为CSV/JSON格式后重新提交分析</li>
+
+<li>解决方案4：使用支持JavaScript渲染的无头浏览器（如Puppeteer）配合有效的浏览器指纹和Cookie来绕过验证</li>
+
+</ul>
+<h2>最终总结</h2>
+<p>分析无法进行：数据源被Cloudflare安全验证完全拦截，返回内容为验证页面而非战斗日志。当前技术栈无法绕过Cloudflare的托管验证机制。建议用户通过浏览器手动访问URL完成验证，或使用WCL官方API、导出功能获取数据后重新提交。在获得有效战斗数据之前，无法进行任何复盘分析、玩家评价或改进建议。</p>
+</div>
+<div class="panel">
+<h2>横向基准（同副本同层数全球前20）</h2>
+<p>基准不可用: 是</p>
+<p>缺少副本名或层数，无法抓取同层数全球前20</p>
+<pre>{
+  &quot;sample_size&quot;: 0,
+  &quot;note&quot;: &quot;缺少副本名或层数，无法抓取同层数全球前20&quot;
+}</pre>
+</div>
+<div class="panel">
+<h2>模型输入数据摘要</h2>
+<p>为了让评价尽量由模型完成，以下抓取数据会完整输入模型：战斗文本、表格片段、脚本片段、横向基准原始记录。</p>
+<p>战斗文本长度: 199 字符；表格数量: 0；脚本片段: 1</p>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WCL战斗分析报告 #16</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
+<style>
+body{font-family:"Inter","Segoe UI",Arial,sans-serif;background:radial-gradient(circle at top,#dbeafe 0,#eef2ff 35%,#f8fafc 80%);margin:0;padding:24px;color:#0f172a}
+.container{max-width:1280px;margin:0 auto}
+.hero{background:linear-gradient(135deg,#1e3a8a,#312e81 60%,#4f46e5);color:#fff;border-radius:18px;padding:26px;box-shadow:0 18px 36px rgba(30,41,59,.25);margin-bottom:18px}
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.hero h1{margin:0;font-size:30px}
+.tag{display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.2);font-size:12px}
+.hero-sub{margin-top:10px;opacity:.95}
+.hero a{color:#bfdbfe}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}
+.kpi{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;box-shadow:0 8px 18px rgba(15,23,42,.06)}
+.kpi .label{color:#64748b;font-size:12px}
+.kpi .value{margin-top:8px;font-size:24px;font-weight:700}
+.panel{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;margin-bottom:16px;box-shadow:0 10px 20px rgba(15,23,42,.06)}
+.panel h2{margin:0 0 12px 0;font-size:20px}
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.chart-card{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fafafa}
+.chart-title{font-size:14px;color:#334155;margin-bottom:8px}
+.chart-note{margin-top:10px;font-size:12px;color:#64748b}
+.analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.section{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px}
+.section.full{grid-column:1 / -1}
+.section h3{margin:0 0 8px 0;font-size:16px;color:#1e293b}
+.text{white-space:pre-wrap;word-break:break-word;line-height:1.75;font-size:15px;color:#0f172a}
+.md-content h1,.md-content h2,.md-content h3{margin:.4em 0}
+.md-content ul{padding-left:20px}
+.md-content code{background:#e2e8f0;padding:2px 5px;border-radius:5px}
+@media (max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-grid,.analysis-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="hero">
+<div class="hero-top">
+<h1>WCL 战斗分析报告</h1>
+<span class="tag">任务 #16</span>
+</div>
+<div class="hero-sub">report_code: tWyndNFfbmGJB4K1 ｜ fight: 8</div>
+<div class="hero-sub">原始链接: <a href="https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=8&amp;type=damage-done" target="_blank">https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=8&amp;type=damage-done</a></div>
+</div>
+
+<div class="kpi-grid">
+<div class="kpi"><div class="label">副本</div><div class="value">Magister&#x27;s Terrace</div></div>
+<div class="kpi"><div class="label">层数</div><div class="value">+15</div></div>
+<div class="kpi"><div class="label">队伍人数</div><div class="value">5</div></div>
+<div class="kpi"><div class="label">结果</div><div class="value">击杀</div></div>
+</div>
+
+<div class="panel">
+<h2>战斗数据可视化</h2>
+<div class="chart-grid">
+<div class="chart-card">
+<div class="chart-title">伤害 TOP10</div>
+<canvas id="damageChart" height="220"></canvas>
+<div id="damageNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">治疗 TOP10</div>
+<canvas id="healingChart" height="220"></canvas>
+<div id="healingNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">承伤 TOP10</div>
+<canvas id="takenChart" height="220"></canvas>
+<div id="takenNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">断法 TOP10</div>
+<canvas id="interruptChart" height="220"></canvas>
+<div id="interruptNote" class="chart-note"></div>
+</div>
+</div>
+</div>
+
+<div class="panel">
+<h2>复盘分析</h2>
+<div class="analysis-grid">
+<div class="section"><h3>战斗总览</h3><div class="text md-content">**副本**：魔导师平台（Magister&#x27;s Terrace）  
+**层数**：15层  
+**时长**：29分56秒  
+**结果**：通关成功  
+**死亡次数**：3次  
+**评分**：青铜（全球前99%）
+
+这是一场**勉强通关**的战斗，3次死亡严重拖慢了节奏。队伍DPS配置合理（狂暴战、兽王猎、邪DK），但生存能力堪忧，治疗和DPS的死亡暴露了严重的站位和减伤问题。
+
+---</div></div>
+<div class="section"><h3>横向差距</h3><div class="text md-content">**与全球前20对比：**
+- 本场时长29:56，属于**中游水平**（前20通常在25-28分钟区间）
+- 主要差距：**3次死亡导致约3-5分钟时间损失**
+- DPS输出整体合格，但非坦克承伤过高（猎人3086万、治疗3208万）
+- 断法覆盖率约70%，头部队伍通常在85%以上
+
+**核心差距**：不是DPS不够，而是**生存和机制处理太差**。
+
+---</div></div>
+<div class="section full"><h3>关键失败点</h3><div class="text md-content">## 1. 治疗死亡（时间戳10313588）
+- **死者**：米拉大熊（恢复德）
+- **致死技能**：Holy Fire（神圣之火，ID 1255187）
+- **伤害来源**：Degentrius（Boss）
+- **问题**：治疗被Boss点名技能击杀，说明**未及时驱散或减伤**，且站位可能过于靠前
+
+## 2. 猎人死亡（时间戳10645526）
+- **死者**：Staywithme（兽王猎）
+- **致死技能**：Consuming Shadows（吞噬暗影，ID 1217087）
+- **伤害来源**：Shadowrift Voidcaller（暗影裂隙虚空召唤者）
+- **问题**：小怪AOE技能，猎人**未规避或未开减伤**
+
+## 3. 战士死亡（时间戳10828908）
+- **死者**：炎色雷灬（狂暴战）
+- **致死技能**：Melee（近战攻击）
+- **伤害来源**：Unstable Voidling（不稳定的虚空行者）
+- **问题**：小怪近战攻击击杀，说明**战士过于激进，脱离治疗范围或未自保**
+
+## 4. 断法漏断
+- **Arcane Bolt**：36次施法，仅打断21次，**15次漏断**
+- **Shadow Bolt**：48次施法，仅打断30次，**18次漏断**
+- 漏断导致大量不必要的魔法伤害，增加治疗压力
+
+---</div></div>
+<div class="section full"><h3>玩家复盘</h3><div class="text md-content">## 米拉大熊（恢复德，治疗）
+
+**输出/治疗效率**：
+- 伤害564万（正常，治疗打伤害是加分项）
+- **治疗数据缺失**（API未返回healing表），无法评估治疗量
+
+**死亡复盘**：
+- 被Boss的Holy Fire击杀，这是**可驱散的魔法效果**
+- 承伤3208万，**全队第二高**，远超正常治疗承伤（通常应低于DPS）
+- 说明站位过于激进，频繁吃到AOE
+
+**断法与控制**：
+- 仅1次断法，作为治疗可以接受
+
+**减伤与自保**：
+- 被Holy Fire击杀说明**未及时驱散自己或开减伤**
+- 恢复德有铁木树皮、生存本能，但显然未使用
+
+**关键技能覆盖**：
+- 施法1373次，Rejuvenation（回春）654次、Regrowth（愈合）280次，**技能使用正常**
+
+**机制失误**：
+- **站位问题严重**，承伤过高
+- **未驱散自己的魔法Debuff**
+
+**评价**：治疗死亡是本场最大失误，直接导致后续连锁反应。站位和自保意识需大幅提升。
+
+---
+
+## 炎色雷灬（狂暴战，DPS）
+
+**输出/治疗效率**：
+- 伤害2.66亿，**全队第一**
+- 输出效率优秀，符合狂暴战定位
+
+**死亡复盘**：
+- 被小怪近战攻击击杀，说明**血量过低时未规避**
+- 承伤2784万，作为近战DPS偏高但可接受
+
+**断法与控制**：
+- 断法12次（Pummel 8次、Shockwave 2次、Intimidating Shout 1次、Storm Bolt 1次）
+- **断法次数偏少**，作为近战应更积极
+
+**减伤与自保**：
+- 狂暴战有暴怒回复、破胆怒吼等自保技能，但死亡时显然未使用
+- **过于追求输出，忽视生存**
+
+**关键技能覆盖**：
+- 施法1927次，Rampage 409次、Thunder Clap 408次，**技能循环正常**
+
+**机制失误**：
+- **贪输出导致死亡**
+- **未规避高危小怪**
+
+**评价**：输出合格，但死亡暴露了**贪刀问题**。近战DPS需要平衡输出与生存。
+
+---
+
+## Staywithme（兽王猎，DPS）
+
+**输出/治疗效率**：
+- 伤害2.64亿，**全队第二**
+- 输出效率优秀，符合兽王猎定位
+
+**死亡复盘**：
+- 被Consuming Shadows（AOE暗影伤害）击杀
+- 承伤3086万，**全队第三高**，猎人承伤过高说明站位问题
+
+**断法与</div></div>
+<div class="section"><h3>责任排序</h3><div class="text md-content"></div></div>
+<div class="section"><h3>优先修复项</h3><div class="text md-content"></div></div>
+<div class="section full"><h3>最终结论</h3><div class="text md-content">**
+- 恢复德有铁木树皮、生存本能，但显然未使用
+
+**关键技能覆盖**：
+- 施法1373次，Rejuvenation（回春）654次、Regrowth（愈合）280次，**技能使用正常**
+
+**机制失误**：
+- **站位问题严重**，承伤过高
+- **未驱散自己的魔法Debuff**
+
+**评价**：治疗死亡是本场最大失误，直接导致后续连锁反应。站位和自保意识需大幅提升。
+
+---
+
+## 炎色雷灬（狂暴战，DPS）
+
+**输出/治疗效率**：
+- 伤害2.66亿，**全队第一**
+- 输出效率优秀，符合狂暴战定位
+
+**死亡复盘**：
+- 被小怪近战攻击击杀，说明**血量过低时未规避**
+- 承伤2784万，作为近战DPS偏高但可接受
+
+**断法与控制**：
+- 断法12次（Pummel 8次、Shockwave 2次、Intimidating Shout 1次、Storm Bolt 1次）
+- **断法次数偏少**，作为近战应更积极
+
+**减伤与自保**：
+- 狂暴战有暴怒回复、破胆怒吼等自保技能，但死亡时显然未使用
+- **过于追求输出，忽视生存**
+
+**关键技能覆盖**：
+- 施法1927次，Rampage 409次、Thunder Clap 408次，**技能循环正常**
+
+**机制失误**：
+- **贪输出导致死亡**
+- **未规避高危小怪**
+
+**评价**：输出合格，但死亡暴露了**贪刀问题**。近战DPS需要平衡输出与生存。
+
+---
+
+## Staywithme（兽王猎，DPS）
+
+**输出/治疗效率**：
+- 伤害2.64亿，**全队第二**
+- 输出效率优秀，符合兽王猎定位
+
+**死亡复盘**：
+- 被Consuming Shadows（AOE暗影伤害）击杀
+- 承伤3086万，**全队第三高**，猎人承伤过高说明站位问题
+
+**断法与</div></div>
+</div>
+</div>
+
+<script>
+const damageLabels = ["米拉大熊","星却","炎色雷灬","Staywithme","Carefreedk"];
+const damageValues = [5641124,108738086,266189124,263869036,260707970];
+const healingLabels = [];
+const healingValues = [];
+const takenLabels = ["米拉大熊","炎色雷灬","Staywithme","Carefreedk","星却"];
+const takenValues = [32080090,27840429,30862961,26922099,97814000];
+const interruptLabels = [""];
+const interruptValues = [0];
+
+function renderBarChart(id, labels, data, color) {
+    const el = document.getElementById(id);
+    if (!el || !labels.length) return;
+    new Chart(el, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{ data: data, backgroundColor: color, borderRadius: 6 }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#334155' } },
+                y: { ticks: { color: '#64748b' } }
+            }
+        }
+    });
+}
+
+function formatNum(n) {
+    const num = Number(n || 0);
+    if (num >= 100000000) return (num / 100000000).toFixed(2) + '亿';
+    if (num >= 10000) return (num / 10000).toFixed(1) + '万';
+    return String(num);
+}
+
+function renderChartNote(noteId, labels, values, metricName) {
+    const el = document.getElementById(noteId);
+    if (!el) return;
+    if (!labels.length) {
+        el.textContent = `${metricName}暂无有效数据`;
+        return;
+    }
+    const total = values.reduce((a, b) => a + Number(b || 0), 0);
+    const topIdx = values.reduce((best, v, i) => Number(v) > Number(values[best] || 0) ? i : best, 0);
+    const topVal = Number(values[topIdx] || 0);
+    const pct = total > 0 ? ((topVal / total) * 100).toFixed(1) : '0.0';
+    el.textContent = `最高 ${metricName}: ${labels[topIdx]} (${formatNum(topVal)}，占比 ${pct}%)，总量 ${formatNum(total)}`;
+}
+
+renderBarChart('damageChart', damageLabels, damageValues, 'rgba(59,130,246,.75)');
+renderBarChart('healingChart', healingLabels, healingValues, 'rgba(16,185,129,.75)');
+renderBarChart('takenChart', takenLabels, takenValues, 'rgba(251,146,60,.75)');
+renderBarChart('interruptChart', interruptLabels, interruptValues, 'rgba(139,92,246,.75)');
+renderChartNote('damageNote', damageLabels, damageValues, '伤害');
+renderChartNote('healingNote', healingLabels, healingValues, '治疗');
+renderChartNote('takenNote', takenLabels, takenValues, '承伤');
+renderChartNote('interruptNote', interruptLabels, interruptValues, '断法');
+
+document.querySelectorAll('.md-content').forEach((el) => {
+    const raw = el.textContent || '';
+    if (!raw.trim()) return;
+    const html = marked.parse(raw, { breaks: true, gfm: true });
+    el.innerHTML = DOMPurify.sanitize(html);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WCL战斗分析报告 #1</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#f3f4f6;margin:0;padding:24px;color:#111827}
+.container{max-width:1100px;margin:0 auto}
+.panel{background:#fff;border-radius:10px;padding:20px;margin-bottom:16px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.card{border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-top:10px}
+h1,h2,h3{margin:0 0 10px 0}
+ul{margin:6px 0 10px 20px}
+pre{white-space:pre-wrap;word-break:break-all;background:#111827;color:#e5e7eb;padding:12px;border-radius:8px}
+.muted{color:#6b7280}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="panel">
+<h1>WCL战斗分析报告</h1>
+<div class="muted">任务ID: 1 | report_code: tWyndNFfbmGJB4K1 | fight: 4</div>
+<div class="muted">原始链接: <a href="https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=4" target="_blank">https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=4</a></div>
+</div>
+<div class="panel">
+<h2>战斗总览</h2>
+<p>数据获取失败：WCL页面被Cloudflare安全验证拦截（HTTP 403），无法获取战斗日志、玩家列表、伤害/治疗数据、死亡事件等核心信息。原始输入仅包含Cloudflare验证页面的HTML框架，无任何魔兽世界战斗数据。</p>
+<h2>横向差距结论</h2>
+<p>无法进行横向对比分析。原因：1) 未获取到副本名和层数，无法定位同层数全球前20样本；2) 本场战斗数据完全缺失，无任何可对比指标。</p>
+<h2>关键失败点</h2>
+<ul>
+
+<li>无法获取副本名称和层数</li>
+
+<li>无法获取玩家列表和职业信息</li>
+
+<li>无法获取伤害/治疗输出数据</li>
+
+<li>无法获取死亡时间线和死因</li>
+
+<li>无法获取断法、控制、减伤等战斗事件</li>
+
+<li>无法获取BOSS机制执行情况</li>
+
+<li>无法进行横向对比分析（缺少基准数据）</li>
+
+</ul>
+</div>
+<div class="panel">
+<h2>玩家逐个复盘（六维）</h2>
+
+<div class="card">未解析到玩家复盘数据</div>
+
+</div>
+<div class="panel">
+<h2>责任排序</h2>
+<ul>
+
+<li>数据抓取流程失败：脚本未能绕过Cloudflare人机验证</li>
+
+<li>建议使用WCL官方API或手动导出日志数据</li>
+
+<li>当前输入数据不满足复盘分析最低要求</li>
+
+</ul>
+<h2>优先修复项</h2>
+<ul>
+
+<li>技术层面：改用WCL官方API（需API Key）或使用已登录会话的Cookie绕过验证</li>
+
+<li>数据层面：手动从WCL页面导出战斗日志CSV/JSON，或提供完整的日志文本</li>
+
+<li>流程层面：在脚本抓取前确认目标页面无反爬机制，或改用无验证的数据源</li>
+
+</ul>
+<h2>最终总结</h2>
+<p>本次复盘分析无法执行。输入数据为Cloudflare安全验证页面HTML，不包含任何魔兽世界战斗数据。需要重新获取有效的WCL战斗日志数据后方可进行分析。建议：1) 使用WCL官方API；2) 手动导出日志数据；3) 提供已通过验证的页面截图或文本副本。</p>
+</div>
+<div class="panel">
+<h2>横向基准（同副本同层数全球前20）</h2>
+<p>基准不可用: 是</p>
+<p>缺少副本名或层数，无法抓取同层数全球前20</p>
+<pre>{
+  &quot;sample_size&quot;: 0,
+  &quot;note&quot;: &quot;缺少副本名或层数，无法抓取同层数全球前20&quot;
+}</pre>
+</div>
+<div class="panel">
+<h2>模型输入数据摘要</h2>
+<p>为了让评价尽量由模型完成，以下抓取数据会完整输入模型：战斗文本、表格片段、脚本片段、横向基准原始记录。</p>
+<p>战斗文本长度: 199 字符；表格数量: 0；脚本片段: 1</p>
+</div>
+</div>
+</body>
+</html>

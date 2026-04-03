@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WCL战斗分析报告 #22</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
+<style>
+body{font-family:"Inter","Segoe UI",Arial,sans-serif;background:radial-gradient(circle at top,#dbeafe 0,#eef2ff 35%,#f8fafc 80%);margin:0;padding:24px;color:#0f172a}
+.container{max-width:1280px;margin:0 auto}
+.hero{background:linear-gradient(135deg,#1e3a8a,#312e81 60%,#4f46e5);color:#fff;border-radius:18px;padding:26px;box-shadow:0 18px 36px rgba(30,41,59,.25);margin-bottom:18px}
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.hero h1{margin:0;font-size:30px}
+.tag{display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.2);font-size:12px}
+.hero-sub{margin-top:10px;opacity:.95}
+.hero a{color:#bfdbfe}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}
+.kpi{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;box-shadow:0 8px 18px rgba(15,23,42,.06)}
+.kpi .label{color:#64748b;font-size:12px}
+.kpi .value{margin-top:8px;font-size:24px;font-weight:700}
+.panel{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;margin-bottom:16px;box-shadow:0 10px 20px rgba(15,23,42,.06)}
+.panel h2{margin:0 0 12px 0;font-size:20px}
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.chart-card{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fafafa}
+.chart-title{font-size:14px;color:#334155;margin-bottom:8px}
+.chart-note{margin-top:10px;font-size:12px;color:#64748b}
+.analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.section{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px}
+.section.full{grid-column:1 / -1}
+.section h3{margin:0 0 8px 0;font-size:16px;color:#1e293b}
+.text{white-space:pre-wrap;word-break:break-word;line-height:1.75;font-size:15px;color:#0f172a}
+.md-content h1,.md-content h2,.md-content h3{margin:.4em 0}
+.md-content ul{padding-left:20px}
+.md-content code{background:#e2e8f0;padding:2px 5px;border-radius:5px}
+@media (max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-grid,.analysis-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="hero">
+<div class="hero-top">
+<h1>WCL 战斗分析报告</h1>
+<span class="tag">任务 #22</span>
+</div>
+<div class="hero-sub">report_code: tWyndNFfbmGJB4K1 ｜ fight: 8</div>
+<div class="hero-sub">原始链接: <a href="https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=8&amp;type=damage-done" target="_blank">https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=8&amp;type=damage-done</a></div>
+</div>
+
+<div class="kpi-grid">
+<div class="kpi"><div class="label">副本</div><div class="value">Magister&#x27;s Terrace</div></div>
+<div class="kpi"><div class="label">层数</div><div class="value">+15</div></div>
+<div class="kpi"><div class="label">队伍人数</div><div class="value">6</div></div>
+<div class="kpi"><div class="label">结果</div><div class="value">击杀</div></div>
+</div>
+
+<div class="panel">
+<h2>战斗数据可视化</h2>
+<div class="chart-grid">
+<div class="chart-card">
+<div class="chart-title">伤害 TOP10</div>
+<canvas id="damageChart" height="220"></canvas>
+<div id="damageNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">治疗 TOP10</div>
+<canvas id="healingChart" height="220"></canvas>
+<div id="healingNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">承伤 TOP10</div>
+<canvas id="takenChart" height="220"></canvas>
+<div id="takenNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">断法 TOP10</div>
+<canvas id="interruptChart" height="220"></canvas>
+<div id="interruptNote" class="chart-note"></div>
+</div>
+</div>
+</div>
+
+<div class="panel">
+<h2>复盘分析</h2>
+<div class="analysis-grid">
+<div class="section"><h3>战斗总览</h3><div class="text md-content">副本：魔导师平台15层
+时长：30分32秒
+结果：通关（铜牌）
+死亡：3次（治疗米拉大熊、猎人Staywithme、战士炎色雷灬）
+断法：0次（全员挂机）
+
+这是一场典型的&quot;躺赢局&quot;，靠着装等硬堆过去的垃圾时间。30分钟打15层魔导师平台，效率低到令人发指。三次死亡全部可避免，零断法直接暴露全员机制意识为零。能通关纯属运气好没遇到灭团点，别以为铜牌是成绩，这是耻辱。</div></div>
+<div class="section"><h3>横向差距</h3><div class="text md-content">基准时间：29:56
+本场时间：30:32
+差距：+36秒
+
+别看只慢36秒，这是建立在三次死亡、零断法、全员机制摆烂的基础上的&quot;侥幸通关&quot;。横向对比全球前20样本：
+- 伤害效率：三个DPS输出接近，但缺乏爆发窗口利用，全程平推式输出，毫无节奏
+- 承伤控制：非坦克承伤高达198M（排除坦克），前20样本通常控制在150M以内，差距30%+
+- 断法贡献：前20样本场均断法15-20次，本场全员0次，直接暴露机制处理能力为零
+- 死亡次数：前20样本场均死亡0-1次，本场3次，翻三倍
+
+差距核心：不是DPS不够，是机制处理能力为零，全员靠脸吃饭。</div></div>
+<div class="section full"><h3>关键失败点</h3><div class="text md-content">1. 断法全面缺失
+全员0次断法，这是不可原谅的。魔导师平台充斥着大量施法怪，包括奥术冲击、暗影箭、治疗术等关键技能。不打断意味着：
+- 承伤暴涨（本场非坦克承伤198M就是铁证）
+- 战斗时间延长（怪治疗、怪输出全吃）
+- 治疗压力暴增（米拉大熊死亡根源）
+
+战士有拳击、狂暴之怒；猎人有沉默射击、胁迫；DK有心灵冰冻、绞杀；武僧有切喉手。全员带断法技能却零使用，这是机制意识的彻底崩塌。
+
+2. 治疗死亡引发连锁崩盘
+时间戳10313588，治疗米拉大熊死亡。治疗一死，团队血线直接失控，后续猎人、战士接连暴毙。治疗死亡是本场最大的转折点，直接暴露：
+- 米拉大熊自保能力为零
+- 走位意识为零
+- 减伤使用为零
+
+3. 承伤失控
+非坦克承伤198M，这是什么概念？猎人承伤30M、治疗承伤32M、战士承伤27M、DK承伤26M。全员都在吃技能，全员都在硬抗，走位形同虚设。前20样本的非坦克承伤通常在150M以内，本场超标30%以上。</div></div>
+<div class="section full"><h3>玩家复盘</h3><div class="text md-content">【炎色雷灬 - 狂暴战士】
+输出/治疗效率：伤害266M全场最高，但施法次数1927次也是全场最多，GCD利用率极低，存在大量无效操作。狂暴战的核心是爆发窗口，本场数据看是全程平推，毫无节奏。
+死亡复盘：时间戳10828908死亡，被killerID 221用普通攻击（技能ID 1）打死。被白字攻击打死，说明血线管理为零，狂暴姿态硬吃伤害，自保技能全黑。
+断法与控制：0次断法。战士有拳击，全场未使用。
+减伤与自保：承伤27M，作为近战偏高。狂暴战有剑在、集结呐喊、破釜沉舟，本场死亡说明这些技能全没用或用错了时机。
+关键技能覆盖：无爆发节奏，无减伤覆盖，无断法贡献。
+机制失误：零断法、零自保、零走位，纯靠脸硬吃伤害。
+
+【Staywithme - 兽王猎人】
+输出/治疗效率：伤害263M，施法次数1537次，全场最少。兽王猎的核心是宠物输出+技能循环，施法次数最少说明存在大量空档期，要么在发呆，要么在跑尸体。
+死亡复盘：时间戳10645526死亡，被killerID 220用技能1217087击杀。治疗已死，猎人跟着暴毙，但猎人本身有假死、龟壳、威慑，一个都没用出来。
+断法与控制：0次断法。兽王猎有沉默射击，全场未使用。
+减伤与自保：承伤30M，全场非坦克最高。猎人有龟壳、威慑、意气风发，承伤这么高说明走位为零，硬吃技能。
+关键技能覆盖：无爆发节奏，无减伤覆盖，无断法贡献。
+机制失误：零断法、零自保、零走位，承伤全场最高，纯粹在吃伤害。
+
+【Carefreedk - 邪恶死亡骑士】
+输出/治疗效率：伤害260M，施法次数1832次，输出稳定但缺乏爆发窗口。邪恶DK的核心是爆发期堆伤害，本场数据看是全程平推。
+死亡复盘：全场唯一未死亡，但这不是功劳，是运气好。
+断法与控制：0次断法。DK有心灵冰冻、绞杀，全场未使用。
+减伤与自保：承伤26M，相对较低，但依然偏高。DK有绿罩、冰固、巫妖之躯，本场承伤说明减伤使用不足。
+关键技能覆盖：无爆发节奏，无减伤覆盖，无断法贡献。
+机制失误：零断法、零减伤，纯靠脸硬吃伤害。
+
+【星却 - 酒仙武僧】
+输出/治疗效率：伤害108M，治疗68M，作为坦克输出合格，自疗能力正常。施法次数1540次，合理。
+死亡复盘：全场未死亡，坦克存活是底线要求，不算功劳。
+断法与控制：0次断法。武僧有切喉手，全场未使用。
+减伤与自保：承伤97M，作为坦克正常。酒仙有壮胆酒、躯不坏、散魔功，本场承伤说明减伤使用合理。
+关键技能覆盖：自疗68M，减伤覆盖正常，但零断法贡献。
+机制失误：零断法，作为前排应该带头打断，结果全程挂机。
+
+【米拉大熊 - 恢复德鲁伊】
+输出/治疗效率：治疗131M，施法次数1373次，全场最少。30分钟战斗，治疗量131M严重偏低，施法次数最少说明存在大量空档期，要么在发呆，要么在跑尸体。
+死亡复盘：时间戳10313588死亡，被killerID 203用技能1255187击杀。治疗死亡是本场最大的转折点，直接导致后续猎人、战士接连暴毙。恢复德有树皮、铁皮、本能，一个都没用出来。
+断法与控制：0次断法。恢复德有台风、乌索尔旋风可以控场，全场未使用。
+减伤与自保：承伤32M，作为治疗全场最高。恢复德有树皮、铁皮、本能、迅捷治愈，承伤这么高说明走位为零，硬吃技能。
+关键技能覆盖：治疗量偏低，减伤覆盖为零，自保能力为零。
+机制失误：零自保、零走位、零控场，作为治疗承伤全场最高，死亡引发连锁崩盘。</div></div>
+<div class="section"><h3>责任排序</h3><div class="text md-content">1. 米拉大熊（治疗）- 责任权重40%
+   - 治疗死亡，直接导致团队血线崩溃
+   - 承伤32M全场最高（非坦克），走位为零
+   - 施法次数全场最少，存在大量空档期
+   - 治疗量偏低，30分钟仅131M
+   - 零自保、零控场
+
+2. Staywithme（猎人）- 责任权重25%
+   - 承伤30M全场第二高（非坦克），走位为零
+   - 施法次数偏少，存在空档期
+   - 零断法、零自保
+   - 死亡一次，有假死、龟壳、威慑全没用
+
+3. 炎色雷灬（战士）- 责任权重20%
+   - 死亡一次，被白字攻击打死，血线管理为零
+   - 零断法、零自保
+   - 承伤27M偏高
+   - 输出最高但GCD利用率低
+
+4. Carefreedk（DK）- 责任权重10%
+   - 零断法、零减伤
+   - 承伤26M偏高
+   - 全场唯一未死亡，但纯靠运气
+
+5. 星却（武僧）- 责任权重5%
+   - 零断法，作为前排应该带头打断
+   - 坦克存活是底线要求，不算功劳
+   - 自疗能力正常，减伤使用合理
+
+最坑Top1：米拉大熊
+
+玩家名：米拉大熊
+职业：恢复德鲁伊
+关键证据：
+1. 时间戳10313588死亡，治疗死亡直接导致团队血线崩溃，后续猎人、战士接连暴毙
+2. 承伤32M全场最高（非坦克），走位为零，硬吃技能
+3. 施法次数全场最少（1373次），存在大量空档期，要么在发呆，要么在跑尸体
+4. 治疗量131M，30分钟战斗严重偏低
+5. 零自保、零控场，有树皮、铁皮、本能全没用出来
+
+直接后果：
+治疗死亡是本场最大的转折点，直接导致团队血线失控，猎人、战士接连暴毙，战斗时间延长，承伤暴涨。治疗死亡是连锁崩盘的起点。
+
+具体改进动作：
+1. 立即学习走位，别再硬吃技能，承伤32M是耻辱
+2. 施法次数全场最少，说明你在发呆或跑尸体，立即优化技能循环，减少空档期
+3. 树皮、铁皮、本能、迅捷治愈，这些技能不是摆设，立即学习使用时机
+4. 台风、乌索尔旋风可以控场，立即学习控场意识
+5. 治疗死亡是最大失误，立即学习自保优先级，别再当团队短板</div></div>
+<div class="section"><h3>优先修复项</h3><div class="text md-content">1. 断法意识 - 全员必修
+   - 战士：拳击必须绑定关键施法怪，场均至少5次
+   - 猎人：沉默射击必须绑定关键施法怪，场均至少5次
+   - DK：心灵冰冻必须绑定关键施法怪，场均至少5次
+   - 武僧：切喉手必须绑定关键施法怪，场均至少5次
+   - 目标：场均断法15-20次，非坦克承伤控制在150M以内
+
+2. 走位与自保 - 米拉大熊、Staywithme必修
+   - 米拉大熊：承伤32M降到20M以内，学习树皮、铁皮、本能使用时机
+   - Staywithme：承伤30M降到20M以内，学习龟壳、</div></div>
+<div class="section full"><h3>最终结论</h3><div class="text md-content">副本：魔导师平台15层
+时长：30分32秒
+结果：通关（铜牌）
+死亡：3次（治疗米拉大熊、猎人Staywithme、战士炎色雷灬）
+断法：0次（全员挂机）
+
+这是一场典型的&quot;躺赢局&quot;，靠着装等硬堆过去的垃圾时间。30分钟打15层魔导师平台，效率低到令人发指。三次死亡全部可避免，零断法直接暴露全员机制意识为零。能通关纯属运气好没遇到灭团点，别以为铜牌是成绩，这是耻辱。</div></div>
+</div>
+</div>
+
+<script>
+const damageLabels = ["Carefreedk","星却","Staywithme","米拉大熊","炎色雷灬"];
+const damageValues = [260707970,108738086,263869036,5641124,266189124];
+const healingLabels = ["Carefreedk","星却","Staywithme","Devouring Tyrant","米拉大熊","炎色雷灬"];
+const healingValues = [10186826,68185524,6723299,0,131476931,9234999];
+const takenLabels = ["Carefreedk","Staywithme","星却","米拉大熊","炎色雷灬"];
+const takenValues = [26922099,30862961,97814000,32080090,27840429];
+const interruptLabels = [""];
+const interruptValues = [0];
+
+function renderBarChart(id, labels, data, color) {
+    const el = document.getElementById(id);
+    if (!el || !labels.length) return;
+    new Chart(el, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{ data: data, backgroundColor: color, borderRadius: 6 }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#334155' } },
+                y: { ticks: { color: '#64748b' } }
+            }
+        }
+    });
+}
+
+function formatNum(n) {
+    const num = Number(n || 0);
+    if (num >= 100000000) return (num / 100000000).toFixed(2) + '亿';
+    if (num >= 10000) return (num / 10000).toFixed(1) + '万';
+    return String(num);
+}
+
+function renderChartNote(noteId, labels, values, metricName) {
+    const el = document.getElementById(noteId);
+    if (!el) return;
+    if (!labels.length) {
+        el.textContent = `${metricName}暂无有效数据`;
+        return;
+    }
+    const total = values.reduce((a, b) => a + Number(b || 0), 0);
+    const topIdx = values.reduce((best, v, i) => Number(v) > Number(values[best] || 0) ? i : best, 0);
+    const topVal = Number(values[topIdx] || 0);
+    const pct = total > 0 ? ((topVal / total) * 100).toFixed(1) : '0.0';
+    el.textContent = `最高 ${metricName}: ${labels[topIdx]} (${formatNum(topVal)}，占比 ${pct}%)，总量 ${formatNum(total)}`;
+}
+
+renderBarChart('damageChart', damageLabels, damageValues, 'rgba(59,130,246,.75)');
+renderBarChart('healingChart', healingLabels, healingValues, 'rgba(16,185,129,.75)');
+renderBarChart('takenChart', takenLabels, takenValues, 'rgba(251,146,60,.75)');
+renderBarChart('interruptChart', interruptLabels, interruptValues, 'rgba(139,92,246,.75)');
+renderChartNote('damageNote', damageLabels, damageValues, '伤害');
+renderChartNote('healingNote', healingLabels, healingValues, '治疗');
+renderChartNote('takenNote', takenLabels, takenValues, '承伤');
+renderChartNote('interruptNote', interruptLabels, interruptValues, '断法');
+
+document.querySelectorAll('.md-content').forEach((el) => {
+    const raw = el.textContent || '';
+    if (!raw.trim()) return;
+    const html = marked.parse(raw, { breaks: true, gfm: true });
+    el.innerHTML = DOMPurify.sanitize(html);
+});
+</script>
+</body>
+</html>

@@ -19,11 +19,13 @@ from django.utils.decorators import method_decorator
 import json
 import traceback
 import datetime
+import os
+from django.conf import settings
 
 from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask, 
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
-                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile)
+                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, WclAnalysisTask)
 
 # 模型描述映射
 MODEL_DESCRIPTIONS = {
@@ -774,4 +776,89 @@ class SimcAttributeAnalysisSSRView(View):
         except Exception as e:
             logger.error(f"渲染属性模拟SSR页面失败: {str(e)}")
             logger.error(traceback.format_exc())
+            return HttpResponse("页面加载失败", status=500)
+
+
+@method_decorator(login_required, name='dispatch')
+class WclAnalysisPageView(View):
+    def get(self, request):
+        try:
+            tasks = WclAnalysisTask.objects.filter(is_active=True).order_by('-created_at')[:30]
+            task_list = []
+            for t in tasks:
+                task_list.append({
+                    'id': t.id,
+                    'wcl_url': t.wcl_url,
+                    'status': t.status,
+                    'summary': t.summary or '',
+                    'created_at': t.created_at.strftime('%Y-%m-%d %H:%M:%S') if t.created_at else '',
+                    'report_url': f"/wcl-analysis/report/{t.id}/?token={t.access_token}"
+                })
+            return render(request, 'wcl_analysis.html', {'tasks': task_list})
+        except Exception as e:
+            logger.error(f"WCL分析输入页渲染失败: {str(e)}\n{traceback.format_exc()}")
+            return HttpResponse("页面加载失败", status=500)
+
+
+@method_decorator(login_required, name='dispatch')
+class WclAnalysisListView(View):
+    def get(self, request):
+        try:
+            tasks = WclAnalysisTask.objects.filter(is_active=True).order_by('-created_at')[:100]
+            task_list = []
+            for t in tasks:
+                task_list.append({
+                    'id': t.id,
+                    'wcl_url': t.wcl_url,
+                    'status': t.status,
+                    'summary': t.summary or '',
+                    'created_at': t.created_at.strftime('%Y-%m-%d %H:%M:%S') if t.created_at else '',
+                    'report_url': f"/wcl-analysis/report/{t.id}/?token={t.access_token}"
+                })
+            return render(request, 'wcl_analysis_list.html', {'tasks': task_list})
+        except Exception as e:
+            logger.error(f"WCL分析列表页渲染失败: {str(e)}\n{traceback.format_exc()}")
+            return HttpResponse("页面加载失败", status=500)
+
+
+class WclAnalysisReportView(View):
+    def get(self, request, task_id):
+        try:
+            token = (request.GET.get('token') or '').strip()
+            task = WclAnalysisTask.objects.filter(id=task_id, is_active=True).first()
+            if not task:
+                return HttpResponse("任务不存在", status=404)
+            if not token or token != task.access_token:
+                return HttpResponse("无权限访问该报告", status=403)
+
+            if task.status != 2 or not task.report_html_file:
+                return render(request, 'wcl_analysis_report.html', {
+                    'task': task,
+                    'token': token,
+                    'status': task.status,
+                    'error_message': task.error_message or '',
+                    'report_html': ''
+                })
+
+            report_path = os.path.join(settings.BASE_DIR, 'static', 'wcl_reports', task.report_html_file)
+            if not os.path.exists(report_path):
+                return render(request, 'wcl_analysis_report.html', {
+                    'task': task,
+                    'token': token,
+                    'status': 3,
+                    'error_message': '报告文件不存在',
+                    'report_html': ''
+                })
+
+            with open(report_path, 'r', encoding='utf-8') as f:
+                report_html = f.read()
+            return render(request, 'wcl_analysis_report.html', {
+                'task': task,
+                'token': token,
+                'status': task.status,
+                'error_message': task.error_message or '',
+                'report_html': report_html
+            })
+        except Exception as e:
+            logger.error(f"WCL分析报告页渲染失败: {str(e)}\n{traceback.format_exc()}")
             return HttpResponse("页面加载失败", status=500)

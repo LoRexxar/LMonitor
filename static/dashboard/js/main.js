@@ -232,6 +232,10 @@ function initNavigation() {
                     const selectedToolContent = document.getElementById(toolName);
                     if (selectedToolContent) {
                         selectedToolContent.style.display = 'block';
+                        if (toolName === 'wcl-analysis-entry') {
+                            initWclDashboardModule();
+                            fetchWclDashboardTasks();
+                        }
                     }
                 }
             } else if (tableName) {
@@ -4816,4 +4820,128 @@ function rerunSimcTask(taskId) {
         console.error('重跑任务错误:', error);
         showMessage('重跑任务失败', 'error');
     });
+}
+
+let wclDashboardInited = false;
+let wclDashboardSubmitting = false;
+
+function initWclDashboardModule() {
+    if (wclDashboardInited) return;
+    wclDashboardInited = true;
+
+    const refreshBtn = document.getElementById('wcl-dashboard-refresh-btn');
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => fetchWclDashboardTasks());
+    }
+}
+
+async function submitWclDashboardTask() {
+    if (wclDashboardSubmitting) {
+        return;
+    }
+    const input = document.getElementById('wcl-dashboard-url');
+    const msg = document.getElementById('wcl-dashboard-message');
+    const submitBtn = document.getElementById('wcl-dashboard-submit-btn');
+    const wclUrl = (input && input.value ? input.value : '').trim();
+    if (!wclUrl) {
+        if (msg) {
+            msg.className = 'text-sm text-red-600';
+            msg.textContent = '请输入WCL链接';
+        }
+        return;
+    }
+
+    wclDashboardSubmitting = true;
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.classList.add('opacity-60', 'cursor-not-allowed');
+    }
+
+    if (msg) {
+        msg.className = 'text-sm text-gray-600';
+        msg.textContent = '任务提交中...';
+    }
+
+    try {
+        const resp = await fetch('/api/wcl-analysis-task/', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({ wcl_url: wclUrl })
+        });
+        const data = await resp.json();
+        if (!data || !data.success) {
+            if (msg) {
+                msg.className = 'text-sm text-red-600';
+                msg.textContent = (data && data.error) || '任务提交失败';
+            }
+            return;
+        }
+
+        if (msg) {
+            msg.className = 'text-sm text-green-600';
+            msg.innerHTML = `任务已提交，<a class="underline" target="_blank" href="${data.data.report_url}">点击查看结果页</a>（处理中可刷新）`;
+        }
+        if (input) input.value = '';
+        fetchWclDashboardTasks();
+    } catch (e) {
+        if (msg) {
+            msg.className = 'text-sm text-red-600';
+            msg.textContent = `任务提交失败: ${e.message || ''}`;
+        }
+    } finally {
+        wclDashboardSubmitting = false;
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+        }
+    }
+}
+
+async function fetchWclDashboardTasks() {
+    const tbody = document.getElementById('wcl-dashboard-task-list');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-500">加载中...</td></tr>';
+    try {
+        const resp = await fetch('/api/wcl-analysis-task/?limit=50', {
+            method: 'GET',
+            credentials: 'same-origin'
+        });
+        const data = await resp.json();
+        if (!data || !data.success) {
+            tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-red-600">${(data && data.error) || '加载失败'}</td></tr>`;
+            return;
+        }
+        const tasks = data.data || [];
+        if (!tasks.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-500">暂无任务</td></tr>';
+            return;
+        }
+
+        const statusMap = {
+            0: '待处理',
+            1: '处理中',
+            2: '成功',
+            3: '失败'
+        };
+        tbody.innerHTML = tasks.map(t => `
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 text-sm text-gray-900">${t.id}</td>
+                <td class="px-4 py-3 text-sm text-gray-700 break-all">${escapeHtml(t.wcl_url || '')}</td>
+                <td class="px-4 py-3 text-sm text-gray-700">${statusMap[t.status] || t.status}</td>
+                <td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(t.summary || '')}</td>
+                <td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(t.created_at || '')}</td>
+                <td class="px-4 py-3 text-sm">
+                    <a class="text-blue-600 hover:text-blue-800" target="_blank" href="${t.report_url || '#'}">查看</a>
+                </td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-red-600">加载失败</td></tr>';
+    }
 }
