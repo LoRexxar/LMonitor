@@ -220,4 +220,26 @@ class SimcTemplate(models.Model):
     
     def __str__(self):
         return f"SimC模板 (ID: {self.id})"
+
+
+class WclAnalysisTask(models.Model):
+    wcl_url = models.CharField(max_length=2000, help_text="WCL原始链接")
+    report_code = models.CharField(max_length=128, help_text="WCL报告ID", null=True, blank=True)
+    fight_id = models.CharField(max_length=64, help_text="Fight ID", null=True, blank=True)
+    access_token = models.CharField(max_length=64, help_text="公开报告访问令牌")
+    status = models.IntegerField(default=0, help_text="状态 0待处理 1处理中 2成功 3失败")
+    error_message = models.CharField(max_length=1000, null=True, blank=True, help_text="错误信息")
+    source_snapshot_file = models.CharField(max_length=255, null=True, blank=True, help_text="源数据快照文件")
+    report_html_file = models.CharField(max_length=255, null=True, blank=True, help_text="最终报告HTML文件")
+    summary = models.CharField(max_length=1000, null=True, blank=True, help_text="摘要")
+    benchmark_unavailable = models.BooleanField(default=False, help_text="排行榜基准是否不可用")
+    is_active = models.BooleanField(default=True, help_text="是否启用")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wcl_analysis_task'
+        verbose_name = 'WCL分析任务'
+        verbose_name_plural = 'WCL分析任务'
+        ordering = ['-created_at']
     

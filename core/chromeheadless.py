@@ -22,6 +22,7 @@ import os
 import traceback
 import DrissionPage
 from urllib.parse import urlparse
+from django.conf import settings as django_settings
 
 from LMonitor.settings import CHROME_WEBDRIVER_PATH, PROXY_CONFIG
 from utils.base import random_string
@@ -54,11 +55,25 @@ class ChromeDriver:
     def init_object(self, is_proxy=False):
 
         self.chrome_options = ChromiumOptions()
+        wcl_cfg = getattr(django_settings, 'WCL_FETCH_CONFIG', {}) or {}
+
         self.chrome_options.no_imgs(True).mute(True)
-        self.chrome_options.headless()  # 无头模式
+        if not bool(wcl_cfg.get('disable_headless', False)):
+            self.chrome_options.headless()
         self.chrome_options.set_argument('--no-sandbox')  # 无沙盒模式
         self.chrome_options.set_argument("--log-level=3")
-        self.chrome_options.set_tmp_path("/tmp")
+        self.chrome_options.set_argument("--disable-blink-features=AutomationControlled")
+        self.chrome_options.set_argument("--window-size=1920,1080")
+
+        user_data_dir = (wcl_cfg.get('chrome_user_data_dir') or '').strip()
+        if user_data_dir:
+            self.chrome_options.set_argument(f"--user-data-dir={user_data_dir}")
+        profile_dir = (wcl_cfg.get('chrome_profile_directory') or '').strip()
+        if profile_dir:
+            self.chrome_options.set_argument(f"--profile-directory={profile_dir}")
+
+        tmp_dir = (wcl_cfg.get('tmp_dir') or os.getenv('TEMP') or os.getenv('TMP') or '/tmp')
+        self.chrome_options.set_tmp_path(tmp_dir)
         
         if is_proxy:
             self.chrome_options.set_proxy('{}'.format(PROXY_CONFIG["http"]))
@@ -108,9 +123,14 @@ class ChromeDriver:
             return False
 
     def close_driver(self):
-        self.driver.quit()
-        # self.driver.close()
-        time.sleep(1)
+        try:
+            self.driver.quit()
+        except Exception:
+            pass
+        try:
+            time.sleep(1)
+        except Exception:
+            pass
 
     def __del__(self):
         self.close_driver()

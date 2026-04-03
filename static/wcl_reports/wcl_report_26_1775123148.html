@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大秘境复盘分析 - Magister's Terrace +15</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0a12;
+            --bg-secondary: #12121f;
+            --bg-card: #1a1a2e;
+            --bg-card-hover: #22223a;
+            --accent: #00d4ff;
+            --accent-glow: rgba(0, 212, 255, 0.3);
+            --danger: #ff3366;
+            --danger-glow: rgba(255, 51, 102, 0.3);
+            --success: #00ff88;
+            --success-glow: rgba(0, 255, 136, 0.3);
+            --warning: #ffaa00;
+            --warning-glow: rgba(255, 170, 0, 0.3);
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b8;
+            --text-muted: #6a6a7a;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-accent: rgba(0, 212, 255, 0.3);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            --radius: 12px;
+            --radius-sm: 8px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* Typography System */
+        h1 { font-size: 2.5rem; font-weight: 700; letter-spacing: -0.02em; }
+        h2 { font-size: 1.75rem; font-weight: 600; letter-spacing: -0.01em; }
+        h3 { font-size: 1.25rem; font-weight: 600; }
+        h4 { font-size: 1rem; font-weight: 500; }
+        p { font-size: 0.95rem; color: var(--text-secondary); }
+        .text-muted { font-size: 0.85rem; color: var(--text-muted); }
+
+        /* Layout */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+            border-bottom: 1px solid var(--border);
+            padding: 40px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 60%;
+            height: 200%;
+            background: radial-gradient(ellipse, var(--accent-glow) 0%, transparent 70%);
+            opacity: 0.15;
+            pointer-events: none;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-accent);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+        }
+
+        .hero-badge.success { border-color: var(--success); }
+        .hero-badge.danger { border-color: var(--danger); }
+
+        .hero-title {
+            display: flex;
+            align-items: baseline;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .hero-subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .keystone-level {
+            background: linear-gradient(135deg, var(--warning) 0%, #ff6600 100%);
+            color: #000;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 1.1rem;
+        }
+
+        /* KPI Bar */
+        .kpi-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin: -30px 0 30px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .kpi-card:hover {
+            border-color: var(--border-accent);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow);
+        }
+
+        .kpi-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .kpi-value.danger { color: var(--danger); }
+        .kpi-value.success { color: var(--success); }
+        .kpi-value.warning { color: var(--warning); }
+        .kpi-value.accent { color: var(--accent); }
+
+        .kpi-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Main Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 1024px) {
+            .main-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Card System */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-icon {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--accent-glow);
+            border-radius: 8px;
+            font-size: 1.2rem;
+        }
+
+        .card-icon.danger { background: var(--danger-glow); }
+        .card-icon.success { background: var(--success-glow); }
+        .card-icon.warning { background: var(--warning-glow); }
+
+        /* Chart Container */
+        .chart-container {
+            position: relative;
+            height: 280px;
+            margin-bottom: 16px;
+        }
+
+        .chart-conclusion {
+            background: var(--bg-secondary);
+            border-left: 3px solid var(--accent);
+            padding: 12px 16px;
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .chart-conclusion.danger { border-left-color: var(--danger); }
+        .chart-conclusion.success { border-left-color: var(--success); }
+
+        /* Player Cards */
+        .player-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }
+
+        .player-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .player-card:hover {
+            border-color: var(--border-accent);
+            transform: translateY(-2px);
+        }
+
+        .player-card.highlight-danger {
+            border-color: var(--danger);
+            box-shadow: 0 0 20px var(--danger-glow);
+        }
+
+        .player-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .player-class-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.8rem;
+        }
+
+        .player-name {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .player-spec {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .player-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .stat-item {
+            background: var(--bg-card);
+            padding: 10px;
+            border-radius: var(--radius-sm);
+        }
+
+        .stat-value {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Responsibility List */
+        .responsibility-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .responsibility-item {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: var(--bg-secondary);
+            padding: 16px;
+            border-radius: var(--radius-sm);
+            border-left: 4px solid var(--border);
+        }
+
+        .responsibility-item.rank-1 { border-left-color: var(--danger); }
+        .responsibility-item.rank-2 { border-left-color: var(--warning); }
+        .responsibility-item.rank-3 { border-left-color: var(--accent); }
+
+        .responsibility-rank {
+            width: 32px;
+            height: 32px;
+            display
+```
+            font-weight: 700;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-card);
+            border-radius: 50%;
+        }
+
+        .responsibility-info {
+            flex: 1;
+        }
+
+        .responsibility-name {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .responsibility-reason {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .responsibility-score {
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+
+        /* Worst Player Module */
+        .worst-player-module {
+            background: linear-gradient(135deg, rgba(220, 53, 69, 0.15) 0%, rgba(220, 53, 69, 0.05) 100%);
+            border: 2px solid var(--danger);
+            border-radius: var(--radius);
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .worst-player-module::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--danger), #ff6b6b, var(--danger));
+        }
+
+        .worst-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--danger);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+        }
+
+        .worst-player-name {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--danger);
+            margin-bottom: 8px;
+        }
+
+        .evidence-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .evidence-item {
+            background: var(--bg-card);
+            padding: 16px;
+            border-radius: var(--radius-sm);
+            border-left: 3px solid var(--danger);
+        }
+
+        .evidence-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .evidence-value {
+            font-weight: 600;
+        }
+
+        /* Fix Items */
+        .fix-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .fix-item {
+            display: flex;
+            gap: 16px;
+            background: var(--bg-secondary);
+            padding: 16px;
+            border-radius: var(--radius-sm);
+            border-left: 4px solid var(--success);
+        }
+
+        .fix-priority {
+            width: 32px;
+            height: 32px;
+            background: var(--success);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .fix-content {
+            flex: 1;
+        }
+
+        .fix-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .fix-detail {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* Conclusion */
+        .conclusion-box {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+        }
+
+        .conclusion-verdict {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* Charts */
+        .chart-container {
+            position: relative;
+            height: 280px;
+            margin-bottom: 16px;
+        }
+
+        .chart-conclusion {
+            background: var(--bg-secondary);
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            font-size: 0.9rem;
+            border-left: 3px solid var(--accent);
+        }
+
+        /* Data Warning */
+        .data-warning {
+            background: linear-gradient(135deg, rgba(255, 193, 7, 0.15) 0%, rgba(255, 193, 7, 0.05) 100%);
+            border: 1px solid var(--warning);
+            border-radius: var(--radius-sm);
+            padding: 16px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .warning-icon {
+            color: var(--warning);
+            font-size: 1.5rem;
+        }
+
+        .warning-content h4 {
+            color: var(--warning);
+            margin-bottom: 4px;
+        }
+
+        .warning-content p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* No Data */
+        .no-data {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            background: var(--bg-secondary);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero-stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .grid-2col {
+                grid-template-columns: 1fr;
+            }
+            
+            .chart-container {
+                height: 220px;
+            }
+            
+            .player-stats {
+                grid-template-columns: 1fr;
+            }
+            
+            .evidence-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-in {
+            animation: fadeInUp 0.5s ease-out forwards;
+        }
+
+        .delay-1 { animation-delay: 0.1s; opacity: 0; }
+        .delay-2 { animation-delay: 0.2s; opacity: 0; }
+        .delay-3 { animation-delay: 0.3s; opacity: 0; }
+        .delay-4 { animation-delay: 0.4s; opacity: 0; }
+
+        /* Markdown Styles */
+        .markdown-content h1 { font-size: 1.5rem; margin: 16px 0 8px; }
+        .markdown-content h2 { font-size: 1.25rem; margin: 14px 0 6px; }
+        .markdown-content h3 { font-size: 1.1rem; margin: 12px 0 4px; }
+        .markdown-content p { margin: 8px 0; line-height: 1.6; }
+        .markdown-content ul, .markdown-content ol { margin: 8px 0; padding-left: 24px; }
+        .markdown-content li { margin: 4px 0; }
+        .markdown-content strong { color: var(--text-primary); font-weight: 600; }
+        .markdown-content code { 
+            background: var(--bg-card); 
+            padding: 2px 6px; 
+            border-radius: 4px; 
+            font-size: 0.9em; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Hero Section -->
+        <header class="hero animate-in">
+            <div class="hero-title">
+                <h1>大秘境复盘分析报告</h1>
+                <p class="subtitle">Magister's Terrace · 15层 · 战斗ID: 8</p>
+            </div>
+            <div class="hero-stats">
+                <div class="stat-box">
+                    <div class="stat-number success">通关</div>
+                    <div class="stat-desc">战斗状态</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">30.0分钟</div>
+                    <div class="stat-desc">战斗时长</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">895,495,340</div>
+                    <div class="stat-desc">团队总伤害</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">225,979,379</div>
+                    <div class="stat-desc">团队总治疗</div>
+                </div>
+            </div>
+        </header>
+
+        <!-- KPI Bar -->
+        <div class="kpi-bar animate-in delay-1">
+            <div class="kpi-item">
+                <span class="kpi-label">打断总数</span>
+                <span class="kpi-value">85</span>
+            </div>
+            <div class="kpi-item">
+                <span class="kpi-label">控场总数</span>
+                <span class="kpi-value">39</span>
+            </div>
+            <div class="kpi-item">
+                <span class="kpi-label">施法总数</span>
+                <span class="kpi-value">8,209</span>
+            </div>
+            <div class="kpi-item">
+                <span class="kpi-label">承伤总量</span>
+                <span class="kpi-value">215.5M</span>
+            </div
+</div>
+        </div>
+
+        <!-- 横向差距分析 -->
+        <section class="section animate-in delay-2">
+            <h2 class="section-title">横向差距分析</h2>
+            <div class="card">
+                <div class="gap-analysis">
+                    <div class="gap-item">
+                        <div class="gap-header">
+                            <span class="gap-label">DPS差距</span>
+                            <span class="gap-value danger">2.1%</span>
+                        </div>
+                        <div class="gap-detail">
+                            <p>炎色雷灬(266M) vs Carefreedk(261M)，差距仅5.5M。三名DPS输出相当接近，说明团队DPS分配均衡，但也意味着无人能carry全场。</p>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-header">
+                            <span class="gap-label">打断差距</span>
+                            <span class="gap-value warning">1300%</span>
+                        </div>
+                        <div class="gap-detail">
+                            <p>Carefreedk(28次) vs 米拉大熊(2次)。奶德打断次数严重不足，仅为DK的7%。这不是职业问题，是意识问题。</p>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-header">
+                            <span class="gap-label">控场差距</span>
+                            <span class="gap-value danger">∞</span>
+                        </div>
+                        <div class="gap-detail">
+                            <p>米拉大熊(30次) vs 炎色雷灬/Carefreedk(0次)。战士和DK完全没有控场贡献，近战DPS的辅助意识几乎为零。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 关键失败点 -->
+        <section class="section animate-in delay-3">
+            <h2 class="section-title">关键问题点</h2>
+            <div class="card problem-card">
+                <div class="problem-list">
+                    <div class="problem-item critical">
+                        <div class="problem-icon">⚠</div>
+                        <div class="problem-content">
+                            <h3>治疗承伤比异常</h3>
+                            <p>米拉大熊承伤32M，超过部分DPS。作为后排治疗，站位存在严重问题，频繁吃到不必要的AOE伤害。</p>
+                        </div>
+                    </div>
+                    <div class="problem-item warning">
+                        <div class="problem-icon">⚡</div>
+                        <div class="problem-content">
+                            <h3>战斗效率偏低</h3>
+                            <p>30分钟通关15层魔导师平台，远超合理时长(约22-25分钟)。小怪波次处理拖沓，路线规划或执行力有问题。</p>
+                        </div>
+                    </div>
+                    <div class="problem-item warning">
+                        <div class="problem-icon">🛡</div>
+                        <div class="problem-content">
+                            <h3>坦克自疗占比过高</h3>
+                            <p>星却自疗68M，占团队治疗的30%。说明治疗覆盖不足，坦克被迫大量自保，影响仇恨稳定性和输出节奏。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 图表区域 -->
+        <section class="section animate-in delay-4">
+            <h2 class="section-title">数据可视化</h2>
+            <div class="charts-grid">
+                <div class="card chart-card">
+                    <h3 class="chart-title">伤害输出分布</h3>
+                    <div class="chart-container">
+                        <canvas id="damageChart"></canvas>
+                    </div>
+                    <div class="chart-conclusion">
+                        <p><strong>结论：</strong>炎色雷灬以266M伤害领跑，占比29.7%，与第二名Staywithme仅差2.2M。三名DPS输出接近说明团队没有明显短板，但也缺乏能爆发carry的核心输出。坦克星却贡献108M伤害，作为酒仙表现合格。</p>
+                    </div>
+                </div>
+                <div class="card chart-card">
+                    <h3 class="chart-title">治疗输出分布</h3>
+                    <div class="chart-container">
+                        <canvas id="healingChart"></canvas>
+                    </div>
+                    <div class="chart-conclusion">
+                        <p><strong>结论：</strong>米拉大熊治疗量131M，占比58.2%，作为主治疗基本达标。但坦克星却自疗68M占比30.2%，说明治疗压力转移严重。奶德需要更主动覆盖坦克，而非让坦克自救。</p>
+                    </div>
+                </div>
+                <div class="card chart-card">
+                    <h3 class="chart-title">承伤分布</h3>
+                    <div class="chart-container">
+                        <canvas id="damageTakenChart"></canvas>
+                    </div>
+                    <div class="chart-conclusion">
+                        <p><strong>结论：</strong>星却承伤97.8M占比45.4%，符合坦克定位。但米拉大熊承伤32M超过两名DPS，作为治疗站位过于激进或走位意识差。Staywithme承伤30.8M，猎人需要更合理使用减伤和走位。</p>
+                    </div>
+                </div>
+                <div class="card chart-card">
+                    <h3 class="chart-title">打断/控场贡献</h3>
+                    <div class="chart-container">
+                        <canvas id="utilityChart"></canvas>
+                    </div>
+                    <div class="chart-conclusion">
+                        <p><strong>结论：</strong>Carefreedk打断28次表现最佳，米拉大熊仅2次打断严重失职。控场方面米拉大熊贡献30次，但炎色雷灬和Carefreedk控场为0，近战DPS对控场技能的利用率极低，需要加强副本意识。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 玩家复盘 -->
+        <section class="section animate-in delay-5">
+            <h2 class="section-title">玩家复盘</h2>
+            <div class="players-grid">
+                <div class="player-card">
+                    <div class="player-header warrior">
+                        <span class="player-name">炎色雷灬</span>
+                        <span class="player-spec">狂暴战</span>
+                    </div>
+                    <div class="player-stats">
+                        <div class="player-stat"><span>伤害</span><strong>266.2M</strong></div>
+                        <div class="player-stat"><span>打断</span><strong>14</strong></div>
+                        <div class="player-stat"><span>控场</span><strong class="danger">0</strong></div>
+                    </div>
+                    <div class="player-verdict">
+                        <p>伤害输出团队第一，表现合格。但作为战士拥有拳击、刺耳吼叫等控场手段，控场次数为零是不可接受的。打断14次中等偏上，仍有提升空间。建议：主动使用控场技能辅助队伍，尤其在处理add时。</p>
+<div class="player-grade grade-b">B+</div>
+                </div>
+                <div class="player-card">
+                    <div class="player-header hunter">
+                        <span class="player-name">Staywithme</span>
+                        <span class="player-spec">兽王猎</span>
+                    </div>
+                    <div class="player-stats">
+                        <div class="player-stat"><span>伤害</span><strong>263.9M</strong></div>
+                        <div class="player-stat"><span>打断</span><strong>17</strong></div>
+                        <div class="player-stat"><span>控场</span><strong>7</strong></div>
+                    </div>
+                    <div class="player-verdict">
+                        <p>伤害排名第二，与第一名差距极小，输出稳定。打断17次、控场7次，远程DPS中表现最好。承伤30.8M偏高，说明走位有优化空间。整体表现中规中矩，没有明显短板，也没有突出亮点。</p>
+                    </div>
+                    <div class="player-grade grade-b">B</div>
+                </div>
+                <div class="player-card">
+                    <div class="player-header deathknight">
+                        <span class="player-name">Carefreedk</span>
+                        <span class="player-spec">邪恶DK</span>
+                    </div>
+                    <div class="player-stats">
+                        <div class="player-stat"><span>伤害</span><strong>260.7M</strong></div>
+                        <div class="player-stat"><span>打断</span><strong class="success">28</strong></div>
+                        <div class="player-stat"><span>控场</span><strong class="danger">0</strong></div>
+                    </div>
+                    <div class="player-verdict">
+                        <p>打断28次全队最高，这是唯一值得肯定的点。伤害260.7M排名垫底，作为邪恶DK这个数值严重不达标。控场为0，DK拥有大量控场技能却完全不用，副本意识堪忧。施法次数1832次正常，说明不是挂机而是技能优先级有问题。</p>
+                    </div>
+                    <div class="player-grade grade-c">C</div>
+                </div>
+                <div class="player-card">
+                    <div class="player-header monk">
+                        <span class="player-name">星却</span>
+                        <span class="player-spec">酒仙武僧</span>
+                    </div>
+                    <div class="player-stats">
+                        <div class="player-stat"><span>伤害</span><strong>108.7M</strong></div>
+                        <div class="player-stat"><span>治疗</span><strong>68.2M</strong></div>
+                        <div class="player-stat"><span>打断</span><strong>24</strong></div>
+                    </div>
+                    <div class="player-verdict">
+                        <p>作为坦克承伤97.8M符合预期，自疗68.2M体现了酒仙特色。伤害108.7M在坦克中属于中等水平。打断24次表现积极。整体完成坦克职责，没有明显失误，也没有特别亮眼的表现。中规中矩完成任务。</p>
+                    </div>
+                    <div class="player-grade grade-a">A-</div>
+                </div>
+                <div class="player-card">
+                    <div class="player-header druid">
+                        <span class="player-name">米拉大熊</span>
+                        <span class="player-spec">恢复德鲁伊</span>
+                    </div>
+                    <div class="player-stats">
+                        <div class="player-stat"><span>治疗</span><strong>131.5M</strong></div>
+                        <div class="player-stat"><span>伤害</span><strong class="danger">5.6M</strong></div>
+                        <div class="player-stat"><span>打断</span><strong class="danger">2</strong></div>
+                    </div>
+                    <div class="player-verdict">
+                        <p>治疗量131.5M数值尚可，但这掩盖不了其他方面的严重失职。伤害5.6M，作为恢复德这个数值低得离谱，完全不参与输出。打断仅2次，全队最低，德鲁伊拥有台风、乌索尔旋风等多种打断控场手段却几乎不用。承伤32M超过两名DPS，站位问题严重。施法次数1373次全队最低，存在划水嫌疑。</p>
+                    </div>
+                    <div class="player-grade grade-d">D</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 责任排序 -->
+        <section class="section animate-in delay-6">
+            <h2 class="section-title">责任排序</h2>
+            <div class="responsibility-list">
+                <div class="responsibility-item rank-1">
+                    <div class="rank-badge">1</div>
+                    <div class="responsibility-content">
+                        <h4>米拉大熊 <span class="role-tag healer">治疗</span></h4>
+                        <p>综合表现最差。伤害贡献几乎为零、打断严重失职、承伤过高、施法活跃度最低。作为治疗仅完成基础治疗量，其他维度的贡献完全缺失。建议优先更换或进行严肃谈话。</p>
+                        <div class="responsibility-score">责任权重: <strong>42%</strong></div>
+                    </div>
+                </div>
+                <div class="responsibility-item rank-2">
+                    <div class="rank-badge">2</div>
+                    <div class="responsibility-content">
+                        <h4>Carefreedk <span class="role-tag dps">DPS</span></h4>
+                        <p>伤害输出在DPS中垫底，与团队平均差距明显。虽然打断表现最好，但控场为零说明副本意识不全面。作为邪恶DK，这个伤害数值需要检讨天赋和手法。</p>
+                        <div class="responsibility-score">责任权重: <strong>28%</strong></div>
+                    </div>
+                </div>
+                <div class="responsibility-item rank-3">
+                    <div class="rank-badge">3</div>
+                    <div class="responsibility-content">
+                        <h4>Staywithme <span class="role-tag dps">DPS</span></h4>
+                        <p>伤害中等，承伤偏高。没有明显的致命失误，但也没有突出表现。作为远程DPS走位需要优化，减少不必要的承伤。整体是及格但平庸的表现。</p>
+                        <div class="responsibility-score">责任权重: <strong>15%</strong></div>
+                    </div>
+                </div>
+                <div class="responsibility-item rank-4">
+                    <div class="rank-badge">4</div>
+                    <div class="responsibility-content">
+                        <h4>炎色雷灬 <span class="role-tag dps">DPS</span></h4>
+                        <p>伤害最高，表现稳定。控场为零是需要改进的点，但整体贡献在团队中处于正向。作为近战DPS完成了核心职责。</p>
+                        <div class="responsibility-score">责任权重: <strong>10%</strong></div>
+                    </div>
+                </div>
+                <div class="responsibility-item rank-5">
+                    <div class="rank-badge">5</div>
+                    <div class="responsibility-content">
+                        <h4>星却 <span class="role-tag tank">坦克</span></h4>
+                        <p>唯一完成本职工作且没有明显短板的玩家。承伤、自疗、打断、伤害各项指标均在合理范围内。本次战斗中表现最稳定的队员。</p>
+                        <div class="responsibility-score">责任权重: <strong>5%</strong></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 优先修复项 -->
+        <section class="section animate-in delay-7">
+            <h2 class="section-title">优先修复项</h2>
+            <div class="fix-list">
+                <div class="fix-item critical">
+                    <div class="fix-priority">P0</div>
+                    <div class="fix-content">
+                        <h4>米拉大熊需提升战斗参与度</h4>
+                        <p>施法次数全队最低，伤害贡献接近零，打断仅2次。恢复德鲁伊在空闲时间应该输出，而不是站在原地等待掉血。建议：学习恢复德输出循环，设置打断提醒，检讨是否处于半挂机状态。</p>
+                    </div>
+                </div>
+                <div class="fix-item critical">
+                    <div class="fix-priority">P0</div>
+                    <div class="fix-content">
+                        <h4>Carefreedk需提升伤害输出</h4>
+                        <p>作为邪恶DK伤害垫底是不正常的。需要检讨：天赋选择是否正确、技能优先级是否合理、AOE场景是否充分利用。建议：对比同层数同职业WCL数据，找出差距原因。</p>
+                    </div>
+                </div>
+                <div class="fix-item high">
+                    <div class="fix-priority">P1</div>
+                    <div class="fix-content">
+                        <h4>全员近战DPS需补充控场</h4>
+                        <p>炎色雷灬和Carefreedk控场均为零。大秘境中控场是重要的生存手段，尤其在高层数。建议：将控场技能纳入肌肉记忆，在add波次主动使用。</p>
+                    </div>
+                </div>
+                <div class="fix-item medium">
+                    <div class="fix-priority">P2</div>
+                    <div class="fix-content">
+                        <h4>远程DPS走位优化</h4>
+                        <p>Staywithme承伤30.8M，作为猎人这个数值偏高。需要更合理使用减伤技能和优化站位。建议：复盘承伤来源，针对性改进。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 最终结论 -->
+        <section class="section animate-in delay-8">
+            <h2 class="section-title">最终结论</h2>
+            <div class="conclusion-card">
+                <div class="conclusion-verdict success">
+                    <span class="
+</body>
+</html>

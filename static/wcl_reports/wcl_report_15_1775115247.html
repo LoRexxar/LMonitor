@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WCL战斗分析报告 #15</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body{font-family:"Inter","Segoe UI",Arial,sans-serif;background:radial-gradient(circle at top,#dbeafe 0,#eef2ff 35%,#f8fafc 80%);margin:0;padding:24px;color:#0f172a}
+.container{max-width:1280px;margin:0 auto}
+.hero{background:linear-gradient(135deg,#1e3a8a,#312e81 60%,#4f46e5);color:#fff;border-radius:18px;padding:26px;box-shadow:0 18px 36px rgba(30,41,59,.25);margin-bottom:18px}
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.hero h1{margin:0;font-size:30px}
+.tag{display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.2);font-size:12px}
+.hero-sub{margin-top:10px;opacity:.95}
+.hero a{color:#bfdbfe}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}
+.kpi{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;box-shadow:0 8px 18px rgba(15,23,42,.06)}
+.kpi .label{color:#64748b;font-size:12px}
+.kpi .value{margin-top:8px;font-size:24px;font-weight:700}
+.panel{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;margin-bottom:16px;box-shadow:0 10px 20px rgba(15,23,42,.06)}
+.panel h2{margin:0 0 12px 0;font-size:20px}
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.chart-card{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fafafa}
+.chart-title{font-size:14px;color:#334155;margin-bottom:8px}
+.analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.section{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px}
+.section.full{grid-column:1 / -1}
+.section h3{margin:0 0 8px 0;font-size:16px;color:#1e293b}
+.text{white-space:pre-wrap;word-break:break-word;line-height:1.75;font-size:15px;color:#0f172a}
+@media (max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-grid,.analysis-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="hero">
+<div class="hero-top">
+<h1>WCL 战斗分析报告</h1>
+<span class="tag">任务 #15</span>
+</div>
+<div class="hero-sub">report_code: tWyndNFfbmGJB4K1 ｜ fight: 8</div>
+<div class="hero-sub">原始链接: <a href="https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=8&amp;type=damage-done" target="_blank">https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=8&amp;type=damage-done</a></div>
+</div>
+
+<div class="kpi-grid">
+<div class="kpi"><div class="label">副本</div><div class="value">Magister&#x27;s Terrace</div></div>
+<div class="kpi"><div class="label">层数</div><div class="value">+1</div></div>
+<div class="kpi"><div class="label">队伍人数</div><div class="value">6</div></div>
+<div class="kpi"><div class="label">结果</div><div class="value">击杀</div></div>
+</div>
+
+<div class="panel">
+<h2>战斗数据可视化</h2>
+<div class="chart-grid">
+<div class="chart-card">
+<div class="chart-title">伤害 TOP10</div>
+<canvas id="damageChart" height="220"></canvas>
+</div>
+<div class="chart-card">
+<div class="chart-title">治疗 TOP10</div>
+<canvas id="healingChart" height="220"></canvas>
+</div>
+<div class="chart-card">
+<div class="chart-title">承伤 TOP10</div>
+<canvas id="takenChart" height="220"></canvas>
+</div>
+<div class="chart-card">
+<div class="chart-title">断法 TOP10</div>
+<canvas id="interruptChart" height="220"></canvas>
+</div>
+</div>
+</div>
+
+<div class="panel">
+<h2>复盘分析</h2>
+<div class="analysis-grid">
+<div class="section"><h3>战斗总览</h3><div class="text">**副本信息：** 魔导师平台 | 1层 | 时长29分56秒 | 通关成功  
+**团队配置：** 酒仙武僧(坦) + 恢复德(治) + 狂暴战 + 兽王猎 + 邪恶DK  
+**死亡次数：** 3次（治疗1次、猎人1次、战士1次）  
+**WCL评分：** 铜牌，全队99百分位
+
+---</div></div>
+<div class="section"><h3>横向差距</h3><div class="text">**与全球前20对比：**
+- **时间效率：** 本场29:56，属于中上水平，但距离顶尖队伍（预计25分钟内）仍有4-5分钟差距
+- **死亡控制：** 3次死亡严重拖累节奏，顶尖队伍通常0-1次死亡
+- **输出效率：** 三DPS伤害差距仅2%，说明输出均衡但缺乏爆发点
+- **治疗压力：** 治疗承伤3200万，远超正常范围（应&lt;2000万），说明团队站位和仇恨管理存在严重问题
+
+**核心差距：** 不是输出不够，而是**生存能力太差**导致节奏被打断、治疗资源浪费。
+
+---</div></div>
+<div class="section full"><h3>关键失败点</h3><div class="text">### 1. 治疗死亡（时间戳10313588）
+- **死亡原因：** 被Holy Fire（圣光之火）击杀
+- **致命问题：** 治疗承伤3200万，是全场承伤第二高（仅次于坦克），说明**站位极其糟糕**，频繁吃到不该吃的AOE伤害
+- **连锁反应：** 治疗死亡后团队失去续航，直接导致后续猎人、战士接连死亡
+
+### 2. 断法控制完全缺失
+- **数据：** 全队断法次数为0
+- **影响：** 大量可打断技能（如Arcane Bolt、Shadow Bolt、Terror Wave）未被控制，导致团队承伤暴增
+- **对比：** 顶尖队伍在魔导师平台这类法系怪密集的副本，断法次数应在30+次
+
+### 3. 减伤覆盖严重不足
+- **战士：** 承伤2784万，死亡1次，自保技能（如盾墙、破釜沉舟）使用明显不足
+- **猎人：** 承伤3086万，死亡1次，后跳、威慑等保命技能未合理使用
+- **治疗：** 自保能力最弱，却承伤最高，说明完全没有利用德鲁伊的机动性规避伤害
+
+### 4. 仇恨管理混乱
+- **现象：** 治疗承伤3200万，说明频繁OT（仇恨失控）或站位在怪物的AOE范围内
+- **坦克责任：** 仇恨建立不够快，或未及时嘲讽add怪
+
+---</div></div>
+<div class="section full"><h3>玩家复盘</h3><div class="text">### 米拉大熊（恢复德鲁伊）- 治疗位
+**治疗数据：** 1.31亿治疗 | 承伤3200万 | 死亡1次  
+**核心问题：**
+- **站位灾难：** 治疗承伤3200万，这是坦克级别的承伤，说明完全没有规避AOE
+- **自保缺失：** 德鲁伊有树皮术、本能反应等减伤，但显然未使用
+- **治疗效率：** 过量治疗76%，说明治疗节奏混乱，大量预读治疗被浪费
+
+**改进建议：** 站位必须远离AOE范围，优先保证自己存活；合理使用树皮术和本能反应；减少预读治疗，提高有效治疗占比。
+
+---
+
+### 炎色雷灬（狂暴战士）- DPS位
+**输出数据：** 2.66亿伤害 | 承伤2784万 | 死亡1次  
+**核心问题：**
+- **自保意识差：** 战士有盾墙、破釜沉舟、集结呐喊等强力减伤，但承伤仍高达2784万并死亡
+- **站位激进：** 狂暴战确实需要近战输出，但不能无脑站桩吃AOE
+- **断法缺失：** 战士有拳击、震荡波等断法技能，但本场断法次数为0
+
+**改进建议：** 合理使用减伤技能，不要等到血量危急才开；主动承担断法责任</div></div>
+<div class="section"><h3>责任排序</h3><div class="text"></div></div>
+<div class="section"><h3>优先修复项</h3><div class="text"></div></div>
+<div class="section full"><h3>最终结论</h3><div class="text">error Wave）未被控制，导致团队承伤暴增
+- **对比：** 顶尖队伍在魔导师平台这类法系怪密集的副本，断法次数应在30+次
+
+### 3. 减伤覆盖严重不足
+- **战士：** 承伤2784万，死亡1次，自保技能（如盾墙、破釜沉舟）使用明显不足
+- **猎人：** 承伤3086万，死亡1次，后跳、威慑等保命技能未合理使用
+- **治疗：** 自保能力最弱，却承伤最高，说明完全没有利用德鲁伊的机动性规避伤害
+
+### 4. 仇恨管理混乱
+- **现象：** 治疗承伤3200万，说明频繁OT（仇恨失控）或站位在怪物的AOE范围内
+- **坦克责任：** 仇恨建立不够快，或未及时嘲讽add怪
+
+---
+
+## 玩家复盘
+
+### 米拉大熊（恢复德鲁伊）- 治疗位
+**治疗数据：** 1.31亿治疗 | 承伤3200万 | 死亡1次  
+**核心问题：**
+- **站位灾难：** 治疗承伤3200万，这是坦克级别的承伤，说明完全没有规避AOE
+- **自保缺失：** 德鲁伊有树皮术、本能反应等减伤，但显然未使用
+- **治疗效率：** 过量治疗76%，说明治疗节奏混乱，大量预读治疗被浪费
+
+**改进建议：** 站位必须远离AOE范围，优先保证自己存活；合理使用树皮术和本能反应；减少预读治疗，提高有效治疗占比。
+
+---
+
+### 炎色雷灬（狂暴战士）- DPS位
+**输出数据：** 2.66亿伤害 | 承伤2784万 | 死亡1次  
+**核心问题：**
+- **自保意识差：** 战士有盾墙、破釜沉舟、集结呐喊等强力减伤，但承伤仍高达2784万并死亡
+- **站位激进：** 狂暴战确实需要近战输出，但不能无脑站桩吃AOE
+- **断法缺失：** 战士有拳击、震荡波等断法技能，但本场断法次数为0
+
+**改进建议：** 合理使用减伤技能，不要等到血量危急才开；主动承担断法责任</div></div>
+</div>
+</div>
+
+<script>
+const damageLabels = ["米拉大熊","星却","炎色雷灬","Staywithme","Carefreedk"];
+const damageValues = [5641124,108738086,266189124,263869036,260707970];
+const healingLabels = ["米拉大熊","Devouring Tyrant","星却","炎色雷灬","Staywithme","Carefreedk"];
+const healingValues = [131476931,0,68185524,9234999,6723299,10186826];
+const takenLabels = ["米拉大熊","炎色雷灬","Staywithme","Carefreedk","星却"];
+const takenValues = [32080090,27840429,30862961,26922099,97814000];
+const interruptLabels = [""];
+const interruptValues = [0];
+
+function renderBarChart(id, labels, data, color) {
+    const el = document.getElementById(id);
+    if (!el || !labels.length) return;
+    new Chart(el, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{ data: data, backgroundColor: color, borderRadius: 6 }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#334155' } },
+                y: { ticks: { color: '#64748b' } }
+            }
+        }
+    });
+}
+
+renderBarChart('damageChart', damageLabels, damageValues, 'rgba(59,130,246,.75)');
+renderBarChart('healingChart', healingLabels, healingValues, 'rgba(16,185,129,.75)');
+renderBarChart('takenChart', takenLabels, takenValues, 'rgba(251,146,60,.75)');
+renderBarChart('interruptChart', interruptLabels, interruptValues, 'rgba(139,92,246,.75)');
+</script>
+</body>
+</html>

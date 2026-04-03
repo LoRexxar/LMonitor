@@ -20,8 +20,8 @@ from django.shortcuts import redirect
 
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
-from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView
-from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView
+from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
+from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, WclAnalysisTaskAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from django.http import HttpResponse, JsonResponse
 
@@ -56,10 +56,14 @@ urlpatterns = [
     path('api/simc-result-proxy/', csrf_exempt(SimcResultProxyAPIView.as_view()), name="simc_result_proxy"),
     path('api/simc-attribute-analysis/', csrf_exempt(SimcAttributeAnalysisAPIView.as_view()), name="simc_attribute_analysis"),
     path('api/simc-regular-compare/', csrf_exempt(SimcRegularCompareAPIView.as_view()), name="simc_regular_compare"),
+    path('api/wcl-analysis-task/', csrf_exempt(WclAnalysisTaskAPIView.as_view()), name="wcl_analysis_task"),
+    path('api/wcl-analysis-task/<int:task_id>/', csrf_exempt(WclAnalysisTaskAPIView.as_view()), name="wcl_analysis_task_detail"),
     
     # SimC结果查看页面
     path('simc-result/', SimcResultView.as_view(), name="simc_result"),
     path('simc-attribute-analysis/', SimcAttributeAnalysisView.as_view(), name="simc_attribute_analysis"),
     path('simc-attribute-analysis-ssr/', SimcAttributeAnalysisSSRView.as_view(), name="simc_attribute_analysis_ssr"),
     path('simc-compare/', SimcRegularCompareView.as_view(), name="simc_regular_compare_view"),
+    path('wcl-analysis/', WclAnalysisPageView.as_view(), name="wcl_analysis"),
+    path('wcl-analysis/report/<int:task_id>/', WclAnalysisReportView.as_view(), name="wcl_analysis_report"),
 ]

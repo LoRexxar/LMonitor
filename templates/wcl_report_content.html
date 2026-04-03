@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WCL战斗分析报告 #{{ task.id }}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
+<style>
+body{font-family:"Inter","Segoe UI",Arial,sans-serif;background:radial-gradient(circle at top,#dbeafe 0,#eef2ff 35%,#f8fafc 80%);margin:0;padding:24px;color:#0f172a}
+.container{max-width:1280px;margin:0 auto}
+.hero{background:linear-gradient(135deg,#1e3a8a,#312e81 60%,#4f46e5);color:#fff;border-radius:18px;padding:26px;box-shadow:0 18px 36px rgba(30,41,59,.25);margin-bottom:18px}
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.hero h1{margin:0;font-size:30px}
+.tag{display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.2);font-size:12px}
+.hero-sub{margin-top:10px;opacity:.95}
+.hero a{color:#bfdbfe}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}
+.kpi{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;box-shadow:0 8px 18px rgba(15,23,42,.06)}
+.kpi .label{color:#64748b;font-size:12px}
+.kpi .value{margin-top:8px;font-size:24px;font-weight:700}
+.panel{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;margin-bottom:16px;box-shadow:0 10px 20px rgba(15,23,42,.06)}
+.panel h2{margin:0 0 12px 0;font-size:20px}
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.chart-card{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fafafa}
+.chart-title{font-size:14px;color:#334155;margin-bottom:8px}
+.chart-note{margin-top:10px;font-size:12px;color:#64748b}
+.analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.section{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px}
+.section.full{grid-column:1 / -1}
+.section h3{margin:0 0 8px 0;font-size:16px;color:#1e293b}
+.text{white-space:pre-wrap;word-break:break-word;line-height:1.75;font-size:15px;color:#0f172a}
+.md-content h1,.md-content h2,.md-content h3{margin:.4em 0}
+.md-content ul{padding-left:20px}
+.md-content code{background:#e2e8f0;padding:2px 5px;border-radius:5px}
+@media (max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-grid,.analysis-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="hero">
+<div class="hero-top">
+<h1>WCL 战斗分析报告</h1>
+<span class="tag">任务 #{{ task.id }}</span>
+</div>
+<div class="hero-sub">report_code: {{ task.report_code }} ｜ fight: {{ task.fight_id }}</div>
+<div class="hero-sub">原始链接: <a href="{{ task.wcl_url }}" target="_blank">{{ task.wcl_url }}</a></div>
+</div>
+
+<div class="kpi-grid">
+<div class="kpi"><div class="label">副本</div><div class="value">{{ battle_data.dungeon_name|default:"未知" }}</div></div>
+<div class="kpi"><div class="label">层数</div><div class="value">{% if battle_data.keystone_level %}+{{ battle_data.keystone_level }}{% else %}未知{% endif %}</div></div>
+<div class="kpi"><div class="label">队伍人数</div><div class="value">{{ battle_data.players|length }}</div></div>
+<div class="kpi"><div class="label">结果</div><div class="value">{% if battle_data.selected_fight.kill %}击杀{% else %}未击杀{% endif %}</div></div>
+</div>
+
+<div class="panel">
+<h2>战斗数据可视化</h2>
+<div class="chart-grid">
+<div class="chart-card">
+<div class="chart-title">伤害 TOP10</div>
+<canvas id="damageChart" height="220"></canvas>
+<div id="damageNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">治疗 TOP10</div>
+<canvas id="healingChart" height="220"></canvas>
+<div id="healingNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">承伤 TOP10</div>
+<canvas id="takenChart" height="220"></canvas>
+<div id="takenNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">断法 TOP10</div>
+<canvas id="interruptChart" height="220"></canvas>
+<div id="interruptNote" class="chart-note"></div>
+</div>
+</div>
+</div>
+
+<div class="panel">
+<h2>复盘分析</h2>
+<div class="analysis-grid">
+<div class="section"><h3>战斗总览</h3><div class="text md-content">{{ llm.overview|default:"" }}</div></div>
+<div class="section"><h3>横向差距</h3><div class="text md-content">{{ llm.benchmark_gap|default:"" }}</div></div>
+<div class="section full"><h3>关键失败点</h3><div class="text md-content">{{ llm.key_failures|default:"" }}</div></div>
+<div class="section full"><h3>玩家复盘</h3><div class="text md-content">{{ llm.player_analysis|default:"" }}</div></div>
+<div class="section"><h3>责任排序</h3><div class="text md-content">{{ llm.blame_ranking|default:"" }}</div></div>
+<div class="section"><h3>优先修复项</h3><div class="text md-content">{{ llm.priority_fixes|default:"" }}</div></div>
+<div class="section full"><h3>最终结论</h3><div class="text md-content">{{ llm.final_verdict|default:"" }}</div></div>
+</div>
+</div>
+
+<script>
+const damageLabels = [{% for e in battle_data.tables.damage_done.entries|slice:":10" %}"{{ e.name|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %}];
+const damageValues = [{% for e in battle_data.tables.damage_done.entries|slice:":10" %}{{ e.total|default:0 }}{% if not forloop.last %},{% endif %}{% endfor %}];
+const healingLabels = [{% for e in battle_data.tables.healing.entries|slice:":10" %}"{{ e.name|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %}];
+const healingValues = [{% for e in battle_data.tables.healing.entries|slice:":10" %}{{ e.total|default:0 }}{% if not forloop.last %},{% endif %}{% endfor %}];
+const takenLabels = [{% for e in battle_data.tables.damage_taken.entries|slice:":10" %}"{{ e.name|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %}];
+const takenValues = [{% for e in battle_data.tables.damage_taken.entries|slice:":10" %}{{ e.total|default:0 }}{% if not forloop.last %},{% endif %}{% endfor %}];
+const interruptLabels = [{% for e in battle_data.tables.interrupts.entries|slice:":10" %}"{{ e.name|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %}];
+const interruptValues = [{% for e in battle_data.tables.interrupts.entries|slice:":10" %}{{ e.total|default:0 }}{% if not forloop.last %},{% endif %}{% endfor %}];
+
+function renderBarChart(id, labels, data, color) {
+    const el = document.getElementById(id);
+    if (!el || !labels.length) return;
+    new Chart(el, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{ data: data, backgroundColor: color, borderRadius: 6 }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#334155' } },
+                y: { ticks: { color: '#64748b' } }
+            }
+        }
+    });
+}
+
+function formatNum(n) {
+    const num = Number(n || 0);
+    if (num >= 100000000) return (num / 100000000).toFixed(2) + '亿';
+    if (num >= 10000) return (num / 10000).toFixed(1) + '万';
+    return String(num);
+}
+
+function renderChartNote(noteId, labels, values, metricName) {
+    const el = document.getElementById(noteId);
+    if (!el) return;
+    if (!labels.length) {
+        el.textContent = `${metricName}暂无有效数据`;
+        return;
+    }
+    const total = values.reduce((a, b) => a + Number(b || 0), 0);
+    const topIdx = values.reduce((best, v, i) => Number(v) > Number(values[best] || 0) ? i : best, 0);
+    const topVal = Number(values[topIdx] || 0);
+    const pct = total > 0 ? ((topVal / total) * 100).toFixed(1) : '0.0';
+    el.textContent = `最高 ${metricName}: ${labels[topIdx]} (${formatNum(topVal)}，占比 ${pct}%)，总量 ${formatNum(total)}`;
+}
+
+renderBarChart('damageChart', damageLabels, damageValues, 'rgba(59,130,246,.75)');
+renderBarChart('healingChart', healingLabels, healingValues, 'rgba(16,185,129,.75)');
+renderBarChart('takenChart', takenLabels, takenValues, 'rgba(251,146,60,.75)');
+renderBarChart('interruptChart', interruptLabels, interruptValues, 'rgba(139,92,246,.75)');
+renderChartNote('damageNote', damageLabels, damageValues, '伤害');
+renderChartNote('healingNote', healingLabels, healingValues, '治疗');
+renderChartNote('takenNote', takenLabels, takenValues, '承伤');
+renderChartNote('interruptNote', interruptLabels, interruptValues, '断法');
+
+document.querySelectorAll('.md-content').forEach((el) => {
+    const raw = el.textContent || '';
+    if (!raw.trim()) return;
+    const html = marked.parse(raw, { breaks: true, gfm: true });
+    el.innerHTML = DOMPurify.sanitize(html);
+});
+</script>
+</body>
+</html>

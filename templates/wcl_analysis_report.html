@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WCL 分析报告 #{{ task.id }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="max-w-6xl mx-auto px-4 py-8">
+        {% if status != 2 %}
+        <div class="bg-white rounded-lg shadow p-6">
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">任务 #{{ task.id }} 分析中</h1>
+            <p class="text-gray-700 mb-2">当前状态：
+                {% if status == 0 %}待处理{% elif status == 1 %}处理中{% elif status == 3 %}失败{% else %}未知{% endif %}
+            </p>
+            {% if error_message %}
+            <p class="text-red-600 mb-2">{{ error_message }}</p>
+            {% endif %}
+            <p class="text-gray-600 mb-4">该页面无需登录，任务完成后刷新即可查看最终报告。</p>
+            <div class="space-x-2">
+                <a href="?token={{ token }}" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">立即刷新</a>
+                <a href="{{ task.wcl_url }}" target="_blank" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">查看原始WCL</a>
+            </div>
+        </div>
+        <script>
+            setTimeout(function () { window.location.reload(); }, 8000);
+        </script>
+        {% else %}
+            {{ report_html|safe }}
+        {% endif %}
+    </div>
+</body>
+</html>

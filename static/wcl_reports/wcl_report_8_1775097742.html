@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WCL战斗分析报告 #8</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#f3f4f6;margin:0;padding:24px;color:#111827}
+.container{max-width:1100px;margin:0 auto}
+.panel{background:#fff;border-radius:10px;padding:20px;margin-bottom:16px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.card{border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-top:10px}
+h1,h2,h3{margin:0 0 10px 0}
+ul{margin:6px 0 10px 20px}
+pre{white-space:pre-wrap;word-break:break-all;background:#111827;color:#e5e7eb;padding:12px;border-radius:8px}
+.muted{color:#6b7280}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="panel">
+<h1>WCL战斗分析报告</h1>
+<div class="muted">任务ID: 8 | report_code: tWyndNFfbmGJB4K1 | fight: 4</div>
+<div class="muted">原始链接: <a href="https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=4" target="_blank">https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=4</a></div>
+</div>
+<div class="panel">
+<h2>战斗总览</h2>
+<p>数据抓取失败：目标WCL页面被Cloudflare安全防护拦截，无法获取任何战斗数据。页面返回安全验证界面，所有玩家信息、战斗事件、伤害/治疗数据均无法读取。报告代码tWyndNFfbmGJB4K1、战斗ID 4的战斗记录无法分析。</p>
+<h2>横向差距结论</h2>
+<p>无法生成横向对比分析：缺少副本名、层数、玩家职业、输出/治疗数据等所有必要信息。全球前20基准数据抓取同样依赖副本名与层数，当前条件不满足。</p>
+<h2>关键失败点</h2>
+<ul>
+
+<li>Cloudflare防护拦截导致HTTP 403错误</li>
+
+<li>无法获取副本名称与层数信息</li>
+
+<li>玩家列表为空，无法识别队伍配置</li>
+
+<li>战斗事件数据完全缺失</li>
+
+<li>无法进行任何数值分析与横向对比</li>
+
+</ul>
+</div>
+<div class="panel">
+<h2>玩家逐个复盘（六维）</h2>
+
+<div class="card">未解析到玩家复盘数据</div>
+
+</div>
+<div class="panel">
+<h2>责任排序</h2>
+<ul>
+
+<li>数据抓取工具未绕过Cloudflare验证机制</li>
+
+<li>WCL页面启用了严格的安全防护策略</li>
+
+<li>输入URL可能需要人工浏览器访问后提供完整HTML</li>
+
+</ul>
+<h2>优先修复项</h2>
+<ul>
+
+<li>使用带浏览器环境的抓取工具（如Puppeteer/Playwright）绕过Cloudflare验证</li>
+
+<li>提供已登录状态的Cookie或会话信息</li>
+
+<li>改用WCL官方API接口获取数据（需API密钥）</li>
+
+<li>人工访问页面后导出完整HTML源码作为输入</li>
+
+</ul>
+<h2>最终总结</h2>
+<p>本次分析无法完成。数据源被Cloudflare安全系统拦截，返回的是验证页面而非战斗记录。这不是战斗失败，而是数据获取失败。请使用支持JavaScript执行和验证码绕过的工具重新抓取，或直接提供WCL页面的完整HTML源码。当前输入不包含任何可用于复盘分析的有效战斗数据。</p>
+</div>
+<div class="panel">
+<h2>横向基准（同副本同层数全球前20）</h2>
+<p>基准不可用: 是</p>
+<p>缺少副本名或层数，无法抓取同层数全球前20</p>
+<pre>{
+  &quot;sample_size&quot;: 0,
+  &quot;note&quot;: &quot;缺少副本名或层数，无法抓取同层数全球前20&quot;
+}</pre>
+</div>
+<div class="panel">
+<h2>模型输入数据摘要</h2>
+<p>为了让评价尽量由模型完成，以下抓取数据会完整输入模型：战斗文本、表格片段、脚本片段、横向基准原始记录。</p>
+<p>战斗文本长度: 199 字符；表格数量: 0；脚本片段: 1</p>
+</div>
+</div>
+</body>
+</html>

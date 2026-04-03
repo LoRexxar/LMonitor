@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WCL战斗分析报告 #24</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
+<style>
+body{font-family:"Inter","Segoe UI",Arial,sans-serif;background:radial-gradient(circle at top,#dbeafe 0,#eef2ff 35%,#f8fafc 80%);margin:0;padding:24px;color:#0f172a}
+.container{max-width:1280px;margin:0 auto}
+.hero{background:linear-gradient(135deg,#1e3a8a,#312e81 60%,#4f46e5);color:#fff;border-radius:18px;padding:26px;box-shadow:0 18px 36px rgba(30,41,59,.25);margin-bottom:18px}
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.hero h1{margin:0;font-size:30px}
+.tag{display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.2);font-size:12px}
+.hero-sub{margin-top:10px;opacity:.95}
+.hero a{color:#bfdbfe}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}
+.kpi{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;box-shadow:0 8px 18px rgba(15,23,42,.06)}
+.kpi .label{color:#64748b;font-size:12px}
+.kpi .value{margin-top:8px;font-size:24px;font-weight:700}
+.panel{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;margin-bottom:16px;box-shadow:0 10px 20px rgba(15,23,42,.06)}
+.panel h2{margin:0 0 12px 0;font-size:20px}
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.chart-card{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fafafa}
+.chart-title{font-size:14px;color:#334155;margin-bottom:8px}
+.chart-note{margin-top:10px;font-size:12px;color:#64748b}
+.analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.section{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px}
+.section.full{grid-column:1 / -1}
+.section h3{margin:0 0 8px 0;font-size:16px;color:#1e293b}
+.text{white-space:pre-wrap;word-break:break-word;line-height:1.75;font-size:15px;color:#0f172a}
+.md-content h1,.md-content h2,.md-content h3{margin:.4em 0}
+.md-content ul{padding-left:20px}
+.md-content code{background:#e2e8f0;padding:2px 5px;border-radius:5px}
+@media (max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-grid,.analysis-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="hero">
+<div class="hero-top">
+<h1>WCL 战斗分析报告</h1>
+<span class="tag">任务 #24</span>
+</div>
+<div class="hero-sub">report_code: tWyndNFfbmGJB4K1 ｜ fight: 8</div>
+<div class="hero-sub">原始链接: <a href="https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=8&amp;type=damage-done" target="_blank">https://cn.warcraftlogs.com/reports/tWyndNFfbmGJB4K1?fight=8&amp;type=damage-done</a></div>
+</div>
+
+<div class="kpi-grid">
+<div class="kpi"><div class="label">副本</div><div class="value">Magister&#x27;s Terrace</div></div>
+<div class="kpi"><div class="label">层数</div><div class="value">+15</div></div>
+<div class="kpi"><div class="label">队伍人数</div><div class="value">6</div></div>
+<div class="kpi"><div class="label">结果</div><div class="value">击杀</div></div>
+</div>
+
+<div class="panel">
+<h2>战斗数据可视化</h2>
+<div class="chart-grid">
+<div class="chart-card">
+<div class="chart-title">伤害 TOP10</div>
+<canvas id="damageChart" height="220"></canvas>
+<div id="damageNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">治疗 TOP10</div>
+<canvas id="healingChart" height="220"></canvas>
+<div id="healingNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">承伤 TOP10</div>
+<canvas id="takenChart" height="220"></canvas>
+<div id="takenNote" class="chart-note"></div>
+</div>
+<div class="chart-card">
+<div class="chart-title">断法 TOP10</div>
+<canvas id="interruptChart" height="220"></canvas>
+<div id="interruptNote" class="chart-note"></div>
+</div>
+</div>
+</div>
+
+<div class="panel">
+<h2>复盘分析</h2>
+<div class="analysis-grid">
+<div class="section"><h3>战斗总览</h3><div class="text md-content">这场战斗是典型的&quot;躺赢局&quot;，3人死亡、29分56秒的垃圾时长，全员排名百分位99%（垫底），铜牌成绩。要不是有3个DPS勉强撑着输出，这局早就炸了。
+
+**关键数据：**
+- 时长29分56秒，死亡3次（米拉大熊、Staywithme、炎色雷灬）
+- 全员排名百分位99%（最差档次），速度排名也是99%
+- 治疗米拉大熊第一个死亡（时间戳10313588），直接导致后续连锁崩盘
+- 团队总承伤198M（不含坦克），治疗压力巨大</div></div>
+<div class="section"><h3>横向差距</h3><div class="text md-content">与全球前20相比，这场战斗就是灾难现场。没有具体前20数据对比，但从排名百分位99%就能看出差距。
+
+**差距分析：**
+- 全员排名百分位99%，说明在同层数、同副本的全球样本中处于最底层
+- 速度排名99%，意味着通关速度比99%的队伍都慢
+- 3人死亡，前20队伍通常0-1死亡，死亡次数超标200%以上
+- 治疗第一个死亡，这在高层大秘境是不可接受的低级失误</div></div>
+<div class="section full"><h3>关键失败点</h3><div class="text md-content">**死亡链式反应：**
+- 米拉大熊（治疗）第一个死亡 → 团队失去主要治疗源 → Staywithme（猎人）2分钟后死亡 → 炎色雷灬（战士）又1分钟后死亡
+- 治疗死亡后，团队仅靠武僧坦克68M自疗苦苦支撑
+
+**承伤失控：**
+- 米拉大熊承伤32M，治疗承伤比DPS还高，站位完全错误
+- Staywithme承伤30.8M，猎人承伤过高，自保能力为零
+
+**控制缺失：**
+- 炎色雷灬（狂暴战）和Carefreedk（邪恶DK）控制次数为0，完全没有群体控制贡献
+- 全队控制仅39次，其中治疗占了30次</div></div>
+<div class="section full"><h3>玩家复盘</h3><div class="text md-content">**米拉大熊（恢复德）：**
+- 问题：治疗第一个死亡，承伤32M过高，站位错误
+- 证据：时间戳10313588死亡，承伤32,080,090，治疗131M但无法自保
+- 后果：治疗死亡后团队失去主要治疗源，直接导致后续2人连锁死亡
+- 改进：优化站位减少承伤，保留自保技能（树皮术、铁皮术），不要过度贪输出
+
+**Staywithme（兽王猎）：**
+- 问题：承伤30.8M过高，自保能力差，死亡打断输出节奏
+- 证据：承伤30,862,961（全队第2高），时间戳10645526死亡
+- 后果：猎人死亡后失去17次打断和7次控制，团队控制能力下降
+- 改进：使用威慑、意气风发等自保技能，优化站位减少不必要的承伤
+
+**炎色雷灬（狂暴战）：**
+- 问题：控制次数为0，承伤27.8M偏高，死亡导致输出断档
+- 证据：controls=0，承伤27,840,429，时间戳10828908死亡
+- 后果：战士死亡后团队输出下降，且完全没有群体控制贡献
+- 改进：使用拳击、破胆怒吼等控制技能，开启剑在人在等减伤技能提高生存
+
+**Carefreedk（邪恶DK）：**
+- 问题：控制次数为0，完全没有群体控制贡献
+- 证据：controls=0，打断28次（全队最高），但无控制技能使用
+- 后果：团队控制能力不足，小怪处理效率低
+- 改进：使用死亡之握、窒息等控制技能，提高小怪处理效率
+
+**星却（酒仙武僧）：**
+- 问题：无明显失误，但团队整体表现拖累
+- 证据：承伤97.8M（坦克正常），打断24次，自疗68M
+- 后果：坦克表现正常，但无法弥补治疗死亡后的团队崩溃
+- 改进：继续维持当前表现，但在治疗死亡后需要更积极地使用壮胆酒等自保技能</div></div>
+<div class="section"><h3>责任排序</h3><div class="text md-content">**Top1：米拉大熊（恢复德）**
+- 责任原因：治疗第一个死亡，承伤32M过高，直接导致后续连锁崩盘
+
+**Top2：Staywithme（兽王猎）**
+- 责任原因：承伤30.8M过高，自保能力差，死亡打断输出节奏
+
+**Top3：炎色雷灬（狂暴战）**
+- 责任原因：控制次数为0，承伤27.8M偏高，死亡导致输出断档
+
+**Top4：Carefreedk（邪恶DK）**
+- 责任原因：控制次数为0，完全没有群体控制贡献
+
+**Top5：星却（酒仙武僧）**
+- 责任原因：无明显失误，但团队整体表现拖累</div></div>
+<div class="section"><h3>优先修复项</h3><div class="text md-content">**P0（立即修复）：**
+- 米拉大熊：优化站位减少承伤，保留自保技能，不要过度贪输出
+- Staywithme：使用威慑、意气风发等自保技能，优化站位
+
+**P1（高优先级）：**
+- 炎色雷灬：使用拳击、破胆怒吼等控制技能，开启剑在人在等减伤技能
+- Carefreedk：使用死亡之握、窒息等控制技能
+
+**P2（中优先级）：**
+- 全员：提高打断效率，减少不必要的承伤
+- 全员：优化技能循环，提高输出效率</div></div>
+<div class="section full"><h3>最终结论</h3><div class="text md-content">这场战斗是典型的&quot;治疗先死，全员崩盘&quot;案例。米拉大熊作为治疗第一个死亡，承伤32M远超正常水平，直接导致团队失去主要治疗源，后续Staywithme和炎色雷灬的死亡都是连锁反应。全员排名百分位99%（垫底），3人死亡，29分56秒的垃圾时长，铜牌成绩，这就是一场灾难。要不是有3个DPS勉强撑着输出，这局早就炸了。最搞笑的是，炎色雷灬和Carefreedk两个近战DPS控制次数为0，完全没有群体控制贡献，这就是在划水。
+
+最坑Top1/最菜Top1
+**最坑Top1：米拉大熊（恢复德）**
+
+**关键证据：**
+- 治疗第一个死亡（时间戳10313588），承伤32,080,090（全队第2高）
+- 治疗承伤比DPS还高，站位完全错误
+- 死亡后团队失去131M治疗量，仅靠武僧坦克68M自疗苦苦支撑
+
+**直接后果：**
+- 治疗死亡后，Staywithme（猎人）和炎色雷灬（战士）相继死亡
+- 团队治疗崩溃，3人死亡导致通关时间延长至29分56秒
+- 全员排名百分位99%（垫底），铜牌成绩
+
+**具体改进动作：**
+1. 立即优化站位，减少不必要的承伤，治疗承伤应控制在20M以下
+2. 保留自保技能（树皮术、铁皮术），不要在危险时刻贪输出
+3. 使用迅捷治愈、回春术等瞬发治疗技能，提高移动中的治疗能力
+4. 在高压时刻使用化身：生命之树，提高治疗量和生存能力
+5. 与坦克沟通，确保在关键时刻有保护技能（如树皮术、铁皮术）可用</div></div>
+</div>
+</div>
+
+<script>
+const damageLabels = ["Carefreedk","星却","Staywithme","米拉大熊","炎色雷灬"];
+const damageValues = [260707970,108738086,263869036,5641124,266189124];
+const healingLabels = ["Carefreedk","星却","Staywithme","Devouring Tyrant","米拉大熊","炎色雷灬"];
+const healingValues = [10186826,68185524,6723299,0,131476931,9234999];
+const takenLabels = ["Carefreedk","Staywithme","星却","米拉大熊","炎色雷灬"];
+const takenValues = [26922099,30862961,97814000,32080090,27840429];
+const interruptLabels = ["Carefreedk","星却","Staywithme","炎色雷灬","米拉大熊"];
+const interruptValues = [28,24,17,14,2];
+
+function renderBarChart(id, labels, data, color) {
+    const el = document.getElementById(id);
+    if (!el || !labels.length) return;
+    new Chart(el, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{ data: data, backgroundColor: color, borderRadius: 6 }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#334155' } },
+                y: { ticks: { color: '#64748b' } }
+            }
+        }
+    });
+}
+
+function formatNum(n) {
+    const num = Number(n || 0);
+    if (num >= 100000000) return (num / 100000000).toFixed(2) + '亿';
+    if (num >= 10000) return (num / 10000).toFixed(1) + '万';
+    return String(num);
+}
+
+function renderChartNote(noteId, labels, values, metricName) {
+    const el = document.getElementById(noteId);
+    if (!el) return;
+    if (!labels.length) {
+        el.textContent = `${metricName}暂无有效数据`;
+        return;
+    }
+    const total = values.reduce((a, b) => a + Number(b || 0), 0);
+    const topIdx = values.reduce((best, v, i) => Number(v) > Number(values[best] || 0) ? i : best, 0);
+    const topVal = Number(values[topIdx] || 0);
+    const pct = total > 0 ? ((topVal / total) * 100).toFixed(1) : '0.0';
+    el.textContent = `最高 ${metricName}: ${labels[topIdx]} (${formatNum(topVal)}，占比 ${pct}%)，总量 ${formatNum(total)}`;
+}
+
+renderBarChart('damageChart', damageLabels, damageValues, 'rgba(59,130,246,.75)');
+renderBarChart('healingChart', healingLabels, healingValues, 'rgba(16,185,129,.75)');
+renderBarChart('takenChart', takenLabels, takenValues, 'rgba(251,146,60,.75)');
+renderBarChart('interruptChart', interruptLabels, interruptValues, 'rgba(139,92,246,.75)');
+renderChartNote('damageNote', damageLabels, damageValues, '伤害');
+renderChartNote('healingNote', healingLabels, healingValues, '治疗');
+renderChartNote('takenNote', takenLabels, takenValues, '承伤');
+renderChartNote('interruptNote', interruptLabels, interruptValues, '断法');
+
+document.querySelectorAll('.md-content').forEach((el) => {
+    const raw = el.textContent || '';
+    if (!raw.trim()) return;
+    const html = marked.parse(raw, { breaks: true, gfm: true });
+    el.innerHTML = DOMPurify.sanitize(html);
+});
+</script>
+</body>
+</html>

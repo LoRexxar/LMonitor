@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WCL 分析任务列表</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h1 class="text-2xl font-bold text-gray-900">WCL 分析任务列表</h1>
+                <a href="/wcl-analysis/" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">返回创建页</a>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">WCL链接</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">摘要</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">创建时间</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">结果链接</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for task in tasks %}
+                        <tr>
+                            <td class="px-4 py-3 text-sm text-gray-900">{{ task.id }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-700 break-all">{{ task.wcl_url }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-700">
+                                {% if task.status == 0 %}待处理{% elif task.status == 1 %}处理中{% elif task.status == 2 %}成功{% else %}失败{% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-700">{{ task.summary }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-700">{{ task.created_at }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-700">
+                                <a href="{{ task.report_url }}" target="_blank" class="text-blue-600 hover:text-blue-800">查看</a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">暂无任务</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
