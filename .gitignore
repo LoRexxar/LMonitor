@@ -106,3 +106,5 @@ debug.log
 
 # result
 static/simc_results/*
+static/wcl_reports/*
+static/wcl_snapshots/*

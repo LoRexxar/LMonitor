@@ -356,7 +356,6 @@ class SimcMonitor(BaseScan):
             return False
 
 
-
     def check_status(self, result):
         """
         检查请求状态
