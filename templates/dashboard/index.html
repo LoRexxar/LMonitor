@@ -396,6 +396,9 @@
                             <button id="view-saved-apl" class="bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
                                 <i class="fas fa-list mr-2"></i>查看已保存APL
                             </button>
+                            <button id="preview-current-apl" class="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
+                                <i class="fas fa-language mr-2"></i>翻译预览
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -466,16 +469,16 @@
                             <table class="min-w-full bg-white border border-gray-200 rounded-lg">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                                        <th class="w-12 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
                                             <input id="simc-task-select-all" type="checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded">
                                         </th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">ID</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务名称</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">专精</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务类型</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">状态</th>
+                                        <th class="w-20 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">ID</th>
+                                        <th class="min-w-[220px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务名称</th>
+                                        <th class="w-28 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">专精</th>
+                                        <th class="min-w-[170px] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务类型</th>
+                                        <th class="w-24 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">状态</th>
         
-                                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">操作</th>
+                                        <th class="min-w-[360px] px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody id="simc-task-list" class="bg-white divide-y divide-gray-200">
@@ -853,7 +856,7 @@
                         <select id="simc-task-regular-preset" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                             <option value="300,1">单体标准(300秒 / 1目标)</option>
                             <option value="300,2">双目标(300秒 / 2目标)</option>
-                            <option value="180,5">AOE爆发(180秒 / 5目标)</option>
+                            <option value="40,5">AOE爆发(40秒 / 5目标)</option>
                             <option value="40,10">极限AOE(40秒 / 10目标)</option>
                         </select>
                     </div>
@@ -924,7 +927,7 @@
                         <select id="edit-simc-task-regular-preset" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                             <option value="300,1">单体标准(300秒 / 1目标)</option>
                             <option value="300,2">双目标(300秒 / 2目标)</option>
-                            <option value="180,5">AOE爆发(180秒 / 5目标)</option>
+                            <option value="40,5">AOE爆发(40秒 / 5目标)</option>
                             <option value="40,10">极限AOE(40秒 / 10目标)</option>
                         </select>
                     </div>
@@ -1072,6 +1075,15 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">动作列表</label>
                             <textarea id="add-simc-profile-action-list" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入动作列表..."></textarea>
+                            <div class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                <div class="flex items-center justify-between mb-2">
+                                    <p class="text-xs text-gray-500">APL翻译预览（配置内）</p>
+                                    <button type="button" id="add-simc-profile-apl-preview-btn" class="px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
+                                        <i class="fas fa-language mr-1"></i>预览翻译
+                                    </button>
+                                </div>
+                                <textarea id="add-simc-profile-apl-preview-cn" class="w-full p-3 border border-gray-300 rounded-md font-mono text-xs bg-white" rows="6" placeholder="点击“预览翻译”后显示中文结果" readonly></textarea>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1170,6 +1182,15 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">动作列表</label>
                             <textarea id="edit-simc-profile-action-list" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入动作列表..."></textarea>
+                            <div class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                <div class="flex items-center justify-between mb-2">
+                                    <p class="text-xs text-gray-500">APL翻译预览（配置内）</p>
+                                    <button type="button" id="edit-simc-profile-apl-preview-btn" class="px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
+                                        <i class="fas fa-language mr-1"></i>预览翻译
+                                    </button>
+                                </div>
+                                <textarea id="edit-simc-profile-apl-preview-cn" class="w-full p-3 border border-gray-300 rounded-md font-mono text-xs bg-white" rows="6" placeholder="点击“预览翻译”后显示中文结果" readonly></textarea>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1293,7 +1314,7 @@
                                 <select id="simulation-regular-preset" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                     <option value="300,1">单体标准(300秒 / 1目标)</option>
                                     <option value="300,2">双目标(300秒 / 2目标)</option>
-                                    <option value="180,5">AOE爆发(180秒 / 5目标)</option>
+                                    <option value="40,5">AOE爆发(40秒 / 5目标)</option>
                                     <option value="40,10">极限AOE(40秒 / 10目标)</option>
                                 </select>
                             </div>

@@ -589,6 +589,7 @@ function initAplSaveFeature() {
     const cancelSaveBtn = document.getElementById('cancel-save');
     const confirmSaveBtn = document.getElementById('confirm-save');
     const refreshAplListBtn = document.getElementById('refresh-apl-list');
+    const previewCurrentBtn = document.getElementById('preview-current-apl');
     const previewModal = document.getElementById('apl-translation-preview-modal');
     const closePreviewBtn = document.getElementById('close-apl-preview');
     const copyRawBtn = document.getElementById('copy-apl-preview-raw');
@@ -623,6 +624,17 @@ function initAplSaveFeature() {
         savedAplSection.style.display = 'block';
         loadSavedAplList();
     });
+
+    if (previewCurrentBtn) {
+        previewCurrentBtn.addEventListener('click', async function() {
+            const raw = (document.getElementById('apl-input').value || '').trim();
+            if (!raw) {
+                showMessage('请先输入APL代码后再预览翻译', 'warning');
+                return;
+            }
+            await previewAplTranslationContent(raw, '当前编辑内容');
+        });
+    }
     
     // 取消保存
     if (cancelSaveBtn) {
@@ -829,16 +841,24 @@ async function previewAplTranslation(aplId) {
         }
         const aplData = data.data || {};
         const raw = aplData.apl_code || '';
-        const cn = await convertText(raw, 'apl_to_cn');
-
-        document.getElementById('apl-preview-title').textContent = aplData.title || `#${aplId}`;
-        document.getElementById('apl-preview-raw').value = raw;
-        document.getElementById('apl-preview-cn').value = cn || '';
-        document.getElementById('apl-translation-preview-modal').style.display = 'block';
+        await previewAplTranslationContent(raw, aplData.title || `#${aplId}`);
     } catch (error) {
         console.error('APL翻译预览失败:', error);
         showMessage('APL翻译预览失败: ' + error.message, 'error');
     }
+}
+
+async function previewAplTranslationContent(rawContent, titleText) {
+    const raw = String(rawContent || '').trim();
+    if (!raw) {
+        showMessage('APL内容为空，无法预览', 'warning');
+        return;
+    }
+    const cn = await convertText(raw, 'apl_to_cn');
+    document.getElementById('apl-preview-title').textContent = titleText || 'APL预览';
+    document.getElementById('apl-preview-raw').value = raw;
+    document.getElementById('apl-preview-cn').value = cn || '';
+    document.getElementById('apl-translation-preview-modal').style.display = 'block';
 }
 
 /**
@@ -3186,12 +3206,15 @@ function displaySimcTaskData(tasks) {
         
         // 获取任务类型显示文本
         let taskTypeText;
+        let taskTypeBadgeClass = 'bg-blue-50 text-blue-700 border border-blue-200';
+        let taskTypeExtraHtml = '';
         switch(task.task_type) {
             case 1:
                 taskTypeText = '常规模拟';
                 break;
             case 2:
                 taskTypeText = '属性模拟';
+                taskTypeBadgeClass = 'bg-purple-50 text-purple-700 border border-purple-200';
                 // 如果是属性模拟且有ext数据，显示选中的属性
                 const extPayload = parseSimcTaskExt(task.ext || task.ext_detail || {});
                 if (extPayload.selected_attributes) {
@@ -3202,7 +3225,7 @@ function displaySimcTaskData(tasks) {
                         'versatility': '全能'
                     };
                     const selectedStats = String(extPayload.selected_attributes).split('_').map(stat => statMap[stat.trim()] || stat.trim()).join(' + ');
-                    taskTypeText += `<br><span class="text-xs text-gray-600">(${selectedStats})</span>`;
+                    taskTypeExtraHtml = `<div class="text-[11px] text-gray-500 mt-1">${selectedStats}</div>`;
                 }
                 break;
             default:
@@ -3220,33 +3243,35 @@ function displaySimcTaskData(tasks) {
             : '';
         
         html += `
-            <tr class="hover:bg-gray-50">
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${compareCheckboxCell}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${task.id}</td>
-                <td class="px-6 py-4 whitespace-nowrap">
+            <tr class="hover:bg-gray-50 transition-colors duration-150">
+                <td class="px-3 py-3 text-center">${compareCheckboxCell}</td>
+                <td class="px-3 py-3 text-center text-sm text-gray-900 font-mono">${task.id}</td>
+                <td class="px-4 py-3">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(task.name || '')}</div>
+                    <div class="text-xs text-gray-500 mt-1">${escapeHtml(task.simc_profile_name || '')}</div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${renderSpecBadgeHtml(task.simc_profile_spec || '')}</td>
-                <td class="px-6 py-4">
-                    <div class="inline-flex flex-col px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(task.simc_profile_spec || '')}</td>
+                <td class="px-3 py-3">
+                    <div class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${taskTypeBadgeClass}">
                         ${taskTypeText}
                     </div>
+                    ${taskTypeExtraHtml}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusClass}">
+                <td class="px-3 py-3 text-center">
+                    <span class="inline-flex px-2.5 py-1 text-xs font-semibold rounded-full border ${statusClass}">
                         ${statusText}
                     </span>
                 </td>
 
-                <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                    <div class="flex justify-center space-x-2">
-                        <button onclick="viewSimcTask(${task.id})" class="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 text-sm">
+                <td class="px-4 py-3 text-center text-sm font-medium">
+                    <div class="flex flex-wrap justify-center gap-2">
+                        <button onclick="viewSimcTask(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors duration-200 text-xs">
                             <i class="fas fa-eye mr-1"></i>查看
                         </button>
                         ${task.current_status === 2 && task.result_file ? `
                         ${task.task_type === 2 && task.result_file.includes(',') ? `
                         <div class="relative inline-block">
-                            <button onclick="toggleResultDropdown(${task.id})" class="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors duration-200 text-sm">
+                            <button onclick="toggleResultDropdown(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors duration-200 text-xs">
                                 <i class="fas fa-file-alt mr-1"></i>查看结果 <i class="fas fa-chevron-down ml-1"></i>
                             </button>
                             <div id="result-dropdown-${task.id}" class="hidden fixed bg-white border border-gray-300 rounded shadow-xl z-50 min-w-64 max-w-80 max-h-80 overflow-y-auto">
@@ -3275,7 +3300,7 @@ function displaySimcTaskData(tasks) {
                             </div>
                         </div>
                         <div class="relative inline-block">
-                            <button onclick="toggleAnalysisDropdown(${task.id})" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors duration-200 text-sm">
+                            <button onclick="toggleAnalysisDropdown(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
                                 <i class="fas fa-chart-bar mr-1"></i>查看分析 <i class="fas fa-chevron-down ml-1"></i>
                             </button>
                             <div id="analysis-dropdown-${task.id}" class="hidden fixed bg-white border border-gray-300 rounded shadow-xl z-50 min-w-64 max-w-80 max-h-80 overflow-y-auto">
@@ -3303,30 +3328,30 @@ function displaySimcTaskData(tasks) {
                                 }).join('')}
                             </div>
                         </div>
-                        <button onclick="viewAttributeAnalysis(${task.id})" class="px-3 py-1 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors duration-200 text-sm">
+                        <button onclick="viewAttributeAnalysis(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors duration-200 text-xs">
                             <i class="fas fa-chart-line mr-1"></i>综合分析
                         </button>` : `
-                        <button onclick="viewSimcResult('${escapeHtml(task.result_file)}')" class="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors duration-200 text-sm">
+                        <button onclick="viewSimcResult('${escapeHtml(task.result_file)}')" class="inline-flex items-center px-2.5 py-1.5 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors duration-200 text-xs">
                             <i class="fas fa-file-alt mr-1"></i>查看结果
                         </button>
-                        <button onclick="viewSimcAnalysis('${escapeHtml(task.result_file)}')" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors duration-200 text-sm">
+                        <button onclick="viewSimcAnalysis('${escapeHtml(task.result_file)}')" class="inline-flex items-center px-2.5 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
                             <i class="fas fa-chart-bar mr-1"></i>查看分析
                         </button>`}
                         ` : ''}
                         ${task.current_status === 3 && task.result_file ? `
-                        <button onclick="viewErrorInfo(${task.id}, '${escapeHtml(task.result_file)}')" class="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors duration-200 text-sm">
+                        <button onclick="viewErrorInfo(${task.id}, '${escapeHtml(task.result_file)}')" class="inline-flex items-center px-2.5 py-1.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors duration-200 text-xs">
                             <i class="fas fa-exclamation-triangle mr-1"></i>查看错误
                         </button>
                         ` : ''}
                         ${task.current_status === 2 || task.current_status === 3 ? `
-                        <button onclick="rerunSimcTask(${task.id})" class="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 text-sm">
+                        <button onclick="rerunSimcTask(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors duration-200 text-xs">
                             <i class="fas fa-redo mr-1"></i>重跑
                         </button>
                         ` : ''}
-                        <button onclick="editSimcTask(${task.id})" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 text-sm">
+                        <button onclick="editSimcTask(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors duration-200 text-xs">
                             <i class="fas fa-edit mr-1"></i>编辑
                         </button>
-                        <button onclick="deleteSimcTask(${task.id})" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition-colors duration-200 text-sm">
+                        <button onclick="deleteSimcTask(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors duration-200 text-xs">
                             <i class="fas fa-trash mr-1"></i>删除
                         </button>
                     </div>
@@ -3537,11 +3562,11 @@ async function openEditSimcTaskModal(task) {
         const rt = String(extPayload.regular_time || '');
         const rc = String(extPayload.regular_target_count || '');
         const presetValue = `${rt},${rc}`;
-        if (['300,1', '300,2', '180,5', '40,10'].includes(presetValue)) {
+        if (['300,1', '300,2', '40,5', '40,10', '180,5'].includes(presetValue)) {
             document.getElementById('edit-simc-task-regular-preset').value = presetValue;
         } else {
             const fallbackPreset = `${regularTime},${regularTargetCount}`;
-            if (['300,1', '300,2', '180,5', '40,10'].includes(fallbackPreset)) {
+            if (['300,1', '300,2', '40,5', '40,10', '180,5'].includes(fallbackPreset)) {
                 document.getElementById('edit-simc-task-regular-preset').value = fallbackPreset;
             }
         }
@@ -3967,8 +3992,10 @@ function initSimcProfileManagement() {
 
         const addSpecInput = document.getElementById('add-simc-profile-spec');
         const addTalentInput = document.getElementById('add-simc-profile-talent');
+        const addAplPreviewBtn = document.getElementById('add-simc-profile-apl-preview-btn');
         if (addSpecInput) addSpecInput.addEventListener('input', () => updateTalentPreview('add'));
         if (addTalentInput) addTalentInput.addEventListener('input', () => updateTalentPreview('add'));
+        if (addAplPreviewBtn) addAplPreviewBtn.addEventListener('click', () => previewSimcProfileAplTranslation('add'));
     }
     
     if (editModal) {
@@ -3995,8 +4022,31 @@ function initSimcProfileManagement() {
 
         const editSpecInput = document.getElementById('edit-simc-profile-spec');
         const editTalentInput = document.getElementById('edit-simc-profile-talent');
+        const editAplPreviewBtn = document.getElementById('edit-simc-profile-apl-preview-btn');
         if (editSpecInput) editSpecInput.addEventListener('input', () => updateTalentPreview('edit'));
         if (editTalentInput) editTalentInput.addEventListener('input', () => updateTalentPreview('edit'));
+        if (editAplPreviewBtn) editAplPreviewBtn.addEventListener('click', () => previewSimcProfileAplTranslation('edit'));
+    }
+}
+
+async function previewSimcProfileAplTranslation(mode) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const actionInput = document.getElementById(`${prefix}-simc-profile-action-list`);
+    const output = document.getElementById(`${prefix}-simc-profile-apl-preview-cn`);
+    if (!actionInput || !output) return;
+    const raw = String(actionInput.value || '').trim();
+    if (!raw) {
+        showMessage('请先填写动作列表后再预览翻译', 'warning');
+        return;
+    }
+    try {
+        output.value = '翻译中...';
+        const cn = await convertText(raw, 'apl_to_cn');
+        output.value = cn || '';
+        showMessage('APL翻译预览完成', 'success');
+    } catch (error) {
+        output.value = '';
+        showMessage('APL翻译预览失败: ' + error.message, 'error');
     }
 }
 
@@ -4453,6 +4503,7 @@ function openAddSimcProfileModal() {
     document.getElementById('add-simc-profile-versatility').value = '7257';
     document.getElementById('add-simc-profile-talent').value = '';
     document.getElementById('add-simc-profile-action-list').value = '';
+    document.getElementById('add-simc-profile-apl-preview-cn').value = '';
     updateTalentPreview('add');
     
     modal.classList.remove('hidden');
@@ -4604,6 +4655,7 @@ function openEditSimcProfileModal(profile) {
     document.getElementById('edit-simc-profile-versatility').value = profile.gear_versatility || 0;
     document.getElementById('edit-simc-profile-talent').value = profile.talent || '';
     document.getElementById('edit-simc-profile-action-list').value = profile.action_list || '';
+    document.getElementById('edit-simc-profile-apl-preview-cn').value = '';
     updateTalentPreview('edit');
     
     // 存储配置ID用于更新
