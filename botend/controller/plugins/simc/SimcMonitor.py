@@ -13,6 +13,8 @@ import os
 import subprocess
 import hashlib
 import time
+import json
+import re
 from django.conf import settings
 from utils.log import logger
 from botend.models import SimcTask, SimcProfile
@@ -119,8 +121,17 @@ class SimcMonitor(BaseScan):
         :return: 执行是否成功
         """
         try:
+            ext_payload = self.parse_task_ext(simc_task.ext)
+            override_time = ext_payload.get('regular_time')
+            override_target_count = ext_payload.get('regular_target_count')
+
             # 生成SimC代码
-            simc_code = self.generate_simc_code(simc_profile, simc_task.result_file)
+            simc_code = self.generate_simc_code(
+                simc_profile,
+                simc_task.result_file,
+                override_time=override_time,
+                override_target_count=override_target_count
+            )
             
             # 创建临时SimC文件
             simc_file_path = os.path.join(self.result_path, f"temp_{simc_task.id}.simc")
@@ -160,8 +171,16 @@ class SimcMonitor(BaseScan):
         :return: 执行是否成功
         """
         try:
+            ext_payload = self.parse_task_ext(simc_task.ext)
+            selected_combination = ext_payload.get('selected_attributes') or simc_task.ext
+            step_size = ext_payload.get('attribute_step') or 50
+            try:
+                step_size = max(1, int(step_size))
+            except Exception:
+                step_size = 50
+
             # 解析属性组合
-            selected_attributes = self.parse_selected_attributes(simc_task.ext)
+            selected_attributes = self.parse_selected_attributes(selected_combination)
             if len(selected_attributes) != 2:
                 logger.error(f"[SimC Monitor] Attribute simulation requires exactly 2 attributes, got {len(selected_attributes)} for task {simc_task.id}")
                 simc_task.current_status = 3  # 失败
@@ -183,9 +202,9 @@ class SimcMonitor(BaseScan):
             result_files = []
             stage = 0
             
-            # 以50为步长进行分配模拟，从attr1=0到attr1=total_value
+            # 以可配置步长进行分配模拟，从attr1=0到attr1=total_value
             # 生成所有需要测试的步长点，确保包含0和total_value
-            test_points = list(range(0, total_value, 50))
+            test_points = list(range(0, total_value, step_size))
             if total_value not in test_points:
                 test_points.append(total_value)
             
@@ -242,7 +261,7 @@ class SimcMonitor(BaseScan):
             simc_task.save()
             return False
 
-    def generate_simc_code(self, profile, result_file):
+    def generate_simc_code(self, profile, result_file, override_time=None, override_target_count=None):
         """
         生成SimC代码
         :param profile: SimcProfile对象
@@ -252,25 +271,18 @@ class SimcMonitor(BaseScan):
         try:
             # 从数据库获取模板
             from botend.models import SimcTemplate
-            template_obj = SimcTemplate.objects.filter(is_active=True).first()
+            template_obj = self.select_template_by_spec(profile.spec)
             if not template_obj:
                 raise Exception("未找到启用的SimC模板")
             template = template_obj.template_content
-            
-            # 替换模板中的占位符
-            simc_code = template.replace('{fight_style}', profile.fight_style or 'Patchwerk')
-            simc_code = simc_code.replace('{time}', str(profile.time) or '300')
-            simc_code = simc_code.replace('{target_count}', str(profile.target_count) or '1')
-            simc_code = simc_code.replace('{talent}', profile.talent or '')
-            simc_code = simc_code.replace('{action_list}', profile.action_list or '')
-            simc_code = simc_code.replace('{gear_strength}', str(profile.gear_strength) or '2277')
-            simc_code = simc_code.replace('{gear_crit}', str(profile.gear_crit) or '300')
-            simc_code = simc_code.replace('{gear_haste}', str(profile.gear_haste) or '1200')
-            simc_code = simc_code.replace('{gear_mastery}', str(profile.gear_mastery) or '1040')
-            simc_code = simc_code.replace('{gear_versatility}', str(profile.gear_versatility) or '200')
-            simc_code = simc_code.replace('{result_file}', self.result_path + result_file)
-            
-            return simc_code
+            return self.apply_template(
+                template=template,
+                profile=profile,
+                result_file=result_file,
+                attributes=None,
+                override_time=override_time,
+                override_target_count=override_target_count
+            )
             
         except Exception as e:
             logger.error(f"[SimC Monitor] Error generating SimC code: {str(e)}")
@@ -413,6 +425,22 @@ class SimcMonitor(BaseScan):
         except Exception as e:
             logger.error(f"[SimC Monitor] Error parsing selected attributes: {str(e)}")
             return []
+
+    def parse_task_ext(self, ext_data):
+        if not ext_data:
+            return {}
+        if isinstance(ext_data, dict):
+            return ext_data
+        text = str(ext_data).strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return parsed
+            return {}
+        except Exception:
+            return {'selected_attributes': text}
     
     def get_base_attributes(self, simc_profile):
         """
@@ -439,29 +467,73 @@ class SimcMonitor(BaseScan):
         try:
             # 从数据库获取模板
             from botend.models import SimcTemplate
-            template_obj = SimcTemplate.objects.filter(is_active=True).first()
+            template_obj = self.select_template_by_spec(profile.spec)
             if not template_obj:
                 raise Exception("未找到启用的SimC模板")
             template = template_obj.template_content
-            
-            # 替换模板中的占位符
-            simc_code = template.replace('{fight_style}', profile.fight_style or 'Patchwerk')
-            simc_code = simc_code.replace('{time}', str(profile.time) or '300')
-            simc_code = simc_code.replace('{target_count}', str(profile.target_count) or '1')
-            simc_code = simc_code.replace('{talent}', profile.talent or '')
-            simc_code = simc_code.replace('{action_list}', profile.action_list or '')
-            
-            # 使用修改后的属性值
-            simc_code = simc_code.replace('{gear_strength}', str(attributes['gear_strength']))
-            simc_code = simc_code.replace('{gear_crit}', str(attributes['gear_crit']))
-            simc_code = simc_code.replace('{gear_haste}', str(attributes['gear_haste']))
-            simc_code = simc_code.replace('{gear_mastery}', str(attributes['gear_mastery']))
-            simc_code = simc_code.replace('{gear_versatility}', str(attributes['gear_versatility']))
-            
-            simc_code = simc_code.replace('{result_file}', self.result_path + result_file)
-            
-            return simc_code
+            return self.apply_template(
+                template=template,
+                profile=profile,
+                result_file=result_file,
+                attributes=attributes
+            )
             
         except Exception as e:
             logger.error(f"[SimC Monitor] Error generating attribute SimC code: {str(e)}")
             raise e
+
+    def select_template_by_spec(self, spec):
+        from botend.models import SimcTemplate
+        active = SimcTemplate.objects.filter(is_active=True).order_by('id')
+        if not active.exists():
+            return None
+
+        spec_value = str(spec or '').strip().lower()
+        if spec_value:
+            for tpl in active:
+                spec_field = str(getattr(tpl, 'spec', '') or '').strip().lower()
+                if not spec_field:
+                    continue
+                if spec_field == spec_value:
+                    return tpl
+                candidates = [s.strip() for s in spec_field.split(',') if s.strip()]
+                if spec_value in candidates:
+                    return tpl
+
+        for tpl in active:
+            spec_field = str(getattr(tpl, 'spec', '') or '').strip().lower()
+            if not spec_field:
+                continue
+            candidates = [s.strip() for s in spec_field.split(',') if s.strip()]
+            if 'default' in candidates or 'all' in candidates or '*' in candidates:
+                return tpl
+        return active.first()
+
+    def apply_template(self, template, profile, result_file, attributes=None, override_time=None, override_target_count=None):
+        attrs = attributes or self.get_base_attributes(profile)
+        simc_code = template
+        fight_style = profile.fight_style or 'Patchwerk'
+        max_time = override_time if override_time not in (None, '') else profile.time
+        target_count = override_target_count if override_target_count not in (None, '') else profile.target_count
+        spec_value = str(getattr(profile, 'spec', '') or '').strip() or 'fury'
+
+        simc_code = simc_code.replace('{fight_style}', fight_style)
+        simc_code = simc_code.replace('{time}', str(max_time or 300))
+        simc_code = simc_code.replace('{target_count}', str(target_count or 1))
+        simc_code = simc_code.replace('{talent}', profile.talent or '')
+        simc_code = simc_code.replace('{action_list}', profile.action_list or '')
+        simc_code = simc_code.replace('{spec}', spec_value)
+        simc_code = simc_code.replace('{gear_strength}', str(attrs['gear_strength']))
+        simc_code = simc_code.replace('{gear_crit}', str(attrs['gear_crit']))
+        simc_code = simc_code.replace('{gear_haste}', str(attrs['gear_haste']))
+        simc_code = simc_code.replace('{gear_mastery}', str(attrs['gear_mastery']))
+        simc_code = simc_code.replace('{gear_versatility}', str(attrs['gear_versatility']))
+        simc_code = simc_code.replace('{result_file}', self.result_path + result_file)
+
+        # 兼容旧模板：未提供 {spec} 占位符时，覆盖或追加 spec 行
+        if '{spec}' not in template:
+            if 'spec=' in simc_code:
+                simc_code = re.sub(r'^\s*spec\s*=.*$', f"spec={spec_value}", simc_code, flags=re.MULTILINE)
+            else:
+                simc_code = f"spec={spec_value}\n" + simc_code
+        return simc_code

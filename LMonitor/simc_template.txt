@@ -1,6 +1,6 @@
 warrior="PR_Warrior_Fury"
 source=default
-spec=fury
+spec={spec}
 level=80
 race=mechagnome
 role=attack

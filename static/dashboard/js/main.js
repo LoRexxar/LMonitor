@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 初始化搜索功能
     initSearch();
+    initSimcProfileFilters();
     
     // 初始化页面大小选择器
     initPageSizeSelector();
@@ -415,6 +416,34 @@ function displayNewsWowPagination(currentPage, totalPages, totalCount) {
 }
 
 // 初始化SimC任务管理事件监听器
+function parseSimcTaskExt(ext) {
+    if (!ext) return {};
+    if (typeof ext === 'object') return ext;
+    const text = String(ext).trim();
+    if (!text) return {};
+    try {
+        const parsed = JSON.parse(text);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) {
+        return { selected_attributes: text };
+    }
+}
+
+function toggleTaskTypeFields(prefix, taskType) {
+    const isAttribute = String(taskType) === '2';
+    const attrSelect = document.getElementById(prefix ? `${prefix}-simc-task-profile` : 'simc-task-profile');
+    const regularBox = document.getElementById(prefix ? `${prefix}-simc-task-regular-options` : 'simc-task-regular-options');
+    const stepBox = document.getElementById(prefix ? `${prefix}-simc-task-attribute-step-wrapper` : 'simc-task-attribute-step-wrapper');
+
+    if (attrSelect && attrSelect.parentElement) {
+        attrSelect.style.display = isAttribute ? 'block' : 'none';
+        attrSelect.parentElement.style.display = isAttribute ? 'block' : 'none';
+        if (!isAttribute) attrSelect.value = '';
+    }
+    if (regularBox) regularBox.style.display = isAttribute ? 'none' : 'grid';
+    if (stepBox) stepBox.style.display = isAttribute ? 'block' : 'none';
+}
+
 function initSimcTaskManagement() {
     // 新增任务按钮
     const addSimcTaskBtn = document.getElementById('add-simc-task-btn');
@@ -431,15 +460,7 @@ function initSimcTaskManagement() {
     const addTaskTypeSelect = document.getElementById('simc-task-type');
     if (addTaskTypeSelect) {
         addTaskTypeSelect.addEventListener('change', function() {
-            const profileSelect = document.getElementById('simc-task-profile');
-            if (this.value === '2') { // 属性模拟
-                profileSelect.style.display = 'block';
-                profileSelect.parentElement.style.display = 'block';
-            } else { // 常规模拟
-                profileSelect.style.display = 'none';
-                profileSelect.parentElement.style.display = 'none';
-                profileSelect.value = ''; // 清空选择
-            }
+            toggleTaskTypeFields('', this.value);
         });
     }
     
@@ -447,15 +468,7 @@ function initSimcTaskManagement() {
     const editTaskTypeSelect = document.getElementById('edit-simc-task-type');
     if (editTaskTypeSelect) {
         editTaskTypeSelect.addEventListener('change', function() {
-            const profileSelect = document.getElementById('edit-simc-task-profile');
-            if (this.value === '2') { // 属性模拟
-                profileSelect.style.display = 'block';
-                profileSelect.parentElement.style.display = 'block';
-            } else { // 常规模拟
-                profileSelect.style.display = 'none';
-                profileSelect.parentElement.style.display = 'none';
-                profileSelect.value = ''; // 清空选择
-            }
+            toggleTaskTypeFields('edit', this.value);
         });
     }
     
@@ -468,6 +481,10 @@ function initSimcTaskManagement() {
             document.getElementById('simc-task-name').value = '';
             document.getElementById('simc-task-type').value = '1';
             document.getElementById('simc-task-profile').value = '';
+            document.getElementById('simc-task-regular-time').value = '';
+            document.getElementById('simc-task-regular-target-count').value = '';
+            document.getElementById('simc-task-attribute-step').value = '50';
+            toggleTaskTypeFields('', '1');
         });
     }
     
@@ -532,6 +549,10 @@ function initAplSaveFeature() {
     const cancelSaveBtn = document.getElementById('cancel-save');
     const confirmSaveBtn = document.getElementById('confirm-save');
     const refreshAplListBtn = document.getElementById('refresh-apl-list');
+    const previewModal = document.getElementById('apl-translation-preview-modal');
+    const closePreviewBtn = document.getElementById('close-apl-preview');
+    const copyRawBtn = document.getElementById('copy-apl-preview-raw');
+    const copyCnBtn = document.getElementById('copy-apl-preview-cn');
     
     if (!saveAplBtn || !viewSavedAplBtn) {
         return;
@@ -606,6 +627,29 @@ function initAplSaveFeature() {
             if (e.target === savedAplSection) {
                 savedAplSection.style.display = 'none';
             }
+        });
+    }
+
+    if (closePreviewBtn) {
+        closePreviewBtn.addEventListener('click', function() {
+            previewModal.style.display = 'none';
+        });
+    }
+    if (previewModal) {
+        previewModal.addEventListener('click', function(e) {
+            if (e.target === previewModal) previewModal.style.display = 'none';
+        });
+    }
+    if (copyRawBtn) {
+        copyRawBtn.addEventListener('click', function() {
+            const raw = document.getElementById('apl-preview-raw').value || '';
+            navigator.clipboard.writeText(raw).then(() => showMessage('已复制APL原文', 'success'));
+        });
+    }
+    if (copyCnBtn) {
+        copyCnBtn.addEventListener('click', function() {
+            const cn = document.getElementById('apl-preview-cn').value || '';
+            navigator.clipboard.writeText(cn).then(() => showMessage('已复制中文翻译', 'success'));
         });
     }
 }
@@ -704,6 +748,9 @@ function displaySavedAplList(aplList) {
                     <button onclick="loadAplCode(${apl.id})" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200">
                         <i class="fas fa-download mr-1"></i>加载
                     </button>
+                    <button onclick="previewAplTranslation(${apl.id})" class="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200">
+                        <i class="fas fa-language mr-1"></i>翻译预览
+                    </button>
                     <button onclick="editAplCode(${apl.id})" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200">
                         <i class="fas fa-edit mr-1"></i>编辑
                     </button>
@@ -714,6 +761,31 @@ function displaySavedAplList(aplList) {
             </div>
         </div>
     `).join('');
+}
+
+async function previewAplTranslation(aplId) {
+    try {
+        const response = await fetch(`/api/apl-storage/${aplId}/`, {
+            method: 'GET',
+            headers: { 'X-CSRFToken': getCSRFToken() }
+        });
+        const data = await response.json();
+        if (!data.success) {
+            showMessage('加载APL失败: ' + (data.error || '未知错误'), 'error');
+            return;
+        }
+        const aplData = data.data || {};
+        const raw = aplData.apl_code || '';
+        const cn = await convertText(raw, 'apl_to_cn');
+
+        document.getElementById('apl-preview-title').textContent = aplData.title || `#${aplId}`;
+        document.getElementById('apl-preview-raw').value = raw;
+        document.getElementById('apl-preview-cn').value = cn || '';
+        document.getElementById('apl-translation-preview-modal').style.display = 'block';
+    } catch (error) {
+        console.error('APL翻译预览失败:', error);
+        showMessage('APL翻译预览失败: ' + error.message, 'error');
+    }
 }
 
 /**
@@ -972,6 +1044,8 @@ let totalCount = 0;
 let currentTableName = '';
 let currentTableColumns = [];
 let currentFieldTypes = {};
+let simcProfileSpecFilter = '';
+let simcProfileFightStyleFilter = '';
 
 
 /**
@@ -991,6 +1065,7 @@ function fetchTableData(tableName, page = 1) {
     currentPage = page;
     
     // 如果是SimcTask表，使用专门的API
+    updateSimcProfileFilterBar();
     if (tableName === 'SimcTask') {
         fetchSimcTaskData(page);
         return;
@@ -1022,6 +1097,10 @@ function fetchTableData(tableName, page = 1) {
     if (searchQuery && searchQuery.length > 0) {
         requestData.search = searchQuery;
     }
+    if (tableName === 'SimcProfile') {
+        if (simcProfileSpecFilter) requestData.simc_spec = simcProfileSpecFilter;
+        if (simcProfileFightStyleFilter) requestData.simc_fight_style = simcProfileFightStyleFilter;
+    }
     
     console.log('发送请求数据:', JSON.stringify(requestData));
     
@@ -1043,6 +1122,7 @@ function fetchTableData(tableName, page = 1) {
     })
     .then(data => {
         console.log('获取到的数据:', data);
+        updateSimcProfileFilterBar();
         if (data.status === 'success') {
             if (data.data && Array.isArray(data.data) && data.fields) {
                 // 更新分页信息
@@ -1078,6 +1158,13 @@ function fetchTableData(tableName, page = 1) {
             tableBody.innerHTML = `<tr><td colspan="10">获取数据时发生错误: ${error.message}</td></tr>`;
         }
     });
+}
+
+function updateSimcProfileFilterBar() {
+    const bar = document.getElementById('simc-profile-filter-bar');
+    if (!bar) return;
+    if (currentTableName === 'SimcProfile') bar.classList.remove('hidden');
+    else bar.classList.add('hidden');
 }
 
 /**
@@ -1151,7 +1238,7 @@ function displayTableData(data, fields) {
     }
     // SimcProfile表只显示指定字段
     else if (currentTableName === 'SimcProfile') {
-        displayFields = ['name', 'fight_style', 'time', 'target_count'];
+        displayFields = ['name', 'spec', 'fight_style', 'time', 'target_count'];
     }
     
     // 创建表头
@@ -2761,6 +2848,30 @@ function initSearch() {
     });
 }
 
+function initSimcProfileFilters() {
+    const specInput = document.getElementById('simc-profile-spec-filter');
+    const fightStyleInput = document.getElementById('simc-profile-fight-style-filter');
+    const applyBtn = document.getElementById('simc-profile-filter-apply');
+    const resetBtn = document.getElementById('simc-profile-filter-reset');
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            simcProfileSpecFilter = specInput ? specInput.value.trim() : '';
+            simcProfileFightStyleFilter = fightStyleInput ? fightStyleInput.value.trim() : '';
+            if (currentTableName === 'SimcProfile') fetchTableData('SimcProfile', 1);
+        });
+    }
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            simcProfileSpecFilter = '';
+            simcProfileFightStyleFilter = '';
+            if (specInput) specInput.value = '';
+            if (fightStyleInput) fightStyleInput.value = '';
+            if (currentTableName === 'SimcProfile') fetchTableData('SimcProfile', 1);
+        });
+    }
+}
+
 /**
  * 初始化页面大小选择器
  */
@@ -3195,10 +3306,11 @@ function openAddSimcTaskModal() {
     document.getElementById('simc-task-type').value = '1';
     document.getElementById('simc-config-select').value = '';
     document.getElementById('simc-task-profile').value = '';
+    document.getElementById('simc-task-regular-time').value = '';
+    document.getElementById('simc-task-regular-target-count').value = '';
+    document.getElementById('simc-task-attribute-step').value = '50';
     
-    // 默认隐藏属性组合下拉框
-    const profileSelect = document.getElementById('simc-task-profile');
-    profileSelect.parentElement.style.display = 'none';
+    toggleTaskTypeFields('', '1');
     
     modal.style.display = 'block';
 }
@@ -3207,6 +3319,9 @@ function submitAddSimcTask() {
     const taskName = document.getElementById('simc-task-name').value.trim();
     const taskType = document.getElementById('simc-task-type').value;
     const simcConfigId = document.getElementById('simc-config-select').value;
+    const regularTime = document.getElementById('simc-task-regular-time').value.trim();
+    const regularTargetCount = document.getElementById('simc-task-regular-target-count').value.trim();
+    const attributeStep = document.getElementById('simc-task-attribute-step').value.trim();
     
     if (!taskName) {
         showMessage('请输入任务名称', 'error');
@@ -3240,7 +3355,17 @@ function submitAddSimcTask() {
             return;
         }
         
-        requestData.ext = extData;
+        requestData.selected_attributes = extData;
+        if (attributeStep) {
+            requestData.attribute_step = parseInt(attributeStep);
+        }
+    } else {
+        if (regularTime) {
+            requestData.regular_time = parseInt(regularTime);
+        }
+        if (regularTargetCount) {
+            requestData.regular_target_count = parseInt(regularTargetCount);
+        }
     }
     
     fetch('/api/simc-task/', {
@@ -3332,17 +3457,21 @@ async function openEditSimcTaskModal(task) {
     document.getElementById('edit-simc-task-type').value = task.task_type || '1';
     document.getElementById('edit-simc-config-select').value = task.simc_profile_id || '';
     document.getElementById('edit-simc-task-status').value = task.current_status || '0';
+    document.getElementById('edit-simc-task-regular-time').value = '';
+    document.getElementById('edit-simc-task-regular-target-count').value = '';
+    document.getElementById('edit-simc-task-attribute-step').value = '50';
+
+    const extPayload = parseSimcTaskExt(task.ext || (task.ext_detail || {}));
     
     // 处理属性模拟的扩展信息 - 设置属性组合选择框
     const profileSelect = document.getElementById('edit-simc-task-profile');
-    if (task.task_type === 2) { // 属性模拟
-        profileSelect.parentElement.style.display = 'block';
-        if (task.ext) {
-            profileSelect.value = task.ext;
-        }
-    } else { // 常规模拟
-        profileSelect.parentElement.style.display = 'none';
-        profileSelect.value = '';
+    toggleTaskTypeFields('edit', task.task_type);
+    if (parseInt(task.task_type) === 2) {
+        profileSelect.value = extPayload.selected_attributes || task.ext || '';
+        document.getElementById('edit-simc-task-attribute-step').value = extPayload.attribute_step || 50;
+    } else {
+        document.getElementById('edit-simc-task-regular-time').value = extPayload.regular_time || '';
+        document.getElementById('edit-simc-task-regular-target-count').value = extPayload.regular_target_count || '';
     }
     
     // 存储任务ID用于更新
@@ -3358,6 +3487,9 @@ function updateSimcTask() {
     const taskType = document.getElementById('edit-simc-task-type').value;
     const simcConfigId = document.getElementById('edit-simc-config-select').value;
     const currentStatus = document.getElementById('edit-simc-task-status').value;
+    const regularTime = document.getElementById('edit-simc-task-regular-time').value.trim();
+    const regularTargetCount = document.getElementById('edit-simc-task-regular-target-count').value.trim();
+    const attributeStep = document.getElementById('edit-simc-task-attribute-step').value.trim();
     
     if (!taskName) {
         showMessage('请输入任务名称', 'error');
@@ -3396,9 +3528,18 @@ function updateSimcTask() {
         current_status: parseInt(currentStatus)
     };
     
-    // 只有当extData不为空时才添加ext字段
-    if (extData) {
-        requestData.ext = extData;
+    if (taskType === '2') {
+        requestData.selected_attributes = extData;
+        if (attributeStep) {
+            requestData.attribute_step = parseInt(attributeStep);
+        }
+    } else {
+        if (regularTime) {
+            requestData.regular_time = parseInt(regularTime);
+        }
+        if (regularTargetCount) {
+            requestData.regular_target_count = parseInt(regularTargetCount);
+        }
     }
     
     fetch('/api/simc-task/', {
@@ -3625,7 +3766,7 @@ async function loadSimcProfileOptions(selectElementId) {
         data.data.forEach(profile => {
             const option = document.createElement('option');
             option.value = profile.id;
-            option.textContent = profile.name;
+            option.textContent = `${profile.name}${profile.spec ? ` [${profile.spec}]` : ''}`;
             selectElement.appendChild(option);
         });
         
@@ -3679,8 +3820,12 @@ async function generateSimcCode(profileId, resultFile = '') {
             throw new Error(templateData.error || '获取SimC模板失败');
         }
         
-        // 查找启用的模板
-        const activeTemplate = templateData.templates.find(t => t.is_active);
+        // 查找启用且匹配专精的模板（支持逗号分隔专精）
+        const profileSpec = String(profile.spec || '').trim().toLowerCase();
+        const activeTemplates = (templateData.templates || []).filter(t => t.is_active);
+        const activeTemplate = activeTemplates.find(t => isTemplateSpecMatched(t.spec, profileSpec))
+            || activeTemplates.find(t => isTemplateSpecMatched(t.spec, 'default') || isTemplateSpecMatched(t.spec, 'all') || isTemplateSpecMatched(t.spec, '*'))
+            || activeTemplates[0];
         if (!activeTemplate) {
             throw new Error('没有找到启用的SimC模板');
         }
@@ -3691,6 +3836,7 @@ async function generateSimcCode(profileId, resultFile = '') {
         simcCode = simcCode.replace(/{fight_style}/g, profile.fight_style || 'Patchwerk');
         simcCode = simcCode.replace(/{time}/g, profile.time || '300');
         simcCode = simcCode.replace(/{target_count}/g, profile.target_count || '1');
+        simcCode = simcCode.replace(/{spec}/g, profile.spec || 'fury');
         simcCode = simcCode.replace(/{talent}/g, profile.talent || '');
         simcCode = simcCode.replace(/{action_list}/g, profile.action_list || '');
         simcCode = simcCode.replace(/{gear_strength}/g, profile.gear_strength || '93330');
@@ -3699,11 +3845,23 @@ async function generateSimcCode(profileId, resultFile = '') {
         simcCode = simcCode.replace(/{gear_mastery}/g, profile.gear_mastery || '21785');
         simcCode = simcCode.replace(/{gear_versatility}/g, profile.gear_versatility || '7257');
         simcCode = simcCode.replace(/{result_file}/g, resultFile || 'result.html');
+        if (!simcCode.includes('{spec}') && /(^|\n)\s*spec\s*=/.test(simcCode)) {
+            simcCode = simcCode.replace(/^\s*spec\s*=.*$/m, `spec=${profile.spec || 'fury'}`);
+        }
         
         return simcCode;
     } catch (error) {
         throw error;
     }
+}
+
+function isTemplateSpecMatched(templateSpec, profileSpec) {
+    const tpl = String(templateSpec || '').trim().toLowerCase();
+    const target = String(profileSpec || '').trim().toLowerCase();
+    if (!tpl || !target) return false;
+    if (tpl === target) return true;
+    const parts = tpl.split(',').map(s => s.trim()).filter(Boolean);
+    return parts.includes(target);
 }
 
 // SimC配置管理相关函数
@@ -3733,6 +3891,11 @@ function initSimcProfileManagement() {
                 addModal.classList.add('hidden');
             }
         });
+
+        const addSpecInput = document.getElementById('add-simc-profile-spec');
+        const addTalentInput = document.getElementById('add-simc-profile-talent');
+        if (addSpecInput) addSpecInput.addEventListener('input', () => updateTalentPreview('add'));
+        if (addTalentInput) addTalentInput.addEventListener('input', () => updateTalentPreview('add'));
     }
     
     if (editModal) {
@@ -3756,7 +3919,50 @@ function initSimcProfileManagement() {
                 editModal.classList.add('hidden');
             }
         });
+
+        const editSpecInput = document.getElementById('edit-simc-profile-spec');
+        const editTalentInput = document.getElementById('edit-simc-profile-talent');
+        if (editSpecInput) editSpecInput.addEventListener('input', () => updateTalentPreview('edit'));
+        if (editTalentInput) editTalentInput.addEventListener('input', () => updateTalentPreview('edit'));
     }
+}
+
+function getTalentPreviewMeta(specRaw, talentRaw) {
+    const spec = String(specRaw || '').trim().toLowerCase();
+    const talent = String(talentRaw || '').trim();
+
+    const map = {
+        fury: { path: 'warrior/fury', icon: 'ability_warrior_innerrage' },
+        arms: { path: 'warrior/arms', icon: 'ability_warrior_savageblow' },
+        protection: { path: 'warrior/protection', icon: 'ability_warrior_defensivestance' },
+        fire: { path: 'mage/fire', icon: 'spell_fire_firebolt02' },
+        frost: { path: 'mage/frost', icon: 'spell_frost_frostbolt02' },
+        arcane: { path: 'mage/arcane', icon: 'spell_holy_magicalsentry' }
+    };
+    const info = map[spec] || { path: '', icon: 'inv_misc_questionmark' };
+    const talentQuery = talent ? `?talents=${encodeURIComponent(talent)}` : '';
+    const calcUrl = info.path
+        ? `https://www.wowhead.com/talent-calc/${info.path}${talentQuery}`
+        : `https://www.wowhead.com/talent-calc${talentQuery}`;
+    const iconUrl = `https://wow.zamimg.com/images/wow/icons/large/${info.icon}.jpg`;
+    return { spec, talent, calcUrl, iconUrl };
+}
+
+function updateTalentPreview(mode) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const specInput = document.getElementById(`${prefix}-simc-profile-spec`);
+    const talentInput = document.getElementById(`${prefix}-simc-profile-talent`);
+    const image = document.getElementById(`${prefix}-talent-preview-image`);
+    const link = document.getElementById(`${prefix}-talent-preview-link`);
+    const text = document.getElementById(`${prefix}-talent-preview-text`);
+    if (!specInput || !talentInput || !image || !link || !text) return;
+
+    const meta = getTalentPreviewMeta(specInput.value, talentInput.value);
+    image.src = meta.iconUrl;
+    link.href = meta.calcUrl;
+    text.textContent = meta.talent
+        ? `专精: ${meta.spec || '未指定'}，天赋串长度: ${meta.talent.length}`
+        : `专精: ${meta.spec || '未指定'}，当前未输入天赋串`;
 }
 
 // 页面加载完成后初始化SimC配置管理
@@ -3873,6 +4079,7 @@ function displayTemplateList(templates) {
         
         row.innerHTML = `
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${template.id}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(template.spec || 'default')}</td>
             <td class="px-6 py-4 text-sm text-gray-900">
                 <div class="max-w-xs truncate" title="${escapeHtml(template.template_content)}">
                     ${escapeHtml(preview)}
@@ -3927,7 +4134,7 @@ function editTemplate(templateId) {
     .then(data => {
         if (!data) return;
         if (data.success) {
-            openEditTemplateModal(templateId, data.template_content);
+            openEditTemplateModal(templateId, data.template_content, data.spec || 'default');
         } else {
             showMessage('加载模板内容失败: ' + (data.message || '未知错误'), 'error');
         }
@@ -3939,14 +4146,16 @@ function editTemplate(templateId) {
 }
 
 // 打开编辑模板模态框
-function openEditTemplateModal(templateId, content) {
+function openEditTemplateModal(templateId, content, spec) {
     const modal = document.getElementById('edit-template-modal');
     const idInput = document.getElementById('edit-template-id');
     const contentTextarea = document.getElementById('edit-template-content');
+    const specInput = document.getElementById('edit-template-spec');
     
-    if (modal && idInput && contentTextarea) {
+    if (modal && idInput && contentTextarea && specInput) {
         idInput.value = templateId;
         contentTextarea.value = content;
+        specInput.value = spec || 'default';
         modal.classList.remove('hidden');
     }
 }
@@ -3963,9 +4172,11 @@ function closeEditTemplateModal() {
 function openAddTemplateModal() {
     const modal = document.getElementById('add-template-modal');
     const contentTextarea = document.getElementById('add-template-content');
+    const specInput = document.getElementById('add-template-spec');
     
     // 清空表单
     if (contentTextarea) contentTextarea.value = '';
+    if (specInput) specInput.value = 'default';
     
     // 显示模态框
     if (modal) {
@@ -3982,16 +4193,24 @@ function closeAddTemplateModal() {
     
     // 清空表单
     const contentTextarea = document.getElementById('add-template-content');
+    const specInput = document.getElementById('add-template-spec');
     if (contentTextarea) contentTextarea.value = '';
+    if (specInput) specInput.value = 'default';
 }
 
 // 保存新增模板
 function saveTemplateAdd() {
     const contentTextarea = document.getElementById('add-template-content');
+    const specInput = document.getElementById('add-template-spec');
     const templateContent = contentTextarea ? contentTextarea.value.trim() : '';
+    const templateSpec = specInput ? specInput.value.trim() : '';
     
     if (!templateContent) {
         showMessage('模板内容不能为空', 'error');
+        return;
+    }
+    if (!templateSpec) {
+        showMessage('适配专精不能为空', 'error');
         return;
     }
     
@@ -4004,7 +4223,8 @@ function saveTemplateAdd() {
             'X-CSRFToken': csrfToken
         },
         body: JSON.stringify({
-            template_content: templateContent
+            template_content: templateContent,
+            spec: templateSpec
         })
     })
     .then(response => {
@@ -4037,17 +4257,23 @@ function saveTemplateAdd() {
 function saveTemplateEdit() {
     const idInput = document.getElementById('edit-template-id');
     const contentTextarea = document.getElementById('edit-template-content');
+    const specInput = document.getElementById('edit-template-spec');
     
-    if (!idInput || !contentTextarea) {
+    if (!idInput || !contentTextarea || !specInput) {
         showMessage('找不到必要的表单元素', 'error');
         return;
     }
     
     const templateId = idInput.value;
     const content = contentTextarea.value.trim();
+    const spec = specInput.value.trim();
     
     if (!content) {
         showMessage('请输入模板内容', 'warning');
+        return;
+    }
+    if (!spec) {
+        showMessage('请输入适配专精', 'warning');
         return;
     }
     
@@ -4060,7 +4286,8 @@ function saveTemplateEdit() {
             'X-CSRFToken': csrfToken
         },
         body: JSON.stringify({
-            template_content: content
+            template_content: content,
+            spec: spec
         })
     })
     .then(response => {
@@ -4142,6 +4369,7 @@ function openAddSimcProfileModal() {
     
     // 清空表单
     document.getElementById('add-simc-profile-name').value = '';
+    document.getElementById('add-simc-profile-spec').value = 'fury';
     document.getElementById('add-simc-profile-fight-style').value = 'Patchwerk';
     document.getElementById('add-simc-profile-time').value = '40';
     document.getElementById('add-simc-profile-target-count').value = '1';
@@ -4152,12 +4380,14 @@ function openAddSimcProfileModal() {
     document.getElementById('add-simc-profile-versatility').value = '7257';
     document.getElementById('add-simc-profile-talent').value = '';
     document.getElementById('add-simc-profile-action-list').value = '';
+    updateTalentPreview('add');
     
     modal.classList.remove('hidden');
 }
 
 function submitAddSimcProfile() {
     const profileName = document.getElementById('add-simc-profile-name').value.trim();
+    const spec = document.getElementById('add-simc-profile-spec').value.trim();
     const fightStyle = document.getElementById('add-simc-profile-fight-style').value;
     const time = parseInt(document.getElementById('add-simc-profile-time').value);
     const targetCount = parseInt(document.getElementById('add-simc-profile-target-count').value);
@@ -4171,6 +4401,10 @@ function submitAddSimcProfile() {
     
     if (!profileName) {
         showMessage('请输入配置名称', 'error');
+        return;
+    }
+    if (!spec) {
+        showMessage('请输入专精', 'error');
         return;
     }
     
@@ -4189,6 +4423,7 @@ function submitAddSimcProfile() {
         },
         body: JSON.stringify({
             name: profileName,
+            spec: spec,
             fight_style: fightStyle,
             time: time,
             target_count: targetCount,
@@ -4281,6 +4516,7 @@ function openEditSimcProfileModal(profile) {
     
     // 填充表单数据
     document.getElementById('edit-simc-profile-name').value = profile.name || '';
+    document.getElementById('edit-simc-profile-spec').value = profile.spec || 'fury';
     document.getElementById('edit-simc-profile-fight-style').value = profile.fight_style || 'Patchwerk';
     document.getElementById('edit-simc-profile-time').value = profile.time || 40;
     document.getElementById('edit-simc-profile-target-count').value = profile.target_count || 1;
@@ -4291,6 +4527,7 @@ function openEditSimcProfileModal(profile) {
     document.getElementById('edit-simc-profile-versatility').value = profile.gear_versatility || 0;
     document.getElementById('edit-simc-profile-talent').value = profile.talent || '';
     document.getElementById('edit-simc-profile-action-list').value = profile.action_list || '';
+    updateTalentPreview('edit');
     
     // 存储配置ID用于更新
     modal.setAttribute('data-profile-id', profile.id);
@@ -4302,6 +4539,7 @@ function updateSimcProfile() {
     const modal = document.getElementById('edit-simc-profile-modal');
     const profileId = modal.getAttribute('data-profile-id');
     const profileName = document.getElementById('edit-simc-profile-name').value.trim();
+    const spec = document.getElementById('edit-simc-profile-spec').value.trim();
     const fightStyle = document.getElementById('edit-simc-profile-fight-style').value;
     const time = parseInt(document.getElementById('edit-simc-profile-time').value);
     const targetCount = parseInt(document.getElementById('edit-simc-profile-target-count').value);
@@ -4315,6 +4553,10 @@ function updateSimcProfile() {
     
     if (!profileName) {
         showMessage('请输入配置名称', 'error');
+        return;
+    }
+    if (!spec) {
+        showMessage('请输入专精', 'error');
         return;
     }
     
@@ -4334,6 +4576,7 @@ function updateSimcProfile() {
         body: JSON.stringify({
             id: parseInt(profileId),
             name: profileName,
+            spec: spec,
             fight_style: fightStyle,
             time: time,
             target_count: targetCount,
@@ -4475,16 +4718,27 @@ function openSimulationTypeModal() {
     // 重置表单状态
     document.querySelector('input[name="simulation-type"][value="1"]').checked = true;
     document.getElementById('attribute-combinations').classList.add('hidden');
+    const regularOptions = document.getElementById('simulation-regular-options');
+    if (regularOptions) regularOptions.classList.remove('hidden');
     document.querySelectorAll('input[name="attribute-combination"]').forEach(cb => cb.checked = false);
+    const regularTimeInput = document.getElementById('simulation-regular-time');
+    const regularTargetInput = document.getElementById('simulation-regular-target-count');
+    const attributeStepInput = document.getElementById('simulation-attribute-step');
+    if (regularTimeInput) regularTimeInput.value = '';
+    if (regularTargetInput) regularTargetInput.value = '';
+    if (attributeStepInput) attributeStepInput.value = '50';
     
     // 绑定模拟类型切换事件
     document.querySelectorAll('input[name="simulation-type"]').forEach(radio => {
         radio.addEventListener('change', function() {
             const attributeCombinations = document.getElementById('attribute-combinations');
+            const regularOptions = document.getElementById('simulation-regular-options');
             if (this.value === '2') {
                 attributeCombinations.classList.remove('hidden');
+                if (regularOptions) regularOptions.classList.add('hidden');
             } else {
                 attributeCombinations.classList.add('hidden');
+                if (regularOptions) regularOptions.classList.remove('hidden');
             }
         });
     });
@@ -4499,10 +4753,16 @@ function closeSimulationTypeModal() {
 function startSimulation() {
     const profileId = window.currentSimulationProfileId;
     const simulationType = document.querySelector('input[name="simulation-type"]:checked').value;
+    const regularTime = (document.getElementById('simulation-regular-time') || {}).value || '';
+    const regularTargetCount = (document.getElementById('simulation-regular-target-count') || {}).value || '';
+    const attributeStep = (document.getElementById('simulation-attribute-step') || {}).value || '';
     
     if (simulationType === '1') {
         // 常规模拟
-        createSimulationTask(profileId, 1, null);
+        createSimulationTask(profileId, 1, null, {
+            regular_time: regularTime ? parseInt(regularTime) : undefined,
+            regular_target_count: regularTargetCount ? parseInt(regularTargetCount) : undefined
+        });
     } else if (simulationType === '2') {
         // 属性模拟
         const selectedCombinations = Array.from(document.querySelectorAll('input[name="attribute-combination"]:checked'))
@@ -4514,20 +4774,29 @@ function startSimulation() {
         }
         
         // 批量创建属性模拟任务
-        createBatchSimulationTasks(profileId, selectedCombinations);
+        createBatchSimulationTasks(profileId, selectedCombinations, attributeStep ? parseInt(attributeStep) : undefined);
     }
     
     closeSimulationTypeModal();
 }
 
 // 创建模拟任务
-function createSimulationTask(profileId, taskType, attributeCombination) {
+function createSimulationTask(profileId, taskType, attributeCombination, extraOptions = {}) {
     const requestBody = {
         task_type: taskType
     };
     
     if (attributeCombination) {
         requestBody.selected_attributes = attributeCombination;
+    }
+    if (extraOptions.regular_time) {
+        requestBody.regular_time = parseInt(extraOptions.regular_time);
+    }
+    if (extraOptions.regular_target_count) {
+        requestBody.regular_target_count = parseInt(extraOptions.regular_target_count);
+    }
+    if (extraOptions.attribute_step) {
+        requestBody.attribute_step = parseInt(extraOptions.attribute_step);
     }
     
     const csrfToken = getCSRFToken();
@@ -4574,7 +4843,7 @@ function createSimulationTask(profileId, taskType, attributeCombination) {
 }
 
 // 批量创建属性模拟任务
-function createBatchSimulationTasks(profileId, selectedCombinations) {
+function createBatchSimulationTasks(profileId, selectedCombinations, attributeStep) {
     let completedTasks = 0;
     let successfulTasks = 0;
     let failedTasks = [];
@@ -4584,7 +4853,9 @@ function createBatchSimulationTasks(profileId, selectedCombinations) {
     
     selectedCombinations.forEach(async (combination) => {
         try {
-            const result = await createSimulationTask(profileId, 2, combination);
+            const result = await createSimulationTask(profileId, 2, combination, {
+                attribute_step: attributeStep
+            });
             completedTasks++;
             
             if (result.success) {

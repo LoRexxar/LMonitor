@@ -423,6 +423,7 @@
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">ID</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">专精</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">模板预览</th>
                                         <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">状态</th>
                                         <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">操作</th>
@@ -553,6 +554,14 @@
                                 <option value="50" selected>显示 50 条</option>
                                 <option value="100">显示 100 条</option>
                             </select>
+                        </div>
+                        <div id="simc-profile-filter-bar" class="hidden">
+                            <div class="flex flex-col md:flex-row items-start md:items-center gap-2">
+                                <input type="text" id="simc-profile-spec-filter" placeholder="按专精筛选，如 fury" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <input type="text" id="simc-profile-fight-style-filter" placeholder="按战斗风格筛选，如 Patchwerk" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <button id="simc-profile-filter-apply" class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200">应用筛选</button>
+                                <button id="simc-profile-filter-reset" class="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200">清空</button>
+                            </div>
                         </div>
                         <div class="flex items-center space-x-2">
                             <button id="add-record-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center">
@@ -761,6 +770,34 @@
         </div>
     </div>
     
+    <!-- APL翻译预览浮窗 -->
+    <div class="fixed inset-0 bg-black bg-opacity-50 z-50" id="apl-translation-preview-modal" style="display: none;">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-5xl max-h-[85vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h4 class="text-lg font-semibold text-gray-800">APL翻译预览 - <span id="apl-preview-title"></span></h4>
+                    <button id="close-apl-preview" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded-md text-sm transition-colors duration-200">
+                        <i class="fas fa-times mr-1"></i>关闭
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <h5 class="text-sm font-semibold text-gray-700 mb-2">APL原文</h5>
+                        <textarea id="apl-preview-raw" class="w-full p-3 border border-gray-300 rounded-md font-mono text-sm bg-gray-50" rows="18" readonly></textarea>
+                    </div>
+                    <div>
+                        <h5 class="text-sm font-semibold text-gray-700 mb-2">中文翻译</h5>
+                        <textarea id="apl-preview-cn" class="w-full p-3 border border-gray-300 rounded-md font-mono text-sm bg-gray-50" rows="18" readonly></textarea>
+                    </div>
+                </div>
+                <div class="mt-4 flex justify-end space-x-3">
+                    <button id="copy-apl-preview-raw" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">复制原文</button>
+                    <button id="copy-apl-preview-cn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">复制翻译</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <!-- SimC任务新增模态框 -->
     <div class="fixed inset-0 bg-black bg-opacity-50 z-50" id="add-simc-task-modal" style="display: none;">
         <div class="flex items-center justify-center min-h-screen p-4">
@@ -794,6 +831,20 @@
                         <option value="haste_versatility">急速+全能</option>
                         <option value="mastery_versatility">精通+全能</option>
                     </select>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" id="simc-task-regular-options">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">覆盖战斗时长(秒，可选)</label>
+                        <input type="number" id="simc-task-regular-time" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" placeholder="留空则使用配置默认值">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">覆盖目标数量(可选)</label>
+                        <input type="number" id="simc-task-regular-target-count" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" placeholder="留空则使用配置默认值">
+                    </div>
+                </div>
+                <div class="mb-4" id="simc-task-attribute-step-wrapper" style="display: none;">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">属性模拟步长</label>
+                    <input type="number" id="simc-task-attribute-step" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" value="50" min="1">
                 </div>
 
                 <div class="mt-4 flex justify-end space-x-3">
@@ -842,6 +893,20 @@
                         <option value="haste_versatility">急速+全能</option>
                         <option value="mastery_versatility">精通+全能</option>
                     </select>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" id="edit-simc-task-regular-options">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">覆盖战斗时长(秒，可选)</label>
+                        <input type="number" id="edit-simc-task-regular-time" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" placeholder="留空则使用配置默认值">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">覆盖目标数量(可选)</label>
+                        <input type="number" id="edit-simc-task-regular-target-count" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" placeholder="留空则使用配置默认值">
+                    </div>
+                </div>
+                <div class="mb-4" id="edit-simc-task-attribute-step-wrapper" style="display: none;">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">属性模拟步长</label>
+                    <input type="number" id="edit-simc-task-attribute-step" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" value="50" min="1">
                 </div>
 
                 <div class="mb-4">
@@ -907,6 +972,10 @@
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">专精</label>
+                                <input type="text" id="add-simc-profile-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="fury" placeholder="如 fury/arms/fire">
+                            </div>
+                            <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">战斗风格</label>
                                 <select id="add-simc-profile-fight-style" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                     <option value="Patchwerk">Patchwerk</option>
@@ -949,6 +1018,16 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">天赋</label>
                             <textarea id="add-simc-profile-talent" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="5" placeholder="请输入天赋配置..."></textarea>
+                            <div class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                <div class="flex items-center justify-between">
+                                    <p class="text-xs text-gray-500">天赋预览（尝试）</p>
+                                    <a id="add-talent-preview-link" href="#" target="_blank" class="text-xs text-blue-600 hover:text-blue-700">打开计算器</a>
+                                </div>
+                                <div class="mt-2 flex items-center gap-3">
+                                    <img id="add-talent-preview-image" src="" alt="talent-preview" class="w-10 h-10 rounded border border-gray-200 bg-white object-cover">
+                                    <p id="add-talent-preview-text" class="text-xs text-gray-600">输入专精和天赋后自动更新预览</p>
+                                </div>
+                            </div>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">动作列表</label>
@@ -983,6 +1062,10 @@
                             <input type="text" id="edit-simc-profile-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="请输入配置名称">
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">专精</label>
+                                <input type="text" id="edit-simc-profile-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="fury" placeholder="如 fury/arms/fire">
+                            </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">战斗风格</label>
                                 <select id="edit-simc-profile-fight-style" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
@@ -1026,6 +1109,16 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">天赋</label>
                             <textarea id="edit-simc-profile-talent" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="5" placeholder="请输入天赋配置..."></textarea>
+                            <div class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                <div class="flex items-center justify-between">
+                                    <p class="text-xs text-gray-500">天赋预览（尝试）</p>
+                                    <a id="edit-talent-preview-link" href="#" target="_blank" class="text-xs text-blue-600 hover:text-blue-700">打开计算器</a>
+                                </div>
+                                <div class="mt-2 flex items-center gap-3">
+                                    <img id="edit-talent-preview-image" src="" alt="talent-preview" class="w-10 h-10 rounded border border-gray-200 bg-white object-cover">
+                                    <p id="edit-talent-preview-text" class="text-xs text-gray-600">输入专精和天赋后自动更新预览</p>
+                                </div>
+                            </div>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">动作列表</label>
@@ -1056,6 +1149,10 @@
                     </h3>
                     <div class="space-y-4">
                         <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">适配专精</label>
+                            <input type="text" id="add-template-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="default" placeholder="如 fury/arms/default">
+                        </div>
+                        <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">模板内容</label>
                             <textarea id="add-template-content" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入模板内容..."></textarea>
                         </div>
@@ -1084,6 +1181,10 @@
                     </h3>
                     <input type="hidden" id="edit-template-id">
                     <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">适配专精</label>
+                            <input type="text" id="edit-template-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="default" placeholder="如 fury/arms/default">
+                        </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">模板内容</label>
                             <textarea id="edit-template-content" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入模板内容..."></textarea>
@@ -1138,6 +1239,19 @@
                                 </label>
                             </div>
                         </div>
+                        <div id="simulation-regular-options">
+                            <label class="block text-sm font-medium text-gray-700 mb-3">常规模拟覆盖参数（可选）</label>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">覆盖战斗时长(秒)</label>
+                                    <input type="number" id="simulation-regular-time" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1" placeholder="留空使用配置默认值">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">覆盖目标数量</label>
+                                    <input type="number" id="simulation-regular-target-count" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1" placeholder="留空使用配置默认值">
+                                </div>
+                            </div>
+                        </div>
                         
                         <!-- 属性组合选择 -->
                         <div id="attribute-combinations" class="hidden">
@@ -1185,6 +1299,10 @@
                                         <div class="text-sm text-gray-500">分析急速和全能属性的组合效果</div>
                                     </div>
                                 </label>
+                            </div>
+                            <div class="mt-3">
+                                <label class="block text-xs text-gray-500 mb-1">属性模拟步长</label>
+                                <input type="number" id="simulation-attribute-step" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="50" min="1">
                             </div>
                         </div>
                     </div>
