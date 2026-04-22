@@ -139,14 +139,23 @@ class SimcTaskAPIView(View):
         try:
             # 获取当前用户的所有SimC任务
             tasks = SimcTask.objects.filter(user_id=request.user.id, is_active=True).order_by('-modified_time')
+            profile_ids = [t.simc_profile_id for t in tasks if t.simc_profile_id]
+            profile_map = {
+                p['id']: p
+                for p in SimcProfile.objects.filter(id__in=profile_ids, user_id=request.user.id, is_active=True)
+                .values('id', 'name', 'spec')
+            }
             
             tasks_data = []
             for task in tasks:
                 ext_detail = self._normalize_task_ext(task.task_type, task.ext)
+                profile_info = profile_map.get(task.simc_profile_id) or {}
                 tasks_data.append({
                     'id': task.id,
                     'name': task.name,
                     'simc_profile_id': task.simc_profile_id,
+                    'simc_profile_name': profile_info.get('name', ''),
+                    'simc_profile_spec': profile_info.get('spec', ''),
                     'current_status': task.current_status,
                     'result_file': task.result_file,
                     'task_type': task.task_type,

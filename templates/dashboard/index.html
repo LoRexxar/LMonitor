@@ -471,6 +471,7 @@
                                         </th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">ID</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务名称</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">专精</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务类型</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">状态</th>
         
@@ -480,7 +481,7 @@
                                 <tbody id="simc-task-list" class="bg-white divide-y divide-gray-200">
                                     <!-- 任务列表将通过JavaScript动态加载 -->
                                     <tr>
-                                        <td colspan="6" class="text-center py-8 text-gray-500">
+                                        <td colspan="7" class="text-center py-8 text-gray-500">
                                             <i class="fas fa-tasks text-4xl mb-4"></i>
                                             <p>暂无任务数据</p>
                                         </td>
@@ -833,13 +834,21 @@
                     </select>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" id="simc-task-regular-options">
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">常规模拟默认场景</label>
+                        <select id="simc-task-regular-preset" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <option value="300,1">单体标准(300秒 / 1目标)</option>
+                            <option value="300,2">双目标(300秒 / 2目标)</option>
+                            <option value="180,5">AOE爆发(180秒 / 5目标)</option>
+                        </select>
+                    </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">覆盖战斗时长(秒，可选)</label>
-                        <input type="number" id="simc-task-regular-time" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" placeholder="留空则使用配置默认值">
+                        <input type="number" id="simc-task-regular-time" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" value="300">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">覆盖目标数量(可选)</label>
-                        <input type="number" id="simc-task-regular-target-count" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" placeholder="留空则使用配置默认值">
+                        <input type="number" id="simc-task-regular-target-count" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" value="1">
                     </div>
                 </div>
                 <div class="mb-4" id="simc-task-attribute-step-wrapper" style="display: none;">
@@ -895,13 +904,21 @@
                     </select>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" id="edit-simc-task-regular-options">
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">常规模拟默认场景</label>
+                        <select id="edit-simc-task-regular-preset" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <option value="300,1">单体标准(300秒 / 1目标)</option>
+                            <option value="300,2">双目标(300秒 / 2目标)</option>
+                            <option value="180,5">AOE爆发(180秒 / 5目标)</option>
+                        </select>
+                    </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">覆盖战斗时长(秒，可选)</label>
-                        <input type="number" id="edit-simc-task-regular-time" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" placeholder="留空则使用配置默认值">
+                        <input type="number" id="edit-simc-task-regular-time" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" value="300">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">覆盖目标数量(可选)</label>
-                        <input type="number" id="edit-simc-task-regular-target-count" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" placeholder="留空则使用配置默认值">
+                        <input type="number" id="edit-simc-task-regular-target-count" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" value="1">
                     </div>
                 </div>
                 <div class="mb-4" id="edit-simc-task-attribute-step-wrapper" style="display: none;">
@@ -973,7 +990,14 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">专精</label>
-                                <input type="text" id="add-simc-profile-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="fury" placeholder="如 fury/arms/fire">
+                                <select id="add-simc-profile-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="fury">fury</option>
+                                    <option value="arms">arms</option>
+                                    <option value="protection">protection</option>
+                                    <option value="fire">fire</option>
+                                    <option value="frost">frost</option>
+                                    <option value="arcane">arcane</option>
+                                </select>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">战斗风格</label>
@@ -1064,7 +1088,14 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">专精</label>
-                                <input type="text" id="edit-simc-profile-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="fury" placeholder="如 fury/arms/fire">
+                                <select id="edit-simc-profile-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="fury">fury</option>
+                                    <option value="arms">arms</option>
+                                    <option value="protection">protection</option>
+                                    <option value="fire">fire</option>
+                                    <option value="frost">frost</option>
+                                    <option value="arcane">arcane</option>
+                                </select>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">战斗风格</label>
@@ -1241,14 +1272,22 @@
                         </div>
                         <div id="simulation-regular-options">
                             <label class="block text-sm font-medium text-gray-700 mb-3">常规模拟覆盖参数（可选）</label>
+                            <div class="mb-3">
+                                <label class="block text-xs text-gray-500 mb-1">默认场景</label>
+                                <select id="simulation-regular-preset" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="300,1">单体标准(300秒 / 1目标)</option>
+                                    <option value="300,2">双目标(300秒 / 2目标)</option>
+                                    <option value="180,5">AOE爆发(180秒 / 5目标)</option>
+                                </select>
+                            </div>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs text-gray-500 mb-1">覆盖战斗时长(秒)</label>
-                                    <input type="number" id="simulation-regular-time" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1" placeholder="留空使用配置默认值">
+                                    <input type="number" id="simulation-regular-time" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1" value="300">
                                 </div>
                                 <div>
                                     <label class="block text-xs text-gray-500 mb-1">覆盖目标数量</label>
-                                    <input type="number" id="simulation-regular-target-count" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1" placeholder="留空使用配置默认值">
+                                    <input type="number" id="simulation-regular-target-count" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1" value="1">
                                 </div>
                             </div>
                         </div>

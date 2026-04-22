@@ -429,6 +429,15 @@ function parseSimcTaskExt(ext) {
     }
 }
 
+function applyRegularPreset(presetValue, timeInputId, targetInputId) {
+    if (!presetValue) return;
+    const [timeValue, targetValue] = String(presetValue).split(',');
+    const timeInput = document.getElementById(timeInputId);
+    const targetInput = document.getElementById(targetInputId);
+    if (timeInput && timeValue) timeInput.value = String(parseInt(timeValue, 10) || 300);
+    if (targetInput && targetValue) targetInput.value = String(parseInt(targetValue, 10) || 1);
+}
+
 function toggleTaskTypeFields(prefix, taskType) {
     const isAttribute = String(taskType) === '2';
     const attrSelect = document.getElementById(prefix ? `${prefix}-simc-task-profile` : 'simc-task-profile');
@@ -650,6 +659,19 @@ function initAplSaveFeature() {
         copyCnBtn.addEventListener('click', function() {
             const cn = document.getElementById('apl-preview-cn').value || '';
             navigator.clipboard.writeText(cn).then(() => showMessage('已复制中文翻译', 'success'));
+        });
+    }
+
+    const addRegularPreset = document.getElementById('simc-task-regular-preset');
+    if (addRegularPreset) {
+        addRegularPreset.addEventListener('change', function() {
+            applyRegularPreset(this.value, 'simc-task-regular-time', 'simc-task-regular-target-count');
+        });
+    }
+    const editRegularPreset = document.getElementById('edit-simc-task-regular-preset');
+    if (editRegularPreset) {
+        editRegularPreset.addEventListener('change', function() {
+            applyRegularPreset(this.value, 'edit-simc-task-regular-time', 'edit-simc-task-regular-target-count');
         });
     }
 }
@@ -3089,7 +3111,7 @@ function displaySimcTaskData(tasks) {
     if (!tasks || tasks.length === 0) {
         taskListContainer.innerHTML = `
             <tr>
-                <td colspan="6" class="text-center py-8 text-gray-500">
+                <td colspan="7" class="text-center py-8 text-gray-500">
                     <i class="fas fa-tasks text-4xl mb-4"></i>
                     <p>暂无任务数据</p>
                 </td>
@@ -3137,14 +3159,15 @@ function displaySimcTaskData(tasks) {
             case 2:
                 taskTypeText = '属性模拟';
                 // 如果是属性模拟且有ext数据，显示选中的属性
-                if (task.ext) {
+                const extPayload = parseSimcTaskExt(task.ext || task.ext_detail || {});
+                if (extPayload.selected_attributes) {
                     const statMap = {
                         'crit': '暴击',
                         'haste': '急速', 
                         'mastery': '精通',
                         'versatility': '全能'
                     };
-                    const selectedStats = task.ext.split(',').map(stat => statMap[stat.trim()] || stat.trim()).join('、');
+                    const selectedStats = String(extPayload.selected_attributes).split('_').map(stat => statMap[stat.trim()] || stat.trim()).join(' + ');
                     taskTypeText += `<br><span class="text-xs text-gray-600">(${selectedStats})</span>`;
                 }
                 break;
@@ -3169,6 +3192,7 @@ function displaySimcTaskData(tasks) {
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(task.name || '')}</div>
                 </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(task.simc_profile_spec || '-')}</td>
                 <td class="px-6 py-4">
                     <div class="inline-flex flex-col px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
                         ${taskTypeText}
@@ -3308,6 +3332,8 @@ function openAddSimcTaskModal() {
     document.getElementById('simc-task-profile').value = '';
     document.getElementById('simc-task-regular-time').value = '';
     document.getElementById('simc-task-regular-target-count').value = '';
+    document.getElementById('simc-task-regular-preset').value = '300,1';
+    applyRegularPreset('300,1', 'simc-task-regular-time', 'simc-task-regular-target-count');
     document.getElementById('simc-task-attribute-step').value = '50';
     
     toggleTaskTypeFields('', '1');
@@ -3457,8 +3483,8 @@ async function openEditSimcTaskModal(task) {
     document.getElementById('edit-simc-task-type').value = task.task_type || '1';
     document.getElementById('edit-simc-config-select').value = task.simc_profile_id || '';
     document.getElementById('edit-simc-task-status').value = task.current_status || '0';
-    document.getElementById('edit-simc-task-regular-time').value = '';
-    document.getElementById('edit-simc-task-regular-target-count').value = '';
+    document.getElementById('edit-simc-task-regular-preset').value = '300,1';
+    applyRegularPreset('300,1', 'edit-simc-task-regular-time', 'edit-simc-task-regular-target-count');
     document.getElementById('edit-simc-task-attribute-step').value = '50';
 
     const extPayload = parseSimcTaskExt(task.ext || (task.ext_detail || {}));
@@ -3470,8 +3496,21 @@ async function openEditSimcTaskModal(task) {
         profileSelect.value = extPayload.selected_attributes || task.ext || '';
         document.getElementById('edit-simc-task-attribute-step').value = extPayload.attribute_step || 50;
     } else {
-        document.getElementById('edit-simc-task-regular-time').value = extPayload.regular_time || '';
-        document.getElementById('edit-simc-task-regular-target-count').value = extPayload.regular_target_count || '';
+        const regularTime = extPayload.regular_time || 300;
+        const regularTargetCount = extPayload.regular_target_count || 1;
+        document.getElementById('edit-simc-task-regular-time').value = regularTime;
+        document.getElementById('edit-simc-task-regular-target-count').value = regularTargetCount;
+        const rt = String(extPayload.regular_time || '');
+        const rc = String(extPayload.regular_target_count || '');
+        const presetValue = `${rt},${rc}`;
+        if (['300,1', '300,2', '180,5'].includes(presetValue)) {
+            document.getElementById('edit-simc-task-regular-preset').value = presetValue;
+        } else {
+            const fallbackPreset = `${regularTime},${regularTargetCount}`;
+            if (['300,1', '300,2', '180,5'].includes(fallbackPreset)) {
+                document.getElementById('edit-simc-task-regular-preset').value = fallbackPreset;
+            }
+        }
     }
     
     // 存储任务ID用于更新
@@ -4516,7 +4555,11 @@ function openEditSimcProfileModal(profile) {
     
     // 填充表单数据
     document.getElementById('edit-simc-profile-name').value = profile.name || '';
-    document.getElementById('edit-simc-profile-spec').value = profile.spec || 'fury';
+    const specSelect = document.getElementById('edit-simc-profile-spec');
+    const profileSpec = profile.spec || 'fury';
+    if (specSelect) {
+        specSelect.value = Array.from(specSelect.options).some(o => o.value === profileSpec) ? profileSpec : 'fury';
+    }
     document.getElementById('edit-simc-profile-fight-style').value = profile.fight_style || 'Patchwerk';
     document.getElementById('edit-simc-profile-time').value = profile.time || 40;
     document.getElementById('edit-simc-profile-target-count').value = profile.target_count || 1;
@@ -4724,8 +4767,10 @@ function openSimulationTypeModal() {
     const regularTimeInput = document.getElementById('simulation-regular-time');
     const regularTargetInput = document.getElementById('simulation-regular-target-count');
     const attributeStepInput = document.getElementById('simulation-attribute-step');
-    if (regularTimeInput) regularTimeInput.value = '';
-    if (regularTargetInput) regularTargetInput.value = '';
+    const preset = document.getElementById('simulation-regular-preset');
+    if (preset) preset.value = '300,1';
+    if (regularTimeInput) regularTimeInput.value = '300';
+    if (regularTargetInput) regularTargetInput.value = '1';
     if (attributeStepInput) attributeStepInput.value = '50';
     
     // 绑定模拟类型切换事件
@@ -4743,6 +4788,16 @@ function openSimulationTypeModal() {
         });
     });
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    const simulationPreset = document.getElementById('simulation-regular-preset');
+    if (simulationPreset) {
+        simulationPreset.addEventListener('change', function() {
+            applyRegularPreset(this.value, 'simulation-regular-time', 'simulation-regular-target-count');
+        });
+        applyRegularPreset(simulationPreset.value, 'simulation-regular-time', 'simulation-regular-target-count');
+    }
+});
 
 // 关闭模拟类型选择弹窗
 function closeSimulationTypeModal() {
