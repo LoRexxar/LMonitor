@@ -4038,16 +4038,18 @@ function initSimcProfileManagement() {
         const addTalentInput = document.getElementById('add-simc-profile-talent');
         const addAplPreviewBtn = document.getElementById('add-simc-profile-apl-preview-btn');
         const addAplInput = document.getElementById('add-simc-profile-action-list');
+        const addCnEditor = document.getElementById('add-simc-profile-apl-preview-cn');
         const addAplAuto = document.getElementById('add-simc-profile-apl-preview-auto');
         const addAplCopyBtn = document.getElementById('add-simc-profile-apl-preview-copy');
-        const addCnToAplBtn = document.getElementById('add-simc-profile-cn-to-apl-append-btn');
+        const addRebuildCnBtn = document.getElementById('add-simc-profile-apl-rebuild-cn-btn');
         if (addSpecInput) addSpecInput.addEventListener('input', () => updateTalentPreview('add'));
         if (addTalentInput) addTalentInput.addEventListener('input', () => updateTalentPreview('add'));
-        if (addAplPreviewBtn) addAplPreviewBtn.addEventListener('click', () => previewSimcProfileAplTranslation('add', { force: true }));
-        if (addAplInput) addAplInput.addEventListener('input', () => scheduleSimcProfileAplPreview('add'));
-        if (addAplAuto) addAplAuto.addEventListener('change', () => scheduleSimcProfileAplPreview('add', true));
+        if (addAplPreviewBtn) addAplPreviewBtn.addEventListener('click', () => syncCnEditorToApl('add', { force: true }));
+        if (addCnEditor) addCnEditor.addEventListener('input', () => scheduleCnEditorToAplSync('add'));
+        if (addAplInput) addAplInput.addEventListener('input', () => setSimcProfileAplPreviewStatus('add', 'APL已手动修改，可点“从APL重建中文”', 'info'));
+        if (addAplAuto) addAplAuto.addEventListener('change', () => scheduleCnEditorToAplSync('add', true));
         if (addAplCopyBtn) addAplCopyBtn.addEventListener('click', () => copySimcProfileAplPreview('add'));
-        if (addCnToAplBtn) addCnToAplBtn.addEventListener('click', () => appendCnDraftAsApl('add'));
+        if (addRebuildCnBtn) addRebuildCnBtn.addEventListener('click', () => scheduleSimcProfileAplPreview('add', true));
     }
     
     if (editModal) {
@@ -4076,20 +4078,23 @@ function initSimcProfileManagement() {
         const editTalentInput = document.getElementById('edit-simc-profile-talent');
         const editAplPreviewBtn = document.getElementById('edit-simc-profile-apl-preview-btn');
         const editAplInput = document.getElementById('edit-simc-profile-action-list');
+        const editCnEditor = document.getElementById('edit-simc-profile-apl-preview-cn');
         const editAplAuto = document.getElementById('edit-simc-profile-apl-preview-auto');
         const editAplCopyBtn = document.getElementById('edit-simc-profile-apl-preview-copy');
-        const editCnToAplBtn = document.getElementById('edit-simc-profile-cn-to-apl-append-btn');
+        const editRebuildCnBtn = document.getElementById('edit-simc-profile-apl-rebuild-cn-btn');
         if (editSpecInput) editSpecInput.addEventListener('input', () => updateTalentPreview('edit'));
         if (editTalentInput) editTalentInput.addEventListener('input', () => updateTalentPreview('edit'));
-        if (editAplPreviewBtn) editAplPreviewBtn.addEventListener('click', () => previewSimcProfileAplTranslation('edit', { force: true }));
-        if (editAplInput) editAplInput.addEventListener('input', () => scheduleSimcProfileAplPreview('edit'));
-        if (editAplAuto) editAplAuto.addEventListener('change', () => scheduleSimcProfileAplPreview('edit', true));
+        if (editAplPreviewBtn) editAplPreviewBtn.addEventListener('click', () => syncCnEditorToApl('edit', { force: true }));
+        if (editCnEditor) editCnEditor.addEventListener('input', () => scheduleCnEditorToAplSync('edit'));
+        if (editAplInput) editAplInput.addEventListener('input', () => setSimcProfileAplPreviewStatus('edit', 'APL已手动修改，可点“从APL重建中文”', 'info'));
+        if (editAplAuto) editAplAuto.addEventListener('change', () => scheduleCnEditorToAplSync('edit', true));
         if (editAplCopyBtn) editAplCopyBtn.addEventListener('click', () => copySimcProfileAplPreview('edit'));
-        if (editCnToAplBtn) editCnToAplBtn.addEventListener('click', () => appendCnDraftAsApl('edit'));
+        if (editRebuildCnBtn) editRebuildCnBtn.addEventListener('click', () => scheduleSimcProfileAplPreview('edit', true));
     }
 }
 
 const simcProfileAplPreviewTimers = { add: null, edit: null };
+const simcProfileCnToAplTimers = { add: null, edit: null };
 
 function setSimcProfileAplPreviewStatus(mode, text, level) {
     const prefix = mode === 'edit' ? 'edit' : 'add';
@@ -4109,49 +4114,58 @@ function setSimcProfileAplPreviewStatus(mode, text, level) {
 
 function scheduleSimcProfileAplPreview(mode, immediate) {
     const prefix = mode === 'edit' ? 'edit' : 'add';
-    const auto = document.getElementById(`${prefix}-simc-profile-apl-preview-auto`);
-    const enableAuto = !auto || auto.checked;
-    if (!enableAuto && !immediate) return;
     if (simcProfileAplPreviewTimers[prefix]) {
         clearTimeout(simcProfileAplPreviewTimers[prefix]);
     }
-    const delay = immediate ? 80 : 500;
+    const delay = immediate ? 80 : 450;
     simcProfileAplPreviewTimers[prefix] = setTimeout(() => {
-        previewSimcProfileAplTranslation(prefix, { quiet: true });
+        syncAplToCnEditor(prefix, { quiet: true });
     }, delay);
 }
 
-async function previewSimcProfileAplTranslation(mode, options = {}) {
+function scheduleCnEditorToAplSync(mode, immediate) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const auto = document.getElementById(`${prefix}-simc-profile-apl-preview-auto`);
+    const enableAuto = !auto || auto.checked;
+    if (!enableAuto && !immediate) return;
+    if (simcProfileCnToAplTimers[prefix]) {
+        clearTimeout(simcProfileCnToAplTimers[prefix]);
+    }
+    const delay = immediate ? 80 : 500;
+    simcProfileCnToAplTimers[prefix] = setTimeout(() => {
+        syncCnEditorToApl(prefix, { quiet: true });
+    }, delay);
+}
+
+async function syncAplToCnEditor(mode, options = {}) {
     const prefix = mode === 'edit' ? 'edit' : 'add';
     const actionInput = document.getElementById(`${prefix}-simc-profile-action-list`);
-    const output = document.getElementById(`${prefix}-simc-profile-apl-preview-cn`);
-    const refreshBtn = document.getElementById(`${prefix}-simc-profile-apl-preview-btn`);
-    if (!actionInput || !output) return;
+    const cnEditor = document.getElementById(`${prefix}-simc-profile-apl-preview-cn`);
+    const rebuildBtn = document.getElementById(`${prefix}-simc-profile-apl-rebuild-cn-btn`);
+    if (!actionInput || !cnEditor) return;
     const raw = String(actionInput.value || '').trim();
     if (!raw) {
-        output.value = '';
-        setSimcProfileAplPreviewStatus(prefix, '动作列表为空', 'warning');
-        if (options.force) showMessage('请先填写动作列表后再预览翻译', 'warning');
+        cnEditor.value = '';
+        setSimcProfileAplPreviewStatus(prefix, 'APL为空', 'warning');
+        if (options.force) showMessage('当前 APL 为空，无法重建中文', 'warning');
         return;
     }
     try {
-        if (refreshBtn) refreshBtn.disabled = true;
-        output.value = '翻译中...';
-        setSimcProfileAplPreviewStatus(prefix, '翻译中...', 'loading');
+        if (rebuildBtn) rebuildBtn.disabled = true;
+        setSimcProfileAplPreviewStatus(prefix, '从APL重建中文中...', 'loading');
         const cn = await convertText(raw, 'apl_to_cn');
-        output.value = cn || '';
+        cnEditor.value = cn || '';
         const now = new Date();
         const hh = String(now.getHours()).padStart(2, '0');
         const mm = String(now.getMinutes()).padStart(2, '0');
         const ss = String(now.getSeconds()).padStart(2, '0');
-        setSimcProfileAplPreviewStatus(prefix, `已更新 ${hh}:${mm}:${ss}`, 'success');
-        if (!options.quiet) showMessage('APL可读预览已更新', 'success');
+        setSimcProfileAplPreviewStatus(prefix, `中文已重建 ${hh}:${mm}:${ss}`, 'success');
+        if (!options.quiet) showMessage('已从APL重建中文编辑内容', 'success');
     } catch (error) {
-        output.value = '';
-        setSimcProfileAplPreviewStatus(prefix, '翻译失败', 'error');
-        showMessage('APL翻译预览失败: ' + error.message, 'error');
+        setSimcProfileAplPreviewStatus(prefix, '重建失败', 'error');
+        showMessage('从APL重建中文失败: ' + error.message, 'error');
     } finally {
-        if (refreshBtn) refreshBtn.disabled = false;
+        if (rebuildBtn) rebuildBtn.disabled = false;
     }
 }
 
@@ -4168,29 +4182,78 @@ function copySimcProfileAplPreview(mode) {
         .catch(() => showMessage('复制失败', 'error'));
 }
 
-async function appendCnDraftAsApl(mode) {
+async function syncCnEditorToApl(mode, options = {}) {
     const prefix = mode === 'edit' ? 'edit' : 'add';
-    const draftInput = document.getElementById(`${prefix}-simc-profile-cn-draft`);
     const actionInput = document.getElementById(`${prefix}-simc-profile-action-list`);
-    const draft = String(draftInput && draftInput.value ? draftInput.value : '').trim();
-    if (!draft) {
-        showMessage('请先填写中文草稿再转换', 'warning');
-        return;
+    const cnEditor = document.getElementById(`${prefix}-simc-profile-apl-preview-cn`);
+    const syncBtn = document.getElementById(`${prefix}-simc-profile-apl-preview-btn`);
+    if (!actionInput || !cnEditor) return;
+    const cnText = String(cnEditor.value || '').trim();
+    if (!cnText) {
+        actionInput.value = '';
+        setSimcProfileAplPreviewStatus(prefix, '中文为空，APL已清空', 'warning');
+        if (options.force) showMessage('中文编辑内容为空，已清空 APL 列表', 'warning');
+        return true;
     }
     try {
-        setSimcProfileAplPreviewStatus(prefix, '中文草稿转APL中...', 'loading');
-        const apl = await convertText(draft, 'cn_to_apl');
-        const generated = String(apl || '').trim();
-        if (!generated) throw new Error('返回内容为空');
-        const oldText = String(actionInput.value || '').trim();
-        actionInput.value = oldText ? `${oldText}\n${generated}` : generated;
-        draftInput.value = '';
-        showMessage('已追加到动作列表，请检查格式', 'success');
-        scheduleSimcProfileAplPreview(prefix, true);
+        if (syncBtn) syncBtn.disabled = true;
+        setSimcProfileAplPreviewStatus(prefix, '中文同步到APL中...', 'loading');
+        const apl = await convertText(cnText, 'cn_to_apl');
+        const normalized = normalizeCnToAplOutput(apl);
+        if (!normalized) throw new Error('返回内容为空');
+        actionInput.value = normalized;
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        setSimcProfileAplPreviewStatus(prefix, `APL已同步 ${hh}:${mm}:${ss}`, 'success');
+        if (!options.quiet) showMessage('中文编辑已同步到 APL', 'success');
+        return true;
     } catch (error) {
-        setSimcProfileAplPreviewStatus(prefix, '中文草稿转换失败', 'error');
-        showMessage('中文转APL失败: ' + error.message, 'error');
+        setSimcProfileAplPreviewStatus(prefix, '同步失败', 'error');
+        showMessage('中文同步到APL失败: ' + error.message, 'error');
+        return false;
+    } finally {
+        if (syncBtn) syncBtn.disabled = false;
     }
+}
+
+function normalizeCnToAplOutput(rawText) {
+    const text = String(rawText || '').replace(/\r/g, '');
+    const lines = text.split('\n');
+    const normalized = [];
+    let inFence = false;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = String(line || '').trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith('```')) {
+            inFence = !inFence;
+            continue;
+        }
+        if (inFence) {
+            if (trimmed.startsWith('actions')) {
+                normalized.push(trimmed);
+            } else if (trimmed.startsWith('#')) {
+                normalized.push(trimmed);
+            } else if (trimmed.startsWith('/')) {
+                normalized.push(`actions+=${trimmed}`);
+            } else {
+                normalized.push(`actions+=/${trimmed.replace(/^\/+/, '')}`);
+            }
+            continue;
+        }
+        if (trimmed.startsWith('actions')) {
+            normalized.push(trimmed);
+        } else if (trimmed.startsWith('#')) {
+            normalized.push(trimmed);
+        } else if (trimmed.startsWith('/')) {
+            normalized.push(`actions+=${trimmed}`);
+        } else {
+            normalized.push(`actions+=/${trimmed.replace(/^\/+/, '')}`);
+        }
+    }
+    return normalized.join('\n').trim();
 }
 
 function getTalentPreviewMeta(specRaw, talentRaw) {
@@ -4647,8 +4710,6 @@ function openAddSimcProfileModal() {
     document.getElementById('add-simc-profile-talent').value = '';
     document.getElementById('add-simc-profile-action-list').value = '';
     document.getElementById('add-simc-profile-apl-preview-cn').value = '';
-    const addCnDraft = document.getElementById('add-simc-profile-cn-draft');
-    if (addCnDraft) addCnDraft.value = '';
     const addAuto = document.getElementById('add-simc-profile-apl-preview-auto');
     if (addAuto) addAuto.checked = true;
     setSimcProfileAplPreviewStatus('add', '未开始', 'info');
@@ -4657,7 +4718,7 @@ function openAddSimcProfileModal() {
     modal.classList.remove('hidden');
 }
 
-function submitAddSimcProfile() {
+async function submitAddSimcProfile() {
     const profileName = document.getElementById('add-simc-profile-name').value.trim();
     const spec = document.getElementById('add-simc-profile-spec').value.trim();
     const fightStyle = document.getElementById('add-simc-profile-fight-style').value;
@@ -4669,6 +4730,8 @@ function submitAddSimcProfile() {
     const mastery = parseInt(document.getElementById('add-simc-profile-mastery').value);
     const versatility = parseInt(document.getElementById('add-simc-profile-versatility').value);
     const talent = document.getElementById('add-simc-profile-talent').value.trim();
+    const syncOk = await syncCnEditorToApl('add', { force: true, quiet: true });
+    if (!syncOk) return;
     const actionList = document.getElementById('add-simc-profile-action-list').value.trim();
     
     if (!profileName) {
@@ -4804,8 +4867,6 @@ function openEditSimcProfileModal(profile) {
     document.getElementById('edit-simc-profile-talent').value = profile.talent || '';
     document.getElementById('edit-simc-profile-action-list').value = profile.action_list || '';
     document.getElementById('edit-simc-profile-apl-preview-cn').value = '';
-    const editCnDraft = document.getElementById('edit-simc-profile-cn-draft');
-    if (editCnDraft) editCnDraft.value = '';
     const editAuto = document.getElementById('edit-simc-profile-apl-preview-auto');
     if (editAuto) editAuto.checked = true;
     setSimcProfileAplPreviewStatus('edit', '未开始', 'info');
@@ -4818,7 +4879,7 @@ function openEditSimcProfileModal(profile) {
     scheduleSimcProfileAplPreview('edit', true);
 }
 
-function updateSimcProfile() {
+async function updateSimcProfile() {
     const modal = document.getElementById('edit-simc-profile-modal');
     const profileId = modal.getAttribute('data-profile-id');
     const profileName = document.getElementById('edit-simc-profile-name').value.trim();
@@ -4832,6 +4893,8 @@ function updateSimcProfile() {
     const mastery = parseInt(document.getElementById('edit-simc-profile-mastery').value);
     const versatility = parseInt(document.getElementById('edit-simc-profile-versatility').value);
     const talent = document.getElementById('edit-simc-profile-talent').value.trim();
+    const syncOk = await syncCnEditorToApl('edit', { force: true, quiet: true });
+    if (!syncOk) return;
     const actionList = document.getElementById('edit-simc-profile-action-list').value.trim();
     
     if (!profileName) {
