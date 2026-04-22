@@ -438,6 +438,37 @@ function applyRegularPreset(presetValue, timeInputId, targetInputId) {
     if (targetInput && targetValue) targetInput.value = String(parseInt(targetValue, 10) || 1);
 }
 
+function getSpecBadgeClass(specValue) {
+    const spec = String(specValue || '').trim().toLowerCase();
+    if (spec === 'fury') return 'bg-orange-100 text-orange-800 border border-orange-200';
+    if (spec === 'arms') return 'bg-blue-100 text-blue-800 border border-blue-200';
+    if (spec === 'protection') return 'bg-slate-100 text-slate-800 border border-slate-200';
+    if (spec === 'fire') return 'bg-red-100 text-red-800 border border-red-200';
+    if (spec === 'frost') return 'bg-cyan-100 text-cyan-800 border border-cyan-200';
+    if (spec === 'arcane') return 'bg-purple-100 text-purple-800 border border-purple-200';
+    return 'bg-gray-100 text-gray-700 border border-gray-200';
+}
+
+function getSpecDotClass(specValue) {
+    const spec = String(specValue || '').trim().toLowerCase();
+    if (spec === 'fury') return 'bg-orange-500 text-white';
+    if (spec === 'arms') return 'bg-blue-500 text-white';
+    if (spec === 'protection') return 'bg-slate-500 text-white';
+    if (spec === 'fire') return 'bg-red-500 text-white';
+    if (spec === 'frost') return 'bg-cyan-500 text-white';
+    if (spec === 'arcane') return 'bg-purple-500 text-white';
+    return 'bg-gray-500 text-white';
+}
+
+function renderSpecBadgeHtml(specValue) {
+    const spec = String(specValue || '').trim();
+    const text = spec || '-';
+    const cls = getSpecBadgeClass(spec);
+    const dotCls = getSpecDotClass(spec);
+    const mark = spec ? spec.charAt(0).toUpperCase() : '?';
+    return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}"><span class="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${dotCls}">${escapeHtml(mark)}</span><span>${escapeHtml(text)}</span></span>`;
+}
+
 function toggleTaskTypeFields(prefix, taskType) {
     const isAttribute = String(taskType) === '2';
     const attrSelect = document.getElementById(prefix ? `${prefix}-simc-task-profile` : 'simc-task-profile');
@@ -1432,6 +1463,9 @@ function displayTableData(data, fields) {
                     td.textContent = truncateText(cellText, 40);
                     td.title = cellText;
                 }
+            }
+            else if (currentTableName === 'SimcProfile' && field === 'spec') {
+                td.innerHTML = renderSpecBadgeHtml(cellText);
             }
             else if (currentTableName === 'SimcProfile' && field === 'fight_style') {
                 // SimcProfile表的战斗风格字段特殊处理
@@ -3192,7 +3226,7 @@ function displaySimcTaskData(tasks) {
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(task.name || '')}</div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(task.simc_profile_spec || '-')}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${renderSpecBadgeHtml(task.simc_profile_spec || '')}</td>
                 <td class="px-6 py-4">
                     <div class="inline-flex flex-col px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
                         ${taskTypeText}
@@ -3503,11 +3537,11 @@ async function openEditSimcTaskModal(task) {
         const rt = String(extPayload.regular_time || '');
         const rc = String(extPayload.regular_target_count || '');
         const presetValue = `${rt},${rc}`;
-        if (['300,1', '300,2', '180,5'].includes(presetValue)) {
+        if (['300,1', '300,2', '180,5', '40,10'].includes(presetValue)) {
             document.getElementById('edit-simc-task-regular-preset').value = presetValue;
         } else {
             const fallbackPreset = `${regularTime},${regularTargetCount}`;
-            if (['300,1', '300,2', '180,5'].includes(fallbackPreset)) {
+            if (['300,1', '300,2', '180,5', '40,10'].includes(fallbackPreset)) {
                 document.getElementById('edit-simc-task-regular-preset').value = fallbackPreset;
             }
         }

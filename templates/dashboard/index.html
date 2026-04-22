@@ -558,8 +558,22 @@
                         </div>
                         <div id="simc-profile-filter-bar" class="hidden">
                             <div class="flex flex-col md:flex-row items-start md:items-center gap-2">
-                                <input type="text" id="simc-profile-spec-filter" placeholder="按专精筛选，如 fury" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                                <input type="text" id="simc-profile-fight-style-filter" placeholder="按战斗风格筛选，如 Patchwerk" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <select id="simc-profile-spec-filter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">全部专精</option>
+                                    <option value="fury">fury</option>
+                                    <option value="arms">arms</option>
+                                    <option value="protection">protection</option>
+                                    <option value="fire">fire</option>
+                                    <option value="frost">frost</option>
+                                    <option value="arcane">arcane</option>
+                                </select>
+                                <select id="simc-profile-fight-style-filter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">全部战斗风格</option>
+                                    <option value="Patchwerk">Patchwerk</option>
+                                    <option value="HecticAddCleave">HecticAddCleave</option>
+                                    <option value="LightMovement">LightMovement</option>
+                                    <option value="HeavyMovement">HeavyMovement</option>
+                                </select>
                                 <button id="simc-profile-filter-apply" class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200">应用筛选</button>
                                 <button id="simc-profile-filter-reset" class="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200">清空</button>
                             </div>
@@ -840,6 +854,7 @@
                             <option value="300,1">单体标准(300秒 / 1目标)</option>
                             <option value="300,2">双目标(300秒 / 2目标)</option>
                             <option value="180,5">AOE爆发(180秒 / 5目标)</option>
+                            <option value="40,10">极限AOE(40秒 / 10目标)</option>
                         </select>
                     </div>
                     <div>
@@ -910,6 +925,7 @@
                             <option value="300,1">单体标准(300秒 / 1目标)</option>
                             <option value="300,2">双目标(300秒 / 2目标)</option>
                             <option value="180,5">AOE爆发(180秒 / 5目标)</option>
+                            <option value="40,10">极限AOE(40秒 / 10目标)</option>
                         </select>
                     </div>
                     <div>
@@ -1278,6 +1294,7 @@
                                     <option value="300,1">单体标准(300秒 / 1目标)</option>
                                     <option value="300,2">双目标(300秒 / 2目标)</option>
                                     <option value="180,5">AOE爆发(180秒 / 5目标)</option>
+                                    <option value="40,10">极限AOE(40秒 / 10目标)</option>
                                 </select>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
