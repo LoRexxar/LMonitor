@@ -188,6 +188,7 @@ class SimcProfile(models.Model):
     """
     user_id = models.IntegerField(help_text="用户ID")
     name = models.CharField(max_length=200, help_text="配置名称")
+    spec = models.CharField(max_length=100, default="fury", help_text="专精标识，如 fury/arms/fire")
     fight_style = models.CharField(max_length=200, default="Patchwerk")
     time = models.IntegerField(default="40")
     target_count = models.IntegerField(default=1)
@@ -211,6 +212,7 @@ class SimcTemplate(models.Model):
     SimC模板模型
     """
     template_content = models.TextField(help_text="模板内容")
+    spec = models.CharField(max_length=100, default="default", help_text="模板适配专精，如 fury/arms/default")
     is_active = models.BooleanField(default=True, help_text="是否启用")
     
     class Meta:

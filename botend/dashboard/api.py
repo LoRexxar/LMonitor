@@ -142,6 +142,7 @@ class SimcTaskAPIView(View):
             
             tasks_data = []
             for task in tasks:
+                ext_detail = self._normalize_task_ext(task.task_type, task.ext)
                 tasks_data.append({
                     'id': task.id,
                     'name': task.name,
@@ -150,6 +151,7 @@ class SimcTaskAPIView(View):
                     'result_file': task.result_file,
                     'task_type': task.task_type,
                     'ext': task.ext,
+                    'ext_detail': ext_detail,
                     'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
                     'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
                 })
@@ -176,6 +178,10 @@ class SimcTaskAPIView(View):
             current_status = data.get('current_status', 0)
             task_type = data.get('task_type', 1)
             ext = data.get('ext', '')
+            regular_time = data.get('regular_time')
+            regular_target_count = data.get('regular_target_count')
+            selected_attributes = data.get('selected_attributes')
+            attribute_step = data.get('attribute_step')
             
             if not name:
                 return JsonResponse({
@@ -207,6 +213,15 @@ class SimcTaskAPIView(View):
             content_to_hash = timestamp + name + str(request.user.id)
             result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
             
+            normalized_ext = self._build_task_ext(
+                task_type=task_type,
+                ext=ext,
+                regular_time=regular_time,
+                regular_target_count=regular_target_count,
+                selected_attributes=selected_attributes,
+                attribute_step=attribute_step
+            )
+
             # 创建新任务
             task = SimcTask.objects.create(
                 user_id=request.user.id,
@@ -215,7 +230,7 @@ class SimcTaskAPIView(View):
                 current_status=current_status,
                 result_file=result_file,
                 task_type=task_type,
-                ext=ext
+                ext=normalized_ext
             )
             
             return JsonResponse({
@@ -229,6 +244,7 @@ class SimcTaskAPIView(View):
                     'result_file': task.result_file,
                     'task_type': task.task_type,
                     'ext': task.ext,
+                    'ext_detail': self._normalize_task_ext(task.task_type, task.ext),
                     'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
                     'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
                 }
@@ -256,6 +272,10 @@ class SimcTaskAPIView(View):
             current_status = data.get('current_status', 0)
             task_type = data.get('task_type', 1)
             ext = data.get('ext', '')
+            regular_time = data.get('regular_time')
+            regular_target_count = data.get('regular_target_count')
+            selected_attributes = data.get('selected_attributes')
+            attribute_step = data.get('attribute_step')
             
             if not task_id:
                 return JsonResponse({
@@ -297,12 +317,21 @@ class SimcTaskAPIView(View):
                     'error': '任务不存在或无权限访问'
                 })
             
+            normalized_ext = self._build_task_ext(
+                task_type=task_type,
+                ext=ext,
+                regular_time=regular_time,
+                regular_target_count=regular_target_count,
+                selected_attributes=selected_attributes,
+                attribute_step=attribute_step
+            )
+
             # 更新任务
             task.name = name
             task.simc_profile_id = simc_profile_id
             task.current_status = current_status
             task.task_type = task_type
-            task.ext = ext
+            task.ext = normalized_ext
             task.save()
             
             return JsonResponse({
@@ -316,6 +345,7 @@ class SimcTaskAPIView(View):
                     'result_file': task.result_file,
                     'task_type': task.task_type,
                     'ext': task.ext,
+                    'ext_detail': self._normalize_task_ext(task.task_type, task.ext),
                     'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
                     'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
                 }
@@ -431,6 +461,7 @@ class SimcTaskAPIView(View):
                     'result_file': task.result_file,
                     'task_type': task.task_type,
                     'ext': task.ext,
+                    'ext_detail': self._normalize_task_ext(task.task_type, task.ext),
                     'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
                     'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
                 }
@@ -447,6 +478,49 @@ class SimcTaskAPIView(View):
                 'success': False,
                 'error': f'重跑任务失败: {str(e)}'
             })
+
+    def _normalize_task_ext(self, task_type, ext):
+        if not ext:
+            return {}
+        if isinstance(ext, dict):
+            payload = ext
+        else:
+            text = str(ext).strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+                payload = parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                payload = {}
+                if int(task_type or 1) == 2:
+                    payload['selected_attributes'] = text
+        return payload
+
+    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None):
+        ttype = int(task_type or 1)
+        base = self._normalize_task_ext(ttype, ext)
+
+        if ttype == 1:
+            payload = {}
+            if isinstance(base, dict):
+                payload.update(base)
+            if regular_time not in (None, ''):
+                payload['regular_time'] = max(1, int(regular_time))
+            if regular_target_count not in (None, ''):
+                payload['regular_target_count'] = max(1, int(regular_target_count))
+            return json.dumps(payload, ensure_ascii=False) if payload else ''
+
+        if selected_attributes:
+            base['selected_attributes'] = str(selected_attributes).strip()
+        selected = str(base.get('selected_attributes') or '').strip()
+        if not selected:
+            raise Exception('属性模拟任务缺少属性组合')
+        payload = {'selected_attributes': selected}
+        step_value = attribute_step if attribute_step not in (None, '') else base.get('attribute_step')
+        if step_value not in (None, ''):
+            payload['attribute_step'] = max(1, int(step_value))
+        return json.dumps(payload, ensure_ascii=False)
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
@@ -913,6 +987,7 @@ class SimcProfileAPIView(View):
                         'success': True,
                         'id': profile.id,
                         'name': profile.name,
+                        'spec': profile.spec,
                         'fight_style': profile.fight_style,
                         'time': profile.time,
                         'target_count': profile.target_count,
@@ -943,6 +1018,7 @@ class SimcProfileAPIView(View):
                     profile_list.append({
                         'id': profile.id,
                         'name': profile.name,
+                        'spec': profile.spec,
                         'fight_style': profile.fight_style,
                         'time': profile.time,
                         'target_count': profile.target_count,
@@ -988,12 +1064,18 @@ class SimcProfileAPIView(View):
                     
                     task_type = data.get('task_type', 1)
                     selected_attributes = data.get('selected_attributes')
+                    regular_time = data.get('regular_time')
+                    regular_target_count = data.get('regular_target_count')
+                    attribute_step = data.get('attribute_step')
                     
                     task_result = self._create_simulation_task(
                         request.user.id, 
                         profile, 
                         task_type=task_type,
-                        selected_attributes=selected_attributes
+                        selected_attributes=selected_attributes,
+                        regular_time=regular_time,
+                        regular_target_count=regular_target_count,
+                        attribute_step=attribute_step
                     )
                     
                     if task_result['success']:
@@ -1050,6 +1132,7 @@ class SimcProfileAPIView(View):
                     profile = SimcProfile.objects.create(
                         user_id=request.user.id,
                         name=name,
+                        spec=source_profile.spec,
                         fight_style=source_profile.fight_style,
                         time=source_profile.time,
                         target_count=source_profile.target_count,
@@ -1076,11 +1159,17 @@ class SimcProfileAPIView(View):
                     if simulate_now:
                         task_type = data.get('task_type', 1)
                         selected_attributes = data.get('selected_attributes')
+                        regular_time = data.get('regular_time')
+                        regular_target_count = data.get('regular_target_count')
+                        attribute_step = data.get('attribute_step')
                         task_result = self._create_simulation_task(
                             request.user.id, 
                             profile, 
                             task_type=task_type,
-                            selected_attributes=selected_attributes
+                            selected_attributes=selected_attributes,
+                            regular_time=regular_time,
+                            regular_target_count=regular_target_count,
+                            attribute_step=attribute_step
                         )
                         if task_result['success']:
                             response_data['message'] += '，模拟任务已创建'
@@ -1100,6 +1189,7 @@ class SimcProfileAPIView(View):
                 profile = SimcProfile.objects.create(
                     user_id=request.user.id,
                     name=name,
+                    spec=(str(data.get('spec') or 'fury').strip().lower() or 'fury'),
                     fight_style=data.get('fight_style', 'Patchwerk'),
                     time=data.get('time', 40),
                     target_count=data.get('target_count', 1),
@@ -1126,11 +1216,17 @@ class SimcProfileAPIView(View):
                 if simulate_now:
                     task_type = data.get('task_type', 1)
                     selected_attributes = data.get('selected_attributes')
+                    regular_time = data.get('regular_time')
+                    regular_target_count = data.get('regular_target_count')
+                    attribute_step = data.get('attribute_step')
                     task_result = self._create_simulation_task(
                         request.user.id, 
                         profile, 
                         task_type=task_type,
-                        selected_attributes=selected_attributes
+                        selected_attributes=selected_attributes,
+                        regular_time=regular_time,
+                        regular_target_count=regular_target_count,
+                        attribute_step=attribute_step
                     )
                     if task_result['success']:
                         response_data['message'] += '，模拟任务已创建'
@@ -1152,7 +1248,7 @@ class SimcProfileAPIView(View):
                 'error': '创建SimC配置失败'
             })
     
-    def _create_simulation_task(self, user_id, profile, task_type=1, selected_attributes=None):
+    def _create_simulation_task(self, user_id, profile, task_type=1, selected_attributes=None, regular_time=None, regular_target_count=None, attribute_step=None):
         """创建模拟任务的辅助方法"""
         try:
             # 生成result_file
@@ -1160,6 +1256,12 @@ class SimcProfileAPIView(View):
             content_to_hash = timestamp + profile.name + str(user_id)
             if selected_attributes:
                 content_to_hash += selected_attributes
+            if regular_time not in (None, ''):
+                content_to_hash += str(regular_time)
+            if regular_target_count not in (None, ''):
+                content_to_hash += str(regular_target_count)
+            if attribute_step not in (None, ''):
+                content_to_hash += str(attribute_step)
             result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
             
             # 根据任务类型生成任务名称
@@ -1168,6 +1270,18 @@ class SimcProfileAPIView(View):
             else:
                 task_name = f"{profile.name}_常规模拟"
             
+            ext_payload = {}
+            if task_type == 2:
+                if selected_attributes:
+                    ext_payload['selected_attributes'] = selected_attributes
+                if attribute_step not in (None, ''):
+                    ext_payload['attribute_step'] = max(1, int(attribute_step))
+            else:
+                if regular_time not in (None, ''):
+                    ext_payload['regular_time'] = max(1, int(regular_time))
+                if regular_target_count not in (None, ''):
+                    ext_payload['regular_target_count'] = max(1, int(regular_target_count))
+
             # 创建SimcTask
             task = SimcTask.objects.create(
                 user_id=user_id,
@@ -1176,7 +1290,7 @@ class SimcProfileAPIView(View):
                 current_status=0,  # 待执行
                 result_file=result_file,
                 task_type=task_type,
-                ext=selected_attributes or ''
+                ext=json.dumps(ext_payload, ensure_ascii=False) if ext_payload else (selected_attributes or '')
             )
             
             return {
@@ -1236,6 +1350,7 @@ class SimcProfileAPIView(View):
             
             # 更新配置
             profile.name = name
+            profile.spec = str(data.get('spec', profile.spec) or 'fury').strip().lower() or 'fury'
             profile.fight_style = data.get('fight_style', profile.fight_style)
             profile.time = data.get('time', profile.time)
             profile.target_count = data.get('target_count', profile.target_count)
@@ -1986,7 +2101,9 @@ class SimcTemplateAPIView(View):
                     template = SimcTemplate.objects.get(id=template_id)
                     return JsonResponse({
                         'success': True,
+                        'id': template.id,
                         'template_content': template.template_content,
+                        'spec': template.spec,
                         'is_active': template.is_active
                     })
                 except SimcTemplate.DoesNotExist:
@@ -2005,6 +2122,7 @@ class SimcTemplateAPIView(View):
                     template_list.append({
                         'id': template.id,
                         'template_content': template.template_content,
+                        'spec': template.spec,
                         'is_active': template.is_active
                     })
                 
@@ -2027,6 +2145,7 @@ class SimcTemplateAPIView(View):
             data = json.loads(request.body)
             template_id = request.GET.get('id') or data.get('id')
             template_content = data.get('template_content', '') or data.get('template', '')
+            template_spec = (str(data.get('spec') or '').strip().lower() or None)
             
             if not template_id:
                 return JsonResponse({
@@ -2044,6 +2163,8 @@ class SimcTemplateAPIView(View):
             try:
                 template = SimcTemplate.objects.get(id=template_id)
                 template.template_content = template_content
+                if template_spec is not None:
+                    template.spec = template_spec
                 template.save()
                 
                 logger.info(f"SimC模板已更新: ID {template.id}")
@@ -2088,11 +2209,6 @@ class SimcTemplateAPIView(View):
             # 获取并更新模板状态
             try:
                 template = SimcTemplate.objects.get(id=template_id)
-                
-                if is_active:
-                    # 如果要启用此模板，先禁用所有其他模板
-                    SimcTemplate.objects.exclude(id=template_id).update(is_active=False)
-                
                 template.is_active = is_active
                 template.save()
                 
@@ -2122,6 +2238,7 @@ class SimcTemplateAPIView(View):
             # 解析请求数据
             data = json.loads(request.body)
             template_content = data.get('template_content', '')
+            template_spec = (str(data.get('spec') or '').strip().lower() or 'default')
             
             if not template_content:
                 return JsonResponse({
@@ -2132,6 +2249,7 @@ class SimcTemplateAPIView(View):
             # 创建新模板
             template = SimcTemplate.objects.create(
                 template_content=template_content,
+                spec=template_spec,
                 is_active=False  # 新创建的模板默认为禁用状态
             )
             

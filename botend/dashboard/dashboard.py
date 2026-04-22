@@ -147,6 +147,8 @@ class DashboardView(View):
             
             # 获取搜索参数
             search_query = data.get('search', '').strip()
+            simc_spec_filter = data.get('simc_spec', '').strip()
+            simc_fight_style_filter = data.get('simc_fight_style', '').strip()
             
             logger.info(f"获取表数据: {table_name}, page: {page}, page_size: {page_size}, search: {search_query}")
             
@@ -250,6 +252,19 @@ class DashboardView(View):
                 elif table_name == 'SimcAplKeywordPair':
                     queryset = model.objects.values('id', 'apl_keyword', 'cn_keyword', 'description', 'is_active', 'create_time').order_by('create_time')
                     queryset = apply_search_filter(queryset, ['apl_keyword', 'cn_keyword', 'description'])
+                    total_count = queryset.count()
+                    items = list(queryset[offset:offset + page_size])
+                elif table_name == 'SimcProfile':
+                    queryset = model.objects.values(
+                        'id', 'name', 'spec', 'fight_style', 'time', 'target_count',
+                        'talent', 'action_list', 'gear_strength', 'gear_crit',
+                        'gear_haste', 'gear_mastery', 'gear_versatility', 'is_active'
+                    ).order_by('-id')
+                    queryset = apply_search_filter(queryset, ['name', 'spec', 'fight_style', 'talent'])
+                    if simc_spec_filter:
+                        queryset = queryset.filter(spec__icontains=simc_spec_filter)
+                    if simc_fight_style_filter:
+                        queryset = queryset.filter(fight_style__icontains=simc_fight_style_filter)
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 else:
