@@ -601,11 +601,14 @@ function initAplSaveFeature() {
     
     // 保存APL按钮
     saveAplBtn.addEventListener('click', function() {
-        const aplText = document.getElementById('apl-input').value.trim();
-        const simcText = document.getElementById('simc-input').value.trim();
-        
-        if (!aplText && !simcText) {
-            showMessage('请先输入APL代码内容', 'warning');
+        const modeSelect = document.getElementById('apl-convert-mode');
+        const mode = modeSelect ? modeSelect.value : 'apl_to_cn';
+        const sourceText = (document.getElementById('apl-input').value || '').trim();
+        const resultText = (document.getElementById('simc-input').value || '').trim();
+        const aplForSave = mode === 'cn_to_apl' ? (resultText || '') : (sourceText || '');
+
+        if (!aplForSave) {
+            showMessage('当前没有可保存的APL内容', 'warning');
             return;
         }
         
@@ -615,7 +618,7 @@ function initAplSaveFeature() {
         
         // 清空表单并填充当前APL代码
         document.getElementById('apl-title').value = '';
-        document.getElementById('apl-edit-input').value = aplText;
+        document.getElementById('apl-edit-input').value = aplForSave;
     });
     
     // 查看已保存APL按钮
@@ -627,12 +630,7 @@ function initAplSaveFeature() {
 
     if (previewCurrentBtn) {
         previewCurrentBtn.addEventListener('click', async function() {
-            const raw = (document.getElementById('apl-input').value || '').trim();
-            if (!raw) {
-                showMessage('请先输入APL代码后再预览翻译', 'warning');
-                return;
-            }
-            await previewAplTranslationContent(raw, '当前编辑内容');
+            await previewCurrentConverterContent();
         });
     }
     
@@ -2341,83 +2339,129 @@ function getCSRFToken() {
  * 初始化SimC APL转换工具
  */
 function initSimcAplConverter() {
-    const convertToAplBtn = document.getElementById('convert-to-apl');
-    const convertToSimcBtn = document.getElementById('convert-to-simc');
+    const modeSelect = document.getElementById('apl-convert-mode');
+    const switchBtn = document.getElementById('apl-convert-switch');
+    const execBtn = document.getElementById('apl-convert-exec');
+    const statusText = document.getElementById('apl-convert-status');
+    const sourceLabel = document.getElementById('apl-source-label');
+    const targetLabel = document.getElementById('apl-target-label');
     const clearAllBtn = document.getElementById('clear-all');
     const copyResultBtn = document.getElementById('copy-result');
     const simcInput = document.getElementById('simc-input');
     const aplInput = document.getElementById('apl-input');
     
-    if (!convertToAplBtn || !convertToSimcBtn || !clearAllBtn || !copyResultBtn || !simcInput || !aplInput) {
+    if (!modeSelect || !switchBtn || !execBtn || !statusText || !sourceLabel || !targetLabel || !clearAllBtn || !copyResultBtn || !simcInput || !aplInput) {
         return; // 如果元素不存在，直接返回
     }
-    
-    // 翻译按钮（从左侧APL转换到右侧SimC）
-    convertToSimcBtn.addEventListener('click', function() {
-        const aplText = aplInput.value.trim();
-        if (!aplText) {
-            showMessage('请先输入左侧APL代码内容', 'warning');
-            return;
+
+    function setStatus(text, level) {
+        statusText.textContent = text || '';
+        statusText.classList.remove('text-gray-500', 'text-blue-600', 'text-green-600', 'text-red-600', 'text-amber-600');
+        const levelMap = {
+            loading: 'text-blue-600',
+            success: 'text-green-600',
+            error: 'text-red-600',
+            warning: 'text-amber-600',
+            info: 'text-gray-500'
+        };
+        statusText.classList.add(levelMap[level] || 'text-gray-500');
+    }
+
+    function refreshModeDisplay() {
+        const mode = modeSelect.value || 'apl_to_cn';
+        if (mode === 'cn_to_apl') {
+            sourceLabel.textContent = '中文描述（原文）';
+            targetLabel.textContent = 'APL结果';
+            aplInput.placeholder = '请输入中文动作说明，例如：起手冲锋后释放爆发技能...';
+            simcInput.placeholder = '生成的APL结果将显示在这里...';
+        } else {
+            sourceLabel.textContent = 'APL代码（原文）';
+            targetLabel.textContent = '中文结果';
+            aplInput.placeholder = '请输入APL格式的代码...';
+            simcInput.placeholder = '翻译结果将显示在这里...';
         }
-        
-        convertText(aplText, 'apl_to_cn')
-            .then(result => {
-                simcInput.value = result;
-                showMessage('转换成功', 'success');
-            })
-            .catch(error => {
-                showMessage('转换失败: ' + error.message, 'error');
-            });
-    });
-    
-    // 反向按钮（从右侧SimC转换到左侧APL）
-    convertToAplBtn.addEventListener('click', function() {
-        const simcText = simcInput.value.trim();
-        if (!simcText) {
-            showMessage('请先输入右侧SimC代码内容', 'warning');
-            return;
+    }
+
+    async function executeConvert() {
+        const mode = modeSelect.value || 'apl_to_cn';
+        const sourceText = String(aplInput.value || '').trim();
+        if (!sourceText) {
+            const sourceName = mode === 'cn_to_apl' ? '中文描述' : 'APL代码';
+            showMessage(`请先输入${sourceName}`, 'warning');
+            setStatus('等待输入内容', 'warning');
+            return false;
         }
-        
-        convertText(simcText, 'cn_to_apl')
-            .then(result => {
-                aplInput.value = result;
-                showMessage('转换成功', 'success');
-            })
-            .catch(error => {
-                showMessage('转换失败: ' + error.message, 'error');
-            });
+        try {
+            execBtn.disabled = true;
+            setStatus('翻译中...', 'loading');
+            const result = await convertText(sourceText, mode);
+            simcInput.value = result || '';
+            setStatus('翻译完成', 'success');
+            showMessage('翻译成功', 'success');
+            return true;
+        } catch (error) {
+            setStatus('翻译失败', 'error');
+            showMessage('翻译失败: ' + error.message, 'error');
+            return false;
+        } finally {
+            execBtn.disabled = false;
+        }
+    }
+
+    modeSelect.addEventListener('change', function() {
+        refreshModeDisplay();
+        const modeText = this.value === 'cn_to_apl' ? '中文 -> APL' : 'APL -> 中文';
+        setStatus(`当前方向：${modeText}`, 'info');
     });
-    
-    // 清空所有内容
+
+    switchBtn.addEventListener('click', function() {
+        modeSelect.value = modeSelect.value === 'apl_to_cn' ? 'cn_to_apl' : 'apl_to_cn';
+        modeSelect.dispatchEvent(new Event('change'));
+    });
+
+    execBtn.addEventListener('click', function() {
+        executeConvert();
+    });
+
+    aplInput.addEventListener('keydown', function(event) {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+            event.preventDefault();
+            executeConvert();
+        }
+    });
+
     clearAllBtn.addEventListener('click', function() {
-        simcInput.value = '';
         aplInput.value = '';
+        simcInput.value = '';
+        setStatus('已清空，准备就绪', 'info');
         showMessage('已清空所有内容', 'info');
     });
-    
-    // 复制结果
+
     copyResultBtn.addEventListener('click', function() {
-        const simcText = simcInput.value.trim();
-        const aplText = aplInput.value.trim();
-        
-        if (!simcText && !aplText) {
-            showMessage('没有可复制的内容', 'warning');
+        const resultText = String(simcInput.value || '').trim();
+        if (!resultText) {
+            showMessage('当前没有可复制的翻译结果', 'warning');
             return;
         }
-        
-        // 复制最后修改的内容
-        const textToCopy = aplText || simcText;
-        navigator.clipboard.writeText(textToCopy)
-            .then(() => {
-                showMessage('复制成功', 'success');
-            })
-            .catch(() => {
-                showMessage('复制失败', 'error');
-            });
+        navigator.clipboard.writeText(resultText)
+            .then(() => showMessage('结果已复制到剪贴板', 'success'))
+            .catch(() => showMessage('复制失败', 'error'));
     });
-    
+
+    window.__previewCurrentConverterContent = executeConvert;
+    refreshModeDisplay();
+    setStatus('准备就绪', 'info');
+
     // 初始化APL保存功能
     initAplSaveFeature();
+}
+
+async function previewCurrentConverterContent() {
+    if (typeof window.__previewCurrentConverterContent !== 'function') {
+        showMessage('翻译器尚未初始化', 'warning');
+        return false;
+    }
+    return window.__previewCurrentConverterContent();
 }
 
 /**
@@ -3993,9 +4037,17 @@ function initSimcProfileManagement() {
         const addSpecInput = document.getElementById('add-simc-profile-spec');
         const addTalentInput = document.getElementById('add-simc-profile-talent');
         const addAplPreviewBtn = document.getElementById('add-simc-profile-apl-preview-btn');
+        const addAplInput = document.getElementById('add-simc-profile-action-list');
+        const addAplAuto = document.getElementById('add-simc-profile-apl-preview-auto');
+        const addAplCopyBtn = document.getElementById('add-simc-profile-apl-preview-copy');
+        const addCnToAplBtn = document.getElementById('add-simc-profile-cn-to-apl-append-btn');
         if (addSpecInput) addSpecInput.addEventListener('input', () => updateTalentPreview('add'));
         if (addTalentInput) addTalentInput.addEventListener('input', () => updateTalentPreview('add'));
-        if (addAplPreviewBtn) addAplPreviewBtn.addEventListener('click', () => previewSimcProfileAplTranslation('add'));
+        if (addAplPreviewBtn) addAplPreviewBtn.addEventListener('click', () => previewSimcProfileAplTranslation('add', { force: true }));
+        if (addAplInput) addAplInput.addEventListener('input', () => scheduleSimcProfileAplPreview('add'));
+        if (addAplAuto) addAplAuto.addEventListener('change', () => scheduleSimcProfileAplPreview('add', true));
+        if (addAplCopyBtn) addAplCopyBtn.addEventListener('click', () => copySimcProfileAplPreview('add'));
+        if (addCnToAplBtn) addCnToAplBtn.addEventListener('click', () => appendCnDraftAsApl('add'));
     }
     
     if (editModal) {
@@ -4023,30 +4075,121 @@ function initSimcProfileManagement() {
         const editSpecInput = document.getElementById('edit-simc-profile-spec');
         const editTalentInput = document.getElementById('edit-simc-profile-talent');
         const editAplPreviewBtn = document.getElementById('edit-simc-profile-apl-preview-btn');
+        const editAplInput = document.getElementById('edit-simc-profile-action-list');
+        const editAplAuto = document.getElementById('edit-simc-profile-apl-preview-auto');
+        const editAplCopyBtn = document.getElementById('edit-simc-profile-apl-preview-copy');
+        const editCnToAplBtn = document.getElementById('edit-simc-profile-cn-to-apl-append-btn');
         if (editSpecInput) editSpecInput.addEventListener('input', () => updateTalentPreview('edit'));
         if (editTalentInput) editTalentInput.addEventListener('input', () => updateTalentPreview('edit'));
-        if (editAplPreviewBtn) editAplPreviewBtn.addEventListener('click', () => previewSimcProfileAplTranslation('edit'));
+        if (editAplPreviewBtn) editAplPreviewBtn.addEventListener('click', () => previewSimcProfileAplTranslation('edit', { force: true }));
+        if (editAplInput) editAplInput.addEventListener('input', () => scheduleSimcProfileAplPreview('edit'));
+        if (editAplAuto) editAplAuto.addEventListener('change', () => scheduleSimcProfileAplPreview('edit', true));
+        if (editAplCopyBtn) editAplCopyBtn.addEventListener('click', () => copySimcProfileAplPreview('edit'));
+        if (editCnToAplBtn) editCnToAplBtn.addEventListener('click', () => appendCnDraftAsApl('edit'));
     }
 }
 
-async function previewSimcProfileAplTranslation(mode) {
+const simcProfileAplPreviewTimers = { add: null, edit: null };
+
+function setSimcProfileAplPreviewStatus(mode, text, level) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const statusEl = document.getElementById(`${prefix}-simc-profile-apl-preview-status`);
+    if (!statusEl) return;
+    statusEl.textContent = text || '';
+    statusEl.classList.remove('text-gray-400', 'text-gray-500', 'text-blue-600', 'text-green-600', 'text-red-600', 'text-amber-600');
+    const levelMap = {
+        loading: 'text-blue-600',
+        success: 'text-green-600',
+        error: 'text-red-600',
+        warning: 'text-amber-600',
+        info: 'text-gray-500'
+    };
+    statusEl.classList.add(levelMap[level] || 'text-gray-400');
+}
+
+function scheduleSimcProfileAplPreview(mode, immediate) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const auto = document.getElementById(`${prefix}-simc-profile-apl-preview-auto`);
+    const enableAuto = !auto || auto.checked;
+    if (!enableAuto && !immediate) return;
+    if (simcProfileAplPreviewTimers[prefix]) {
+        clearTimeout(simcProfileAplPreviewTimers[prefix]);
+    }
+    const delay = immediate ? 80 : 500;
+    simcProfileAplPreviewTimers[prefix] = setTimeout(() => {
+        previewSimcProfileAplTranslation(prefix, { quiet: true });
+    }, delay);
+}
+
+async function previewSimcProfileAplTranslation(mode, options = {}) {
     const prefix = mode === 'edit' ? 'edit' : 'add';
     const actionInput = document.getElementById(`${prefix}-simc-profile-action-list`);
     const output = document.getElementById(`${prefix}-simc-profile-apl-preview-cn`);
+    const refreshBtn = document.getElementById(`${prefix}-simc-profile-apl-preview-btn`);
     if (!actionInput || !output) return;
     const raw = String(actionInput.value || '').trim();
     if (!raw) {
-        showMessage('请先填写动作列表后再预览翻译', 'warning');
+        output.value = '';
+        setSimcProfileAplPreviewStatus(prefix, '动作列表为空', 'warning');
+        if (options.force) showMessage('请先填写动作列表后再预览翻译', 'warning');
         return;
     }
     try {
+        if (refreshBtn) refreshBtn.disabled = true;
         output.value = '翻译中...';
+        setSimcProfileAplPreviewStatus(prefix, '翻译中...', 'loading');
         const cn = await convertText(raw, 'apl_to_cn');
         output.value = cn || '';
-        showMessage('APL翻译预览完成', 'success');
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        setSimcProfileAplPreviewStatus(prefix, `已更新 ${hh}:${mm}:${ss}`, 'success');
+        if (!options.quiet) showMessage('APL可读预览已更新', 'success');
     } catch (error) {
         output.value = '';
+        setSimcProfileAplPreviewStatus(prefix, '翻译失败', 'error');
         showMessage('APL翻译预览失败: ' + error.message, 'error');
+    } finally {
+        if (refreshBtn) refreshBtn.disabled = false;
+    }
+}
+
+function copySimcProfileAplPreview(mode) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const output = document.getElementById(`${prefix}-simc-profile-apl-preview-cn`);
+    const text = String(output && output.value ? output.value : '').trim();
+    if (!text) {
+        showMessage('暂无可复制的中文预览内容', 'warning');
+        return;
+    }
+    navigator.clipboard.writeText(text)
+        .then(() => showMessage('中文预览已复制', 'success'))
+        .catch(() => showMessage('复制失败', 'error'));
+}
+
+async function appendCnDraftAsApl(mode) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const draftInput = document.getElementById(`${prefix}-simc-profile-cn-draft`);
+    const actionInput = document.getElementById(`${prefix}-simc-profile-action-list`);
+    const draft = String(draftInput && draftInput.value ? draftInput.value : '').trim();
+    if (!draft) {
+        showMessage('请先填写中文草稿再转换', 'warning');
+        return;
+    }
+    try {
+        setSimcProfileAplPreviewStatus(prefix, '中文草稿转APL中...', 'loading');
+        const apl = await convertText(draft, 'cn_to_apl');
+        const generated = String(apl || '').trim();
+        if (!generated) throw new Error('返回内容为空');
+        const oldText = String(actionInput.value || '').trim();
+        actionInput.value = oldText ? `${oldText}\n${generated}` : generated;
+        draftInput.value = '';
+        showMessage('已追加到动作列表，请检查格式', 'success');
+        scheduleSimcProfileAplPreview(prefix, true);
+    } catch (error) {
+        setSimcProfileAplPreviewStatus(prefix, '中文草稿转换失败', 'error');
+        showMessage('中文转APL失败: ' + error.message, 'error');
     }
 }
 
@@ -4504,6 +4647,11 @@ function openAddSimcProfileModal() {
     document.getElementById('add-simc-profile-talent').value = '';
     document.getElementById('add-simc-profile-action-list').value = '';
     document.getElementById('add-simc-profile-apl-preview-cn').value = '';
+    const addCnDraft = document.getElementById('add-simc-profile-cn-draft');
+    if (addCnDraft) addCnDraft.value = '';
+    const addAuto = document.getElementById('add-simc-profile-apl-preview-auto');
+    if (addAuto) addAuto.checked = true;
+    setSimcProfileAplPreviewStatus('add', '未开始', 'info');
     updateTalentPreview('add');
     
     modal.classList.remove('hidden');
@@ -4656,12 +4804,18 @@ function openEditSimcProfileModal(profile) {
     document.getElementById('edit-simc-profile-talent').value = profile.talent || '';
     document.getElementById('edit-simc-profile-action-list').value = profile.action_list || '';
     document.getElementById('edit-simc-profile-apl-preview-cn').value = '';
+    const editCnDraft = document.getElementById('edit-simc-profile-cn-draft');
+    if (editCnDraft) editCnDraft.value = '';
+    const editAuto = document.getElementById('edit-simc-profile-apl-preview-auto');
+    if (editAuto) editAuto.checked = true;
+    setSimcProfileAplPreviewStatus('edit', '未开始', 'info');
     updateTalentPreview('edit');
     
     // 存储配置ID用于更新
     modal.setAttribute('data-profile-id', profile.id);
     
     modal.classList.remove('hidden');
+    scheduleSimcProfileAplPreview('edit', true);
 }
 
 function updateSimcProfile() {
