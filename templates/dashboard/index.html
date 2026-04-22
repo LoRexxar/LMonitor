@@ -352,43 +352,54 @@
                 <!-- SimC APL互转工具 -->
                 <div class="tool-content" id="simc-apl-converter" style="display: none;">
                     <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-                            <!-- 左侧输入框 -->
-                            <div class="lg:col-span-5">
-                                <div class="bg-gray-50 rounded-lg p-4">
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">APL代码</label>
-                                    <textarea id="apl-input" class="w-full p-3 border border-gray-300 rounded-md resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" style="height: calc(100vh - 400px);" placeholder="请输入APL格式的代码..."></textarea>
+                        <div class="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                <div class="flex items-center gap-3">
+                                    <label class="text-sm font-medium text-gray-700">翻译方向</label>
+                                    <select id="apl-convert-mode" class="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                        <option value="apl_to_cn">APL -> 中文</option>
+                                        <option value="cn_to_apl">中文 -> APL</option>
+                                    </select>
+                                    <button id="apl-convert-switch" class="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-100 transition-colors duration-200 text-sm">
+                                        <i class="fas fa-exchange-alt mr-1"></i>切换方向
+                                    </button>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <button id="apl-convert-exec" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 text-sm">
+                                        <i class="fas fa-language mr-1"></i>立即翻译
+                                    </button>
+                                    <span id="apl-convert-status" class="text-xs text-gray-500">准备就绪</span>
                                 </div>
                             </div>
-                            
-                            <!-- 中间转换按钮 -->
-                            <div class="lg:col-span-2 flex flex-col items-center space-y-4">
-                                <button id="convert-to-simc" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center space-x-2">
-                                    <i class="fas fa-arrow-right"></i>
-                                    <span>翻译</span>
-                                </button>
-                                <button id="convert-to-apl" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center space-x-2">
-                                    <i class="fas fa-arrow-left"></i>
-                                    <span>反向</span>
-                                </button>
-                            </div>
-                            
-                            <!-- 右侧输出框 -->
-                            <div class="lg:col-span-5">
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                            <!-- 左侧输入框 -->
+                            <div class="lg:col-span-6">
                                 <div class="bg-gray-50 rounded-lg p-4">
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">翻译后代码</label>
-                                    <textarea id="simc-input" class="w-full p-3 border border-gray-300 rounded-md resize-none focus:ring-2 focus:ring-green-500 focus:border-transparent" style="height: calc(100vh - 400px);" placeholder="翻译结果将显示在这里..."></textarea>
+                                    <label id="apl-source-label" class="block text-sm font-medium text-gray-700 mb-2">APL代码（原文）</label>
+                                    <textarea id="apl-input" class="w-full p-3 border border-gray-300 rounded-md resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm" style="height: calc(100vh - 430px);" placeholder="请输入APL格式的代码..."></textarea>
+                                    <p class="text-xs text-gray-500 mt-2">支持直接粘贴整段 action list。</p>
+                                </div>
+                            </div>
+
+                            <!-- 右侧输出框 -->
+                            <div class="lg:col-span-6">
+                                <div class="bg-gray-50 rounded-lg p-4">
+                                    <label id="apl-target-label" class="block text-sm font-medium text-gray-700 mb-2">中文结果</label>
+                                    <textarea id="simc-input" class="w-full p-3 border border-gray-300 rounded-md resize-none bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm" style="height: calc(100vh - 430px);" placeholder="翻译结果将显示在这里..." readonly></textarea>
+                                    <p class="text-xs text-gray-500 mt-2">结果框只读，避免误改。需要编辑请复制后处理。</p>
                                 </div>
                             </div>
                         </div>
                         
                         <!-- 操作按钮 -->
-                        <div class="mt-6 flex justify-center space-x-4">
+                        <div class="mt-6 flex flex-wrap justify-center gap-3">
                             <button id="clear-all" class="bg-gray-500 hover:bg-gray-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
                                 <i class="fas fa-trash mr-2"></i>清空所有
                             </button>
                             <button id="copy-result" class="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
-                                <i class="fas fa-copy mr-2"></i>复制APL
+                                <i class="fas fa-copy mr-2"></i>复制结果
                             </button>
                             <button id="save-apl" class="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
                                 <i class="fas fa-save mr-2"></i>保存APL
@@ -1073,16 +1084,37 @@
                             </div>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">动作列表</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">动作列表（APL编辑）</label>
                             <textarea id="add-simc-profile-action-list" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入动作列表..."></textarea>
                             <div class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                <div class="flex items-center justify-between mb-2">
-                                    <p class="text-xs text-gray-500">APL翻译预览（配置内）</p>
-                                    <button type="button" id="add-simc-profile-apl-preview-btn" class="px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
-                                        <i class="fas fa-language mr-1"></i>预览翻译
-                                    </button>
+                                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <p class="text-xs text-gray-500">可读预览（中文）</p>
+                                        <span id="add-simc-profile-apl-preview-status" class="text-xs text-gray-400">未开始</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <label class="text-xs text-gray-600 flex items-center gap-1">
+                                            <input id="add-simc-profile-apl-preview-auto" type="checkbox" class="rounded border-gray-300 text-indigo-600" checked>
+                                            自动预览
+                                        </label>
+                                        <button type="button" id="add-simc-profile-apl-preview-btn" class="px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
+                                            <i class="fas fa-sync-alt mr-1"></i>刷新预览
+                                        </button>
+                                        <button type="button" id="add-simc-profile-apl-preview-copy" class="px-3 py-1.5 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors duration-200 text-xs">
+                                            <i class="fas fa-copy mr-1"></i>复制预览
+                                        </button>
+                                    </div>
                                 </div>
-                                <textarea id="add-simc-profile-apl-preview-cn" class="w-full p-3 border border-gray-300 rounded-md font-mono text-xs bg-white" rows="6" placeholder="点击“预览翻译”后显示中文结果" readonly></textarea>
+                                <textarea id="add-simc-profile-apl-preview-cn" class="w-full p-3 border border-gray-300 rounded-md font-mono text-xs bg-white" rows="8" placeholder="可读中文预览会显示在这里" readonly></textarea>
+                                <div class="mt-3 border-t border-gray-200 pt-3">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <p class="text-xs text-gray-500">中文草稿转APL（用于追加到动作列表）</p>
+                                        <button type="button" id="add-simc-profile-cn-to-apl-append-btn" class="px-3 py-1.5 bg-teal-500 text-white rounded-md hover:bg-teal-600 transition-colors duration-200 text-xs">
+                                            <i class="fas fa-arrow-down mr-1"></i>转为APL并追加
+                                        </button>
+                                    </div>
+                                    <textarea id="add-simc-profile-cn-draft" class="w-full p-3 border border-gray-300 rounded-md text-xs bg-white" rows="4" placeholder="例如：起手冲锋，爆发期开鲁莽，斩杀阶段优先斩杀"></textarea>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1180,16 +1212,37 @@
                             </div>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">动作列表</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">动作列表（APL编辑）</label>
                             <textarea id="edit-simc-profile-action-list" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入动作列表..."></textarea>
                             <div class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                <div class="flex items-center justify-between mb-2">
-                                    <p class="text-xs text-gray-500">APL翻译预览（配置内）</p>
-                                    <button type="button" id="edit-simc-profile-apl-preview-btn" class="px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
-                                        <i class="fas fa-language mr-1"></i>预览翻译
-                                    </button>
+                                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <p class="text-xs text-gray-500">可读预览（中文）</p>
+                                        <span id="edit-simc-profile-apl-preview-status" class="text-xs text-gray-400">未开始</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <label class="text-xs text-gray-600 flex items-center gap-1">
+                                            <input id="edit-simc-profile-apl-preview-auto" type="checkbox" class="rounded border-gray-300 text-indigo-600" checked>
+                                            自动预览
+                                        </label>
+                                        <button type="button" id="edit-simc-profile-apl-preview-btn" class="px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
+                                            <i class="fas fa-sync-alt mr-1"></i>刷新预览
+                                        </button>
+                                        <button type="button" id="edit-simc-profile-apl-preview-copy" class="px-3 py-1.5 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors duration-200 text-xs">
+                                            <i class="fas fa-copy mr-1"></i>复制预览
+                                        </button>
+                                    </div>
                                 </div>
-                                <textarea id="edit-simc-profile-apl-preview-cn" class="w-full p-3 border border-gray-300 rounded-md font-mono text-xs bg-white" rows="6" placeholder="点击“预览翻译”后显示中文结果" readonly></textarea>
+                                <textarea id="edit-simc-profile-apl-preview-cn" class="w-full p-3 border border-gray-300 rounded-md font-mono text-xs bg-white" rows="8" placeholder="可读中文预览会显示在这里" readonly></textarea>
+                                <div class="mt-3 border-t border-gray-200 pt-3">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <p class="text-xs text-gray-500">中文草稿转APL（用于追加到动作列表）</p>
+                                        <button type="button" id="edit-simc-profile-cn-to-apl-append-btn" class="px-3 py-1.5 bg-teal-500 text-white rounded-md hover:bg-teal-600 transition-colors duration-200 text-xs">
+                                            <i class="fas fa-arrow-down mr-1"></i>转为APL并追加
+                                        </button>
+                                    </div>
+                                    <textarea id="edit-simc-profile-cn-draft" class="w-full p-3 border border-gray-300 rounded-md text-xs bg-white" rows="4" placeholder="例如：起手冲锋，爆发期开鲁莽，斩杀阶段优先斩杀"></textarea>
+                                </div>
                             </div>
                         </div>
                     </div>
