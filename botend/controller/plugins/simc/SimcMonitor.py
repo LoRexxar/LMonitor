@@ -124,13 +124,15 @@ class SimcMonitor(BaseScan):
             ext_payload = self.parse_task_ext(simc_task.ext)
             override_time = ext_payload.get('regular_time')
             override_target_count = ext_payload.get('regular_target_count')
+            override_action_list = ext_payload.get('override_action_list')
 
             # 生成SimC代码
             simc_code = self.generate_simc_code(
                 simc_profile,
                 simc_task.result_file,
                 override_time=override_time,
-                override_target_count=override_target_count
+                override_target_count=override_target_count,
+                override_action_list=override_action_list
             )
             
             # 创建临时SimC文件
@@ -261,7 +263,7 @@ class SimcMonitor(BaseScan):
             simc_task.save()
             return False
 
-    def generate_simc_code(self, profile, result_file, override_time=None, override_target_count=None):
+    def generate_simc_code(self, profile, result_file, override_time=None, override_target_count=None, override_action_list=None):
         """
         生成SimC代码
         :param profile: SimcProfile对象
@@ -281,7 +283,8 @@ class SimcMonitor(BaseScan):
                 result_file=result_file,
                 attributes=None,
                 override_time=override_time,
-                override_target_count=override_target_count
+                override_target_count=override_target_count,
+                override_action_list=override_action_list
             )
             
         except Exception as e:
@@ -509,7 +512,7 @@ class SimcMonitor(BaseScan):
                 return tpl
         return active.first()
 
-    def apply_template(self, template, profile, result_file, attributes=None, override_time=None, override_target_count=None):
+    def apply_template(self, template, profile, result_file, attributes=None, override_time=None, override_target_count=None, override_action_list=None):
         attrs = attributes or self.get_base_attributes(profile)
         simc_code = template
         fight_style = profile.fight_style or 'Patchwerk'
@@ -521,7 +524,8 @@ class SimcMonitor(BaseScan):
         simc_code = simc_code.replace('{time}', str(max_time or 300))
         simc_code = simc_code.replace('{target_count}', str(target_count or 1))
         simc_code = simc_code.replace('{talent}', profile.talent or '')
-        simc_code = simc_code.replace('{action_list}', profile.action_list or '')
+        final_action_list = override_action_list if override_action_list not in (None, '') else (profile.action_list or '')
+        simc_code = simc_code.replace('{action_list}', final_action_list)
         simc_code = simc_code.replace('{spec}', spec_value)
         simc_code = simc_code.replace('{gear_strength}', str(attrs['gear_strength']))
         simc_code = simc_code.replace('{gear_crit}', str(attrs['gear_crit']))

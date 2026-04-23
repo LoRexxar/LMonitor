@@ -21,7 +21,7 @@ from django.shortcuts import redirect
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
-from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, WclAnalysisTaskAPIView
+from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, WclAnalysisTaskAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from django.http import HttpResponse, JsonResponse
 
@@ -50,6 +50,7 @@ urlpatterns = [
     path('api/simc-task/', csrf_exempt(SimcTaskAPIView.as_view()), name="simc_task"),
     path('api/simc-profile/', csrf_exempt(SimcProfileAPIView.as_view()), name="simc_profile"),
     path('api/simc-profile/<int:profile_id>/', csrf_exempt(SimcProfileAPIView.as_view()), name="simc_profile_detail"),
+    path('api/simc-apl-candidates/', csrf_exempt(SimcAplCandidatesAPIView.as_view()), name="simc_apl_candidates"),
     path('api/simc-template/', csrf_exempt(SimcTemplateAPIView.as_view()), name="simc_template"),
     path('api/keyword-translation/', csrf_exempt(KeywordTranslationAPIView.as_view()), name="keyword_translation"),
     path('api/oss-config/', csrf_exempt(OssConfigAPIView.as_view()), name="oss_config"),
