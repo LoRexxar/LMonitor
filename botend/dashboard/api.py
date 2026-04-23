@@ -1637,8 +1637,14 @@ class SimcAplCandidatesAPIView(View):
             "基础APL如下:\n"
             f"{base_text}\n"
         )
-        raw = glm.send_message(prompt)
+        raw = glm.send_message(prompt, max_tokens=8192, thinking_type='disabled')
+        if (not raw) and ('finish_reason=length' in str(getattr(glm, 'last_error', '') or '')):
+            raw = glm.send_message(prompt, max_tokens=12288, thinking_type='disabled')
         if not raw:
+            reasoning = str(getattr(glm, 'last_reasoning', '') or '').strip()
+            if reasoning:
+                reasoning = reasoning[:3000]
+                raise Exception(f"GLM未返回内容: {glm.last_error or 'empty response'} | reasoning_preview={reasoning}")
             raise Exception(f"GLM未返回内容: {glm.last_error or 'empty response'}")
         rows = self._extract_json_array(raw)
         result = []
@@ -1876,8 +1882,15 @@ class SimcAplCandidatesAPIView(View):
         if not ids:
             return
         message = str(error_message or '预处理失败').strip()
-        if len(message) > 800:
-            message = message[:800] + ' ...'
+        reasoning_text = ''
+        m = re.search(r'reasoning_preview=(.*)$', message, re.S)
+        if m:
+            reasoning_text = m.group(1).strip()
+            message = message[:m.start()].strip().rstrip('|').strip()
+        if len(message) > 1500:
+            message = message[:1500] + ' ...'
+        if len(reasoning_text) > 5000:
+            reasoning_text = reasoning_text[:5000] + ' ...'
         tasks = SimcTask.objects.filter(id__in=ids, is_active=True)
         for task in tasks:
             if int(task.current_status or 0) != 4:
@@ -1894,6 +1907,8 @@ class SimcAplCandidatesAPIView(View):
                 'preprocess_stage': 'failed',
                 'preprocess_error': message
             })
+            if reasoning_text:
+                compare_payload['preprocess_reasoning'] = reasoning_text
             ext_payload['apl_compare'] = compare_payload
             task.current_status = 3
             task.result_file = message

@@ -5420,6 +5420,11 @@ function viewTaskLog(taskId, task = null) {
             if (compare.candidate_reason) lines.push(`候选说明: ${compare.candidate_reason}`);
             if (compare.preprocess_stage) lines.push(`预处理阶段: ${compare.preprocess_stage}`);
             if (compare.preprocess_error) lines.push(`预处理错误: ${compare.preprocess_error}`);
+            if (compare.preprocess_reasoning) {
+                lines.push('');
+                lines.push('[GLM Reasoning]');
+                lines.push(String(compare.preprocess_reasoning));
+            }
         }
         if (t.result_file) {
             lines.push('');
