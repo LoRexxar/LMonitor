@@ -1525,6 +1525,7 @@ class SimcAplCandidatesAPIView(View):
 
             created = self._create_compare_tasks(request.user.id, profile, plans)
             task_ids = [x['task_id'] for x in created]
+            self._start_simulation_async(request.user.id, task_ids)
             return JsonResponse({
                 'success': True,
                 'message': f'已创建 {len(task_ids)} 个对比任务（基础+{candidate_count}候选）',
@@ -1533,6 +1534,7 @@ class SimcAplCandidatesAPIView(View):
                     'profile_name': profile.name,
                     'candidate_count': candidate_count,
                     'include_base': include_base,
+                    'simulation_started': True,
                     'batch_id': created[0]['batch_id'] if created else '',
                     'task_ids': task_ids,
                     'tasks': created
@@ -1740,6 +1742,34 @@ class SimcAplCandidatesAPIView(View):
                 'apl_list': apl_list
             })
         return created
+
+    def _start_simulation_async(self, user_id, task_ids):
+        ids = [int(x) for x in (task_ids or []) if str(x).isdigit()]
+        if not ids:
+            return
+
+        def _runner():
+            try:
+                from django.db import close_old_connections
+                close_old_connections()
+                from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+                monitor = SimcMonitor(None, None)
+                for task_id in ids:
+                    try:
+                        task = SimcTask.objects.filter(id=task_id, user_id=user_id, is_active=True).first()
+                        if not task:
+                            continue
+                        if int(task.current_status or 0) != 0:
+                            continue
+                        monitor.process_simc_task(task)
+                    except Exception as inner_e:
+                        logger.error(f"后台触发SimC任务失败 task_id={task_id}: {str(inner_e)}")
+                close_old_connections()
+            except Exception as e:
+                logger.error(f"后台触发SimC模拟线程异常: {str(e)}")
+
+        t = threading.Thread(target=_runner, daemon=True)
+        t.start()
 
 
 @method_decorator([csrf_exempt], name='dispatch')
