@@ -1484,6 +1484,218 @@ class SimcProfileAPIView(View):
             })
 
 
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class SimcAplCandidatesAPIView(View):
+    """
+    基于GLM生成多个APL候选方案，并创建常规模拟对比任务
+    """
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body or '{}')
+            profile_id = data.get('profile_id')
+            include_base = bool(data.get('include_base', True))
+            candidate_count = int(data.get('candidate_count', 5) or 5)
+            candidate_count = max(1, min(candidate_count, 5))
+
+            if not profile_id:
+                return JsonResponse({'success': False, 'error': 'profile_id不能为空'})
+
+            profile = SimcProfile.objects.filter(
+                id=profile_id,
+                user_id=request.user.id,
+                is_active=True
+            ).first()
+            if not profile:
+                return JsonResponse({'success': False, 'error': 'SimC配置不存在或无权限访问'})
+
+            base_apl = str(profile.action_list or '').strip()
+            if not base_apl:
+                return JsonResponse({'success': False, 'error': '当前配置缺少基础APL，无法生成候选方案'})
+
+            generated_candidates = self._generate_glm_candidates(profile, base_apl, candidate_count)
+            plans = []
+            if include_base:
+                plans.append({
+                    'name': '基础方案',
+                    'apl_list': base_apl,
+                    'reason': '当前配置中的原始APL'
+                })
+            plans.extend(generated_candidates)
+
+            created = self._create_compare_tasks(request.user.id, profile, plans)
+            task_ids = [x['task_id'] for x in created]
+            return JsonResponse({
+                'success': True,
+                'message': f'已创建 {len(task_ids)} 个对比任务（基础+{candidate_count}候选）',
+                'data': {
+                    'profile_id': profile.id,
+                    'profile_name': profile.name,
+                    'candidate_count': candidate_count,
+                    'include_base': include_base,
+                    'batch_id': created[0]['batch_id'] if created else '',
+                    'task_ids': task_ids,
+                    'tasks': created
+                }
+            })
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': '无效的JSON数据'})
+        except Exception as e:
+            logger.error(f"生成APL候选方案失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'生成候选方案失败: {str(e)}'})
+
+    def _generate_glm_candidates(self, profile, base_apl, total_count):
+        glm = GLMClient()
+        batches = []
+        remain = int(total_count)
+        while remain > 0:
+            size = min(2, remain)
+            batches.append(size)
+            remain -= size
+
+        generated = []
+        total_batches = len(batches)
+        for idx, batch_size in enumerate(batches):
+            chunk = self._request_candidate_batch(
+                glm=glm,
+                profile=profile,
+                base_apl=base_apl,
+                batch_size=batch_size,
+                batch_index=idx + 1,
+                total_batches=total_batches,
+                base_limit=7000
+            )
+            if len(chunk) < batch_size:
+                chunk = self._request_candidate_batch(
+                    glm=glm,
+                    profile=profile,
+                    base_apl=base_apl,
+                    batch_size=batch_size,
+                    batch_index=idx + 1,
+                    total_batches=total_batches,
+                    base_limit=3600
+                )
+            if len(chunk) < batch_size:
+                raise Exception(f'第{idx + 1}批候选方案生成不足，预期{batch_size}个，实际{len(chunk)}个')
+            generated.extend(chunk[:batch_size])
+        return generated[:total_count]
+
+    def _request_candidate_batch(self, glm, profile, base_apl, batch_size, batch_index, total_batches, base_limit=7000):
+        base_text = str(base_apl or '').strip()
+        if len(base_text) > base_limit:
+            base_text = base_text[:base_limit] + "\n# ... 省略过长内容 ..."
+        prompt = (
+            "你是SimulationCraft APL优化专家。请基于给定基础APL，生成不同思路的候选APL。\n"
+            "要求:\n"
+            "1) 必须输出严格JSON数组，不要Markdown、不要解释文字。\n"
+            "2) 数组长度必须等于请求数量。\n"
+            "3) 每个元素结构: {\"name\":\"方案名\",\"reason\":\"一句话思路\",\"apl_list\":\"完整APL列表\"}\n"
+            "4) apl_list必须是可执行APL行，优先使用 actions+=/ 或 actions.xxx+=/ 形式。\n"
+            "5) 与基础方案保持同职业同专精，不要改角色基础属性、天赋字段。\n\n"
+            f"批次: {batch_index}/{total_batches}\n"
+            f"本批数量: {batch_size}\n"
+            f"配置专精: {profile.spec}\n"
+            f"战斗风格: {profile.fight_style}\n"
+            f"时长: {profile.time}\n"
+            f"目标数: {profile.target_count}\n"
+            f"天赋: {profile.talent}\n\n"
+            "基础APL如下:\n"
+            f"{base_text}\n"
+        )
+        raw = glm.send_message(prompt)
+        if not raw:
+            raise Exception(f"GLM未返回内容: {glm.last_error or 'empty response'}")
+        rows = self._extract_json_array(raw)
+        result = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            apl_list = self._normalize_apl_text(row.get('apl_list', ''))
+            if not apl_list:
+                continue
+            result.append({
+                'name': str(row.get('name') or '').strip() or f'候选方案{len(result) + 1}',
+                'reason': str(row.get('reason') or '').strip(),
+                'apl_list': apl_list
+            })
+        return result
+
+    def _extract_json_array(self, raw_text):
+        text = str(raw_text or '').strip()
+        if not text:
+            return []
+        if text.startswith('```'):
+            text = re.sub(r'^```[a-zA-Z]*\s*', '', text)
+            text = re.sub(r'\s*```$', '', text)
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        m = re.search(r'\[[\s\S]*\]', text)
+        if not m:
+            return []
+        try:
+            parsed = json.loads(m.group(0))
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
+
+    def _normalize_apl_text(self, apl_text):
+        text = str(apl_text or '').replace('\r', '')
+        if text.startswith('```'):
+            text = re.sub(r'^```[a-zA-Z]*\s*', '', text)
+            text = re.sub(r'\s*```$', '', text)
+        lines = [ln.rstrip() for ln in text.split('\n')]
+        cleaned = [ln for ln in lines if ln.strip()]
+        return '\n'.join(cleaned).strip()
+
+    def _create_compare_tasks(self, user_id, profile, plans):
+        batch_id = uuid.uuid4().hex[:12]
+        created = []
+        for idx, plan in enumerate(plans):
+            plan_name = str(plan.get('name') or '').strip() or f'候选方案{idx}'
+            plan_reason = str(plan.get('reason') or '').strip()
+            apl_list = str(plan.get('apl_list') or '').strip()
+            if not apl_list:
+                continue
+
+            timestamp = str(int(time.time()))
+            content_to_hash = f"{timestamp}:{user_id}:{profile.id}:{idx}:{plan_name}"
+            result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
+            display_name = f"{profile.name}_APL对比_{idx:02d}_{plan_name[:20]}"
+            ext_payload = {
+                'override_action_list': apl_list,
+                'apl_compare': {
+                    'batch_id': batch_id,
+                    'candidate_index': idx,
+                    'candidate_name': plan_name,
+                    'candidate_reason': plan_reason,
+                    'is_base': idx == 0
+                }
+            }
+            task = SimcTask.objects.create(
+                user_id=user_id,
+                name=display_name,
+                simc_profile_id=profile.id,
+                current_status=0,
+                result_file=result_file,
+                task_type=1,
+                ext=json.dumps(ext_payload, ensure_ascii=False)
+            )
+            created.append({
+                'batch_id': batch_id,
+                'task_id': task.id,
+                'task_name': task.name,
+                'candidate_name': plan_name,
+                'candidate_reason': plan_reason,
+                'is_base': idx == 0,
+                'apl_list': apl_list
+            })
+        return created
+
+
 @method_decorator([csrf_exempt], name='dispatch')
 class KeywordTranslationAPIView(View):
     """
@@ -1907,11 +2119,30 @@ class SimcRegularCompareAPIView(View):
                 if not parsed.get('dps'):
                     invalid.append({'id': task.id, 'name': task.name, 'error': '无法从结果文件中解析DPS'})
                     continue
+
+                ext_payload = self._parse_task_ext(task.ext)
+                apl_compare = ext_payload.get('apl_compare') if isinstance(ext_payload.get('apl_compare'), dict) else {}
+                profile_action_list = ''
+                try:
+                    profile = SimcProfile.objects.filter(id=task.simc_profile_id, user_id=request.user.id, is_active=True).first()
+                    profile_action_list = (profile.action_list or '') if profile else ''
+                except Exception:
+                    profile_action_list = ''
+                apl_list = str(
+                    apl_compare.get('apl_list')
+                    or ext_payload.get('override_action_list')
+                    or profile_action_list
+                    or ''
+                )
                 
                 tasks_data.append({
                     'id': task.id,
                     'name': task.name,
                     'result_file': task.result_file,
+                    'candidate_name': apl_compare.get('candidate_name') or '',
+                    'candidate_index': apl_compare.get('candidate_index'),
+                    'is_base_candidate': bool(apl_compare.get('is_base')),
+                    'apl_list': apl_list,
                     'dps': parsed.get('dps'),
                     'character': parsed.get('character', {}),
                     'simulation': parsed.get('simulation', {}),
@@ -1943,6 +2174,20 @@ class SimcRegularCompareAPIView(View):
                 'success': False,
                 'error': f'对比失败: {str(e)}'
             })
+
+    def _parse_task_ext(self, ext_data):
+        if not ext_data:
+            return {}
+        if isinstance(ext_data, dict):
+            return ext_data
+        text = str(ext_data).strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
     
     def _get_result_file_content(self, result_file):
         try:
