@@ -3386,11 +3386,9 @@ function displaySimcTaskData(tasks) {
                             <i class="fas fa-chart-bar mr-1"></i>查看分析
                         </button>`}
                         ` : ''}
-                        ${task.current_status === 3 && task.result_file ? `
-                        <button onclick="viewErrorInfo(${task.id}, '${escapeHtml(task.result_file)}')" class="inline-flex items-center px-2.5 py-1.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors duration-200 text-xs">
-                            <i class="fas fa-exclamation-triangle mr-1"></i>查看错误
+                        <button onclick='viewTaskLog(${task.id}, ${JSON.stringify(task).replace(/'/g, '&#39;')})' class="inline-flex items-center px-2.5 py-1.5 bg-slate-600 text-white rounded-md hover:bg-slate-700 transition-colors duration-200 text-xs">
+                            <i class="fas fa-file-lines mr-1"></i>查看日志
                         </button>
-                        ` : ''}
                         ${task.current_status === 2 || task.current_status === 3 ? `
                         <button onclick="rerunSimcTask(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors duration-200 text-xs">
                             <i class="fas fa-redo mr-1"></i>重跑
@@ -5379,24 +5377,60 @@ function viewAttributeAnalysis(taskId) {
 }
 
 function viewErrorInfo(taskId, resultFile) {
+    // 向后兼容：旧入口统一跳到日志查看
+    viewTaskLog(taskId, { resultFile });
+}
+
+function viewTaskLog(taskId, task = null) {
     /**
-     * 查看任务错误信息
+     * 查看任务日志（所有状态都可查看）
      * @param {number} taskId - 任务ID
-     * @param {string} resultFile - 错误信息内容（直接从数据库字段获取）
+     * @param {object|null} task - 任务对象（可选）
      */
     try {
-        // 检查是否包含错误信息
-        if (!resultFile) {
-            showMessage('未找到错误信息', 'warning');
+        if (!taskId) {
+            showMessage('任务ID不存在', 'warning');
             return;
         }
-        
-        // 直接展示错误信息
-        openErrorInfoModal(taskId, resultFile);
-        
+
+        const t = task || {};
+        const extPayload = parseSimcTaskExt(t.ext || t.ext_detail || {});
+        const compare = (extPayload && extPayload.apl_compare) ? extPayload.apl_compare : {};
+        const lines = [];
+        lines.push(`任务ID: ${taskId}`);
+        if (t.name) lines.push(`任务名称: ${t.name}`);
+        if (typeof t.current_status !== 'undefined') {
+            const statusMap = { 0: '未开始', 1: '进行中', 2: '完成', 3: '失败', 4: '预处理中' };
+            lines.push(`任务状态: ${statusMap[t.current_status] || t.current_status}`);
+        }
+        if (t.task_type) {
+            const typeMap = { 1: '常规模拟', 2: '属性模拟' };
+            lines.push(`任务类型: ${typeMap[t.task_type] || t.task_type}`);
+        }
+        if (t.simc_profile_name) lines.push(`配置名称: ${t.simc_profile_name}`);
+        if (t.simc_profile_spec) lines.push(`配置专精: ${t.simc_profile_spec}`);
+        if (t.create_time) lines.push(`创建时间: ${t.create_time}`);
+        if (t.modified_time) lines.push(`更新时间: ${t.modified_time}`);
+        if (compare && Object.keys(compare).length) {
+            lines.push('');
+            lines.push('[APL候选信息]');
+            if (compare.batch_id) lines.push(`批次ID: ${compare.batch_id}`);
+            if (typeof compare.candidate_index !== 'undefined') lines.push(`候选序号: ${compare.candidate_index}`);
+            if (compare.candidate_name) lines.push(`候选名称: ${compare.candidate_name}`);
+            if (compare.candidate_reason) lines.push(`候选说明: ${compare.candidate_reason}`);
+            if (compare.preprocess_stage) lines.push(`预处理阶段: ${compare.preprocess_stage}`);
+            if (compare.preprocess_error) lines.push(`预处理错误: ${compare.preprocess_error}`);
+        }
+        if (t.result_file) {
+            lines.push('');
+            lines.push('[结果/错误字段]');
+            lines.push(String(t.result_file));
+        }
+        if (!lines.length) lines.push('暂无日志内容');
+        openErrorInfoModal(taskId, lines.join('\n'));
     } catch (error) {
-        console.error('查看错误信息失败:', error);
-        showMessage(`查看错误信息失败: ${error.message}`, 'error');
+        console.error('查看任务日志失败:', error);
+        showMessage(`查看任务日志失败: ${error.message}`, 'error');
     }
 }
 
