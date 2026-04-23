@@ -1238,9 +1238,6 @@
                     </div>
                 </div>
                 <div class="flex justify-end space-x-3 px-6 py-4 bg-gray-50 rounded-b-lg">
-                    <button id="generate-glm-apl-candidates-btn" class="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-wand-magic-sparkles mr-2"></i>生成6方案并对比
-                    </button>
                     <button id="cancel-edit-simc-profile" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
                         <i class="fas fa-times mr-2"></i>
                         取消
@@ -1351,6 +1348,13 @@
                                         <div class="text-sm text-gray-500">分析不同属性组合的DPS表现</div>
                                     </div>
                                 </label>
+                                <label class="flex items-center p-3 border border-violet-200 rounded-lg hover:bg-violet-50 cursor-pointer">
+                                    <input type="radio" name="simulation-type" value="3" class="mr-3 text-violet-600">
+                                    <div>
+                                        <div class="font-medium text-gray-900">APL候选对比模拟</div>
+                                        <div class="text-sm text-gray-500">自动生成5个候选APL + 基础方案，共6个任务并对比</div>
+                                    </div>
+                                </label>
                             </div>
                         </div>
                         <div id="simulation-regular-options">
@@ -1435,9 +1439,10 @@
                         <i class="fas fa-times mr-2"></i>
                         取消
                     </button>
-                    <button onclick="startSimulation()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                    <button id="simulation-start-btn" onclick="startSimulation()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
                         <i class="fas fa-play mr-2"></i>开始模拟
                     </button>
+                </div>
                 </div>
             </div>
         </div>

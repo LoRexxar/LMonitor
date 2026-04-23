@@ -4082,7 +4082,6 @@ function initSimcProfileManagement() {
         const editAplAuto = document.getElementById('edit-simc-profile-apl-preview-auto');
         const editAplCopyBtn = document.getElementById('edit-simc-profile-apl-preview-copy');
         const editRebuildCnBtn = document.getElementById('edit-simc-profile-apl-rebuild-cn-btn');
-        const generateCandidatesBtn = document.getElementById('generate-glm-apl-candidates-btn');
         if (editSpecInput) editSpecInput.addEventListener('input', () => updateTalentPreview('edit'));
         if (editTalentInput) editTalentInput.addEventListener('input', () => updateTalentPreview('edit'));
         if (editAplPreviewBtn) editAplPreviewBtn.addEventListener('click', () => syncCnEditorToApl('edit', { force: true }));
@@ -4091,7 +4090,6 @@ function initSimcProfileManagement() {
         if (editAplAuto) editAplAuto.addEventListener('change', () => scheduleCnEditorToAplSync('edit', true));
         if (editAplCopyBtn) editAplCopyBtn.addEventListener('click', () => copySimcProfileAplPreview('edit'));
         if (editRebuildCnBtn) editRebuildCnBtn.addEventListener('click', () => scheduleSimcProfileAplPreview('edit', true));
-        if (generateCandidatesBtn) generateCandidatesBtn.addEventListener('click', generateGlmAplCandidatesAndCompare);
     }
 }
 
@@ -4966,46 +4964,64 @@ async function updateSimcProfile() {
     });
 }
 
-async function generateGlmAplCandidatesAndCompare() {
-    const modal = document.getElementById('edit-simc-profile-modal');
-    const btn = document.getElementById('generate-glm-apl-candidates-btn');
-    if (!modal || !btn) return;
-    const profileId = modal.getAttribute('data-profile-id');
-    if (!profileId) {
-        showMessage('请先打开一个已有配置再生成方案', 'warning');
+async function generateGlmAplCandidatesAndCompare(profileId) {
+    const btn = document.getElementById('simulation-start-btn');
+    const resolvedProfileId = parseInt(profileId || window.currentSimulationProfileId);
+    if (!btn) return;
+    if (!resolvedProfileId) {
+        showMessage('未找到可模拟的配置ID', 'warning');
         return;
     }
 
-    const syncOk = await syncCnEditorToApl('edit', { force: true, quiet: true });
-    if (!syncOk) return;
-
+    // 先打开空白页，避免异步后 window.open 被浏览器拦截
+    const compareWindow = window.open('about:blank', '_blank');
     const oldText = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>生成中...';
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
         const resp = await fetch('/api/simc-apl-candidates/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCSRFToken()
             },
+            signal: controller.signal,
             body: JSON.stringify({
-                profile_id: parseInt(profileId),
+                profile_id: resolvedProfileId,
                 candidate_count: 5,
                 include_base: true
             })
         });
+        clearTimeout(timeoutId);
         const data = await resp.json();
         if (!resp.ok || !data || !data.success) {
             throw new Error((data && (data.error || data.message)) || '候选方案生成失败');
         }
         const taskIds = (((data.data || {}).task_ids) || []).map(x => parseInt(x)).filter(x => Number.isFinite(x));
-        showMessage(`已创建 ${taskIds.length} 个任务，稍后可在任务管理里查看进度`, 'success');
+        showMessage(`已创建 ${taskIds.length} 个任务，并已触发自动模拟`, 'success');
         fetchSimcTaskData();
         if (taskIds.length >= 2) {
-            window.open(`/simc-compare/?task_ids=${encodeURIComponent(taskIds.join(','))}`, '_blank');
+            const compareUrl = `/simc-compare/?task_ids=${encodeURIComponent(taskIds.join(','))}`;
+            if (compareWindow) {
+                compareWindow.location.href = compareUrl;
+            } else {
+                window.open(compareUrl, '_blank');
+                showMessage('浏览器拦截了自动打开窗口，请允许弹窗或手动打开对比页面', 'warning');
+            }
+        } else if (compareWindow) {
+            compareWindow.close();
+            showMessage('任务数量不足，未打开对比页面', 'warning');
         }
     } catch (error) {
+        if (compareWindow) {
+            try { compareWindow.close(); } catch (e) {}
+        }
+        if (error && error.name === 'AbortError') {
+            showMessage('生成候选方案超时（120秒），请稍后重试', 'error');
+            return;
+        }
         showMessage('生成APL候选方案失败: ' + error.message, 'error');
     } finally {
         btn.disabled = false;
@@ -5133,6 +5149,9 @@ function openSimulationTypeModal() {
             if (this.value === '2') {
                 attributeCombinations.classList.remove('hidden');
                 if (regularOptions) regularOptions.classList.add('hidden');
+            } else if (this.value === '3') {
+                attributeCombinations.classList.add('hidden');
+                if (regularOptions) regularOptions.classList.add('hidden');
             } else {
                 attributeCombinations.classList.add('hidden');
                 if (regularOptions) regularOptions.classList.remove('hidden');
@@ -5182,6 +5201,9 @@ function startSimulation() {
         
         // 批量创建属性模拟任务
         createBatchSimulationTasks(profileId, selectedCombinations, attributeStep ? parseInt(attributeStep) : undefined);
+    } else if (simulationType === '3') {
+        // APL候选对比模拟
+        generateGlmAplCandidatesAndCompare(profileId);
     }
     
     closeSimulationTypeModal();
