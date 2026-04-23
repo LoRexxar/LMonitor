@@ -16,6 +16,7 @@ class GLMClient:
         fallbacks = ZHIYU_API_CONFIG.get("fallback_models", []) or ["GLM-4.5-Flash", "GLM-4.5"]
         self.model_candidates = [m for m in [configured] + list(fallbacks) if str(m).strip()]
         self.last_error = ""
+        self.last_reasoning = ""
 
     def _is_no_access_error(self, e):
         msg = str(e or '')
@@ -73,8 +74,9 @@ class GLMClient:
             return "\n".join([c for c in chunks if c]).strip()
         return ""
 
-    def send_message(self, message):
+    def send_message(self, message, max_tokens=None, thinking_type=None):
         self.last_error = ""
+        self.last_reasoning = ""
         try:
             messages = [
                 {"role": "system", "content": self.system_prompt},
@@ -82,18 +84,23 @@ class GLMClient:
             ]
             # 兼容“请求成功但content为空”的场景，做有限重试
             for _ in range(3):
-                response = self._create_completion(
-                    messages=messages,
-                    temperature=0.7,
-                    max_tokens=self.max_tokens_text
-                )
+                req = {
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "max_tokens": int(max_tokens or self.max_tokens_text)
+                }
+                if thinking_type in ("enabled", "disabled"):
+                    req["thinking"] = {"type": thinking_type}
+                response = self._create_completion(**req)
                 choice = response.choices[0]
                 msg = choice.message
+                reasoning = getattr(msg, "reasoning_content", "") or ""
+                if reasoning:
+                    self.last_reasoning = str(reasoning)
                 normalized = self._normalize_message_content(msg)
                 if normalized:
                     return normalized
                 finish_reason = getattr(choice, "finish_reason", "")
-                reasoning = getattr(msg, "reasoning_content", "") or ""
                 self.last_error = f"empty content, finish_reason={finish_reason}, reasoning_len={len(str(reasoning))}"
                 time.sleep(1)
             return None
@@ -104,6 +111,7 @@ class GLMClient:
 
     def send_message_with_tools(self, message, tools, tool_handler, max_rounds=6):
         self.last_error = ""
+        self.last_reasoning = ""
         messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": message}
