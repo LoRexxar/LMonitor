@@ -3235,6 +3235,10 @@ function displaySimcTaskData(tasks) {
                 statusText = '进行中';
                 statusClass = 'bg-blue-100 text-blue-800';
                 break;
+            case 4:
+                statusText = '预处理中';
+                statusClass = 'bg-amber-100 text-amber-800';
+                break;
             case 2:
                 statusText = '完成';
                 statusClass = 'bg-green-100 text-green-800';
@@ -4973,11 +4977,9 @@ async function generateGlmAplCandidatesAndCompare(profileId) {
         return;
     }
 
-    // 先打开空白页，避免异步后 window.open 被浏览器拦截
-    const compareWindow = window.open('about:blank', '_blank');
     const oldText = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>生成中...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>预处理中...';
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 120000);
@@ -5000,24 +5002,10 @@ async function generateGlmAplCandidatesAndCompare(profileId) {
             throw new Error((data && (data.error || data.message)) || '候选方案生成失败');
         }
         const taskIds = (((data.data || {}).task_ids) || []).map(x => parseInt(x)).filter(x => Number.isFinite(x));
-        showMessage(`已创建 ${taskIds.length} 个任务，并已触发自动模拟`, 'success');
+        showMessage(`已创建 ${taskIds.length} 个对比任务，当前处于“预处理中”，完成后会自动进入模拟`, 'success');
         fetchSimcTaskData();
-        if (taskIds.length >= 2) {
-            const compareUrl = `/simc-compare/?task_ids=${encodeURIComponent(taskIds.join(','))}`;
-            if (compareWindow) {
-                compareWindow.location.href = compareUrl;
-            } else {
-                window.open(compareUrl, '_blank');
-                showMessage('浏览器拦截了自动打开窗口，请允许弹窗或手动打开对比页面', 'warning');
-            }
-        } else if (compareWindow) {
-            compareWindow.close();
-            showMessage('任务数量不足，未打开对比页面', 'warning');
-        }
+        setTimeout(() => fetchSimcTaskData(), 2000);
     } catch (error) {
-        if (compareWindow) {
-            try { compareWindow.close(); } catch (e) {}
-        }
         if (error && error.name === 'AbortError') {
             showMessage('生成候选方案超时（120秒），请稍后重试', 'error');
             return;

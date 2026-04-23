@@ -448,6 +448,20 @@ class SimcTaskAPIView(View):
                     'success': False,
                     'error': '只有已完成或失败的任务才能重跑'
                 })
+
+            ext_payload = {}
+            try:
+                ext_payload = json.loads(task.ext or '{}')
+                if not isinstance(ext_payload, dict):
+                    ext_payload = {}
+            except Exception:
+                ext_payload = {}
+            compare_payload = ext_payload.get('apl_compare') if isinstance(ext_payload.get('apl_compare'), dict) else {}
+            if compare_payload and not ext_payload.get('override_action_list'):
+                return JsonResponse({
+                    'success': False,
+                    'error': '该任务在预处理阶段失败，无法直接重跑，请重新发起“APL候选对比模拟”'
+                })
             
             # 生成新的结果文件名
             timestamp = str(int(time.time()))
@@ -1513,29 +1527,33 @@ class SimcAplCandidatesAPIView(View):
             if not base_apl:
                 return JsonResponse({'success': False, 'error': '当前配置缺少基础APL，无法生成候选方案'})
 
-            generated_candidates = self._generate_glm_candidates(profile, base_apl, candidate_count)
-            plans = []
-            if include_base:
-                plans.append({
-                    'name': '基础方案',
-                    'apl_list': base_apl,
-                    'reason': '当前配置中的原始APL'
-                })
-            plans.extend(generated_candidates)
-
-            created = self._create_compare_tasks(request.user.id, profile, plans)
+            created = self._create_compare_preprocessing_tasks(
+                user_id=request.user.id,
+                profile=profile,
+                include_base=include_base,
+                candidate_count=candidate_count
+            )
             task_ids = [x['task_id'] for x in created]
-            self._start_simulation_async(request.user.id, task_ids)
+            batch_id = created[0]['batch_id'] if created else ''
+            self._start_compare_preprocess_async(
+                user_id=request.user.id,
+                profile_id=profile.id,
+                batch_id=batch_id,
+                task_ids=task_ids,
+                include_base=include_base,
+                candidate_count=candidate_count
+            )
             return JsonResponse({
                 'success': True,
-                'message': f'已创建 {len(task_ids)} 个对比任务（基础+{candidate_count}候选）',
+                'message': f'已创建 {len(task_ids)} 个对比任务，进入预处理阶段',
                 'data': {
                     'profile_id': profile.id,
                     'profile_name': profile.name,
                     'candidate_count': candidate_count,
                     'include_base': include_base,
-                    'simulation_started': True,
-                    'batch_id': created[0]['batch_id'] if created else '',
+                    'simulation_started': False,
+                    'preprocessing_started': True,
+                    'batch_id': batch_id,
                     'task_ids': task_ids,
                     'tasks': created
                 }
@@ -1558,29 +1576,48 @@ class SimcAplCandidatesAPIView(View):
         generated = []
         total_batches = len(batches)
         for idx, batch_size in enumerate(batches):
-            chunk = self._request_candidate_batch(
+            chunk = self._request_candidate_batch_with_fallback(
                 glm=glm,
                 profile=profile,
                 base_apl=base_apl,
                 batch_size=batch_size,
                 batch_index=idx + 1,
                 total_batches=total_batches,
-                base_limit=7000
+                base_limits=[7000, 3600, 1800]
             )
             if len(chunk) < batch_size:
+                raise Exception(f'第{idx + 1}批候选方案生成不足，预期{batch_size}个，实际{len(chunk)}个')
+            generated.extend(chunk[:batch_size])
+        return generated[:total_count]
+
+    def _request_candidate_batch_with_fallback(self, glm, profile, base_apl, batch_size, batch_index, total_batches, base_limits=None):
+        limits = [int(x) for x in (base_limits or [7000, 3600, 1800]) if int(x) > 0]
+        last_error = ''
+        best_chunk = []
+        for limit in limits:
+            try:
                 chunk = self._request_candidate_batch(
                     glm=glm,
                     profile=profile,
                     base_apl=base_apl,
                     batch_size=batch_size,
-                    batch_index=idx + 1,
+                    batch_index=batch_index,
                     total_batches=total_batches,
-                    base_limit=3600
+                    base_limit=limit
                 )
-            if len(chunk) < batch_size:
-                raise Exception(f'第{idx + 1}批候选方案生成不足，预期{batch_size}个，实际{len(chunk)}个')
-            generated.extend(chunk[:batch_size])
-        return generated[:total_count]
+                if len(chunk) >= batch_size:
+                    return chunk
+                if len(chunk) > len(best_chunk):
+                    best_chunk = chunk
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"APL候选批次重试: batch={batch_index}, limit={limit}, error={last_error}")
+                continue
+        if best_chunk:
+            return best_chunk
+        if last_error:
+            raise Exception(f'GLM候选生成失败（批次{batch_index}）: {last_error}')
+        return []
 
     def _request_candidate_batch(self, glm, profile, base_apl, batch_size, batch_index, total_batches, base_limit=7000):
         base_text = str(base_apl or '').strip()
@@ -1699,36 +1736,32 @@ class SimcAplCandidatesAPIView(View):
             return False
         return True
 
-    def _create_compare_tasks(self, user_id, profile, plans):
+    def _create_compare_preprocessing_tasks(self, user_id, profile, include_base, candidate_count):
+        total_count = int(candidate_count) + (1 if include_base else 0)
+        if total_count <= 0:
+            raise Exception('候选数量无效')
         batch_id = uuid.uuid4().hex[:12]
         created = []
-        for idx, plan in enumerate(plans):
-            plan_name = str(plan.get('name') or '').strip() or f'候选方案{idx}'
-            plan_reason = str(plan.get('reason') or '').strip()
-            apl_list = str(plan.get('apl_list') or '').strip()
-            if not apl_list:
-                continue
-
-            timestamp = str(int(time.time()))
-            content_to_hash = f"{timestamp}:{user_id}:{profile.id}:{idx}:{plan_name}"
-            result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
-            display_name = f"{profile.name}_APL对比_{idx:02d}_{plan_name[:20]}"
+        for idx in range(total_count):
+            is_base = bool(include_base and idx == 0)
+            plan_name = '基础方案' if is_base else f'候选方案{idx}'
+            display_name = f"{profile.name}_APL对比_{idx:02d}_预处理中"
             ext_payload = {
-                'override_action_list': apl_list,
                 'apl_compare': {
                     'batch_id': batch_id,
                     'candidate_index': idx,
                     'candidate_name': plan_name,
-                    'candidate_reason': plan_reason,
-                    'is_base': idx == 0
+                    'candidate_reason': '等待预处理生成',
+                    'is_base': is_base,
+                    'preprocess_stage': 'pending'
                 }
             }
             task = SimcTask.objects.create(
                 user_id=user_id,
                 name=display_name,
                 simc_profile_id=profile.id,
-                current_status=0,
-                result_file=result_file,
+                current_status=4,
+                result_file='',
                 task_type=1,
                 ext=json.dumps(ext_payload, ensure_ascii=False)
             )
@@ -1737,11 +1770,140 @@ class SimcAplCandidatesAPIView(View):
                 'task_id': task.id,
                 'task_name': task.name,
                 'candidate_name': plan_name,
-                'candidate_reason': plan_reason,
-                'is_base': idx == 0,
-                'apl_list': apl_list
+                'candidate_reason': '等待预处理生成',
+                'is_base': is_base,
+                'status': 4
             })
         return created
+
+    def _start_compare_preprocess_async(self, user_id, profile_id, batch_id, task_ids, include_base, candidate_count):
+        ids = [int(x) for x in (task_ids or []) if str(x).isdigit()]
+        if not ids:
+            return
+
+        def _runner():
+            try:
+                from django.db import close_old_connections
+                close_old_connections()
+
+                profile = SimcProfile.objects.filter(
+                    id=profile_id,
+                    user_id=user_id,
+                    is_active=True
+                ).first()
+                if not profile:
+                    self._mark_preprocess_failed(ids, '预处理失败: 配置不存在或已删除')
+                    close_old_connections()
+                    return
+
+                base_apl = str(profile.action_list or '').strip()
+                if not base_apl:
+                    self._mark_preprocess_failed(ids, '预处理失败: 当前配置缺少基础APL')
+                    close_old_connections()
+                    return
+
+                generated_candidates = self._generate_glm_candidates(profile, base_apl, int(candidate_count))
+                plans = []
+                if include_base:
+                    plans.append({
+                        'name': '基础方案',
+                        'apl_list': base_apl,
+                        'reason': '当前配置中的原始APL'
+                    })
+                plans.extend(generated_candidates)
+
+                if len(plans) != len(ids):
+                    self._mark_preprocess_failed(ids, f'预处理失败: 方案数量不匹配（任务{len(ids)}，方案{len(plans)}）')
+                    close_old_connections()
+                    return
+
+                ready_task_ids = []
+                for idx, task_id in enumerate(ids):
+                    task = SimcTask.objects.filter(id=task_id, user_id=user_id, is_active=True).first()
+                    if not task:
+                        continue
+                    if int(task.current_status or 0) != 4:
+                        continue
+
+                    plan = plans[idx] if idx < len(plans) else {}
+                    plan_name = str(plan.get('name') or '').strip() or f'候选方案{idx}'
+                    plan_reason = str(plan.get('reason') or '').strip()
+                    apl_list = str(plan.get('apl_list') or '').strip()
+                    if not apl_list:
+                        task.current_status = 3
+                        task.result_file = '预处理失败: APL为空'
+                        task.save(update_fields=['current_status', 'result_file', 'modified_time'])
+                        continue
+
+                    timestamp = str(int(time.time()))
+                    content_to_hash = f"{timestamp}:{user_id}:{profile.id}:{idx}:{plan_name}:{batch_id}"
+                    result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
+                    display_name = f"{profile.name}_APL对比_{idx:02d}_{plan_name[:20]}"
+
+                    ext_payload = {}
+                    try:
+                        ext_payload = json.loads(task.ext or '{}')
+                        if not isinstance(ext_payload, dict):
+                            ext_payload = {}
+                    except Exception:
+                        ext_payload = {}
+                    compare_payload = ext_payload.get('apl_compare') if isinstance(ext_payload.get('apl_compare'), dict) else {}
+                    compare_payload.update({
+                        'batch_id': batch_id,
+                        'candidate_index': idx,
+                        'candidate_name': plan_name,
+                        'candidate_reason': plan_reason,
+                        'is_base': bool(include_base and idx == 0),
+                        'preprocess_stage': 'done'
+                    })
+                    ext_payload['apl_compare'] = compare_payload
+                    ext_payload['override_action_list'] = apl_list
+
+                    task.name = display_name
+                    task.result_file = result_file
+                    task.ext = json.dumps(ext_payload, ensure_ascii=False)
+                    task.current_status = 0
+                    task.save(update_fields=['name', 'result_file', 'ext', 'current_status', 'modified_time'])
+                    ready_task_ids.append(task.id)
+
+                if ready_task_ids:
+                    self._start_simulation_async(user_id, ready_task_ids)
+                close_old_connections()
+            except Exception as e:
+                logger.error(f"APL候选对比预处理失败: {str(e)}\n{traceback.format_exc()}")
+                self._mark_preprocess_failed(ids, f'预处理失败: {str(e)}')
+
+        t = threading.Thread(target=_runner, daemon=True)
+        t.start()
+
+    def _mark_preprocess_failed(self, task_ids, error_message):
+        ids = [int(x) for x in (task_ids or []) if str(x).isdigit()]
+        if not ids:
+            return
+        message = str(error_message or '预处理失败').strip()
+        if len(message) > 800:
+            message = message[:800] + ' ...'
+        tasks = SimcTask.objects.filter(id__in=ids, is_active=True)
+        for task in tasks:
+            if int(task.current_status or 0) != 4:
+                continue
+            ext_payload = {}
+            try:
+                ext_payload = json.loads(task.ext or '{}')
+                if not isinstance(ext_payload, dict):
+                    ext_payload = {}
+            except Exception:
+                ext_payload = {}
+            compare_payload = ext_payload.get('apl_compare') if isinstance(ext_payload.get('apl_compare'), dict) else {}
+            compare_payload.update({
+                'preprocess_stage': 'failed',
+                'preprocess_error': message
+            })
+            ext_payload['apl_compare'] = compare_payload
+            task.current_status = 3
+            task.result_file = message
+            task.ext = json.dumps(ext_payload, ensure_ascii=False)
+            task.save(update_fields=['current_status', 'result_file', 'ext', 'modified_time'])
 
     def _start_simulation_async(self, user_id, task_ids):
         ids = [int(x) for x in (task_ids or []) if str(x).isdigit()]
