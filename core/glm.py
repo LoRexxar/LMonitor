@@ -51,6 +51,28 @@ class GLMClient:
         if last:
             raise last
 
+    def _normalize_message_content(self, msg):
+        content = getattr(msg, "content", None)
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            chunks = []
+            for item in content:
+                if isinstance(item, str):
+                    chunks.append(item)
+                    continue
+                if isinstance(item, dict):
+                    text_val = item.get("text")
+                    if isinstance(text_val, str) and text_val.strip():
+                        chunks.append(text_val.strip())
+                        continue
+                    # 兼容部分SDK把文本放在 content 字段
+                    content_val = item.get("content")
+                    if isinstance(content_val, str) and content_val.strip():
+                        chunks.append(content_val.strip())
+            return "\n".join([c for c in chunks if c]).strip()
+        return ""
+
     def send_message(self, message):
         self.last_error = ""
         try:
@@ -58,12 +80,23 @@ class GLMClient:
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": message}
             ]
-            response = self._create_completion(
-                messages=messages,
-                temperature=0.7,
-                max_tokens=self.max_tokens_text
-            )
-            return response.choices[0].message.content
+            # 兼容“请求成功但content为空”的场景，做有限重试
+            for _ in range(3):
+                response = self._create_completion(
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=self.max_tokens_text
+                )
+                choice = response.choices[0]
+                msg = choice.message
+                normalized = self._normalize_message_content(msg)
+                if normalized:
+                    return normalized
+                finish_reason = getattr(choice, "finish_reason", "")
+                reasoning = getattr(msg, "reasoning_content", "") or ""
+                self.last_error = f"empty content, finish_reason={finish_reason}, reasoning_len={len(str(reasoning))}"
+                time.sleep(1)
+            return None
         except Exception as e:
             self.last_error = str(e)
             print(f"发生错误: {e}")

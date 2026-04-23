@@ -1566,16 +1566,10 @@ class SimcAplCandidatesAPIView(View):
 
     def _generate_glm_candidates(self, profile, base_apl, total_count):
         glm = GLMClient()
-        batches = []
-        remain = int(total_count)
-        while remain > 0:
-            size = min(2, remain)
-            batches.append(size)
-            remain -= size
-
         generated = []
-        total_batches = len(batches)
-        for idx, batch_size in enumerate(batches):
+        total_batches = int(total_count)
+        for idx in range(total_batches):
+            batch_size = 1
             chunk = self._request_candidate_batch_with_fallback(
                 glm=glm,
                 profile=profile,
@@ -1585,9 +1579,9 @@ class SimcAplCandidatesAPIView(View):
                 total_batches=total_batches,
                 base_limits=[7000, 3600, 1800]
             )
-            if len(chunk) < batch_size:
-                raise Exception(f'第{idx + 1}批候选方案生成不足，预期{batch_size}个，实际{len(chunk)}个')
-            generated.extend(chunk[:batch_size])
+            if len(chunk) < 1:
+                raise Exception(f'第{idx + 1}个候选方案生成失败')
+            generated.append(chunk[0])
         return generated[:total_count]
 
     def _request_candidate_batch_with_fallback(self, glm, profile, base_apl, batch_size, batch_index, total_batches, base_limits=None):
@@ -1634,6 +1628,7 @@ class SimcAplCandidatesAPIView(View):
             "6) 与基础方案保持同职业同专精，不要改角色基础属性、天赋字段。\n\n"
             f"批次: {batch_index}/{total_batches}\n"
             f"本批数量: {batch_size}\n"
+            "注意：本次只生成1个候选方案，不要返回多个。\n"
             f"配置专精: {profile.spec}\n"
             f"战斗风格: {profile.fight_style}\n"
             f"时长: {profile.time}\n"
