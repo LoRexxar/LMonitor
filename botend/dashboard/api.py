@@ -1590,8 +1590,9 @@ class SimcAplCandidatesAPIView(View):
             "1) 必须输出严格JSON数组，不要Markdown、不要解释文字。\n"
             "2) 数组长度必须等于请求数量。\n"
             "3) 每个元素结构: {\"name\":\"方案名\",\"reason\":\"一句话思路\",\"apl_list\":\"完整APL列表\"}\n"
-            "4) apl_list必须是可执行APL行，优先使用 actions+=/ 或 actions.xxx+=/ 形式。\n"
-            "5) 与基础方案保持同职业同专精，不要改角色基础属性、天赋字段。\n\n"
+            "4) apl_list必须符合APL语法，行格式仅允许注释行(#...)或 actions 开头行（如 actions+=/... 或 actions.xxx+=/...）。\n"
+            "5) 强制约束：你只能调整基础APL中各行的先后顺序，绝对禁止新增、删除、改写任何一行文本。\n"
+            "6) 与基础方案保持同职业同专精，不要改角色基础属性、天赋字段。\n\n"
             f"批次: {batch_index}/{total_batches}\n"
             f"本批数量: {batch_size}\n"
             f"配置专精: {profile.spec}\n"
@@ -1612,6 +1613,10 @@ class SimcAplCandidatesAPIView(View):
                 continue
             apl_list = self._normalize_apl_text(row.get('apl_list', ''))
             if not apl_list:
+                continue
+            if not self._is_valid_apl_format(apl_list):
+                continue
+            if not self._is_reorder_only(base_apl, apl_list):
                 continue
             result.append({
                 'name': str(row.get('name') or '').strip() or f'候选方案{len(result) + 1}',
@@ -1650,6 +1655,47 @@ class SimcAplCandidatesAPIView(View):
         lines = [ln.rstrip() for ln in text.split('\n')]
         cleaned = [ln for ln in lines if ln.strip()]
         return '\n'.join(cleaned).strip()
+
+    def _is_valid_apl_format(self, apl_text):
+        text = str(apl_text or '').strip()
+        if not text:
+            return False
+        lines = text.replace('\r', '').split('\n')
+        valid_count = 0
+        for raw in lines:
+            line = str(raw or '').strip()
+            if not line:
+                continue
+            if line.startswith('#'):
+                continue
+            if line.startswith('actions'):
+                valid_count += 1
+                continue
+            return False
+        return valid_count > 0
+
+    def _canonical_apl_lines(self, apl_text):
+        lines = []
+        for raw in str(apl_text or '').replace('\r', '').split('\n'):
+            line = str(raw or '').strip()
+            if not line:
+                continue
+            lines.append(line)
+        return lines
+
+    def _is_reorder_only(self, base_apl, candidate_apl):
+        from collections import Counter
+        base_lines = self._canonical_apl_lines(base_apl)
+        candidate_lines = self._canonical_apl_lines(candidate_apl)
+        if not base_lines or not candidate_lines:
+            return False
+        # 只允许调整顺序：逐行内容的多重集合必须完全一致
+        if Counter(base_lines) != Counter(candidate_lines):
+            return False
+        # 至少存在顺序变化，避免返回与基础完全相同
+        if base_lines == candidate_lines:
+            return False
+        return True
 
     def _create_compare_tasks(self, user_id, profile, plans):
         batch_id = uuid.uuid4().hex[:12]
