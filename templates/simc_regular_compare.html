@@ -106,8 +106,12 @@
             <div class="bg-white rounded-lg shadow-md p-6">
                 <h2 class="text-xl font-semibold text-gray-900 mb-4">
                     <i class="fas fa-bolt text-purple-500 mr-2"></i>
-                    技能占比对比（Top）
+                    技能占比对比（完整）
                 </h2>
+                <div class="mb-3 flex items-center justify-between gap-3">
+                    <input id="ability-compare-search" type="text" class="px-3 py-2 border border-gray-300 rounded-md text-sm w-full max-w-sm" placeholder="搜索技能（中英文）">
+                    <span id="ability-compare-count" class="text-sm text-gray-500">0 项</span>
+                </div>
                 <div class="overflow-x-auto">
                     <table class="min-w-full border border-gray-200 rounded-lg">
                         <thead class="bg-gray-50" id="abilities-compare-thead"></thead>
@@ -142,6 +146,7 @@
     <script>
         let keywordTranslations = {};
         let keywordTranslationsLoaded = false;
+        let regularCompareTasks = [];
 
         function escapeHtml(text) {
             if (text === null || text === undefined) return '';
@@ -319,10 +324,12 @@
         function renderAbilityCompare(tasks) {
             const thead = document.getElementById('abilities-compare-thead');
             const tbody = document.getElementById('abilities-compare-tbody');
+            const searchInput = document.getElementById('ability-compare-search');
+            const countEl = document.getElementById('ability-compare-count');
 
             const names = new Set();
             tasks.forEach(t => {
-                const abilities = (t.top_abilities || []);
+                const abilities = (t.abilities || t.top_abilities || []);
                 abilities.forEach(a => {
                     if (a && a.name) names.add(translateSkillName(a.name));
                 });
@@ -331,6 +338,7 @@
             if (abilityNames.length === 0) {
                 thead.innerHTML = '';
                 tbody.innerHTML = `<tr><td class="px-4 py-6 text-center text-gray-500" colspan="${tasks.length + 1}">未解析到技能占比数据</td></tr>`;
+                if (countEl) countEl.textContent = '0 项';
                 return;
             }
 
@@ -355,15 +363,26 @@
             const abilityMap = new Map();
             tasks.forEach(t => {
                 const m = new Map();
-                (t.top_abilities || []).forEach(a => {
+                (t.abilities || t.top_abilities || []).forEach(a => {
                     if (!a || !a.name) return;
                     m.set(translateSkillName(a.name), a.dps_percent || '');
                 });
                 abilityMap.set(t.id, m);
             });
 
-            tbody.innerHTML = abilityNames.map(name => {
-                const baselineMap = baselineTaskId ? abilityMap.get(baselineTaskId) : null;
+            const baselineMap = baselineTaskId ? abilityMap.get(baselineTaskId) : null;
+            const keyword = (searchInput ? searchInput.value : '').trim().toLowerCase();
+            const filteredAbilityNames = abilityNames
+                .filter(name => !keyword || String(name || '').toLowerCase().includes(keyword))
+                .sort((a, b) => {
+                    const av = parsePercent(baselineMap ? (baselineMap.get(a) || '') : '') || -1;
+                    const bv = parsePercent(baselineMap ? (baselineMap.get(b) || '') : '') || -1;
+                    return bv - av;
+                });
+
+            if (countEl) countEl.textContent = `${filteredAbilityNames.length} 项`;
+
+            tbody.innerHTML = filteredAbilityNames.map(name => {
                 const baselineText = baselineMap ? (baselineMap.get(name) || '') : '';
                 const baselineValue = parsePercent(baselineText);
                 const cols = tasks.map(t => {
@@ -430,6 +449,7 @@
                 }
 
                 tasks.sort((a, b) => (b.dps || 0) - (a.dps || 0));
+                regularCompareTasks = tasks;
                 renderInvalid(invalid);
                 renderDpsChart(tasks);
                 renderTaskTable(tasks);
@@ -456,6 +476,14 @@
                     await navigator.clipboard.writeText(text);
                 } catch (e) {}
             });
+            const abilitySearch = document.getElementById('ability-compare-search');
+            if (abilitySearch) {
+                abilitySearch.addEventListener('input', () => {
+                    if (regularCompareTasks && regularCompareTasks.length) {
+                        renderAbilityCompare(regularCompareTasks);
+                    }
+                });
+            }
             loadCompare();
         });
     </script>

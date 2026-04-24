@@ -259,7 +259,7 @@ class DashboardView(View):
                         'id', 'name', 'spec', 'fight_style', 'time', 'target_count',
                         'talent', 'action_list', 'gear_strength', 'gear_crit',
                         'gear_haste', 'gear_mastery', 'gear_versatility', 'is_active'
-                    ).order_by('-id')
+                    ).filter(is_active=True).order_by('-id')
                     queryset = apply_search_filter(queryset, ['name', 'spec', 'fight_style', 'talent'])
                     if simc_spec_filter:
                         queryset = queryset.filter(spec__icontains=simc_spec_filter)

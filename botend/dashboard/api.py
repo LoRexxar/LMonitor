@@ -2395,6 +2395,7 @@ class SimcRegularCompareAPIView(View):
                     'character': parsed.get('character', {}),
                     'simulation': parsed.get('simulation', {}),
                     'talents': parsed.get('talents', {}),
+                    'abilities': parsed.get('abilities', []),
                     'top_abilities': parsed.get('top_abilities', [])
                 })
             
@@ -2470,6 +2471,7 @@ class SimcRegularCompareAPIView(View):
             'character': {},
             'simulation': {},
             'talents': {},
+            'abilities': [],
             'top_abilities': []
         }
         
@@ -2560,11 +2562,12 @@ class SimcRegularCompareAPIView(View):
                             })
                     
                     abilities.sort(key=lambda x: x.get('dps_percent_number') if x.get('dps_percent_number') is not None else -1, reverse=True)
-                    result['top_abilities'] = [{
+                    result['abilities'] = [{
                         'name': a.get('name', ''),
                         'dps': a.get('dps', ''),
                         'dps_percent': a.get('dps_percent', '')
-                    } for a in abilities[:12]]
+                    } for a in abilities]
+                    result['top_abilities'] = result['abilities'][:12]
             
             masthead = soup.find(id='masthead')
             if masthead:

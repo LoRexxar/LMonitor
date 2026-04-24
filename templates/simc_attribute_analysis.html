@@ -4,152 +4,113 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>属性模拟分析 - LMonitor</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .chart-container {
-            position: relative;
-            height: 400px;
-            width: 100%;
-        }
+        body { background: #f5f7fb; }
+        .panel { border: 1px solid #e9ecef; border-radius: 10px; background: #fff; }
+        .panel-header { border-bottom: 1px solid #eef1f4; padding: 10px 12px; font-weight: 600; }
+        .panel-body { padding: 12px; }
+        .sticky-toolbar { position: sticky; top: 10px; z-index: 10; }
+        .table-wrap { max-height: 620px; overflow: auto; }
+        .table-wrap thead th { position: sticky; top: 0; z-index: 2; }
+        .metric-card { border: 1px solid #e9ecef; border-radius: 10px; background: #fff; padding: 12px; }
+        .metric-label { font-size: 12px; color: #6c757d; }
+        .metric-value { font-size: 20px; font-weight: 700; color: #212529; }
+        .chart-box { height: 340px; }
+        .row-highlight { background: #fff8e1 !important; transition: background-color .2s; }
     </style>
 </head>
-<body class="bg-gray-100">
-    <div class="container mx-auto px-4 py-8">
-        <!-- 页面标题 -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="text-3xl font-bold text-gray-900 mb-2">
-                        <i class="fas fa-chart-line text-orange-500 mr-3"></i>
-                        属性模拟分析
-                    </h1>
-                    <p class="text-gray-600">任务ID: <span id="task-id" class="font-semibold"></span></p>
-                </div>
-                <button onclick="window.close()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">
-                    <i class="fas fa-times mr-2"></i>关闭
-                </button>
+<body>
+    <div class="container-fluid py-3">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <div>
+                <h4 class="mb-1 text-primary">属性模拟分析</h4>
+                <div class="text-muted small">任务ID：<span id="task-id">-</span> / 任务名：<span id="task-name">-</span></div>
             </div>
+            <button class="btn btn-secondary btn-sm" onclick="window.close()">关闭</button>
         </div>
 
-        <!-- 加载状态 -->
-        <div id="loading-section" class="bg-white rounded-lg shadow-md p-8 text-center">
-            <div class="loading mx-auto mb-4"></div>
-            <p class="text-gray-600">正在加载分析数据...</p>
+        <div id="loading" class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div class="mt-2 text-muted">正在加载属性分析数据...</div>
         </div>
+        <div id="error" class="alert alert-danger d-none">加载失败，请检查任务是否存在且包含有效结果。</div>
 
-        <!-- 错误信息 -->
-        <div id="error-section" class="bg-red-50 border border-red-200 rounded-lg p-6 mb-6 hidden">
-            <div class="flex items-center">
-                <i class="fas fa-exclamation-triangle text-red-500 mr-3"></i>
-                <div>
-                    <h3 class="text-red-800 font-semibold">加载失败</h3>
-                    <p id="error-message" class="text-red-600 mt-1"></p>
-                </div>
-            </div>
-        </div>
-
-        <!-- 分析结果 -->
-        <div id="analysis-content" class="hidden">
-            <!-- 任务信息 -->
-            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">
-                    <i class="fas fa-info-circle text-blue-500 mr-2"></i>
-                    任务信息
-                </h2>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="bg-gray-50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-600">任务名称</p>
-                        <p id="task-name" class="font-semibold text-gray-900"></p>
-                    </div>
-                    <div class="bg-gray-50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-600">模拟属性</p>
-                        <p id="task-attributes" class="font-semibold text-gray-900"></p>
-                    </div>
-                    <div class="bg-gray-50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-600">结果数量</p>
-                        <p id="result-count" class="font-semibold text-gray-900"></p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 快速统计面板 -->
-            <div id="stats-panel" class="bg-gradient-to-r from-blue-500 to-purple-600 shadow rounded-lg p-6 mb-6 text-white">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-xl font-bold">📊 分析概览</h2>
-                    <div class="text-sm opacity-90">
-                        💡 提示：按 Ctrl+F 快速搜索，点击表格中的"📍 定位"按钮可在图表中高亮对应数据点
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div class="bg-white bg-opacity-20 rounded-lg p-4 text-center">
-                        <div class="text-2xl font-bold" id="best-dps">-</div>
-                        <div class="text-sm opacity-90">🏆 最高DPS</div>
-                        <div class="text-xs opacity-75" id="best-config">-</div>
-                    </div>
-                    <div class="bg-white bg-opacity-20 rounded-lg p-4 text-center">
-                        <div class="text-2xl font-bold" id="worst-dps">-</div>
-                        <div class="text-sm opacity-90">📉 最低DPS</div>
-                        <div class="text-xs opacity-75" id="worst-config">-</div>
-                    </div>
-                    <div class="bg-white bg-opacity-20 rounded-lg p-4 text-center">
-                        <div class="text-2xl font-bold" id="dps-improvement">-</div>
-                        <div class="text-sm opacity-90">📈 性能提升</div>
-                        <div class="text-xs opacity-75">相对于最低配置</div>
-                    </div>
-                    <div class="bg-white bg-opacity-20 rounded-lg p-4 text-center">
-                        <div class="text-2xl font-bold" id="avg-dps">-</div>
-                        <div class="text-sm opacity-90">📊 平均DPS</div>
-                        <div class="text-xs opacity-75" id="above-avg-count">-</div>
+        <div id="content" class="d-none">
+            <div class="panel mb-3 sticky-toolbar">
+                <div class="panel-body py-2">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-2">
+                            <label class="form-label mb-1 small">视图模式</label>
+                            <select id="view-mode" class="form-select form-select-sm">
+                                <option value="all" selected>全部</option>
+                                <option value="data">只看数据</option>
+                                <option value="chart">只看图表</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label mb-1 small">排序方式</label>
+                            <select id="sort-by" class="form-select form-select-sm">
+                                <option value="dps_desc" selected>DPS 从高到低</option>
+                                <option value="dps_asc">DPS 从低到高</option>
+                                <option value="attr1_asc">属性1 从小到大</option>
+                                <option value="attr2_asc">属性2 从小到大</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label mb-1 small">最低相对性能</label>
+                            <select id="min-performance" class="form-select form-select-sm">
+                                <option value="0" selected>全部</option>
+                                <option value="90">>= 90%</option>
+                                <option value="95">>= 95%</option>
+                                <option value="98">>= 98%</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label mb-1 small">搜索（属性值/文件名）</label>
+                            <input id="keyword" class="form-control form-control-sm" placeholder="如 1200 / crit / xxx.html">
+                        </div>
+                        <div class="col-md-3 text-md-end">
+                            <button id="btn-reset" class="btn btn-outline-secondary btn-sm">重置</button>
+                            <button id="btn-export-csv" class="btn btn-outline-primary btn-sm">导出CSV</button>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- DPS趋势图表 -->
-            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">
-                    <i class="fas fa-chart-line text-green-500 mr-2"></i>
-                    DPS趋势分析
-                </h2>
-                <div class="chart-container">
-                    <canvas id="dps-chart"></canvas>
+            <div class="row g-2 mb-3">
+                <div class="col-md-2"><div class="metric-card"><div class="metric-label">有效结果</div><div id="m-count" class="metric-value">-</div></div></div>
+                <div class="col-md-2"><div class="metric-card"><div class="metric-label">最高DPS</div><div id="m-max" class="metric-value">-</div></div></div>
+                <div class="col-md-2"><div class="metric-card"><div class="metric-label">最低DPS</div><div id="m-min" class="metric-value">-</div></div></div>
+                <div class="col-md-2"><div class="metric-card"><div class="metric-label">平均DPS</div><div id="m-avg" class="metric-value">-</div></div></div>
+                <div class="col-md-2"><div class="metric-card"><div class="metric-label">提升幅度</div><div id="m-improve" class="metric-value">-</div></div></div>
+                <div class="col-md-2"><div class="metric-card"><div class="metric-label">当前显示</div><div id="m-visible" class="metric-value">-</div></div></div>
+            </div>
+
+            <div id="chart-section" class="panel mb-3">
+                <div class="panel-header">属性配置与 DPS 趋势（点击点位可打开详情）</div>
+                <div class="panel-body">
+                    <canvas id="dps-chart" class="chart-box"></canvas>
                 </div>
             </div>
 
-            <!-- 数据表格 -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">
-                    <i class="fas fa-table text-purple-500 mr-2"></i>
-                    详细数据
-                </h2>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
+            <div id="data-section" class="panel">
+                <div class="panel-header">详细数据</div>
+                <div class="panel-body table-wrap p-0">
+                    <table class="table table-sm table-striped mb-0">
+                        <thead class="table-dark">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">排名</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">属性1</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">属性2</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DPS & 性能</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                                <th>#</th>
+                                <th>属性1</th>
+                                <th>属性2</th>
+                                <th>DPS</th>
+                                <th>相对性能</th>
+                                <th>文件</th>
+                                <th>操作</th>
                             </tr>
                         </thead>
-                        <tbody id="data-table-body" class="bg-white divide-y divide-gray-200">
-                            <!-- 数据行将通过JavaScript动态生成 -->
-                        </tbody>
+                        <tbody id="data-table"></tbody>
                     </table>
                 </div>
             </div>
@@ -157,464 +118,227 @@
     </div>
 
     <script>
-        // 获取URL参数
-        function getUrlParameter(name) {
-            const urlParams = new URLSearchParams(window.location.search);
-            return urlParams.get(name);
+        let allResults = [];
+        let shownResults = [];
+        let chart = null;
+        let maxDps = 0;
+        let minDps = 0;
+
+        function byId(id) { return document.getElementById(id); }
+        function getTaskId() { return new URLSearchParams(window.location.search).get('task_id') || ''; }
+        function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+        function attrName(name) {
+            const map = { gear_crit: '暴击', gear_haste: '急速', gear_mastery: '精通', gear_versatility: '全能', crit: '暴击', haste: '急速', mastery: '精通', versatility: '全能' };
+            return map[name] || name || '-';
+        }
+        function esc(v) { return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+        function relativePercent(dps) {
+            if (maxDps <= minDps) return 100;
+            return ((num(dps) - minDps) * 100) / (maxDps - minDps);
         }
 
-        // 获取CSRF Token
-        function getCSRFToken() {
-            const cookies = document.cookie.split(';');
-            for (let cookie of cookies) {
-                const [name, value] = cookie.trim().split('=');
-                if (name === 'csrftoken') {
-                    return value;
-                }
-            }
-            return null;
+        function exportCsv(filename, headers, rows) {
+            const wrap = (v) => {
+                const s = String(v ?? '');
+                if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+                return s;
+            };
+            const text = ['\ufeff' + headers.map(wrap).join(',')].concat(rows.map((row) => row.map(wrap).join(','))).join('\n');
+            const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(url);
         }
 
-        // 显示错误信息
-        function showError(message) {
-            document.getElementById('loading-section').classList.add('hidden');
-            document.getElementById('error-section').classList.remove('hidden');
-            document.getElementById('error-message').textContent = message;
+        function computeRange() {
+            const dps = allResults.map((r) => num(r.dps));
+            maxDps = dps.length ? Math.max(...dps) : 0;
+            minDps = dps.length ? Math.min(...dps) : 0;
         }
 
-        // 加载分析数据
-        async function loadAnalysisData() {
-            const taskId = getUrlParameter('task_id');
-            if (!taskId) {
-                showError('缺少任务ID参数');
-                return;
-            }
-
-            document.getElementById('task-id').textContent = taskId;
-
-            try {
-                const response = await fetch(`/api/simc-attribute-analysis/?task_id=${taskId}`, {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCSRFToken()
-                    }
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                const data = await response.json();
-                if (!data.success) {
-                    throw new Error(data.error || '获取分析数据失败');
-                }
-
-                // 保存数据到全局变量
-                analysisData = data.data;
-                
-                displayAnalysisData(data.data);
-            } catch (error) {
-                console.error('加载分析数据失败:', error);
-                showError(error.message);
-            }
+        function renderMetrics() {
+            const dps = allResults.map((r) => num(r.dps));
+            const avg = dps.length ? dps.reduce((s, x) => s + x, 0) / dps.length : 0;
+            const improve = minDps > 0 ? ((maxDps - minDps) / minDps) * 100 : 0;
+            byId('m-count').textContent = String(allResults.length);
+            byId('m-max').textContent = maxDps.toFixed(0);
+            byId('m-min').textContent = minDps.toFixed(0);
+            byId('m-avg').textContent = avg.toFixed(0);
+            byId('m-improve').textContent = `+${improve.toFixed(1)}%`;
+            byId('m-visible').textContent = `${shownResults.length}/${allResults.length}`;
         }
 
-        // 更新快速统计面板
-        function updateStatsPanel(data) {
-            const dpsValues = data.results.map(result => result.dps);
-            const maxDps = Math.max(...dpsValues);
-            const minDps = Math.min(...dpsValues);
-            const avgDps = dpsValues.reduce((sum, dps) => sum + dps, 0) / dpsValues.length;
-            
-            // 找到最佳和最差配置
-            const bestResult = data.results.find(result => result.dps === maxDps);
-            const worstResult = data.results.find(result => result.dps === minDps);
-            
-            // 计算高于平均值的配置数量
-            const aboveAvgCount = dpsValues.filter(dps => dps > avgDps).length;
-            
-            // 更新统计数据
-            document.getElementById('best-dps').textContent = maxDps.toFixed(0);
-            document.getElementById('best-config').textContent = 
-                `${bestResult.attr1_name}:${bestResult.attr1_value} / ${bestResult.attr2_name}:${bestResult.attr2_value}`;
-            
-            document.getElementById('worst-dps').textContent = minDps.toFixed(0);
-            document.getElementById('worst-config').textContent = 
-                `${worstResult.attr1_name}:${worstResult.attr1_value} / ${worstResult.attr2_name}:${worstResult.attr2_value}`;
-            
-            document.getElementById('dps-improvement').textContent = 
-                `+${((maxDps - minDps) / minDps * 100).toFixed(1)}%`;
-            
-            document.getElementById('avg-dps').textContent = avgDps.toFixed(0);
-            document.getElementById('above-avg-count').textContent = 
-                `${aboveAvgCount}/${data.results.length} 配置高于平均`;
-        }
+        function getFilteredSortedResults() {
+            const keyword = (byId('keyword').value || '').trim().toLowerCase();
+            const minPerf = num(byId('min-performance').value || 0);
+            const sortBy = byId('sort-by').value;
 
-        // 显示分析数据
-        function displayAnalysisData(data) {
-            document.getElementById('loading-section').classList.add('hidden');
-            document.getElementById('analysis-content').classList.remove('hidden');
-
-            // 填充任务信息
-            document.getElementById('task-name').textContent = data.task_name || '未知任务';
-            document.getElementById('task-attributes').textContent = '属性分析';
-            document.getElementById('result-count').textContent = data.results.length + ' 个结果';
-
-            // 更新快速统计面板
-            updateStatsPanel(data);
-
-            // 创建图表
-            createDPSChart(data);
-
-            // 填充数据表格
-            fillDataTable(data);
-        }
-
-        // 创建DPS趋势图表
-        function createDPSChart(data) {
-            const ctx = document.getElementById('dps-chart').getContext('2d');
-            
-            // 准备图表数据
-            const labels = data.results.map((result, index) => `配置${index + 1}`);
-            const dpsValues = data.results.map(result => result.dps);
-            const maxDps = Math.max(...dpsValues);
-            const minDps = Math.min(...dpsValues);
-            
-            // 为数据点添加颜色渐变
-            const pointColors = dpsValues.map(dps => {
-                const ratio = (dps - minDps) / (maxDps - minDps);
-                const red = Math.floor(255 * (1 - ratio));
-                const green = Math.floor(255 * ratio);
-                return `rgb(${red}, ${green}, 0)`;
+            let list = allResults.filter((r) => {
+                const rel = relativePercent(r.dps);
+                if (rel < minPerf) return false;
+                if (!keyword) return true;
+                const text = `${r.attr1_name} ${r.attr1_value} ${r.attr2_name} ${r.attr2_value} ${r.file_name || ''}`.toLowerCase();
+                return text.includes(keyword);
             });
 
-            dpsChart = new Chart(ctx, {
+            if (sortBy === 'dps_desc') list.sort((a, b) => num(b.dps) - num(a.dps));
+            if (sortBy === 'dps_asc') list.sort((a, b) => num(a.dps) - num(b.dps));
+            if (sortBy === 'attr1_asc') list.sort((a, b) => num(a.attr1_value) - num(b.attr1_value));
+            if (sortBy === 'attr2_asc') list.sort((a, b) => num(a.attr2_value) - num(b.attr2_value));
+            return list;
+        }
+
+        function renderTable() {
+            shownResults = getFilteredSortedResults();
+            const html = shownResults.length ? shownResults.map((r, idx) => {
+                const rel = relativePercent(r.dps);
+                const viewUrl = `/simc-result/?file=${encodeURIComponent(r.file_name || '')}`;
+                return `
+                    <tr id="row-${idx}">
+                        <td>${idx + 1}</td>
+                        <td>${esc(attrName(r.attr1_name))}: <strong>${esc(r.attr1_value)}</strong></td>
+                        <td>${esc(attrName(r.attr2_name))}: <strong>${esc(r.attr2_value)}</strong></td>
+                        <td>${num(r.dps).toFixed(2)}</td>
+                        <td>${rel.toFixed(1)}%</td>
+                        <td class="text-muted">${esc(r.file_name || '-')}</td>
+                        <td>
+                            <a href="${viewUrl}" target="_blank" class="btn btn-sm btn-outline-primary">详情</a>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="focusPoint(${idx})">定位</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('') : '<tr><td colspan="7" class="text-center text-muted py-3">无匹配数据</td></tr>';
+            byId('data-table').innerHTML = html;
+            renderMetrics();
+        }
+
+        function renderChart() {
+            const labels = shownResults.map((_, i) => `配置${i + 1}`);
+            const values = shownResults.map((r) => num(r.dps));
+            const pointColors = values.map((v) => {
+                if (maxDps <= minDps) return 'rgb(59,130,246)';
+                const ratio = (v - minDps) / (maxDps - minDps);
+                const red = Math.floor(255 * (1 - ratio));
+                const green = Math.floor(255 * ratio);
+                return `rgb(${red},${green},0)`;
+            });
+            if (chart) chart.destroy();
+            chart = new Chart(byId('dps-chart').getContext('2d'), {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
-                        label: 'DPS',
-                        data: dpsValues,
-                        borderColor: 'rgb(59, 130, 246)',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        borderWidth: 3,
+                        data: values,
+                        borderColor: 'rgb(59,130,246)',
+                        backgroundColor: 'rgba(59,130,246,0.15)',
+                        borderWidth: 2,
                         fill: true,
-                        tension: 0.4,
+                        tension: 0.3,
                         pointBackgroundColor: pointColors,
                         pointBorderColor: pointColors,
-                        pointRadius: 6,
-                        pointHoverRadius: 8
+                        pointRadius: 5,
+                        pointHoverRadius: 7
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        title: {
-                            display: true,
-                            text: '属性分配与DPS关系图',
-                            font: {
-                                size: 16,
-                                weight: 'bold'
-                            }
-                        },
-                        legend: {
-                            display: false
-                        },
+                        legend: { display: false },
                         tooltip: {
                             callbacks: {
-                                title: function(context) {
-                                    const index = context[0].dataIndex;
-                                    const result = data.results[index];
-                                    return `${translateAttributeName(result.attr1_name)}: ${result.attr1_value} / ${translateAttributeName(result.attr2_name)}: ${result.attr2_value}`;
+                                title: (ctx) => {
+                                    const i = ctx[0].dataIndex;
+                                    const r = shownResults[i];
+                                    return `${attrName(r.attr1_name)}:${r.attr1_value} / ${attrName(r.attr2_name)}:${r.attr2_value}`;
                                 },
-                                label: function(context) {
-                                    return `DPS: ${context.parsed.y.toFixed(2)}`;
-                                },
-                                afterLabel: function(context) {
-                                    const index = context.dataIndex;
-                                    const result = data.results[index];
-                                    const maxIndex = dpsValues.indexOf(maxDps);
-                                    const minIndex = dpsValues.indexOf(minDps);
-                                    
-                                    let status = '';
-                                    if (index === maxIndex) {
-                                        status = '🏆 最高DPS';
-                                    } else if (index === minIndex) {
-                                        status = '📉 最低DPS';
-                                    }
-                                    
-                                    const percentage = ((result.dps - minDps) / (maxDps - minDps) * 100).toFixed(1);
-                                    return [status, `相对性能: ${percentage}%`].filter(Boolean);
-                                }
-                            },
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            titleColor: 'white',
-                            bodyColor: 'white',
-                            borderColor: 'rgba(59, 130, 246, 0.8)',
-                            borderWidth: 1
-                        }
-                    },
-                    scales: {
-                        x: {
-                            title: {
-                                display: true,
-                                text: '属性配置',
-                                font: {
-                                    size: 14,
-                                    weight: 'bold'
-                                }
-                            },
-                            grid: {
-                                color: 'rgba(0, 0, 0, 0.1)'
-                            }
-                        },
-                        y: {
-                            beginAtZero: false,
-                            title: {
-                                display: true,
-                                text: 'DPS',
-                                font: {
-                                    size: 14,
-                                    weight: 'bold'
-                                }
-                            },
-                            grid: {
-                                color: 'rgba(0, 0, 0, 0.1)'
-                            },
-                            ticks: {
-                                callback: function(value) {
-                                    return value.toFixed(0);
-                                }
+                                label: (ctx) => `DPS: ${num(ctx.parsed.y).toFixed(2)}`
                             }
                         }
                     },
-                    interaction: {
-                        intersect: false,
-                        mode: 'index'
-                    },
-                    onHover: (event, activeElements) => {
-                        event.native.target.style.cursor = activeElements.length > 0 ? 'pointer' : 'default';
-                    },
-                    onClick: (event, activeElements) => {
-                        if (activeElements.length > 0) {
-                            const index = activeElements[0].index;
-                            const result = data.results[index];
-                            window.open(`/simc-result/?file=${encodeURIComponent(result.file_name)}`, '_blank');
-                        }
+                    onClick: (evt, active) => {
+                        if (!active.length) return;
+                        const idx = active[0].index;
+                        const r = shownResults[idx];
+                        if (!r || !r.file_name) return;
+                        window.open(`/simc-result/?file=${encodeURIComponent(r.file_name)}`, '_blank');
                     }
                 }
             });
         }
 
-        // 属性名称映射
-        function translateAttributeName(attrName) {
-            const attrMap = {
-                'gear_crit': '暴击',
-                'gear_haste': '急速',
-                'gear_mastery': '精通',
-                'gear_versatility': '全能',
-                'crit': '暴击',
-                'haste': '急速',
-                'mastery': '精通',
-                'versatility': '全能'
-            };
-            return attrMap[attrName] || attrName;
+        function focusPoint(index) {
+            const row = byId(`row-${index}`);
+            if (row) {
+                row.classList.add('row-highlight');
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => row.classList.remove('row-highlight'), 1200);
+            }
+        }
+        window.focusPoint = focusPoint;
+
+        function applyViewMode() {
+            const mode = byId('view-mode').value;
+            byId('chart-section').style.display = mode === 'data' ? 'none' : '';
+            byId('data-section').style.display = mode === 'chart' ? 'none' : '';
         }
 
-        // 填充数据表格
-        function fillDataTable(data) {
-            const tbody = document.getElementById('data-table-body');
-            tbody.innerHTML = '';
-            
-            // 计算DPS统计信息
-            const dpsValues = data.results.map(result => result.dps);
-            const maxDps = Math.max(...dpsValues);
-            const minDps = Math.min(...dpsValues);
-            const avgDps = dpsValues.reduce((sum, dps) => sum + dps, 0) / dpsValues.length;
-            
-            // 按DPS降序排序
-            const sortedResults = [...data.results].sort((a, b) => b.dps - a.dps);
+        function rerender() {
+            renderTable();
+            renderChart();
+            applyViewMode();
+        }
 
-            sortedResults.forEach((result, index) => {
-                const row = document.createElement('tr');
-                const isMaxDps = result.dps === maxDps;
-                const isMinDps = result.dps === minDps;
-                const isAboveAvg = result.dps > avgDps;
-                
-                // 根据DPS表现设置行样式
-                let rowClass = 'hover:bg-gray-50 transition-colors duration-200';
-                if (isMaxDps) {
-                    rowClass += ' bg-green-50 border-l-4 border-green-500';
-                } else if (isMinDps) {
-                    rowClass += ' bg-red-50 border-l-4 border-red-500';
-                } else if (isAboveAvg) {
-                    rowClass += ' bg-blue-50';
-                }
-                
-                row.className = rowClass;
-                
-                // 计算相对性能百分比
-                const relativePerformance = ((result.dps - minDps) / (maxDps - minDps) * 100).toFixed(1);
-                
-                // 获取原始索引
-                const originalIndex = data.results.findIndex(r => r === result) + 1;
-                
-                row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        <div class="flex items-center">
-                            <span class="mr-2">#${index + 1}</span>
-                            <span class="text-xs text-gray-500">(配置${originalIndex})</span>
-                            ${isMaxDps ? '<span class="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">🏆 最佳</span>' : ''}
-                            ${isMinDps ? '<span class="ml-2 text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">📉 最低</span>' : ''}
-                        </div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div class="font-medium">${translateAttributeName(result.attr1_name)}</div>
-                        <div class="text-lg font-bold text-blue-600">${result.attr1_value}</div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div class="font-medium">${translateAttributeName(result.attr2_name)}</div>
-                        <div class="text-lg font-bold text-purple-600">${result.attr2_value}</div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-lg font-bold ${isMaxDps ? 'text-green-600' : isMinDps ? 'text-red-600' : 'text-gray-900'}">
-                            ${result.dps.toFixed(2)}
-                        </div>
-                        <div class="text-xs text-gray-500">
-                            相对性能: ${relativePerformance}%
-                        </div>
-                        <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                            <div class="bg-gradient-to-r from-red-400 to-green-500 h-2 rounded-full transition-all duration-300" 
-                                 style="width: ${relativePerformance}%"></div>
-                        </div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm">
-                        <div class="flex space-x-2">
-                            <a href="/simc-result/?file=${encodeURIComponent(result.file_name)}" 
-                               target="_blank" 
-                               class="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors duration-200">
-                                📊 详情
-                            </a>
-                            <button onclick="highlightInChart(${originalIndex - 1})" 
-                                    class="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors duration-200">
-                                📍 定位
-                            </button>
-                        </div>
-                    </td>
-                `;
-                
-                tbody.appendChild(row);
+        function bindControls() {
+            byId('view-mode').addEventListener('change', applyViewMode);
+            byId('sort-by').addEventListener('change', rerender);
+            byId('min-performance').addEventListener('change', rerender);
+            byId('keyword').addEventListener('input', rerender);
+            byId('btn-reset').addEventListener('click', () => {
+                byId('view-mode').value = 'all';
+                byId('sort-by').value = 'dps_desc';
+                byId('min-performance').value = '0';
+                byId('keyword').value = '';
+                rerender();
             });
-            
-            // 添加统计信息行
-            const statsRow = document.createElement('tr');
-            statsRow.className = 'bg-gray-100 font-semibold border-t-2 border-gray-300';
-            statsRow.innerHTML = `
-                <td class="px-6 py-4 text-sm text-gray-700">统计信息</td>
-                <td class="px-6 py-4 text-sm text-gray-700">总配置数: ${data.results.length}</td>
-                <td class="px-6 py-4 text-sm text-gray-700">DPS范围: ${(maxDps - minDps).toFixed(2)}</td>
-                <td class="px-6 py-4 text-sm text-gray-700">
-                    <div>平均: ${avgDps.toFixed(2)}</div>
-                    <div class="text-xs text-gray-500">最高: ${maxDps.toFixed(2)} | 最低: ${minDps.toFixed(2)}</div>
-                </td>
-                <td class="px-6 py-4 text-sm text-gray-700">性能提升: ${((maxDps - minDps) / minDps * 100).toFixed(1)}%</td>
-            `;
-            tbody.appendChild(statsRow);
+            byId('btn-export-csv').addEventListener('click', () => {
+                const rows = shownResults.map((r) => [
+                    attrName(r.attr1_name), r.attr1_value, attrName(r.attr2_name), r.attr2_value,
+                    num(r.dps).toFixed(2), `${relativePercent(r.dps).toFixed(1)}%`, r.file_name || ''
+                ]);
+                exportCsv('simc_attribute_analysis.csv', ['属性1', '属性1值', '属性2', '属性2值', 'DPS', '相对性能', '文件'], rows);
+            });
         }
 
-        // 全局变量存储图表实例
-        let dpsChart = null;
-        let analysisData = null;
-        
-        // 图表高亮功能
-        function highlightInChart(index) {
-            if (dpsChart && analysisData) {
-                // 重置所有数据点样式
-                const dataset = dpsChart.data.datasets[0];
-                const dpsValues = analysisData.results.map(result => result.dps);
-                const maxDps = Math.max(...dpsValues);
-                const minDps = Math.min(...dpsValues);
-                
-                // 重新生成颜色
-                const pointColors = dpsValues.map((dps, i) => {
-                    if (i === index) {
-                        return 'rgb(255, 0, 0)'; // 高亮为红色
-                    }
-                    const ratio = (dps - minDps) / (maxDps - minDps);
-                    const red = Math.floor(255 * (1 - ratio));
-                    const green = Math.floor(255 * ratio);
-                    return `rgb(${red}, ${green}, 0)`;
-                });
-                
-                const pointRadius = dpsValues.map((_, i) => i === index ? 10 : 6);
-                
-                dataset.pointBackgroundColor = pointColors;
-                dataset.pointBorderColor = pointColors;
-                dataset.pointRadius = pointRadius;
-                
-                dpsChart.update('none');
-                
-                // 3秒后恢复原样
-                setTimeout(() => {
-                    const normalColors = dpsValues.map(dps => {
-                        const ratio = (dps - minDps) / (maxDps - minDps);
-                        const red = Math.floor(255 * (1 - ratio));
-                        const green = Math.floor(255 * ratio);
-                        return `rgb(${red}, ${green}, 0)`;
-                    });
-                    
-                    dataset.pointBackgroundColor = normalColors;
-                    dataset.pointBorderColor = normalColors;
-                    dataset.pointRadius = dpsValues.map(() => 6);
-                    
-                    dpsChart.update('none');
-                }, 3000);
-                
-                // 滚动到图表位置
-                document.getElementById('chart-container').scrollIntoView({ 
-                    behavior: 'smooth', 
-                    block: 'center' 
-                });
+        async function loadData() {
+            const taskId = getTaskId();
+            byId('task-id').textContent = taskId || '-';
+            if (!taskId) {
+                byId('loading').classList.add('d-none');
+                byId('error').classList.remove('d-none');
+                return;
+            }
+            try {
+                const resp = await fetch(`/api/simc-attribute-analysis/?task_id=${encodeURIComponent(taskId)}`);
+                if (!resp.ok) throw new Error('network');
+                const data = await resp.json();
+                if (!data || !data.success || !data.data || !Array.isArray(data.data.results)) throw new Error('invalid');
+                byId('task-name').textContent = data.data.task_name || '-';
+                allResults = data.data.results.map((r) => ({ ...r, dps: num(r.dps) }));
+                computeRange();
+                rerender();
+                byId('loading').classList.add('d-none');
+                byId('content').classList.remove('d-none');
+            } catch (e) {
+                byId('loading').classList.add('d-none');
+                byId('error').classList.remove('d-none');
             }
         }
-        
-        // 添加键盘快捷键支持
-        document.addEventListener('keydown', function(e) {
-            if (e.ctrlKey && e.key === 'f') {
-                e.preventDefault();
-                const searchInput = document.createElement('input');
-                searchInput.type = 'text';
-                searchInput.placeholder = '搜索属性配置...';
-                searchInput.className = 'fixed top-4 right-4 z-50 px-4 py-2 border border-gray-300 rounded-lg shadow-lg';
-                
-                document.body.appendChild(searchInput);
-                searchInput.focus();
-                
-                searchInput.addEventListener('blur', () => {
-                    document.body.removeChild(searchInput);
-                });
-                
-                searchInput.addEventListener('input', (e) => {
-                    const searchTerm = e.target.value.toLowerCase();
-                    const rows = document.querySelectorAll('#data-table-body tr:not(:last-child)');
-                    
-                    rows.forEach(row => {
-                        const text = row.textContent.toLowerCase();
-                        if (text.includes(searchTerm)) {
-                            row.style.display = '';
-                        } else {
-                            row.style.display = 'none';
-                        }
-                    });
-                });
-            }
-        });
 
-        // 页面加载完成后初始化
-        document.addEventListener('DOMContentLoaded', function() {
-            loadAnalysisData();
+        document.addEventListener('DOMContentLoaded', () => {
+            bindControls();
+            loadData();
         });
     </script>
 </body>
