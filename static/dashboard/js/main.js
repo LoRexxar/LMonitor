@@ -4320,6 +4320,7 @@ function getTalentPreviewMeta(specRaw, talentRaw) {
         ? `https://www.wowhead.com/talent-calc/${info.path}`
         : 'https://www.wowhead.com/talent-calc';
     let calcUrl = baseUrl;
+    let unresolvedHero = false;
     if (talent) {
         // 支持：完整/半完整 wowhead 链接、hero/code 路径、纯天赋串
         const parsed = normalizeTalentPathParts(talent);
@@ -4330,15 +4331,24 @@ function getTalentPreviewMeta(specRaw, talentRaw) {
                 && parts.length >= 3
                 && String(parts[0]).toLowerCase() === classSpec[0]
                 && String(parts[1]).toLowerCase() === classSpec[1];
-            const useAbsolutePath = parsed.hadWowheadPath || looksClassSpecPath;
-            const encoded = parts.map(part => encodeURIComponent(part)).join('/');
-            calcUrl = useAbsolutePath
-                ? `https://www.wowhead.com/talent-calc/${encoded}`
-                : `${baseUrl}/${encoded}`;
+            const lacksHeroPath =
+                (looksClassSpecPath && parts.length === 3) ||
+                (!looksClassSpecPath && !parsed.hadWowheadPath && parts.length === 1);
+            if (lacksHeroPath) {
+                // 无法从纯码稳定反推英雄天赋分支，避免拼出错误链接
+                unresolvedHero = true;
+                calcUrl = baseUrl;
+            } else {
+                const useAbsolutePath = parsed.hadWowheadPath || looksClassSpecPath;
+                const encoded = parts.map(part => encodeURIComponent(part)).join('/');
+                calcUrl = useAbsolutePath
+                    ? `https://www.wowhead.com/talent-calc/${encoded}`
+                    : `${baseUrl}/${encoded}`;
+            }
         }
     }
     const iconUrl = `https://wow.zamimg.com/images/wow/icons/large/${info.icon}.jpg`;
-    return { spec, talent, calcUrl, iconUrl };
+    return { spec, talent, calcUrl, iconUrl, unresolvedHero };
 }
 
 function normalizeTalentPathParts(talentRaw) {
@@ -4395,7 +4405,7 @@ function buildRaidbotsTalentPreviewUrl(talentRaw) {
         previewPath = encodeURIComponent(parts[parts.length - 1]);
     }
     if (!previewPath) return '';
-    return `https://www.raidbots.com/simbot/render/talents/${previewPath}?bgcolor=160f0b&level=80&width=200&mini=1`;
+    return `https://www.raidbots.com/simbot/render/talents/${previewPath}?bgcolor=160f0b&level=80&width=240&mini=1`;
 }
 
 function parseNonNegativeNumber(value) {
@@ -4546,7 +4556,11 @@ function updateTalentPreview(mode) {
     image.src = meta.iconUrl;
     link.href = meta.calcUrl;
     text.textContent = meta.talent
-        ? `专精: ${meta.spec || '未指定'}，天赋串长度: ${meta.talent.length}`
+        ? (
+            meta.unresolvedHero
+                ? `专精: ${meta.spec || '未指定'}，天赋串缺少英雄天赋分支，已保留基础链接`
+                : `专精: ${meta.spec || '未指定'}，天赋串长度: ${meta.talent.length}`
+        )
         : `专精: ${meta.spec || '未指定'}，当前未输入天赋串`;
 
     if (raidbotsFrame && raidbotsTip) {
