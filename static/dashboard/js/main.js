@@ -4192,9 +4192,17 @@ async function syncCnEditorToApl(mode, options = {}) {
     if (!actionInput || !cnEditor) return;
     const cnText = String(cnEditor.value || '').trim();
     if (!cnText) {
+        const existingApl = String(actionInput.value || '').trim();
+        if (options.force && existingApl) {
+            setSimcProfileAplPreviewStatus(prefix, '中文为空，保留手工APL用于保存', 'info');
+            if (!options.quiet) {
+                showMessage('检测到手工APL，已跳过中文同步并直接保存APL', 'info');
+            }
+            return true;
+        }
         actionInput.value = '';
         setSimcProfileAplPreviewStatus(prefix, '中文为空，APL已清空', 'warning');
-        if (options.force) showMessage('中文编辑内容为空，已清空 APL 列表', 'warning');
+        if (options.force && !options.quiet) showMessage('中文编辑内容为空，已清空 APL 列表', 'warning');
         return true;
     }
     try {
