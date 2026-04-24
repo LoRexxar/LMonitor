@@ -4405,7 +4405,7 @@ function buildRaidbotsTalentPreviewUrl(talentRaw) {
         previewPath = encodeURIComponent(parts[parts.length - 1]);
     }
     if (!previewPath) return '';
-    return `https://www.raidbots.com/simbot/render/talents/${previewPath}?bgcolor=160f0b&level=80&width=240&mini=1`;
+    return `https://www.raidbots.com/simbot/render/talents/${previewPath}?bgcolor=160f0b&level=80&width=280`;
 }
 
 function parseNonNegativeNumber(value) {
