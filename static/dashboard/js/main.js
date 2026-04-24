@@ -1117,6 +1117,8 @@ let currentTableColumns = [];
 let currentFieldTypes = {};
 let simcProfileSpecFilter = '';
 let simcProfileFightStyleFilter = '';
+let secondaryStatRuleMap = null;
+let secondaryStatRulePromise = null;
 
 
 /**
@@ -1134,6 +1136,10 @@ function fetchTableData(tableName, page = 1) {
     // 保存当前表名和页码
     currentTableName = tableName;
     currentPage = page;
+    if (tableName === 'SimcSecondaryStatRule') {
+        secondaryStatRuleMap = null;
+        secondaryStatRulePromise = null;
+    }
     
     // 如果是SimcTask表，使用专门的API
     updateSimcProfileFilterBar();
@@ -1310,6 +1316,16 @@ function displayTableData(data, fields) {
     // SimcProfile表只显示指定字段
     else if (currentTableName === 'SimcProfile') {
         displayFields = ['name', 'spec', 'fight_style', 'time', 'target_count'];
+    }
+    else if (currentTableName === 'SimcSecondaryStatRule') {
+        displayFields = [
+            'spec',
+            'crit_per_percent',
+            'haste_per_percent',
+            'mastery_per_percent',
+            'mastery_coefficient',
+            'versatility_per_percent'
+        ];
     }
     
     // 创建表头
@@ -4041,6 +4057,10 @@ function initSimcProfileManagement() {
 
         const addSpecInput = document.getElementById('add-simc-profile-spec');
         const addTalentInput = document.getElementById('add-simc-profile-talent');
+        const addCritInput = document.getElementById('add-simc-profile-crit');
+        const addHasteInput = document.getElementById('add-simc-profile-haste');
+        const addMasteryInput = document.getElementById('add-simc-profile-mastery');
+        const addVersatilityInput = document.getElementById('add-simc-profile-versatility');
         const addAplPreviewBtn = document.getElementById('add-simc-profile-apl-preview-btn');
         const addAplInput = document.getElementById('add-simc-profile-action-list');
         const addCnEditor = document.getElementById('add-simc-profile-apl-preview-cn');
@@ -4048,7 +4068,12 @@ function initSimcProfileManagement() {
         const addAplCopyBtn = document.getElementById('add-simc-profile-apl-preview-copy');
         const addRebuildCnBtn = document.getElementById('add-simc-profile-apl-rebuild-cn-btn');
         if (addSpecInput) addSpecInput.addEventListener('input', () => updateTalentPreview('add'));
+        if (addSpecInput) addSpecInput.addEventListener('change', () => updateTalentPreview('add'));
         if (addTalentInput) addTalentInput.addEventListener('input', () => updateTalentPreview('add'));
+        if (addCritInput) addCritInput.addEventListener('input', () => updateSecondaryStatPreview('add'));
+        if (addHasteInput) addHasteInput.addEventListener('input', () => updateSecondaryStatPreview('add'));
+        if (addMasteryInput) addMasteryInput.addEventListener('input', () => updateSecondaryStatPreview('add'));
+        if (addVersatilityInput) addVersatilityInput.addEventListener('input', () => updateSecondaryStatPreview('add'));
         if (addAplPreviewBtn) addAplPreviewBtn.addEventListener('click', () => syncCnEditorToApl('add', { force: true }));
         if (addCnEditor) addCnEditor.addEventListener('input', () => scheduleCnEditorToAplSync('add'));
         if (addAplInput) addAplInput.addEventListener('input', () => setSimcProfileAplPreviewStatus('add', 'APL已手动修改，可点“从APL重建中文”', 'info'));
@@ -4081,6 +4106,10 @@ function initSimcProfileManagement() {
 
         const editSpecInput = document.getElementById('edit-simc-profile-spec');
         const editTalentInput = document.getElementById('edit-simc-profile-talent');
+        const editCritInput = document.getElementById('edit-simc-profile-crit');
+        const editHasteInput = document.getElementById('edit-simc-profile-haste');
+        const editMasteryInput = document.getElementById('edit-simc-profile-mastery');
+        const editVersatilityInput = document.getElementById('edit-simc-profile-versatility');
         const editAplPreviewBtn = document.getElementById('edit-simc-profile-apl-preview-btn');
         const editAplInput = document.getElementById('edit-simc-profile-action-list');
         const editCnEditor = document.getElementById('edit-simc-profile-apl-preview-cn');
@@ -4088,7 +4117,12 @@ function initSimcProfileManagement() {
         const editAplCopyBtn = document.getElementById('edit-simc-profile-apl-preview-copy');
         const editRebuildCnBtn = document.getElementById('edit-simc-profile-apl-rebuild-cn-btn');
         if (editSpecInput) editSpecInput.addEventListener('input', () => updateTalentPreview('edit'));
+        if (editSpecInput) editSpecInput.addEventListener('change', () => updateTalentPreview('edit'));
         if (editTalentInput) editTalentInput.addEventListener('input', () => updateTalentPreview('edit'));
+        if (editCritInput) editCritInput.addEventListener('input', () => updateSecondaryStatPreview('edit'));
+        if (editHasteInput) editHasteInput.addEventListener('input', () => updateSecondaryStatPreview('edit'));
+        if (editMasteryInput) editMasteryInput.addEventListener('input', () => updateSecondaryStatPreview('edit'));
+        if (editVersatilityInput) editVersatilityInput.addEventListener('input', () => updateSecondaryStatPreview('edit'));
         if (editAplPreviewBtn) editAplPreviewBtn.addEventListener('click', () => syncCnEditorToApl('edit', { force: true }));
         if (editCnEditor) editCnEditor.addEventListener('input', () => scheduleCnEditorToAplSync('edit'));
         if (editAplInput) editAplInput.addEventListener('input', () => setSimcProfileAplPreviewStatus('edit', 'APL已手动修改，可点“从APL重建中文”', 'info'));
@@ -4335,6 +4369,139 @@ function buildRaidbotsTalentPreviewUrl(talentRaw) {
     return `https://www.raidbots.com/simbot/render/talents/${encodeURIComponent(talentCode)}?bgcolor=160f0b&level=80&width=200&mini=1`;
 }
 
+function parseNonNegativeNumber(value) {
+    const n = parseFloat(value);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return n;
+}
+
+function applyGreenStatDiminishingReturn(rawPercent) {
+    let remaining = parseNonNegativeNumber(rawPercent);
+    if (remaining <= 0) return 0;
+
+    let effective = 0;
+    let cursor = 0;
+    while (remaining > 0) {
+        const segment = Math.min(10, remaining);
+        const segmentIndex = Math.floor(cursor / 10);
+        let reduction = 0;
+        if (segmentIndex >= 3) {
+            reduction = (segmentIndex - 2) * 10;
+        }
+        reduction = Math.min(90, Math.max(0, reduction));
+        const factor = 1 - reduction / 100;
+        effective += segment * factor;
+        remaining -= segment;
+        cursor += segment;
+    }
+    return effective;
+}
+
+async function ensureSecondaryStatRuleMap(forceRefresh = false) {
+    if (!forceRefresh && secondaryStatRuleMap) return secondaryStatRuleMap;
+    if (!forceRefresh && secondaryStatRulePromise) return secondaryStatRulePromise;
+
+    const requestData = {
+        action: 'get_table_data',
+        table_name: 'SimcSecondaryStatRule',
+        page: 1,
+        page_size: 500
+    };
+
+    secondaryStatRulePromise = fetch('/dashboard/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCSRFToken()
+        },
+        body: JSON.stringify(requestData)
+    })
+        .then(resp => {
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            return resp.json();
+        })
+        .then(data => {
+            if (!data || data.status !== 'success' || !Array.isArray(data.data)) {
+                throw new Error((data && data.message) || '加载绿字转换比例失败');
+            }
+            const map = {};
+            data.data.forEach(item => {
+                const spec = String(item.spec || '').trim().toLowerCase();
+                if (!spec) return;
+                map[spec] = item;
+            });
+            secondaryStatRuleMap = map;
+            return map;
+        })
+        .catch(error => {
+            secondaryStatRuleMap = {};
+            console.error('加载绿字转换比例失败:', error);
+            return secondaryStatRuleMap;
+        })
+        .finally(() => {
+            secondaryStatRulePromise = null;
+        });
+
+    return secondaryStatRulePromise;
+}
+
+function formatPercentValue(value) {
+    if (!Number.isFinite(value)) return '--';
+    return `${value.toFixed(2)}%`;
+}
+
+async function updateSecondaryStatPreview(mode) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const specInput = document.getElementById(`${prefix}-simc-profile-spec`);
+    const critInput = document.getElementById(`${prefix}-simc-profile-crit`);
+    const hasteInput = document.getElementById(`${prefix}-simc-profile-haste`);
+    const masteryInput = document.getElementById(`${prefix}-simc-profile-mastery`);
+    const versatilityInput = document.getElementById(`${prefix}-simc-profile-versatility`);
+    const ruleText = document.getElementById(`${prefix}-secondary-stat-preview-rule`);
+    const valueText = document.getElementById(`${prefix}-secondary-stat-preview-values`);
+    if (!specInput || !ruleText || !valueText) return;
+
+    const spec = String(specInput.value || '').trim().toLowerCase();
+    if (!spec) {
+        ruleText.textContent = '绿字换算：请选择专精';
+        valueText.textContent = '暴击 -- | 急速 -- | 精通 -- | 全能 --';
+        return;
+    }
+
+    const map = await ensureSecondaryStatRuleMap();
+    const rule = map[spec];
+    if (!rule) {
+        ruleText.textContent = `绿字换算(${spec})：未配置，请先在“绿字转换比例”表补齐`;
+        valueText.textContent = '暴击 -- | 急速 -- | 精通 -- | 全能 --';
+        return;
+    }
+
+    const critPer = parseFloat(rule.crit_per_percent);
+    const hastePer = parseFloat(rule.haste_per_percent);
+    const masteryPer = parseFloat(rule.mastery_per_percent);
+    const masteryCoef = parseFloat(rule.mastery_coefficient);
+    const versatilityPer = parseFloat(rule.versatility_per_percent);
+    const divisorsValid = [critPer, hastePer, masteryPer, versatilityPer].every(v => Number.isFinite(v) && v > 0);
+    if (!divisorsValid || !Number.isFinite(masteryCoef) || masteryCoef <= 0) {
+        ruleText.textContent = `绿字换算(${spec})：参数异常，请检查转换比例配置`;
+        valueText.textContent = '暴击 -- | 急速 -- | 精通 -- | 全能 --';
+        return;
+    }
+
+    const critRaw = parseNonNegativeNumber(critInput && critInput.value) / critPer;
+    const hasteRaw = parseNonNegativeNumber(hasteInput && hasteInput.value) / hastePer;
+    const masteryRaw = parseNonNegativeNumber(masteryInput && masteryInput.value) / masteryPer;
+    const versatilityRaw = parseNonNegativeNumber(versatilityInput && versatilityInput.value) / versatilityPer;
+
+    const critPct = 5 + applyGreenStatDiminishingReturn(critRaw);
+    const hastePct = applyGreenStatDiminishingReturn(hasteRaw);
+    const masteryPct = (5 + applyGreenStatDiminishingReturn(masteryRaw)) * masteryCoef;
+    const versatilityPct = applyGreenStatDiminishingReturn(versatilityRaw);
+
+    ruleText.textContent = `绿字换算(${spec})：暴击${critPer}/1%，急速${hastePer}/1%，精通${masteryPer}/1% × ${masteryCoef}，全能${versatilityPer}/1%`;
+    valueText.textContent = `暴击 ${formatPercentValue(critPct)} | 急速 ${formatPercentValue(hastePct)} | 精通 ${formatPercentValue(masteryPct)} | 全能 ${formatPercentValue(versatilityPct)}`;
+}
+
 function updateTalentPreview(mode) {
     const prefix = mode === 'edit' ? 'edit' : 'add';
     const specInput = document.getElementById(`${prefix}-simc-profile-spec`);
@@ -4371,6 +4538,7 @@ function updateTalentPreview(mode) {
             };
         }
     }
+    updateSecondaryStatPreview(mode);
 }
 
 // 页面加载完成后初始化SimC配置管理

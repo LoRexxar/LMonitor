@@ -25,7 +25,7 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask, 
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
-                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, WclAnalysisTask)
+                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask)
 
 # 模型描述映射
 MODEL_DESCRIPTIONS = {
@@ -42,6 +42,7 @@ MODEL_DESCRIPTIONS = {
     'SimcAplKeywordPair': '关键字管理',
     'SimcTask': 'SimC任务管理',
     'SimcProfile': 'SimC配置管理',
+    'SimcSecondaryStatRule': '绿字转换比例',
 
 }
 
@@ -65,7 +66,7 @@ class DashboardView(View):
             models = [
                 MonitorTask, TargetAuth, WechatAccountTask, 
                 WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
-                RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile
+                RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule
             ]
             
             total_records = 0
@@ -167,6 +168,7 @@ class DashboardView(View):
                 'SimcAplKeywordPair': SimcAplKeywordPair,
                 'SimcTask': SimcTask,
                 'SimcProfile': SimcProfile,
+                'SimcSecondaryStatRule': SimcSecondaryStatRule,
 
             }
             
@@ -267,6 +269,14 @@ class DashboardView(View):
                         queryset = queryset.filter(fight_style__icontains=simc_fight_style_filter)
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
+                elif table_name == 'SimcSecondaryStatRule':
+                    queryset = model.objects.values(
+                        'id', 'spec', 'crit_per_percent', 'haste_per_percent',
+                        'mastery_per_percent', 'mastery_coefficient', 'versatility_per_percent'
+                    ).order_by('spec')
+                    queryset = apply_search_filter(queryset, ['spec'])
+                    total_count = queryset.count()
+                    items = list(queryset[offset:offset + page_size])
                 else:
                     queryset = model.objects.values().order_by('-id')
                     # 对于通用表，尝试搜索所有文本字段
@@ -334,6 +344,7 @@ class DashboardView(View):
                 'WowArticle': WowArticle,
                 'SimcAplKeywordPair': SimcAplKeywordPair,
                 'SimcTask': SimcTask,
+                'SimcSecondaryStatRule': SimcSecondaryStatRule,
 
             }
             
@@ -418,6 +429,7 @@ class DashboardView(View):
                 'WowArticle': WowArticle,
                 'SimcAplKeywordPair': SimcAplKeywordPair,
                 'SimcTask': SimcTask,
+                'SimcSecondaryStatRule': SimcSecondaryStatRule,
 
             }
             
@@ -553,6 +565,7 @@ class DashboardView(View):
                 'SimcAplKeywordPair': SimcAplKeywordPair,
                 'SimcTask': SimcTask,
                 'SimcProfile': SimcProfile,
+                'SimcSecondaryStatRule': SimcSecondaryStatRule,
             }
             
             # 获取模型

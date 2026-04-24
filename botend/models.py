@@ -207,6 +207,23 @@ class SimcProfile(models.Model):
         verbose_name_plural = 'SimC配置'
 
 
+class SimcSecondaryStatRule(models.Model):
+    """
+    SimC副属性绿字转换规则（按专精）
+    """
+    spec = models.CharField(max_length=100, unique=True, help_text="专精标识，如 fury/arms/fire")
+    crit_per_percent = models.FloatField(default=46, help_text="暴击每1%所需绿字")
+    haste_per_percent = models.FloatField(default=44, help_text="急速每1%所需绿字")
+    mastery_per_percent = models.FloatField(default=46, help_text="精通每1%所需绿字（系数前）")
+    mastery_coefficient = models.FloatField(default=1.4, help_text="精通系数（最终结果乘以该值）")
+    versatility_per_percent = models.FloatField(default=54, help_text="全能每1%所需绿字")
+
+    class Meta:
+        db_table = 'simc_secondary_stat_rule'
+        verbose_name = 'SimC绿字转换规则'
+        verbose_name_plural = 'SimC绿字转换规则'
+
+
 class SimcTemplate(models.Model):
     """
     SimC模板模型

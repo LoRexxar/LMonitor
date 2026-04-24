@@ -168,7 +168,7 @@
                         </a>
                         <ul class="submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
                             {% for table in tables_info %}
-                            {% if table.name != 'SimcAplKeywordPair' and table.name != 'SimcTask' %}
+                            {% if table.name != 'SimcAplKeywordPair' and table.name != 'SimcTask' and table.name != 'SimcProfile' and table.name != 'SimcSecondaryStatRule' %}
                             <li class="submenu-item" data-table="{{ table.name }}">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-table mr-2 text-xs"></i>
@@ -208,6 +208,12 @@
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-cog mr-2 text-xs"></i>
                                     SimC配置管理
+                                </a>
+                            </li>
+                            <li class="submenu-item" data-table="SimcSecondaryStatRule">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-calculator mr-2 text-xs"></i>
+                                    绿字转换比例
                                 </a>
                             </li>
                             <li class="submenu-item" data-table="SimcTemplate">
@@ -1070,6 +1076,11 @@
                                 <input type="number" id="add-simc-profile-versatility" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="6757" min="0">
                             </div>
                         </div>
+                        <div class="p-2 bg-indigo-50 border border-indigo-100 rounded-lg">
+                            <p id="add-secondary-stat-preview-rule" class="text-xs text-indigo-700">绿字换算：加载中...</p>
+                            <p id="add-secondary-stat-preview-values" class="text-xs text-indigo-900 mt-1">暴击 -- | 急速 -- | 精通 -- | 全能 --</p>
+                            <p class="text-[11px] text-indigo-500 mt-1">已包含绿字递减：30-40递减10%，每10%区间额外+10%，封顶90%</p>
+                        </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">天赋</label>
                             <textarea id="add-simc-profile-talent" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="3" placeholder="请输入天赋配置..."></textarea>
@@ -1208,6 +1219,11 @@
                                 <label class="block text-sm font-medium text-gray-700 mb-2">全能</label>
                                 <input type="number" id="edit-simc-profile-versatility" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="0" min="0">
                             </div>
+                        </div>
+                        <div class="p-2 bg-indigo-50 border border-indigo-100 rounded-lg">
+                            <p id="edit-secondary-stat-preview-rule" class="text-xs text-indigo-700">绿字换算：加载中...</p>
+                            <p id="edit-secondary-stat-preview-values" class="text-xs text-indigo-900 mt-1">暴击 -- | 急速 -- | 精通 -- | 全能 --</p>
+                            <p class="text-[11px] text-indigo-500 mt-1">已包含绿字递减：30-40递减10%，每10%区间额外+10%，封顶90%</p>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">天赋</label>
