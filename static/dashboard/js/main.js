@@ -4321,52 +4321,81 @@ function getTalentPreviewMeta(specRaw, talentRaw) {
         : 'https://www.wowhead.com/talent-calc';
     let calcUrl = baseUrl;
     if (talent) {
-        // 支持三种输入：完整 wowhead 链接、hero/code 路径、纯天赋串
-        const fullUrlMatch = talent.match(/^https?:\/\/(?:www\.)?wowhead\.com\/talent-calc\/.+/i);
-        if (fullUrlMatch) {
-            calcUrl = fullUrlMatch[0].replace(/^http:\/\//i, 'https://');
-        } else {
-            const normalized = talent
-                .replace(/\?talents=/i, '')
-                .replace(/^\/+|\/+$/g, '');
-            const parts = normalized.split('/').filter(Boolean);
-            if (parts.length > 0) {
-                calcUrl = `${baseUrl}/${parts.map(part => encodeURIComponent(part)).join('/')}`;
-            }
+        // 支持：完整/半完整 wowhead 链接、hero/code 路径、纯天赋串
+        const parsed = normalizeTalentPathParts(talent);
+        const parts = parsed.parts;
+        if (parts.length > 0) {
+            const classSpec = String(info.path || '').split('/').filter(Boolean);
+            const looksClassSpecPath = classSpec.length === 2
+                && parts.length >= 3
+                && String(parts[0]).toLowerCase() === classSpec[0]
+                && String(parts[1]).toLowerCase() === classSpec[1];
+            const useAbsolutePath = parsed.hadWowheadPath || looksClassSpecPath;
+            const encoded = parts.map(part => encodeURIComponent(part)).join('/');
+            calcUrl = useAbsolutePath
+                ? `https://www.wowhead.com/talent-calc/${encoded}`
+                : `${baseUrl}/${encoded}`;
         }
     }
     const iconUrl = `https://wow.zamimg.com/images/wow/icons/large/${info.icon}.jpg`;
     return { spec, talent, calcUrl, iconUrl };
 }
 
-function buildRaidbotsTalentPreviewUrl(talentRaw) {
-    const talent = String(talentRaw || '').trim();
-    if (!talent) return '';
+function normalizeTalentPathParts(talentRaw) {
+    let raw = String(talentRaw || '').trim().replace(/^`+|`+$/g, '');
+    let hadWowheadPath = false;
+    if (!raw) return { parts: [], hadWowheadPath };
 
-    let raw = talent;
-    const fullUrlMatch = raw.match(/^https?:\/\/(?:www\.)?wowhead\.com\/talent-calc\/.+/i);
-    if (fullUrlMatch) {
+    if (/^https?:\/\//i.test(raw)) {
         try {
-            const url = new URL(fullUrlMatch[0]);
-            const parts = url.pathname.split('/').filter(Boolean);
-            const idx = parts.indexOf('talent-calc');
-            if (idx >= 0) {
-                raw = parts.slice(idx + 1).join('/');
-            }
+            const url = new URL(raw);
+            raw = `${url.pathname || ''}${url.search || ''}`;
+            hadWowheadPath = /(^|\.)wowhead\.com$/i.test(url.hostname || '');
         } catch (e) {
-            raw = talent;
+            // ignore parse errors and continue with raw
         }
+    } else if (/^(?:www\.)?wowhead\.com\//i.test(raw)) {
+        hadWowheadPath = true;
+        raw = raw.replace(/^(?:www\.)?wowhead\.com\//i, '/');
     }
 
+    raw = raw.replace(/^\/+/, '');
+    const lowerRaw = raw.toLowerCase();
+    const marker = 'talent-calc/';
+    const idx = lowerRaw.indexOf(marker);
+    if (idx >= 0) {
+        hadWowheadPath = true;
+        raw = raw.slice(idx + marker.length);
+    }
+
+    if (/^\?talents=/i.test(raw)) {
+        raw = raw.replace(/^\?talents=/i, '');
+    }
     raw = raw
         .replace(/\?talents=/i, '')
+        .split('#')[0]
+        .split('?')[0]
         .replace(/^\/+|\/+$/g, '');
-    if (!raw) return '';
 
-    const parts = raw.split('/').filter(Boolean);
-    const talentCode = parts.length > 1 ? parts[parts.length - 1] : parts[0];
-    if (!talentCode) return '';
-    return `https://www.raidbots.com/simbot/render/talents/${encodeURIComponent(talentCode)}?bgcolor=160f0b&level=80&width=200&mini=1`;
+    const parts = raw.split('/').map(part => part.trim()).filter(Boolean);
+    return { parts, hadWowheadPath };
+}
+
+function buildRaidbotsTalentPreviewUrl(talentRaw) {
+    const parts = normalizeTalentPathParts(talentRaw).parts;
+    if (!parts.length) return '';
+
+    let previewPath = '';
+    // 优先保留 hero/code（例如 slayer/EA...），避免英雄天赋圈丢失
+    if (parts.length >= 4) {
+        previewPath = `${encodeURIComponent(parts[parts.length - 2])}/${encodeURIComponent(parts[parts.length - 1])}`;
+    } else if (parts.length === 2) {
+        previewPath = `${encodeURIComponent(parts[0])}/${encodeURIComponent(parts[1])}`;
+    } else {
+        previewPath = encodeURIComponent(parts[parts.length - 1]);
+    }
+    if (!previewPath) return '';
+    return `https://www.raidbots.com/simbot/render/talents/${previewPath}?bgcolor=160f0b&level=80&width=200&mini=1`;
 }
 
 function parseNonNegativeNumber(value) {
