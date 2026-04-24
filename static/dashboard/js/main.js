@@ -1616,7 +1616,10 @@ function bindTableActions() {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
             const profileId = this.getAttribute('data-profile-id');
-            copySimcProfile(profileId);
+            const row = this.closest('tr');
+            const nameCell = row ? row.querySelector('td[data-field="name"]') : null;
+            const sourceName = nameCell ? String(nameCell.textContent || '').trim() : '';
+            copySimcProfile(profileId, sourceName);
         });
     });
     
@@ -4279,12 +4282,57 @@ function getTalentPreviewMeta(specRaw, talentRaw) {
         arcane: { path: 'mage/arcane', icon: 'spell_holy_magicalsentry' }
     };
     const info = map[spec] || { path: '', icon: 'inv_misc_questionmark' };
-    const talentQuery = talent ? `?talents=${encodeURIComponent(talent)}` : '';
-    const calcUrl = info.path
-        ? `https://www.wowhead.com/talent-calc/${info.path}${talentQuery}`
-        : `https://www.wowhead.com/talent-calc${talentQuery}`;
+    const baseUrl = info.path
+        ? `https://www.wowhead.com/talent-calc/${info.path}`
+        : 'https://www.wowhead.com/talent-calc';
+    let calcUrl = baseUrl;
+    if (talent) {
+        // 支持三种输入：完整 wowhead 链接、hero/code 路径、纯天赋串
+        const fullUrlMatch = talent.match(/^https?:\/\/(?:www\.)?wowhead\.com\/talent-calc\/.+/i);
+        if (fullUrlMatch) {
+            calcUrl = fullUrlMatch[0].replace(/^http:\/\//i, 'https://');
+        } else {
+            const normalized = talent
+                .replace(/\?talents=/i, '')
+                .replace(/^\/+|\/+$/g, '');
+            const parts = normalized.split('/').filter(Boolean);
+            if (parts.length > 0) {
+                calcUrl = `${baseUrl}/${parts.map(part => encodeURIComponent(part)).join('/')}`;
+            }
+        }
+    }
     const iconUrl = `https://wow.zamimg.com/images/wow/icons/large/${info.icon}.jpg`;
     return { spec, talent, calcUrl, iconUrl };
+}
+
+function buildRaidbotsTalentPreviewUrl(talentRaw) {
+    const talent = String(talentRaw || '').trim();
+    if (!talent) return '';
+
+    let raw = talent;
+    const fullUrlMatch = raw.match(/^https?:\/\/(?:www\.)?wowhead\.com\/talent-calc\/.+/i);
+    if (fullUrlMatch) {
+        try {
+            const url = new URL(fullUrlMatch[0]);
+            const parts = url.pathname.split('/').filter(Boolean);
+            const idx = parts.indexOf('talent-calc');
+            if (idx >= 0) {
+                raw = parts.slice(idx + 1).join('/');
+            }
+        } catch (e) {
+            raw = talent;
+        }
+    }
+
+    raw = raw
+        .replace(/\?talents=/i, '')
+        .replace(/^\/+|\/+$/g, '');
+    if (!raw) return '';
+
+    const parts = raw.split('/').filter(Boolean);
+    const talentCode = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+    if (!talentCode) return '';
+    return `https://www.raidbots.com/simbot/render/talents/${encodeURIComponent(talentCode)}?bgcolor=160f0b&level=80&width=200&mini=1`;
 }
 
 function updateTalentPreview(mode) {
@@ -4294,6 +4342,8 @@ function updateTalentPreview(mode) {
     const image = document.getElementById(`${prefix}-talent-preview-image`);
     const link = document.getElementById(`${prefix}-talent-preview-link`);
     const text = document.getElementById(`${prefix}-talent-preview-text`);
+    const raidbotsFrame = document.getElementById(`${prefix}-talent-preview-raidbots`);
+    const raidbotsTip = document.getElementById(`${prefix}-talent-preview-raidbots-tip`);
     if (!specInput || !talentInput || !image || !link || !text) return;
 
     const meta = getTalentPreviewMeta(specInput.value, talentInput.value);
@@ -4302,6 +4352,25 @@ function updateTalentPreview(mode) {
     text.textContent = meta.talent
         ? `专精: ${meta.spec || '未指定'}，天赋串长度: ${meta.talent.length}`
         : `专精: ${meta.spec || '未指定'}，当前未输入天赋串`;
+
+    if (raidbotsFrame && raidbotsTip) {
+        const raidbotsUrl = buildRaidbotsTalentPreviewUrl(meta.talent);
+        if (!raidbotsUrl) {
+            raidbotsFrame.classList.add('hidden');
+            raidbotsFrame.removeAttribute('src');
+            raidbotsTip.textContent = 'Raidbots 缩略图：输入有效天赋串后显示';
+        } else {
+            raidbotsFrame.classList.remove('hidden');
+            raidbotsTip.textContent = 'Raidbots 缩略图';
+            raidbotsFrame.src = raidbotsUrl;
+            raidbotsFrame.onload = () => {
+                raidbotsTip.textContent = 'Raidbots 缩略图';
+            };
+            raidbotsFrame.onerror = () => {
+                raidbotsTip.textContent = 'Raidbots 缩略图加载失败，可用上方链接打开 Wowhead';
+            };
+        }
+    }
 }
 
 // 页面加载完成后初始化SimC配置管理
@@ -5068,52 +5137,63 @@ function deleteSimcProfile(profileId) {
     });
 }
 
-function copySimcProfile(profileId) {
-    // 提示用户输入新配置名称
-    const newName = prompt('请输入新配置的名称:');
-    if (!newName || !newName.trim()) {
-        return;
+function buildSimcProfileCopyName(baseName, attempt) {
+    const safeBase = String(baseName || '').trim() || '未命名配置';
+    if (attempt <= 1) {
+        return `${safeBase}_副本`;
     }
-    
+    return `${safeBase}_副本${attempt}`;
+}
+
+async function copySimcProfile(profileId, sourceName) {
     const csrfToken = getCSRFToken();
-    
-    fetch('/api/simc-profile/', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({
-            name: newName.trim(),
-            copy_from_id: profileId
-        })
-    })
-    .then(response => {
-        if (response.status === 302 || response.redirected) {
-            window.location.href = '/auth/login/';
+
+    for (let attempt = 1; attempt <= 20; attempt += 1) {
+        const newName = buildSimcProfileCopyName(sourceName, attempt);
+        try {
+            const response = await fetch('/api/simc-profile/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({
+                    name: newName,
+                    copy_from_id: profileId
+                })
+            });
+
+            if (response.status === 302 || response.redirected) {
+                window.location.href = '/auth/login/';
+                return;
+            }
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data && data.success) {
+                showMessage(`SimC配置复制成功: ${newName}`, 'success');
+                if (currentTableName === 'SimcProfile') {
+                    fetchTableData('SimcProfile', currentPage);
+                }
+                return;
+            }
+
+            const errorText = String((data && data.error) || '');
+            if (errorText.includes('配置名称已存在') && attempt < 20) {
+                continue;
+            }
+            showMessage(`复制失败: ${errorText || '未知错误'}`, 'error');
+            return;
+        } catch (error) {
+            console.error('Error copying SimC profile:', error);
+            showMessage('复制SimC配置时发生错误', 'error');
             return;
         }
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (!data) return;
-        if (data.success) {
-            showMessage('SimC配置复制成功', 'success');
-            // 如果当前显示的是SimcProfile表，刷新数据
-            if (currentTableName === 'SimcProfile') {
-                fetchTableData('SimcProfile', currentPage);
-            }
-        } else {
-            showMessage('复制失败: ' + (data.error || '未知错误'), 'error');
-        }
-    })
-    .catch(error => {
-        console.error('Error copying SimC profile:', error);
-        showMessage('复制SimC配置时发生错误', 'error');
-    });
+    }
+
+    showMessage('复制失败: 自动命名重试次数过多', 'error');
 }
 
 // 打开模拟类型选择弹窗

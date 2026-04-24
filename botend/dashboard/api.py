@@ -1818,7 +1818,6 @@ class SimcAplCandidatesAPIView(View):
                     close_old_connections()
                     return
 
-                ready_task_ids = []
                 for idx, task_id in enumerate(ids):
                     task = SimcTask.objects.filter(id=task_id, user_id=user_id, is_active=True).first()
                     if not task:
@@ -1865,10 +1864,7 @@ class SimcAplCandidatesAPIView(View):
                     task.ext = json.dumps(ext_payload, ensure_ascii=False)
                     task.current_status = 0
                     task.save(update_fields=['name', 'result_file', 'ext', 'current_status', 'modified_time'])
-                    ready_task_ids.append(task.id)
-
-                if ready_task_ids:
-                    self._start_simulation_async(user_id, ready_task_ids)
+                # 预处理完成后仅置为待处理，由后端bot统一调度执行，避免本地重复触发模拟
                 close_old_connections()
             except Exception as e:
                 logger.error(f"APL候选对比预处理失败: {str(e)}\n{traceback.format_exc()}")
