@@ -4463,7 +4463,7 @@ async function updateSecondaryStatPreview(mode) {
 
     const spec = String(specInput.value || '').trim().toLowerCase();
     if (!spec) {
-        ruleText.textContent = '绿字换算：请选择专精';
+        ruleText.textContent = '属性预览结果';
         valueText.textContent = '暴击 -- | 急速 -- | 精通 -- | 全能 --';
         return;
     }
@@ -4471,7 +4471,7 @@ async function updateSecondaryStatPreview(mode) {
     const map = await ensureSecondaryStatRuleMap();
     const rule = map[spec];
     if (!rule) {
-        ruleText.textContent = `绿字换算(${spec})：未配置，请先在“绿字转换比例”表补齐`;
+        ruleText.textContent = `属性预览结果（${spec} 未配置转换比例）`;
         valueText.textContent = '暴击 -- | 急速 -- | 精通 -- | 全能 --';
         return;
     }
@@ -4483,7 +4483,7 @@ async function updateSecondaryStatPreview(mode) {
     const versatilityPer = parseFloat(rule.versatility_per_percent);
     const divisorsValid = [critPer, hastePer, masteryPer, versatilityPer].every(v => Number.isFinite(v) && v > 0);
     if (!divisorsValid || !Number.isFinite(masteryCoef) || masteryCoef <= 0) {
-        ruleText.textContent = `绿字换算(${spec})：参数异常，请检查转换比例配置`;
+        ruleText.textContent = `属性预览结果（${spec} 配置异常）`;
         valueText.textContent = '暴击 -- | 急速 -- | 精通 -- | 全能 --';
         return;
     }
@@ -4495,10 +4495,10 @@ async function updateSecondaryStatPreview(mode) {
 
     const critPct = 5 + applyGreenStatDiminishingReturn(critRaw);
     const hastePct = applyGreenStatDiminishingReturn(hasteRaw);
-    const masteryPct = (5 + applyGreenStatDiminishingReturn(masteryRaw)) * masteryCoef;
+    const masteryPct = (8 + applyGreenStatDiminishingReturn(masteryRaw)) * masteryCoef;
     const versatilityPct = applyGreenStatDiminishingReturn(versatilityRaw);
 
-    ruleText.textContent = `绿字换算(${spec})：暴击${critPer}/1%，急速${hastePer}/1%，精通${masteryPer}/1% × ${masteryCoef}，全能${versatilityPer}/1%`;
+    ruleText.textContent = `属性预览结果（${spec}）`;
     valueText.textContent = `暴击 ${formatPercentValue(critPct)} | 急速 ${formatPercentValue(hastePct)} | 精通 ${formatPercentValue(masteryPct)} | 全能 ${formatPercentValue(versatilityPct)}`;
 }
 
