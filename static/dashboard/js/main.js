@@ -430,12 +430,55 @@ function parseSimcTaskExt(ext) {
 }
 
 function applyRegularPreset(presetValue, timeInputId, targetInputId) {
-    if (!presetValue) return;
+    if (!presetValue || presetValue === 'custom') return;
     const [timeValue, targetValue] = String(presetValue).split(',');
     const timeInput = document.getElementById(timeInputId);
     const targetInput = document.getElementById(targetInputId);
     if (timeInput && timeValue) timeInput.value = String(parseInt(timeValue, 10) || 300);
     if (targetInput && targetValue) targetInput.value = String(parseInt(targetValue, 10) || 1);
+}
+
+function toPositiveInt(value, fallbackValue) {
+    const n = parseInt(value, 10);
+    if (!Number.isFinite(n) || n <= 0) return fallbackValue;
+    return n;
+}
+
+function syncSimulationRegularPresetByInputs() {
+    const preset = document.getElementById('simulation-regular-preset');
+    const timeInput = document.getElementById('simulation-regular-time');
+    const targetInput = document.getElementById('simulation-regular-target-count');
+    if (!preset || !timeInput || !targetInput) return;
+    const t = String(toPositiveInt(timeInput.value, 300));
+    const c = String(toPositiveInt(targetInput.value, 1));
+    const expected = `${t},${c}`;
+    const matched = Array.from(preset.options || []).some(opt => opt.value === expected);
+    preset.value = matched ? expected : 'custom';
+}
+
+async function loadSimulationRegularDefaultsByProfile(profileId) {
+    const fallback = { time: 300, target_count: 1 };
+    const pid = toPositiveInt(profileId, 0);
+    if (!pid) return fallback;
+    try {
+        const response = await fetch(`/api/simc-profile/${pid}/`, {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken(),
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) return fallback;
+        const data = await response.json();
+        if (!data || !data.success || !data.data) return fallback;
+        return {
+            time: toPositiveInt(data.data.time, 300),
+            target_count: toPositiveInt(data.data.target_count, 1)
+        };
+    } catch (error) {
+        console.warn('加载模拟默认参数失败，回退到标准值:', error);
+        return fallback;
+    }
 }
 
 function getSpecBadgeClass(specValue) {
@@ -3829,7 +3872,7 @@ function openViewSimcTaskModal(task) {
     document.getElementById('view-simc-task-name').value = task.name || '';
     
     // 生成SimC代码
-    generateSimcCode(task.simc_profile_id, task.result_file)
+    generateSimcCode(task.simc_profile_id, task.result_file, task.ext_detail || null)
         .then(simcCode => {
             document.getElementById('view-simc-task-code').value = simcCode;
             modal.style.display = 'block';
@@ -3940,7 +3983,7 @@ async function loadSimcProfileOptions(selectElementId) {
 }
 
 
-async function generateSimcCode(profileId, resultFile = '') {
+async function generateSimcCode(profileId, resultFile = '', taskExtDetail = null) {
     try {
         // 获取SimC配置详情
         const profileResponse = await fetch('/api/simc-profile/', {
@@ -3996,9 +4039,18 @@ async function generateSimcCode(profileId, resultFile = '') {
         let simcCode = activeTemplate.template_content;
         
         // 替换模板中的占位符
+        const overrideTime = taskExtDetail && taskExtDetail.regular_time !== undefined && taskExtDetail.regular_time !== null && taskExtDetail.regular_time !== ''
+            ? parseInt(taskExtDetail.regular_time, 10)
+            : null;
+        const overrideTargetCount = taskExtDetail && taskExtDetail.regular_target_count !== undefined && taskExtDetail.regular_target_count !== null && taskExtDetail.regular_target_count !== ''
+            ? parseInt(taskExtDetail.regular_target_count, 10)
+            : null;
+        const finalTime = Number.isFinite(overrideTime) && overrideTime > 0 ? overrideTime : (profile.time || '300');
+        const finalTargetCount = Number.isFinite(overrideTargetCount) && overrideTargetCount > 0 ? overrideTargetCount : (profile.target_count || '1');
+
         simcCode = simcCode.replace(/{fight_style}/g, profile.fight_style || 'Patchwerk');
-        simcCode = simcCode.replace(/{time}/g, profile.time || '300');
-        simcCode = simcCode.replace(/{target_count}/g, profile.target_count || '1');
+        simcCode = simcCode.replace(/{time}/g, finalTime);
+        simcCode = simcCode.replace(/{target_count}/g, finalTargetCount);
         simcCode = simcCode.replace(/{spec}/g, profile.spec || 'fury');
         simcCode = simcCode.replace(/{talent}/g, profile.talent || '');
         simcCode = simcCode.replace(/{action_list}/g, profile.action_list || '');
@@ -5408,7 +5460,7 @@ async function copySimcProfile(profileId, sourceName) {
 }
 
 // 打开模拟类型选择弹窗
-function openSimulationTypeModal() {
+async function openSimulationTypeModal() {
     document.getElementById('simulation-type-modal').classList.remove('hidden');
     
     // 重置表单状态
@@ -5421,13 +5473,18 @@ function openSimulationTypeModal() {
     const regularTargetInput = document.getElementById('simulation-regular-target-count');
     const attributeStepInput = document.getElementById('simulation-attribute-step');
     const preset = document.getElementById('simulation-regular-preset');
-    if (preset) preset.value = '300,1';
-    if (regularTimeInput) regularTimeInput.value = '300';
-    if (regularTargetInput) regularTargetInput.value = '1';
+    const defaults = await loadSimulationRegularDefaultsByProfile(window.currentSimulationProfileId);
+    const finalTime = toPositiveInt(defaults.time, 300);
+    const finalTargetCount = toPositiveInt(defaults.target_count, 1);
+    if (regularTimeInput) regularTimeInput.value = String(finalTime);
+    if (regularTargetInput) regularTargetInput.value = String(finalTargetCount);
+    syncSimulationRegularPresetByInputs();
     if (attributeStepInput) attributeStepInput.value = '50';
     
     // 绑定模拟类型切换事件
-    document.querySelectorAll('input[name="simulation-type"]').forEach(radio => {
+    const radios = document.querySelectorAll('input[name="simulation-type"]');
+    radios.forEach(radio => {
+        if (radio.dataset.boundSimulationType === '1') return;
         radio.addEventListener('change', function() {
             const attributeCombinations = document.getElementById('attribute-combinations');
             const regularOptions = document.getElementById('simulation-regular-options');
@@ -5442,17 +5499,27 @@ function openSimulationTypeModal() {
                 if (regularOptions) regularOptions.classList.remove('hidden');
             }
         });
+        radio.dataset.boundSimulationType = '1';
     });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     const simulationPreset = document.getElementById('simulation-regular-preset');
+    const regularTimeInput = document.getElementById('simulation-regular-time');
+    const regularTargetInput = document.getElementById('simulation-regular-target-count');
     if (simulationPreset) {
         simulationPreset.addEventListener('change', function() {
             applyRegularPreset(this.value, 'simulation-regular-time', 'simulation-regular-target-count');
+            syncSimulationRegularPresetByInputs();
         });
-        applyRegularPreset(simulationPreset.value, 'simulation-regular-time', 'simulation-regular-target-count');
     }
+    if (regularTimeInput) {
+        regularTimeInput.addEventListener('input', syncSimulationRegularPresetByInputs);
+    }
+    if (regularTargetInput) {
+        regularTargetInput.addEventListener('input', syncSimulationRegularPresetByInputs);
+    }
+    syncSimulationRegularPresetByInputs();
 });
 
 // 关闭模拟类型选择弹窗

@@ -1308,10 +1308,17 @@ class SimcProfileAPIView(View):
                 if attribute_step not in (None, ''):
                     ext_payload['attribute_step'] = max(1, int(attribute_step))
             else:
-                if regular_time not in (None, ''):
-                    ext_payload['regular_time'] = max(1, int(regular_time))
-                if regular_target_count not in (None, ''):
-                    ext_payload['regular_target_count'] = max(1, int(regular_target_count))
+                # 常规模拟始终固化“最终生效”的时长和目标数，避免后续查看/执行链路歧义
+                try:
+                    effective_time = max(1, int(regular_time)) if regular_time not in (None, '') else max(1, int(profile.time or 300))
+                except Exception:
+                    effective_time = 300
+                try:
+                    effective_target_count = max(1, int(regular_target_count)) if regular_target_count not in (None, '') else max(1, int(profile.target_count or 1))
+                except Exception:
+                    effective_target_count = 1
+                ext_payload['regular_time'] = effective_time
+                ext_payload['regular_target_count'] = effective_target_count
 
             # 创建SimcTask
             task = SimcTask.objects.create(

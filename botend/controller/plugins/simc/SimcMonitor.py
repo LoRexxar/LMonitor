@@ -518,7 +518,21 @@ class SimcMonitor(BaseScan):
 
     def apply_template(self, template, profile, result_file, attributes=None, override_time=None, override_target_count=None, override_action_list=None):
         attrs = attributes or self.get_base_attributes(profile)
-        simc_code = template
+        normalized_template = str(template or '')
+        if '{time}' not in normalized_template:
+            if re.search(r'^\s*max_time\s*=.*$', normalized_template, flags=re.MULTILINE):
+                normalized_template = re.sub(r'^\s*max_time\s*=.*$', 'max_time={time}', normalized_template, flags=re.MULTILINE)
+            else:
+                normalized_template += '\nmax_time={time}'
+            logger.warning('[SimC Monitor] 模板缺少 {time} 占位符，已自动规范为 max_time={time}')
+        if '{target_count}' not in normalized_template:
+            if re.search(r'^\s*desired_targets\s*=.*$', normalized_template, flags=re.MULTILINE):
+                normalized_template = re.sub(r'^\s*desired_targets\s*=.*$', 'desired_targets={target_count}', normalized_template, flags=re.MULTILINE)
+            else:
+                normalized_template += '\ndesired_targets={target_count}'
+            logger.warning('[SimC Monitor] 模板缺少 {target_count} 占位符，已自动规范为 desired_targets={target_count}')
+
+        simc_code = normalized_template
         fight_style = profile.fight_style or 'Patchwerk'
         max_time = override_time if override_time not in (None, '') else profile.time
         target_count = override_target_count if override_target_count not in (None, '') else profile.target_count
@@ -539,10 +553,9 @@ class SimcMonitor(BaseScan):
         simc_code = simc_code.replace('{result_file}', self.result_path + result_file)
 
         # 兼容旧模板：未提供 {spec} 占位符时，覆盖或追加 spec 行
-        if '{spec}' not in template:
+        if '{spec}' not in normalized_template:
             if 'spec=' in simc_code:
                 simc_code = re.sub(r'^\s*spec\s*=.*$', f"spec={spec_value}", simc_code, flags=re.MULTILINE)
             else:
                 simc_code = f"spec={spec_value}\n" + simc_code
 
-        return simc_code

@@ -19,6 +19,8 @@
         .metric-value { font-size: 20px; font-weight: 700; color: #212529; }
         .chart-box { height: 320px; }
         .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+        .action-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+        .action-chip { background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; border-radius: 999px; padding: 2px 8px; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -128,11 +130,38 @@
                 <div class="col-lg-6">
                     <div class="panel">
                         <div class="panel-header">行动序列</div>
+                        <div class="panel-body">
+                            <div class="row g-2 align-items-end mb-2">
+                                <div class="col-md-4">
+                                    <label class="form-label mb-1 small">序列视图</label>
+                                    <select id="action-view-mode" class="form-select form-select-sm">
+                                        <option value="merged" selected>合并连续相同技能</option>
+                                        <option value="raw">完整原始序列</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label mb-1 small">时间窗口</label>
+                                    <select id="action-time-window" class="form-select form-select-sm">
+                                        <option value="0" selected>全程</option>
+                                        <option value="30">前30秒</option>
+                                        <option value="60">前60秒</option>
+                                        <option value="120">前120秒</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check mt-4">
+                                        <input class="form-check-input" type="checkbox" id="action-hide-auto">
+                                        <label class="form-check-label small" for="action-hide-auto">隐藏自动攻击</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="action-summary" class="action-summary mb-2"></div>
+                        </div>
                         <div class="panel-body table-wrap p-0">
                             <table class="table table-sm table-striped mb-0">
                                 <thead class="table-dark">
                                     <tr>
-                                        <th>时间</th><th>#</th><th>技能</th><th>目标</th><th>资源</th><th>增益</th>
+                                        <th>时间</th><th>Δt</th><th>#</th><th>技能</th><th>连发</th><th>目标</th><th>资源</th><th>增益</th>
                                     </tr>
                                 </thead>
                                 <tbody id="action-sequence-table"></tbody>
@@ -155,6 +184,7 @@
         let actionData = [];
         let shownAbilities = [];
         let shownActions = [];
+        let shownActionRows = [];
         let pieChart = null;
         let barChart = null;
 
@@ -290,17 +320,100 @@
 
         function renderActions() {
             const key = (byId('action-search').value || '').trim().toLowerCase();
+            const actionViewMode = (byId('action-view-mode')?.value || 'merged').trim();
+            const hideAuto = !!byId('action-hide-auto')?.checked;
+            const timeWindow = parseNum(byId('action-time-window')?.value || '0');
+
             shownActions = actionData.filter((a) => {
                 const s = `${tSkill(a.name)} ${a.name} ${a.target} ${a.resources} ${a.buffs}`.toLowerCase();
-                return !key || s.includes(key);
+                if (key && !s.includes(key)) return false;
+                if (hideAuto && isAutoAttackAction(a)) return false;
+                if (timeWindow > 0) {
+                    const sec = parseActionSecond(a.time);
+                    if (sec > timeWindow) return false;
+                }
+                return true;
             });
-            byId('action-sequence-table').innerHTML = shownActions.length ? shownActions.map((a) => `
+
+            shownActionRows = buildActionRows(shownActions, actionViewMode === 'merged');
+            renderActionSummary(shownActions);
+            byId('action-sequence-table').innerHTML = shownActionRows.length ? shownActionRows.map((a) => `
                 <tr>
-                    <td>${a.time}</td><td>${a.number}</td>
+                    <td>${a.timeLabel}</td>
+                    <td class="mono">${a.deltaLabel}</td>
+                    <td>${a.numberLabel}</td>
                     <td><div>${tSkill(a.name)}</div><div class="text-muted mono">${a.name}</div></td>
+                    <td>${a.repeatCount > 1 ? ('x' + a.repeatCount) : '-'}</td>
                     <td>${a.target}</td><td class="mono">${a.resources}</td><td class="mono">${a.buffs}</td>
                 </tr>
-            `).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">无匹配行动</td></tr>';
+            `).join('') : '<tr><td colspan="8" class="text-center text-muted py-3">无匹配行动</td></tr>';
+        }
+
+        function parseActionSecond(timeText) {
+            const m = String(timeText || '').match(/-?\d+(?:\.\d+)?/);
+            return m ? parseFloat(m[0]) : Number.MAX_SAFE_INTEGER;
+        }
+
+        function isAutoAttackAction(action) {
+            const n = String(action?.name || '').toLowerCase();
+            return n.includes('auto attack') || n === 'melee' || n.includes('main hand') || n.includes('off hand');
+        }
+
+        function buildActionRows(actions, mergeConsecutive) {
+            const rows = [];
+            let prevSec = null;
+            actions.forEach((a) => {
+                const sec = parseActionSecond(a.time);
+                const deltaLabel = (prevSec !== null && Number.isFinite(sec)) ? `${Math.max(0, sec - prevSec).toFixed(2)}s` : '-';
+                prevSec = Number.isFinite(sec) ? sec : prevSec;
+                const key = `${a.name}||${a.target || ''}`;
+                const last = rows[rows.length - 1];
+                if (mergeConsecutive && last && last._mergeKey === key) {
+                    last.repeatCount += 1;
+                    last.endTime = a.time;
+                    last.endNumber = a.number;
+                    last.numberLabel = `${last.startNumber}-${last.endNumber}`;
+                    last.timeLabel = last.startTime === last.endTime ? last.startTime : `${last.startTime}~${last.endTime}`;
+                    last.resources = a.resources;
+                    last.buffs = a.buffs;
+                    return;
+                }
+                rows.push({
+                    _mergeKey: key,
+                    name: a.name,
+                    target: a.target,
+                    resources: a.resources,
+                    buffs: a.buffs,
+                    startNumber: a.number,
+                    endNumber: a.number,
+                    numberLabel: a.number,
+                    startTime: a.time,
+                    endTime: a.time,
+                    timeLabel: a.time,
+                    deltaLabel: deltaLabel,
+                    repeatCount: 1
+                });
+            });
+            return rows;
+        }
+
+        function renderActionSummary(actions) {
+            const box = byId('action-summary');
+            if (!box) return;
+            if (!actions.length) {
+                box.innerHTML = '<span class="text-muted small">无可展示行动</span>';
+                return;
+            }
+            const countMap = {};
+            actions.forEach((a) => {
+                const key = String(a.name || '').trim();
+                if (!key) return;
+                countMap[key] = (countMap[key] || 0) + 1;
+            });
+            const top = Object.entries(countMap)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 8);
+            box.innerHTML = top.map(([name, cnt]) => `<span class="action-chip">${tSkill(name)} × ${cnt}</span>`).join('');
         }
 
         function renderMetrics() {
@@ -315,7 +428,7 @@
                 byId('m-casts').textContent = sorted.reduce((s, x) => s + parseNum(x.executions), 0).toLocaleString();
             }
             byId('m-ability-visible').textContent = `${shownAbilities.length}/${abilitiesData.length}`;
-            byId('m-action-visible').textContent = `${shownActions.length}/${actionData.length}`;
+            byId('m-action-visible').textContent = `${shownActionRows.length}/${actionData.length}`;
         }
 
         function renderCharts() {
@@ -367,11 +480,17 @@
             byId('ability-search').addEventListener('input', rerender);
             byId('ability-min-percent').addEventListener('change', rerender);
             byId('action-search').addEventListener('input', rerender);
+            byId('action-view-mode').addEventListener('change', rerender);
+            byId('action-time-window').addEventListener('change', rerender);
+            byId('action-hide-auto').addEventListener('change', rerender);
             byId('view-mode').addEventListener('change', applyViewMode);
             byId('btn-reset').addEventListener('click', () => {
                 byId('ability-search').value = '';
                 byId('ability-min-percent').value = '0';
                 byId('action-search').value = '';
+                byId('action-view-mode').value = 'merged';
+                byId('action-time-window').value = '0';
+                byId('action-hide-auto').checked = false;
                 byId('view-mode').value = 'all';
                 rerender();
             });
@@ -381,8 +500,8 @@
                 ]));
             });
             byId('btn-export-actions').addEventListener('click', () => {
-                exportCsv('simc_actions.csv', ['时间', '序号', '技能(中文)', '技能(英文)', '目标', '资源', '增益'], shownActions.map((a) => [
-                    a.time, a.number, tSkill(a.name), a.name, a.target, a.resources, a.buffs
+                exportCsv('simc_actions.csv', ['时间', 'Δt', '序号', '技能(中文)', '技能(英文)', '连发', '目标', '资源', '增益'], shownActionRows.map((a) => [
+                    a.timeLabel, a.deltaLabel, a.numberLabel, tSkill(a.name), a.name, a.repeatCount, a.target, a.resources, a.buffs
                 ]));
             });
         }
