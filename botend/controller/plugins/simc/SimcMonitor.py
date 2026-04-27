@@ -125,6 +125,10 @@ class SimcMonitor(BaseScan):
             override_time = ext_payload.get('regular_time')
             override_target_count = ext_payload.get('regular_target_count')
             override_action_list = ext_payload.get('override_action_list')
+            logger.info(
+                f"[SimC Monitor] Regular overrides for task {simc_task.id}: "
+                f"time={override_time}, targets={override_target_count}"
+            )
 
             # 生成SimC代码
             simc_code = self.generate_simc_code(
@@ -540,4 +544,5 @@ class SimcMonitor(BaseScan):
                 simc_code = re.sub(r'^\s*spec\s*=.*$', f"spec={spec_value}", simc_code, flags=re.MULTILINE)
             else:
                 simc_code = f"spec={spec_value}\n" + simc_code
+
         return simc_code

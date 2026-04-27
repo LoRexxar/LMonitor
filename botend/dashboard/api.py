@@ -1291,7 +1291,15 @@ class SimcProfileAPIView(View):
             if task_type == 2 and selected_attributes:
                 task_name = f"{profile.name}_属性模拟_{selected_attributes}"
             else:
-                task_name = f"{profile.name}_常规模拟"
+                try:
+                    display_time = max(1, int(regular_time)) if regular_time not in (None, '') else max(1, int(profile.time or 300))
+                except Exception:
+                    display_time = 300
+                try:
+                    display_target_count = max(1, int(regular_target_count)) if regular_target_count not in (None, '') else max(1, int(profile.target_count or 1))
+                except Exception:
+                    display_target_count = 1
+                task_name = f"{profile.name}_常规模拟_{display_time}s_{display_target_count}目标"
             
             ext_payload = {}
             if task_type == 2:
