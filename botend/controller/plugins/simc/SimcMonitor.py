@@ -42,6 +42,107 @@ class SimcMonitor(BaseScan):
         if not os.path.exists(self.result_path):
             os.makedirs(self.result_path, exist_ok=True)
 
+    def mark_task_failed(self, simc_task, reason, exc=None, overwrite_when_has_error=False):
+        """
+        将任务标记为失败，并写入可见错误信息。
+        """
+        try:
+            detail = str(reason or "未知错误").strip()
+            if exc is not None:
+                detail = f"{detail}\n异常信息: {str(exc)}"
+
+            current_result = str(simc_task.result_file or "").strip()
+            has_existing_error = bool(current_result) and not current_result.endswith('.html')
+            should_overwrite = overwrite_when_has_error or (not has_existing_error)
+            if should_overwrite:
+                simc_task.result_file = detail
+
+            simc_task.current_status = 3
+            simc_task.save()
+        except Exception as save_err:
+            logger.error(f"[SimC Monitor] Failed to persist task error for task {getattr(simc_task, 'id', '-')}: {save_err}")
+
+    def clear_simc_error_details(self, simc_task):
+        """
+        清理任务中的历史SimC错误详情，避免重跑后显示旧错误。
+        """
+        try:
+            payload = self.parse_task_ext(simc_task.ext)
+            if not isinstance(payload, dict) or not payload:
+                return
+            changed = False
+            for key in ('simc_error_summary', 'simc_error_native', 'simc_error_code'):
+                if key in payload:
+                    payload.pop(key, None)
+                    changed = True
+            if changed:
+                simc_task.ext = json.dumps(payload, ensure_ascii=False) if payload else ''
+        except Exception as e:
+            logger.warning(f"[SimC Monitor] Failed to clear simc error details for task {getattr(simc_task, 'id', '-')}: {e}")
+
+    def save_simc_error_details(self, simc_task, summary, return_code=None, stderr_text=None, stdout_text=None):
+        """
+        保存缩略错误 + 原生错误到任务ext，便于前端日志查看。
+        """
+        try:
+            payload = self.parse_task_ext(simc_task.ext)
+            if not isinstance(payload, dict):
+                payload = {}
+
+            payload['simc_error_summary'] = str(summary or '').strip()[:800]
+            if return_code is not None:
+                try:
+                    payload['simc_error_code'] = int(return_code)
+                except Exception:
+                    payload['simc_error_code'] = str(return_code)
+
+            native_parts = []
+            if return_code is not None:
+                native_parts.append(f"returncode: {return_code}")
+            if stderr_text:
+                native_parts.append("stderr:")
+                native_parts.append(str(stderr_text))
+            if stdout_text:
+                native_parts.append("stdout:")
+                native_parts.append(str(stdout_text))
+            native_text = '\n'.join(native_parts).strip()
+            if native_text:
+                payload['simc_error_native'] = native_text
+
+            serialized = json.dumps(payload, ensure_ascii=False)
+            # ext 字段上限5000，循环裁剪原生日志以保证可落库
+            if len(serialized) > 4800:
+                native_value = str(payload.get('simc_error_native') or '')
+                while len(serialized) > 4800 and native_value:
+                    native_value = native_value[:max(0, len(native_value) - 400)]
+                    payload['simc_error_native'] = native_value + '\n...(原生错误已截断)' if native_value else '(原生错误过长，已截断)'
+                    serialized = json.dumps(payload, ensure_ascii=False)
+            if len(serialized) > 5000:
+                payload.pop('simc_error_native', None)
+                serialized = json.dumps(payload, ensure_ascii=False)
+            if len(serialized) > 5000:
+                payload['simc_error_summary'] = str(payload.get('simc_error_summary') or '')[:200]
+                serialized = json.dumps(payload, ensure_ascii=False)
+            if len(serialized) > 5000:
+                payload = {'simc_error_summary': str(summary or '')[:200]}
+                if return_code is not None:
+                    payload['simc_error_code'] = return_code
+                serialized = json.dumps(payload, ensure_ascii=False)
+            simc_task.ext = serialized
+        except Exception as e:
+            logger.warning(f"[SimC Monitor] Failed to save native error details for task {getattr(simc_task, 'id', '-')}: {e}")
+
+    def fail_pending_tasks(self, reason):
+        """
+        当运行前置条件不满足时，为待执行任务写入失败原因，避免前端无日志可看。
+        """
+        try:
+            pending_tasks = SimcTask.objects.filter(is_active=True, current_status=0)
+            for task in pending_tasks:
+                self.mark_task_failed(task, reason)
+        except Exception as e:
+            logger.error(f"[SimC Monitor] Failed to mark pending tasks as failed: {e}")
+
     def scan(self, url=None):
         """
         执行SimC模拟扫描
@@ -54,12 +155,15 @@ class SimcMonitor(BaseScan):
             # 检查SimC路径是否正确
             if not self.simc_path:
                 logger.error(f"[SimC Monitor] SimC path not configured")
+                self.fail_pending_tasks("SimC路径未配置，请检查系统配置")
                 return False
             if not os.path.exists(self.simc_path):
                 logger.error(f"[SimC Monitor] SimC executable not found at path: {self.simc_path}")
+                self.fail_pending_tasks(f"SimC可执行文件不存在: {self.simc_path}")
                 return False
             if not os.path.isfile(self.simc_path):
                 logger.error(f"[SimC Monitor] SimC path is not a file: {self.simc_path}")
+                self.fail_pending_tasks(f"SimC路径不是文件: {self.simc_path}")
                 return False
 
             # 获取所有活跃的SimC任务
@@ -71,6 +175,7 @@ class SimcMonitor(BaseScan):
                 
         except Exception as e:
             logger.error(f"[SimC Monitor] Error during SimC simulation: {str(e)}")
+            self.fail_pending_tasks("SimC调度进程异常，请稍后重试")
             return False
             
         return True
@@ -84,6 +189,7 @@ class SimcMonitor(BaseScan):
         try:
             # 更新任务状态为进行中
             simc_task.current_status = 1
+            self.clear_simc_error_details(simc_task)
             simc_task.save()
             
             # 获取SimC配置
@@ -95,8 +201,7 @@ class SimcMonitor(BaseScan):
             
             if not simc_profile:
                 logger.error(f"[SimC Monitor] SimC profile not found for task {simc_task.id}")
-                simc_task.current_status = 3  # 失败
-                simc_task.save()
+                self.mark_task_failed(simc_task, "未找到对应的SimC配置，可能已被删除或禁用")
                 return False
             
             # 根据任务类型选择处理方式
@@ -107,8 +212,7 @@ class SimcMonitor(BaseScan):
             
         except Exception as e:
             logger.error(f"[SimC Monitor] Error processing task {simc_task.id}: {str(e)}")
-            simc_task.current_status = 3  # 失败
-            simc_task.save()
+            self.mark_task_failed(simc_task, "任务处理失败", e)
             return False
         
         return True
@@ -165,8 +269,7 @@ class SimcMonitor(BaseScan):
             
         except Exception as e:
             logger.error(f"[SimC Monitor] Error in regular simulation for task {simc_task.id}: {str(e)}")
-            simc_task.current_status = 3  # 失败
-            simc_task.save()
+            self.mark_task_failed(simc_task, "常规模拟执行异常", e)
             return False
     
     def process_attribute_simulation(self, simc_task, simc_profile):
@@ -189,8 +292,7 @@ class SimcMonitor(BaseScan):
             selected_attributes = self.parse_selected_attributes(selected_combination)
             if len(selected_attributes) != 2:
                 logger.error(f"[SimC Monitor] Attribute simulation requires exactly 2 attributes, got {len(selected_attributes)} for task {simc_task.id}")
-                simc_task.current_status = 3  # 失败
-                simc_task.save()
+                self.mark_task_failed(simc_task, f"属性模拟参数错误：需要2个属性，当前为{len(selected_attributes)}个")
                 return False
             
             # 获取基础属性值
@@ -255,16 +357,16 @@ class SimcMonitor(BaseScan):
                 simc_task.current_status = 2  # 完成
                 logger.info(f"[SimC Monitor] Attribute simulation task {simc_task.id} completed with {len(result_files)} result files")
             else:
-                simc_task.current_status = 3  # 失败
+                self.mark_task_failed(simc_task, "属性模拟未生成任何结果文件")
                 logger.error(f"[SimC Monitor] Attribute simulation task {simc_task.id} failed - no results generated")
             
-            simc_task.save()
+            if simc_task.current_status == 2:
+                simc_task.save()
             return len(result_files) > 0
             
         except Exception as e:
             logger.error(f"[SimC Monitor] Error in attribute simulation for task {simc_task.id}: {str(e)}")
-            simc_task.current_status = 3  # 失败
-            simc_task.save()
+            self.mark_task_failed(simc_task, "属性模拟执行异常", e)
             return False
 
     def generate_simc_code(self, profile, result_file, override_time=None, override_target_count=None, override_action_list=None):
@@ -356,6 +458,13 @@ class SimcMonitor(BaseScan):
                 
                 # 直接将错误信息存储到result_file字段
                 simc_task.result_file = error_info
+                self.save_simc_error_details(
+                    simc_task,
+                    summary=f"SimC执行失败（返回码: {result.returncode}）",
+                    return_code=result.returncode,
+                    stderr_text=result.stderr,
+                    stdout_text=result.stdout
+                )
                 simc_task.save()
                 return False
                 
@@ -364,6 +473,10 @@ class SimcMonitor(BaseScan):
             logger.error(f"[SimC Monitor] SimC execution timeout for task {simc_task.id}")
             # 直接将错误信息存储到result_file字段
             simc_task.result_file = error_info
+            self.save_simc_error_details(
+                simc_task,
+                summary="SimC执行超时（300秒）"
+            )
             simc_task.save()
             return False
         except Exception as e:
@@ -371,6 +484,11 @@ class SimcMonitor(BaseScan):
             logger.error(f"[SimC Monitor] Error executing SimC command: {str(e)}")
             # 直接将错误信息存储到result_file字段
             simc_task.result_file = error_info
+            self.save_simc_error_details(
+                simc_task,
+                summary="SimC执行异常",
+                stderr_text=str(e)
+            )
             simc_task.save()
             return False
 
