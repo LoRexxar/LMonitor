@@ -470,10 +470,11 @@ async function loadSimulationRegularDefaultsByProfile(profileId) {
         });
         if (!response.ok) return fallback;
         const data = await response.json();
-        if (!data || !data.success || !data.data) return fallback;
+        if (!data || !data.success) return fallback;
+        const payload = (data.data && typeof data.data === 'object') ? data.data : data;
         return {
-            time: toPositiveInt(data.data.time, 300),
-            target_count: toPositiveInt(data.data.target_count, 1)
+            time: toPositiveInt(payload.time, 300),
+            target_count: toPositiveInt(payload.target_count, 1)
         };
     } catch (error) {
         console.warn('加载模拟默认参数失败，回退到标准值:', error);
@@ -5790,6 +5791,16 @@ function viewTaskLog(taskId, task = null) {
                 lines.push('');
                 lines.push('[GLM Reasoning]');
                 lines.push(String(compare.preprocess_reasoning));
+            }
+        }
+        if (extPayload && (extPayload.simc_error_summary || extPayload.simc_error_native || typeof extPayload.simc_error_code !== 'undefined')) {
+            lines.push('');
+            lines.push('[SimC原生错误信息]');
+            if (typeof extPayload.simc_error_code !== 'undefined') lines.push(`返回码: ${extPayload.simc_error_code}`);
+            if (extPayload.simc_error_summary) lines.push(`摘要: ${String(extPayload.simc_error_summary)}`);
+            if (extPayload.simc_error_native) {
+                lines.push('原生输出:');
+                lines.push(String(extPayload.simc_error_native));
             }
         }
         if (t.result_file) {
