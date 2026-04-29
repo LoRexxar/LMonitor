@@ -57,6 +57,13 @@ class SimcMonitor(BaseScan):
             if should_overwrite:
                 simc_task.result_file = detail
 
+            if exc is not None:
+                self.save_simc_error_details(
+                    simc_task,
+                    summary=str(reason or "任务失败").strip(),
+                    stderr_text=str(exc)
+                )
+
             simc_task.current_status = 3
             simc_task.save()
         except Exception as save_err:
@@ -242,8 +249,8 @@ class SimcMonitor(BaseScan):
                 override_target_count=override_target_count,
                 override_action_list=override_action_list
             )
-        if not isinstance(simc_code, str) or not simc_code.strip():
-            raise Exception("生成SimC配置失败：模板渲染结果为空")
+            if not isinstance(simc_code, str) or not simc_code.strip():
+                raise Exception("生成SimC配置失败：模板渲染结果为空")
             
             # 创建临时SimC文件
             simc_file_path = os.path.join(self.result_path, f"temp_{simc_task.id}.simc")
