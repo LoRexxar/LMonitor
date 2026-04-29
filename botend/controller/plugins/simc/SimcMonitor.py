@@ -242,6 +242,8 @@ class SimcMonitor(BaseScan):
                 override_target_count=override_target_count,
                 override_action_list=override_action_list
             )
+        if not isinstance(simc_code, str) or not simc_code.strip():
+            raise Exception("生成SimC配置失败：模板渲染结果为空")
             
             # 创建临时SimC文件
             simc_file_path = os.path.join(self.result_path, f"temp_{simc_task.id}.simc")
@@ -327,6 +329,8 @@ class SimcMonitor(BaseScan):
                 modified_attributes[attr2] = attr2_value
                 
                 simc_code = self.generate_attribute_simc_code(simc_profile, modified_attributes, stage_result_file)
+                if not isinstance(simc_code, str) or not simc_code.strip():
+                    raise Exception(f"生成属性模拟配置失败：stage={stage}")
                 
                 # 创建临时SimC文件
                 simc_file_path = os.path.join(self.result_path, f"temp_{simc_task.id}_{stage}.simc")
@@ -676,4 +680,6 @@ class SimcMonitor(BaseScan):
                 simc_code = re.sub(r'^\s*spec\s*=.*$', f"spec={spec_value}", simc_code, flags=re.MULTILINE)
             else:
                 simc_code = f"spec={spec_value}\n" + simc_code
+
+        return simc_code
 
