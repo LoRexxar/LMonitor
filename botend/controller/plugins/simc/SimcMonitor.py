@@ -15,9 +15,13 @@ import hashlib
 import time
 import json
 import re
+import zipfile
+from urllib.parse import urljoin
+import requests
 from django.conf import settings
+from django.utils import timezone
 from utils.log import logger
-from botend.models import SimcTask, SimcProfile
+from botend.models import SimcTask, SimcProfile, SimcBackendBinary
 from botend.controller.BaseScan import BaseScan
 
 
@@ -41,6 +45,371 @@ class SimcMonitor(BaseScan):
         # 确保结果目录存在
         if not os.path.exists(self.result_path):
             os.makedirs(self.result_path, exist_ok=True)
+
+    def _get_http_proxies(self):
+        try:
+            proxy = getattr(settings, 'PROXY_CONFIG', None)
+            if not (isinstance(proxy, dict) and proxy):
+                return None
+            values = [str(v or '').strip().lower() for v in proxy.values()]
+            uses_socks = any(v.startswith('socks') for v in values if v)
+            if uses_socks:
+                try:
+                    import socks  # noqa: F401
+                except Exception:
+                    return None
+            return proxy
+        except Exception:
+            return None
+
+    def _parse_version_from_path(self, simc_path, platform):
+        text = str(simc_path or '')
+        m = re.search(rf"simc-([^-\\\\/]+)-{re.escape(platform)}", text)
+        return m.group(1) if m else ""
+
+    def _format_eta(self, seconds):
+        try:
+            s = int(seconds)
+        except Exception:
+            return ""
+        if s <= 0:
+            return "00:00"
+        if s >= 24 * 3600:
+            h = s // 3600
+            m = (s % 3600) // 60
+            return f"{h:02d}:{m:02d}"
+        m = s // 60
+        ss = s % 60
+        return f"{m:02d}:{ss:02d}"
+
+    def _format_speed_mbps(self, bytes_per_sec):
+        try:
+            bps = float(bytes_per_sec)
+        except Exception:
+            return ""
+        if bps <= 0:
+            return ""
+        return f"{bps / (1024 * 1024):.2f}MB/s"
+
+    def _set_update_status(self, row, status=None, progress=None, is_updating=None, latest_version=None, last_error=None):
+        try:
+            fields = []
+            if status is not None:
+                row.update_status = str(status)[:255]
+                fields.append('update_status')
+            if progress is not None:
+                row.update_progress = max(0, min(100, int(progress)))
+                fields.append('update_progress')
+            if is_updating is not None:
+                row.is_updating = bool(is_updating)
+                fields.append('is_updating')
+            if latest_version is not None:
+                row.latest_version = str(latest_version)[:128]
+                fields.append('latest_version')
+            if last_error is not None:
+                row.last_error = str(last_error)[:500]
+                fields.append('last_error')
+            if fields:
+                row.save(update_fields=fields)
+        except Exception as e:
+            logger.warning(f"[SimC Monitor] Failed to update SimC progress state: {e}")
+
+    def _fetch_latest_nightly(self, platform):
+        index_url = "http://downloads.simulationcraft.org/nightly/?C=M;O=D"
+        resp = requests.get(index_url, timeout=15, proxies=self._get_http_proxies())
+        resp.raise_for_status()
+        html = resp.text or ''
+        m = re.search(
+            r'href="([^"]*simc-[^"]*' + re.escape(platform) + r'[^"]*\.(?:7z|zip))"',
+            html,
+            flags=re.IGNORECASE
+        )
+        if not m:
+            return None
+        href = m.group(1)
+        file_name = href.split('/')[-1]
+        download_url = urljoin("http://downloads.simulationcraft.org/nightly/", file_name)
+        vm = re.search(rf"simc-([^-]+)-{re.escape(platform)}", file_name, flags=re.IGNORECASE)
+        version = vm.group(1) if vm else file_name
+        return {"version": version, "url": download_url, "file_name": file_name}
+
+    def _download_file(self, url, dest_path, progress_cb=None):
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        final_path = dest_path
+        part_path = dest_path + ".part"
+
+        if os.path.exists(final_path) and os.path.getsize(final_path) > 0:
+            return final_path
+
+        existing = os.path.getsize(part_path) if os.path.exists(part_path) else 0
+        headers = {}
+        if existing > 0:
+            headers['Range'] = f"bytes={existing}-"
+
+        resp = requests.get(
+            url,
+            stream=True,
+            timeout=60,
+            proxies=self._get_http_proxies(),
+            headers=headers
+        )
+        if resp.status_code not in (200, 206):
+            resp.raise_for_status()
+
+        content_len = int(resp.headers.get('Content-Length') or 0)
+        total = (existing + content_len) if resp.status_code == 206 else content_len
+        downloaded = existing if resp.status_code == 206 else 0
+        last_emit_percent = -1
+
+        mode = 'ab' if resp.status_code == 206 and existing > 0 else 'wb'
+        if mode == 'wb' and existing > 0:
+            try:
+                os.remove(part_path)
+            except Exception:
+                pass
+            downloaded = 0
+
+        with open(part_path, mode) as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 256):
+                if not chunk:
+                    continue
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total > 0:
+                    percent = int(downloaded * 100 / total)
+                    if percent != last_emit_percent:
+                        last_emit_percent = percent
+                        if progress_cb:
+                            progress_cb(downloaded, total, percent)
+                else:
+                    if progress_cb:
+                        progress_cb(downloaded, 0, 0)
+
+        if total > 0 and downloaded >= total:
+            try:
+                if os.path.exists(final_path):
+                    os.remove(final_path)
+            except Exception:
+                pass
+            os.replace(part_path, final_path)
+        if progress_cb:
+            progress_cb(downloaded, total, 100 if total > 0 else 0)
+        return final_path if os.path.exists(final_path) else part_path
+
+    def _validate_archive(self, archive_path, platform):
+        p = str(archive_path)
+        lower = p.lower()
+        if lower.endswith('.zip'):
+            try:
+                return zipfile.is_zipfile(p)
+            except Exception:
+                return False
+        if lower.endswith('.7z'):
+            try:
+                with open(p, 'rb') as f:
+                    sig = f.read(6)
+                if sig != b"7z\xbc\xaf'\x1c":
+                    return False
+            except Exception:
+                return False
+            try:
+                import py7zr
+                with py7zr.SevenZipFile(p, mode='r') as z:
+                    _ = z.getnames()
+                return True
+            except Exception:
+                return False
+        return False
+
+    def _extract_archive(self, archive_path, extract_dir, platform):
+        os.makedirs(extract_dir, exist_ok=True)
+        lower = str(archive_path).lower()
+        if lower.endswith('.zip'):
+            with zipfile.ZipFile(archive_path, 'r') as zf:
+                zf.extractall(extract_dir)
+            return extract_dir
+
+        if lower.endswith('.7z'):
+            try:
+                import py7zr
+            except Exception:
+                candidates = []
+                if platform.startswith("win"):
+                    candidates.extend([
+                        r"C:\Program Files\7-Zip\7z.exe",
+                        r"C:\Program Files (x86)\7-Zip\7z.exe",
+                    ])
+                seven_zip = next((p for p in candidates if os.path.exists(p)), "")
+                if not seven_zip:
+                    raise Exception("无法解压 .7z：未安装 7-Zip（7z.exe）且未安装 py7zr")
+                subprocess.run([seven_zip, "x", "-y", f"-o{extract_dir}", archive_path], check=True)
+                return extract_dir
+            try:
+                with py7zr.SevenZipFile(archive_path, mode='r') as z:
+                    z.extractall(path=extract_dir)
+                return extract_dir
+            except Exception as e:
+                raise Exception(f"py7zr解压失败: {str(e)}")
+
+        raise Exception(f"不支持的压缩格式: {archive_path}")
+
+    def _has_7z_extractor(self, platform):
+        try:
+            import py7zr  # noqa: F401
+            return True
+        except Exception:
+            pass
+        if str(platform).startswith("win"):
+            for p in (r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe"):
+                if os.path.exists(p):
+                    return True
+        return False
+
+    def _find_simc_executable(self, root_dir, platform):
+        exe_name = "simc.exe" if platform.startswith("win") else "simc"
+        for base, _, files in os.walk(root_dir):
+            for fn in files:
+                if fn.lower() == exe_name.lower():
+                    return os.path.join(base, fn)
+        return ""
+
+    def ensure_simc_backend_up_to_date(self):
+        platform = "win64"
+        try:
+            now = timezone.now()
+            row = SimcBackendBinary.objects.filter(platform=platform).first()
+            if not row:
+                row = SimcBackendBinary(platform=platform)
+                row.simc_path = str(getattr(settings, 'SIMC_CONFIG', {}).get('simc_path', '') or '')
+                row.current_version = self._parse_version_from_path(row.simc_path, platform)
+                row.auto_update = True
+                row.last_checked_at = None
+                row.last_updated_at = None
+                row.latest_version = row.current_version
+                row.update_progress = 0
+                row.update_status = '未检查'
+                row.last_error = ''
+                row.is_updating = False
+                row.save()
+
+            self._set_update_status(row, status='检查更新中', progress=0, is_updating=True, last_error='')
+            if row.last_checked_at and (now - row.last_checked_at).total_seconds() < 6 * 3600:
+                if row.simc_path:
+                    settings.SIMC_CONFIG['simc_path'] = row.simc_path
+                    self.simc_path = row.simc_path
+                self._set_update_status(row, status='跳过检查（6小时内）', progress=100, is_updating=False)
+                return
+
+            latest = self._fetch_latest_nightly(platform)
+            row.last_checked_at = now
+            row.save(update_fields=['last_checked_at'])
+            if not latest:
+                self._set_update_status(row, status='未获取到最新版本信息', progress=0, is_updating=False, last_error='下载站返回为空')
+                return
+
+            latest_ver = str(latest.get('version') or '').strip()
+            self._set_update_status(row, latest_version=latest_ver)
+            need_update = bool(latest_ver) and latest_ver != str(row.current_version or '').strip()
+
+            if not need_update:
+                if row.simc_path:
+                    settings.SIMC_CONFIG['simc_path'] = row.simc_path
+                    self.simc_path = row.simc_path
+                self._set_update_status(row, status=f'已是最新版本 {latest_ver}', progress=100, is_updating=False)
+                return
+
+            if not row.auto_update:
+                self._set_update_status(row, status=f'检测到新版本 {latest_ver}，但自动更新已关闭', progress=0, is_updating=False)
+                return
+
+            base_dir = os.path.join(os.getcwd(), 'bin', 'simc')
+            archive_path = os.path.join(base_dir, latest['file_name'])
+            extract_dir = os.path.join(base_dir, f"simc-{latest_ver}-{platform}")
+            is_7z = str(archive_path).lower().endswith('.7z')
+            if is_7z and not self._has_7z_extractor(platform):
+                raise Exception("检测到 nightly 包为 .7z，但当前环境没有可用解压器（建议安装 7-Zip 或 py7zr）")
+
+            self._set_update_status(row, status=f'准备下载 {latest_ver}', progress=1, is_updating=True)
+            if os.path.exists(archive_path) and not self._validate_archive(archive_path, platform):
+                try:
+                    os.remove(archive_path)
+                except Exception:
+                    pass
+
+            if not os.path.exists(archive_path):
+                last_logged = {'percent': -5}
+                meter = {
+                    'start_ts': time.time(),
+                    'last_ts': None,
+                    'last_bytes': 0,
+                    'ema_bps': None,
+                }
+                def _on_progress(downloaded, total, percent):
+                    # 下载阶段映射到 1-80%
+                    mapped = 1 + int(percent * 79 / 100)
+                    mb_done = downloaded / (1024 * 1024) if downloaded else 0
+                    mb_total = total / (1024 * 1024) if total else 0
+                    now_ts = time.time()
+                    speed = ''
+                    eta = ''
+                    if total and downloaded:
+                        if meter['last_ts'] is not None:
+                            dt = max(0.001, now_ts - meter['last_ts'])
+                            db = max(0, downloaded - meter['last_bytes'])
+                            inst_bps = db / dt
+                            if meter['ema_bps'] is None:
+                                meter['ema_bps'] = inst_bps
+                            else:
+                                meter['ema_bps'] = meter['ema_bps'] * 0.8 + inst_bps * 0.2
+                        meter['last_ts'] = now_ts
+                        meter['last_bytes'] = downloaded
+                        if meter['ema_bps'] and meter['ema_bps'] > 0:
+                            speed = self._format_speed_mbps(meter['ema_bps'])
+                            remaining = max(0, total - downloaded)
+                            eta = self._format_eta(remaining / meter['ema_bps'])
+                    core = f"下载中 {percent}% ({mb_done:.1f}MB/{mb_total:.1f}MB)" if total else f"下载中 {mb_done:.1f}MB"
+                    extra = ''
+                    if speed:
+                        extra += f" {speed}"
+                    if eta:
+                        extra += f" ETA {eta}"
+                    status = (core + extra).strip()
+                    if percent == 100 or percent >= last_logged['percent'] + 5:
+                        last_logged['percent'] = percent
+                        logger.info(f"[SimC Monitor] Downloading SimC {latest_ver}: {status}")
+                    self._set_update_status(row, status=status, progress=mapped, is_updating=True)
+                self._download_file(latest['url'], archive_path, progress_cb=_on_progress)
+            else:
+                self._set_update_status(row, status='已存在安装包，跳过下载', progress=80, is_updating=True)
+
+            if not self._validate_archive(archive_path, platform):
+                raise Exception("下载文件校验失败（压缩包损坏或未完整下载），请重试")
+
+            self._set_update_status(row, status='解压中', progress=85, is_updating=True)
+            if not os.path.exists(extract_dir):
+                self._extract_archive(archive_path, extract_dir, platform)
+
+            self._set_update_status(row, status='定位可执行文件', progress=95, is_updating=True)
+            exe_path = self._find_simc_executable(extract_dir, platform)
+            if not exe_path:
+                raise Exception(f"未在解压目录中找到SimC可执行文件: {extract_dir}")
+
+            row.simc_path = exe_path
+            row.current_version = latest_ver
+            row.last_updated_at = now
+            row.save(update_fields=['simc_path', 'current_version', 'last_updated_at'])
+
+            settings.SIMC_CONFIG['simc_path'] = exe_path
+            self.simc_path = exe_path
+            self._set_update_status(row, status=f'更新完成 {latest_ver}', progress=100, is_updating=False, last_error='')
+        except Exception as e:
+            logger.error(f"[SimC Monitor] Failed to update SimC backend binary: {str(e)}")
+            try:
+                row = SimcBackendBinary.objects.filter(platform=platform).first()
+                if row:
+                    self._set_update_status(row, status='更新失败', is_updating=False, last_error=str(e))
+            except Exception:
+                pass
 
     def mark_task_failed(self, simc_task, reason, exc=None, overwrite_when_has_error=False):
         """
@@ -159,6 +528,7 @@ class SimcMonitor(BaseScan):
         logger.info("[SimC Monitor] Start SimC simulation check.")
         
         try:
+            self.ensure_simc_backend_up_to_date()
             # 检查SimC路径是否正确
             if not self.simc_path:
                 logger.error(f"[SimC Monitor] SimC path not configured")

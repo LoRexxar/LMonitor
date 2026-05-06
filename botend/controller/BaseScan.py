@@ -10,7 +10,6 @@
 '''
 
 
-from utils.LReq import LReq
 from botend.models import TargetAuth
 
 from urllib.parse import urlparse
