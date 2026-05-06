@@ -241,6 +241,25 @@ class SimcTemplate(models.Model):
         return f"SimC模板 (ID: {self.id})"
 
 
+class SimcBackendBinary(models.Model):
+    platform = models.CharField(max_length=32, default="win64", help_text="平台标识，如 win64/linux64")
+    simc_path = models.CharField(max_length=500, default="", help_text="SimC可执行文件路径")
+    current_version = models.CharField(max_length=128, default="", help_text="当前SimC版本号/构建标识")
+    latest_version = models.CharField(max_length=128, default="", help_text="检测到的最新版本号")
+    auto_update = models.BooleanField(default=True, help_text="是否自动更新")
+    is_updating = models.BooleanField(default=False, help_text="是否正在更新")
+    update_progress = models.IntegerField(default=0, help_text="更新进度百分比 0-100")
+    update_status = models.CharField(max_length=255, default="", blank=True, help_text="更新状态提示")
+    last_error = models.CharField(max_length=500, default="", blank=True, help_text="最近更新错误")
+    last_checked_at = models.DateTimeField(null=True, blank=True, help_text="上次检查时间")
+    last_updated_at = models.DateTimeField(null=True, blank=True, help_text="上次更新时间")
+
+    class Meta:
+        db_table = 'simc_backend_binary'
+        verbose_name = 'SimC后端软件'
+        verbose_name_plural = 'SimC后端软件'
+
+
 class WclAnalysisTask(models.Model):
     wcl_url = models.CharField(max_length=2000, help_text="WCL原始链接")
     report_code = models.CharField(max_length=128, help_text="WCL报告ID", null=True, blank=True)

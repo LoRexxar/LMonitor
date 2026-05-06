@@ -620,6 +620,7 @@ function initSimcTaskManagement() {
 // 在DOMContentLoaded事件中初始化SimC任务管理
 document.addEventListener('DOMContentLoaded', function() {
     initSimcTaskManagement();
+    startSimcBackendUpdatePolling();
 });
 
 /**
@@ -3228,6 +3229,90 @@ function toggleSelectAllRegularSimcTasks(selectableIds, checked) {
         toggleSimcRegularTaskSelection(id, checked);
     });
     updateSimcTaskSelectAllState(selectableIds);
+}
+
+let simcBackendUpdatePollTimer = null;
+
+function renderSimcBackendUpdatePanel(payload) {
+    const panel = document.getElementById('simc-backend-update-panel');
+    if (!panel) return;
+    const statusEl = document.getElementById('simc-backend-update-status');
+    const versionEl = document.getElementById('simc-backend-update-version');
+    const needEl = document.getElementById('simc-backend-update-need');
+    const runningEl = document.getElementById('simc-backend-update-running');
+    const barEl = document.getElementById('simc-backend-update-progress-bar');
+    const textEl = document.getElementById('simc-backend-update-progress-text');
+
+    const data = payload && payload.data ? payload.data : null;
+    if (!payload || !payload.success || !data) {
+        panel.classList.add('hidden');
+        return;
+    }
+
+    const progress = Number.isFinite(parseInt(data.update_progress, 10)) ? parseInt(data.update_progress, 10) : 0;
+    const statusText = String(data.update_status || '').trim();
+    const hasError = String(data.last_error || '').trim();
+    const isUpdating = !!data.is_updating;
+    const cur = String(data.current_version || '').trim();
+    const latest = String(data.latest_version || '').trim();
+    const needUpdate = typeof data.need_update !== 'undefined'
+        ? !!data.need_update
+        : (!!latest && latest !== cur);
+    const shouldShow = isUpdating || progress > 0 || !!statusText || !!hasError;
+
+    if (!shouldShow) {
+        panel.classList.add('hidden');
+        return;
+    }
+
+    panel.classList.remove('hidden');
+    if (statusEl) statusEl.textContent = hasError ? `失败：${hasError}` : (statusText || '处理中');
+    if (versionEl) {
+        versionEl.textContent = cur || latest ? `当前: ${cur || '-'}  最新: ${latest || '-'}` : '';
+    }
+    if (needEl) {
+        needEl.textContent = `需要更新: ${needUpdate ? '是' : '否'}`;
+        needEl.className = `inline-flex items-center px-2 py-0.5 rounded-full ${needUpdate ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`;
+    }
+    if (runningEl) {
+        runningEl.textContent = `正在更新: ${isUpdating ? '是' : '否'}`;
+        runningEl.className = `inline-flex items-center px-2 py-0.5 rounded-full ${isUpdating ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`;
+    }
+    if (barEl) barEl.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+    if (textEl) textEl.textContent = isUpdating ? `进度: ${progress}%` : (progress ? `进度: ${progress}%` : '');
+}
+
+function startSimcBackendUpdatePolling() {
+    if (simcBackendUpdatePollTimer) return;
+
+    const pollOnce = async () => {
+        try {
+            const resp = await fetch('/api/simc-backend-binary/', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                }
+            });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            renderSimcBackendUpdatePanel(data);
+            const row = data && data.data ? data.data : {};
+            const isUpdating = !!row.is_updating;
+            const nextDelay = isUpdating ? 1500 : 30000;
+            simcBackendUpdatePollTimer = setTimeout(() => {
+                simcBackendUpdatePollTimer = null;
+                startSimcBackendUpdatePolling();
+            }, nextDelay);
+        } catch (e) {
+            simcBackendUpdatePollTimer = setTimeout(() => {
+                simcBackendUpdatePollTimer = null;
+                startSimcBackendUpdatePolling();
+            }, 30000);
+        }
+    };
+
+    pollOnce();
 }
 
 function fetchSimcTaskData(page = 1) {

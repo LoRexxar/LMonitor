@@ -29,7 +29,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, WclAnalysisTask
+from botend.models import SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask
 from django.db import models
 from core.glm import GLMClient
 
@@ -2782,6 +2782,56 @@ class SimcTemplateAPIView(View):
             return JsonResponse({
                 'success': False,
                 'error': '创建SimC模板失败'
+            })
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class SimcBackendBinaryAPIView(View):
+    """SimC后端更新状态API"""
+
+    def get(self, request):
+        try:
+            row = SimcBackendBinary.objects.filter(platform='win64').first()
+            if not row:
+                return JsonResponse({
+                    'success': True,
+                    'data': {
+                        'platform': 'win64',
+                        'simc_path': '',
+                        'current_version': '',
+                        'latest_version': '',
+                        'auto_update': True,
+                        'is_updating': False,
+                        'update_progress': 0,
+                        'update_status': '未初始化',
+                        'last_error': '',
+                        'last_checked_at': None,
+                        'last_updated_at': None
+                    }
+                })
+
+            return JsonResponse({
+                'success': True,
+                'data': {
+                    'platform': row.platform,
+                    'simc_path': row.simc_path,
+                    'current_version': row.current_version,
+                    'latest_version': row.latest_version,
+                    'need_update': bool(row.latest_version) and (str(row.latest_version).strip() != str(row.current_version).strip()),
+                    'auto_update': row.auto_update,
+                    'is_updating': row.is_updating,
+                    'update_progress': row.update_progress,
+                    'update_status': row.update_status,
+                    'last_error': row.last_error,
+                    'last_checked_at': row.last_checked_at.strftime('%Y-%m-%d %H:%M:%S') if row.last_checked_at else None,
+                    'last_updated_at': row.last_updated_at.strftime('%Y-%m-%d %H:%M:%S') if row.last_updated_at else None
+                }
+            })
+        except Exception as e:
+            logger.error(f"获取SimC后端更新状态失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({
+                'success': False,
+                'error': f'获取SimC后端更新状态失败: {str(e)}'
             })
 
 
