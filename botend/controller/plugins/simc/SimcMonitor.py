@@ -486,7 +486,12 @@ class SimcMonitor(BaseScan):
 
             latest_ver = str(latest.get('version') or '').strip()
             self._set_update_status(row, latest_version=latest_ver)
-            need_update = bool(latest_ver) and latest_ver != str(row.current_version or '').strip()
+            current_ver = str(row.current_version or '').strip()
+            simc_path = str(row.simc_path or '').strip()
+            simc_missing = (not simc_path) or (not os.path.isfile(simc_path))
+            need_update = bool(latest_ver) and latest_ver != current_ver
+            if bool(latest_ver) and simc_missing:
+                need_update = True
 
             if not need_update:
                 if row.simc_path:
@@ -506,7 +511,10 @@ class SimcMonitor(BaseScan):
             if is_7z and not self._has_7z_extractor(platform):
                 raise Exception("检测到 nightly 包为 .7z，但当前环境没有可用解压器（建议安装 7-Zip 或 py7zr）")
 
-            self._set_update_status(row, status=f'准备下载 {latest_ver}', progress=1, is_updating=True)
+            if simc_missing and (not current_ver or current_ver == latest_ver):
+                self._set_update_status(row, status=f'SimC不可用，准备重新安装 {latest_ver}', progress=1, is_updating=True)
+            else:
+                self._set_update_status(row, status=f'准备下载 {latest_ver}', progress=1, is_updating=True)
             if os.path.exists(archive_path) and not self._validate_archive(archive_path, platform):
                 self._safe_remove_file(archive_path)
                 self._safe_remove_file(archive_path + '.part')
