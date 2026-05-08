@@ -25,7 +25,7 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask, 
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
-                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask)
+                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, PortalCache)
 
 # 模型描述映射
 MODEL_DESCRIPTIONS = {
@@ -43,6 +43,7 @@ MODEL_DESCRIPTIONS = {
     'SimcTask': 'SimC任务管理',
     'SimcProfile': 'SimC配置管理',
     'SimcSecondaryStatRule': '绿字转换比例',
+    'PortalCache': 'Portal缓存',
 
 }
 
@@ -66,7 +67,7 @@ class DashboardView(View):
             models = [
                 MonitorTask, TargetAuth, WechatAccountTask, 
                 WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
-                RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule
+                RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, PortalCache
             ]
             
             total_records = 0
@@ -169,6 +170,7 @@ class DashboardView(View):
                 'SimcTask': SimcTask,
                 'SimcProfile': SimcProfile,
                 'SimcSecondaryStatRule': SimcSecondaryStatRule,
+                'PortalCache': PortalCache,
 
             }
             

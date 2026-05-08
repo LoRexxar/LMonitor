@@ -3,8 +3,6 @@
  */
 
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('Dashboard页面已加载');
-    
     // 初始化页面数据
     initDashboard();
     
@@ -96,7 +94,6 @@ document.addEventListener('DOMContentLoaded', function() {
  * 初始化仪表盘数据
  */
 function initDashboard() {
-    console.log('Dashboard initialized');
     // 这里可以添加AJAX请求获取初始数据
     updateSystemStatus();
     updateRecentActivities();
@@ -107,7 +104,6 @@ function initDashboard() {
  * 刷新仪表盘数据
  */
 function refreshData() {
-    console.log('Refreshing dashboard data...');
     // 更新系统状态
     updateSystemStatus();
     // 更新最近活动
@@ -334,7 +330,7 @@ function initNavigation() {
 function loadNewsWowArticles(page = 1) {
     const container = document.getElementById('news-wow-list');
     if (!container) return;
-    container.innerHTML = '<div class="text-gray-500">加载中...</div>';
+    container.innerHTML = '<div class="animate-pulse space-y-3"><div class="h-4 bg-gray-200 rounded w-2/3"></div><div class="h-4 bg-gray-200 rounded w-4/5"></div><div class="h-4 bg-gray-200 rounded w-3/5"></div></div>';
     const csrfToken = getCSRFToken();
     if (!csrfToken) {
         container.innerHTML = '<div class="text-red-500">错误: 无法获取CSRF令牌</div>';
@@ -376,17 +372,18 @@ function displayNewsWowArticles(items) {
         const time = item.publish_time ? formatDateTime(item.publish_time) : '';
         return `
         <div class="bg-white rounded-xl shadow p-6">
-            <div class="mb-2">
-                <a href="${url}" target="_blank" rel="noopener" class="text-blue-600 hover:underline font-semibold">${escapeHtml(title)}</a>
+            <div class="flex items-start justify-between gap-4">
+                <a href="${url}" target="_blank" rel="noopener" class="text-blue-600 hover:underline font-semibold leading-snug">${escapeHtml(title)}</a>
+                <span class="inline-flex items-center px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded whitespace-nowrap">${time || '未标注时间'}</span>
             </div>
-            <div class="text-gray-700 text-sm mb-3">${escapeHtml(description)}</div>
-            <div class="flex items-center justify-between">
-                <div class="text-gray-600 text-xs">作者：${escapeHtml(author)}</div>
-                <div class="inline-block px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">发布时间：${time}</div>
+            ${description ? `<div class="mt-2 text-gray-700 text-sm">${escapeHtml(description)}</div>` : ``}
+            <div class="mt-3 flex items-center justify-between gap-3">
+                <div class="text-gray-500 text-xs">作者：${escapeHtml(author || '未知')}</div>
+                <a href="${url}" target="_blank" rel="noopener" class="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs">打开原文</a>
             </div>
         </div>`;
     }).join('');
-    container.innerHTML = html;
+    container.innerHTML = `<div class="space-y-4">${html}</div>`;
 }
 
 function displayNewsWowPagination(currentPage, totalPages, totalCount) {
@@ -1173,10 +1170,9 @@ function fetchTableData(tableName, page = 1) {
     // 显示加载中
     const tableBody = document.getElementById('table-body');
     if (!tableBody) {
-        console.log('表格元素不存在，跳过数据加载');
         return;
     }
-    tableBody.innerHTML = '<tr><td colspan="10">加载中...</td></tr>';
+    tableBody.innerHTML = `<tr><td colspan="100%" class="p-6"><div class="animate-pulse space-y-3"><div class="h-4 bg-gray-200 rounded w-2/3"></div><div class="h-4 bg-gray-200 rounded w-4/5"></div><div class="h-4 bg-gray-200 rounded w-3/5"></div></div></td></tr>`;
     
     // 保存当前表名和页码
     currentTableName = tableName;
@@ -1199,13 +1195,10 @@ function fetchTableData(tableName, page = 1) {
         console.error('无法获取CSRF令牌');
         const tableBody = document.getElementById('table-body');
         if (tableBody) {
-            tableBody.innerHTML = '<tr><td colspan="10">错误: 无法获取CSRF令牌，请刷新页面</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="100%" class="p-6 text-red-600">错误: 无法获取CSRF令牌，请刷新页面</td></tr>';
         }
         return;
     }
-    
-    console.log('正在获取表数据:', tableName, 'page:', page);
-    console.log('使用的CSRF令牌:', csrfToken);
     
     // 构建请求数据
     const requestData = {
@@ -1224,8 +1217,6 @@ function fetchTableData(tableName, page = 1) {
         if (simcProfileFightStyleFilter) requestData.simc_fight_style = simcProfileFightStyleFilter;
     }
     
-    console.log('发送请求数据:', JSON.stringify(requestData));
-    
     // 发送AJAX请求获取表数据
     fetch('/dashboard/', {
         method: 'POST',
@@ -1243,7 +1234,6 @@ function fetchTableData(tableName, page = 1) {
         return response.json();
     })
     .then(data => {
-        console.log('获取到的数据:', data);
         updateSimcProfileFilterBar();
         if (data.status === 'success') {
             if (data.data && Array.isArray(data.data) && data.fields) {
@@ -1262,14 +1252,14 @@ function fetchTableData(tableName, page = 1) {
                 console.error('返回的数据格式不正确:', data);
                 const tableBody = document.getElementById('table-body');
                 if (tableBody) {
-                    tableBody.innerHTML = '<tr><td colspan="10">错误: 返回的数据格式不正确</td></tr>';
+                    tableBody.innerHTML = '<tr><td colspan="100%" class="p-6 text-red-600">错误: 返回的数据格式不正确</td></tr>';
                 }
             }
         } else {
             console.error('获取数据失败:', data.message || '未知错误');
             const tableBody = document.getElementById('table-body');
             if (tableBody) {
-                tableBody.innerHTML = `<tr><td colspan="10">获取数据失败: ${data.message || '未知错误'}</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="100%" class="p-6 text-red-600">获取数据失败: ${escapeHtml(data.message || '未知错误')}</td></tr>`;
             }
         }
     })
@@ -1277,7 +1267,7 @@ function fetchTableData(tableName, page = 1) {
         console.error('获取表数据时发生错误:', error);
         const tableBody = document.getElementById('table-body');
         if (tableBody) {
-            tableBody.innerHTML = `<tr><td colspan="10">获取数据时发生错误: ${error.message}</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="100%" class="p-6 text-red-600">获取数据时发生错误: ${escapeHtml(error.message)}</td></tr>`;
         }
     });
 }
@@ -1298,7 +1288,6 @@ function displayTableData(data, fields) {
     
     // 如果表格元素不存在，直接返回
     if (!tableHeader || !tableBody) {
-        console.log('表格元素不存在，跳过数据显示');
         return;
     }
     
@@ -2027,12 +2016,12 @@ function deleteTableRow(rowId) {
             // 显示成功消息
             showMessage('数据删除成功', 'success');
         } else {
-            alert('删除失败: ' + (data.message || '未知错误'));
+            showMessage('删除失败: ' + (data.message || '未知错误'), 'error');
         }
     })
     .catch(error => {
         console.error('删除数据时发生错误:', error);
-        alert('删除数据时发生错误: ' + error.message);
+        showMessage('删除数据时发生错误: ' + error.message, 'error');
     });
 }
 
@@ -2040,32 +2029,29 @@ function deleteTableRow(rowId) {
  * 显示消息提示
  */
 function showMessage(message, type = 'info') {
-    // 创建消息元素
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `fixed top-4 right-4 px-4 py-2 rounded-lg shadow-lg z-50 transition-all duration-300`;
-    
-    if (type === 'success') {
-        messageDiv.className += ' bg-green-500 text-white';
-    } else if (type === 'error') {
-        messageDiv.className += ' bg-red-500 text-white';
-    } else {
-        messageDiv.className += ' bg-blue-500 text-white';
+    const root = document.getElementById('toast-root');
+    if (!root) {
+        return;
     }
-    
-    messageDiv.textContent = message;
-    
-    // 添加到页面
-    document.body.appendChild(messageDiv);
-    
-    // 3秒后自动移除
+    if (!root.classList.contains('fixed')) {
+        root.className = 'fixed top-4 right-4 z-50 space-y-2';
+    }
+    const toast = document.createElement('div');
+    const level = String(type || 'info');
+    const colorClass = level === 'success'
+        ? 'border-green-500'
+        : level === 'error'
+        ? 'border-red-500'
+        : level === 'warning'
+        ? 'border-yellow-500'
+        : 'border-blue-500';
+    toast.className = `bg-white shadow-lg rounded-lg px-4 py-3 border-l-4 ${colorClass} text-gray-800 transition-opacity duration-200`;
+    toast.textContent = String(message || '');
+    root.appendChild(toast);
     setTimeout(() => {
-        messageDiv.style.opacity = '0';
-        setTimeout(() => {
-            if (messageDiv.parentNode) {
-                messageDiv.parentNode.removeChild(messageDiv);
-            }
-        }, 300);
-    }, 3000);
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 220);
+    }, 2600);
 }
 
 /**
@@ -2262,7 +2248,6 @@ function getStatusConfig(field, value) {
 function updatePagination() {
     const paginationContainer = document.getElementById('pagination-container');
     if (!paginationContainer) {
-        console.log('分页容器不存在');
         return;
     }
     
@@ -2277,7 +2262,6 @@ function updatePagination() {
     // 更新分页按钮
     const paginationButtons = document.getElementById('pagination-buttons');
     if (!paginationButtons) {
-        console.log('分页按钮容器不存在');
         return;
     }
     
@@ -3062,7 +3046,6 @@ function initSimcProfileFilters() {
 function initPageSizeSelector() {
     const pageSizeSelect = document.getElementById('page-size-select');
     if (!pageSizeSelect) {
-        console.log('页面大小选择器不存在');
         return;
     }
     
@@ -5257,8 +5240,6 @@ function editSimcProfile(profileId) {
                 openEditSimcProfileModal(profile);
             } else {
                 showMessage('未找到指定的配置', 'error');
-                console.log('Available profiles:', data.data.map(p => ({id: p.id, name: p.name})));
-                console.log('Looking for profile ID:', profileId, 'Type:', typeof profileId);
             }
         } else {
             showMessage('获取配置信息失败: ' + (data.message || '未知错误'), 'error');

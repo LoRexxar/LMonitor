@@ -23,11 +23,25 @@ from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
 from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, SimcBackendBinaryAPIView, WclAnalysisTaskAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
+from botend.portal.views import PortalHomeView
+from botend.portal.api import (
+    PortalBluepostsAPIView,
+    PortalNgaHotAPIView,
+    PortalExwindLatestAPIView,
+    PortalEventsAPIView,
+    PortalVideosAPIView,
+    PortalToolsAPIView,
+    PortalMplusAffixesAPIView,
+    PortalMplusCutoffAPIView,
+    PortalMplusRankingsAPIView,
+    PortalRaidRankingsAPIView,
+    PortalCharacterAPIView,
+)
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
-    path('', lambda request: redirect('/dashboard/'), name='home'),  # 根路径重定向到dashboard
+    path('', PortalHomeView.as_view(), name='portal_home'),
     
     # 认证相关路由
     path('auth/login/', LoginView.as_view(), name='login'),
@@ -41,6 +55,19 @@ urlpatterns = [
     
     # Dashboard路由
     path('dashboard/', DashboardView.as_view(), name="dashboard"),
+
+    # Portal API
+    path('portal/api/blueposts/', csrf_exempt(PortalBluepostsAPIView.as_view()), name="portal_blueposts"),
+    path('portal/api/nga-hot/', csrf_exempt(PortalNgaHotAPIView.as_view()), name="portal_nga_hot"),
+    path('portal/api/exwind/latest/', csrf_exempt(PortalExwindLatestAPIView.as_view()), name="portal_exwind_latest"),
+    path('portal/api/events/', csrf_exempt(PortalEventsAPIView.as_view()), name="portal_events"),
+    path('portal/api/videos/', csrf_exempt(PortalVideosAPIView.as_view()), name="portal_videos"),
+    path('portal/api/tools/', csrf_exempt(PortalToolsAPIView.as_view()), name="portal_tools"),
+    path('portal/api/mplus/affixes/', csrf_exempt(PortalMplusAffixesAPIView.as_view()), name="portal_mplus_affixes"),
+    path('portal/api/mplus/cutoff/', csrf_exempt(PortalMplusCutoffAPIView.as_view()), name="portal_mplus_cutoff"),
+    path('portal/api/mplus/rankings/', csrf_exempt(PortalMplusRankingsAPIView.as_view()), name="portal_mplus_rankings"),
+    path('portal/api/raid/rankings/', csrf_exempt(PortalRaidRankingsAPIView.as_view()), name="portal_raid_rankings"),
+    path('portal/api/character/', csrf_exempt(PortalCharacterAPIView.as_view()), name="portal_character"),
     
     # API路由
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),

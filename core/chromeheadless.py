@@ -34,12 +34,12 @@ class ChromeDriver:
         # self.chromedriver_path = CHROME_WEBDRIVER_PATH
         # self.checkos()
 
+        self.is_proxy = bool(is_proxy)
         try:
             self.init_object(is_proxy)
-
-        except:
+        except Exception:
             logger.error("[Chrome Headless] {}".format(traceback.format_exc()))
-            exit(0)
+            raise
 
         self.origin_url = ""
 
@@ -80,11 +80,20 @@ class ChromeDriver:
 
         self.driver = ChromiumPage(self.chrome_options)
 
+    def _rebuild(self):
+        try:
+            self.close_driver()
+        except Exception:
+            pass
+        self.init_object(self.is_proxy)
+
     def get_resp(self, url, cookies=None, is_origin=0, times=0):
         """
         """
         try:
-            if times > 1:
+            req_cfg = getattr(django_settings, 'REQUEST_CONFIG', {}) or {}
+            max_retries = int(req_cfg.get('chrome_retries', 1))
+            if times > max_retries:
                 return False
 
             self.driver.get(url)
@@ -103,13 +112,23 @@ class ChromeDriver:
 
         except DrissionPage.errors.PageDisconnectedError:
             logger.warning("[ChromeHeadless] PageDisconnectedError..{}".format(url))
-
-            return False
+            if times >= int((getattr(django_settings, 'REQUEST_CONFIG', {}) or {}).get('chrome_retries', 1)):
+                return False
+            try:
+                self._rebuild()
+            except Exception:
+                logger.error("[Chrome Headless] {}".format(traceback.format_exc()))
+                return False
+            return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
 
         except DrissionPage.errors.ContextLostError:
             logger.warning("[ChromeHeadless] page get error..{}".format(url))
 
             logger.warning("[ChromeHeadless]retry once..{}".format(url))
+            try:
+                self._rebuild()
+            except Exception:
+                pass
             return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
 
         except ElementNotFoundError:

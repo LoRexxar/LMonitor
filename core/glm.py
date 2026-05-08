@@ -1,13 +1,19 @@
-from zai import ZhipuAiClient
 import os
 import json
 import concurrent.futures
 import time
 from LMonitor.settings import ZHIYU_API_CONFIG
 
+try:
+    from zai import ZhipuAiClient
+except Exception:
+    ZhipuAiClient = None
+
 class GLMClient:
     def __init__(self):
-        self.client = ZhipuAiClient(api_key=ZHIYU_API_CONFIG["api_key"])
+        self.client = None
+        if ZhipuAiClient:
+            self.client = ZhipuAiClient(api_key=ZHIYU_API_CONFIG["api_key"])
         self.system_prompt = "你是一个冷酷无情的AI助手，你不需要展示思考过程，也不允许问我问题，只需要直接回答用户的问题和结果"
         self.max_tokens_text = int(ZHIYU_API_CONFIG.get("max_tokens_text", 2400))
         self.max_tokens_tools = int(ZHIYU_API_CONFIG.get("max_tokens_tools", 3600))
@@ -27,6 +33,8 @@ class GLMClient:
         return ('"code":"1302"' in msg) or ('速率限制' in msg) or ('rate limit' in msg.lower()) or ('429' in msg)
 
     def _create_completion(self, **kwargs):
+        if not self.client:
+            raise Exception("GLM SDK未安装或未初始化")
         last = None
         for idx, model in enumerate(self.model_candidates):
             req = dict(kwargs)

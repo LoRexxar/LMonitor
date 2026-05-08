@@ -1,0 +1,301 @@
+ <!doctype html>
+ <html lang="zh-CN">
+ <head>
+   <meta charset="UTF-8" />
+   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+   <title>Dashboard Preview</title>
+   <script src="https://cdn.tailwindcss.com"></script>
+   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+ </head>
+ <body class="bg-gray-50 font-sans">
+   <div id="toast-root"></div>
+ 
+   <style>
+     .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+     .sidebar-fixed { width: 16rem; min-width: 16rem; max-width: 16rem; }
+     .submenu { transition: max-height 0.25s ease; }
+   </style>
+ 
+   <header class="gradient-bg text-white shadow-lg">
+     <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+       <div class="flex items-center gap-3">
+         <div class="w-9 h-9 rounded-2xl bg-white/10 flex items-center justify-center">
+           <i class="fas fa-chart-line"></i>
+         </div>
+         <div>
+           <div class="text-xl font-bold leading-tight">LMonitor Dashboard</div>
+           <div class="text-xs text-white/70">预览（含侧边栏入口，静态数据）</div>
+         </div>
+       </div>
+       <div class="flex items-center gap-2">
+         <button id="toast-success" class="px-3 py-2 rounded-lg bg-white/20 text-white text-sm hover:bg-white/30">成功提示</button>
+         <button id="toast-error" class="px-3 py-2 rounded-lg bg-white/20 text-white text-sm hover:bg-white/30">失败提示</button>
+       </div>
+     </div>
+   </header>
+ 
+   <div class="flex min-h-screen">
+     <aside class="sidebar-fixed bg-white shadow-xl">
+       <nav class="mt-6">
+         <ul class="space-y-2 px-4">
+           <li class="nav-item" data-target="home">
+             <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+               <i class="fas fa-home mr-3"></i>首页
+             </a>
+           </li>
+           <li class="nav-item" data-target="news">
+             <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+               <i class="fas fa-newspaper mr-3"></i>News
+             </a>
+           </li>
+           <li class="nav-item has-submenu" data-target="info">
+             <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors submenu-toggle">
+               <i class="fas fa-database mr-3"></i>Info
+               <i class="fas fa-chevron-down ml-auto text-xs"></i>
+             </a>
+             <ul class="submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden">
+               <li class="submenu-item" data-target="table">
+                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors">
+                   <i class="fas fa-table mr-2 text-xs"></i>RssArticle
+                 </a>
+               </li>
+               <li class="submenu-item" data-target="table">
+                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors">
+                   <i class="fas fa-table mr-2 text-xs"></i>WowArticle
+                 </a>
+               </li>
+             </ul>
+           </li>
+           <li class="nav-item has-submenu" data-target="tools">
+             <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors submenu-toggle">
+               <i class="fas fa-tools mr-3"></i>Tools
+               <i class="fas fa-chevron-down ml-auto text-xs"></i>
+             </a>
+             <ul class="submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden">
+               <li class="submenu-item" data-target="tool">
+                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors">
+                   <i class="fas fa-exchange-alt mr-2 text-xs"></i>SimC APL互转
+                 </a>
+               </li>
+               <li class="submenu-item" data-target="tool">
+                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors">
+                   <i class="fas fa-chart-bar mr-2 text-xs"></i>WCL日志分析
+                 </a>
+               </li>
+             </ul>
+           </li>
+         </ul>
+       </nav>
+     </aside>
+ 
+     <main class="flex-1 p-8">
+       <section id="section-home" class="space-y-5">
+         <div>
+           <div class="text-2xl font-bold text-slate-900">数据统计概览</div>
+           <div class="text-sm text-gray-600 mt-1">后台入口仍在左侧，这里仅展示视觉风格</div>
+         </div>
+         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+           <div class="bg-white rounded-xl shadow-lg p-5 border-l-4 border-blue-500">
+             <div class="text-xs text-gray-500 uppercase tracking-wide">活跃监控任务</div>
+             <div class="mt-2 text-3xl font-bold text-gray-900">18</div>
+             <div class="mt-1 text-xs text-gray-500">共 24 个任务</div>
+           </div>
+           <div class="bg-white rounded-xl shadow-lg p-5 border-l-4 border-red-500">
+             <div class="text-xs text-gray-500 uppercase tracking-wide">漏洞数据</div>
+             <div class="mt-2 text-3xl font-bold text-gray-900">126</div>
+             <div class="mt-1 text-xs text-gray-500">近 7 天 23</div>
+           </div>
+           <div class="bg-white rounded-xl shadow-lg p-5 border-l-4 border-green-500">
+             <div class="text-xs text-gray-500 uppercase tracking-wide">微信文章</div>
+             <div class="mt-2 text-3xl font-bold text-gray-900">302</div>
+             <div class="mt-1 text-xs text-gray-500">活跃账号 5</div>
+           </div>
+           <div class="bg-white rounded-xl shadow-lg p-5 border-l-4 border-purple-500">
+             <div class="text-xs text-gray-500 uppercase tracking-wide">系统活跃度</div>
+             <div class="mt-2 text-3xl font-bold text-gray-900">High</div>
+             <div class="mt-1 text-xs text-gray-500">RSS 88</div>
+           </div>
+         </div>
+       </section>
+ 
+       <section id="section-news" class="hidden">
+         <div class="mb-5">
+           <div class="text-2xl font-bold text-slate-900">News</div>
+           <div class="text-sm text-gray-600 mt-1">WowArticle 后台风格展示（示意）</div>
+         </div>
+         <div class="flex items-center justify-between mb-4">
+           <div class="text-sm text-gray-600">共 3 条，页 1/1</div>
+           <div class="space-x-2">
+             <button class="px-3 py-1 bg-gray-100 text-gray-700 rounded opacity-50 cursor-not-allowed" disabled>上一页</button>
+             <button class="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded">下一页</button>
+           </div>
+         </div>
+         <div id="news-wow-list" class="grid grid-cols-1 gap-4"></div>
+       </section>
+ 
+       <section id="section-table" class="hidden">
+         <div class="mb-5">
+           <div class="text-2xl font-bold text-slate-900">表格区域</div>
+           <div class="text-sm text-gray-600 mt-1">展示加载态/错误态（示意）</div>
+         </div>
+         <div class="bg-white rounded-xl shadow-lg p-6">
+           <div class="flex items-center justify-between gap-4">
+             <div class="flex items-center gap-3">
+               <div class="text-sm font-semibold text-slate-800">RssArticle</div>
+               <span class="text-xs text-slate-500">显示 1-50 条，共 126 条</span>
+             </div>
+             <div class="w-[280px]">
+              <input class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="搜索数据..." />
+             </div>
+           </div>
+           <div class="mt-4 overflow-hidden rounded-xl border border-gray-200">
+             <div class="grid grid-cols-12 bg-gray-50 text-xs text-gray-500">
+               <div class="col-span-6 px-4 py-3">标题</div>
+               <div class="col-span-3 px-4 py-3">作者</div>
+               <div class="col-span-3 px-4 py-3">时间</div>
+             </div>
+            <div class="p-4">
+              <div class="animate-pulse space-y-3">
+                <div class="h-4 bg-gray-200 rounded w-2/3"></div>
+                <div class="h-4 bg-gray-200 rounded w-4/5"></div>
+                <div class="h-4 bg-gray-200 rounded w-3/5"></div>
+              </div>
+            </div>
+           </div>
+         </div>
+       </section>
+ 
+       <section id="section-tool" class="hidden">
+         <div class="mb-5">
+           <div class="text-2xl font-bold text-slate-900">Tools</div>
+           <div class="text-sm text-gray-600 mt-1">工具入口（示意）</div>
+         </div>
+         <div class="bg-white rounded-xl shadow-lg p-6">
+           <div class="text-sm text-slate-700">这里会展示你的 SimC / WCL 等工具面板。</div>
+         </div>
+       </section>
+     </main>
+   </div>
+ 
+   <script>
+     function toast(message, type) {
+       const root = document.getElementById("toast-root");
+       if (!root) return;
+       if (!root.classList.contains("fixed")) {
+         root.className = "fixed top-4 right-4 z-50 space-y-2";
+       }
+       const el = document.createElement("div");
+       const level = String(type || "info");
+       const color = level === "success" ? "border-green-500" : level === "error" ? "border-red-500" : level === "warning" ? "border-yellow-500" : "border-blue-500";
+       el.className = `bg-white shadow-lg rounded-lg px-4 py-3 border-l-4 ${color} text-gray-800 transition-opacity duration-200`;
+       el.textContent = String(message || "");
+       root.appendChild(el);
+       setTimeout(() => {
+         el.style.opacity = "0";
+         setTimeout(() => el.remove(), 220);
+       }, 2600);
+     }
+ 
+     const NEWS = [
+       {
+         title: "PTR 更新：副本机制与数值调整汇总",
+         description: "本次更新集中在副本机制细化、技能数值回调与部分职业手感修复。建议关注治疗与坦克的改动。",
+         author: "LMonitor",
+         time: "2026-05-07 10:32"
+       },
+       {
+         title: "团本进度观察：各职业表现与关键节点",
+         description: "从公开日志与社区讨论看，本周进度瓶颈主要集中在阶段转换与多人处理机制。",
+         author: "LMonitor",
+         time: "2026-05-06 21:10"
+       },
+       {
+         title: "大秘境周报：词缀组合打法建议（精简版）",
+         description: "当前词缀偏向控场与分摊压力，建议路线更保守，避免无意义拉大。",
+         author: "LMonitor",
+         time: "2026-05-06 12:45"
+       }
+     ];
+ 
+     function escapeHtml(s) {
+       return String(s || "")
+         .replaceAll("&", "&amp;")
+         .replaceAll("<", "&lt;")
+         .replaceAll(">", "&gt;")
+         .replaceAll('"', "&quot;")
+         .replaceAll("'", "&#39;");
+     }
+ 
+     function renderNews() {
+       const el = document.getElementById("news-wow-list");
+       if (!el) return;
+       el.innerHTML = NEWS.map((item) => {
+         return `
+           <div class="bg-white rounded-xl shadow p-6">
+             <div class="flex items-start justify-between gap-4">
+               <div class="text-blue-600 font-semibold leading-snug">${escapeHtml(item.title)}</div>
+               <span class="inline-flex items-center px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded whitespace-nowrap">${escapeHtml(item.time)}</span>
+             </div>
+             <div class="mt-2 text-gray-700 text-sm">${escapeHtml(item.description)}</div>
+             <div class="mt-3 flex items-center justify-between gap-3">
+               <div class="text-gray-500 text-xs">作者：${escapeHtml(item.author)}</div>
+               <button class="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs">打开原文</button>
+             </div>
+           </div>
+         `;
+       }).join("");
+     }
+ 
+     function setSection(id) {
+       ["home", "news", "table", "tool"].forEach((k) => {
+         const el = document.getElementById(`section-${k}`);
+         if (!el) return;
+         if (k === id) el.classList.remove("hidden");
+         else el.classList.add("hidden");
+       });
+     }
+ 
+     function initNav() {
+       document.querySelectorAll(".nav-item[data-target]").forEach((li) => {
+         li.addEventListener("click", (e) => {
+           const target = li.getAttribute("data-target");
+           if (!target) return;
+           if (target === "info" || target === "tools") return;
+           e.preventDefault();
+           setSection(target);
+         });
+       });
+       document.querySelectorAll(".submenu-item[data-target]").forEach((li) => {
+         li.addEventListener("click", (e) => {
+           const target = li.getAttribute("data-target");
+           if (!target) return;
+           e.preventDefault();
+           setSection(target);
+         });
+       });
+       document.querySelectorAll(".submenu-toggle").forEach((a) => {
+         a.addEventListener("click", (e) => {
+           e.preventDefault();
+           const parent = a.closest(".has-submenu");
+           const submenu = parent ? parent.querySelector(".submenu") : null;
+           const chevron = parent ? parent.querySelector(".fa-chevron-down") : null;
+           if (!submenu) return;
+           const open = submenu.style.maxHeight && submenu.style.maxHeight !== "0px";
+           submenu.style.maxHeight = open ? "0px" : submenu.scrollHeight + "px";
+           if (chevron) chevron.classList.toggle("rotate-180", !open);
+         });
+       });
+     }
+ 
+     document.addEventListener("DOMContentLoaded", () => {
+       renderNews();
+       initNav();
+       setSection("home");
+       const ok = document.getElementById("toast-success");
+       const bad = document.getElementById("toast-error");
+       if (ok) ok.addEventListener("click", () => toast("操作成功", "success"));
+       if (bad) bad.addEventListener("click", () => toast("操作失败：示例错误", "error"));
+     });
+   </script>
+ </body>
+ </html>

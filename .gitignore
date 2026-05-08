@@ -51,6 +51,9 @@ coverage.xml
 # Sphinx documentation
 docs/_build/
 
+# docs
+docs/
+
 # PyBuilder
 target/
 
@@ -98,6 +101,7 @@ db.sqlite3*
 
 venv/*
 settings.py
+LMonitor/settings_local.py
 
 # webdriver
 bin/*

@@ -1,0 +1,318 @@
+ <!doctype html>
+ <html lang="zh-CN">
+ <head>
+   <meta charset="UTF-8" />
+   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+   <title>Portal Preview</title>
+   <script src="https://cdn.tailwindcss.com"></script>
+   <link rel="stylesheet" href="../static/css/ui.css" />
+   <link rel="stylesheet" href="../static/portal/css/portal.css" />
+ </head>
+ <body class="ui-page">
+   <div class="max-w-6xl mx-auto px-4 py-6">
+     <div id="toast-root" class="ui-toast-root"></div>
+ 
+     <div class="portal-topbar">
+       <div class="portal-topbar-inner ui-topbar">
+         <div class="flex items-center justify-between gap-3">
+           <div class="text-sm font-semibold tracking-wide text-slate-700">常用入口</div>
+           <div class="text-xs text-slate-500">预览（本地静态数据）</div>
+         </div>
+         <div class="mt-3 flex flex-wrap gap-2 text-sm">
+           <a class="portal-pill" href="https://cn.warcraftlogs.com/" target="_blank" rel="noreferrer">WarcraftLogs</a>
+           <a class="portal-pill" href="https://raider.io/" target="_blank" rel="noreferrer">Raider.IO</a>
+           <a class="portal-pill" href="https://www.wowhead.com/" target="_blank" rel="noreferrer">Wowhead</a>
+           <a class="portal-pill" href="https://maxroll.gg/wow" target="_blank" rel="noreferrer">Maxroll</a>
+         </div>
+         <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+           <div class="md:col-span-8">
+             <input id="portal-search" class="ui-input" placeholder="搜索：标题 / 来源 / 作者 ..." autocomplete="off" />
+           </div>
+           <div class="md:col-span-4 flex items-center justify-end gap-2">
+             <button id="portal-refresh-all" class="ui-btn ui-btn-primary">刷新全部</button>
+             <button id="portal-search-clear" class="ui-btn">清空</button>
+           </div>
+         </div>
+         <div id="portal-search-meta" class="mt-2 text-xs ui-muted"></div>
+       </div>
+     </div>
+ 
+     <div class="mt-6 grid grid-cols-12 gap-4">
+       <div class="col-span-12 lg:col-span-8 space-y-4">
+         <div class="portal-card ui-card p-4">
+           <div class="flex items-center justify-between gap-3">
+             <div class="flex items-center gap-2">
+               <div class="font-semibold">蓝帖速递</div>
+               <div id="blueposts-status" class="portal-status ui-status"></div>
+             </div>
+             <div class="flex items-center gap-2">
+               <div id="blueposts-meta" class="text-xs ui-card-muted truncate"></div>
+               <button class="portal-btn ui-btn" data-collapse="blueposts">折叠</button>
+               <button class="portal-btn ui-btn" data-refresh="blueposts">刷新</button>
+             </div>
+           </div>
+           <div id="blueposts-list" class="mt-3 text-sm max-h-[420px] overflow-auto pr-1 ui-scroll"></div>
+         </div>
+ 
+         <div class="portal-card ui-card p-4">
+           <div class="flex items-center justify-between gap-3">
+             <div class="flex items-center gap-2">
+               <div class="font-semibold">EXWIND</div>
+               <div id="exwind-status" class="portal-status ui-status"></div>
+             </div>
+             <div class="flex items-center gap-2">
+               <div id="exwind-meta" class="text-xs ui-card-muted truncate"></div>
+               <button class="portal-btn ui-btn" data-collapse="exwind">折叠</button>
+               <button class="portal-btn ui-btn" data-refresh="exwind">刷新</button>
+             </div>
+           </div>
+           <div id="exwind-list" class="mt-3 text-sm max-h-[420px] overflow-auto pr-1 ui-scroll"></div>
+         </div>
+       </div>
+ 
+       <div class="col-span-12 lg:col-span-4">
+         <div class="portal-card ui-card p-4">
+           <div class="flex items-center justify-between gap-3">
+             <div class="flex items-center gap-2">
+               <div class="font-semibold">NGA 热议</div>
+               <div id="nga-status" class="portal-status ui-status"></div>
+             </div>
+             <div class="flex items-center gap-2">
+               <div id="nga-meta" class="text-xs ui-card-muted truncate"></div>
+               <button class="portal-btn ui-btn" data-collapse="nga">折叠</button>
+               <button class="portal-btn ui-btn" data-refresh="nga">刷新</button>
+             </div>
+           </div>
+           <div id="nga-list" class="mt-3 text-sm max-h-[880px] overflow-auto pr-1 ui-scroll"></div>
+         </div>
+       </div>
+     </div>
+ 
+     <div class="mt-6 portal-card ui-card p-4">
+       <div class="font-semibold">排行</div>
+       <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
+         <div class="portal-subcard ui-subcard p-3">
+           <div class="font-medium">大秘境</div>
+           <div id="mplus-affixes" class="mt-2 text-sm ui-card-muted"></div>
+           <div id="mplus-rankings" class="mt-3 text-sm"></div>
+         </div>
+         <div class="portal-subcard ui-subcard p-3">
+           <div class="font-medium">团本进度</div>
+           <div id="raid-rankings" class="mt-3 text-sm"></div>
+         </div>
+       </div>
+     </div>
+   </div>
+ 
+   <script>
+     const DATA = {
+       blueposts: {
+         meta: { updated_at: "刚刚", status: 0 },
+         data: [
+           { title: "职业热修：伤害数值调整", url: "https://example.com/1", source: "蓝帖", author: "CM", time: "2026-05-07 10:20" },
+           { title: "团本机制说明：阶段切换逻辑", url: "https://example.com/2", source: "蓝帖", author: "CM", time: "2026-05-07 09:10" }
+         ]
+       },
+       exwind: {
+         meta: { updated_at: "今天", status: 0 },
+         data: [
+           { title: "数据挖掘：新饰品特效推测", url: "https://example.com/3", source: "EXWIND", author: "编辑部", time: "2026-05-07 08:05" },
+           { title: "热修汇总：职业与副本调整", url: "https://example.com/4", source: "EXWIND", author: "编辑部", time: "2026-05-06 23:40" }
+         ]
+       },
+       nga: {
+         meta: { updated_at: "今天", status: 0 },
+         data: Array.from({ length: 12 }).map((_, i) => ({
+           title: `热议帖 #${i + 1}：本周词缀怎么打更舒服？`,
+           url: "https://example.com/nga",
+           source: "NGA",
+           author: "玩家",
+           time: "2026-05-07",
+           reply_count: 100 + i * 7
+         }))
+       },
+       mplus_affixes: { meta: { updated_at: "本周", status: 0 }, data: { week: "19", affixes: [{ name: "强韧" }, { name: "震荡" }, { name: "激励" }] } },
+       mplus_rankings: { meta: { updated_at: "今天", status: 0 }, data: [{ title: "全职业周榜", url: "#", source: "Raider.IO", author: "", time: "Top 100" }] },
+       raid_rankings: { meta: { updated_at: "今天", status: 0 }, data: [{ title: "团本进度榜", url: "#", source: "WCL", author: "", time: "Top 50" }] }
+     };
+ 
+     const STATE = { query: "", collapsed: {} };
+ 
+     function escapeHtml(s) {
+       return String(s || "")
+         .replaceAll("&", "&amp;")
+         .replaceAll("<", "&lt;")
+         .replaceAll(">", "&gt;")
+         .replaceAll('"', "&quot;")
+         .replaceAll("'", "&#39;");
+     }
+ 
+     function toast(message, type) {
+       const root = document.getElementById("toast-root");
+       if (!root) return;
+       const el = document.createElement("div");
+       const level = String(type || "info");
+       const cls =
+         level === "success" ? "ui-toast-success" : level === "error" ? "ui-toast-error" : level === "warning" ? "ui-toast-warning" : "";
+       el.className = `ui-toast ${cls}`;
+       el.innerHTML = `<div class="text-sm font-medium">${escapeHtml(message)}</div>`;
+       root.appendChild(el);
+       requestAnimationFrame(() => el.classList.add("ui-toast-in"));
+       setTimeout(() => {
+         el.classList.remove("ui-toast-in");
+         setTimeout(() => el.remove(), 200);
+       }, 2600);
+     }
+ 
+     function setMeta(metaId, meta) {
+       const el = document.getElementById(metaId);
+       if (!el) return;
+       const updatedAt = meta?.updated_at ? `更新：${meta.updated_at}` : "";
+       const err = meta?.status === 1 && meta?.error_message ? `｜错误：${meta.error_message}` : "";
+       el.textContent = `${updatedAt}${err}`;
+     }
+ 
+     function setStatus(statusId, meta) {
+       const el = document.getElementById(statusId);
+       if (!el) return;
+       if (!meta) {
+         el.textContent = "";
+         el.classList.remove("ui-status-bad");
+         return;
+       }
+       if (meta.status === 1) {
+         el.textContent = "异常";
+         el.classList.add("ui-status-bad");
+         return;
+       }
+       el.textContent = "正常";
+       el.classList.remove("ui-status-bad");
+     }
+ 
+     function matchItem(item, q) {
+       if (!q) return true;
+       const parts = [item?.title, item?.source, item?.author, item?.time, item?.url].filter(Boolean).map((v) => String(v).toLowerCase());
+       return parts.some((v) => v.includes(q));
+     }
+ 
+     function renderList(containerId, items, limit) {
+       const el = document.getElementById(containerId);
+       if (!el) return;
+       const q = String(STATE.query || "").trim().toLowerCase();
+       const filtered = (items || []).filter((it) => matchItem(it, q));
+       if (!items || !items.length) {
+         el.innerHTML = `<div class="ui-card-muted">暂无数据</div>`;
+         return;
+       }
+       if (!filtered.length) {
+         el.innerHTML = `<div class="ui-card-muted">无匹配结果</div>`;
+         return;
+       }
+       el.innerHTML = filtered
+         .slice(0, limit || 12)
+         .map((it, idx) => {
+           const divider = idx === 0 ? "" : "border-t border-white/10";
+           const meta = [it.source ? `来源：${it.source}` : "", it.author || "", it.time || "", it.reply_count ? `${it.reply_count} 回复` : ""]
+             .filter(Boolean)
+             .join(" · ");
+           return `<div class="py-2 ${divider}">
+             <a class="block ui-link portal-line-clamp-2" href="${escapeHtml(it.url || "#")}" target="_blank" rel="noreferrer">${escapeHtml(
+             it.title || ""
+           )}</a>
+             ${meta ? `<div class="mt-1 text-xs ui-card-muted">${escapeHtml(meta)}</div>` : ``}
+           </div>`;
+         })
+         .join("");
+     }
+ 
+     function renderAffixes(payload) {
+       const el = document.getElementById("mplus-affixes");
+       if (!el) return;
+       const affixes = Array.isArray(payload?.affixes) ? payload.affixes : [];
+       const tags = affixes.map((a) => `<span class="ui-badge">${escapeHtml(a.name || "")}</span>`).join("");
+       const week = payload?.week ? `<span class="ui-card-muted text-xs">第 ${escapeHtml(payload.week)} 周</span>` : "";
+       el.innerHTML = `<div class="flex flex-wrap items-center gap-2">${tags}${week}</div>`;
+     }
+ 
+     function applyCollapse(key) {
+       const btn = document.querySelector(`[data-collapse="${key}"]`);
+       const panelId = key === "mplus_affixes" ? "mplus-affixes" : key === "mplus_rankings" ? "mplus-rankings" : key === "raid_rankings" ? "raid-rankings" : `${key}-list`;
+       const panel = document.getElementById(panelId);
+       const collapsed = !!STATE.collapsed[key];
+       if (panel) {
+         if (collapsed) panel.classList.add("hidden");
+         else panel.classList.remove("hidden");
+       }
+       if (btn) btn.textContent = collapsed ? "展开" : "折叠";
+     }
+ 
+     function updateSearchMeta() {
+       const meta = document.getElementById("portal-search-meta");
+       if (!meta) return;
+       const q = String(STATE.query || "").trim();
+       if (!q) {
+         meta.textContent = "";
+         return;
+       }
+       const total = ["blueposts", "exwind", "nga"].reduce((n, k) => n + (DATA[k].data || []).length, 0);
+       const shown = ["blueposts", "exwind", "nga"].reduce((n, k) => n + (DATA[k].data || []).filter((it) => matchItem(it, q.toLowerCase())).length, 0);
+       meta.textContent = `过滤结果：${shown}/${total}`;
+     }
+ 
+     function renderAll() {
+       ["blueposts", "exwind", "nga"].forEach((k) => {
+         const payload = DATA[k];
+         setMeta(`${k}-meta`, payload.meta);
+         setStatus(`${k}-status`, payload.meta);
+         renderList(`${k}-list`, payload.data, k === "nga" ? 20 : 12);
+         applyCollapse(k);
+       });
+       renderAffixes(DATA.mplus_affixes.data);
+       renderList("mplus-rankings", DATA.mplus_rankings.data, 10);
+       renderList("raid-rankings", DATA.raid_rankings.data, 10);
+       updateSearchMeta();
+     }
+ 
+     document.addEventListener("DOMContentLoaded", () => {
+       renderAll();
+ 
+       document.querySelectorAll("[data-refresh]").forEach((btn) => {
+         btn.addEventListener("click", () => {
+           toast("已刷新（预览为静态数据）", "success");
+           renderAll();
+         });
+       });
+       document.querySelectorAll("[data-collapse]").forEach((btn) => {
+         btn.addEventListener("click", () => {
+           const key = btn.getAttribute("data-collapse");
+           if (!key) return;
+           STATE.collapsed[key] = !STATE.collapsed[key];
+           applyCollapse(key);
+         });
+       });
+       const search = document.getElementById("portal-search");
+       if (search) {
+         search.addEventListener("input", () => {
+           STATE.query = search.value || "";
+           renderAll();
+         });
+       }
+       const clear = document.getElementById("portal-search-clear");
+       if (clear) {
+         clear.addEventListener("click", () => {
+           STATE.query = "";
+           if (search) search.value = "";
+           renderAll();
+         });
+       }
+       const refreshAll = document.getElementById("portal-refresh-all");
+       if (refreshAll) {
+         refreshAll.addEventListener("click", () => {
+           toast("刷新全部完成（预览为静态数据）", "success");
+           renderAll();
+         });
+       }
+     });
+   </script>
+ </body>
+ </html>
