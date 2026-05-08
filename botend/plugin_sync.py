@@ -14,6 +14,7 @@ def sync_monitortasks_from_plugin_list(
 ):
     skip = set(skip_indexes or [])
     created = 0
+    total = len(plugin_list or [])
 
     with transaction.atomic():
         for idx, plugin_cls in enumerate(plugin_list or []):
@@ -31,7 +32,6 @@ def sync_monitortasks_from_plugin_list(
             )
             created += 1
 
-    if created:
-        logger.info(f"[MonitorTask Sync] Created {created} tasks from local plugins.")
+    logger.info(f"[MonitorTask Sync] Done. created={created}, total_plugins={total}, skipped={len(skip)}")
 
     return created
