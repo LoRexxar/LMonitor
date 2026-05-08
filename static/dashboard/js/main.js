@@ -1894,13 +1894,10 @@ function updateTableRow(rowId, updateData, row) {
         return;
     }
     
-    // 获取当前选中的表名
-    const selectedTableName = document.getElementById('selected-table-name').textContent.trim();
-    
     // 构建请求数据
     const requestData = {
         action: 'update_table_row',
-        table_name: selectedTableName,
+        table_name: currentTableName,
         row_id: rowId,
         update_data: updateData
     };
@@ -1992,13 +1989,10 @@ function deleteTableRow(rowId) {
         return;
     }
     
-    // 获取当前选中的表名
-    const selectedTableName = document.getElementById('selected-table-name').textContent.trim();
-    
     // 构建请求数据
     const requestData = {
         action: 'delete_table_row',
-        table_name: selectedTableName,
+        table_name: currentTableName,
         row_id: rowId
     };
     
