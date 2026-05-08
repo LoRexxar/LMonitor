@@ -238,6 +238,7 @@ function initNavigation() {
             } else if (tableName) {
                 // 处理数据库表菜单项
                 const tableTitle = this.querySelector('a').textContent;
+                currentTableDisplayName = String(tableTitle || '').trim();
                 
                 if (tableName === 'SimcTask') {
                     // 特殊处理SimcTask，显示专门的SimC任务管理界面
@@ -315,7 +316,7 @@ function initNavigation() {
                         // 更新选中的表名显示
                         const selectedTableName = document.getElementById('selected-table-name');
                         if (selectedTableName) {
-                            selectedTableName.textContent = tableName;
+                            selectedTableName.textContent = currentTableDisplayName || tableName;
                         }
                         
                         // 获取表数据
@@ -1157,6 +1158,8 @@ let totalCount = 0;
 let currentTableName = '';
 let currentTableColumns = [];
 let currentFieldTypes = {};
+let currentFieldLabels = {};
+let currentTableDisplayName = '';
 let simcProfileSpecFilter = '';
 let simcProfileFightStyleFilter = '';
 let secondaryStatRuleMap = null;
@@ -1245,6 +1248,14 @@ function fetchTableData(tableName, page = 1) {
                 
                 // 保存字段类型信息
                 currentFieldTypes = data.field_types || {};
+                currentFieldLabels = data.field_labels || {};
+                if (data.table_description) {
+                    currentTableDisplayName = data.table_description;
+                    const selectedTableName = document.getElementById('selected-table-name');
+                    if (selectedTableName) {
+                        selectedTableName.textContent = currentTableDisplayName;
+                    }
+                }
                 
                 displayTableData(data.data, data.fields);
                 updatePagination();
@@ -1290,10 +1301,6 @@ function displayTableData(data, fields) {
     if (!tableHeader || !tableBody) {
         return;
     }
-    
-    // 获取当前表名并设置全局变量
-    const selectedTableName = document.getElementById('selected-table-name');
-    currentTableName = selectedTableName ? selectedTableName.textContent : '';
     
     // 设置当前表的列信息
     currentTableColumns = fields || [];
@@ -1412,7 +1419,7 @@ function displayTableData(data, fields) {
         const th = document.createElement('th');
         const widthClass = getColumnWidth(field, index, displayFields.length);
         th.className = `px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${widthClass}`;
-        th.textContent = field;
+        th.textContent = getFieldDisplayName(field);
         headerRow.appendChild(th);
     });
     // 添加操作列（WechatArticle、WowArticle和RssArticle表不显示操作列）
@@ -2601,7 +2608,7 @@ function openAddRecordModal() {
     const formFields = document.getElementById('form-fields');
     
     // 设置弹窗标题
-    modalTitle.textContent = `新增${currentTableName}记录`;
+    modalTitle.textContent = `新增${currentTableDisplayName || currentTableName}记录`;
     
     // 生成表单字段
     generateFormFields(formFields);
@@ -2727,6 +2734,9 @@ function generateFormFields(container) {
  * 获取字段显示名称
  */
 function getFieldDisplayName(column) {
+    if (currentFieldLabels && currentFieldLabels[column]) {
+        return currentFieldLabels[column];
+    }
     const fieldNames = {
         'apl_keyword': 'APL关键字',
         'cn_keyword': '中文关键字',
