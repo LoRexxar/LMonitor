@@ -436,3 +436,26 @@ class PortalCache(models.Model):
         verbose_name = 'Portal缓存'
         verbose_name_plural = 'Portal缓存'
     
+
+class SystemAlert(models.Model):
+    category = models.CharField(max_length=64, help_text="报警分类，如 WECHAT_COOKIE_EXPIRED/SIMC_UPDATE_FAILED")
+    subject = models.CharField(max_length=128, default="", blank=True, help_text="报警主体，如 wechat/api.bilibili.com/win64")
+    dedup_key = models.CharField(max_length=220, unique=True, help_text="去重键 category@subject")
+    level = models.IntegerField(default=3, help_text="级别 1=info 2=warning 3=fatal")
+    title = models.CharField(max_length=200, help_text="标题")
+    content = models.TextField(default="", blank=True, help_text="详细信息")
+    count = models.IntegerField(default=1, help_text="累计触发次数")
+    first_seen_at = models.DateTimeField(default=timezone.now)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+    is_read = models.BooleanField(default=False)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'system_alert'
+        verbose_name = '系统报警'
+        verbose_name_plural = '系统报警'
+        indexes = [
+            models.Index(fields=['is_read']),
+            models.Index(fields=['category']),
+            models.Index(fields=['last_seen_at']),
+        ]

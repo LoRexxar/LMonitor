@@ -8,6 +8,7 @@ import datetime
 
 from botend.controller.BaseScan import BaseScan
 from botend.models import TargetAuth, WowArticle
+from botend.alerting import upsert_system_alert
 from django.utils import timezone
 from utils.log import logger
 from urllib.parse import urljoin, urlparse
@@ -245,10 +246,13 @@ class PortalPostMonitor(BaseScan):
                 'https://nga.178.com/thread.php?fid=7',
             ]
             html_text = ''
+            had_forbidden = False
+            last_domain = 'nga.178.com'
             for u in urls:
                 cookies = ''
                 try:
                     domain = urlparse(u).netloc
+                    last_domain = domain or last_domain
                     auth = TargetAuth.objects.filter(domain=domain).first()
                     if auth and auth.cookie:
                         cookies = auth.cookie
@@ -259,9 +263,18 @@ class PortalPostMonitor(BaseScan):
                 if resp and resp.status_code == 200 and (resp.text or '').strip():
                     html_text = resp.text
                     break
-                if resp and resp.status_code == 403 and not cookies:
+                if resp and resp.status_code == 403:
+                    had_forbidden = True
                     continue
             if not html_text:
+                if had_forbidden:
+                    upsert_system_alert(
+                        category='NGA_COOKIE_REQUIRED',
+                        subject=last_domain,
+                        level=3,
+                        title='NGA Cookie 失效或缺失',
+                        content=f"NGA 请求返回 403，可能 cookie 缺失或过期，请更新 TargetAuth(domain={last_domain}) 的 cookie。"
+                    )
                 return
 
             for m in re.finditer(r'<a[^>]+href=[\'"]([^\'"]*read\.php\?tid=\d+[^\'"]*)[\'"][^>]*>(.*?)</a>', html_text, flags=re.I | re.S):

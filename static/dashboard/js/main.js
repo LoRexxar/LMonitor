@@ -36,6 +36,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 初始化用户菜单
     initUserMenu();
+    initSystemAlerts();
     
     // 默认显示首页内容
     const homeMenuItem = document.querySelector('.nav-item[data-section="dashboard-home"]');
@@ -2053,6 +2054,173 @@ function showMessage(message, type = 'info') {
         toast.style.opacity = '0';
         setTimeout(() => toast.remove(), 220);
     }, 2600);
+}
+
+let currentSystemAlerts = [];
+
+function initSystemAlerts() {
+    const modal = document.getElementById('system-alert-modal');
+    if (!modal) {
+        return;
+    }
+    const closeBtn = document.getElementById('system-alert-close');
+    const markAllBtn = document.getElementById('system-alert-mark-all');
+
+    if (closeBtn) {
+        closeBtn.addEventListener('click', function() {
+            modal.classList.add('hidden');
+        });
+    }
+
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            modal.classList.add('hidden');
+        }
+    });
+
+    if (markAllBtn) {
+        markAllBtn.addEventListener('click', async function() {
+            try {
+                const resp = await fetch('/api/system-alert/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark_all_read' })
+                });
+                const data = await resp.json();
+                if (data && data.success) {
+                    currentSystemAlerts = [];
+                    renderSystemAlertModal();
+                    modal.classList.add('hidden');
+                    showMessage('已全部标记为已读', 'success');
+                    return;
+                }
+                showMessage(data && data.error ? data.error : '操作失败', 'error');
+            } catch (e) {
+                showMessage('操作失败: ' + (e && e.message ? e.message : '未知错误'), 'error');
+            }
+        });
+    }
+
+    fetchUnreadSystemAlerts();
+}
+
+async function fetchUnreadSystemAlerts() {
+    try {
+        const resp = await fetch('/api/system-alert/?limit=50', { method: 'GET' });
+        const data = await resp.json();
+        if (!data || !data.success) {
+            return;
+        }
+        currentSystemAlerts = Array.isArray(data.data) ? data.data : [];
+        renderSystemAlertModal();
+    } catch (e) {
+        return;
+    }
+}
+
+function renderSystemAlertModal() {
+    const modal = document.getElementById('system-alert-modal');
+    const list = document.getElementById('system-alert-list');
+    const empty = document.getElementById('system-alert-empty');
+    const hint = document.getElementById('system-alert-hint');
+    if (!modal || !list || !empty) {
+        return;
+    }
+
+    list.innerHTML = '';
+    const alerts = Array.isArray(currentSystemAlerts) ? currentSystemAlerts : [];
+    if (!alerts.length) {
+        empty.classList.remove('hidden');
+        if (hint) {
+            hint.textContent = '';
+        }
+        return;
+    }
+    empty.classList.add('hidden');
+    if (hint) {
+        hint.textContent = `共 ${alerts.length} 条未读报警`;
+    }
+
+    alerts.forEach(a => {
+        const level = Number(a.level || 3);
+        const borderClass = level >= 3 ? 'border-red-500' : level === 2 ? 'border-yellow-500' : 'border-blue-500';
+        const badgeClass = level >= 3 ? 'bg-red-50 text-red-700' : level === 2 ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700';
+        const badgeText = level >= 3 ? '致命' : level === 2 ? '警告' : '提示';
+
+        const wrap = document.createElement('div');
+        wrap.className = `bg-white border-l-4 ${borderClass} rounded-lg shadow-sm p-4`;
+
+        const header = document.createElement('div');
+        header.className = 'flex items-start justify-between gap-3';
+
+        const left = document.createElement('div');
+        left.className = 'min-w-0';
+
+        const title = document.createElement('div');
+        title.className = 'text-sm font-semibold text-gray-900 break-words';
+        title.textContent = String(a.title || a.category || '报警');
+
+        const meta = document.createElement('div');
+        meta.className = 'mt-1 text-xs text-gray-500';
+        const count = a.count ? `触发 ${a.count} 次` : '';
+        const last = a.last_seen_at ? `最近: ${a.last_seen_at}` : '';
+        meta.textContent = [count, last].filter(Boolean).join(' · ');
+
+        left.appendChild(title);
+        left.appendChild(meta);
+
+        const right = document.createElement('div');
+        right.className = 'flex items-center gap-2 flex-shrink-0';
+
+        const badge = document.createElement('span');
+        badge.className = `px-2 py-0.5 rounded-full text-xs font-medium ${badgeClass}`;
+        badge.textContent = badgeText;
+
+        const btn = document.createElement('button');
+        btn.className = 'px-3 py-1.5 bg-gray-900 text-white rounded-md text-xs hover:bg-gray-800 transition-colors duration-200';
+        btn.textContent = '已读';
+        btn.addEventListener('click', async function() {
+            try {
+                const resp = await fetch('/api/system-alert/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark_read', id: a.id })
+                });
+                const data = await resp.json();
+                if (data && data.success) {
+                    currentSystemAlerts = currentSystemAlerts.filter(x => String(x.id) !== String(a.id));
+                    renderSystemAlertModal();
+                    if (!currentSystemAlerts.length) {
+                        const modal = document.getElementById('system-alert-modal');
+                        if (modal) {
+                            modal.classList.add('hidden');
+                        }
+                    }
+                    showMessage('已标记为已读', 'success');
+                    return;
+                }
+                showMessage(data && data.error ? data.error : '操作失败', 'error');
+            } catch (e) {
+                showMessage('操作失败: ' + (e && e.message ? e.message : '未知错误'), 'error');
+            }
+        });
+
+        right.appendChild(badge);
+        right.appendChild(btn);
+
+        header.appendChild(left);
+        header.appendChild(right);
+
+        const content = document.createElement('div');
+        content.className = 'mt-3 text-sm text-gray-700 whitespace-pre-wrap break-words';
+        content.textContent = String(a.content || '');
+
+        wrap.appendChild(header);
+        wrap.appendChild(content);
+        list.appendChild(wrap);
+    });
+
+    modal.classList.remove('hidden');
 }
 
 /**

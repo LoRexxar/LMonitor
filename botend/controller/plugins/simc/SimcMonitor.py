@@ -25,6 +25,7 @@ from django.conf import settings
 from django.utils import timezone
 from utils.log import logger
 from botend.models import SimcTask, SimcProfile, SimcBackendBinary
+from botend.alerting import upsert_system_alert
 from botend.controller.BaseScan import BaseScan
 
 
@@ -780,6 +781,13 @@ class SimcMonitor(BaseScan):
                 err_text = f"{err_text}；{hint}"
                 logger.error(f"[SimC Monitor] Manual download hint: {hint}")
             logger.error(f"[SimC Monitor] Failed to update SimC backend binary: {err_text}")
+            upsert_system_alert(
+                category='SIMC_UPDATE_FAILED',
+                subject=platform,
+                level=3,
+                title='SimC 更新失败',
+                content=err_text
+            )
             try:
                 row = SimcBackendBinary.objects.filter(platform=platform).first()
                 if row:

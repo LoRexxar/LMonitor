@@ -30,9 +30,68 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask
+from botend.models import SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert
 from django.db import models
 from core.glm import GLMClient
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class SystemAlertAPIView(View):
+    def get(self, request):
+        try:
+            limit = request.GET.get('limit', '20')
+            try:
+                limit = max(1, min(100, int(limit)))
+            except ValueError:
+                limit = 20
+
+            alerts = list(SystemAlert.objects.filter(is_read=False).order_by('-last_seen_at')[:limit])
+            return JsonResponse({
+                'success': True,
+                'data': [
+                    {
+                        'id': a.id,
+                        'category': a.category,
+                        'subject': a.subject,
+                        'dedup_key': a.dedup_key,
+                        'level': a.level,
+                        'title': a.title,
+                        'content': a.content,
+                        'count': a.count,
+                        'first_seen_at': a.first_seen_at.strftime('%Y-%m-%d %H:%M:%S') if a.first_seen_at else None,
+                        'last_seen_at': a.last_seen_at.strftime('%Y-%m-%d %H:%M:%S') if a.last_seen_at else None,
+                    }
+                    for a in alerts
+                ],
+                'total': len(alerts),
+            })
+        except Exception as e:
+            logger.error(f"获取系统报警失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'获取系统报警失败: {str(e)}'})
+
+    def post(self, request):
+        try:
+            payload = json.loads(request.body or '{}')
+            action = (payload.get('action') or '').strip()
+            now = timezone.now()
+
+            if action == 'mark_read':
+                alert_id = payload.get('id')
+                try:
+                    alert_id = int(alert_id)
+                except Exception:
+                    return JsonResponse({'success': False, 'error': 'id参数错误'})
+                SystemAlert.objects.filter(id=alert_id).update(is_read=True, read_at=now)
+                return JsonResponse({'success': True})
+
+            if action == 'mark_all_read':
+                SystemAlert.objects.filter(is_read=False).update(is_read=True, read_at=now)
+                return JsonResponse({'success': True})
+
+            return JsonResponse({'success': False, 'error': '未知操作'})
+        except Exception as e:
+            logger.error(f"更新系统报警状态失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'更新系统报警状态失败: {str(e)}'})
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')

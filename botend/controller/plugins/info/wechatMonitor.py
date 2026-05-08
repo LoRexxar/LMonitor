@@ -12,6 +12,7 @@
 from utils.log import logger
 
 from botend.models import WechatArticle, WechatAccountTask, TargetAuth
+from botend.alerting import upsert_system_alert
 
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
@@ -89,6 +90,13 @@ class WechatMonitor(BaseScan):
             if "invalid session" in str(content):
                 logger.warning("[Wechat Monitor] Wechat api session invalid. need login.")
                 self.hint = "Wechat api session invalid. need login."
+                upsert_system_alert(
+                    category='WECHAT_COOKIE_EXPIRED',
+                    subject='wechat',
+                    level=3,
+                    title='微信 Cookie 失效',
+                    content='检测到微信接口返回 invalid session，需要重新登录并更新 TargetAuth(domain=wechat) 的 cookie/token(ext)。'
+                )
 
                 self.trigger_webhook()
                 return
