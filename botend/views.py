@@ -14,6 +14,7 @@ from utils.log import logger
 from core.threadingpool import ThreadPool
 
 from botend.models import MonitorTask, MonitorWebhook
+from botend.plugin_sync import sync_monitortasks_from_plugin_list
 from LMonitor.config import Monitor_Type_BaseObject_List
 from LMonitor.settings import THREAD_LIMIT_NUM
 
@@ -26,6 +27,17 @@ class LMonitorCoreBackend:
     monitor 守护线程
     """
     def __init__(self):
+        if getattr(django_settings, 'MONITOR_TASK_AUTO_SYNC_PLUGINS', False):
+            try:
+                sync_monitortasks_from_plugin_list(
+                    Monitor_Type_BaseObject_List,
+                    default_is_active=False,
+                    default_target="",
+                    skip_indexes={0},
+                )
+            except Exception:
+                logger.warning('[MonitorTask Sync] error, {}'.format(traceback.format_exc()))
+
         # 任务与线程分发
         self.threadpool = ThreadPool()
 
