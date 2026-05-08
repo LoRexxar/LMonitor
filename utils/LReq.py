@@ -19,6 +19,10 @@ from urllib.parse import urlparse
 
 from utils.log import logger
 try:
+    from django.conf import settings as django_settings
+except Exception:
+    django_settings = None
+try:
     from core.chromeheadless import ChromeDriver
 except Exception:
     ChromeDriver = None
@@ -37,6 +41,8 @@ class LReq:
         self.s = requests.Session()
         self.is_chrome = bool(is_chrome and ChromeDriver)
         self.csp = False
+        self._cfg = self._get_cfg()
+        self._apply_session_proxy()
 
         if self.is_chrome:
             try:
@@ -48,6 +54,18 @@ class LReq:
         elif is_chrome and not ChromeDriver:
             logger.warning("[LReq] ChromeDriver not available, fallback to requests mode")
 
+    def _get_cfg(self):
+        if django_settings:
+            return getattr(django_settings, 'REQUEST_CONFIG', {}) or {}
+        return {}
+
+    def _apply_session_proxy(self):
+        if not self._cfg.get('enable_proxy'):
+            return
+        proxies = self._cfg.get('proxies') or {}
+        if proxies and isinstance(proxies, dict):
+            self.s.proxies.update(proxies)
+
     def init_porxy(self):
         if not self.csp:
             self.csp = ChromeDriver(is_proxy=True)
@@ -56,7 +74,8 @@ class LReq:
     def get_timeout():
         return random.randint(1, 5) * 0.5
 
-    def get_header(self, url="", cookies="", ext={}):
+    def get_header(self, url="", cookies="", ext=None):
+        ext = ext or {}
         header = {
             "User-Agent": random.choice(self.ua),
             "Referer": url,
@@ -86,114 +105,109 @@ class LReq:
 
         return url
 
-    def get(self, url, type='Resp', times=0, *args, **kwargs):
+    def _sleep_backoff(self, attempt):
+        base = float(self._cfg.get('backoff_base', 0.5))
+        max_s = float(self._cfg.get('backoff_max', 8))
+        sleep_s = min(max_s, base * (2 ** max(attempt, 0)))
+        sleep_s = sleep_s + (random.random() * 0.2)
+        time.sleep(sleep_s)
 
-        try:
-            method = getattr(self, 'get'+type)
-            return method(url, *args, **kwargs)  # 修改这里，移除了args作为单独参数
-
-        except requests.exceptions.ReadTimeout:
-            logger.warning("[LReq] Request {} timeout...".format(url))
-            if times > 0:
-                return False
-            logger.warning("[LReq] Retry Request {} once...".format(url))
-            return self.get(url, type, 1, *args, **kwargs)
-
-        except socket.timeout:
-            logger.warning("[LReq] Request {} timeout...".format(url))
-            if times > 0:
-                return False
-            logger.warning("[LReq] Retry Request {} once...".format(url))
-            return self.get(url, type, 1, *args, **kwargs)
-
-        except urllib3.exceptions.NewConnectionError:
-            logger.warning("[LReq] Request {} error...".format(url))
-            if times > 0:
-                # 做重启尝试
-                if self.is_chrome:
-                    self.cs = ChromeDriver()
-
-                method = getattr(self, 'get' + type)
-                return method(url, args, **kwargs)
-
-            logger.warning("[LReq] Retry Request {} once...".format(url))
-            return self.get(url, type, 1, *args, **kwargs)
-
-        except requests.exceptions.ConnectionError:
-            logger.warning("[LReq] Request {} error...".format(url))
-            if times > 0:
-                return False
-            logger.warning("[LReq] Retry Request {} once...".format(url))
-            return self.get(url, type, 1, *args, **kwargs)
-
-        except urllib3.exceptions.MaxRetryError:
-            logger.warning("[LReq] Request {} too more. have a wait...".format(url))
-            if times > 0:
-                return False
-
-            time.sleep(3)
-            logger.warning("[LReq] Retry Request {} once...".format(url))
-            return self.get(url, type, 1, *args, **kwargs)
-
-        except:
-            logger.warning('[LReq] something error, {}'.format(traceback.format_exc()))
+    def reset_chrome(self):
+        if not self.is_chrome:
             return False
+        try:
+            if getattr(self, 'cs', None):
+                self.cs.close_driver()
+        except Exception:
+            pass
+        try:
+            self.cs = ChromeDriver()
+            return True
+        except Exception:
+            self.is_chrome = False
+            self.cs = None
+            return False
+
+    def get(self, url, type='Resp', times=0, *args, **kwargs):
+        max_retries = int(self._cfg.get('retries', 1))
+        attempt = int(times or 0)
+
+        while True:
+            try:
+                method = getattr(self, 'get' + type)
+                return method(url, *args, **kwargs)
+
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout, socket.timeout):
+                logger.warning("[LReq] Request {} timeout...".format(url))
+
+            except (urllib3.exceptions.NewConnectionError, requests.exceptions.ConnectionError, urllib3.exceptions.MaxRetryError):
+                logger.warning("[LReq] Request {} error...".format(url))
+                if self.is_chrome:
+                    self.reset_chrome()
+
+            except requests.exceptions.ChunkedEncodingError:
+                logger.warning("[LReq] Request {} chunked encoding error...".format(url))
+
+            except Exception:
+                logger.warning('[LReq] something error, {}'.format(traceback.format_exc()))
+                return False
+
+            if attempt >= max_retries:
+                return False
+
+            attempt += 1
+            self._sleep_backoff(attempt)
 
     def post(self, url, type='Resp', times=0, *args, **kwargs):
+        max_retries = int(self._cfg.get('retries', 1))
+        attempt = int(times or 0)
 
-        try:
-            method = getattr(self, 'post'+type)
-            return method(url, *args, **kwargs)  # 修改这里，确保参数正确传递
+        while True:
+            try:
+                method = getattr(self, 'post' + type)
+                return method(url, *args, **kwargs)
 
-        except requests.exceptions.ReadTimeout:
-            logger.warning("[LReq] Request {} timeout...".format(url))
-            if times > 0:
-                return False
-            logger.warning("[LReq] Retry Request {} once...".format(url))
-            return self.post(url, type, 1, *args, **kwargs)
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout, socket.timeout):
+                logger.warning("[LReq] Request {} timeout...".format(url))
 
-        except socket.timeout:
-            logger.warning("[LReq] Request {} timeout...".format(url))
-            if times > 0:
-                return False
-            logger.warning("[LReq] Retry Request {} once...".format(url))
-            return self.post(url, type, 1, *args, **kwargs)
+            except (urllib3.exceptions.NewConnectionError, requests.exceptions.ConnectionError, urllib3.exceptions.MaxRetryError):
+                logger.warning("[LReq] Request {} error...".format(url))
+                if self.is_chrome:
+                    self.reset_chrome()
 
-        except urllib3.exceptions.NewConnectionError:
-            logger.warning("[LReq] Request {} error...".format(url))
-            if times > 0:
-                return False
-            logger.warning("[LReq] Retry Request {} once...".format(url))
-            return self.post(url, type, 1, *args, **kwargs)
+            except requests.exceptions.ChunkedEncodingError:
+                logger.warning("[LReq] Request {} chunked encoding error...".format(url))
 
-        except requests.exceptions.ConnectionError:
-            logger.warning("[LReq] Request {} error...".format(url))
-            if times > 0:
-                return False
-            logger.warning("[LReq] Retry Request {} once...".format(url))
-            return self.post(url, type, 1, *args, **kwargs)
-
-        except urllib3.exceptions.MaxRetryError:
-            logger.warning("[LReq] Request {} too more. have a wait...".format(url))
-            if times > 0:
+            except Exception:
+                logger.warning('[LReq] something error, {}'.format(traceback.format_exc()))
                 return False
 
-            time.sleep(3)
-            logger.warning("[LReq] Retry Request {} once...".format(url))
-            return self.get(url, type, 1, *args, **kwargs)
+            if attempt >= max_retries:
+                return False
 
-        except:
-            logger.warning('[LReq] something error, {}'.format(traceback.format_exc()))
-            return False
+            attempt += 1
+            self._sleep_backoff(attempt)
 
     def getResp(self, url, cookies):
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
         cookies = cookies if cookies else ""
-
-        r = self.s.get(url, headers=self.get_header(url, cookies), timeout=3)
+        timeout = self._cfg.get('timeout', 3)
+        r = self.s.get(url, headers=self.get_header(url, cookies), timeout=timeout)
+        if getattr(r, 'status_code', 200) >= 400:
+            logger.warning("[LReq] Request {} bad status: {}".format(url, r.status_code))
 
         return r.content
+
+    def getResponse(self, url, cookies, headers=None):
+        url = self.check_url(url)
+        logger.info("[LReq] New request {}".format(url))
+        cookies = cookies if cookies else ""
+        timeout = self._cfg.get('timeout', 3)
+        r = self.s.get(url, headers=self.get_header(url, cookies, headers), timeout=timeout)
+        if getattr(r, 'status_code', 200) >= 400:
+            logger.warning("[LReq] Request {} bad status: {}".format(url, r.status_code))
+        return r
 
     def getRespByChrome(self, url, cookies, is_origin=0, is_proxy=False):
         url = self.check_url(url)
@@ -205,34 +219,54 @@ class LReq:
 
         if is_proxy:
             self.init_porxy()
-            return self.csp.get_resp(url, cookies, is_origin=is_origin)
+            resp = self.csp.get_resp(url, cookies, is_origin=is_origin)
+            if resp is False:
+                try:
+                    self.csp.close_driver()
+                except Exception:
+                    pass
+                self.csp = ChromeDriver(is_proxy=True)
+                return self.csp.get_resp(url, cookies, is_origin=is_origin)
+            return resp
 
-        return self.cs.get_resp(url, cookies, is_origin=is_origin)
+        resp = self.cs.get_resp(url, cookies, is_origin=is_origin)
+        if resp is False:
+            if self.reset_chrome():
+                return self.cs.get_resp(url, cookies, is_origin=is_origin)
+        return resp
 
-    def postResp(self, url, data, cookies, headers={}):
+    def postResp(self, url, data, cookies, headers=None):
+        headers = headers or {}
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
         cookies = cookies if cookies else ""
-
-        r = self.s.post(url, data=data, headers=self.get_header(url, cookies, headers), timeout=3)
+        timeout = self._cfg.get('timeout', 3)
+        r = self.s.post(url, data=data, headers=self.get_header(url, cookies, headers), timeout=timeout)
+        if getattr(r, 'status_code', 200) >= 400:
+            logger.warning("[LReq] Request {} bad status: {}".format(url, r.status_code))
 
         return r.content
 
-    def postJsonResp(self, url, data, cookies, headers={}):
+    def postJsonResp(self, url, data, cookies, headers=None):
+        headers = headers or {}
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
         cookies = cookies if cookies else ""
 
         header = self.get_header(url, cookies, headers)
         header['Content-Type'] = 'application/json'
-
-        r = self.s.post(url, data=json.dumps(data), headers=header, timeout=3)
+        timeout = self._cfg.get('timeout', 3)
+        r = self.s.post(url, data=json.dumps(data), headers=header, timeout=timeout)
+        if getattr(r, 'status_code', 200) >= 400:
+            logger.warning("[LReq] Request {} bad status: {}".format(url, r.status_code))
 
         return r.content
 
     def close_driver(self):
         if getattr(self, "cs", None):
             self.cs.close_driver()
+        if getattr(self, "csp", None):
+            self.csp.close_driver()
 
 
 if __name__ == "__main__":

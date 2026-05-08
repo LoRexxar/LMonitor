@@ -8,6 +8,7 @@ import datetime
 import traceback
 import threading
 from django.db.utils import OperationalError
+from django.conf import settings as django_settings
 from utils.LReq import LReq
 from utils.log import logger
 from core.threadingpool import ThreadPool
@@ -64,39 +65,49 @@ class LMonitorCore:
 
     def scan(self):
         Lreq = LReq(is_chrome=True)
+        req_cfg = getattr(django_settings, 'REQUEST_CONFIG', {}) or {}
+        recycle_every = int(req_cfg.get('chrome_recycle_every', 0) or 0)
+        finished = 0
+        local_tz = pytz.timezone('Asia/Shanghai')
 
         while 1:
             try:
                 global is_Block
+                now_task = False
+                need_wait = False
 
                 lock.acquire()
-                if is_Block:
-                    time.sleep(20)
+                try:
+                    if is_Block:
+                        need_wait = True
+                    else:
+                        is_Block = True
+                finally:
                     lock.release()
+
+                if need_wait:
+                    time.sleep(20)
                     continue
 
-                is_Block = True
+                try:
+                    tasks = MonitorTask.objects.filter(is_active=1).order_by('-last_scan_time')
 
-                tasks = MonitorTask.objects.filter(is_active=1).order_by('-last_scan_time')
-                local_tz = pytz.timezone('Asia/Shanghai')
+                    for task in tasks:
+                        if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < task.wait_time:
+                            continue
 
-                now_task = False
+                        logger.info("[Main] New Task {} start...".format(task.name))
+                        now_task = task
 
-                for task in tasks:
-                    # 扫描每10分钟只会扫一次
-                    if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < task.wait_time:
-                        continue
-
-                    logger.info("[Main] New Task {} start...".format(task.name))
-                    now_task = task
-
-                    # 更新扫描时间
-                    task.last_scan_time = datetime.datetime.now(local_tz)
-                    task.save()
-                    break
-
-                is_Block = False
-                lock.release()
+                        task.last_scan_time = datetime.datetime.now(local_tz)
+                        task.save()
+                        break
+                finally:
+                    lock.acquire()
+                    try:
+                        is_Block = False
+                    finally:
+                        lock.release()
 
                 if now_task:
                     task_type = now_task.type
@@ -104,9 +115,15 @@ class LMonitorCore:
                     task_class = Monitor_Type_BaseObject_List[task_type]
 
                     t = task_class(Lreq, now_task)
-                    t.scan(task_url)
+                    try:
+                        t.scan(task_url)
+                    except Exception:
+                        logger.warning('[Scan] task error, {}'.format(traceback.format_exc()))
 
                     now_task.save()
+                    finished += 1
+                    if recycle_every and Lreq.is_chrome and (finished % recycle_every == 0):
+                        Lreq.reset_chrome()
                     time.sleep(10)
 
             except KeyboardInterrupt:
@@ -121,4 +138,5 @@ class LMonitorCore:
 
             except:
                 logger.warning('[Scan] something error, {}'.format(traceback.format_exc()))
-                raise
+                time.sleep(5)
+                continue

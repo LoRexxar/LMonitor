@@ -6,8 +6,6 @@ import xml.etree.ElementTree as ET
 import email.utils
 import datetime
 
-import requests
-
 from botend.controller.BaseScan import BaseScan
 from botend.models import TargetAuth, WowArticle
 from django.utils import timezone
@@ -53,8 +51,8 @@ class PortalPostMonitor(BaseScan):
     def update_blueposts(self):
         rss_url = 'https://us.forums.blizzard.com/en/wow/g/blizzard-tracker/posts.rss'
         try:
-            resp = requests.get(rss_url, timeout=25, headers={'User-Agent': 'Mozilla/5.0'})
-            if resp.status_code != 200:
+            resp = self.req.get(rss_url, 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0'})
+            if not resp or resp.status_code != 200:
                 return
             root = ET.fromstring(resp.text)
             channel = root.find('channel')
@@ -99,8 +97,8 @@ class PortalPostMonitor(BaseScan):
         try:
             seen = set()
             items = []
-            resp = requests.get('https://exwind.net/', timeout=25, headers={'User-Agent': 'Mozilla/5.0'})
-            if resp.status_code != 200:
+            resp = self.req.get('https://exwind.net/', 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0'})
+            if not resp or resp.status_code != 200:
                 return
             html_text = resp.text or ''
             for m in re.finditer(r'<a[^>]+href=[\'"]([^\'"]*?/post/[^\'"]+)[\'"][^>]*>(.*?)</a>', html_text, flags=re.I | re.S):
@@ -140,8 +138,8 @@ class PortalPostMonitor(BaseScan):
 
     def _get_exwind_publish_time(self, url):
         try:
-            resp = requests.get(url, timeout=25, headers={'User-Agent': 'Mozilla/5.0'})
-            if resp.status_code != 200:
+            resp = self.req.get(url, 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0'})
+            if not resp or resp.status_code != 200:
                 return None
             t = resp.text or ''
             m = re.search(r'网站发布\s*[:：]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s+([0-9]{2}:[0-9]{2}:[0-9]{2})', t)
@@ -256,12 +254,12 @@ class PortalPostMonitor(BaseScan):
                         cookies = auth.cookie
                 except Exception:
                     cookies = ''
-                headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://nga.178.com/', 'Cookie': cookies}
-                resp = requests.get(u, timeout=25, headers=headers)
-                if resp.status_code == 200 and (resp.text or '').strip():
+                headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://nga.178.com/'}
+                resp = self.req.get(u, 'Response', 0, cookies, headers=headers)
+                if resp and resp.status_code == 200 and (resp.text or '').strip():
                     html_text = resp.text
                     break
-                if resp.status_code == 403 and not cookies:
+                if resp and resp.status_code == 403 and not cookies:
                     continue
             if not html_text:
                 return
