@@ -98,6 +98,7 @@ db.sqlite3*
 
 venv/*
 settings.py
+LMonitor/settings_local.py
 
 # webdriver
 bin/*

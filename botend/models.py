@@ -1,3 +1,5 @@
+import hashlib
+
 from django.db import models
 from django.utils import timezone
 
@@ -98,10 +100,150 @@ class RssArticle(models.Model):
 class WowArticle(models.Model):
     title = models.CharField(max_length=255, default=None, null=True)
     url = models.CharField(max_length=2000, default=None, null=True)
+    url_hash = models.CharField(max_length=64, null=True, blank=True, unique=True)
     author = models.CharField(max_length=255, default=None, null=True)
     description = models.TextField(null=True)
     publish_time = models.DateTimeField(default=timezone.now, null=True)
+    source = models.CharField(max_length=32, default="unknown")
+    category = models.CharField(max_length=32, default="unknown")
     is_active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['url_hash']),
+            models.Index(fields=['source']),
+            models.Index(fields=['category']),
+            models.Index(fields=['publish_time']),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.url_hash and self.url:
+            self.url_hash = hashlib.sha256(str(self.url).encode('utf-8')).hexdigest()
+        super().save(*args, **kwargs)
+
+class PortalEvent(models.Model):
+    title = models.CharField(max_length=500)
+    url = models.CharField(max_length=2000)
+    url_hash = models.CharField(max_length=64, unique=True)
+    source = models.CharField(max_length=32, default="unknown")
+    tag = models.CharField(max_length=64, default="")
+    start_at = models.DateTimeField(null=True, blank=True)
+    end_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=32, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'wow_portal_event'
+        indexes = [
+            models.Index(fields=['url_hash']),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.url_hash and self.url:
+            self.url_hash = hashlib.sha256(str(self.url).encode('utf-8')).hexdigest()
+        super().save(*args, **kwargs)
+
+
+class PortalToolLink(models.Model):
+    name = models.CharField(max_length=200)
+    url = models.CharField(max_length=2000)
+    url_hash = models.CharField(max_length=64, unique=True)
+    desc = models.CharField(max_length=500, null=True, blank=True)
+    source = models.CharField(max_length=32, default="manual")
+    sort_order = models.IntegerField(default=0)
+    is_topbar = models.BooleanField(default=False)
+    topbar_order = models.IntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'wow_portal_tool_link'
+        indexes = [
+            models.Index(fields=['url_hash']),
+            models.Index(fields=['is_active']),
+            models.Index(fields=['is_topbar']),
+            models.Index(fields=['sort_order']),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.url_hash and self.url:
+            self.url_hash = hashlib.sha256(str(self.url).encode('utf-8')).hexdigest()
+        super().save(*args, **kwargs)
+
+
+class PortalMplusRun(models.Model):
+    rank = models.IntegerField(default=0)
+    dungeon = models.CharField(max_length=128, default="")
+    dungeon_slug = models.CharField(max_length=128, null=True, blank=True)
+    level = models.IntegerField(default=0)
+    time_seconds = models.IntegerField(default=0)
+    score = models.FloatField(null=True, blank=True)
+    run_url = models.CharField(max_length=2000, null=True, blank=True)
+    party_json = models.TextField(null=True, blank=True)
+    tank = models.CharField(max_length=128, null=True, blank=True)
+    healer = models.CharField(max_length=128, null=True, blank=True)
+    dps_json = models.TextField(null=True, blank=True)
+    source = models.CharField(max_length=32, default="unknown")
+    region = models.CharField(max_length=32, null=True, blank=True)
+    season = models.CharField(max_length=64, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'wow_portal_mplus_run'
+        indexes = [
+            models.Index(fields=['season', 'region']),
+            models.Index(fields=['dungeon']),
+            models.Index(fields=['dungeon_slug']),
+        ]
+
+class VideoMonitorTarget(models.Model):
+    name = models.CharField(max_length=200)
+    tag = models.CharField(max_length=64)
+    platform = models.CharField(max_length=32, default="bilibili")
+    target_url = models.CharField(max_length=2000)
+    target_url_hash = models.CharField(max_length=64)
+    last_seen_bvid = models.CharField(max_length=32, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    ext_json = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'wow_video_monitor_target'
+        unique_together = (('platform', 'target_url_hash'),)
+        indexes = [
+            models.Index(fields=['tag']),
+            models.Index(fields=['target_url_hash']),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.target_url_hash and self.target_url:
+            self.target_url_hash = hashlib.sha256(str(self.target_url).encode('utf-8')).hexdigest()
+        super().save(*args, **kwargs)
+
+class PortalVideo(models.Model):
+    title = models.CharField(max_length=500)
+    url = models.CharField(max_length=2000)
+    url_hash = models.CharField(max_length=64, unique=True)
+    bvid = models.CharField(max_length=32, null=True, blank=True)
+    cover_url = models.CharField(max_length=2000, null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    author_name = models.CharField(max_length=255, default="")
+    author_url = models.CharField(max_length=2000, default="")
+    tag = models.CharField(max_length=64, default="")
+    target = models.ForeignKey(VideoMonitorTarget, on_delete=models.SET_NULL, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    extra_json = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'wow_portal_video'
+        indexes = [
+            models.Index(fields=['url_hash']),
+            models.Index(fields=['tag']),
+            models.Index(fields=['published_at']),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.url_hash and self.url:
+            self.url_hash = hashlib.sha256(str(self.url).encode('utf-8')).hexdigest()
+        super().save(*args, **kwargs)
 
 class GeWechatAuth(models.Model):
     appId = models.CharField(max_length=100)
@@ -280,4 +422,17 @@ class WclAnalysisTask(models.Model):
         verbose_name = 'WCL分析任务'
         verbose_name_plural = 'WCL分析任务'
         ordering = ['-created_at']
+
+
+class PortalCache(models.Model):
+    key = models.CharField(max_length=100, unique=True, help_text="缓存键，如 exwind_latest/nga_hot/blueposts")
+    data = models.TextField(default="", blank=True, help_text="JSON字符串")
+    status = models.IntegerField(default=0, help_text="状态 0正常 1失败")
+    error_message = models.CharField(max_length=1000, default="", blank=True, help_text="最近错误摘要")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'portal_cache'
+        verbose_name = 'Portal缓存'
+        verbose_name_plural = 'Portal缓存'
     

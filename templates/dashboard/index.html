@@ -92,6 +92,7 @@
     <form id="csrf-form" style="display:none;">
         {% csrf_token %}
     </form>
+    <div id="toast-root"></div>
     
     <!-- 顶部导航栏 -->
     <header class="gradient-bg text-white shadow-lg">
@@ -168,14 +169,12 @@
                         </a>
                         <ul class="submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
                             {% for table in tables_info %}
-                            {% if table.name != 'SimcAplKeywordPair' and table.name != 'SimcTask' and table.name != 'SimcProfile' and table.name != 'SimcSecondaryStatRule' %}
                             <li class="submenu-item" data-table="{{ table.name }}">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-table mr-2 text-xs"></i>
                                     {{ table.description }}
                                 </a>
                             </li>
-                            {% endif %}
                             {% endfor %}
                         </ul>
                     </li>

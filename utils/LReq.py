@@ -18,7 +18,10 @@ import urllib3
 from urllib.parse import urlparse
 
 from utils.log import logger
-from core.chromeheadless import ChromeDriver
+try:
+    from core.chromeheadless import ChromeDriver
+except Exception:
+    ChromeDriver = None
 
 
 class LReq:
@@ -32,11 +35,18 @@ class LReq:
                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:59.0) Gecko/20100101 Firefox/59.0"]
 
         self.s = requests.Session()
-        self.is_chrome = is_chrome
+        self.is_chrome = bool(is_chrome and ChromeDriver)
         self.csp = False
 
         if self.is_chrome:
-            self.cs = ChromeDriver()
+            try:
+                self.cs = ChromeDriver()
+            except Exception:
+                self.is_chrome = False
+                self.cs = None
+                logger.warning("[LReq] ChromeDriver init failed, fallback to requests mode")
+        elif is_chrome and not ChromeDriver:
+            logger.warning("[LReq] ChromeDriver not available, fallback to requests mode")
 
     def init_porxy(self):
         if not self.csp:
@@ -190,6 +200,9 @@ class LReq:
         logger.info("[LReq] New request {}".format(url))
         cookies = cookies if cookies else ""
 
+        if not self.is_chrome:
+            return self.getResp(url, cookies)
+
         if is_proxy:
             self.init_porxy()
             return self.csp.get_resp(url, cookies, is_origin=is_origin)
@@ -218,7 +231,8 @@ class LReq:
         return r.content
 
     def close_driver(self):
-        self.cs.close_driver()
+        if getattr(self, "cs", None):
+            self.cs.close_driver()
 
 
 if __name__ == "__main__":

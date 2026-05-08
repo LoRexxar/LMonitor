@@ -36,10 +36,9 @@ class ChromeDriver:
 
         try:
             self.init_object(is_proxy)
-
-        except:
+        except Exception:
             logger.error("[Chrome Headless] {}".format(traceback.format_exc()))
-            exit(0)
+            raise
 
         self.origin_url = ""
 
