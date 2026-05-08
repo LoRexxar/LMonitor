@@ -88,6 +88,7 @@ function renderSimpleList(containerId, items, opts) {
     return;
   }
   const limit = typeof opts?.limit === "number" ? opts.limit : 12;
+  const showReplyBadge = opts?.showReplyBadge === true || containerId === "nga-list";
   el.innerHTML = filtered
     .slice(0, limit)
     .map((it, idx) => {
@@ -96,19 +97,28 @@ function renderSimpleList(containerId, items, opts) {
       const source = escapeHtml(it.source || "");
       const author = escapeHtml(it.author || "");
       const time = escapeHtml((it.time || it.publish_time || it.published_at || "").replaceAll("\n", " ").trim());
-      const reply = it.reply_count ? `${escapeHtml(it.reply_count)} 回复` : "";
+      const replyCount = Number(it.reply_count || 0);
+      const reply = showReplyBadge && replyCount > 0
+        ? (() => {
+            let badgeCls = "bg-slate-100 text-slate-700 border-slate-200";
+            if (replyCount >= 500) badgeCls = "bg-rose-100 text-rose-800 border-rose-200";
+            else if (replyCount >= 200) badgeCls = "bg-amber-100 text-amber-800 border-amber-200";
+            else badgeCls = "bg-sky-100 text-sky-800 border-sky-200";
+            return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badgeCls}">${escapeHtml(replyCount)} 回复</span>`;
+          })()
+        : "";
 
       const parts = [];
       if (source) parts.push(`来源：${source}`);
       if (author) parts.push(author);
       if (time) parts.push(time);
-      if (reply) parts.push(reply);
-      const meta = parts.join(" · ");
+      const metaText = parts.join(" · ");
+      const meta = reply ? `${metaText ? `${metaText} ` : ""}${reply}` : metaText;
 
       const divider = idx === 0 ? "" : "border-t border-slate-100";
       return `<div class="py-2 ${divider}">
         <a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>
-        ${meta ? `<div class="mt-1 text-xs text-slate-500">${escapeHtml(meta)}</div>` : ""}
+        ${meta ? `<div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">${meta}</div>` : ""}
       </div>`;
     })
     .join("");
@@ -253,7 +263,11 @@ function renderMplusRuns(containerId, items) {
     const renderMember = (m) => {
       const name = escapeHtml(m?.name || "-");
       const color = classColor(m?.class_slug);
-      return `<span class="inline-flex items-center" style="color:${color}">${name}</span>`;
+      const border = color.toLowerCase() === "#ffffff" ? "border-slate-300" : "border-transparent";
+      return `<span class="inline-flex items-center gap-1.5 rounded-md bg-white/70 border ${border} px-1.5 py-0.5">
+        <span class="w-2 h-2 rounded-full border border-slate-200" style="background:${color}"></span>
+        <span class="text-slate-800 font-semibold">${name}</span>
+      </span>`;
     };
     const tankHtml = renderMember(tank);
     const healerHtml = renderMember(healer);
@@ -329,18 +343,29 @@ function renderVideos(payload) {
     .map((it, idx) => {
       const title = escapeHtml(it.title || "");
       const url = escapeHtml(it.url || "#");
+      const cover = escapeHtml(it.cover_url || it.cover || "");
       const author = escapeHtml(it.author || "");
       const authorUrl = escapeHtml(it.author_url || "#");
       const time = escapeHtml((it.published_at || "").replaceAll("\n", " ").trim());
       const tag = escapeHtml(it.tag || "");
       const divider = idx === 0 ? "" : "border-t border-slate-100";
+      const coverHtml = cover
+        ? `<a class="shrink-0 w-20 h-11 rounded-lg overflow-hidden border border-slate-200 bg-slate-100" href="${url}" target="_blank" rel="noreferrer">
+            <img src="${cover}" alt="" class="w-full h-full object-cover" loading="lazy" />
+          </a>`
+        : `<div class="shrink-0 w-20 h-11 rounded-lg overflow-hidden border border-slate-200 portal-skeleton"></div>`;
       return `<div class="py-2 ${divider}">
-        <a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>
-        <div class="mt-1 text-xs text-slate-500">
-          ${author ? `UP：<a class="text-indigo-700 hover:text-indigo-900" href="${authorUrl}" target="_blank" rel="noreferrer">${author}</a>` : ""}
-          ${author && time ? " · " : ""}
-          ${time}
-          ${tag ? ` · ${tag}` : ""}
+        <div class="flex items-start gap-3">
+          ${coverHtml}
+          <div class="min-w-0 flex-1">
+            <a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>
+            <div class="mt-1 text-xs text-slate-500">
+              ${author ? `UP：<a class="text-indigo-700 hover:text-indigo-900" href="${authorUrl}" target="_blank" rel="noreferrer">${author}</a>` : ""}
+              ${author && time ? " · " : ""}
+              ${time}
+              ${tag ? ` · ${tag}` : ""}
+            </div>
+          </div>
         </div>
       </div>`;
     })
@@ -363,20 +388,23 @@ function renderEvents(items) {
       const url = escapeHtml(it.url || "#");
       const start = escapeHtml(it.start_at || "");
       const end = escapeHtml(it.end_at || "");
-      const status = escapeHtml(it.status || "");
+      const rawStatus = String(it.status || "").trim();
+      const status = escapeHtml(rawStatus);
       const range = end ? `${start} - ${end}` : start;
-      const badge = status
-        ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800 border border-amber-200">${status}</span>`
-        : "";
+      let badgeCls = "bg-slate-100 text-slate-700 border-slate-200";
+      if (rawStatus.includes("进行中")) badgeCls = "bg-emerald-100 text-emerald-800 border-emerald-200";
+      else if (rawStatus.includes("即将")) badgeCls = "bg-sky-100 text-sky-800 border-sky-200";
+      else if (rawStatus.includes("已结束")) badgeCls = "bg-slate-100 text-slate-600 border-slate-200";
+      const badge = status ? `<span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${badgeCls}">${status}</span>` : "";
       const divider = idx === 0 ? "" : "border-t border-slate-100";
       return `<div class="py-2 ${divider}">
-        <div class="flex items-start justify-between gap-2">
+        <div class="flex items-start justify-between gap-3">
           <a class="text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>
           ${badge}
         </div>
         ${
           range
-            ? `<div class="mt-1 text-xs text-slate-600">${range}</div>`
+            ? `<div class="mt-1 text-xs text-slate-500">⏱ ${range}</div>`
             : `<div class="mt-1 text-xs text-slate-500">时间待补充</div>`
         }
       </div>`;
@@ -402,11 +430,6 @@ async function loadSection(key) {
       const payload = r.data || {};
       const items = payload.items || [];
       const dungeons = payload.dungeons || [];
-      if (!PORTAL_STATE.activeDungeon && Array.isArray(dungeons) && dungeons.length) {
-        PORTAL_STATE.activeDungeon = dungeons[0].slug || "";
-        await loadSection("mplus_rankings");
-        return;
-      }
       PORTAL_STATE.dataBySection[key] = items;
       renderMplusControls(dungeons);
       renderMplusRuns(ep.listId, items);
@@ -447,31 +470,9 @@ function updateSearchMeta() {
 
 function bindSearch() {
   const input = document.getElementById("portal-search");
-  const clearBtn = document.getElementById("portal-search-clear");
   if (input) {
     input.addEventListener("input", () => {
       PORTAL_STATE.query = input.value || "";
-      Object.keys(SECTION_MAP).forEach((key) => {
-        const ep = SECTION_MAP[key];
-        if (ep.listId && PORTAL_STATE.dataBySection[key]) {
-          if (key === "mplus_rankings") {
-            renderMplusRuns(ep.listId, PORTAL_STATE.dataBySection[key]);
-          } else if (key === "videos") {
-            renderVideos({ tags: PORTAL_STATE.videoTags, items: PORTAL_STATE.dataBySection.videos || [] });
-          } else if (key === "events") {
-            renderEvents(PORTAL_STATE.dataBySection[key]);
-          } else {
-            renderSimpleList(ep.listId, PORTAL_STATE.dataBySection[key], { limit: key === "nga" ? 20 : 12 });
-          }
-        }
-      });
-      updateSearchMeta();
-    });
-  }
-  if (clearBtn) {
-    clearBtn.addEventListener("click", () => {
-      PORTAL_STATE.query = "";
-      if (input) input.value = "";
       Object.keys(SECTION_MAP).forEach((key) => {
         const ep = SECTION_MAP[key];
         if (ep.listId && PORTAL_STATE.dataBySection[key]) {
