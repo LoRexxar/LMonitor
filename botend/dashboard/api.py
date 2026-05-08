@@ -23,6 +23,7 @@ import requests
 import os
 import threading
 import uuid
+import platform as py_platform
 from urllib.parse import urlparse, parse_qs
 from django.utils import timezone
 from django.template.loader import render_to_string
@@ -2791,12 +2792,18 @@ class SimcBackendBinaryAPIView(View):
 
     def get(self, request):
         try:
-            row = SimcBackendBinary.objects.filter(platform='win64').first()
+            sys_name = str(py_platform.system() or '').lower()
+            if 'linux' in sys_name:
+                machine = str(py_platform.machine() or '').lower()
+                runtime_platform = 'linuxarm64' if machine in ('aarch64', 'arm64') else 'linux64'
+            else:
+                runtime_platform = 'win64'
+            row = SimcBackendBinary.objects.filter(platform=runtime_platform).first()
             if not row:
                 return JsonResponse({
                     'success': True,
                     'data': {
-                        'platform': 'win64',
+                        'platform': runtime_platform,
                         'simc_path': '',
                         'current_version': '',
                         'latest_version': '',

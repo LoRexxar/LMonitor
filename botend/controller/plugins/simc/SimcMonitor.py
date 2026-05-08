@@ -16,6 +16,9 @@ import time
 import json
 import re
 import zipfile
+import tarfile
+import shutil
+import platform as py_platform
 from urllib.parse import urljoin
 import requests
 from django.conf import settings
@@ -62,9 +65,20 @@ class SimcMonitor(BaseScan):
         except Exception:
             return None
 
+    def _get_runtime_platform(self):
+        sys_name = str(py_platform.system() or '').lower()
+        if 'windows' in sys_name:
+            return 'win64'
+        if 'linux' in sys_name:
+            machine = str(py_platform.machine() or '').lower()
+            if machine in ('aarch64', 'arm64'):
+                return 'linuxarm64'
+            return 'linux64'
+        return 'win64'
+
     def _parse_version_from_path(self, simc_path, platform):
         text = str(simc_path or '')
-        m = re.search(rf"simc-([^-\\\\/]+)-{re.escape(platform)}", text)
+        m = re.search(rf"simc-(.+?)-{re.escape(platform)}", text)
         return m.group(1) if m else ""
 
     def _format_eta(self, seconds):
@@ -120,7 +134,7 @@ class SimcMonitor(BaseScan):
         resp.raise_for_status()
         html = resp.text or ''
         m = re.search(
-            r'href="([^"]*simc-[^"]*' + re.escape(platform) + r'[^"]*\.(?:7z|zip))"',
+            r'href="([^"]*simc-[^"]*' + re.escape(platform) + r'[^"]*\.(?:7z|zip|tar\\.gz|tar\\.xz|tgz))"',
             html,
             flags=re.IGNORECASE
         )
@@ -129,7 +143,7 @@ class SimcMonitor(BaseScan):
         href = m.group(1)
         file_name = href.split('/')[-1]
         download_url = urljoin("http://downloads.simulationcraft.org/nightly/", file_name)
-        vm = re.search(rf"simc-([^-]+)-{re.escape(platform)}", file_name, flags=re.IGNORECASE)
+        vm = re.search(rf"simc-(.+?)-{re.escape(platform)}", file_name, flags=re.IGNORECASE)
         version = vm.group(1) if vm else file_name
         return {"version": version, "url": download_url, "file_name": file_name}
 
@@ -149,7 +163,7 @@ class SimcMonitor(BaseScan):
         resp = requests.get(
             url,
             stream=True,
-            timeout=60,
+            timeout=(10, 60),
             proxies=self._get_http_proxies(),
             headers=headers
         )
@@ -196,9 +210,149 @@ class SimcMonitor(BaseScan):
             progress_cb(downloaded, total, 100 if total > 0 else 0)
         return final_path if os.path.exists(final_path) else part_path
 
+    def _safe_remove_file(self, path):
+        if not path:
+            return
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+
+    def _is_retryable_download_error(self, exc):
+        try:
+            if isinstance(
+                exc,
+                (
+                    requests.exceptions.Timeout,
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.ChunkedEncodingError,
+                ),
+            ):
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _download_via_powershell_bits(self, url, dest_path, timeout_seconds=900):
+        ps = shutil.which('powershell') or shutil.which('pwsh')
+        if not ps:
+            raise Exception("未找到 PowerShell")
+        safe_url = str(url).replace("'", "''")
+        safe_dest = str(dest_path).replace("'", "''")
+        cmd = [
+            ps,
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            f"$ProgressPreference='SilentlyContinue'; "
+            f"Start-BitsTransfer -Source '{safe_url}' -Destination '{safe_dest}' -TransferType Download -ErrorAction Stop",
+        ]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout_seconds, check=True)
+
+    def _download_via_curl(self, url, dest_path, timeout_seconds=900):
+        curl = shutil.which('curl')
+        if not curl:
+            raise Exception("未找到 curl")
+        cmd = [
+            curl,
+            "-L",
+            "--fail",
+            "--retry",
+            "3",
+            "--retry-delay",
+            "1",
+            "--connect-timeout",
+            "15",
+            "--max-time",
+            str(int(timeout_seconds)),
+            "-o",
+            dest_path,
+            url,
+        ]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout_seconds + 30, check=True)
+
+    def _download_via_wget(self, url, dest_path, timeout_seconds=900):
+        wget = shutil.which('wget')
+        if not wget:
+            raise Exception("未找到 wget")
+        cmd = [wget, "-O", dest_path, "--tries=3", "--timeout=30", url]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout_seconds + 30, check=True)
+
+    def _download_archive_with_resilience(self, row, latest_ver, url, archive_path, platform, progress_cb=None):
+        retries = int(self.simc_config.get('download_retry', 3) or 3)
+        backoff = float(self.simc_config.get('download_backoff_seconds', 1) or 1)
+        fallback_enabled = bool(self.simc_config.get('download_fallback', True))
+
+        last_exc = None
+        for attempt in range(1, retries + 1):
+            try:
+                if attempt > 1:
+                    self._set_update_status(
+                        row,
+                        status=f'下载重试 {attempt}/{retries} {latest_ver}',
+                        progress=1,
+                        is_updating=True,
+                    )
+                self._download_file(url, archive_path, progress_cb=progress_cb)
+                if not os.path.exists(archive_path):
+                    raise Exception("下载未生成目标文件")
+                if not self._validate_archive(archive_path, platform):
+                    raise Exception("下载文件校验失败（压缩包损坏或未完整下载）")
+                return
+            except Exception as e:
+                last_exc = e
+                retryable = self._is_retryable_download_error(e) or ('校验失败' in str(e))
+                if attempt < retries and retryable:
+                    if '校验失败' in str(e):
+                        self._safe_remove_file(archive_path)
+                        self._safe_remove_file(archive_path + '.part')
+                    time.sleep(backoff * (2 ** (attempt - 1)))
+                    continue
+                break
+
+        if not fallback_enabled:
+            raise last_exc or Exception("下载失败")
+
+        part_path = archive_path + ".part"
+        self._safe_remove_file(part_path)
+        self._set_update_status(row, status=f'切换兜底下载 {latest_ver}', progress=5, is_updating=True)
+        errors = []
+        try:
+            if str(platform).startswith('win'):
+                try:
+                    self._set_update_status(row, status=f'兜底下载中（BITS） {latest_ver}', progress=10, is_updating=True)
+                    self._download_via_powershell_bits(url, part_path)
+                except Exception as e:
+                    errors.append(f"BITS: {e}")
+                    self._download_via_curl(url, part_path)
+            else:
+                try:
+                    self._set_update_status(row, status=f'兜底下载中（curl） {latest_ver}', progress=10, is_updating=True)
+                    self._download_via_curl(url, part_path)
+                except Exception as e:
+                    errors.append(f"curl: {e}")
+                    self._download_via_wget(url, part_path)
+        except Exception as e:
+            errors.append(str(e))
+            raise Exception("兜底下载失败: " + " | ".join(errors))
+
+        if not os.path.exists(part_path) or os.path.getsize(part_path) <= 0:
+            raise Exception("兜底下载失败：未生成文件")
+        self._safe_remove_file(archive_path)
+        os.replace(part_path, archive_path)
+        if not self._validate_archive(archive_path, platform):
+            self._safe_remove_file(archive_path)
+            raise Exception("兜底下载完成但校验失败（压缩包损坏或未完整下载）")
+
     def _validate_archive(self, archive_path, platform):
         p = str(archive_path)
         lower = p.lower()
+        if lower.endswith(('.tar.gz', '.tar.xz', '.tgz')):
+            try:
+                return tarfile.is_tarfile(p)
+            except Exception:
+                return False
         if lower.endswith('.zip'):
             try:
                 return zipfile.is_zipfile(p)
@@ -224,6 +378,16 @@ class SimcMonitor(BaseScan):
     def _extract_archive(self, archive_path, extract_dir, platform):
         os.makedirs(extract_dir, exist_ok=True)
         lower = str(archive_path).lower()
+        if lower.endswith(('.tar.gz', '.tar.xz', '.tgz')):
+            with tarfile.open(archive_path, 'r:*') as tf:
+                base = os.path.realpath(extract_dir)
+                base_prefix = base + os.sep
+                for m in tf.getmembers():
+                    target = os.path.realpath(os.path.join(extract_dir, m.name))
+                    if not (target == base or target.startswith(base_prefix)):
+                        raise Exception("压缩包内容包含非法路径")
+                tf.extractall(extract_dir)
+            return extract_dir
         if lower.endswith('.zip'):
             with zipfile.ZipFile(archive_path, 'r') as zf:
                 zf.extractall(extract_dir)
@@ -235,11 +399,10 @@ class SimcMonitor(BaseScan):
             except Exception:
                 candidates = []
                 if platform.startswith("win"):
-                    candidates.extend([
-                        r"C:\Program Files\7-Zip\7z.exe",
-                        r"C:\Program Files (x86)\7-Zip\7z.exe",
-                    ])
-                seven_zip = next((p for p in candidates if os.path.exists(p)), "")
+                    candidates.extend([r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe"])
+                    seven_zip = next((p for p in candidates if os.path.exists(p)), "")
+                else:
+                    seven_zip = shutil.which('7z') or shutil.which('7zz') or ''
                 if not seven_zip:
                     raise Exception("无法解压 .7z：未安装 7-Zip（7z.exe）且未安装 py7zr")
                 subprocess.run([seven_zip, "x", "-y", f"-o{extract_dir}", archive_path], check=True)
@@ -263,6 +426,9 @@ class SimcMonitor(BaseScan):
             for p in (r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe"):
                 if os.path.exists(p):
                     return True
+        else:
+            if shutil.which('7z') or shutil.which('7zz'):
+                return True
         return False
 
     def _find_simc_executable(self, root_dir, platform):
@@ -273,8 +439,17 @@ class SimcMonitor(BaseScan):
                     return os.path.join(base, fn)
         return ""
 
+    def _ensure_executable_permission(self, exe_path, platform):
+        if not exe_path or str(platform).startswith('win'):
+            return
+        try:
+            st = os.stat(exe_path)
+            os.chmod(exe_path, st.st_mode | 0o111)
+        except Exception:
+            pass
+
     def ensure_simc_backend_up_to_date(self):
-        platform = "win64"
+        platform = self._get_runtime_platform()
         try:
             now = timezone.now()
             row = SimcBackendBinary.objects.filter(platform=platform).first()
@@ -293,11 +468,13 @@ class SimcMonitor(BaseScan):
                 row.save()
 
             self._set_update_status(row, status='检查更新中', progress=0, is_updating=True, last_error='')
-            if row.last_checked_at and (now - row.last_checked_at).total_seconds() < 6 * 3600:
+            interval = int(self.simc_config.get('update_check_interval_seconds', 1800) or 1800)
+            if row.last_checked_at and (now - row.last_checked_at).total_seconds() < interval:
                 if row.simc_path:
                     settings.SIMC_CONFIG['simc_path'] = row.simc_path
                     self.simc_path = row.simc_path
-                self._set_update_status(row, status='跳过检查（6小时内）', progress=100, is_updating=False)
+                mins = max(1, int(interval / 60))
+                self._set_update_status(row, status=f'跳过检查（{mins}分钟内）', progress=100, is_updating=False)
                 return
 
             latest = self._fetch_latest_nightly(platform)
@@ -331,10 +508,8 @@ class SimcMonitor(BaseScan):
 
             self._set_update_status(row, status=f'准备下载 {latest_ver}', progress=1, is_updating=True)
             if os.path.exists(archive_path) and not self._validate_archive(archive_path, platform):
-                try:
-                    os.remove(archive_path)
-                except Exception:
-                    pass
+                self._safe_remove_file(archive_path)
+                self._safe_remove_file(archive_path + '.part')
 
             if not os.path.exists(archive_path):
                 last_logged = {'percent': -5}
@@ -378,12 +553,9 @@ class SimcMonitor(BaseScan):
                         last_logged['percent'] = percent
                         logger.info(f"[SimC Monitor] Downloading SimC {latest_ver}: {status}")
                     self._set_update_status(row, status=status, progress=mapped, is_updating=True)
-                self._download_file(latest['url'], archive_path, progress_cb=_on_progress)
+                self._download_archive_with_resilience(row, latest_ver, latest['url'], archive_path, platform, progress_cb=_on_progress)
             else:
                 self._set_update_status(row, status='已存在安装包，跳过下载', progress=80, is_updating=True)
-
-            if not self._validate_archive(archive_path, platform):
-                raise Exception("下载文件校验失败（压缩包损坏或未完整下载），请重试")
 
             self._set_update_status(row, status='解压中', progress=85, is_updating=True)
             if not os.path.exists(extract_dir):
@@ -393,6 +565,7 @@ class SimcMonitor(BaseScan):
             exe_path = self._find_simc_executable(extract_dir, platform)
             if not exe_path:
                 raise Exception(f"未在解压目录中找到SimC可执行文件: {extract_dir}")
+            self._ensure_executable_permission(exe_path, platform)
 
             row.simc_path = exe_path
             row.current_version = latest_ver
