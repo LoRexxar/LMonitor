@@ -8,6 +8,7 @@ from botend.models import PortalVideo, VideoMonitorTarget
 from django.utils import timezone
 from utils.log import logger
 from botend.models import TargetAuth
+from botend.alerting import upsert_system_alert
 from urllib.parse import urlparse
 
 
@@ -70,6 +71,24 @@ class PortalVideoMonitor(BaseScan):
                 payload = resp.json() or {}
         except Exception:
             payload = {}
+
+        try:
+            code = payload.get('code')
+            msg = payload.get('message') or payload.get('msg') or ''
+            if code is not None and int(code) != 0:
+                domain = urlparse(api).netloc
+                should_alert = int(code) == -101 or ('登录' in str(msg)) or ('权限' in str(msg))
+                if should_alert:
+                    upsert_system_alert(
+                        category='BILIBILI_COOKIE_REQUIRED',
+                        subject=domain,
+                        level=3,
+                        title='B站 Cookie 失效或缺失',
+                        content=f"B站接口返回 code={code} {msg}，请更新 TargetAuth(domain={domain}) 的 cookie。"
+                    )
+                return
+        except Exception:
+            pass
         data = payload.get("data") or {}
         lst = ((data.get("list") or {}).get("vlist")) or []
         if not lst:

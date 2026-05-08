@@ -57,6 +57,7 @@ MODEL_DESCRIPTIONS = {
     'SimcTemplate': 'SimC模板',
     'SimcBackendBinary': 'SimC后端软件',
     'WclAnalysisTask': 'WCL分析任务',
+    'SystemAlert': '系统报警',
 
 }
 

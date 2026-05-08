@@ -93,6 +93,26 @@
         {% csrf_token %}
     </form>
     <div id="toast-root"></div>
+    <div id="system-alert-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-xl shadow-lg w-full max-w-3xl max-h-[85vh] overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-900">未读报警</h3>
+                    <button id="system-alert-close" class="text-gray-400 hover:text-gray-600 transition-colors duration-200">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                <div class="p-6 overflow-y-auto max-h-[65vh]">
+                    <div id="system-alert-list" class="space-y-3"></div>
+                    <div id="system-alert-empty" class="text-center text-gray-500 py-8 hidden">暂无未读报警</div>
+                </div>
+                <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+                    <button id="system-alert-mark-all" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">全部已读</button>
+                    <span id="system-alert-hint" class="text-xs text-gray-500"></span>
+                </div>
+            </div>
+        </div>
+    </div>
     
     <!-- 顶部导航栏 -->
     <header class="gradient-bg text-white shadow-lg">
