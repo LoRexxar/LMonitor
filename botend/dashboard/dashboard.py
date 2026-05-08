@@ -45,7 +45,64 @@ MODEL_DESCRIPTIONS = {
     'SimcProfile': 'SimC配置管理',
     'SimcSecondaryStatRule': '绿字转换比例',
     'PortalCache': 'Portal缓存',
+    'PortalEvent': '活动信息',
+    'PortalToolLink': '工具链接',
+    'PortalMplusRun': '大秘境记录',
+    'VideoMonitorTarget': '视频监控目标',
+    'PortalVideo': '视频信息',
+    'GeWechatAuth': '微信登录信息',
+    'GeWechatRoomList': '微信群列表',
+    'GeWechatTask': '微信任务',
+    'UserAplStorage': 'APL保存记录',
+    'SimcTemplate': 'SimC模板',
+    'SimcBackendBinary': 'SimC后端软件',
+    'WclAnalysisTask': 'WCL分析任务',
 
+}
+
+COMMON_FIELD_LABELS = {
+    'id': 'ID',
+    'name': '名称',
+    'title': '标题',
+    'target': '目标',
+    'type': '类型',
+    'status': '状态',
+    'task_id': '任务ID',
+    'task_name': '任务名称',
+    'domain': '域名',
+    'cookie': 'Cookie',
+    'ext': '扩展信息',
+    'is_login': '是否登录',
+    'is_active': '是否启用',
+    'is_zombie': '是否僵尸号',
+    'account': '账号',
+    'biz': 'Biz',
+    'summary': '摘要',
+    'url': '链接',
+    'link': '链接',
+    'author': '作者',
+    'publish_time': '发布时间',
+    'created_at': '创建时间',
+    'updated_at': '更新时间',
+    'create_time': '创建时间',
+    'last_scan_time': '上次扫描时间',
+    'last_spider_time': '上次抓取时间',
+    'last_publish_time': '上次发布时间',
+    'wait_time': '等待时间',
+    'flag': '标记',
+    'state': '状态',
+    'tag': '标签',
+    'description': '描述',
+    'source': '来源',
+    'reference': '参考',
+    'solutions': '解决方案',
+    'severity': '严重等级',
+    'score': '评分',
+    'cveid': 'CVE编号',
+    'sid': '编号',
+    'digest': '摘要',
+    'cover': '封面',
+    'content_html': '正文',
 }
 
 @method_decorator(login_required, name='dispatch')
@@ -170,6 +227,7 @@ class DashboardView(View):
             # 获取字段名和字段类型信息
             fields = [field.name for field in model._meta.fields]
             field_types = {}
+            field_labels = {}
             for field in model._meta.fields:
                 field_type = field.__class__.__name__
                 
@@ -199,6 +257,11 @@ class DashboardView(View):
                     'help_text': getattr(field, 'help_text', ''),
                     'choices': choices
                 }
+
+                verbose_name = str(getattr(field, 'verbose_name', '') or '').strip()
+                if not verbose_name or verbose_name == field.name:
+                    verbose_name = COMMON_FIELD_LABELS.get(field.name, field.name)
+                field_labels[field.name] = verbose_name
             
             # 计算分页偏移量
             offset = (page - 1) * page_size
@@ -289,11 +352,14 @@ class DashboardView(View):
             total_pages = (total_count + page_size - 1) // page_size
             
             # 返回数据
+            table_description = MODEL_DESCRIPTIONS.get(table_name) or str(getattr(model._meta, 'verbose_name', '') or '').strip() or table_name
             return JsonResponse({
                 "status": "success", 
                 "data": items,
                 "fields": fields,
                 "field_types": field_types,
+                "field_labels": field_labels,
+                "table_description": table_description,
                 "total_count": total_count,
                 "page": page,
                 "page_size": page_size,
