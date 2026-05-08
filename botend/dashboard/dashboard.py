@@ -12,6 +12,7 @@ from django.views import View
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from django.db.models import Count, Q
+from django.db.utils import OperationalError, ProgrammingError
 from django.apps import apps
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
@@ -54,6 +55,9 @@ class DashboardView(View):
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
+    def _get_model_map(self):
+        return {model.__name__: model for model in apps.get_app_config('botend').get_models()}
     
     def get(self, request):
         """
@@ -64,20 +68,19 @@ class DashboardView(View):
             tables_info = []
             
             # 获取所有已定义的模型
-            models = [
-                MonitorTask, TargetAuth, WechatAccountTask, 
-                WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
-                RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, PortalCache
-            ]
+            models = list(self._get_model_map().values())
             
             total_records = 0
             for model in models:
                 model_name = model.__name__
-                record_count = model.objects.count()
+                try:
+                    record_count = model.objects.count()
+                except (OperationalError, ProgrammingError):
+                    record_count = 0
                 total_records += record_count
                 tables_info.append({
                     'name': model_name,
-                    'description': MODEL_DESCRIPTIONS.get(model_name, model_name),
+                    'description': MODEL_DESCRIPTIONS.get(model_name) or str(getattr(model._meta, 'verbose_name', '')) or model_name,
                     'count': record_count
                 })
             
@@ -155,24 +158,7 @@ class DashboardView(View):
             logger.info(f"获取表数据: {table_name}, page: {page}, page_size: {page_size}, search: {search_query}")
             
             # 模型映射
-            model_map = {
-                'MonitorTask': MonitorTask,
-                'TargetAuth': TargetAuth,
-                'MonitorWebhook': MonitorWebhook,
-                'WechatAccountTask': WechatAccountTask,
-                'WechatArticle': WechatArticle,
-                'VulnMonitorTask': VulnMonitorTask,
-                'VulnData': VulnData,
-                'RssMonitorTask': RssMonitorTask,
-                'RssArticle': RssArticle,
-                'WowArticle': WowArticle,
-                'SimcAplKeywordPair': SimcAplKeywordPair,
-                'SimcTask': SimcTask,
-                'SimcProfile': SimcProfile,
-                'SimcSecondaryStatRule': SimcSecondaryStatRule,
-                'PortalCache': PortalCache,
-
-            }
+            model_map = self._get_model_map()
             
             # 检查表名是否有效
             if table_name not in model_map:
@@ -280,7 +266,8 @@ class DashboardView(View):
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 else:
-                    queryset = model.objects.values().order_by('-id')
+                    pk_name = model._meta.pk.name
+                    queryset = model.objects.values().order_by(f'-{pk_name}')
                     # 对于通用表，尝试搜索所有文本字段
                     text_fields = [field.name for field in model._meta.fields if field.__class__.__name__ in ['CharField', 'TextField']]
                     queryset = apply_search_filter(queryset, text_fields)
@@ -333,22 +320,7 @@ class DashboardView(View):
             logger.info(f"更新表数据: {table_name}, row_id: {row_id}, data: {update_data}")
             
             # 模型映射
-            model_map = {
-                'MonitorTask': MonitorTask,
-                'TargetAuth': TargetAuth,
-                'MonitorWebhook': MonitorWebhook,
-                'WechatAccountTask': WechatAccountTask,
-                'WechatArticle': WechatArticle,
-                'VulnMonitorTask': VulnMonitorTask,
-                'VulnData': VulnData,
-                'RssMonitorTask': RssMonitorTask,
-                'RssArticle': RssArticle,
-                'WowArticle': WowArticle,
-                'SimcAplKeywordPair': SimcAplKeywordPair,
-                'SimcTask': SimcTask,
-                'SimcSecondaryStatRule': SimcSecondaryStatRule,
-
-            }
+            model_map = self._get_model_map()
             
             # 获取模型
             model = model_map.get(table_name)
@@ -357,17 +329,8 @@ class DashboardView(View):
             
             # 查找要更新的记录
             try:
-                # 尝试使用id字段查找
-                if hasattr(model, 'id'):
-                    instance = model.objects.get(id=row_id)
-                else:
-                    # 如果没有id字段，使用第一个字段
-                    fields = [f.name for f in model._meta.fields]
-                    if fields:
-                        filter_kwargs = {fields[0]: row_id}
-                        instance = model.objects.get(**filter_kwargs)
-                    else:
-                        return JsonResponse({"status": "error", "message": "无法确定主键字段"})
+                pk_name = model._meta.pk.name
+                instance = model.objects.get(**{pk_name: row_id})
             except model.DoesNotExist:
                 return JsonResponse({"status": "error", "message": f"未找到ID为{row_id}的记录"})
             
@@ -418,22 +381,7 @@ class DashboardView(View):
             logger.info(f"删除表数据: {table_name}, row_id: {row_id}")
             
             # 模型映射
-            model_map = {
-                'MonitorTask': MonitorTask,
-                'TargetAuth': TargetAuth,
-                'MonitorWebhook': MonitorWebhook,
-                'WechatAccountTask': WechatAccountTask,
-                'WechatArticle': WechatArticle,
-                'VulnMonitorTask': VulnMonitorTask,
-                'VulnData': VulnData,
-                'RssMonitorTask': RssMonitorTask,
-                'RssArticle': RssArticle,
-                'WowArticle': WowArticle,
-                'SimcAplKeywordPair': SimcAplKeywordPair,
-                'SimcTask': SimcTask,
-                'SimcSecondaryStatRule': SimcSecondaryStatRule,
-
-            }
+            model_map = self._get_model_map()
             
             # 获取模型
             model = model_map.get(table_name)
@@ -442,17 +390,8 @@ class DashboardView(View):
             
             # 查找要删除的记录
             try:
-                # 尝试使用id字段查找
-                if hasattr(model, 'id'):
-                    instance = model.objects.get(id=row_id)
-                else:
-                    # 如果没有id字段，使用第一个字段
-                    fields = [f.name for f in model._meta.fields]
-                    if fields:
-                        filter_kwargs = {fields[0]: row_id}
-                        instance = model.objects.get(**filter_kwargs)
-                    else:
-                        return JsonResponse({"status": "error", "message": "无法确定主键字段"})
+                pk_name = model._meta.pk.name
+                instance = model.objects.get(**{pk_name: row_id})
             except model.DoesNotExist:
                 return JsonResponse({"status": "error", "message": f"未找到ID为{row_id}的记录"})
             
@@ -553,22 +492,7 @@ class DashboardView(View):
             logger.info(f"创建表数据: {table_name}, data: {create_data}")
             
             # 模型映射
-            model_map = {
-                'MonitorTask': MonitorTask,
-                'TargetAuth': TargetAuth,
-                'MonitorWebhook': MonitorWebhook,
-                'WechatAccountTask': WechatAccountTask,
-                'WechatArticle': WechatArticle,
-                'VulnMonitorTask': VulnMonitorTask,
-                'VulnData': VulnData,
-                'RssMonitorTask': RssMonitorTask,
-                'RssArticle': RssArticle,
-                'WowArticle': WowArticle,
-                'SimcAplKeywordPair': SimcAplKeywordPair,
-                'SimcTask': SimcTask,
-                'SimcProfile': SimcProfile,
-                'SimcSecondaryStatRule': SimcSecondaryStatRule,
-            }
+            model_map = self._get_model_map()
             
             # 获取模型
             model = model_map.get(table_name)
@@ -588,12 +512,13 @@ class DashboardView(View):
                 # 创建记录
                 instance = model.objects.create(**filtered_data)
                 
-                logger.info(f"成功创建记录: {table_name}, id: {instance.id}")
+                instance_id = getattr(instance, 'id', instance.pk)
+                logger.info(f"成功创建记录: {table_name}, id: {instance_id}")
                 
                 return JsonResponse({
                     "status": "success", 
                     "message": "记录创建成功",
-                    "data": {"id": instance.id}
+                    "data": {"id": instance_id}
                 })
                 
             except Exception as e:

@@ -130,9 +130,21 @@ class SimcMonitor(BaseScan):
 
     def _fetch_latest_nightly(self, platform):
         index_url = "http://downloads.simulationcraft.org/nightly/?C=M;O=D"
-        resp = requests.get(index_url, timeout=15, proxies=self._get_http_proxies())
-        resp.raise_for_status()
-        html = resp.text or ''
+        html = ""
+        proxies = self._get_http_proxies()
+        try:
+            try:
+                resp = requests.get(index_url, timeout=15, proxies=proxies)
+            except requests.exceptions.ProxyError:
+                if proxies:
+                    resp = requests.get(index_url, timeout=15, proxies=None)
+                else:
+                    raise
+            resp.raise_for_status()
+            html = resp.text or ''
+        except Exception as e:
+            logger.warning(f"[SimC Monitor] Failed to fetch nightly index via requests: {e}")
+            html = self._fetch_text_via_system_tools(index_url)
         m = re.search(
             r'href="([^"]*simc-[^"]*' + re.escape(platform) + r'[^"]*\.(?:7z|zip|tar\\.gz|tar\\.xz|tgz))"',
             html,
@@ -147,6 +159,68 @@ class SimcMonitor(BaseScan):
         version = vm.group(1) if vm else file_name
         return {"version": version, "url": download_url, "file_name": file_name}
 
+    def _fetch_text_via_powershell(self, url, timeout_seconds=30):
+        ps = shutil.which('powershell') or shutil.which('pwsh')
+        if not ps:
+            raise Exception("未找到 PowerShell")
+        safe_url = str(url).replace("'", "''")
+        cmd = [
+            ps,
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            f"$ProgressPreference='SilentlyContinue'; "
+            f"(Invoke-WebRequest -Uri '{safe_url}' -UseBasicParsing -TimeoutSec {int(timeout_seconds)}).Content",
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout_seconds + 10)
+        if proc.returncode != 0:
+            raise Exception((proc.stderr or '').strip() or "PowerShell 请求失败")
+        return proc.stdout or ""
+
+    def _fetch_text_via_curl(self, url, timeout_seconds=30):
+        curl = shutil.which('curl')
+        if not curl:
+            raise Exception("未找到 curl")
+        cmd = [
+            curl,
+            "-L",
+            "--fail",
+            "--connect-timeout",
+            "15",
+            "--max-time",
+            str(int(timeout_seconds)),
+            url,
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout_seconds + 10)
+        if proc.returncode != 0:
+            raise Exception((proc.stderr or '').strip() or "curl 请求失败")
+        return proc.stdout or ""
+
+    def _fetch_text_via_wget(self, url, timeout_seconds=30):
+        wget = shutil.which('wget')
+        if not wget:
+            raise Exception("未找到 wget")
+        cmd = [wget, "-q", "-O", "-", url]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout_seconds + 10)
+        if proc.returncode != 0:
+            raise Exception((proc.stderr or '').strip() or "wget 请求失败")
+        return proc.stdout or ""
+
+    def _fetch_text_via_system_tools(self, url):
+        sys_name = str(py_platform.system() or '').lower()
+        errors = []
+        if 'windows' in sys_name:
+            try:
+                return self._fetch_text_via_powershell(url)
+            except Exception as e:
+                errors.append(f"powershell: {e}")
+        for fn in (self._fetch_text_via_curl, self._fetch_text_via_wget):
+            try:
+                return fn(url)
+            except Exception as e:
+                errors.append(str(e))
+        raise Exception("无法获取nightly列表页: " + " | ".join(errors))
+
     def _download_file(self, url, dest_path, progress_cb=None):
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         final_path = dest_path
@@ -160,13 +234,26 @@ class SimcMonitor(BaseScan):
         if existing > 0:
             headers['Range'] = f"bytes={existing}-"
 
-        resp = requests.get(
-            url,
-            stream=True,
-            timeout=(10, 60),
-            proxies=self._get_http_proxies(),
-            headers=headers
-        )
+        proxies = self._get_http_proxies()
+        try:
+            resp = requests.get(
+                url,
+                stream=True,
+                timeout=(10, 60),
+                proxies=proxies,
+                headers=headers
+            )
+        except requests.exceptions.ProxyError:
+            if proxies:
+                resp = requests.get(
+                    url,
+                    stream=True,
+                    timeout=(10, 60),
+                    proxies=None,
+                    headers=headers
+                )
+            else:
+                raise
         if resp.status_code not in (200, 206):
             resp.raise_for_status()
 
@@ -345,6 +432,88 @@ class SimcMonitor(BaseScan):
             self._safe_remove_file(archive_path)
             raise Exception("兜底下载完成但校验失败（压缩包损坏或未完整下载）")
 
+    def _build_manual_download_hint(self, platform, base_dir, file_name=None):
+        platform_text = str(platform or '').strip() or 'win64'
+        dir_text = str(base_dir or '').strip()
+        if file_name:
+            return f"可手动从 http://downloads.simulationcraft.org/nightly/ 下载匹配 {platform_text} 的压缩包并保存到 {dir_text}（文件名保持 {file_name}），下次扫描会自动解压安装"
+        return f"可手动从 http://downloads.simulationcraft.org/nightly/ 下载匹配 {platform_text} 的压缩包并保存到 {dir_text}（文件名保持原样），下次扫描会自动解压安装"
+
+    def _pick_local_archive(self, base_dir, platform):
+        try:
+            if not base_dir or not os.path.isdir(base_dir):
+                return ""
+            platform_text = str(platform or '').strip()
+            exts = ('.7z', '.zip', '.tar.gz', '.tar.xz', '.tgz')
+            candidates = []
+            for name in os.listdir(base_dir):
+                lower = str(name).lower()
+                if not lower.startswith('simc-'):
+                    continue
+                if platform_text and (platform_text.lower() not in lower):
+                    continue
+                if not any(lower.endswith(ext) for ext in exts):
+                    continue
+                full = os.path.join(base_dir, name)
+                if os.path.isfile(full):
+                    try:
+                        candidates.append((os.path.getmtime(full), full))
+                    except Exception:
+                        candidates.append((0, full))
+            if not candidates:
+                return ""
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            return candidates[0][1]
+        except Exception:
+            return ""
+
+    def _try_install_from_local_archive(self, row, platform, base_dir):
+        archive_path = self._pick_local_archive(base_dir, platform)
+        if not archive_path:
+            return False
+        file_name = os.path.basename(archive_path)
+        if not self._validate_archive(archive_path, platform):
+            self._safe_remove_file(archive_path)
+            self._safe_remove_file(archive_path + '.part')
+            raise Exception("发现本地安装包但校验失败（已删除），请重新下载")
+        vm = re.search(rf"simc-(.+?)-{re.escape(platform)}", file_name, flags=re.IGNORECASE)
+        local_ver = vm.group(1) if vm else file_name
+        extract_dir = os.path.join(base_dir, f"simc-{local_ver}-{platform}")
+        self._set_update_status(row, status=f'发现本地安装包，解压中 {local_ver}', progress=85, is_updating=True)
+        if not os.path.exists(extract_dir):
+            self._extract_archive(archive_path, extract_dir, platform)
+        self._set_update_status(row, status='定位可执行文件', progress=95, is_updating=True)
+        exe_path = self._find_simc_executable(extract_dir, platform)
+        if not exe_path:
+            raise Exception(f"未在解压目录中找到SimC可执行文件: {extract_dir}")
+        self._ensure_executable_permission(exe_path, platform)
+        now = timezone.now()
+        row.simc_path = exe_path
+        row.current_version = local_ver
+        row.latest_version = local_ver
+        row.last_updated_at = now
+        row.last_checked_at = now
+        row.last_error = ''
+        row.is_updating = False
+        row.update_progress = 100
+        row.update_status = f'安装完成 {local_ver}'
+        row.save(
+            update_fields=[
+                'simc_path',
+                'current_version',
+                'latest_version',
+                'last_updated_at',
+                'last_checked_at',
+                'last_error',
+                'is_updating',
+                'update_progress',
+                'update_status',
+            ]
+        )
+        settings.SIMC_CONFIG['simc_path'] = exe_path
+        self.simc_path = exe_path
+        return True
+
     def _validate_archive(self, archive_path, platform):
         p = str(archive_path)
         lower = p.lower()
@@ -450,7 +619,11 @@ class SimcMonitor(BaseScan):
 
     def ensure_simc_backend_up_to_date(self):
         platform = self._get_runtime_platform()
+        phase = ''
+        base_dir = os.path.join(os.getcwd(), 'bin', 'simc')
+        known_file_name = None
         try:
+            os.makedirs(base_dir, exist_ok=True)
             now = timezone.now()
             row = SimcBackendBinary.objects.filter(platform=platform).first()
             if not row:
@@ -477,7 +650,25 @@ class SimcMonitor(BaseScan):
                 self._set_update_status(row, status=f'跳过检查（{mins}分钟内）', progress=100, is_updating=False)
                 return
 
-            latest = self._fetch_latest_nightly(platform)
+            simc_path = str(row.simc_path or '').strip()
+            simc_missing = (not simc_path) or (not os.path.isfile(simc_path))
+            if simc_missing:
+                try:
+                    if self._try_install_from_local_archive(row, platform, base_dir):
+                        return
+                except Exception as e:
+                    logger.error(f"[SimC Monitor] Local archive install failed: {str(e)}")
+
+            phase = 'fetch_latest'
+            try:
+                latest = self._fetch_latest_nightly(platform)
+            except Exception:
+                try:
+                    if self._try_install_from_local_archive(row, platform, base_dir):
+                        return
+                except Exception as e:
+                    logger.error(f"[SimC Monitor] Local archive install failed: {str(e)}")
+                raise
             row.last_checked_at = now
             row.save(update_fields=['last_checked_at'])
             if not latest:
@@ -485,10 +676,9 @@ class SimcMonitor(BaseScan):
                 return
 
             latest_ver = str(latest.get('version') or '').strip()
+            known_file_name = latest.get('file_name')
             self._set_update_status(row, latest_version=latest_ver)
             current_ver = str(row.current_version or '').strip()
-            simc_path = str(row.simc_path or '').strip()
-            simc_missing = (not simc_path) or (not os.path.isfile(simc_path))
             need_update = bool(latest_ver) and latest_ver != current_ver
             if bool(latest_ver) and simc_missing:
                 need_update = True
@@ -504,7 +694,6 @@ class SimcMonitor(BaseScan):
                 self._set_update_status(row, status=f'检测到新版本 {latest_ver}，但自动更新已关闭', progress=0, is_updating=False)
                 return
 
-            base_dir = os.path.join(os.getcwd(), 'bin', 'simc')
             archive_path = os.path.join(base_dir, latest['file_name'])
             extract_dir = os.path.join(base_dir, f"simc-{latest_ver}-{platform}")
             is_7z = str(archive_path).lower().endswith('.7z')
@@ -561,6 +750,7 @@ class SimcMonitor(BaseScan):
                         last_logged['percent'] = percent
                         logger.info(f"[SimC Monitor] Downloading SimC {latest_ver}: {status}")
                     self._set_update_status(row, status=status, progress=mapped, is_updating=True)
+                phase = 'download'
                 self._download_archive_with_resilience(row, latest_ver, latest['url'], archive_path, platform, progress_cb=_on_progress)
             else:
                 self._set_update_status(row, status='已存在安装包，跳过下载', progress=80, is_updating=True)
@@ -584,11 +774,16 @@ class SimcMonitor(BaseScan):
             self.simc_path = exe_path
             self._set_update_status(row, status=f'更新完成 {latest_ver}', progress=100, is_updating=False, last_error='')
         except Exception as e:
-            logger.error(f"[SimC Monitor] Failed to update SimC backend binary: {str(e)}")
+            err_text = str(e)
+            if phase in ('fetch_latest', 'download'):
+                hint = self._build_manual_download_hint(platform, base_dir, known_file_name)
+                err_text = f"{err_text}；{hint}"
+                logger.error(f"[SimC Monitor] Manual download hint: {hint}")
+            logger.error(f"[SimC Monitor] Failed to update SimC backend binary: {err_text}")
             try:
                 row = SimcBackendBinary.objects.filter(platform=platform).first()
                 if row:
-                    self._set_update_status(row, status='更新失败', is_updating=False, last_error=str(e))
+                    self._set_update_status(row, status='更新失败', is_updating=False, last_error=err_text)
             except Exception:
                 pass
 

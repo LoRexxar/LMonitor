@@ -27,7 +27,7 @@ class LMonitorCoreBackend:
     monitor 守护线程
     """
     def __init__(self):
-        if getattr(django_settings, 'MONITOR_TASK_AUTO_SYNC_PLUGINS', False):
+        if getattr(django_settings, 'MONITOR_TASK_AUTO_SYNC_PLUGINS', True):
             try:
                 sync_monitortasks_from_plugin_list(
                     Monitor_Type_BaseObject_List,
