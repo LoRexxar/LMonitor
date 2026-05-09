@@ -119,7 +119,7 @@ def _mplus_to_dict(r):
 
 class PortalBluepostsAPIView(View):
     def get(self, request):
-        since = timezone.now() - timedelta(days=31)
+        since = timezone.now() - timedelta(days=7)
         rows = (
             WowArticle.objects.filter(category='bluepost', is_active=True, publish_time__gte=since)
             .order_by('-publish_time')[:60]
@@ -145,7 +145,7 @@ class PortalNgaHotAPIView(View):
 
 class PortalExwindLatestAPIView(View):
     def get(self, request):
-        since = timezone.now() - timedelta(days=31)
+        since = timezone.now() - timedelta(days=7)
         rows = (
             WowArticle.objects.filter(source='exwind', is_active=True, publish_time__gte=since)
             .order_by('-publish_time')[:60]

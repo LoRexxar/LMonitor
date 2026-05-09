@@ -42,8 +42,8 @@ class WechatMonitor(BaseScan):
 
         # 获取auth配置
         auth = TargetAuth.objects.filter(domain="wechat").first()
-        self.cookie = auth.cookie
-        self.rfcode = auth.ext
+        self.cookie = auth.cookie if auth else ""
+        self.rfcode = auth.ext if auth else ""
 
         # 获取列表
         self.url1 = "https://mp.weixin.qq.com/cgi-bin/appmsgpublish"
@@ -86,6 +86,14 @@ class WechatMonitor(BaseScan):
             url = self.url1 + '?' + params_str
 
             content = self.req.get(url, 'Resp', 0, self.cookie)
+            if content is False or content is None:
+                logger.warning("[Wechat Monitor] Wechat api request failed.")
+                continue
+            if isinstance(content, (bytes, bytearray)):
+                try:
+                    content = content.decode('utf-8', 'ignore')
+                except Exception:
+                    content = str(content)
 
             if "invalid session" in str(content):
                 logger.warning("[Wechat Monitor] Wechat api session invalid. need login.")
@@ -101,12 +109,22 @@ class WechatMonitor(BaseScan):
                 self.trigger_webhook()
                 return
 
-            r = json.loads(content)
+            try:
+                r = json.loads(content)
+            except Exception:
+                logger.warning("[Wechat Monitor] Wechat api response json decode failed.")
+                continue
             if 'publish_page' in r:
-                content_full = json.loads(r['publish_page'])
+                try:
+                    content_full = json.loads(r['publish_page'])
+                except Exception:
+                    continue
                 if "publish_list" in content_full:
                     for msg in content_full['publish_list']:
-                        article_content = json.loads(msg["publish_info"])
+                        try:
+                            article_content = json.loads(msg["publish_info"])
+                        except Exception:
+                            continue
                         article_data = article_content["appmsgex"][0]
                         cover = article_data['cover']
                         create_time = datetime.datetime.fromtimestamp(article_data['create_time'])
