@@ -60,7 +60,7 @@ class PortalVideoMonitor(BaseScan):
         except Exception:
             cookies = ""
 
-        payload = {}
+        payload = None
         fetch_error = ""
         try:
             if self.req:
@@ -70,7 +70,6 @@ class PortalVideoMonitor(BaseScan):
                     raw = self.req.get(api, 'Resp', 0, cookies)
                 if not raw:
                     fetch_error = "接口返回为空"
-                    payload = {}
                 if isinstance(raw, (bytes, bytearray)):
                     raw = raw.decode('utf-8', errors='ignore')
                 if raw:
@@ -81,14 +80,13 @@ class PortalVideoMonitor(BaseScan):
                 resp = requests.get(api, timeout=20, headers=headers)
                 if resp.status_code != 200:
                     fetch_error = f"HTTP {resp.status_code}"
-                    payload = {}
                 else:
                     payload = resp.json() or {}
-                payload = resp.json() or {}
+        except Exception as e:
             fetch_error = str(e)
-            payload = {}
+            payload = None
 
-        if not payload:
+        if not isinstance(payload, dict) or not payload:
             if fetch_error:
                 try:
                     upsert_system_alert(
@@ -101,33 +99,45 @@ class PortalVideoMonitor(BaseScan):
                 except Exception:
                     pass
             return
-            payload = {}
 
-        try:
-            code = payload.get('code')
-            msg = payload.get('message') or payload.get('msg') or ''
-                domain = urlparse(api).netloc
-                is_rate_limited = int(code) == -799 or ('频繁' in str(msg)) or ('稍后再试' in str(msg))
+        code = payload.get('code')
+        msg = payload.get('message') or payload.get('msg') or ''
+        if code is not None:
+            try:
+                code_i = int(code)
+            except Exception:
+                code_i = None
+            if code_i is not None and code_i != 0:
+                is_rate_limited = code_i == -799 or ('频繁' in str(msg)) or ('稍后再试' in str(msg))
                 if is_rate_limited:
                     upsert_system_alert(
+                        category='BILIBILI_RATE_LIMIT',
                         subject=domain,
                         level=2,
                         title='B站接口请求过于频繁',
-                        content=f"B站接口返回 code={code} {msg}，请降低视频监控频率或配置 TargetAuth(domain={domain}) 的 cookie。"
+                        content=f"B站接口返回 code={code_i} {msg}，请降低视频监控频率或配置 TargetAuth(domain={domain}) 的 cookie。"
                     )
                     return
-                should_alert = int(code) == -101 or ('登录' in str(msg)) or ('权限' in str(msg))
+
+                should_alert = code_i == -101 or ('登录' in str(msg)) or ('权限' in str(msg))
                 if should_alert:
                     upsert_system_alert(
                         category='BILIBILI_COOKIE_REQUIRED',
                         subject=domain,
                         level=3,
                         title='B站 Cookie 失效或缺失',
-                        content=f"B站接口返回 code={code} {msg}，请更新 TargetAuth(domain={domain}) 的 cookie。"
+                        content=f"B站接口返回 code={code_i} {msg}，请更新 TargetAuth(domain={domain}) 的 cookie。"
                     )
+                    return
+
+                upsert_system_alert(
+                    category='BILIBILI_API_FAILED',
+                    subject=domain,
+                    level=2,
+                    title='B站视频接口异常',
+                    content=f"B站接口返回 code={code_i} {msg}\n{api}"
+                )
                 return
-        except Exception:
-            pass
         data = payload.get("data") or {}
         lst = ((data.get("list") or {}).get("vlist")) or []
         if not lst:
