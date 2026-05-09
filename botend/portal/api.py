@@ -221,8 +221,16 @@ class PortalMplusRankingsAPIView(View):
         if dungeon:
             qs = qs.filter(dungeon_slug=dungeon).order_by('rank')[:30]
         else:
-            qs = qs.order_by('dungeon_slug', 'rank')[:240]
-        items = [_mplus_to_dict(x) for x in qs]
+            qs = qs.order_by('-score', 'rank', 'id')[:60]
+
+        items = []
+        if dungeon:
+            items = [_mplus_to_dict(x) for x in qs]
+        else:
+            for i, x in enumerate(qs):
+                it = _mplus_to_dict(x)
+                it['rank'] = i + 1
+                items.append(it)
         return JsonResponse({'status': 'success', 'data': {'dungeons': dungeons, 'items': items}})
 
 
