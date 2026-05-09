@@ -3,11 +3,10 @@
 
 
 import time
-import pytz
-import datetime
 import traceback
 import threading
 from django.db.utils import OperationalError
+from django.utils import timezone
 from django.conf import settings as django_settings
 from utils.LReq import LReq
 from utils.log import logger
@@ -80,7 +79,6 @@ class LMonitorCore:
         req_cfg = getattr(django_settings, 'REQUEST_CONFIG', {}) or {}
         recycle_every = int(req_cfg.get('chrome_recycle_every', 0) or 0)
         finished = 0
-        local_tz = pytz.timezone('Asia/Shanghai')
 
         while 1:
             try:
@@ -105,13 +103,13 @@ class LMonitorCore:
                     tasks = MonitorTask.objects.filter(is_active=1).order_by('-last_scan_time')
 
                     for task in tasks:
-                        if (datetime.datetime.now(local_tz) - task.last_scan_time).total_seconds() < task.wait_time:
+                        if (timezone.now() - task.last_scan_time).total_seconds() < task.wait_time:
                             continue
 
                         logger.info("[Main] New Task {} start...".format(task.name))
                         now_task = task
 
-                        task.last_scan_time = datetime.datetime.now(local_tz)
+                        task.last_scan_time = timezone.now()
                         task.save()
                         break
                 finally:

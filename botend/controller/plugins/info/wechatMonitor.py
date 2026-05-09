@@ -19,11 +19,11 @@ from botend.interface.xxxbot import xxxbotInterface
 
 import json
 import time
-import pytz
 import random
 import datetime
 import urllib.parse
 from urllib.parse import urlparse, parse_qs
+from django.utils import timezone
 
 
 class WechatMonitor(BaseScan):
@@ -63,8 +63,7 @@ class WechatMonitor(BaseScan):
         for wat in self.wats:
             logger.info("[Wechat Monitor] Try to get {} article list".format(wat.account))
 
-            local_tz = pytz.timezone('Asia/Shanghai')
-            wat.last_spider_time = datetime.datetime.now(local_tz)
+            wat.last_spider_time = timezone.now()
             wat.save()
 
             params = {

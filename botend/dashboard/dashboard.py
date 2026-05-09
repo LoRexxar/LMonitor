@@ -16,6 +16,7 @@ from django.db.utils import OperationalError, ProgrammingError
 from django.apps import apps
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
+from django.utils import timezone
 
 import json
 import traceback
@@ -27,6 +28,15 @@ from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask, 
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
                           RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, PortalCache)
+
+
+def _fmt_dt(dt):
+    if not dt:
+        return ''
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_default_timezone())
+    return timezone.localtime(dt).strftime('%Y-%m-%d %H:%M:%S')
+
 
 # 模型描述映射
 MODEL_DESCRIPTIONS = {
@@ -344,9 +354,14 @@ class DashboardView(View):
             # 处理日期时间字段，转换为字符串
             for item in items:
                 for key, value in item.items():
-                    if hasattr(value, 'strftime'):
+                    if isinstance(value, datetime.datetime):
+                        dt = value
+                        if timezone.is_naive(dt):
+                            dt = timezone.make_aware(dt, timezone.get_default_timezone())
+                        item[key] = timezone.localtime(dt).strftime('%Y-%m-%d %H:%M:%S')
+                    elif isinstance(value, (datetime.date, datetime.time)):
                         item[key] = value.strftime('%Y-%m-%d %H:%M:%S')
-                    elif isinstance(value, (datetime.datetime, datetime.date)):
+                    elif hasattr(value, 'strftime'):
                         item[key] = value.strftime('%Y-%m-%d %H:%M:%S')
             
             # 计算分页信息
@@ -813,7 +828,7 @@ class WclAnalysisPageView(View):
                     'wcl_url': t.wcl_url,
                     'status': t.status,
                     'summary': t.summary or '',
-                    'created_at': t.created_at.strftime('%Y-%m-%d %H:%M:%S') if t.created_at else '',
+                    'created_at': _fmt_dt(t.created_at),
                     'report_url': f"/wcl-analysis/report/{t.id}/?token={t.access_token}"
                 })
             return render(request, 'wcl_analysis.html', {'tasks': task_list})
@@ -834,7 +849,7 @@ class WclAnalysisListView(View):
                     'wcl_url': t.wcl_url,
                     'status': t.status,
                     'summary': t.summary or '',
-                    'created_at': t.created_at.strftime('%Y-%m-%d %H:%M:%S') if t.created_at else '',
+                    'created_at': _fmt_dt(t.created_at),
                     'report_url': f"/wcl-analysis/report/{t.id}/?token={t.access_token}"
                 })
             return render(request, 'wcl_analysis_list.html', {'tasks': task_list})

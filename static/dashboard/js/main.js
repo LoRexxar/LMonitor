@@ -2395,9 +2395,9 @@ function updateRecentActivities() {
     // 实际应用中应该从服务器获取数据
     // 这里只是模拟数据
     const activities = [
-        { time: new Date().toLocaleString(), action: '收到新的webhook请求' },
-        { time: new Date(Date.now() - 1000 * 60 * 30).toLocaleString(), action: '系统自动更新完成' },
-        { time: new Date(Date.now() - 1000 * 60 * 60).toLocaleString(), action: '用户登录' }
+        { time: formatDateTime(new Date()), action: '收到新的webhook请求' },
+        { time: formatDateTime(new Date(Date.now() - 1000 * 60 * 30)), action: '系统自动更新完成' },
+        { time: formatDateTime(new Date(Date.now() - 1000 * 60 * 60)), action: '用户登录' }
     ];
     
     // 更新DOM元素
@@ -2514,10 +2514,19 @@ function formatDateTime(dateString) {
             return dateString; // 如果无法解析，返回原始字符串
         }
         
-        // 直接显示完整的日期时间格式
-        return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
     } catch (e) {
         return dateString;
+    }
+}
+
+function formatShanghaiHms(dateInput) {
+    try {
+        const date = dateInput ? new Date(dateInput) : new Date();
+        if (isNaN(date.getTime())) return '';
+        return date.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch (e) {
+        return '';
     }
 }
 
@@ -4630,11 +4639,7 @@ async function syncAplToCnEditor(mode, options = {}) {
         setSimcProfileAplPreviewStatus(prefix, '从APL重建中文中...', 'loading');
         const cn = await convertText(raw, 'apl_to_cn');
         cnEditor.value = cn || '';
-        const now = new Date();
-        const hh = String(now.getHours()).padStart(2, '0');
-        const mm = String(now.getMinutes()).padStart(2, '0');
-        const ss = String(now.getSeconds()).padStart(2, '0');
-        setSimcProfileAplPreviewStatus(prefix, `中文已重建 ${hh}:${mm}:${ss}`, 'success');
+        setSimcProfileAplPreviewStatus(prefix, `中文已重建 ${formatShanghaiHms()}`, 'success');
         if (!options.quiet) showMessage('已从APL重建中文编辑内容', 'success');
     } catch (error) {
         setSimcProfileAplPreviewStatus(prefix, '重建失败', 'error');
@@ -4685,11 +4690,7 @@ async function syncCnEditorToApl(mode, options = {}) {
         const normalized = normalizeCnToAplOutput(apl);
         if (!normalized) throw new Error('返回内容为空');
         actionInput.value = normalized;
-        const now = new Date();
-        const hh = String(now.getHours()).padStart(2, '0');
-        const mm = String(now.getMinutes()).padStart(2, '0');
-        const ss = String(now.getSeconds()).padStart(2, '0');
-        setSimcProfileAplPreviewStatus(prefix, `APL已同步 ${hh}:${mm}:${ss}`, 'success');
+        setSimcProfileAplPreviewStatus(prefix, `APL已同步 ${formatShanghaiHms()}`, 'success');
         if (!options.quiet) showMessage('中文编辑已同步到 APL', 'success');
         return true;
     } catch (error) {
