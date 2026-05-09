@@ -8,19 +8,18 @@
     <link rel="stylesheet" href="../static/portal/css/portal.css">
 </head>
 <body class="portal-bg font-sans">
-    <div class="max-w-6xl mx-auto px-4 py-6">
+    <div class="max-w-[1200px] mx-auto px-4 py-6">
         <div id="toast-root" class="fixed top-4 right-4 z-50 space-y-2"></div>
         <div class="portal-topbar">
             <div class="portal-topbar-inner">
-                <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
                     <div class="text-sm font-semibold tracking-wide text-slate-700">常用入口</div>
-                    <div class="text-xs text-slate-500">预览（对齐 templates/portal/index.html）</div>
                 </div>
                 <div class="mt-3 flex flex-wrap gap-2 text-sm">
                     <div id="topbar-tools" class="flex flex-wrap gap-2"></div>
                 </div>
                 <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                    <div class="md:col-span-8">
+                    <div class="md:col-span-12">
                         <input id="portal-search" class="w-full rounded-xl border border-slate-200 bg-white/80 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" placeholder="搜索：标题 / 来源 / 作者 ..." autocomplete="off">
                     </div>
                 </div>
@@ -28,46 +27,42 @@
             </div>
         </div>
 
-        <div class="mt-6 portal-grid gap-4">
-            <div class="portal-col-main space-y-4">
-                <div class="portal-card portal-card-accent portal-accent-sky bg-white/80 shadow-sm border border-slate-200/70 p-4">
-                    <div class="flex items-center justify-between gap-3">
-                        <div class="flex items-center gap-2">
-                            <div class="flex items-center gap-2 font-semibold text-slate-900">
-                                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-megaphone"></use></svg>
-                                <span>蓝帖速递</span>
-                            </div>
+        <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="portal-card portal-card-accent portal-accent-sky bg-white/80 shadow-sm border border-slate-200/70 p-4">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 font-semibold text-slate-900">
+                            <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-megaphone"></use></svg>
+                            <span>蓝帖速递</span>
                         </div>
                     </div>
-                    <div id="blueposts-list" class="mt-3 text-sm"></div>
                 </div>
-
-                <div class="portal-card portal-card-accent portal-accent-violet bg-white/80 shadow-sm border border-slate-200/70 p-4">
-                    <div class="flex items-center justify-between gap-3">
-                        <div class="flex items-center gap-2">
-                            <div class="flex items-center gap-2 font-semibold text-slate-900">
-                                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-newspaper"></use></svg>
-                                <span>魔兽世界新闻</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="exwind-list" class="mt-3 text-sm"></div>
-                </div>
+                <div id="blueposts-list" class="mt-3 text-sm"></div>
             </div>
 
-            <div class="portal-col-side">
-                <div class="portal-card portal-card-accent portal-accent-amber bg-white/80 shadow-sm border border-slate-200/70 p-4">
-                    <div class="flex items-center justify-between gap-3">
-                        <div class="flex items-center gap-2">
-                            <div class="flex items-center gap-2 font-semibold text-slate-900">
-                                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-chat"></use></svg>
-                                <span>NGA 热议</span>
-                            </div>
+            <div class="portal-card portal-card-accent portal-accent-violet bg-white/80 shadow-sm border border-slate-200/70 p-4">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 font-semibold text-slate-900">
+                            <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-newspaper"></use></svg>
+                            <span>魔兽世界新闻</span>
                         </div>
                     </div>
-                    <div id="nga-list" class="mt-3 text-sm"></div>
+                </div>
+                <div id="exwind-list" class="mt-3 text-sm"></div>
+            </div>
+        </div>
+
+        <div class="mt-4 portal-card portal-card-accent portal-accent-amber bg-white/80 shadow-sm border border-slate-200/70 p-4">
+            <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 font-semibold text-slate-900">
+                        <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-chat"></use></svg>
+                        <span>NGA 热议</span>
+                    </div>
                 </div>
             </div>
+            <div id="nga-list" class="mt-3 text-sm"></div>
         </div>
 
         <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">

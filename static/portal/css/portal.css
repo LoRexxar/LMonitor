@@ -20,9 +20,8 @@ html, body {
 
 @media (min-width: 1024px) {
     .portal-grid {
-        grid-template-columns: minmax(0, clamp(360px, 44vw, 540px)) minmax(0, clamp(360px, 44vw, 540px));
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         align-items: start;
-        justify-content: center;
     }
 }
 
