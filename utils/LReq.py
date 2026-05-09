@@ -76,6 +76,16 @@ class LReq:
 
     def get_header(self, url="", cookies="", ext=None):
         ext = ext or {}
+        cookies = cookies if cookies else ""
+        if isinstance(cookies, (bytes, bytearray)):
+            try:
+                cookies = cookies.decode('utf-8', 'ignore')
+            except Exception:
+                cookies = str(cookies)
+        cookies = str(cookies)
+        if cookies:
+            cookies = cookies.replace('\r', ';').replace('\n', ';')
+            cookies = '; '.join([p.strip() for p in cookies.split(';') if p.strip()])
         header = {
             "User-Agent": random.choice(self.ua),
             "Referer": url,

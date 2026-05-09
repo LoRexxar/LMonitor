@@ -16,6 +16,7 @@ from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
 
 from botend.models import WowArticle
+from datetime import datetime
 
 
 class wowheadMonitor(BaseScan):
@@ -38,8 +39,10 @@ class wowheadMonitor(BaseScan):
         cookies = ""
 
         driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1, is_proxy=True)
+        if not driver:
+            return True
         # 处理返回内容
-        self.resolve_data(driver, title, self.target_list[title]["limit"])
+        self.resolve_data(driver, "wowhead", 10)
 
         return True
 
@@ -48,7 +51,7 @@ class wowheadMonitor(BaseScan):
         try:
             time.sleep(3)
 
-            posts = driver.els('#news-card-simple')
+            posts = driver.eles('#news-card-simple')
 
             for post in posts:
                 post_type = post.ele('.news-card-simple-text').text
@@ -67,7 +70,7 @@ class wowheadMonitor(BaseScan):
 
                 obj = WowArticle(title="[{}]{}".format(post_type, post_title), url=post_link, publish_time=django_date_time, author="wowhead", description=post_preview)
                 obj.save()
-                logger.info("[wowhead Monitor] Found new wowhead article.{}".format(post_name))
+                logger.info("[wowhead Monitor] Found new wowhead article.{}".format(post_title))
 
                 self.task.flag = post_link
                 self.task.save()
@@ -79,13 +82,13 @@ class wowheadMonitor(BaseScan):
                 self.trigger_webhook()
 
         except DrissionPage.errors.ElementNotFoundError:
-            logger.error("[ngaMonitor] bad request.")
+            logger.error("[wowheadMonitor] bad request.")
 
         except DrissionPage.errors.PageDisconnectedError:
-            logger.error("[ngaMonitor] PageDisconnectedError.")
+            logger.error("[wowheadMonitor] PageDisconnectedError.")
 
         except AttributeError:
-            logger.error("[ngaMonitor] No posts found.")
+            logger.error("[wowheadMonitor] No posts found.")
 
         except:
             raise

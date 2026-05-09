@@ -185,6 +185,9 @@ class ngaMonitor(BaseScan):
                 driver.run_js("g()")
             except DrissionPage.errors.JavaScriptError:
                 pass
+            except DrissionPage.errors.ContextLostError:
+                logger.error("[ngaMonitor] page refresh. return back")
+                return
 
             posts = driver.ele('#topicrows').eles('tag:tbody')
 
