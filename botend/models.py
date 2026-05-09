@@ -153,6 +153,7 @@ class PortalToolLink(models.Model):
     sort_order = models.IntegerField(default=0)
     is_topbar = models.BooleanField(default=False)
     topbar_order = models.IntegerField(default=0)
+    icon_path = models.CharField(max_length=500, null=True, blank=True, default="")
     is_active = models.BooleanField(default=True)
 
     class Meta:

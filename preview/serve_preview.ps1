@@ -35,7 +35,7 @@
    try {
      $path = [Uri]::UnescapeDataString($req.Url.AbsolutePath)
      if ([string]::IsNullOrWhiteSpace($path) -or $path -eq "/") {
-       $path = "/preview/portal_preview.html"
+      $path = "/preview/portal_current_preview.html"
      }
  
      $safe = $path.TrimStart("/") -replace "/", "\"

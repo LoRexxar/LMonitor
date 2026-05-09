@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>魔兽资讯</title>
-    {% load static %}
+    <title>Portal Preview (Current)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}">
+    <link rel="stylesheet" href="../static/portal/css/portal.css">
 </head>
 <body class="portal-bg font-sans">
     <div class="max-w-6xl mx-auto px-4 py-6">
@@ -15,7 +14,7 @@
             <div class="portal-topbar-inner">
                 <div class="flex items-center justify-between gap-3">
                     <div class="text-sm font-semibold tracking-wide text-slate-700">常用入口</div>
-                    <div class="text-xs text-slate-500">仅聚合信息与外链</div>
+                    <div class="text-xs text-slate-500">预览（对齐 templates/portal/index.html）</div>
                 </div>
                 <div class="mt-3 flex flex-wrap gap-2 text-sm">
                     <div id="topbar-tools" class="flex flex-wrap gap-2"></div>
@@ -35,7 +34,7 @@
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2">
                             <div class="flex items-center gap-2 font-semibold text-slate-900">
-                                <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-megaphone"></use></svg>
+                                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-megaphone"></use></svg>
                                 <span>蓝帖速递</span>
                             </div>
                         </div>
@@ -47,7 +46,7 @@
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2">
                             <div class="flex items-center gap-2 font-semibold text-slate-900">
-                                <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-newspaper"></use></svg>
+                                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-newspaper"></use></svg>
                                 <span>魔兽世界新闻</span>
                             </div>
                         </div>
@@ -61,7 +60,7 @@
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2">
                             <div class="flex items-center gap-2 font-semibold text-slate-900">
-                                <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chat"></use></svg>
+                                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-chat"></use></svg>
                                 <span>NGA 热议</span>
                             </div>
                         </div>
@@ -76,7 +75,7 @@
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <div class="flex items-center gap-2 font-semibold text-slate-900">
-                            <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-calendar"></use></svg>
+                            <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-calendar"></use></svg>
                             <span>活动提醒</span>
                         </div>
                     </div>
@@ -87,7 +86,7 @@
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <div class="flex items-center gap-2 font-semibold text-slate-900">
-                            <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-video"></use></svg>
+                            <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-video"></use></svg>
                             <span>视频攻略</span>
                         </div>
                     </div>
@@ -99,7 +98,7 @@
 
         <div class="mt-6 portal-card portal-card-accent portal-accent-indigo bg-white/80 shadow-sm border border-slate-200/70 p-4">
             <div class="flex items-center gap-2 font-semibold text-slate-900">
-                <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
+                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-chart"></use></svg>
                 <span>大秘境 Top Runs</span>
             </div>
             <div id="mplus-controls" class="mt-3 flex flex-wrap items-center gap-2"></div>
@@ -108,7 +107,7 @@
 
         <div class="mt-6 portal-card portal-card-accent portal-accent-rose bg-white/80 shadow-sm border border-slate-200/70 p-4">
             <div class="flex items-center gap-2 font-semibold text-slate-900">
-                <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
+                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-tools"></use></svg>
                 <span>工具导航</span>
             </div>
             <div id="tools-nav" class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm"></div>
@@ -120,6 +119,104 @@
         </div>
     </div>
 
-    <script src="{% static 'portal/js/main.js' %}"></script>
+    <script>
+      const MOCK = {
+        tools: {
+          topbar: [
+            { name: "Wowhead", url: "https://www.wowhead.com/", desc: "", icon_path: "" },
+            { name: "Raider.IO", url: "https://raider.io/", desc: "", icon_path: "" },
+            { name: "WCL", url: "https://www.warcraftlogs.com/", desc: "", icon_path: "" }
+          ],
+          items: [
+            { name: "SimC", url: "https://www.simulationcraft.org/", desc: "模拟器", icon_path: "" },
+            { name: "NGA", url: "https://nga.178.com/thread.php?fid=7", desc: "论坛", icon_path: "" },
+            { name: "Wowpedia", url: "https://wowpedia.fandom.com/", desc: "百科", icon_path: "" }
+          ]
+        },
+        blueposts: Array.from({ length: 10 }).map((_, i) => ({
+          title: `蓝帖示例标题 #${i + 1}：这是一条比较长的标题用于验证两行省略效果`,
+          url: "https://example.com/blueposts",
+          source: "Blizz Tracker",
+          author: "CM",
+          publish_time: "2026-05-08 10:00:00"
+        })),
+        exwind: Array.from({ length: 10 }).map((_, i) => ({
+          title: `EXWIND 示例标题 #${i + 1}：数据挖掘与改动汇总条目`,
+          url: "https://example.com/exwind",
+          source: "EXWIND",
+          author: "编辑部",
+          publish_time: "2026-05-08 09:30:00"
+        })),
+        nga: Array.from({ length: 12 }).map((_, i) => ({
+          title: `NGA 热议帖 #${i + 1}：本周词缀讨论与职业优化建议（长标题展示）`,
+          url: "https://example.com/nga",
+          source: "NGA",
+          author: "玩家",
+          time: "2026-05-08",
+          reply_count: 120 + i * 11
+        })),
+        events: Array.from({ length: 8 }).map((_, i) => ({
+          title: `活动示例 #${i + 1}：节日/周常/限时内容提醒`,
+          url: "https://example.com/events",
+          status: i % 3 === 0 ? "进行中" : i % 3 === 1 ? "即将开始" : "已结束",
+          start_at: "2026-05-08 00:00:00",
+          end_at: "2026-05-09 00:00:00"
+        })),
+        videos: {
+          tags: ["职业", "副本", "PVP"],
+          items: Array.from({ length: 12 }).map((_, i) => ({
+            title: `视频示例 #${i + 1}：打法/机制/配装讲解`,
+            url: "https://example.com/videos",
+            cover_url: "",
+            author: "UP主",
+            author_url: "https://example.com/up",
+            published_at: "2026-05-08 08:00:00",
+            tag: i % 3 === 0 ? "职业" : i % 3 === 1 ? "副本" : "PVP"
+          }))
+        },
+        mplus_rankings: {
+          dungeons: [
+            { slug: "algethar-academy", name_cn: "艾杰斯亚学院" },
+            { slug: "magisters-terrace", name_cn: "魔导师平台" }
+          ],
+          items: Array.from({ length: 20 }).map((_, i) => ({
+            rank: i + 1,
+            dungeon: "艾杰斯亚学院",
+            dungeon_slug: "algethar-academy",
+            level: 12 + (i % 5),
+            time_seconds: 1600 + i * 7,
+            score: 3100 + i * 2.5,
+            party: [
+              { role: "tank", name: "Tanky", class_slug: "warrior" },
+              { role: "healer", name: "Healz", class_slug: "priest" },
+              { role: "dps", name: "Dps1", class_slug: "mage" },
+              { role: "dps", name: "Dps2", class_slug: "rogue" },
+              { role: "dps", name: "Dps3", class_slug: "hunter" }
+            ],
+            run_url: "https://example.com/mplus"
+          }))
+        }
+      };
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (url, options) => {
+        const u = typeof url === "string" ? url : url?.url || "";
+        const mk = (data) =>
+          new Response(JSON.stringify({ status: "success", data }), {
+            headers: { "Content-Type": "application/json; charset=utf-8" }
+          });
+
+        if (u.startsWith("/portal/api/tools/")) return mk(MOCK.tools);
+        if (u.startsWith("/portal/api/blueposts/")) return mk(MOCK.blueposts);
+        if (u.startsWith("/portal/api/exwind/latest/")) return mk(MOCK.exwind);
+        if (u.startsWith("/portal/api/nga-hot/")) return mk(MOCK.nga);
+        if (u.startsWith("/portal/api/events/")) return mk(MOCK.events);
+        if (u.startsWith("/portal/api/videos/")) return mk(MOCK.videos);
+        if (u.startsWith("/portal/api/mplus/rankings/")) return mk(MOCK.mplus_rankings);
+
+        return originalFetch(url, options);
+      };
+    </script>
+    <script src="../static/portal/js/main.js"></script>
 </body>
 </html>

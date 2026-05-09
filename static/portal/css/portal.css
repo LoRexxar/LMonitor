@@ -7,7 +7,28 @@ html, body {
         radial-gradient(1200px 600px at 10% -10%, rgba(59, 130, 246, 0.18), rgba(59, 130, 246, 0) 60%),
         radial-gradient(900px 500px at 90% 0%, rgba(168, 85, 247, 0.14), rgba(168, 85, 247, 0) 55%),
         radial-gradient(1000px 600px at 50% 110%, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0) 60%),
-        #f1f5f9;
+        linear-gradient(180deg, #f8fafc 0%, #f1f5f9 55%, #eef2ff 100%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    background-size: cover;
+}
+
+.portal-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+}
+
+@media (min-width: 1024px) {
+    .portal-grid {
+        grid-template-columns: minmax(0, clamp(360px, 44vw, 540px)) minmax(0, clamp(360px, 44vw, 540px));
+        align-items: start;
+        justify-content: center;
+    }
+}
+
+.portal-col-main,
+.portal-col-side {
+    min-width: 0;
 }
 
 .portal-topbar {
@@ -38,6 +59,68 @@ html, body {
 
 .portal-card {
     border-radius: 1.125rem;
+}
+
+.portal-card-accent {
+    position: relative;
+    overflow: hidden;
+}
+
+.portal-card-accent::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    height: 3px;
+    background: var(--portal-accent, rgba(59, 130, 246, 0.9));
+}
+
+.portal-card-accent::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, var(--portal-accent-soft, rgba(59, 130, 246, 0.12)), rgba(255, 255, 255, 0) 140px);
+    pointer-events: none;
+}
+
+.portal-card-accent > * {
+    position: relative;
+}
+
+.portal-accent-sky {
+    --portal-accent: rgba(14, 165, 233, 0.95);
+    --portal-accent-soft: rgba(14, 165, 233, 0.14);
+}
+
+.portal-accent-violet {
+    --portal-accent: rgba(139, 92, 246, 0.95);
+    --portal-accent-soft: rgba(139, 92, 246, 0.14);
+}
+
+.portal-accent-amber {
+    --portal-accent: rgba(245, 158, 11, 0.95);
+    --portal-accent-soft: rgba(245, 158, 11, 0.14);
+}
+
+.portal-accent-emerald {
+    --portal-accent: rgba(16, 185, 129, 0.95);
+    --portal-accent-soft: rgba(16, 185, 129, 0.14);
+}
+
+.portal-accent-fuchsia {
+    --portal-accent: rgba(217, 70, 239, 0.95);
+    --portal-accent-soft: rgba(217, 70, 239, 0.14);
+}
+
+.portal-accent-indigo {
+    --portal-accent: rgba(99, 102, 241, 0.95);
+    --portal-accent-soft: rgba(99, 102, 241, 0.14);
+}
+
+.portal-accent-rose {
+    --portal-accent: rgba(244, 63, 94, 0.95);
+    --portal-accent-soft: rgba(244, 63, 94, 0.14);
 }
 
 .portal-subcard {

@@ -3,7 +3,7 @@ from django.views import View
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalToolLink, PortalVideo, WowArticle
+from botend.models import PortalCache, PortalEvent, PortalMplusRun, PortalToolLink, PortalVideo, WowArticle
 
 
 def _fmt_dt(dt):
@@ -65,6 +65,7 @@ def _tool_to_dict(t):
         'name': t.name or '',
         'url': t.url or '',
         'desc': t.desc or '',
+        'icon_path': getattr(t, 'icon_path', '') or '',
         'sort_order': t.sort_order or 0,
         'is_topbar': bool(t.is_topbar),
         'topbar_order': t.topbar_order or 0,
@@ -128,6 +129,16 @@ class PortalBluepostsAPIView(View):
 
 class PortalNgaHotAPIView(View):
     def get(self, request):
+        cached = PortalCache.objects.filter(key='nga_hot').first()
+        if cached and (cached.data or '').strip():
+            try:
+                import json
+                items = json.loads(cached.data) or []
+                if isinstance(items, list) and items:
+                    return JsonResponse({'status': 'success', 'data': items})
+            except Exception:
+                pass
+
         rows = WowArticle.objects.filter(source='nga', is_active=True).order_by('-publish_time')[:40]
         return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
 

@@ -20,7 +20,11 @@ def sync_monitortasks_from_plugin_list(
         for idx, plugin_cls in enumerate(plugin_list or []):
             if idx in skip:
                 continue
-            if MonitorTask.objects.filter(type=idx).exists():
+            existing = MonitorTask.objects.filter(type=idx).first()
+            if existing:
+                name = getattr(plugin_cls, "__name__", None) or f"PluginType{idx}"
+                if (existing.name or "").strip() != name:
+                    logger.warning(f"[MonitorTask Sync] type={idx} name mismatch: db={existing.name} cfg={name}")
                 continue
 
             name = getattr(plugin_cls, "__name__", None) or f"PluginType{idx}"

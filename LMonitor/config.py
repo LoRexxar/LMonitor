@@ -26,7 +26,7 @@ from botend.controller.plugins.wow.lhfszsMonitor import LhfszsMonitor
 from botend.controller.plugins.wow.ngaMonitor import ngaMonitor
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.controller.plugins.wow.wowheadMonitor import wowheadMonitor
-from botend.controller.plugins.wow.WowPortalMonitor import WowPortalMonitor
+from botend.controller.plugins.wow.DeprecatedWowPortalMonitor import DeprecatedWowPortalMonitor
 from botend.controller.plugins.portal.PortalPostMonitor import PortalPostMonitor
 from botend.controller.plugins.portal.PortalEventMonitor import PortalEventMonitor
 from botend.controller.plugins.portal.PortalMplusRunMonitor import PortalMplusRunMonitor
@@ -50,7 +50,7 @@ Monitor_Type_BaseObject_List = [
     ngaMonitor,
     SimcMonitor,
     wowheadMonitor,
-    WowPortalMonitor,
+    DeprecatedWowPortalMonitor,
     PortalPostMonitor,
     PortalEventMonitor,
     PortalMplusRunMonitor,
