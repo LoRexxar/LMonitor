@@ -17,6 +17,7 @@ from botend.controller.BaseScan import BaseScan
 from botend.models import WowArticle
 from botend.interface.xxxbot import xxxbotInterface
 from django.utils import timezone
+from botend.alerting import upsert_system_alert
 
 
 class BiliMonitor(BaseScan):
@@ -82,12 +83,33 @@ class BiliMonitor(BaseScan):
 
         except DrissionPage.errors.ElementNotFoundError:
             logger.error("[ngaMonitor] bad request.")
+            upsert_system_alert(
+                category='BILIBILI_SCRAPE_FAILED',
+                subject='space.bilibili.com',
+                level=2,
+                title='B站页面解析失败',
+                content='页面元素未找到（可能需要登录或页面结构已变更）'
+            )
 
         except DrissionPage.errors.PageDisconnectedError:
             logger.error("[ngaMonitor] PageDisconnectedError.")
+            upsert_system_alert(
+                category='BILIBILI_SCRAPE_FAILED',
+                subject='space.bilibili.com',
+                level=2,
+                title='B站页面解析失败',
+                content='浏览器页面连接断开'
+            )
 
         except AttributeError:
             logger.error("[BiliMonitor] Can't find videos.")
+            upsert_system_alert(
+                category='BILIBILI_SCRAPE_FAILED',
+                subject='space.bilibili.com',
+                level=2,
+                title='B站页面解析失败',
+                content='无法解析视频列表（页面结构可能已变更）'
+            )
         except:
             raise
 

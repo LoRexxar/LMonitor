@@ -33,6 +33,16 @@ class PortalVideoMonitor(BaseScan):
                 time.sleep(1)
             except Exception as e:
                 logger.error(f"[PortalVideoMonitor] target error: {str(e)}")
+                try:
+                    upsert_system_alert(
+                        category='VIDEO_MONITOR_TARGET_ERROR',
+                        subject=str(getattr(t, 'target_url', '') or '')[:128],
+                        level=2,
+                        title='视频监控任务异常',
+                        content=str(e)
+                    )
+                except Exception:
+                    pass
         return True
 
     def update_target(self, target):
@@ -42,8 +52,8 @@ class PortalVideoMonitor(BaseScan):
 
         api = f"https://api.bilibili.com/x/space/arc/search?mid={mid}&pn=1&ps=20&order=pubdate"
         cookies = ""
+        domain = urlparse(api).netloc
         try:
-            domain = urlparse(api).netloc
             auth = TargetAuth.objects.filter(domain=domain).first()
             if auth and auth.cookie:
                 cookies = auth.cookie
@@ -51,6 +61,7 @@ class PortalVideoMonitor(BaseScan):
             cookies = ""
 
         payload = {}
+        fetch_error = ""
         try:
             if self.req:
                 if getattr(self.req, 'is_chrome', False):
@@ -58,25 +69,53 @@ class PortalVideoMonitor(BaseScan):
                 else:
                     raw = self.req.get(api, 'Resp', 0, cookies)
                 if not raw:
-                    return
+                    fetch_error = "接口返回为空"
+                    payload = {}
                 if isinstance(raw, (bytes, bytearray)):
                     raw = raw.decode('utf-8', errors='ignore')
-                payload = json.loads(raw)
+                if raw:
+                    payload = json.loads(raw)
             else:
                 import requests
                 headers = {"User-Agent": "Mozilla/5.0", "Referer": target.target_url, "Cookie": cookies}
                 resp = requests.get(api, timeout=20, headers=headers)
                 if resp.status_code != 200:
-                    return
+                    fetch_error = f"HTTP {resp.status_code}"
+                    payload = {}
+                else:
+                    payload = resp.json() or {}
                 payload = resp.json() or {}
-        except Exception:
+            fetch_error = str(e)
+            payload = {}
+
+        if not payload:
+            if fetch_error:
+                try:
+                    upsert_system_alert(
+                        category='BILIBILI_API_FAILED',
+                        subject=domain,
+                        level=2,
+                        title='B站视频接口请求失败',
+                        content=f"{fetch_error}\n{api}"
+                    )
+                except Exception:
+                    pass
+            return
             payload = {}
 
         try:
             code = payload.get('code')
             msg = payload.get('message') or payload.get('msg') or ''
-            if code is not None and int(code) != 0:
                 domain = urlparse(api).netloc
+                is_rate_limited = int(code) == -799 or ('频繁' in str(msg)) or ('稍后再试' in str(msg))
+                if is_rate_limited:
+                    upsert_system_alert(
+                        subject=domain,
+                        level=2,
+                        title='B站接口请求过于频繁',
+                        content=f"B站接口返回 code={code} {msg}，请降低视频监控频率或配置 TargetAuth(domain={domain}) 的 cookie。"
+                    )
+                    return
                 should_alert = int(code) == -101 or ('登录' in str(msg)) or ('权限' in str(msg))
                 if should_alert:
                     upsert_system_alert(
