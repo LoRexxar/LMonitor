@@ -17,11 +17,11 @@ from botend.controller.BaseScan import BaseScan
 import re
 import json
 import time
-import pytz
 import random
 import datetime
 import feedparser
 import socket
+from django.utils import timezone
 
 
 class RssArticleMonitor(BaseScan):
@@ -58,8 +58,7 @@ class RssArticleMonitor(BaseScan):
         for rmt in self.rmts:
             logger.info("[Rss Monitor] Try to get {} article list".format(rmt.name))
 
-            local_tz = pytz.timezone('Asia/Shanghai')
-            rmt.last_spider_time = datetime.datetime.now(local_tz)
+            rmt.last_spider_time = timezone.now()
             rmt.save()
 
             socket.setdefaulttimeout(20)

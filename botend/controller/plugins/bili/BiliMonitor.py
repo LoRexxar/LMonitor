@@ -12,11 +12,11 @@
 
 import time
 import DrissionPage
-from datetime import datetime
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.models import WowArticle
 from botend.interface.xxxbot import xxxbotInterface
+from django.utils import timezone
 
 
 class BiliMonitor(BaseScan):
@@ -65,9 +65,7 @@ class BiliMonitor(BaseScan):
                     if wa:
                         continue
 
-                    current_time = datetime.now()
-
-                    # 将时间格式化为 "%Y-%m-%d %H:%M" 格式
+                    current_time = timezone.localtime(timezone.now())
                     formatted_time = current_time.strftime("%Y-%m-%d %H:%M")
 
                     obj = WowArticle(title=video_name, url=video_link, author="lorexxarbilibili",

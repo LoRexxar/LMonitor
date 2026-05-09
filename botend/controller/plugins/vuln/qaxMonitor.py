@@ -19,8 +19,8 @@ from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
 
 import json
-import pytz
 import datetime
+from django.utils import timezone
 
 
 class QaxMonitor(BaseScan):
@@ -54,8 +54,7 @@ class QaxMonitor(BaseScan):
         if self.vmt:
             logger.info("[qax Monitor] Monitor qax vuln start.")
 
-            local_tz = pytz.timezone('Asia/Shanghai')
-            self.vmt.last_spider_time = datetime.datetime.now(local_tz)
+            self.vmt.last_spider_time = timezone.now()
             self.vmt.save()
 
             params = {

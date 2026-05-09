@@ -19,8 +19,8 @@ from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
 
 import json
-import pytz
 import datetime
+from django.utils import timezone
 
 
 class OscsMonitor(BaseScan):
@@ -55,8 +55,7 @@ class OscsMonitor(BaseScan):
             try:
                 logger.info("[oscs Monitor] Monitor oscs vuln start.")
 
-                local_tz = pytz.timezone('Asia/Shanghai')
-                self.vmt.last_spider_time = datetime.datetime.now(local_tz)
+                self.vmt.last_spider_time = timezone.now()
                 self.vmt.save()
 
                 params = {

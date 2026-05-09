@@ -40,6 +40,14 @@ from django.db import models
 from core.glm import GLMClient
 
 
+def _fmt_dt(dt):
+    if not dt:
+        return None
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_default_timezone())
+    return timezone.localtime(dt).strftime('%Y-%m-%d %H:%M:%S')
+
+
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class SystemAlertAPIView(View):
     def get(self, request):
@@ -65,8 +73,8 @@ class SystemAlertAPIView(View):
                         'title': a.title,
                         'content': a.content,
                         'count': a.count,
-                        'first_seen_at': a.first_seen_at.strftime('%Y-%m-%d %H:%M:%S') if a.first_seen_at else None,
-                        'last_seen_at': a.last_seen_at.strftime('%Y-%m-%d %H:%M:%S') if a.last_seen_at else None,
+                        'first_seen_at': _fmt_dt(a.first_seen_at),
+                        'last_seen_at': _fmt_dt(a.last_seen_at),
                     }
                     for a in alerts
                 ],
@@ -229,8 +237,8 @@ class SimcTaskAPIView(View):
                     'task_type': task.task_type,
                     'ext': task.ext,
                     'ext_detail': ext_detail,
-                    'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'create_time': _fmt_dt(task.create_time),
+                    'modified_time': _fmt_dt(task.modified_time),
                 })
             
             return JsonResponse({
@@ -322,8 +330,8 @@ class SimcTaskAPIView(View):
                     'task_type': task.task_type,
                     'ext': task.ext,
                     'ext_detail': self._normalize_task_ext(task.task_type, task.ext),
-                    'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'create_time': _fmt_dt(task.create_time),
+                    'modified_time': _fmt_dt(task.modified_time),
                 }
             })
             
@@ -423,8 +431,8 @@ class SimcTaskAPIView(View):
                     'task_type': task.task_type,
                     'ext': task.ext,
                     'ext_detail': self._normalize_task_ext(task.task_type, task.ext),
-                    'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'create_time': _fmt_dt(task.create_time),
+                    'modified_time': _fmt_dt(task.modified_time),
                 }
             })
             
@@ -553,8 +561,8 @@ class SimcTaskAPIView(View):
                     'task_type': task.task_type,
                     'ext': task.ext,
                     'ext_detail': self._normalize_task_ext(task.task_type, task.ext),
-                    'create_time': task.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'modified_time': task.modified_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'create_time': _fmt_dt(task.create_time),
+                    'modified_time': _fmt_dt(task.modified_time),
                 }
             })
             
@@ -653,7 +661,7 @@ class KeywordManagerAPIView(View):
                     'cn_keyword': keyword.cn_keyword,
                     'description': keyword.description or '',
                     'is_active': keyword.is_active,
-                    'create_time': keyword.create_time.strftime('%Y-%m-%d %H:%M:%S') if keyword.create_time else ''
+                    'create_time': _fmt_dt(keyword.create_time) or ''
                 })
             
             return JsonResponse({
@@ -715,7 +723,7 @@ class KeywordManagerAPIView(View):
                     'cn_keyword': keyword.cn_keyword,
                     'description': keyword.description,
                     'is_active': keyword.is_active,
-                    'create_time': keyword.create_time.strftime('%Y-%m-%d %H:%M:%S')
+                    'create_time': _fmt_dt(keyword.create_time)
                 }
             })
             
@@ -2970,8 +2978,8 @@ class SimcBackendBinaryAPIView(View):
                     'update_progress': row.update_progress,
                     'update_status': row.update_status,
                     'last_error': row.last_error,
-                    'last_checked_at': row.last_checked_at.strftime('%Y-%m-%d %H:%M:%S') if row.last_checked_at else None,
-                    'last_updated_at': row.last_updated_at.strftime('%Y-%m-%d %H:%M:%S') if row.last_updated_at else None
+                    'last_checked_at': _fmt_dt(row.last_checked_at),
+                    'last_updated_at': _fmt_dt(row.last_updated_at)
                 }
             })
         except Exception as e:
@@ -3168,8 +3176,8 @@ class WclAnalysisTaskAPIView(View):
             'summary': task.summary,
             'benchmark_unavailable': task.benchmark_unavailable,
             'report_html_file': task.report_html_file,
-            'created_at': task.created_at.strftime('%Y-%m-%d %H:%M:%S') if task.created_at else None,
-            'updated_at': task.updated_at.strftime('%Y-%m-%d %H:%M:%S') if task.updated_at else None,
+            'created_at': _fmt_dt(task.created_at),
+            'updated_at': _fmt_dt(task.updated_at),
         }
         if with_token:
             item['report_url'] = f"/wcl-analysis/report/{task.id}/?token={task.access_token}"

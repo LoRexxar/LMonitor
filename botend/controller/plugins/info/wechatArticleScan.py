@@ -18,9 +18,9 @@ from botend.interface.xxxbot import xxxbotInterface
 
 import re
 import time
-import pytz
 import random
 import datetime
+from django.utils import timezone
 
 
 class WechatArticleScan(BaseScan):
@@ -62,8 +62,6 @@ class WechatArticleScan(BaseScan):
             wa.state = 1
             wa.save()
 
-            local_tz = pytz.timezone('Asia/Shanghai')
-
             try:
                 driver.get(wa.url)
 
@@ -92,18 +90,26 @@ class WechatArticleScan(BaseScan):
 
                 # 检查account的信息是否获得
                 waccount = WechatAccountTask.objects.filter(biz=wa.biz).first()
+                publish_dt = datetime.datetime.strptime(create_time, "%Y年%m月%d日 %H:%M")
+                publish_dt = timezone.make_aware(publish_dt, timezone.get_default_timezone())
+                last_publish_dt = waccount.last_publish_time
+                if last_publish_dt and timezone.is_naive(last_publish_dt):
+                    last_publish_dt = timezone.make_aware(last_publish_dt, timezone.get_default_timezone())
 
                 if not waccount.account:
                     waccount.account = account
                     waccount.summary = summary
-                    waccount.last_publish_time = datetime.datetime.strptime(create_time, "%Y年%m月%d日 %H:%M").replace(tzinfo=local_tz)
+                    waccount.last_publish_time = publish_dt
 
                 # 更新扫描时间
-                elif datetime.datetime.strptime(create_time, "%Y年%m月%d日 %H:%M").replace(tzinfo=local_tz) > waccount.last_publish_time.replace(tzinfo=local_tz):
-                    waccount.last_publish_time = datetime.datetime.strptime(create_time, "%Y年%m月%d日 %H:%M").replace(tzinfo=local_tz)
+                elif (not last_publish_dt) or (publish_dt > last_publish_dt):
+                    waccount.last_publish_time = publish_dt
 
                 # 检查是否超过半年没更新
-                if (datetime.datetime.now(local_tz) - waccount.last_publish_time.replace(tzinfo=local_tz)) > datetime.timedelta(days=180):
+                last_check_dt = waccount.last_publish_time
+                if last_check_dt and timezone.is_naive(last_check_dt):
+                    last_check_dt = timezone.make_aware(last_check_dt, timezone.get_default_timezone())
+                if last_check_dt and (timezone.now() - last_check_dt) > datetime.timedelta(days=180):
                     waccount.is_zombie = 1
 
                 waccount.save()
