@@ -220,6 +220,7 @@ const PORTAL_STATE = {
   videoTags: [],
   activeVideoTag: "",
   activeDungeon: "",
+  searchBound: false,
 };
 
 function classColor(slug) {
@@ -494,6 +495,7 @@ function updateSearchMeta() {
 }
 
 function bindSearch() {
+  if (PORTAL_STATE.searchBound) return;
   const input = document.getElementById("portal-search");
   if (input) {
     input.addEventListener("input", () => {
@@ -514,6 +516,7 @@ function bindSearch() {
       });
       updateSearchMeta();
     });
+    PORTAL_STATE.searchBound = true;
   }
 }
 
@@ -530,6 +533,50 @@ async function loadAll() {
   updateSearchMeta();
 }
 
+function removeLogoWhiteBg(img) {
+  if (!img || img.dataset.portalBgRemoved === "1") return;
+  const w = img.naturalWidth || 0;
+  const h = img.naturalHeight || 0;
+  if (!w || !h) return;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.drawImage(img, 0, 0, w, h);
+
+  const data = ctx.getImageData(0, 0, w, h);
+  const px = data.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const r = px[i];
+    const g = px[i + 1];
+    const b = px[i + 2];
+    const a = px[i + 3];
+    if (a === 0) continue;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const lum = (r * 0.2126 + g * 0.7152 + b * 0.0722);
+    const nearWhite = lum >= 246 && max - min <= 16;
+    if (nearWhite) px[i + 3] = 0;
+  }
+  ctx.putImageData(data, 0, 0);
+
+  img.src = canvas.toDataURL("image/png");
+  img.dataset.portalBgRemoved = "1";
+}
+
+function bindLogoBackgroundRemoval() {
+  const imgs = document.querySelectorAll(".portal-logo-img, .portal-hero-logo-img");
+  imgs.forEach((img) => {
+    if (!(img instanceof HTMLImageElement)) return;
+    const doIt = () => removeLogoWhiteBg(img);
+    if (img.complete) doIt();
+    else img.addEventListener("load", doIt, { once: true });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  bindLogoBackgroundRemoval();
   loadAll();
 });

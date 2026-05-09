@@ -22,6 +22,7 @@
      ".png" { return "image/png" }
      ".jpg" { return "image/jpeg" }
      ".jpeg" { return "image/jpeg" }
+    ".webp" { return "image/webp" }
      ".svg" { return "image/svg+xml" }
      default { return "application/octet-stream" }
    }
