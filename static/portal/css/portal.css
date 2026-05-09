@@ -2,6 +2,72 @@ html, body {
     height: 100%;
 }
 
+.portal-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(248, 250, 252, 0.78);
+    backdrop-filter: blur(10px);
+}
+
+.portal-header-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0.65rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.portal-header-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.portal-header-logo {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.7rem;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: rgba(255, 255, 255, 0.82);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.portal-logo-fallback-icon {
+    flex-shrink: 0;
+}
+
+.portal-logo-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.portal-header-title {
+    font-size: 1rem;
+    line-height: 1.1;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: rgb(15, 23, 42);
+    white-space: nowrap;
+}
+
+.portal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
 .portal-bg {
     background:
         radial-gradient(1200px 600px at 10% -10%, rgba(59, 130, 246, 0.18), rgba(59, 130, 246, 0) 60%),
@@ -31,18 +97,87 @@ html, body {
 }
 
 .portal-topbar {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    padding-top: 0.25rem;
+    padding-top: 1.25rem;
 }
 
 .portal-topbar-inner {
     border: 1px solid rgba(148, 163, 184, 0.35);
     background: rgba(248, 250, 252, 0.72);
     backdrop-filter: blur(10px);
-    border-radius: 0.75rem;
-    padding: 0.75rem;
+    border-radius: 1rem;
+    padding: 1rem;
+}
+
+.portal-hero {
+    display: grid;
+    gap: 1.1rem;
+    justify-items: center;
+    text-align: center;
+    padding: 0.5rem 0;
+}
+
+.portal-hero-logo {
+    width: 8.25rem;
+    height: 8.25rem;
+    border-radius: 1.25rem;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(255, 255, 255, 0.78);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.portal-hero-logo-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.portal-hero-search {
+    width: clamp(320px, 60%, 660px);
+}
+
+.portal-hero-input {
+    width: 100%;
+    border-radius: 1.25rem;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: rgba(255, 255, 255, 0.85);
+    padding: 1rem 1.1rem;
+    font-size: 1rem;
+    line-height: 1.2;
+    outline: none;
+}
+
+.portal-hero-input:focus {
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.35);
+    border-color: rgba(99, 102, 241, 0.55);
+}
+
+.portal-hero-tools {
+    width: min(920px, 100%);
+    display: flex;
+    justify-content: center;
+}
+
+.portal-hero-tools-inner {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.65rem;
+    font-size: 0.95rem;
+}
+
+.portal-hero .portal-pill {
+    padding: 0.55rem 1rem;
+    border-radius: 9999px;
+}
+
+.portal-hero-meta {
+    font-size: 0.8rem;
+    color: rgb(100, 116, 139);
 }
 
 .portal-pill {
@@ -54,6 +189,11 @@ html, body {
 
 .portal-pill:hover {
     background: rgba(248, 250, 252, 0.9);
+}
+
+.portal-action-btn {
+    padding: 0.55rem 1rem;
+    border-radius: 1.05rem;
 }
 
 .portal-card {
