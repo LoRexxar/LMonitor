@@ -913,6 +913,22 @@ class SimcMonitor(BaseScan):
         logger.info("[SimC Monitor] Start SimC simulation check.")
         
         try:
+            sys_name = str(py_platform.system() or '').lower()
+            if 'linux' in sys_name:
+                platform = self._get_runtime_platform()
+                try:
+                    now = timezone.now()
+                    row = SimcBackendBinary.objects.filter(platform=platform).first()
+                    if row:
+                        row.is_updating = False
+                        row.update_progress = 0
+                        row.update_status = '当前没有agent在运行'
+                        row.last_error = ''
+                        row.last_checked_at = now
+                        row.save(update_fields=['is_updating', 'update_progress', 'update_status', 'last_error', 'last_checked_at'])
+                except Exception:
+                    pass
+                return True
             self.ensure_simc_backend_up_to_date()
             # 检查SimC路径是否正确
             if not self.simc_path:
