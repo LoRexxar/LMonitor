@@ -21,6 +21,10 @@ import time
 import re
 import requests
 import os
+import shutil
+import subprocess
+import zipfile
+import tarfile
 import threading
 import uuid
 import platform as py_platform
@@ -31,6 +35,7 @@ from django.template.loader import render_to_string
 from django.conf import settings
 from utils.log import logger
 from botend.models import SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert
+from botend.alerting import upsert_system_alert
 from django.db import models
 from core.glm import GLMClient
 
@@ -2852,14 +2857,87 @@ class SimcTemplateAPIView(View):
 class SimcBackendBinaryAPIView(View):
     """SimC后端更新状态API"""
 
+    def _get_runtime_platform(self):
+        sys_name = str(py_platform.system() or '').lower()
+        if 'linux' in sys_name:
+            machine = str(py_platform.machine() or '').lower()
+            return 'linuxarm64' if machine in ('aarch64', 'arm64') else 'linux64'
+        return 'win64'
+
+    def _detect_platform_from_filename(self, filename):
+        lower = str(filename or '').lower()
+        if 'win64' in lower:
+            return 'win64'
+        if 'linux64' in lower:
+            return 'linux64'
+        if 'linuxarm64' in lower or 'arm64' in lower:
+            return 'linuxarm64'
+        return ''
+
+    def _parse_version_from_filename(self, filename, platform):
+        text = str(filename or '')
+        m = re.search(rf"simc-(.+?)-{re.escape(platform)}", text, flags=re.IGNORECASE)
+        return m.group(1) if m else ""
+
+    def _extract_archive(self, archive_path, extract_dir, platform):
+        os.makedirs(extract_dir, exist_ok=True)
+        lower = str(archive_path).lower()
+        if lower.endswith(('.tar.gz', '.tar.xz', '.tgz')):
+            with tarfile.open(archive_path, 'r:*') as tf:
+                base = os.path.realpath(extract_dir)
+                base_prefix = base + os.sep
+                for m in tf.getmembers():
+                    target = os.path.realpath(os.path.join(extract_dir, m.name))
+                    if not (target == base or target.startswith(base_prefix)):
+                        raise Exception("压缩包内容包含非法路径")
+                tf.extractall(extract_dir)
+            return extract_dir
+        if lower.endswith('.zip'):
+            with zipfile.ZipFile(archive_path, 'r') as zf:
+                zf.extractall(extract_dir)
+            return extract_dir
+        if lower.endswith('.7z'):
+            try:
+                import py7zr
+            except Exception:
+                candidates = []
+                if str(platform).startswith("win"):
+                    candidates.extend([r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe"])
+                    seven_zip = next((p for p in candidates if os.path.exists(p)), "")
+                else:
+                    seven_zip = shutil.which('7z') or shutil.which('7zz') or ''
+                if not seven_zip:
+                    raise Exception("无法解压 .7z：未安装 7-Zip（7z.exe）且未安装 py7zr")
+                subprocess.run([seven_zip, "x", "-y", f"-o{extract_dir}", archive_path], check=True)
+                return extract_dir
+            try:
+                with py7zr.SevenZipFile(archive_path, mode='r') as z:
+                    z.extractall(path=extract_dir)
+                return extract_dir
+            except Exception as e:
+                raise Exception(f"py7zr解压失败: {str(e)}")
+        raise Exception(f"不支持的压缩格式: {archive_path}")
+
+    def _find_simc_executable(self, root_dir, platform):
+        exe_name = "simc.exe" if str(platform).startswith("win") else "simc"
+        for base, _, files in os.walk(root_dir):
+            for fn in files:
+                if fn.lower() == exe_name.lower():
+                    return os.path.join(base, fn)
+        return ""
+
+    def _ensure_executable_permission(self, exe_path, platform):
+        if not exe_path or str(platform).startswith('win'):
+            return
+        try:
+            st = os.stat(exe_path)
+            os.chmod(exe_path, st.st_mode | 0o111)
+        except Exception:
+            return
+
     def get(self, request):
         try:
-            sys_name = str(py_platform.system() or '').lower()
-            if 'linux' in sys_name:
-                machine = str(py_platform.machine() or '').lower()
-                runtime_platform = 'linuxarm64' if machine in ('aarch64', 'arm64') else 'linux64'
-            else:
-                runtime_platform = 'win64'
+            runtime_platform = self._get_runtime_platform()
             row = SimcBackendBinary.objects.filter(platform=runtime_platform).first()
             if not row:
                 return JsonResponse({
@@ -2902,6 +2980,123 @@ class SimcBackendBinaryAPIView(View):
                 'success': False,
                 'error': f'获取SimC后端更新状态失败: {str(e)}'
             })
+
+    def post(self, request):
+        try:
+            f = request.FILES.get('file')
+            if not f:
+                return JsonResponse({'success': False, 'error': '缺少上传文件'})
+
+            filename = str(getattr(f, 'name', '') or '').strip()
+            if not filename:
+                return JsonResponse({'success': False, 'error': '文件名为空'})
+
+            lower = filename.lower()
+            if not (lower.endswith('.zip') or lower.endswith('.7z') or lower.endswith('.tar.gz') or lower.endswith('.tar.xz') or lower.endswith('.tgz')):
+                return JsonResponse({'success': False, 'error': '不支持的压缩格式'})
+
+            platform = self._detect_platform_from_filename(filename)
+            if platform not in ('win64', 'linux64'):
+                return JsonResponse({'success': False, 'error': '文件名需要包含 win64 或 linux64'})
+
+            if not lower.startswith('simc-'):
+                return JsonResponse({'success': False, 'error': '文件名需要以 simc- 开头'})
+
+            base_dir = os.path.join(os.getcwd(), 'bin', 'simc')
+            os.makedirs(base_dir, exist_ok=True)
+            archive_path = os.path.join(base_dir, filename)
+
+            row = SimcBackendBinary.objects.filter(platform=platform).first()
+            if not row:
+                row = SimcBackendBinary(platform=platform)
+                row.simc_path = ''
+                row.current_version = ''
+                row.latest_version = ''
+                row.auto_update = True
+                row.last_checked_at = None
+                row.last_updated_at = None
+                row.update_progress = 0
+                row.update_status = '未初始化'
+                row.last_error = ''
+                row.is_updating = False
+                row.save()
+
+            if row.is_updating:
+                return JsonResponse({'success': False, 'error': '当前正在更新中，请稍后重试'})
+
+            row.is_updating = True
+            row.update_progress = 1
+            row.update_status = '接收上传文件'
+            row.last_error = ''
+            row.save(update_fields=['is_updating', 'update_progress', 'update_status', 'last_error'])
+
+            try:
+                with open(archive_path, 'wb') as fp:
+                    for chunk in f.chunks():
+                        fp.write(chunk)
+            except Exception as e:
+                row.is_updating = False
+                row.update_status = '上传失败'
+                row.last_error = str(e)
+                row.save(update_fields=['is_updating', 'update_status', 'last_error'])
+                upsert_system_alert('SIMC_UPDATE_FAILED', platform, 3, 'SimC 更新失败', f'上传失败: {str(e)}')
+                return JsonResponse({'success': False, 'error': f'上传失败: {str(e)}'})
+
+            ver = self._parse_version_from_filename(filename, platform) or filename
+            extract_dir = os.path.join(base_dir, f"simc-{ver}-{platform}")
+
+            row.update_progress = 30
+            row.update_status = '解压中'
+            row.save(update_fields=['update_progress', 'update_status'])
+
+            try:
+                if os.path.exists(extract_dir):
+                    shutil.rmtree(extract_dir, ignore_errors=True)
+                self._extract_archive(archive_path, extract_dir, platform)
+                exe_path = self._find_simc_executable(extract_dir, platform)
+                if not exe_path:
+                    raise Exception(f"未在解压目录中找到SimC可执行文件: {extract_dir}")
+                self._ensure_executable_permission(exe_path, platform)
+            except Exception as e:
+                row.is_updating = False
+                row.update_progress = 0
+                row.update_status = '安装失败'
+                row.last_error = str(e)
+                row.save(update_fields=['is_updating', 'update_progress', 'update_status', 'last_error'])
+                upsert_system_alert('SIMC_UPDATE_FAILED', platform, 3, 'SimC 更新失败', f'安装失败: {str(e)}')
+                return JsonResponse({'success': False, 'error': f'安装失败: {str(e)}'})
+
+            now = timezone.now()
+            row.simc_path = exe_path
+            row.current_version = ver
+            row.latest_version = ver
+            row.last_updated_at = now
+            row.last_checked_at = now
+            row.last_error = ''
+            row.is_updating = False
+            row.update_progress = 100
+            row.update_status = f'安装完成 {ver}'
+            row.save(
+                update_fields=[
+                    'simc_path',
+                    'current_version',
+                    'latest_version',
+                    'last_updated_at',
+                    'last_checked_at',
+                    'last_error',
+                    'is_updating',
+                    'update_progress',
+                    'update_status',
+                ]
+            )
+
+            if self._get_runtime_platform() == platform:
+                settings.SIMC_CONFIG['simc_path'] = exe_path
+
+            return JsonResponse({'success': True, 'data': {'platform': platform, 'version': ver, 'simc_path': exe_path}})
+        except Exception as e:
+            logger.error(f"上传SimC后端失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'上传SimC后端失败: {str(e)}'})
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
