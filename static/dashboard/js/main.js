@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化用户菜单
     initUserMenu();
     initSystemAlerts();
+    initSimcBackendUploadTool();
     
     // 默认显示首页内容
     const homeMenuItem = document.querySelector('.nav-item[data-section="dashboard-home"]');
@@ -2061,6 +2062,7 @@ let currentSystemAlerts = [];
 let currentSystemAlertTotalUnread = 0;
 const systemAlertHomeDisplayLimit = 5;
 const systemAlertFetchLimit = 100;
+let simcUploadSelectedFile = null;
 
 function initSystemAlerts() {
     const list = document.getElementById('system-alert-home-list');
@@ -2100,6 +2102,154 @@ function initSystemAlerts() {
     }
 
     fetchUnreadSystemAlerts();
+}
+
+function initSimcBackendUploadTool() {
+    const dropzone = document.getElementById('simc-upload-dropzone');
+    const fileInput = document.getElementById('simc-upload-file');
+    const selectedWrap = document.getElementById('simc-upload-selected');
+    const selectedName = document.getElementById('simc-upload-selected-name');
+    const selectedMeta = document.getElementById('simc-upload-selected-meta');
+    const submitBtn = document.getElementById('simc-upload-submit');
+    const clearBtn = document.getElementById('simc-upload-clear');
+    const result = document.getElementById('simc-upload-result');
+    if (!dropzone || !fileInput || !submitBtn || !clearBtn || !result || !selectedWrap || !selectedName || !selectedMeta) {
+        return;
+    }
+
+    const setSelectedFile = (file) => {
+        simcUploadSelectedFile = file || null;
+        if (!simcUploadSelectedFile) {
+            selectedWrap.classList.add('hidden');
+            selectedName.textContent = '';
+            selectedMeta.textContent = '';
+            submitBtn.disabled = true;
+            clearBtn.disabled = true;
+            return;
+        }
+        selectedWrap.classList.remove('hidden');
+        selectedName.textContent = simcUploadSelectedFile.name || '';
+        const size = Number(simcUploadSelectedFile.size || 0);
+        const sizeText = size > 0 ? `${(size / (1024 * 1024)).toFixed(2)} MB` : '';
+        selectedMeta.textContent = [sizeText, simcUploadSelectedFile.type || ''].filter(Boolean).join(' · ');
+        submitBtn.disabled = false;
+        clearBtn.disabled = false;
+    };
+
+    const clearSelected = () => {
+        fileInput.value = '';
+        setSelectedFile(null);
+        result.textContent = '';
+    };
+
+    clearBtn.addEventListener('click', function() {
+        clearSelected();
+    });
+
+    dropzone.addEventListener('click', function() {
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', function() {
+        const file = fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+        setSelectedFile(file);
+    });
+
+    const stopDefaults = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+        dropzone.addEventListener(evt, stopDefaults);
+    });
+
+    dropzone.addEventListener('dragenter', function() {
+        dropzone.classList.add('border-blue-400');
+    });
+    dropzone.addEventListener('dragleave', function() {
+        dropzone.classList.remove('border-blue-400');
+    });
+    dropzone.addEventListener('drop', function(e) {
+        dropzone.classList.remove('border-blue-400');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length ? e.dataTransfer.files[0] : null;
+        if (file) {
+            setSelectedFile(file);
+        }
+    });
+
+    const renderBackendInfo = (data) => {
+        const platform = document.getElementById('simc-upload-platform');
+        const currentVersion = document.getElementById('simc-upload-current-version');
+        const path = document.getElementById('simc-upload-path');
+        const status = document.getElementById('simc-upload-status');
+        const lastError = document.getElementById('simc-upload-last-error');
+        if (platform) platform.textContent = (data && data.platform) ? String(data.platform) : '-';
+        if (currentVersion) currentVersion.textContent = (data && data.current_version) ? String(data.current_version) : '-';
+        if (path) path.textContent = (data && data.simc_path) ? String(data.simc_path) : '-';
+        if (status) status.textContent = (data && data.update_status) ? String(data.update_status) : '-';
+        const err = (data && data.last_error) ? String(data.last_error) : '';
+        if (lastError) {
+            if (err) {
+                lastError.textContent = err;
+                lastError.classList.remove('hidden');
+            } else {
+                lastError.textContent = '';
+                lastError.classList.add('hidden');
+            }
+        }
+    };
+
+    const fetchBackendInfo = async () => {
+        try {
+            const resp = await fetch('/api/simc-backend-binary/', { method: 'GET' });
+            const data = await resp.json();
+            if (data && data.success) {
+                renderBackendInfo(data.data || {});
+            }
+        } catch (e) {
+            return;
+        }
+    };
+
+    const setUploading = (uploading) => {
+        submitBtn.disabled = uploading || !simcUploadSelectedFile;
+        clearBtn.disabled = uploading || !simcUploadSelectedFile;
+        if (uploading) {
+            result.textContent = '上传中...';
+        }
+    };
+
+    submitBtn.addEventListener('click', async function() {
+        if (!simcUploadSelectedFile) {
+            return;
+        }
+        setUploading(true);
+        try {
+            const form = new FormData();
+            form.append('file', simcUploadSelectedFile);
+            const resp = await fetch('/api/simc-backend-binary/', { method: 'POST', body: form });
+            const data = await resp.json();
+            if (data && data.success) {
+                showMessage('上传成功，已开始安装/更新后端', 'success');
+                result.textContent = '上传成功，正在刷新状态...';
+                clearSelected();
+                await fetchBackendInfo();
+                return;
+            }
+            const err = data && data.error ? String(data.error) : '上传失败';
+            showMessage(err, 'error');
+            result.textContent = err;
+        } catch (e) {
+            const err = e && e.message ? e.message : '上传失败';
+            showMessage(err, 'error');
+            result.textContent = err;
+        } finally {
+            setUploading(false);
+        }
+    });
+
+    fetchBackendInfo();
 }
 
 async function fetchUnreadSystemAlerts(silent = true) {
