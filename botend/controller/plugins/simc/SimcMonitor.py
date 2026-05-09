@@ -642,17 +642,16 @@ class SimcMonitor(BaseScan):
                 row.save()
 
             self._set_update_status(row, status='检查更新中', progress=0, is_updating=True, last_error='')
+            simc_path = str(row.simc_path or '').strip()
+            simc_missing = (not simc_path) or (not os.path.isfile(simc_path))
             interval = int(self.simc_config.get('update_check_interval_seconds', 1800) or 1800)
-            if row.last_checked_at and (now - row.last_checked_at).total_seconds() < interval:
+            if (not simc_missing) and row.last_checked_at and (now - row.last_checked_at).total_seconds() < interval:
                 if row.simc_path:
                     settings.SIMC_CONFIG['simc_path'] = row.simc_path
                     self.simc_path = row.simc_path
                 mins = max(1, int(interval / 60))
                 self._set_update_status(row, status=f'跳过检查（{mins}分钟内）', progress=100, is_updating=False)
                 return
-
-            simc_path = str(row.simc_path or '').strip()
-            simc_missing = (not simc_path) or (not os.path.isfile(simc_path))
             if simc_missing:
                 try:
                     if self._try_install_from_local_archive(row, platform, base_dir):
@@ -673,6 +672,8 @@ class SimcMonitor(BaseScan):
             row.last_checked_at = now
             row.save(update_fields=['last_checked_at'])
             if not latest:
+                if simc_missing:
+                    raise Exception('未获取到最新版本信息')
                 self._set_update_status(row, status='未获取到最新版本信息', progress=0, is_updating=False, last_error='下载站返回为空')
                 return
 
@@ -691,7 +692,7 @@ class SimcMonitor(BaseScan):
                 self._set_update_status(row, status=f'已是最新版本 {latest_ver}', progress=100, is_updating=False)
                 return
 
-            if not row.auto_update:
+            if (not simc_missing) and (not row.auto_update):
                 self._set_update_status(row, status=f'检测到新版本 {latest_ver}，但自动更新已关闭', progress=0, is_updating=False)
                 return
 

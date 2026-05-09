@@ -111,6 +111,7 @@ function refreshData() {
     updateRecentActivities();
     // 更新统计数据
     updateStatistics();
+    fetchUnreadSystemAlerts();
 }
 
 /**
@@ -2057,26 +2058,25 @@ function showMessage(message, type = 'info') {
 }
 
 let currentSystemAlerts = [];
+let currentSystemAlertTotalUnread = 0;
+const systemAlertHomeDisplayLimit = 5;
+const systemAlertFetchLimit = 100;
 
 function initSystemAlerts() {
-    const modal = document.getElementById('system-alert-modal');
-    if (!modal) {
+    const list = document.getElementById('system-alert-home-list');
+    const empty = document.getElementById('system-alert-home-empty');
+    const hint = document.getElementById('system-alert-home-hint');
+    if (!list || !empty || !hint) {
         return;
     }
-    const closeBtn = document.getElementById('system-alert-close');
-    const markAllBtn = document.getElementById('system-alert-mark-all');
+    const refreshBtn = document.getElementById('system-alert-home-refresh');
+    const markAllBtn = document.getElementById('system-alert-home-mark-all');
 
-    if (closeBtn) {
-        closeBtn.addEventListener('click', function() {
-            modal.classList.add('hidden');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', async function() {
+            await fetchUnreadSystemAlerts(false);
         });
     }
-
-    modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
-            modal.classList.add('hidden');
-        }
-    });
 
     if (markAllBtn) {
         markAllBtn.addEventListener('click', async function() {
@@ -2088,9 +2088,7 @@ function initSystemAlerts() {
                 });
                 const data = await resp.json();
                 if (data && data.success) {
-                    currentSystemAlerts = [];
-                    renderSystemAlertModal();
-                    modal.classList.add('hidden');
+                    await fetchUnreadSystemAlerts(false);
                     showMessage('已全部标记为已读', 'success');
                     return;
                 }
@@ -2104,26 +2102,32 @@ function initSystemAlerts() {
     fetchUnreadSystemAlerts();
 }
 
-async function fetchUnreadSystemAlerts() {
+async function fetchUnreadSystemAlerts(silent = true) {
     try {
-        const resp = await fetch('/api/system-alert/?limit=50', { method: 'GET' });
+        const resp = await fetch(`/api/system-alert/?limit=${systemAlertFetchLimit}`, { method: 'GET' });
         const data = await resp.json();
         if (!data || !data.success) {
+            if (!silent) {
+                showMessage(data && data.error ? data.error : '获取报警失败', 'error');
+            }
             return;
         }
         currentSystemAlerts = Array.isArray(data.data) ? data.data : [];
-        renderSystemAlertModal();
+        currentSystemAlertTotalUnread = Number(data.total_unread || 0);
+        renderSystemAlertHome();
     } catch (e) {
+        if (!silent) {
+            showMessage('获取报警失败: ' + (e && e.message ? e.message : '未知错误'), 'error');
+        }
         return;
     }
 }
 
-function renderSystemAlertModal() {
-    const modal = document.getElementById('system-alert-modal');
-    const list = document.getElementById('system-alert-list');
-    const empty = document.getElementById('system-alert-empty');
-    const hint = document.getElementById('system-alert-hint');
-    if (!modal || !list || !empty) {
+function renderSystemAlertHome() {
+    const list = document.getElementById('system-alert-home-list');
+    const empty = document.getElementById('system-alert-home-empty');
+    const hint = document.getElementById('system-alert-home-hint');
+    if (!list || !empty || !hint) {
         return;
     }
 
@@ -2131,17 +2135,15 @@ function renderSystemAlertModal() {
     const alerts = Array.isArray(currentSystemAlerts) ? currentSystemAlerts : [];
     if (!alerts.length) {
         empty.classList.remove('hidden');
-        if (hint) {
-            hint.textContent = '';
-        }
+        hint.textContent = '';
         return;
     }
     empty.classList.add('hidden');
-    if (hint) {
-        hint.textContent = `共 ${alerts.length} 条未读报警`;
-    }
+    const shownCount = Math.min(systemAlertHomeDisplayLimit, alerts.length);
+    const totalUnread = currentSystemAlertTotalUnread > 0 ? currentSystemAlertTotalUnread : alerts.length;
+    hint.textContent = `展示最近 ${shownCount} 条未读（已加载 ${alerts.length} / 共 ${totalUnread} 条）`;
 
-    alerts.forEach(a => {
+    alerts.slice(0, shownCount).forEach(a => {
         const level = Number(a.level || 3);
         const borderClass = level >= 3 ? 'border-red-500' : level === 2 ? 'border-yellow-500' : 'border-blue-500';
         const badgeClass = level >= 3 ? 'bg-red-50 text-red-700' : level === 2 ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700';
@@ -2188,14 +2190,7 @@ function renderSystemAlertModal() {
                 });
                 const data = await resp.json();
                 if (data && data.success) {
-                    currentSystemAlerts = currentSystemAlerts.filter(x => String(x.id) !== String(a.id));
-                    renderSystemAlertModal();
-                    if (!currentSystemAlerts.length) {
-                        const modal = document.getElementById('system-alert-modal');
-                        if (modal) {
-                            modal.classList.add('hidden');
-                        }
-                    }
+                    await fetchUnreadSystemAlerts(false);
                     showMessage('已标记为已读', 'success');
                     return;
                 }
@@ -2219,8 +2214,6 @@ function renderSystemAlertModal() {
         wrap.appendChild(content);
         list.appendChild(wrap);
     });
-
-    modal.classList.remove('hidden');
 }
 
 /**
