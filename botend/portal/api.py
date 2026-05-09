@@ -65,6 +65,7 @@ def _tool_to_dict(t):
         'name': t.name or '',
         'url': t.url or '',
         'desc': t.desc or '',
+        'icon_path': getattr(t, 'icon_path', '') or '',
         'sort_order': t.sort_order or 0,
         'is_topbar': bool(t.is_topbar),
         'topbar_order': t.topbar_order or 0,

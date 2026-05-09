@@ -33,7 +33,10 @@
                 <div class="portal-card portal-card-accent portal-accent-sky bg-white/80 shadow-sm border border-slate-200/70 p-4">
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2">
-                            <div class="font-semibold">蓝帖速递</div>
+                            <div class="flex items-center gap-2 font-semibold text-slate-900">
+                                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-megaphone"></use></svg>
+                                <span>蓝帖速递</span>
+                            </div>
                         </div>
                     </div>
                     <div id="blueposts-list" class="mt-3 text-sm"></div>
@@ -42,7 +45,10 @@
                 <div class="portal-card portal-card-accent portal-accent-violet bg-white/80 shadow-sm border border-slate-200/70 p-4">
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2">
-                            <div class="font-semibold">魔兽世界新闻</div>
+                            <div class="flex items-center gap-2 font-semibold text-slate-900">
+                                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-newspaper"></use></svg>
+                                <span>魔兽世界新闻</span>
+                            </div>
                         </div>
                     </div>
                     <div id="exwind-list" class="mt-3 text-sm"></div>
@@ -53,7 +59,10 @@
                 <div class="portal-card portal-card-accent portal-accent-amber bg-white/80 shadow-sm border border-slate-200/70 p-4">
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2">
-                            <div class="font-semibold">NGA 热议</div>
+                            <div class="flex items-center gap-2 font-semibold text-slate-900">
+                                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-chat"></use></svg>
+                                <span>NGA 热议</span>
+                            </div>
                         </div>
                     </div>
                     <div id="nga-list" class="mt-3 text-sm"></div>
@@ -65,7 +74,10 @@
             <div class="portal-card portal-card-accent portal-accent-emerald bg-white/80 shadow-sm border border-slate-200/70 p-4">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
-                        <div class="font-semibold">活动提醒</div>
+                        <div class="flex items-center gap-2 font-semibold text-slate-900">
+                            <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-calendar"></use></svg>
+                            <span>活动提醒</span>
+                        </div>
                     </div>
                 </div>
                 <div id="events-list" class="mt-3 space-y-2 text-sm"></div>
@@ -73,7 +85,10 @@
             <div class="portal-card portal-card-accent portal-accent-fuchsia bg-white/80 shadow-sm border border-slate-200/70 p-4">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
-                        <div class="font-semibold">视频攻略</div>
+                        <div class="flex items-center gap-2 font-semibold text-slate-900">
+                            <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-video"></use></svg>
+                            <span>视频攻略</span>
+                        </div>
                     </div>
                 </div>
                 <div id="videos-tags" class="mt-3 flex flex-wrap gap-2"></div>
@@ -82,13 +97,19 @@
         </div>
 
         <div class="mt-6 portal-card portal-card-accent portal-accent-indigo bg-white/80 shadow-sm border border-slate-200/70 p-4">
-            <div class="font-semibold">大秘境 Top Runs</div>
+            <div class="flex items-center gap-2 font-semibold text-slate-900">
+                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-chart"></use></svg>
+                <span>大秘境 Top Runs</span>
+            </div>
             <div id="mplus-controls" class="mt-3 flex flex-wrap items-center gap-2"></div>
             <div id="mplus-rankings" class="mt-3 text-sm"></div>
         </div>
 
         <div class="mt-6 portal-card portal-card-accent portal-accent-rose bg-white/80 shadow-sm border border-slate-200/70 p-4">
-            <div class="font-semibold">工具导航</div>
+            <div class="flex items-center gap-2 font-semibold text-slate-900">
+                <svg class="w-4 h-4" aria-hidden="true"><use href="../static/portal/icons/icons.svg#icon-tools"></use></svg>
+                <span>工具导航</span>
+            </div>
             <div id="tools-nav" class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm"></div>
         </div>
 
@@ -102,14 +123,14 @@
       const MOCK = {
         tools: {
           topbar: [
-            { name: "Wowhead", url: "https://www.wowhead.com/", desc: "" },
-            { name: "Raider.IO", url: "https://raider.io/", desc: "" },
-            { name: "WCL", url: "https://www.warcraftlogs.com/", desc: "" }
+            { name: "Wowhead", url: "https://www.wowhead.com/", desc: "", icon_path: "" },
+            { name: "Raider.IO", url: "https://raider.io/", desc: "", icon_path: "" },
+            { name: "WCL", url: "https://www.warcraftlogs.com/", desc: "", icon_path: "" }
           ],
           items: [
-            { name: "SimC", url: "https://www.simulationcraft.org/", desc: "模拟器" },
-            { name: "NGA", url: "https://nga.178.com/thread.php?fid=7", desc: "论坛" },
-            { name: "Wowpedia", url: "https://wowpedia.fandom.com/", desc: "百科" }
+            { name: "SimC", url: "https://www.simulationcraft.org/", desc: "模拟器", icon_path: "" },
+            { name: "NGA", url: "https://nga.178.com/thread.php?fid=7", desc: "论坛", icon_path: "" },
+            { name: "Wowpedia", url: "https://wowpedia.fandom.com/", desc: "百科", icon_path: "" }
           ]
         },
         blueposts: Array.from({ length: 10 }).map((_, i) => ({

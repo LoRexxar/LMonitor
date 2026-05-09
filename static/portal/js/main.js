@@ -39,6 +39,18 @@ function escapeHtml(s) {
     .replaceAll("'", "&#39;");
 }
 
+function getFaviconSrc(it) {
+  const p = String(it?.icon_path || "").trim();
+  if (p) return p;
+  return "/static/portal/favicons/default.svg";
+}
+
+function svgIcon(id, cls) {
+  const safeId = String(id || "").replaceAll(/[^a-z0-9\-_]/gi, "");
+  const c = cls ? escapeHtml(cls) : "";
+  return `<svg class="${c}" aria-hidden="true"><use href="/static/portal/icons/icons.svg#${safeId}"></use></svg>`;
+}
+
 function getSearchQuery() {
   return String(PORTAL_STATE.query || "").trim().toLowerCase();
 }
@@ -109,11 +121,11 @@ function renderSimpleList(containerId, items, opts) {
         : "";
 
       const parts = [];
-      if (source) parts.push(`来源：${source}`);
-      if (author) parts.push(author);
-      if (time) parts.push(time);
-      const metaText = parts.join(" · ");
-      const meta = reply ? `${metaText ? `${metaText} ` : ""}${reply}` : metaText;
+      if (source) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-globe", "w-3.5 h-3.5 text-slate-400")}<span>${source}</span></span>`);
+      if (author) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-user", "w-3.5 h-3.5 text-slate-400")}<span>${author}</span></span>`);
+      if (time) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-clock", "w-3.5 h-3.5 text-slate-400")}<span>${time}</span></span>`);
+      if (reply) parts.push(reply);
+      const meta = parts.join("");
 
       const divider = idx === 0 ? "" : "border-t border-slate-100";
       return `<div class="py-2 ${divider}">
@@ -151,7 +163,12 @@ async function loadTools() {
           .map((it) => {
             const name = escapeHtml(it.name || "");
             const url = escapeHtml(it.url || "#");
-            return `<a class="portal-pill" href="${url}" target="_blank" rel="noreferrer">${name}</a>`;
+            const icon = escapeHtml(getFaviconSrc(it));
+            const fallback = "/static/portal/favicons/default.svg";
+            return `<a class="portal-pill inline-flex items-center gap-2" href="${url}" target="_blank" rel="noreferrer">
+              <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
+              <span>${name}</span>
+            </a>`;
           })
           .join("");
       }
@@ -166,8 +183,13 @@ async function loadTools() {
             const name = escapeHtml(it.name || "");
             const url = escapeHtml(it.url || "#");
             const desc = escapeHtml(it.desc || "");
+            const icon = escapeHtml(getFaviconSrc(it));
+            const fallback = "/static/portal/favicons/default.svg";
             return `<a class="block p-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors" href="${url}" target="_blank" rel="noreferrer">
-              <div class="font-medium">${name}</div>
+              <div class="flex items-center gap-2">
+                <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
+                <div class="font-medium">${name}</div>
+              </div>
               ${desc ? `<div class="text-slate-500 text-xs mt-1">${desc}</div>` : ""}
             </a>`;
           })
@@ -404,7 +426,7 @@ function renderEvents(items) {
         </div>
         ${
           range
-            ? `<div class="mt-1 text-xs text-slate-500">⏱ ${range}</div>`
+            ? `<div class="mt-1 text-xs text-slate-500 inline-flex items-center gap-1">${svgIcon("icon-clock", "w-3.5 h-3.5 text-slate-400")}<span>${range}</span></div>`
             : `<div class="mt-1 text-xs text-slate-500">时间待补充</div>`
         }
       </div>`;
