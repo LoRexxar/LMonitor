@@ -45,7 +45,9 @@ class SystemAlertAPIView(View):
             except ValueError:
                 limit = 20
 
-            alerts = list(SystemAlert.objects.filter(is_read=False).order_by('-last_seen_at')[:limit])
+            unread_qs = SystemAlert.objects.filter(is_read=False)
+            total_unread = unread_qs.count()
+            alerts = list(unread_qs.order_by('-last_seen_at')[:limit])
             return JsonResponse({
                 'success': True,
                 'data': [
@@ -64,6 +66,7 @@ class SystemAlertAPIView(View):
                     for a in alerts
                 ],
                 'total': len(alerts),
+                'total_unread': total_unread,
             })
         except Exception as e:
             logger.error(f"获取系统报警失败: {str(e)}\n{traceback.format_exc()}")
