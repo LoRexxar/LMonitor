@@ -100,8 +100,9 @@ function renderSimpleList(containerId, items, opts) {
     return;
   }
   const limit = typeof opts?.limit === "number" ? opts.limit : 12;
+  const asGrid = containerId === "nga-list";
   const showReplyBadge = opts?.showReplyBadge === true || containerId === "nga-list";
-  el.innerHTML = filtered
+  const html = filtered
     .slice(0, limit)
     .map((it, idx) => {
       const title = escapeHtml(it.title || "");
@@ -127,13 +128,15 @@ function renderSimpleList(containerId, items, opts) {
       if (reply) parts.push(reply);
       const meta = parts.join("");
 
-      const divider = idx === 0 ? "" : "border-t border-slate-100";
+      const divider = asGrid ? "border-b border-slate-100" : (idx === 0 ? "" : "border-t border-slate-100");
       return `<div class="py-2 ${divider}">
         <a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>
         ${meta ? `<div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">${meta}</div>` : ""}
       </div>`;
     })
     .join("");
+
+  el.innerHTML = asGrid ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-x-6">${html}</div>` : html;
 }
 
 function renderSkeleton(containerId, lines = 8) {

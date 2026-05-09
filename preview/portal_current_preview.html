@@ -177,22 +177,30 @@
             { slug: "algethar-academy", name_cn: "艾杰斯亚学院" },
             { slug: "magisters-terrace", name_cn: "魔导师平台" }
           ],
-          items: Array.from({ length: 20 }).map((_, i) => ({
-            rank: i + 1,
-            dungeon: "艾杰斯亚学院",
-            dungeon_slug: "algethar-academy",
-            level: 12 + (i % 5),
-            time_seconds: 1600 + i * 7,
-            score: 3100 + i * 2.5,
-            party: [
-              { role: "tank", name: "Tanky", class_slug: "warrior" },
-              { role: "healer", name: "Healz", class_slug: "priest" },
-              { role: "dps", name: "Dps1", class_slug: "mage" },
-              { role: "dps", name: "Dps2", class_slug: "rogue" },
-              { role: "dps", name: "Dps3", class_slug: "hunter" }
-            ],
-            run_url: "https://example.com/mplus"
-          }))
+          items: (() => {
+            const ranks = { "algethar-academy": 0, "magisters-terrace": 0 };
+            return Array.from({ length: 30 }).map((_, i) => {
+              const dungeon_slug = i % 2 === 0 ? "algethar-academy" : "magisters-terrace";
+              ranks[dungeon_slug] += 1;
+              const dungeon = dungeon_slug === "algethar-academy" ? "艾杰斯亚学院" : "魔导师平台";
+              return {
+                rank: ranks[dungeon_slug],
+                dungeon,
+                dungeon_slug,
+                level: 10 + (i % 8),
+                time_seconds: 1500 + i * 11,
+                score: 3000 + ((i * 37) % 260) + (dungeon_slug === "algethar-academy" ? 35 : 0),
+                party: [
+                  { role: "tank", name: "Tanky", class_slug: "warrior" },
+                  { role: "healer", name: "Healz", class_slug: "priest" },
+                  { role: "dps", name: "Dps1", class_slug: "mage" },
+                  { role: "dps", name: "Dps2", class_slug: "rogue" },
+                  { role: "dps", name: "Dps3", class_slug: "hunter" }
+                ],
+                run_url: "https://example.com/mplus"
+              };
+            });
+          })()
         }
       };
 
@@ -210,7 +218,20 @@
         if (u.startsWith("/portal/api/nga-hot/")) return mk(MOCK.nga);
         if (u.startsWith("/portal/api/events/")) return mk(MOCK.events);
         if (u.startsWith("/portal/api/videos/")) return mk(MOCK.videos);
-        if (u.startsWith("/portal/api/mplus/rankings/")) return mk(MOCK.mplus_rankings);
+        if (u.startsWith("/portal/api/mplus/rankings/")) {
+          const urlObj = new URL(u, window.location.origin);
+          const dungeon = (urlObj.searchParams.get("dungeon") || "").trim();
+          const base = MOCK.mplus_rankings;
+          if (dungeon) {
+            const items = (base.items || []).filter((it) => (it.dungeon_slug || "") === dungeon).sort((a, b) => (a.rank || 0) - (b.rank || 0));
+            return mk({ dungeons: base.dungeons, items });
+          }
+          const items = (base.items || [])
+            .slice()
+            .sort((a, b) => (b.score || 0) - (a.score || 0))
+            .map((it, i) => ({ ...it, rank: i + 1 }));
+          return mk({ dungeons: base.dungeons, items });
+        }
 
         return originalFetch(url, options);
       };
