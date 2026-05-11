@@ -88,6 +88,9 @@ class WechatMonitor(BaseScan):
             if content is False or content is None:
                 logger.warning("[Wechat Monitor] Wechat api request failed.")
                 continue
+            if isinstance(content, bool) or not isinstance(content, (str, bytes, bytearray)):
+                logger.warning("[Wechat Monitor] Wechat api response type invalid.")
+                continue
             if isinstance(content, (bytes, bytearray)):
                 try:
                     content = content.decode('utf-8', 'ignore')
@@ -114,6 +117,8 @@ class WechatMonitor(BaseScan):
                 logger.warning("[Wechat Monitor] Wechat api response json decode failed.")
                 continue
             if 'publish_page' in r:
+                if not isinstance(r.get('publish_page'), str) or not (r.get('publish_page') or '').strip():
+                    continue
                 try:
                     content_full = json.loads(r['publish_page'])
                 except Exception:

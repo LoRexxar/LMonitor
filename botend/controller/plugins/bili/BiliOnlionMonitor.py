@@ -13,6 +13,8 @@ from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
 
 import json
+import DrissionPage
+from utils.log import logger
 
 
 class BiliOnlionMonitor(BaseScan):
@@ -51,10 +53,19 @@ class BiliOnlionMonitor(BaseScan):
     def resolve_data_live(self, driver):
 
         try:
-            self.title = driver.eles('.:live-skin-main-text')[0].text
+            title_ele = (driver.eles('.:live-skin-main-text') or [None])[0]
+            self.title = title_ele.text if title_ele else ""
 
         except IndexError:
             self.title = "直播标题可能被妖怪抓走了"
+
+        except DrissionPage.errors.ContextLostError:
+            self.title = ""
+            return
+
+        except DrissionPage.errors.PageDisconnectedError:
+            self.title = ""
+            return
 
         except:
             raise
@@ -62,6 +73,13 @@ class BiliOnlionMonitor(BaseScan):
     def resolve_data(self, url):
 
         r = self.req.get(url, 'Resp', 0, "")
+        if r is False or r is None:
+            return False
+        if isinstance(r, (bytes, bytearray)):
+            try:
+                r = r.decode('utf-8', 'ignore')
+            except Exception:
+                r = str(r)
         try :
             status = json.loads(r)
             status_code = status['code']

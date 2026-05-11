@@ -55,16 +55,21 @@ class AliyunAvdMonitor(BaseScan):
 
             try:
                 driver = self.req.get(self.avd_url, 'RespByChrome', 0, "", is_origin=1)
+                if not driver:
+                    return
 
                 tr_list = driver.eles('tag:tr')
 
                 for tr in tr_list:
                     tds = tr.eles('tag:td')
 
-                    if not tds:
+                    if not tds or len(tds) < 5:
                         continue
 
-                    link = tds[0].eles('tag:a')[0].attr("href")
+                    anchors = tds[0].eles('tag:a') or []
+                    if not anchors:
+                        continue
+                    link = anchors[0].attr("href")
                     avid = tds[0].text
                     title = tds[1].text
                     publish_time = tds[3].text
@@ -77,12 +82,17 @@ class AliyunAvdMonitor(BaseScan):
                             break
 
                     if not type:
-                        type = tds[2].eles('tag:button')[0].attr("data-original-title")
+                        btns = tds[2].eles('tag:button') or []
+                        if not btns:
+                            continue
+                        type = btns[0].attr("data-original-title")
 
                         if type in Vul_link_Type_Dict:
                             type = Vul_link_Type_Dict[type]
 
-                    status = tds[4].eles('tag:button')
+                    status = tds[4].eles('tag:button') or []
+                    if len(status) < 2:
+                        continue
                     cve = status[0].attr("data-original-title")
                     poc_status = status[1].attr("data-original-title")
 
@@ -122,6 +132,10 @@ class AliyunAvdMonitor(BaseScan):
 
             except DrissionPage.errors.ContextLostError:
                 logger.error("[Aliyun Avd Monitor] page refresh. return back")
+                return
+
+            except DrissionPage.errors.ElementLostError:
+                logger.error("[Aliyun Avd Monitor] element lost. return back")
                 return
 
             except:

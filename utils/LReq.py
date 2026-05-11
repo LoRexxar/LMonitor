@@ -92,6 +92,20 @@ class LReq:
             "Cookie": cookies
         }
         header.update(ext)
+        for k, v in list(header.items()):
+            if v is None:
+                header.pop(k, None)
+                continue
+            if isinstance(v, (bytes, bytearray)):
+                try:
+                    v = v.decode('utf-8', 'ignore')
+                except Exception:
+                    v = str(v)
+            v = str(v).replace('\r', ' ').replace('\n', ' ').strip()
+            header[k] = v
+        if 'Cookie' in header:
+            c = header['Cookie'].replace('\r', ';').replace('\n', ';')
+            header['Cookie'] = '; '.join([p.strip() for p in c.split(';') if p.strip()])
         return header
 
     def check_url(self, url):

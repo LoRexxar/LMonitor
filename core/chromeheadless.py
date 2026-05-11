@@ -131,6 +131,27 @@ class ChromeDriver:
                 pass
             return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
 
+        except DrissionPage.errors.ElementLostError:
+            logger.warning("[ChromeHeadless] ElementLostError..{}".format(url))
+            if times >= int((getattr(django_settings, 'REQUEST_CONFIG', {}) or {}).get('chrome_retries', 1)):
+                return False
+            try:
+                self._rebuild()
+            except Exception:
+                pass
+            return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
+
+        except TimeoutError:
+            logger.warning("[ChromeHeadless] TimeoutError..{}".format(url))
+            if times >= int((getattr(django_settings, 'REQUEST_CONFIG', {}) or {}).get('chrome_retries', 1)):
+                return False
+            try:
+                self._rebuild()
+            except Exception:
+                logger.error("[Chrome Headless] {}".format(traceback.format_exc()))
+                return False
+            return self.get_resp(url, cookies, is_origin=is_origin, times=times + 1)
+
         except ElementNotFoundError:
             logger.warning("[ChromeHeadless] Not found target element..{}".format(url))
 

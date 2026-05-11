@@ -62,7 +62,11 @@ class RssArticleMonitor(BaseScan):
             rmt.save()
 
             socket.setdefaulttimeout(20)
-            f = feedparser.parse(rmt.link)
+            try:
+                f = feedparser.parse(rmt.link)
+            except Exception as e:
+                logger.warning("[Rss Monitor] Fetch rss failed: {} {}".format(rmt.link, str(e)))
+                continue
 
             for msg in f.entries:
                 title = msg.title
