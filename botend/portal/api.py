@@ -29,6 +29,7 @@ def _article_to_dict(a):
         'source': a.source or '',
         'category': a.category or '',
         'publish_time': _fmt_dt(a.publish_time),
+        'reply_count': int(getattr(a, 'reply_count', 0) or 0),
     }
 
 

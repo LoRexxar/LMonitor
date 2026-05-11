@@ -104,6 +104,7 @@ class WowArticle(models.Model):
     author = models.CharField(max_length=255, default=None, null=True)
     description = models.TextField(null=True)
     publish_time = models.DateTimeField(default=timezone.now, null=True)
+    reply_count = models.IntegerField(default=0)
     source = models.CharField(max_length=32, default="unknown")
     category = models.CharField(max_length=32, default="unknown")
     is_active = models.BooleanField(default=True)
