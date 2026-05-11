@@ -32,16 +32,21 @@ class PortalPostMonitor(BaseScan):
         self.update_nga_hot()
         return True
 
-    def _upsert_article(self, *, title, url, source, category, author=None, description=None, publish_time=None):
+    def _upsert_article(self, *, title, url, source, category, author=None, description=None, publish_time=None, reply_count=None):
         url = (url or '').strip()
         if not url:
             return
         url_hash = _hash_url(url)
+        try:
+            reply_count_i = int(reply_count) if reply_count is not None else None
+        except Exception:
+            reply_count_i = None
         defaults = {
             'title': (title or '').strip() or None,
             'author': (author or '').strip() or None,
             'description': (description or '').strip() or None,
             'publish_time': publish_time or timezone.now(),
+            'reply_count': reply_count_i if reply_count_i is not None else 0,
             'source': source,
             'category': category,
             'url_hash': url_hash,
@@ -209,6 +214,11 @@ class PortalPostMonitor(BaseScan):
                         post_name = title_ele.text
                     except Exception:
                         continue
+                    reply_count = 0
+                    try:
+                        reply_count = int((tds[0].text or '0').strip() or '0')
+                    except Exception:
+                        reply_count = 0
                     post_link = (post_link or '').strip()
                     post_name = (post_name or '').strip()
                     if not post_link or not post_name:
@@ -231,6 +241,7 @@ class PortalPostMonitor(BaseScan):
                         author=None,
                         description=None,
                         publish_time=None,
+                        reply_count=reply_count,
                     )
                     added += 1
                     if added >= 30:

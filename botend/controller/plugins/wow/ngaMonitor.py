@@ -109,6 +109,7 @@ class ngaMonitor(BaseScan):
                     url=post_link,
                     author="nga{}".format(title),
                     description="",
+                    reply_count=int(post_count or 0),
                     source="nga",
                     category="nga",
                 )
