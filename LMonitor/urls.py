@@ -36,6 +36,7 @@ from botend.portal.api import (
     PortalMplusRankingsAPIView,
     PortalRaidRankingsAPIView,
     PortalCharacterAPIView,
+    PortalMythicstatsDpsAPIView,
 )
 from django.http import HttpResponse, JsonResponse
 
@@ -68,6 +69,7 @@ urlpatterns = [
     path('portal/api/mplus/rankings/', csrf_exempt(PortalMplusRankingsAPIView.as_view()), name="portal_mplus_rankings"),
     path('portal/api/raid/rankings/', csrf_exempt(PortalRaidRankingsAPIView.as_view()), name="portal_raid_rankings"),
     path('portal/api/character/', csrf_exempt(PortalCharacterAPIView.as_view()), name="portal_character"),
+    path('portal/api/mythicstats/dps/', csrf_exempt(PortalMythicstatsDpsAPIView.as_view()), name="portal_mythicstats_dps"),
     
     # API路由
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),

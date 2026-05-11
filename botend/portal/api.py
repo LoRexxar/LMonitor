@@ -3,7 +3,13 @@ from django.views import View
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalCache, PortalEvent, PortalMplusRun, PortalToolLink, PortalVideo, WowArticle
+from botend.models import PortalCache, PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, PortalToolLink, PortalVideo, WowArticle
+from botend.portal.mythicstats import (
+    fetch_current_season_slug,
+    fetch_mythicstats_dps,
+    upsert_mythicstats_dps_rows,
+    upsert_mythicstats_meta_cache,
+)
 
 
 def _fmt_dt(dt):
@@ -242,3 +248,168 @@ class PortalRaidRankingsAPIView(View):
 class PortalCharacterAPIView(View):
     def get(self, request):
         return JsonResponse({'status': 'success', 'data': {}})
+
+
+class PortalMythicstatsDpsAPIView(View):
+    def get(self, request):
+        season = (request.GET.get('season') or '').strip()
+        auto_season = (not season) or season in {"season-mn-1", "auto"}
+        if auto_season:
+            season = ""
+        dungeon_id_raw = (request.GET.get('dungeon') or '').strip()
+        period_id_raw = (request.GET.get('period') or '').strip()
+        try:
+            dungeon_id = int(dungeon_id_raw) if dungeon_id_raw else 0
+        except ValueError:
+            dungeon_id = 0
+        try:
+            period_id = int(period_id_raw) if period_id_raw else None
+        except ValueError:
+            period_id = None
+
+        def ensure_data():
+            nonlocal season
+            base = fetch_mythicstats_dps(req=None, season=season, dungeon_id=dungeon_id, period_id=None)
+            if auto_season:
+                season = base.get("season") or season
+            periods = base.get("periods") or []
+            dungeons = base.get("dungeons") or [{"id": 0, "name": "All dungeons"}]
+            upsert_mythicstats_meta_cache(season=season or base.get("season"), dungeons=dungeons, periods=periods)
+            if not periods:
+                return
+            top3 = periods[:3]
+            for idx, p in enumerate(top3):
+                pid = p.get("id")
+                if not pid:
+                    continue
+                cur = base
+                if int(pid) != int(base.get("period_id") or 0):
+                    cur = fetch_mythicstats_dps(req=None, season=season, dungeon_id=dungeon_id, period_id=int(pid))
+                period_label = cur.get("period_label") or str(pid)
+                cur_season = cur.get("season") or season
+                exists = PortalMythicstatsDpsRow.objects.filter(season=cur_season, period_id=int(pid), dungeon_id=dungeon_id).exists()
+                if idx > 0 and exists:
+                    continue
+                rankings = cur.get("rankings") or {}
+                dungeon_name = "All dungeons"
+                for d in dungeons:
+                    try:
+                        if int(d.get("id") or 0) == int(dungeon_id):
+                            dungeon_name = d.get("name") or dungeon_name
+                            break
+                    except Exception:
+                        continue
+                for role in ("damage", "tank", "healer"):
+                    rows = rankings.get(role) or []
+                    upsert_mythicstats_dps_rows(
+                        season=cur_season,
+                        period_id=int(pid),
+                        period_label=period_label,
+                        dungeon_id=dungeon_id,
+                        dungeon_name=dungeon_name,
+                        role=role,
+                        rows=rows,
+                        replace_batch=(idx == 0),
+                    )
+
+        if auto_season and not season:
+            slug, _label = fetch_current_season_slug(req=None)
+            if slug:
+                season = slug
+        if not season:
+            season = "unknown"
+
+        if not PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=dungeon_id).exists():
+            ensure_data()
+        elif period_id and not PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=dungeon_id, period_id=period_id).exists():
+            base = fetch_mythicstats_dps(req=None, season=season, dungeon_id=dungeon_id, period_id=period_id)
+            dungeons = base.get("dungeons") or [{"id": 0, "name": "All dungeons"}]
+            periods = base.get("periods") or []
+            upsert_mythicstats_meta_cache(season=season, dungeons=dungeons, periods=periods)
+            dungeon_name = "All dungeons"
+            for d in dungeons:
+                try:
+                    if int(d.get("id") or 0) == int(dungeon_id):
+                        dungeon_name = d.get("name") or dungeon_name
+                        break
+                except Exception:
+                    continue
+            for role in ("damage", "tank", "healer"):
+                upsert_mythicstats_dps_rows(
+                    season=base.get("season") or season,
+                    period_id=period_id,
+                    period_label=base.get("period_label") or str(period_id),
+                    dungeon_id=dungeon_id,
+                    dungeon_name=dungeon_name,
+                    role=role,
+                    rows=(base.get("rankings") or {}).get(role) or [],
+                    replace_batch=False,
+                )
+
+        period_rows = list(
+            PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=dungeon_id)
+            .values("period_id", "period_label")
+            .order_by("-period_id")
+            .distinct()[:3]
+        )
+        periods = [{"id": int(x["period_id"]), "label": x.get("period_label") or str(x["period_id"])} for x in period_rows]
+        active_period = period_id or (periods[0]["id"] if periods else None)
+
+        cached = PortalCache.objects.filter(key=f"mythicstats_dps_meta:{season}").first()
+        dungeons = [{"id": 0, "name": "All dungeons"}]
+        if cached and (cached.data or "").strip():
+            try:
+                import json
+                meta = json.loads(cached.data) or {}
+                dungeons = meta.get("dungeons") or dungeons
+            except Exception:
+                dungeons = dungeons
+
+        def row_to_dict(r):
+            return {
+                "rank": r.rank,
+                "diff_raw": r.diff_raw,
+                "diff_value": r.diff_value,
+                "tier": r.tier,
+                "avg": r.avg_text,
+                "top": r.top_text,
+                "runs": r.runs_text,
+                "spec_name": r.spec_name,
+                "spec_slug": r.spec_slug,
+                "spec_url": r.spec_url,
+                "week": r.week,
+            }
+
+        roles = {"damage": [], "tank": [], "healer": []}
+        if active_period:
+            for role in roles.keys():
+                qs = (
+                    PortalMythicstatsDpsRow.objects.filter(
+                        season=season,
+                        dungeon_id=dungeon_id,
+                        period_id=int(active_period),
+                        role=role,
+                    )
+                    .order_by("rank")[:80]
+                )
+                roles[role] = [row_to_dict(x) for x in qs]
+
+        return JsonResponse(
+            {
+                "status": "success",
+                "data": {
+                    "season": season,
+                    "seasons": list(
+                        PortalMythicstatsDpsRow.objects.exclude(season__in=["unknown", "season-mn-1"])
+                        .values_list("season", flat=True)
+                        .distinct()
+                        .order_by("season")
+                    ),
+                    "dungeon_id": dungeon_id,
+                    "periods": periods,
+                    "active_period": active_period,
+                    "dungeons": dungeons,
+                    "roles": roles,
+                },
+            }
+        )

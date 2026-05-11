@@ -31,6 +31,8 @@ from botend.controller.plugins.portal.PortalPostMonitor import PortalPostMonitor
 from botend.controller.plugins.portal.PortalEventMonitor import PortalEventMonitor
 from botend.controller.plugins.portal.PortalMplusRunMonitor import PortalMplusRunMonitor
 from botend.controller.plugins.portal.PortalVideoMonitor import PortalVideoMonitor
+from botend.controller.plugins.portal.PortalMythicstatsDpsMonitor import PortalMythicstatsDpsMonitor
+from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
 
 Monitor_Type_BaseObject_List = [
     BaseScan,
@@ -55,4 +57,6 @@ Monitor_Type_BaseObject_List = [
     PortalEventMonitor,
     PortalMplusRunMonitor,
     PortalVideoMonitor,
+    PortalMythicstatsDpsMonitor,
+    WagoSkillDiffMonitor,
 ]
