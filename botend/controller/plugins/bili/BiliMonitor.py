@@ -82,7 +82,7 @@ class BiliMonitor(BaseScan):
                     self.trigger_webhook()
 
         except DrissionPage.errors.ElementNotFoundError:
-            logger.error("[ngaMonitor] bad request.")
+            logger.error("[BiliMonitor] bad request.")
             upsert_system_alert(
                 category='BILIBILI_SCRAPE_FAILED',
                 subject='space.bilibili.com',
@@ -92,13 +92,33 @@ class BiliMonitor(BaseScan):
             )
 
         except DrissionPage.errors.PageDisconnectedError:
-            logger.error("[ngaMonitor] PageDisconnectedError.")
+            logger.error("[BiliMonitor] PageDisconnectedError.")
             upsert_system_alert(
                 category='BILIBILI_SCRAPE_FAILED',
                 subject='space.bilibili.com',
                 level=2,
                 title='B站页面解析失败',
                 content='浏览器页面连接断开'
+            )
+
+        except DrissionPage.errors.ContextLostError:
+            logger.error("[BiliMonitor] ContextLostError.")
+            upsert_system_alert(
+                category='BILIBILI_SCRAPE_FAILED',
+                subject='space.bilibili.com',
+                level=2,
+                title='B站页面解析失败',
+                content='页面刷新导致上下文丢失'
+            )
+
+        except TimeoutError:
+            logger.error("[BiliMonitor] TimeoutError.")
+            upsert_system_alert(
+                category='BILIBILI_SCRAPE_FAILED',
+                subject='space.bilibili.com',
+                level=2,
+                title='B站页面解析失败',
+                content='页面脚本执行超时'
             )
 
         except AttributeError:

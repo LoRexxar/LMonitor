@@ -27,7 +27,7 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask, 
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
-                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, PortalCache)
+                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask)
 
 
 def _fmt_dt(dt):
@@ -54,7 +54,6 @@ MODEL_DESCRIPTIONS = {
     'SimcTask': 'SimC任务管理',
     'SimcProfile': 'SimC配置管理',
     'SimcSecondaryStatRule': '绿字转换比例',
-    'PortalCache': 'Portal缓存',
     'PortalEvent': '活动信息',
     'PortalToolLink': '工具链接',
     'PortalMplusRun': '大秘境记录',

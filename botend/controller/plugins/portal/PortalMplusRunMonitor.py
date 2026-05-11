@@ -51,10 +51,17 @@ class PortalMplusRunMonitor(BaseScan):
             return False
 
     def _fetch_json(self, url):
-        resp = requests.get(url, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
+        try:
+            resp = requests.get(url, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"[PortalMplusRunMonitor] fetch failed: {str(e)}")
+            return None
         if resp.status_code != 200:
             return None
-        return resp.json() or {}
+        try:
+            return resp.json() or {}
+        except Exception:
+            return None
 
     def _get_season_dungeons(self, season_slug):
         try:

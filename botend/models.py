@@ -482,19 +482,6 @@ class WclAnalysisTask(models.Model):
         ordering = ['-created_at']
 
 
-class PortalCache(models.Model):
-    key = models.CharField(max_length=100, unique=True, help_text="缓存键，如 exwind_latest/nga_hot/blueposts")
-    data = models.TextField(default="", blank=True, help_text="JSON字符串")
-    status = models.IntegerField(default=0, help_text="状态 0正常 1失败")
-    error_message = models.CharField(max_length=1000, default="", blank=True, help_text="最近错误摘要")
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'portal_cache'
-        verbose_name = 'Portal缓存'
-        verbose_name_plural = 'Portal缓存'
-    
-
 class SystemAlert(models.Model):
     category = models.CharField(max_length=64, help_text="报警分类，如 WECHAT_COOKIE_EXPIRED/SIMC_UPDATE_FAILED")
     subject = models.CharField(max_length=128, default="", blank=True, help_text="报警主体，如 wechat/api.bilibili.com/win64")
