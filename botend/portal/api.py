@@ -3,7 +3,7 @@ from django.views import View
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalCache, PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, PortalToolLink, PortalVideo, WowArticle
+from botend.models import PortalCache, PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
     fetch_mythicstats_dps,
@@ -121,6 +121,34 @@ def _mplus_to_dict(r):
         'season': r.season or '',
         'region': r.region or '',
     }
+
+
+def _skilldiff_to_dict(r):
+    branch = (getattr(r, 'branch', '') or '').strip()
+    to_build = (getattr(r, 'to_build', '') or '').strip()
+    from_build = (getattr(r, 'from_build', '') or '').strip()
+    label = f"{branch} {from_build} → {to_build}".strip()
+    return {
+        'id': r.id,
+        'title': label,
+        'url': f"/portal/wow-skill-diff/{r.id}/",
+        'source': 'Wago',
+        'time': _fmt_dt(getattr(r, 'created_at', None)),
+        'branch': branch,
+        'from_build': from_build,
+        'to_build': to_build,
+    }
+
+
+class PortalWowSkillDiffListAPIView(View):
+    def get(self, request):
+        limit = request.GET.get('limit', '20')
+        try:
+            limit = max(1, min(100, int(limit)))
+        except ValueError:
+            limit = 20
+        rows = list(WowSkillDiffReport.objects.all().order_by('-created_at')[:limit])
+        return JsonResponse({'status': 'success', 'data': [_skilldiff_to_dict(x) for x in rows]})
 
 
 class PortalBluepostsAPIView(View):

@@ -24,6 +24,7 @@ from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttrib
 from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, SimcBackendBinaryAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
+from botend.portal.views import PortalWowSkillDiffReportView
 from botend.portal.api import (
     PortalBluepostsAPIView,
     PortalNgaHotAPIView,
@@ -37,6 +38,7 @@ from botend.portal.api import (
     PortalRaidRankingsAPIView,
     PortalCharacterAPIView,
     PortalMythicstatsDpsAPIView,
+    PortalWowSkillDiffListAPIView,
 )
 from django.http import HttpResponse, JsonResponse
 
@@ -70,6 +72,8 @@ urlpatterns = [
     path('portal/api/raid/rankings/', csrf_exempt(PortalRaidRankingsAPIView.as_view()), name="portal_raid_rankings"),
     path('portal/api/character/', csrf_exempt(PortalCharacterAPIView.as_view()), name="portal_character"),
     path('portal/api/mythicstats/dps/', csrf_exempt(PortalMythicstatsDpsAPIView.as_view()), name="portal_mythicstats_dps"),
+    path('portal/api/wow-skill-diffs/', csrf_exempt(PortalWowSkillDiffListAPIView.as_view()), name="portal_wow_skill_diffs"),
+    path('portal/wow-skill-diff/<int:report_id>/', PortalWowSkillDiffReportView.as_view(), name="portal_wow_skill_diff_report"),
     
     # API路由
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),

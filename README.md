@@ -118,7 +118,6 @@ Web：
 数据库：
 
 - 默认使用 MySQL（连接配置在 `settings.py`，推荐通过 `LMonitor/settings_local.py` 覆盖；参考 [settings_local.py.example](file:///d:/program/LMonitor/LMonitor/settings_local.py.example)）
-- 如需用 SQLite 快速启动：设置环境变量 `LMONITOR_USE_SQLITE=1`
 - 使用 Django migration 管理表结构（迁移文件位于 `botend/migrations/`）
 
 ## 8. 安全与配置建议

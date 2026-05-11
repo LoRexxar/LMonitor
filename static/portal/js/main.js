@@ -208,6 +208,7 @@ async function loadTools() {
 const SECTION_MAP = {
   blueposts: { url: "/portal/api/blueposts/", listId: "blueposts-list" },
   exwind: { url: "/portal/api/exwind/latest/", listId: "exwind-list" },
+  wow_skill_diffs: { url: "/portal/api/wow-skill-diffs/", listId: "wow-skill-diff-list" },
   nga: { url: "/portal/api/nga-hot/", listId: "nga-list" },
   events: { url: "/portal/api/events/", listId: "events-list" },
   videos: { url: "/portal/api/videos/", listId: "videos-list", tagsId: "videos-tags" },
@@ -595,6 +596,34 @@ function renderEvents(items) {
     .join("");
 }
 
+function renderWowSkillDiffList(containerId, items) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!items || items.length === 0) {
+    el.innerHTML = `<div class="text-slate-500">暂无数据</div>`;
+    return;
+  }
+  const q = getSearchQuery();
+  const filtered = filterItems(items, q);
+  if (!filtered.length) {
+    el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
+    return;
+  }
+  el.innerHTML = filtered
+    .slice(0, 20)
+    .map((it, idx) => {
+      const title = escapeHtml(it.title || "");
+      const url = escapeHtml(it.url || "#");
+      const time = escapeHtml((it.time || "").replaceAll("\n", " ").trim());
+      const divider = idx === 0 ? "" : "border-t border-slate-100";
+      return `<div class="py-2 ${divider}">
+        <a class="block text-slate-900 hover:text-indigo-700 font-semibold portal-line-clamp-2" href="${url}">${title}</a>
+        ${time ? `<div class="mt-1 text-xs text-slate-500 inline-flex items-center gap-1">${svgIcon("icon-clock", "w-3.5 h-3.5 text-slate-400")}<span>${time}</span></div>` : ""}
+      </div>`;
+    })
+    .join("");
+}
+
 async function loadSection(key) {
   const ep = SECTION_MAP[key];
   if (!ep) return;
@@ -640,6 +669,9 @@ async function loadSection(key) {
       if (!PORTAL_STATE.activeMythicstatsPeriod || !hasAp) PORTAL_STATE.activeMythicstatsPeriod = ap;
       renderMythicstatsControls(payload.dungeons || [], payload.periods || []);
       renderMythicstatsTables();
+    } else if (key === "wow_skill_diffs") {
+      PORTAL_STATE.dataBySection[key] = r.data || [];
+      renderWowSkillDiffList(ep.listId, r.data || []);
     } else {
       PORTAL_STATE.dataBySection[key] = r.data || [];
       renderSimpleList(ep.listId, r.data || [], { limit: key === "nga" ? 20 : 12 });
@@ -709,6 +741,7 @@ async function loadAll() {
   bindSearch();
   await loadSection("blueposts");
   await loadSection("exwind");
+  await loadSection("wow_skill_diffs");
   await loadSection("nga");
   await loadSection("events");
   await loadSection("videos");
