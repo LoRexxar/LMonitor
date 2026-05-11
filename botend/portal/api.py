@@ -3,7 +3,7 @@ from django.views import View
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalCache, PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport
+from botend.models import PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
     fetch_mythicstats_dps,
@@ -163,17 +163,10 @@ class PortalBluepostsAPIView(View):
 
 class PortalNgaHotAPIView(View):
     def get(self, request):
-        cached = PortalCache.objects.filter(key='nga_hot').first()
-        if cached and (cached.data or '').strip():
-            try:
-                import json
-                items = json.loads(cached.data) or []
-                if isinstance(items, list) and items:
-                    return JsonResponse({'status': 'success', 'data': items})
-            except Exception:
-                pass
-
-        rows = WowArticle.objects.filter(source='nga', is_active=True).order_by('-publish_time')[:40]
+        qs = WowArticle.objects.filter(source='nga', category='hot', is_active=True)
+        if not qs.exists():
+            qs = WowArticle.objects.filter(source='nga', is_active=True)
+        rows = list(qs.order_by('-publish_time', '-id')[:40])
         return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
 
 
@@ -383,15 +376,17 @@ class PortalMythicstatsDpsAPIView(View):
         periods = [{"id": int(x["period_id"]), "label": x.get("period_label") or str(x["period_id"])} for x in period_rows]
         active_period = period_id or (periods[0]["id"] if periods else None)
 
-        cached = PortalCache.objects.filter(key=f"mythicstats_dps_meta:{season}").first()
-        dungeons = [{"id": 0, "name": "All dungeons"}]
-        if cached and (cached.data or "").strip():
-            try:
-                import json
-                meta = json.loads(cached.data) or {}
-                dungeons = meta.get("dungeons") or dungeons
-            except Exception:
-                dungeons = dungeons
+        dungeon_rows = list(
+            PortalMythicstatsDpsRow.objects.filter(season=season)
+            .exclude(dungeon_id=0)
+            .values("dungeon_id", "dungeon_name")
+            .order_by("dungeon_id")
+            .distinct()
+        )
+        dungeons = [{"id": 0, "name": "All dungeons"}] + [
+            {"id": int(x.get("dungeon_id") or 0), "name": x.get("dungeon_name") or str(x.get("dungeon_id") or "")}
+            for x in dungeon_rows
+        ]
 
         def row_to_dict(r):
             return {

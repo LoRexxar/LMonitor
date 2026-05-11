@@ -16,7 +16,6 @@ from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
 
 from botend.models import WowArticle
-from botend.models import PortalCache
 
 
 class ngaMonitor(BaseScan):
@@ -44,118 +43,6 @@ class ngaMonitor(BaseScan):
         }
         self.task = task
 
-    @staticmethod
-    def _set_cache(key, data, status=0, error_message=''):
-        import json
-        try:
-            raw = json.dumps(data, ensure_ascii=False)
-        except Exception:
-            raw = ''
-        PortalCache.objects.update_or_create(
-            key=key,
-            defaults={
-                'data': raw,
-                'status': status,
-                'error_message': error_message or '',
-            }
-        )
-
-    def update_nga_hot(self):
-        key = 'nga_hot'
-        try:
-            driver = self.req.get('https://nga.178.com/thread.php?fid=7', 'RespByChrome', 0, '', is_origin=1)
-            if not driver:
-                self._set_cache(key, [], status=1, error_message='NGA 获取失败')
-                return
-
-            time.sleep(3)
-            try:
-                driver.run_js("g()")
-            except Exception:
-                pass
-
-            rows = []
-            try:
-                rows = driver.ele('#topicrows').eles('tag:tbody') or []
-            except Exception:
-                rows = []
-
-            items = []
-            seen = set()
-            for row in rows:
-                try:
-                    tds = row.eles('tag:td') or []
-                except Exception:
-                    continue
-                if len(tds) < 3:
-                    continue
-
-                try:
-                    reply_count = int((tds[0].text or '0').strip() or '0')
-                except Exception:
-                    reply_count = 0
-
-                try:
-                    title_ele = tds[1].ele('.:topic')
-                    post_link = title_ele.link
-                    post_name = title_ele.text
-                except Exception:
-                    continue
-
-                post_link = (post_link or '').strip()
-                post_name = (post_name or '').strip()
-                if not post_link or not post_name:
-                    continue
-
-                bad = False
-                for b in self.black_list:
-                    if b in post_name:
-                        bad = True
-                        break
-                if bad:
-                    continue
-
-                if post_link in seen:
-                    continue
-                seen.add(post_link)
-
-                try:
-                    post_time = tds[2].text.strip()
-                except Exception:
-                    post_time = ''
-
-                items.append({
-                    'title': post_name,
-                    'url': post_link,
-                    'source': 'NGA',
-                    'source_url': post_link,
-                    'time': post_time,
-                    'reply_count': reply_count,
-                })
-
-            items.sort(key=lambda x: x.get('reply_count', 0), reverse=True)
-            top_items = items[:12]
-            if not top_items:
-                existing = PortalCache.objects.filter(key=key).first()
-                if existing and (existing.data or '').strip() not in ['', '[]']:
-                    existing.status = 1
-                    existing.error_message = 'NGA 解析为空'
-                    existing.save(update_fields=['status', 'error_message', 'updated_at'])
-                    return
-                self._set_cache(key, [], status=1, error_message='NGA 解析为空')
-                return
-
-            self._set_cache(key, top_items, status=0, error_message='')
-        except Exception as e:
-            logger.error(f"[ngaMonitor] NGA hot update error: {str(e)}")
-            existing = PortalCache.objects.filter(key=key).first()
-            if existing and (existing.data or '').strip() not in ['', '[]']:
-                existing.status = 1
-                existing.error_message = 'NGA 解析失败'
-                existing.save(update_fields=['status', 'error_message', 'updated_at'])
-                return
-            self._set_cache(key, [], status=1, error_message='NGA 解析失败')
-
     def scan(self, url):
         """
         扫描
@@ -163,11 +50,6 @@ class ngaMonitor(BaseScan):
         :return:
         """
         cookies = ""
-
-        try:
-            self.update_nga_hot()
-        except Exception:
-            pass
 
         for title in self.target_list:
             url = self.target_list[title]["url"]
