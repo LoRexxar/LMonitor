@@ -144,6 +144,29 @@ class PortalEvent(models.Model):
         super().save(*args, **kwargs)
 
 
+class WowSkillDiffReport(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    branch = models.CharField(max_length=32, default="wow")
+    locale = models.CharField(max_length=8, default="enUS")
+    from_build = models.CharField(max_length=64)
+    to_build = models.CharField(max_length=64)
+    content_md = models.TextField(default="", blank=True)
+    changed_tables_json = models.TextField(default="", blank=True)
+    spell_count = models.IntegerField(default=0)
+    class_count = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_skill_diff_report'
+        unique_together = (('branch', 'locale', 'to_build'),)
+        indexes = [
+            models.Index(fields=['branch', 'locale'], name='wow_skill__branch__b59a5d_idx'),
+            models.Index(fields=['to_build'], name='wow_skill__to_bui_1b98a9_idx'),
+            models.Index(fields=['created_at'], name='wow_skill__created_0f2f07_idx'),
+        ]
+
+
 class PortalToolLink(models.Model):
     name = models.CharField(max_length=200)
     url = models.CharField(max_length=2000)
@@ -194,6 +217,40 @@ class PortalMplusRun(models.Model):
             models.Index(fields=['season', 'region']),
             models.Index(fields=['dungeon']),
             models.Index(fields=['dungeon_slug']),
+        ]
+
+
+class PortalMythicstatsDpsRow(models.Model):
+    season = models.CharField(max_length=64, default="unknown")
+    period_id = models.IntegerField()
+    period_label = models.CharField(max_length=64, default="")
+    week = models.IntegerField(null=True, blank=True)
+    dungeon_id = models.IntegerField(default=0)
+    dungeon_name = models.CharField(max_length=128, default="")
+    role = models.CharField(max_length=16, default="damage")
+    rank = models.IntegerField(default=0)
+    diff_raw = models.CharField(max_length=16, default="", blank=True)
+    diff_value = models.IntegerField(null=True, blank=True)
+    tier = models.CharField(max_length=4, default="", blank=True)
+    avg_text = models.CharField(max_length=32, default="", blank=True)
+    avg_value = models.FloatField(null=True, blank=True)
+    top_text = models.CharField(max_length=32, default="", blank=True)
+    top_value = models.FloatField(null=True, blank=True)
+    runs_text = models.CharField(max_length=32, default="", blank=True)
+    runs_value = models.IntegerField(null=True, blank=True)
+    spec_name = models.CharField(max_length=128, default="")
+    spec_slug = models.CharField(max_length=128, default="")
+    spec_url = models.CharField(max_length=2000, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_portal_mythicstats_dps_row'
+        unique_together = (('season', 'period_id', 'dungeon_id', 'role', 'spec_slug'),)
+        indexes = [
+            models.Index(fields=['season', 'period_id']),
+            models.Index(fields=['season', 'period_id', 'dungeon_id', 'role']),
+            models.Index(fields=['spec_slug']),
+            models.Index(fields=['updated_at']),
         ]
 
 class VideoMonitorTarget(models.Model):

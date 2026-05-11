@@ -208,10 +208,12 @@ async function loadTools() {
 const SECTION_MAP = {
   blueposts: { url: "/portal/api/blueposts/", listId: "blueposts-list" },
   exwind: { url: "/portal/api/exwind/latest/", listId: "exwind-list" },
+  wow_skill_diffs: { url: "/portal/api/wow-skill-diffs/", listId: "wow-skill-diff-list" },
   nga: { url: "/portal/api/nga-hot/", listId: "nga-list" },
   events: { url: "/portal/api/events/", listId: "events-list" },
   videos: { url: "/portal/api/videos/", listId: "videos-list", tagsId: "videos-tags" },
   mplus_rankings: { url: "/portal/api/mplus/rankings/", listId: "mplus-rankings" },
+  mythicstats_dps: { url: "/portal/api/mythicstats/dps/", listId: "mythicstats-table" },
 };
 
 const PORTAL_STATE = {
@@ -220,6 +222,10 @@ const PORTAL_STATE = {
   videoTags: [],
   activeVideoTag: "",
   activeDungeon: "",
+  activeMythicstatsDungeon: 0,
+  activeMythicstatsPeriod: "",
+  mythicstatsMeta: { dungeons: [], periods: [] },
+  activeMythicstatsSeason: "",
   searchBound: false,
 };
 
@@ -325,6 +331,158 @@ function renderMplusRuns(containerId, items) {
       </thead>
       <tbody>${rows.join("")}</tbody>
     </table>
+  `;
+}
+
+const MYTHICSTATS_DEFAULT_SEASON = "";
+const MYTHICSTATS_STORAGE_KEY = "portal_mythicstats_season";
+
+function renderMythicstatsControls(dungeons, periods) {
+  const el = document.getElementById("mythicstats-controls");
+  if (!el) return;
+  const dList = Array.isArray(dungeons) ? dungeons : [];
+  const pList = Array.isArray(periods) ? periods : [];
+  const payload = PORTAL_STATE.dataBySection.mythicstats_dps || {};
+  const seasons = Array.isArray(payload.seasons) ? payload.seasons : [];
+  const seasonOptions =
+    `<option value="">当前赛季</option>` +
+    seasons
+      .map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`)
+      .join("");
+  const dungeonOptions = dList
+    .map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`)
+    .join("");
+  const periodOptions = pList
+    .map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label || p.id)}</option>`)
+    .join("");
+  el.innerHTML = `<div class="flex items-center gap-2">
+    <div class="text-xs text-slate-600">赛季</div>
+    <select id="mythicstats-season-select" class="text-sm rounded-xl border border-slate-200 bg-white/80 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      ${seasonOptions}
+    </select>
+  </div>
+  <div class="flex items-center gap-2">
+    <div class="text-xs text-slate-600">副本</div>
+    <select id="mythicstats-dungeon-select" class="text-sm rounded-xl border border-slate-200 bg-white/80 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      ${dungeonOptions}
+    </select>
+  </div>
+  <div class="flex items-center gap-2">
+    <div class="text-xs text-slate-600">周</div>
+    <select id="mythicstats-period-select" class="text-sm rounded-xl border border-slate-200 bg-white/80 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      ${periodOptions}
+    </select>
+  </div>`;
+  const seasonSel = document.getElementById("mythicstats-season-select");
+  if (seasonSel) {
+    const cur = String(PORTAL_STATE.activeMythicstatsSeason || MYTHICSTATS_DEFAULT_SEASON);
+    seasonSel.value = cur;
+    seasonSel.addEventListener("change", () => {
+      PORTAL_STATE.activeMythicstatsSeason = seasonSel.value || MYTHICSTATS_DEFAULT_SEASON;
+      try {
+        localStorage.setItem(MYTHICSTATS_STORAGE_KEY, PORTAL_STATE.activeMythicstatsSeason);
+      } catch (e) {}
+      PORTAL_STATE.activeMythicstatsPeriod = "";
+      loadSection("mythicstats_dps");
+    });
+  }
+  const dungeonSel = document.getElementById("mythicstats-dungeon-select");
+  if (dungeonSel) {
+    dungeonSel.value = String(PORTAL_STATE.activeMythicstatsDungeon || 0);
+    dungeonSel.addEventListener("change", () => {
+      const v = Number(dungeonSel.value || 0);
+      PORTAL_STATE.activeMythicstatsDungeon = Number.isFinite(v) ? v : 0;
+      loadSection("mythicstats_dps");
+    });
+  }
+  const periodSel = document.getElementById("mythicstats-period-select");
+  if (periodSel) {
+    periodSel.value = String(PORTAL_STATE.activeMythicstatsPeriod || "");
+    periodSel.addEventListener("change", () => {
+      PORTAL_STATE.activeMythicstatsPeriod = periodSel.value || "";
+      loadSection("mythicstats_dps");
+    });
+  }
+}
+
+function renderMythicstatsTable(role, items) {
+  const q = getSearchQuery();
+  const filtered = q ? (items || []).filter((x) => String(x.spec_name || "").toLowerCase().includes(q)) : (items || []);
+  if (!filtered.length) {
+    return `<div class="text-slate-500">${q ? "无匹配结果" : "暂无数据"}</div>`;
+  }
+  const rows = filtered.slice(0, 60).map((it) => {
+    const rank = escapeHtml(it.rank);
+    const diffRaw = String(it.diff_raw || "").trim();
+    const diffVal = Number(it.diff_value);
+    let diffCls = "text-slate-500";
+    if (Number.isFinite(diffVal) && diffVal > 0) diffCls = "text-emerald-700";
+    else if (Number.isFinite(diffVal) && diffVal < 0) diffCls = "text-rose-700";
+    const tier = escapeHtml(it.tier || "");
+    const avg = escapeHtml(it.avg || "");
+    const top = escapeHtml(it.top || "");
+    const runs = escapeHtml(it.runs || "");
+    const name = escapeHtml(it.spec_name || "");
+    const url = escapeHtml(it.spec_url || "#");
+    return `<tr class="border-t border-slate-100">
+      <td class="py-2 pr-2 text-slate-500">${rank}</td>
+      <td class="py-2 pr-2 ${diffCls}">${escapeHtml(diffRaw || "0")}</td>
+      <td class="py-2 pr-2 text-slate-700">${tier}</td>
+      <td class="py-2 pr-2 text-slate-700">${avg}</td>
+      <td class="py-2 pr-2 text-slate-700">${top}</td>
+      <td class="py-2 pr-2 text-slate-700">${runs}</td>
+      <td class="py-2 pr-2">
+        <a class="text-slate-900 hover:text-indigo-700 font-medium" href="${url}" target="_blank" rel="noreferrer">${name}</a>
+      </td>
+    </tr>`;
+  });
+  return `
+    <table class="w-full text-sm">
+      <thead class="text-xs text-slate-500">
+        <tr>
+          <th class="text-left py-2 pr-2 font-medium">#</th>
+          <th class="text-left py-2 pr-2 font-medium">Diff</th>
+          <th class="text-left py-2 pr-2 font-medium">Tier</th>
+          <th class="text-left py-2 pr-2 font-medium">Avg</th>
+          <th class="text-left py-2 pr-2 font-medium">Top</th>
+          <th class="text-left py-2 pr-2 font-medium">Runs</th>
+          <th class="text-left py-2 pr-2 font-medium">Spec</th>
+        </tr>
+      </thead>
+      <tbody>${rows.join("")}</tbody>
+    </table>
+  `;
+}
+
+function renderMythicstatsTables() {
+  const el = document.getElementById("mythicstats-table");
+  if (!el) return;
+  const payload = PORTAL_STATE.dataBySection.mythicstats_dps || {};
+  const roles = payload.roles || {};
+  const damage = Array.isArray(roles.damage) ? roles.damage : [];
+  const tank = Array.isArray(roles.tank) ? roles.tank : [];
+  const healer = Array.isArray(roles.healer) ? roles.healer : [];
+  const items = []
+    .concat(damage.map((x) => ({ ...x, title: x.spec_name || "", tag: "DPS", source: "mythicstats" })))
+    .concat(tank.map((x) => ({ ...x, title: x.spec_name || "", tag: "坦克", source: "mythicstats" })))
+    .concat(healer.map((x) => ({ ...x, title: x.spec_name || "", tag: "治疗", source: "mythicstats" })));
+  PORTAL_STATE.dataBySection.mythicstats_dps_items = items;
+
+  el.innerHTML = `
+    <div class="space-y-6">
+      <div>
+        <div class="text-xs font-semibold text-slate-700">DPS</div>
+        <div class="mt-2">${renderMythicstatsTable("damage", damage)}</div>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-700">坦克</div>
+        <div class="mt-2">${renderMythicstatsTable("tank", tank)}</div>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-700">治疗</div>
+        <div class="mt-2">${renderMythicstatsTable("healer", healer)}</div>
+      </div>
+    </div>
   `;
 }
 
@@ -438,6 +596,34 @@ function renderEvents(items) {
     .join("");
 }
 
+function renderWowSkillDiffList(containerId, items) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!items || items.length === 0) {
+    el.innerHTML = `<div class="text-slate-500">暂无数据</div>`;
+    return;
+  }
+  const q = getSearchQuery();
+  const filtered = filterItems(items, q);
+  if (!filtered.length) {
+    el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
+    return;
+  }
+  el.innerHTML = filtered
+    .slice(0, 20)
+    .map((it, idx) => {
+      const title = escapeHtml(it.title || "");
+      const url = escapeHtml(it.url || "#");
+      const time = escapeHtml((it.time || "").replaceAll("\n", " ").trim());
+      const divider = idx === 0 ? "" : "border-t border-slate-100";
+      return `<div class="py-2 ${divider}">
+        <a class="block text-slate-900 hover:text-indigo-700 font-semibold portal-line-clamp-2" href="${url}">${title}</a>
+        ${time ? `<div class="mt-1 text-xs text-slate-500 inline-flex items-center gap-1">${svgIcon("icon-clock", "w-3.5 h-3.5 text-slate-400")}<span>${time}</span></div>` : ""}
+      </div>`;
+    })
+    .join("");
+}
+
 async function loadSection(key) {
   const ep = SECTION_MAP[key];
   if (!ep) return;
@@ -448,6 +634,16 @@ async function loadSection(key) {
     let url = ep.url;
     if (key === "mplus_rankings" && PORTAL_STATE.activeDungeon) {
       url = `${ep.url}?dungeon=${encodeURIComponent(PORTAL_STATE.activeDungeon)}`;
+    }
+    if (key === "mythicstats_dps") {
+      const dungeon = Number(PORTAL_STATE.activeMythicstatsDungeon || 0) || 0;
+      const period = String(PORTAL_STATE.activeMythicstatsPeriod || "").trim();
+      const season = String(PORTAL_STATE.activeMythicstatsSeason || "").trim() || MYTHICSTATS_DEFAULT_SEASON;
+      const qs = [];
+      if (season) qs.push(`season=${encodeURIComponent(season)}`);
+      if (dungeon) qs.push(`dungeon=${encodeURIComponent(dungeon)}`);
+      if (period) qs.push(`period=${encodeURIComponent(period)}`);
+      url = qs.length ? `${ep.url}?${qs.join("&")}` : ep.url;
     }
     const r = await fetchJson(url);
     if (key === "videos") {
@@ -462,6 +658,20 @@ async function loadSection(key) {
     } else if (key === "events") {
       PORTAL_STATE.dataBySection[key] = r.data || [];
       renderEvents(r.data || []);
+    } else if (key === "mythicstats_dps") {
+      const payload = r.data || {};
+      PORTAL_STATE.dataBySection[key] = payload;
+      PORTAL_STATE.mythicstatsMeta = { dungeons: payload.dungeons || [], periods: payload.periods || [] };
+      PORTAL_STATE.activeMythicstatsSeason = String(payload.season || PORTAL_STATE.activeMythicstatsSeason || MYTHICSTATS_DEFAULT_SEASON);
+      PORTAL_STATE.activeMythicstatsDungeon = Number(payload.dungeon_id || 0) || 0;
+      const ap = payload.active_period ? String(payload.active_period) : "";
+      const hasAp = (payload.periods || []).some((p) => String(p.id) === String(PORTAL_STATE.activeMythicstatsPeriod || ""));
+      if (!PORTAL_STATE.activeMythicstatsPeriod || !hasAp) PORTAL_STATE.activeMythicstatsPeriod = ap;
+      renderMythicstatsControls(payload.dungeons || [], payload.periods || []);
+      renderMythicstatsTables();
+    } else if (key === "wow_skill_diffs") {
+      PORTAL_STATE.dataBySection[key] = r.data || [];
+      renderWowSkillDiffList(ep.listId, r.data || []);
     } else {
       PORTAL_STATE.dataBySection[key] = r.data || [];
       renderSimpleList(ep.listId, r.data || [], { limit: key === "nga" ? 20 : 12 });
@@ -487,7 +697,10 @@ function updateSearchMeta() {
   Object.keys(SECTION_MAP).forEach((key) => {
     const ep = SECTION_MAP[key];
     if (!ep.listId) return;
-    const items = PORTAL_STATE.dataBySection[key] || [];
+    const items =
+      key === "mythicstats_dps"
+        ? (PORTAL_STATE.dataBySection.mythicstats_dps_items || [])
+        : (PORTAL_STATE.dataBySection[key] || []);
     total += Array.isArray(items) ? items.length : 0;
     shown += filterItems(items, q).length;
   });
@@ -509,6 +722,8 @@ function bindSearch() {
             renderVideos({ tags: PORTAL_STATE.videoTags, items: PORTAL_STATE.dataBySection.videos || [] });
           } else if (key === "events") {
             renderEvents(PORTAL_STATE.dataBySection[key]);
+          } else if (key === "mythicstats_dps") {
+            renderMythicstatsTables();
           } else {
             renderSimpleList(ep.listId, PORTAL_STATE.dataBySection[key], { limit: key === "nga" ? 20 : 12 });
           }
@@ -526,10 +741,12 @@ async function loadAll() {
   bindSearch();
   await loadSection("blueposts");
   await loadSection("exwind");
+  await loadSection("wow_skill_diffs");
   await loadSection("nga");
   await loadSection("events");
   await loadSection("videos");
   await loadSection("mplus_rankings");
+  await loadSection("mythicstats_dps");
   updateSearchMeta();
 }
 
@@ -577,6 +794,12 @@ function bindLogoBackgroundRemoval() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  try {
+    const s = localStorage.getItem(MYTHICSTATS_STORAGE_KEY) || "";
+    PORTAL_STATE.activeMythicstatsSeason = s === "season-mn-1" ? "" : s;
+  } catch (e) {
+    PORTAL_STATE.activeMythicstatsSeason = "";
+  }
   bindLogoBackgroundRemoval();
   loadAll();
 });

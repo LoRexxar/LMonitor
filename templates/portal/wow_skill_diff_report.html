@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }}</title>
+    {% load static %}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}">
+</head>
+<body class="portal-bg font-sans">
+    <header class="portal-header">
+        <div class="portal-header-inner">
+            <div class="portal-header-left">
+                <a href="/" class="portal-header-brand">
+                    <div class="portal-header-logo">
+                        <svg class="portal-logo-fallback-icon w-5 h-5 text-indigo-700" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
+                        <img class="portal-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽资讯徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
+                    </div>
+                    <div class="portal-header-title">魔兽资讯</div>
+                </a>
+            </div>
+            <div class="portal-header-actions">
+                <a href="/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-700 hover:text-slate-900">
+                    <span>返回首页</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-[1000px] mx-auto px-4 py-6">
+        <div class="portal-card portal-card-accent portal-accent-indigo bg-white/80 shadow-sm border border-slate-200/70 p-5">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <div class="text-lg font-extrabold text-slate-900 break-words">{{ page_title }}</div>
+                    <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-2">
+                        <span>版本：{{ report.from_build }} → {{ report.to_build }}</span>
+                        <span>服务器：{{ server_title }}</span>
+                        <span>时间：{{ report.created_at|date:"Y-m-d H:i:s" }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-5 md-content" id="md-root"></div>
+        </div>
+    </div>
+
+    {{ report.content_md|json_script:"wow-skill-diff-md" }}
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+      const raw = document.getElementById("wow-skill-diff-md");
+      const md = raw ? JSON.parse(raw.textContent || "null") : "";
+      const root = document.getElementById("md-root");
+      if (root) {
+        root.innerHTML = marked.parse(String(md || ""));
+      }
+    </script>
+</body>
+</html>

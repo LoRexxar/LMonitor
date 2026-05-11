@@ -227,6 +227,91 @@ html, body {
     position: relative;
 }
 
+.md-content {
+    color: rgb(15, 23, 42);
+    line-height: 1.75;
+    word-break: break-word;
+}
+
+.md-content h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    margin: 1.2rem 0 0.75rem;
+}
+
+.md-content h2 {
+    font-size: 1.25rem;
+    font-weight: 800;
+    margin: 1.1rem 0 0.6rem;
+}
+
+.md-content h3 {
+    font-size: 1.05rem;
+    font-weight: 800;
+    margin: 1rem 0 0.45rem;
+}
+
+.md-content p {
+    margin: 0.5rem 0;
+}
+
+.md-content ul {
+    padding-left: 1.25rem;
+    margin: 0.5rem 0;
+    list-style: disc;
+}
+
+.md-content ol {
+    padding-left: 1.25rem;
+    margin: 0.5rem 0;
+    list-style: decimal;
+}
+
+.md-content li {
+    margin: 0.25rem 0;
+}
+
+.md-content code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.9em;
+    background: rgba(148, 163, 184, 0.2);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 0.4rem;
+    padding: 0.12rem 0.35rem;
+}
+
+.md-content pre {
+    overflow: auto;
+    background: rgba(15, 23, 42, 0.92);
+    color: rgba(226, 232, 240, 0.96);
+    border-radius: 0.9rem;
+    padding: 0.9rem 1rem;
+    margin: 0.85rem 0;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.md-content pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: inherit;
+}
+
+.md-content a {
+    color: rgb(67, 56, 202);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.md-content blockquote {
+    margin: 0.8rem 0;
+    padding: 0.6rem 0.9rem;
+    border-left: 3px solid rgba(99, 102, 241, 0.6);
+    background: rgba(255, 255, 255, 0.55);
+    border-radius: 0.75rem;
+    color: rgb(51, 65, 85);
+}
+
 .portal-accent-sky {
     --portal-accent: rgba(14, 165, 233, 0.95);
     --portal-accent-soft: rgba(14, 165, 233, 0.14);
