@@ -392,6 +392,7 @@ function renderMythicstatsControls(dungeons, periods) {
     dungeonSel.addEventListener("change", () => {
       const v = Number(dungeonSel.value || 0);
       PORTAL_STATE.activeMythicstatsDungeon = Number.isFinite(v) ? v : 0;
+      PORTAL_STATE.activeMythicstatsPeriod = "";
       loadSection("mythicstats_dps");
     });
   }
@@ -405,12 +406,70 @@ function renderMythicstatsControls(dungeons, periods) {
   }
 }
 
+const MYTHICSTATS_SPEC_CN = {
+  "unholy-death-knight": "邪恶死亡骑士",
+  "frost-death-knight": "冰霜死亡骑士",
+  "blood-death-knight": "鲜血死亡骑士",
+  "demonology-warlock": "恶魔学识术士",
+  "affliction-warlock": "痛苦术士",
+  "destruction-warlock": "毁灭术士",
+  "devourer-demon-hunter": "吞噬恶魔猎手",
+  "havoc-demon-hunter": "浩劫恶魔猎手",
+  "vengeance-demon-hunter": "复仇恶魔猎手",
+  "retribution-paladin": "惩戒圣骑士",
+  "protection-paladin": "防护圣骑士",
+  "holy-paladin": "神圣圣骑士",
+  "arms-warrior": "武器战士",
+  "fury-warrior": "狂怒战士",
+  "protection-warrior": "防护战士",
+  "outlaw-rogue": "狂徒潜行者",
+  "subtlety-rogue": "敏锐潜行者",
+  "assassination-rogue": "奇袭潜行者",
+  "feral-druid": "野性德鲁伊",
+  "balance-druid": "平衡德鲁伊",
+  "guardian-druid": "守护德鲁伊",
+  "restoration-druid": "恢复德鲁伊",
+  "survival-hunter": "生存猎人",
+  "beast-mastery-hunter": "兽王猎人",
+  "marksmanship-hunter": "射击猎人",
+  "enhancement-shaman": "增强萨满祭司",
+  "elemental-shaman": "元素萨满祭司",
+  "restoration-shaman": "恢复萨满祭司",
+  "augmentation-evoker": "增辉唤魔师",
+  "devastation-evoker": "湮灭唤魔师",
+  "preservation-evoker": "恩护唤魔师",
+  "windwalker-monk": "踏风武僧",
+  "brewmaster-monk": "酒仙武僧",
+  "mistweaver-monk": "织雾武僧",
+  "shadow-priest": "暗影牧师",
+  "discipline-priest": "戒律牧师",
+  "holy-priest": "神圣牧师",
+  "arcane-mage": "奥术法师",
+  "fire-mage": "火焰法师",
+  "frost-mage": "冰霜法师",
+};
+
+function getMythicstatsSpecDisplay(it) {
+  const slug = String(it?.spec_slug || "").trim();
+  if (slug && MYTHICSTATS_SPEC_CN[slug]) return MYTHICSTATS_SPEC_CN[slug];
+  const name = String(it?.spec_name || "").trim();
+  return name || slug;
+}
+
 function renderMythicstatsTable(role, items) {
   const q = getSearchQuery();
   const filtered = q ? (items || []).filter((x) => String(x.spec_name || "").toLowerCase().includes(q)) : (items || []);
   if (!filtered.length) {
     return `<div class="text-slate-500">${q ? "无匹配结果" : "暂无数据"}</div>`;
   }
+  const maxAvg = Math.max(
+    1,
+    ...filtered.map((x) => (Number.isFinite(Number(x.avg_value)) ? Number(x.avg_value) : 0))
+  );
+  const maxTop = Math.max(
+    1,
+    ...filtered.map((x) => (Number.isFinite(Number(x.top_value)) ? Number(x.top_value) : 0))
+  );
   const rows = filtered.slice(0, 60).map((it) => {
     const rank = escapeHtml(it.rank);
     const diffRaw = String(it.diff_raw || "").trim();
@@ -422,14 +481,26 @@ function renderMythicstatsTable(role, items) {
     const avg = escapeHtml(it.avg || "");
     const top = escapeHtml(it.top || "");
     const runs = escapeHtml(it.runs || "");
-    const name = escapeHtml(it.spec_name || "");
+    const name = escapeHtml(getMythicstatsSpecDisplay(it));
     const url = escapeHtml(it.spec_url || "#");
+    const avgVal = Number.isFinite(Number(it.avg_value)) ? Number(it.avg_value) : 0;
+    const topVal = Number.isFinite(Number(it.top_value)) ? Number(it.top_value) : 0;
+    const avgPct = Math.max(0, Math.min(100, (avgVal / maxAvg) * 100));
+    const topPct = Math.max(0, Math.min(100, (topVal / maxTop) * 100));
+    const avgBar = `<div class="relative h-5 rounded bg-slate-100 overflow-hidden">
+      <div class="absolute inset-y-0 left-0 bg-indigo-200" style="width:${avgPct.toFixed(1)}%"></div>
+      <div class="relative px-1 text-xs leading-5 font-medium text-slate-800">${avg}</div>
+    </div>`;
+    const topBar = `<div class="relative h-5 rounded bg-slate-100 overflow-hidden">
+      <div class="absolute inset-y-0 left-0 bg-indigo-100" style="width:${topPct.toFixed(1)}%"></div>
+      <div class="relative px-1 text-xs leading-5 font-medium text-slate-700">${top}</div>
+    </div>`;
     return `<tr class="border-t border-slate-100">
       <td class="py-2 pr-2 text-slate-500">${rank}</td>
       <td class="py-2 pr-2 ${diffCls}">${escapeHtml(diffRaw || "0")}</td>
       <td class="py-2 pr-2 text-slate-700">${tier}</td>
-      <td class="py-2 pr-2 text-slate-700">${avg}</td>
-      <td class="py-2 pr-2 text-slate-700">${top}</td>
+      <td class="py-2 pr-2">${avgBar}</td>
+      <td class="py-2 pr-2">${topBar}</td>
       <td class="py-2 pr-2 text-slate-700">${runs}</td>
       <td class="py-2 pr-2">
         <a class="text-slate-900 hover:text-indigo-700 font-medium" href="${url}" target="_blank" rel="noreferrer">${name}</a>
