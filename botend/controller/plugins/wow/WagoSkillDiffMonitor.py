@@ -4,13 +4,15 @@ import io
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 
 from botend.controller.BaseScan import BaseScan
-from botend.models import WowSkillDiffReport
+from botend.models import WowSkillDiffReport, WowSpellEffectSnapshot, WowSpellSnapshot, WowSpellSnapshotState, WowSpecSpellMapSnapshot
 from utils.log import logger
 
 
@@ -28,6 +30,8 @@ class WagoSkillDiffMonitor(BaseScan):
         self._specialization_spells_cache = {}
         self._spell_class_options_cache = {}
         self._spellclassset_to_class_cache = {}
+        self._spelleffect_by_spell_cache = {}
+        self._spellmisc_by_spell_cache = {}
         self.core_tables = {
             'spell',
             'spelleffect',
@@ -63,6 +67,8 @@ class WagoSkillDiffMonitor(BaseScan):
             return True
 
         last_build = (getattr(self.task, 'flag', '') or '').strip()
+        if last_build in {'0', '-', 'none', 'null'}:
+            last_build = ''
         if not last_build:
             self.task.flag = current_build
             self.task.save(update_fields=['flag'])
@@ -151,6 +157,11 @@ class WagoSkillDiffMonitor(BaseScan):
 
         whitelist = self._field_whitelist()
         spell_changes = {}
+        snap_spells = {}
+        snap_effects = {}
+        snap_map_add = set()
+        snap_map_del = set()
+        now = timezone.now()
 
         for t in relevant_tables:
             diff_rows = self._fetch_db2_diff_rows(t, from_build, to_build)
@@ -199,24 +210,200 @@ class WagoSkillDiffMonitor(BaseScan):
                         payload['meta'] = meta
                     entry['diffs'].setdefault(tkey, []).append(payload)
 
+                if tkey == 'spellname':
+                    n = (after or {}).get('Name_lang')
+                    if n is not None:
+                        snap_spells.setdefault(spell_id, {})
+                        snap_spells[spell_id]['name'] = str(n)
+                elif tkey == 'spelldescription':
+                    d = (after or {}).get('Description_lang')
+                    a = (after or {}).get('AuraDescription_lang')
+                    snap_spells.setdefault(spell_id, {})
+                    if d is not None:
+                        snap_spells[spell_id]['description'] = str(d)
+                    if a is not None:
+                        snap_spells[spell_id]['aura_description'] = str(a)
+                elif tkey == 'spelleffect':
+                    meta = payload.get('meta') if diffs else {}
+                    eff_idx = (meta or {}).get('EffectIndex')
+                    if eff_idx is None or eff_idx == '':
+                        eff_idx = (after or {}).get('EffectIndex') or (before or {}).get('EffectIndex') or 0
+                    try:
+                        eff_idx = int(str(eff_idx))
+                    except Exception:
+                        eff_idx = 0
+                    key = (spell_id, eff_idx)
+                    e = {}
+                    for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura')):
+                        v = (meta or {}).get(k)
+                        if v is None or v == '':
+                            v = (after or {}).get(k)
+                        if v is None or v == '':
+                            v = (before or {}).get(k)
+                        try:
+                            e[nk] = int(str(v))
+                        except Exception:
+                            e[nk] = None
+                    bp = (after or {}).get('EffectBasePointsF')
+                    if bp is None or bp == '':
+                        bp = (after or {}).get('EffectBasePoints')
+                    if bp is None or bp == '':
+                        bp = (before or {}).get('EffectBasePointsF') or (before or {}).get('EffectBasePoints') or ''
+                    coef = (after or {}).get('EffectBonusCoefficient')
+                    if coef is None or coef == '':
+                        coef = (after or {}).get('BonusCoefficientFromAP')
+                    if coef is None or coef == '':
+                        coef = (after or {}).get('Coefficient')
+                    if coef is None or coef == '':
+                        coef = (before or {}).get('EffectBonusCoefficient') or (before or {}).get('BonusCoefficientFromAP') or (before or {}).get('Coefficient') or ''
+                    pvp = (after or {}).get('PvpMultiplier')
+                    if pvp is None or pvp == '':
+                        pvp = (before or {}).get('PvpMultiplier') or ''
+                    e['base_points'] = str(bp)
+                    e['coefficient'] = str(coef)
+                    e['pvp_multiplier'] = str(pvp)
+                    snap_effects[key] = e
+                elif tkey == 'specializationspells':
+                    spec_id = 0
+                    for k in ('SpecID', 'ChrSpecializationID', 'SpecializationID'):
+                        v = row.get(k)
+                        if v is None:
+                            continue
+                        try:
+                            spec_id = int(str(v).strip() or '0')
+                            break
+                        except Exception:
+                            continue
+                    if spec_id > 0:
+                        if action == 'removed':
+                            snap_map_del.add((spec_id, spell_id))
+                        else:
+                            snap_map_add.add((spec_id, spell_id))
+
         filtered_spell_changes = {}
         for spell_id, entry in spell_changes.items():
             diffs_by_table = entry.get('diffs') or {}
-            keep = False
+            visible = False
             for tkey, items in diffs_by_table.items():
-                if tkey == 'spelleffect':
-                    for it in items or []:
-                        if (it.get('action') or '').strip() in ('changed', 'removed'):
-                            keep = True
-                            break
-                if keep:
+                for it in items or []:
+                    if self._filter_diff_fields(tkey, it.get('fields') or []):
+                        visible = True
+                        break
+                if visible:
                     break
-            if keep:
+            if visible:
                 filtered_spell_changes[spell_id] = entry
         spell_changes = filtered_spell_changes
 
+        for spell_id in spell_changes.keys():
+            specs = spell_to_specs.get(spell_id) or set()
+            for spec_id in specs:
+                snap_map_add.add((spec_id, spell_id))
+            snap_spells.setdefault(spell_id, {})
+        missing_name_ids = []
+        existing_name_ids = set(
+            WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=list(spell_changes.keys()))
+            .exclude(name="")
+            .values_list('spell_id', flat=True)
+        )
+        for spell_id in spell_changes.keys():
+            if (snap_spells.get(spell_id) or {}).get('name'):
+                continue
+            if spell_id in existing_name_ids:
+                continue
+            missing_name_ids.append(spell_id)
+        if missing_name_ids:
+            fetched = self._fetch_spell_names_concurrent(to_build, missing_name_ids)
+            for sid, name in fetched.items():
+                snap_spells.setdefault(sid, {})
+                snap_spells[sid]['name'] = name
+
         if not spell_changes:
             return None
+
+        if snap_map_del:
+            q = Q()
+            for spec_id, spell_id in snap_map_del:
+                q |= Q(spec_id=spec_id, spell_id=spell_id)
+            WowSpecSpellMapSnapshot.objects.filter(branch=branch, locale=self.locale).filter(q).delete()
+
+        if snap_map_add:
+            map_objs = []
+            for spec_id, spell_id in snap_map_add:
+                map_objs.append(
+                    WowSpecSpellMapSnapshot(
+                        branch=branch,
+                        locale=self.locale,
+                        spec_id=spec_id,
+                        spell_id=spell_id,
+                        snapshot_build=to_build,
+                        updated_at=now,
+                    )
+                )
+            WowSpecSpellMapSnapshot.objects.bulk_create(
+                map_objs,
+                update_conflicts=True,
+                update_fields=['snapshot_build', 'updated_at'],
+            )
+
+        if snap_spells:
+            spell_objs = []
+            for spell_id, patch in snap_spells.items():
+                spell_objs.append(
+                    WowSpellSnapshot(
+                        branch=branch,
+                        locale=self.locale,
+                        spell_id=spell_id,
+                        name=(patch.get('name') or '')[:255],
+                        description=patch.get('description') or '',
+                        aura_description=patch.get('aura_description') or '',
+                        snapshot_build=to_build,
+                        updated_at=now,
+                    )
+                )
+            WowSpellSnapshot.objects.bulk_create(
+                spell_objs,
+                update_conflicts=True,
+                update_fields=['name', 'description', 'aura_description', 'snapshot_build', 'updated_at'],
+            )
+
+        if snap_effects:
+            eff_objs = []
+            for (spell_id, effect_index), patch in snap_effects.items():
+                eff_objs.append(
+                    WowSpellEffectSnapshot(
+                        branch=branch,
+                        locale=self.locale,
+                        spell_id=spell_id,
+                        effect_index=effect_index,
+                        effect=patch.get('effect'),
+                        effect_aura=patch.get('effect_aura'),
+                        base_points=patch.get('base_points') or '',
+                        coefficient=patch.get('coefficient') or '',
+                        pvp_multiplier=patch.get('pvp_multiplier') or '',
+                        snapshot_build=to_build,
+                        updated_at=now,
+                    )
+                )
+            WowSpellEffectSnapshot.objects.bulk_create(
+                eff_objs,
+                update_conflicts=True,
+                update_fields=[
+                    'effect',
+                    'effect_aura',
+                    'base_points',
+                    'coefficient',
+                    'pvp_multiplier',
+                    'snapshot_build',
+                    'updated_at',
+                ],
+            )
+
+        WowSpellSnapshotState.objects.update_or_create(
+            branch=branch,
+            locale=self.locale,
+            defaults={'snapshot_build': to_build},
+        )
 
         server_title = self._branch_title(branch)
         content_md = f"# {server_title} 职业技能变更报告：{from_build} → {to_build}\n\n- 技能数：{len(spell_changes)}\n"
@@ -601,11 +788,12 @@ class WagoSkillDiffMonitor(BaseScan):
 
     def _extract_inertia_props(self, html_text):
         html_text = html_text or ''
-        m = re.search(r'data-page="([^"]+)"', html_text)
+        m = re.search(r'data-page=(?:"([^"]+)"|\'([^\']+)\')', html_text)
         if not m:
             return {}
         try:
-            obj = json.loads(html.unescape(m.group(1)))
+            raw = m.group(1) or m.group(2) or ''
+            obj = json.loads(html.unescape(raw))
         except Exception:
             return {}
         props = obj.get('props') or {}
@@ -849,27 +1037,434 @@ class WagoSkillDiffMonitor(BaseScan):
             out.append(f)
         return out
 
+    def _fetch_db2_row_by_id_requests(self, table, build, record_id):
+        table = (table or '').strip()
+        build = (build or '').strip()
+        try:
+            record_id = int(record_id)
+        except Exception:
+            return {}
+        if not table or not build or record_id <= 0:
+            return {}
+        url = f"https://wago.tools/db2/{table}?build={build}&locale={self.locale}&filter[ID]=exact:{record_id}"
+        try:
+            r = requests.get(url, timeout=max(30, self.http_timeout), headers={'User-Agent': 'Mozilla/5.0'})
+        except Exception:
+            return {}
+        if r.status_code != 200:
+            return {}
+        try:
+            text = r.content.decode('utf-8', 'replace')
+        except Exception:
+            text = r.text or ''
+        props = self._extract_inertia_props(text or '')
+        data = []
+        if 'entries' in props:
+            entries = props.get('entries') or {}
+            data = entries.get('data') if isinstance(entries, dict) else (entries if isinstance(entries, list) else [])
+        elif 'data' in props:
+            payload = props.get('data')
+            data = payload.get('data') if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+        if isinstance(data, list) and data:
+            row = data[0]
+            return row if isinstance(row, dict) else {}
+        return {}
+
+    def _fetch_spell_names_concurrent(self, build, spell_ids):
+        spell_ids = [int(x) for x in (spell_ids or []) if int(x) > 0]
+        if not spell_ids:
+            return {}
+        workers = int(getattr(settings, 'WAGO_SPELLNAME_WORKERS', 12) or 12)
+        workers = max(1, min(workers, 32))
+        out = {}
+
+        def work(spell_id):
+            row = self._fetch_db2_row_by_id_requests('SpellName', build, spell_id)
+            name = (row.get('Name_lang') or '').strip()
+            return spell_id, name
+
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for spell_id, name in ex.map(work, spell_ids):
+                if name:
+                    out[spell_id] = name
+        return out
+
     def _expand_spell_refs(self, build, text, depth=0, visited=None):
         if depth >= 4:
             return text or ''
         visited = visited or set()
         s = str(text or '')
-        for m in re.findall(r'\$@(spelldesc|spellaura)(\d+)', s):
+        for m in re.findall(r'\$@(spelldesc|spellaura|spellname)(\d+)', s):
             kind, sid = m[0], m[1]
             key = f"{kind}{sid}"
             if key in visited:
                 continue
             visited.add(key)
             spell_id = int(sid or 0)
-            desc_row = self._fetch_db2_row_by_id('spelldescription', build, spell_id)
-            if kind == 'spelldesc':
-                rep = (desc_row.get('Description_lang') or '').strip()
+            if kind == 'spellname':
+                name_row = self._fetch_db2_row_by_id('spellname', build, spell_id)
+                rep = (name_row.get('Name_lang') or '').strip()
             else:
-                rep = (desc_row.get('AuraDescription_lang') or '').strip()
+                desc_row = self._fetch_db2_row_by_id('spelldescription', build, spell_id)
+                if kind == 'spelldesc':
+                    rep = (desc_row.get('Description_lang') or '').strip()
+                else:
+                    rep = (desc_row.get('AuraDescription_lang') or '').strip()
             if rep:
                 rep = self._expand_spell_refs(build, rep, depth=depth + 1, visited=visited)
                 s = s.replace(f"$@{kind}{sid}", rep)
         return s
+
+    def _fetch_spelleffect_rows_by_spell(self, build, spell_id):
+        build = (build or '').strip()
+        try:
+            spell_id = int(spell_id)
+        except Exception:
+            return []
+        if not build or spell_id <= 0:
+            return []
+        key = (build, spell_id)
+        if key in self._spelleffect_by_spell_cache:
+            return self._spelleffect_by_spell_cache.get(key) or []
+        url = f"https://wago.tools/db2/SpellEffect?build={build}&locale={self.locale}&filter%5BSpellID%5D=exact%3A{spell_id}"
+        try:
+            r = requests.get(url, timeout=max(30, self.http_timeout), headers={'User-Agent': 'Mozilla/5.0'})
+        except Exception:
+            self._spelleffect_by_spell_cache[key] = []
+            return []
+        if r.status_code != 200:
+            self._spelleffect_by_spell_cache[key] = []
+            return []
+        props = self._extract_inertia_props(r.text or '')
+        payload = props.get('data')
+        data = payload.get('data') if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+        out = data if isinstance(data, list) else []
+        self._spelleffect_by_spell_cache[key] = out
+        return out
+
+    def _get_spelleffect_row_by_index(self, build, spell_id, effect_index):
+        try:
+            effect_index = int(effect_index)
+        except Exception:
+            return {}
+        for r in self._fetch_spelleffect_rows_by_spell(build, spell_id):
+            try:
+                if int(str(r.get('EffectIndex') or 0)) == effect_index:
+                    return r
+            except Exception:
+                continue
+        return {}
+
+    def _fetch_spellmisc_by_spellid(self, build, spell_id):
+        build = (build or '').strip()
+        try:
+            spell_id = int(spell_id)
+        except Exception:
+            return {}
+        if not build or spell_id <= 0:
+            return {}
+        key = (build, spell_id)
+        if key in self._spellmisc_by_spell_cache:
+            return self._spellmisc_by_spell_cache.get(key) or {}
+        url = f"https://wago.tools/db2/SpellMisc?build={build}&locale={self.locale}&filter%5BSpellID%5D=exact%3A{spell_id}"
+        try:
+            r = requests.get(url, timeout=max(30, self.http_timeout), headers={'User-Agent': 'Mozilla/5.0'})
+        except Exception:
+            self._spellmisc_by_spell_cache[key] = {}
+            return {}
+        if r.status_code != 200:
+            self._spellmisc_by_spell_cache[key] = {}
+            return {}
+        props = self._extract_inertia_props(r.text or '')
+        payload = props.get('data')
+        data = payload.get('data') if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+        row = {}
+        if isinstance(data, list) and data:
+            row = data[0] if isinstance(data[0], dict) else {}
+        self._spellmisc_by_spell_cache[key] = row or {}
+        return row or {}
+
+    def _fmt_duration_seconds(self, ms):
+        try:
+            f = float(ms)
+        except Exception:
+            return ''
+        if abs(f) < 1e-9:
+            return '0 sec'
+        sec = f / 1000.0
+        if abs(sec - int(sec)) < 1e-9:
+            return f"{int(sec)} sec"
+        return f"{self._fmt_num(sec)} sec"
+
+    def _fmt_num(self, v):
+        if v is None:
+            return ''
+        s = str(v).strip()
+        if not s:
+            return ''
+        try:
+            f = float(s)
+        except Exception:
+            return s
+        if abs(f - int(f)) < 1e-9:
+            return str(int(f))
+        out = f"{f:.6f}".rstrip('0').rstrip('.')
+        return out
+
+    def _cleanup_tooltip_text(self, s):
+        s = str(s or '')
+        s = re.sub(r'\$@spellicon\d+', '', s)
+        s = re.sub(r'\|c[0-9A-Fa-f]{8}', '', s)
+        s = re.sub(r'\|r', '', s, flags=re.I)
+        s = re.sub(r'\|C[0-9A-Fa-f]{8}', '', s)
+        s = re.sub(r'\|R', '', s)
+        s = s.replace('\r\n', '\n').replace('\r', '\n')
+        return s
+
+    def _strip_conditionals(self, s):
+        s = str(s or '')
+        pattern2 = re.compile(r'\$\?[a-zA-Z]\d+\[([^\]]*)\]\[([^\]]*)\]')
+        pattern1 = re.compile(r'\$\?[a-zA-Z]\d+\[([^\]]*)\]')
+        while True:
+            m = pattern2.search(s)
+            if not m:
+                break
+            a = (m.group(1) or '').strip()
+            b = (m.group(2) or '').strip()
+            rep = a if a else b
+            s = s[:m.start()] + rep + s[m.end():]
+        while True:
+            m = pattern1.search(s)
+            if not m:
+                break
+            rep = (m.group(1) or '').strip()
+            s = s[:m.start()] + rep + s[m.end():]
+        return s
+
+    def _eval_numeric_expr(self, expr):
+        expr = str(expr or '').strip()
+        if not expr:
+            return None
+        if len(expr) > 80:
+            return None
+        if not re.fullmatch(r'[0-9\.\+\-\*/\(\)\s<>=!]+', expr):
+            return None
+        try:
+            return eval(expr, {"__builtins__": {}}, {})
+        except Exception:
+            return None
+
+    def _replace_numeric_expressions(self, s):
+        s = str(s or '')
+
+        def repl_fmt(m):
+            inner = m.group(1) or ''
+            dec = m.group(2) or ''
+            v = self._eval_numeric_expr(inner)
+            if v is None:
+                return m.group(0)
+            try:
+                d = int(dec)
+            except Exception:
+                d = 0
+            try:
+                f = float(v)
+            except Exception:
+                return self._fmt_num(v)
+            out = f"{f:.{max(0, min(d, 6))}f}"
+            out = out.rstrip('0').rstrip('.') if '.' in out else out
+            return out
+
+        def repl(m):
+            inner = m.group(1) or ''
+            v = self._eval_numeric_expr(inner)
+            if v is None:
+                return m.group(0)
+            return self._fmt_num(v)
+
+        s = re.sub(r'\$\{([^}]+)\}\.(\d+)', repl_fmt, s)
+        s = re.sub(r'\$\{([^}]+)\}', repl, s)
+        return s
+
+    def _strip_conditionals_with_removed(self, s):
+        s = str(s or '')
+        removed = []
+
+        def repl2(m):
+            cond = (m.group(1) or '').strip()
+            a = (m.group(2) or '').strip()
+            b = (m.group(3) or '').strip()
+            cv = self._eval_numeric_expr(cond)
+            if cv is None:
+                keep = a
+                drop = b
+            else:
+                keep = a if float(cv) != 0 else b
+                drop = b if float(cv) != 0 else a
+            if drop.strip():
+                removed.append(drop.strip())
+            return keep
+
+        def repl1(m):
+            cond = (m.group(1) or '').strip()
+            a = (m.group(2) or '').strip()
+            cv = self._eval_numeric_expr(cond)
+            keep = a if (cv is None or float(cv) != 0) else ''
+            drop = '' if keep else a
+            if drop.strip():
+                removed.append(drop.strip())
+            return keep
+
+        s = re.sub(r'\$\?([^\[\]]+)\[([^\]]*)\]\[([^\]]*)\]', repl2, s)
+        s = re.sub(r'\$\?([^\[\]]+)\[([^\]]*)\]', repl1, s)
+        return s, removed
+
+    def _resolve_tooltip_token(self, build, base_spell_id, ref_spell_id, code, n):
+        try:
+            base_spell_id = int(base_spell_id)
+            ref_spell_id = int(ref_spell_id)
+            n = int(n)
+        except Exception:
+            return None
+        if n <= 0:
+            return None
+        effect_index = n - 1
+        row = self._get_spelleffect_row_by_index(build, ref_spell_id, effect_index)
+        if not row:
+            return None
+        if code in ('s', 'w', 'm'):
+            bp = row.get('EffectBasePointsF')
+            bp_s = self._fmt_num(bp)
+            if bp_s.startswith('-'):
+                bp_s = bp_s[1:]
+            if bp_s and bp_s not in ('0', '0.0'):
+                return bp_s
+            ap = self._fmt_num(row.get('BonusCoefficientFromAP'))
+            if ap and ap not in ('0', '0.0'):
+                return f"{ap}×AP"
+            sp = self._fmt_num(row.get('EffectBonusCoefficient'))
+            if sp and sp not in ('0', '0.0'):
+                return f"{sp}×SP"
+            sp2 = self._fmt_num(row.get('Coefficient'))
+            if sp2 and sp2 not in ('0', '0.0'):
+                return f"{sp2}×SP"
+            return bp_s or '0'
+        if code == 't':
+            v = row.get('EffectAuraPeriod')
+            if v is None or v == '' or str(v).strip() in ('0', '0.0'):
+                v = row.get('EffectAmplitude')
+            vs = self._fmt_num(v)
+            if not vs or vs in ('0', '0.0'):
+                return None
+            try:
+                f = float(vs)
+            except Exception:
+                return vs
+            if f > 100:
+                f = f / 1000.0
+            return self._fmt_num(f)
+        if code == 'd':
+            misc = self._fetch_spellmisc_by_spellid(build, ref_spell_id)
+            didx = misc.get('DurationIndex')
+            if didx is None or didx == '' or str(didx).strip() in ('0', '0.0'):
+                return None
+            try:
+                didx = int(str(didx))
+            except Exception:
+                return None
+            drow = self._fetch_db2_row_by_id('spellduration', build, didx)
+            ms = drow.get('Duration')
+            if ms is None or ms == '':
+                ms = drow.get('MaxDuration')
+            out = self._fmt_duration_seconds(ms)
+            return out or None
+        return None
+
+    def _render_spell_text_plain(self, build, spell_id, text):
+        s = self._expand_spell_refs(build, text or '')
+        s = self._cleanup_tooltip_text(s)
+
+        def repl(m):
+            ref_sid = m.group(1)
+            code = (m.group(2) or '').lower()
+            n = m.group(3)
+            if not code:
+                return m.group(0)
+            rsid = int(ref_sid) if ref_sid else int(spell_id)
+            rep = self._resolve_tooltip_token(build, spell_id, rsid, code, n)
+            return rep if rep is not None else m.group(0)
+
+        s = re.sub(r'\$(\d+)?([swtmd])(\d+)', repl, s, flags=re.I)
+
+        def repl_d(m):
+            ref_sid = m.group(1)
+            rsid = int(ref_sid) if ref_sid else int(spell_id)
+            misc = self._fetch_spellmisc_by_spellid(build, rsid)
+            didx = misc.get('DurationIndex')
+            if didx is None or didx == '' or str(didx).strip() in ('0', '0.0'):
+                return m.group(0)
+            try:
+                didx = int(str(didx))
+            except Exception:
+                return m.group(0)
+            drow = self._fetch_db2_row_by_id('spellduration', build, didx)
+            ms = drow.get('Duration')
+            if ms is None or ms == '':
+                ms = drow.get('MaxDuration')
+            out = self._fmt_duration_seconds(ms)
+            return out or m.group(0)
+
+        s = re.sub(r'\$(\d+)?d\b', repl_d, s, flags=re.I)
+
+        def repl_big_l(m):
+            return (m.group(1) or '').strip()
+
+        s = re.sub(r'\$L\w+:([^;\]]*);', repl_big_l, s)
+
+        def repl_l(m):
+            body = (m.group(1) or '').strip()
+            if ':' in body:
+                body = body.split(':')[-1].strip()
+            return body
+
+        s = re.sub(r'\$l\w+:([^;\]]*);', repl_l, s)
+        s = self._replace_numeric_expressions(s)
+        s, removed = self._strip_conditionals_with_removed(s)
+        s = re.sub(r'\s+', ' ', s).strip()
+        removed = [re.sub(r'\s+', ' ', x).strip() for x in (removed or []) if str(x or '').strip()]
+        return s, removed
+
+    def _render_spell_text_html(self, build, spell_id, text):
+        plain, removed = self._render_spell_text_plain(build, spell_id, text)
+        out = html.escape(plain or '')
+        if removed:
+            removed_text = " ".join([f"<span class='del'>已移除：{html.escape(x)}</span>" for x in removed if x])
+            if removed_text:
+                out = (out + " " + removed_text).strip()
+        return out
+
+    def _tokenize_for_diff(self, s):
+        s = str(s or '')
+        return [x for x in re.findall(r'[A-Za-z0-9_\.%×]+|\s+|.', s) if x]
+
+    def _inline_diff_html(self, before, after):
+        before = str(before or '')
+        after = str(after or '')
+        b = self._tokenize_for_diff(before)
+        a = self._tokenize_for_diff(after)
+        sm = __import__('difflib').SequenceMatcher(a=b, b=a)
+        out = []
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == 'equal':
+                out.append(html.escape(''.join(a[j1:j2])))
+            elif tag == 'insert':
+                out.append(f"<span class='ins'>{html.escape(''.join(a[j1:j2]))}</span>")
+            elif tag == 'delete':
+                out.append(f"<span class='del'>{html.escape(''.join(b[i1:i2]))}</span>")
+            else:
+                out.append(f"<span class='del'>{html.escape(''.join(b[i1:i2]))}</span>")
+                out.append(f"<span class='ins'>{html.escape(''.join(a[j1:j2]))}</span>")
+        return ''.join(out).replace('\\n', ' ')
 
     def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url=''):
         rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{to_build.replace('.', '_')}.html"
@@ -879,6 +1474,18 @@ class WagoSkillDiffMonitor(BaseScan):
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
         name_cache = {}
+        spell_ids = sorted(set(int(x) for x in spell_changes.keys()))
+        snap_names = {
+            int(r['spell_id']): (r.get('name') or '')
+            for r in WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
+            .exclude(name='')
+            .values('spell_id', 'name')
+        }
+        name_cache.update(snap_names)
+        missing = [sid for sid in spell_ids if not (name_cache.get(sid) or '').strip()]
+        if missing:
+            fetched = self._fetch_spell_names_concurrent(to_build, missing)
+            name_cache.update(fetched)
 
         class_to_spec_to_spells = {}
         for spell_id in spell_changes.keys():
@@ -906,22 +1513,24 @@ class WagoSkillDiffMonitor(BaseScan):
         title_to = display_to_build or to_build
         parts.append(f"<title>{html.escape(server_title)} 职业技能变更报告：{html.escape(title_from)} → {html.escape(title_to)}</title>")
         parts.append('<style>')
-        parts.append('body{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;line-height:1.55;background:#0b1220;color:#0f172a}')
-        parts.append('.card{max-width:1100px;margin:0 auto;background:rgba(255,255,255,.92);border:1px solid rgba(148,163,184,.4);border-radius:14px;padding:18px}')
+        parts.append('body{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;line-height:1.55;background:#f1f5f9;color:#0f172a}')
+        parts.append('.card{max-width:1200px;margin:0 auto;background:#ffffff;border:1px solid rgba(148,163,184,.35);border-radius:14px;padding:18px}')
         parts.append('.meta{color:#475569;font-size:12px;margin-top:6px;display:flex;flex-wrap:wrap;gap:10px}')
-        parts.append('.toc{margin-top:12px;padding:10px 12px;background:#ffffff;border:1px solid rgba(226,232,240,1);border-radius:12px}')
-        parts.append('.toc a{color:#3730a3;text-decoration:none}')
+        parts.append('.toc{margin-top:12px;padding:10px 12px;background:#f8fafc;border:1px solid rgba(226,232,240,1);border-radius:12px}')
+        parts.append('.toc a{color:#1d4ed8;text-decoration:none}')
         parts.append('.toc a:hover{text-decoration:underline}')
         parts.append('h2{margin:18px 0 8px 0;font-size:18px}')
-        parts.append('h3{margin:14px 0 6px 0;font-size:15px;color:#0f172a}')
-        parts.append('h4{margin:12px 0 6px 0;font-size:14px}')
-        parts.append('.spell{margin-top:10px;border-left:3px solid rgba(99,102,241,.5);padding-left:10px}')
-        parts.append('.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;margin-left:8px}')
-        parts.append('.subtle{color:#64748b;font-size:12px}')
-        parts.append('.diff{margin-top:6px;background:#0b1220;color:#e2e8f0;border-radius:10px;padding:8px 10px;overflow:auto}')
-        parts.append('.diff table{width:100%;border-collapse:collapse;font-size:12px}')
-        parts.append('.diff th,.diff td{border-bottom:1px solid rgba(148,163,184,.2);padding:6px 8px;vertical-align:top}')
-        parts.append('.diff th{text-align:left;color:#c7d2fe;font-weight:700}')
+        parts.append('h3{margin:12px 0 6px 0;font-size:15px;color:#0f172a}')
+        parts.append('.spell{margin-top:12px;padding:10px 12px;background:#f8fafc;border:1px solid rgba(226,232,240,1);border-radius:12px}')
+        parts.append('.spell-head{display:flex;gap:6px;align-items:flex-start;font-weight:800}')
+        parts.append('.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-top:6px;flex:0 0 auto}')
+        parts.append('.spell-title{font-weight:800}')
+        parts.append('.subtle{color:#64748b;font-size:12px;font-weight:500}')
+        parts.append('.line{margin-top:6px;color:#0f172a;font-size:13px}')
+        parts.append('.hash{color:#2563eb;font-weight:800;margin-right:4px}')
+        parts.append('.k{color:#334155;font-weight:800}')
+        parts.append(".ins{color:#16a34a;font-weight:800}")
+        parts.append(".del{color:#dc2626;font-weight:800;text-decoration:line-through}")
         parts.append('.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}')
         parts.append('</style>')
         parts.append('</head>')
@@ -947,25 +1556,56 @@ class WagoSkillDiffMonitor(BaseScan):
                 parts.append(f"<div style='margin-left:14px;margin-top:4px'><a href='#class-{cid}-spec-{spec_id}'>{html.escape(spec_name)}</a></div>")
         parts.append("</div>")
 
+        table_title = {
+            'spelleffect': '技能效果',
+            'spell': '技能描述',
+            'spelldescription': '技能描述',
+        }
+        field_title = {
+            'Description_lang': '描述',
+            'AuraDescription_lang': '光环描述',
+            'EffectBasePointsF': '基础数值F',
+            'EffectBasePoints': '基础数值',
+            'EffectBonusCoefficient': '法强系数',
+            'BonusCoefficientFromAP': '攻强系数',
+            'Coefficient': '系数',
+            'PvpMultiplier': 'PvP系数',
+            'EffectAmplitude': '周期',
+            'EffectAuraPeriod': '周期',
+        }
+
+        def fmt_change(b, a):
+            b = '' if b is None else str(b)
+            a = '' if a is None else str(a)
+            if b == a:
+                return html.escape(a)
+            return f"<span class='del'>{html.escape(b)}</span> → <span class='ins'>{html.escape(a)}</span>"
+
+        def fmt_removed(removed):
+            removed = [x for x in (removed or []) if str(x or '').strip()]
+            if not removed:
+                return ''
+            return ' ' + ' '.join([f"<span class='del'>{html.escape(x)}</span>" for x in removed])
+
         for cid in sorted(class_to_spec_to_spells.keys()):
             cname = (class_names or {}).get(cid) or str(cid)
-            parts.append(f"<h2 id='class-{cid}'>{html.escape(cname)} <span class='tag'>Class {cid}</span></h2>")
+            parts.append(f"<h2 id='class-{cid}'>{html.escape(cname)} <span class='subtle'>职业 {cid}</span></h2>")
             spec_map = class_to_spec_to_spells.get(cid) or {}
             for spec_id in sorted(spec_map.keys()):
                 if spec_id == 0:
                     spec_name = '通用'
                 else:
                     spec_name = ((spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id)
-                parts.append(f"<h3 id='class-{cid}-spec-{spec_id}'>{html.escape(spec_name)} <span class='tag'>Spec {spec_id}</span></h3>")
+                parts.append(f"<h3 id='class-{cid}-spec-{spec_id}'>{html.escape(spec_name)} <span class='subtle'>专精 {spec_id}</span></h3>")
                 for spell_id in sorted(spec_map.get(spec_id) or []):
-                    sname = name_cache.get(spell_id)
-                    if sname is None:
-                        sname = self._fetch_spell_name(to_build, spell_id) or self._fetch_spell_name(from_build, spell_id) or str(spell_id)
-                        name_cache[spell_id] = sname
+                    sname = (name_cache.get(spell_id) or '').strip() or str(spell_id)
                     wowhead_spell_url = f"https://www.wowhead.com/spell={spell_id}"
-                    parts.append(f"<div class='spell'><h4 id='spell-{spell_id}'>{html.escape(sname)} <span class='tag'>Spell {spell_id}</span> <a class='subtle' href='{html.escape(wowhead_spell_url)}' target='_blank' rel='noopener noreferrer'>Wowhead</a></h4>")
-
                     diffs_by_table = (spell_changes.get(spell_id) or {}).get('diffs') or {}
+                    if not diffs_by_table:
+                        continue
+                    desc_primary = ''
+                    lines = []
+
                     for tkey in sorted(diffs_by_table.keys()):
                         items = diffs_by_table.get(tkey) or []
                         filtered_items = []
@@ -973,100 +1613,85 @@ class WagoSkillDiffMonitor(BaseScan):
                             fds = self._filter_diff_fields(tkey, it.get('fields') or [])
                             if not fds:
                                 continue
-                            if tkey in ('spell', 'spelldescription'):
-                                for fd in fds:
-                                    fd['before'] = self._expand_spell_refs(to_build, fd.get('before'))
-                                    fd['after'] = self._expand_spell_refs(to_build, fd.get('after'))
-                            filtered_items.append({'id': it.get('id'), 'action': it.get('action'), 'fields': fds})
+                            filtered_items.append({'id': it.get('id'), 'action': it.get('action'), 'fields': fds, 'meta': it.get('meta') or {}})
                         if not filtered_items:
                             continue
-                        parts.append(f"<div style='margin-top:10px'><div style='font-weight:800'>{html.escape(tkey)}</div>")
+
                         if tkey == 'spelleffect':
-                            parts.append("<div class='diff'>")
                             effects = {}
                             for it in filtered_items:
                                 kv = {}
                                 for fd in it.get('fields') or []:
                                     kv[fd.get('field')] = (fd.get('before'), fd.get('after'))
+                                meta = it.get('meta') or {}
+                                for k in ('EffectIndex', 'Effect', 'EffectAura'):
+                                    mv = meta.get(k)
+                                    if mv is not None and mv != '' and k not in kv:
+                                        kv[k] = (mv, mv)
                                 effect_idx = kv.get('EffectIndex', ('', ''))[1] or kv.get('EffectIndex', ('', ''))[0] or ''
                                 try:
                                     effect_idx = int(str(effect_idx))
                                 except Exception:
                                     effect_idx = ''
                                 effects.setdefault(effect_idx, []).append(kv)
+
                             for effect_idx in sorted(effects.keys(), key=lambda x: (9999 if x == '' else x)):
                                 merged = {}
                                 for kv in effects[effect_idx]:
                                     merged.update(kv)
                                 eff_type = merged.get('Effect', ('', ''))
-                                aura = merged.get('EffectAura', ('', ''))
-                                bp = merged.get('EffectBasePointsF', ('', ''))
-                                if bp == ('', ''):
-                                    bp = merged.get('EffectBasePoints', ('', ''))
-                                coef = merged.get('EffectBonusCoefficient', ('', ''))
-                                if coef == ('', ''):
-                                    coef = merged.get('BonusCoefficientFromAP', ('', ''))
-                                if coef == ('', ''):
-                                    coef = merged.get('Coefficient', ('', ''))
-                                pvp = merged.get('PvpMultiplier', ('', ''))
-
-                                label = f"Effect #{effect_idx}" if effect_idx != '' else "Effect"
-                                eff_name = ''
                                 try:
                                     et = int(str(eff_type[1] or eff_type[0] or 0))
                                 except Exception:
                                     et = 0
+                                eff_cn = ''
                                 if et == 6:
-                                    eff_name = 'Apply Aura'
+                                    eff_cn = '应用光环'
                                 elif et == 2:
-                                    eff_name = 'School Damage'
+                                    eff_cn = '法术伤害'
                                 elif et == 10:
-                                    eff_name = 'Heal'
+                                    eff_cn = '治疗'
                                 elif et == 42:
-                                    eff_name = 'Trigger Spell'
-                                suffix = f" {eff_name}" if eff_name else ""
-                                aura_part = ''
-                                if aura != ('', ''):
-                                    aura_part = f" Aura {aura[0]} → {aura[1]}"
-                                parts.append(f"<div style='padding:6px 2px'><div class='mono' style='font-weight:700'>{html.escape(label + suffix)}</div>")
-                                if aura_part:
-                                    parts.append(f"<div class='mono' style='opacity:.9'>{html.escape(aura_part.strip())}</div>")
-                                if bp != ('', ''):
-                                    parts.append(f"<div class='mono'>Value: {html.escape(str(bp[0]))} → {html.escape(str(bp[1]))}</div>")
-                                if coef != ('', ''):
-                                    parts.append(f"<div class='mono'>Coefficient: {html.escape(str(coef[0]))} → {html.escape(str(coef[1]))}</div>")
-                                if pvp != ('', ''):
-                                    parts.append(f"<div class='mono'>Pvp Multiplier: {html.escape(str(pvp[0]))} → {html.escape(str(pvp[1]))}</div>")
-                                parts.append("</div>")
-                            parts.append("</div>")
-                        elif tkey in ('spell', 'spelldescription'):
-                            parts.append("<div class='diff'>")
-                            for it in filtered_items:
-                                for fd in it.get('fields') or []:
-                                    parts.append(f"<div style='margin-top:6px'><div class='mono' style='font-weight:700'>{html.escape(fd.get('field') or '')}</div>")
-                                    parts.append("<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px'>")
-                                    parts.append(f"<div><div style='font-size:11px;opacity:.8'>原值</div><div class='mono' style='white-space:pre-wrap'>{html.escape(fd.get('before') or '')}</div></div>")
-                                    parts.append(f"<div><div style='font-size:11px;opacity:.8'>新值</div><div class='mono' style='white-space:pre-wrap'>{html.escape(fd.get('after') or '')}</div></div>")
-                                    parts.append("</div></div>")
-                            parts.append("</div>")
-                        else:
-                            parts.append("<div class='diff'><table><thead><tr><th style='width:140px'>条目</th><th>字段</th><th>原值</th><th>新值</th></tr></thead><tbody>")
-                            for it in filtered_items:
-                                rid = it.get('id')
-                                action = (it.get('action') or '').strip()
-                                label = f"{tkey}#{rid} {action}".strip()
-                                for fd in it.get('fields') or []:
-                                    parts.append("<tr>")
-                                    parts.append(f"<td class='mono'>{html.escape(label)}</td>")
-                                    parts.append(f"<td class='mono'>{html.escape(fd.get('field') or '')}</td>")
-                                    parts.append(f"<td class='mono'>{html.escape(fd.get('before') or '')}</td>")
-                                    parts.append(f"<td class='mono'>{html.escape(fd.get('after') or '')}</td>")
-                                    parts.append("</tr>")
-                            parts.append("</tbody></table></div>")
-                        parts.append("</div>")
+                                    eff_cn = '触发法术'
+                                idx_part = f"(#{effect_idx})" if effect_idx != '' else ''
+                                changes = []
+                                for fk in ('EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient', 'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier', 'EffectAuraPeriod', 'EffectAmplitude'):
+                                    if fk not in merged:
+                                        continue
+                                    b, a = merged.get(fk) or ('', '')
+                                    if str(b) == str(a):
+                                        continue
+                                    changes.append(f"{field_title.get(fk, fk)}：{fmt_change(b, a)}")
+                                if changes:
+                                    label = f"{eff_cn}{idx_part}" if eff_cn else f"技能效果{idx_part}"
+                                    lines.append(f"<div class='line'><span class='hash'>#</span>{html.escape(label)}（{'，'.join(changes)}）</div>")
+                            continue
 
+                        if tkey in ('spell', 'spelldescription'):
+                            for it in filtered_items:
+                                for fd in it.get('fields') or []:
+                                    btxt, b_removed = self._render_spell_text_plain(from_build, spell_id, fd.get('before'))
+                                    atxt, a_removed = self._render_spell_text_plain(to_build, spell_id, fd.get('after'))
+                                    merged = self._inline_diff_html(btxt, atxt) + fmt_removed(a_removed)
+                                    f = fd.get('field') or ''
+                                    title = field_title.get(f, f) or '描述'
+                                    if not desc_primary and f in ('Description_lang', 'AuraDescription_lang'):
+                                        desc_primary = merged
+                                    else:
+                                        lines.append(f"<div class='line'><span class='k'>{html.escape(table_title.get(tkey, tkey))}</span> {html.escape(title)}：{merged}</div>")
+                            continue
+
+                        title = table_title.get(tkey, tkey)
+                        for it in filtered_items:
+                            for fd in it.get('fields') or []:
+                                f = fd.get('field') or ''
+                                lines.append(f"<div class='line'><span class='k'>{html.escape(title)}</span> {html.escape(field_title.get(f, f))}：{fmt_change(fd.get('before'), fd.get('after'))}</div>")
+
+                    parts.append(f"<div class='spell' id='spell-{spell_id}'>")
+                    parts.append(f"<div class='spell-head'><span class='dot'></span><div><span class='spell-title'>{html.escape(sname)}({spell_id})</span>：{desc_primary} <a class='subtle' href='{html.escape(wowhead_spell_url)}' target='_blank' rel='noopener noreferrer'>Wowhead</a></div></div>")
+                    for ln in lines:
+                        parts.append(ln)
                     parts.append("</div>")
-
         parts.append('</div></body></html>')
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(parts))
