@@ -12,7 +12,7 @@ def _parse_season(value):
     v = (value or "").strip()
     if not v:
         return ""
-    if v in {"season-mn-1", "auto"}:
+    if v in {"season-mn-1", "auto", "-"}:
         return ""
     if "season=" in v:
         m = re.search(r"season=([^&]+)", v)
@@ -267,7 +267,74 @@ def _parse_rankings_from_html(html):
         return {"damage": [], "tank": [], "healer": []}
 
     if not BeautifulSoup:
-        return {"damage": [], "tank": [], "healer": []}
+        def _strip_tags(s):
+            return re.sub(r"<[^>]+>", "", s or "").replace("\xa0", " ").strip()
+
+        def _extract_table(marker):
+            m = re.search(marker, html, flags=re.I)
+            if not m:
+                return ""
+            pos = m.end()
+            t0 = html.find("<table", pos)
+            if t0 < 0:
+                return ""
+            t1 = html.find("</table>", t0)
+            if t1 < 0:
+                return ""
+            return html[t0:t1 + len("</table>")]
+
+        def _parse_table(table_html):
+            if not table_html:
+                return []
+            out = []
+            for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, flags=re.I | re.S):
+                tds = re.findall(r"<td[^>]*>(.*?)</td>", tr, flags=re.I | re.S)
+                if len(tds) < 6:
+                    continue
+                rank_text = _strip_tags(tds[0])
+                if not rank_text.isdigit():
+                    continue
+                rank = int(rank_text)
+                diff_raw, diff_value = _parse_diff(_strip_tags(tds[1]))
+                tier = _strip_tags(tds[2])
+                avg_text = _strip_tags(tds[3])
+                top_text = _strip_tags(tds[4])
+                runs_text = _strip_tags(tds[5])
+                spec_name = ""
+                spec_url = ""
+                m = re.search(r'<a[^>]+href="([^"]*/spec/[^"]+)"[^>]*>(.*?)</a>', tr, flags=re.I | re.S)
+                if m:
+                    href = (m.group(1) or "").strip()
+                    spec_name = _strip_tags(m.group(2))
+                    if href.startswith("/"):
+                        spec_url = "https://mythicstats.com" + href
+                    else:
+                        spec_url = href
+                spec_slug = _extract_slug_from_spec_url(spec_url)
+                out.append(
+                    {
+                        "rank": rank,
+                        "diff_raw": diff_raw,
+                        "diff_value": diff_value,
+                        "tier": tier,
+                        "avg_text": avg_text,
+                        "avg_value": _parse_suffix_number(avg_text),
+                        "top_text": top_text,
+                        "top_value": _parse_suffix_number(top_text),
+                        "runs_text": runs_text,
+                        "runs_value": _parse_suffix_number(runs_text),
+                        "spec_name": spec_name,
+                        "spec_slug": spec_slug,
+                        "spec_url": spec_url,
+                    }
+                )
+            return out
+
+        return {
+            "damage": _parse_table(_extract_table(r"damage\s+specs")),
+            "tank": _parse_table(_extract_table(r"tank\s+specs")),
+            "healer": _parse_table(_extract_table(r"healer\s+specs")),
+        }
 
     soup = BeautifulSoup(html, "html.parser")
     tables = soup.find_all("table") or []

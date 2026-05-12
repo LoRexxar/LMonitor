@@ -37,6 +37,11 @@ def main():
             if (r.get("product") or "").strip() != product:
                 continue
             v = str(r.get("version") or "").strip()
+            if not v:
+                patch = str(r.get("patch") or "").strip()
+                build = str(r.get("build") or "").strip()
+                if patch and build:
+                    v = f"{patch}.{build}"
             if not v.startswith(prefix):
                 continue
             if v in seen:
@@ -59,4 +64,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
