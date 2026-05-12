@@ -11,7 +11,7 @@ class PortalMythicstatsDpsMonitor(BaseScan):
 
     def scan(self, url):
         _season_hint = (url or "").strip() or (getattr(self.task, "target", "") or "").strip()
-        if _season_hint in {"season-mn-1", "auto"}:
+        if _season_hint in {"season-mn-1", "auto", "-"}:
             _season_hint = ""
 
         season = _season_hint

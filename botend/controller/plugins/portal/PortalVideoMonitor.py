@@ -57,6 +57,10 @@ class PortalVideoMonitor(BaseScan):
             auth = TargetAuth.objects.filter(domain=domain).first()
             if auth and auth.cookie:
                 cookies = auth.cookie
+            if not cookies:
+                auth2 = TargetAuth.objects.filter(domain="bilibili.com").first()
+                if auth2 and auth2.cookie:
+                    cookies = auth2.cookie
         except Exception:
             cookies = ""
 
@@ -64,16 +68,18 @@ class PortalVideoMonitor(BaseScan):
         fetch_error = ""
         try:
             if self.req:
-                if getattr(self.req, 'is_chrome', False):
-                    raw = self.req.get(api, 'RespByChrome', 0, cookies)
+                headers = {"Referer": target.target_url, "Accept": "application/json"}
+                resp = self.req.get(api, 'Response', 0, cookies, headers)
+                if not resp:
+                    fetch_error = "接口请求失败"
+                elif int(getattr(resp, "status_code", 0) or 0) != 200:
+                    fetch_error = f"HTTP {getattr(resp, 'status_code', '')}"
                 else:
-                    raw = self.req.get(api, 'Resp', 0, cookies)
-                if not raw:
-                    fetch_error = "接口返回为空"
-                if isinstance(raw, (bytes, bytearray)):
-                    raw = raw.decode('utf-8', errors='ignore')
-                if raw:
-                    payload = json.loads(raw)
+                    raw = getattr(resp, "text", "") or ""
+                    if raw.strip():
+                        payload = json.loads(raw)
+                    else:
+                        fetch_error = "接口返回为空"
             else:
                 import requests
                 headers = {"User-Agent": "Mozilla/5.0", "Referer": target.target_url, "Cookie": cookies}
