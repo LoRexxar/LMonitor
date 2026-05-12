@@ -32,6 +32,8 @@ class WagoSkillDiffMonitor(BaseScan):
         self._spellclassset_to_class_cache = {}
         self._spelleffect_by_spell_cache = {}
         self._spellmisc_by_spell_cache = {}
+        self._spellradius_cache = {}
+        self._spellpower_by_spell_cache = {}
         self.core_tables = {
             'spell',
             'spelleffect',
@@ -1110,6 +1112,12 @@ class WagoSkillDiffMonitor(BaseScan):
                     rep = (desc_row.get('Description_lang') or '').strip()
                 else:
                     rep = (desc_row.get('AuraDescription_lang') or '').strip()
+                if not rep:
+                    spell_row = self._fetch_db2_row_by_id('spell', build, spell_id)
+                    if kind == 'spelldesc':
+                        rep = (spell_row.get('Description_lang') or '').strip()
+                    else:
+                        rep = (spell_row.get('AuraDescription_lang') or '').strip()
             if rep:
                 rep = self._expand_spell_refs(build, rep, depth=depth + 1, visited=visited)
                 s = s.replace(f"$@{kind}{sid}", rep)
@@ -1195,6 +1203,50 @@ class WagoSkillDiffMonitor(BaseScan):
         if abs(sec - int(sec)) < 1e-9:
             return f"{int(sec)} sec"
         return f"{self._fmt_num(sec)} sec"
+
+    def _fetch_spellradius(self, build, radius_id):
+        build = (build or '').strip()
+        try:
+            radius_id = int(radius_id)
+        except Exception:
+            return {}
+        if not build or radius_id <= 0:
+            return {}
+        key = (build, radius_id)
+        if key in self._spellradius_cache:
+            return self._spellradius_cache.get(key) or {}
+        row = self._fetch_db2_row_by_id_requests('SpellRadius', build, radius_id)
+        self._spellradius_cache[key] = row or {}
+        return row or {}
+
+    def _fetch_spellpower_by_spellid(self, build, spell_id):
+        build = (build or '').strip()
+        try:
+            spell_id = int(spell_id)
+        except Exception:
+            return {}
+        if not build or spell_id <= 0:
+            return {}
+        key = (build, spell_id)
+        if key in self._spellpower_by_spell_cache:
+            return self._spellpower_by_spell_cache.get(key) or {}
+        url = f"https://wago.tools/db2/SpellPower?build={build}&locale={self.locale}&filter%5BSpellID%5D=exact%3A{spell_id}"
+        try:
+            r = requests.get(url, timeout=max(30, self.http_timeout), headers={'User-Agent': 'Mozilla/5.0'})
+        except Exception:
+            self._spellpower_by_spell_cache[key] = {}
+            return {}
+        if r.status_code != 200:
+            self._spellpower_by_spell_cache[key] = {}
+            return {}
+        props = self._extract_inertia_props(r.text or '')
+        payload = props.get('data')
+        data = payload.get('data') if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+        row = {}
+        if isinstance(data, list) and data:
+            row = data[0] if isinstance(data[0], dict) else {}
+        self._spellpower_by_spell_cache[key] = row or {}
+        return row or {}
 
     def _fmt_num(self, v):
         if v is None:
@@ -1378,11 +1430,38 @@ class WagoSkillDiffMonitor(BaseScan):
                 ms = drow.get('MaxDuration')
             out = self._fmt_duration_seconds(ms)
             return out or None
+        if code == 'a':
+            row = self._get_spelleffect_row_by_index(build, ref_spell_id, effect_index)
+            ridx = row.get('EffectRadiusIndex_0')
+            if ridx is None or ridx == '' or str(ridx).strip() in ('0', '0.0'):
+                ridx = row.get('EffectRadiusIndex_1')
+            try:
+                ridx = int(str(ridx))
+            except Exception:
+                return None
+            rr = self._fetch_spellradius(build, ridx)
+            val = rr.get('RadiusMax')
+            if val is None or val == '':
+                val = rr.get('Radius')
+            out = self._fmt_num(val)
+            return out or None
         return None
 
     def _render_spell_text_plain(self, build, spell_id, text):
         s = self._expand_spell_refs(build, text or '')
         s = self._cleanup_tooltip_text(s)
+
+        def repl_c(m):
+            p = self._fetch_spellpower_by_spellid(build, spell_id)
+            pct = p.get('PowerCostPct')
+            try:
+                f = float(str(pct))
+            except Exception:
+                return '0'
+            c = -f * 10000.0
+            return self._fmt_num(c) or '0'
+
+        s = re.sub(r'\$c\b', repl_c, s, flags=re.I)
 
         def repl(m):
             ref_sid = m.group(1)
@@ -1394,7 +1473,7 @@ class WagoSkillDiffMonitor(BaseScan):
             rep = self._resolve_tooltip_token(build, spell_id, rsid, code, n)
             return rep if rep is not None else m.group(0)
 
-        s = re.sub(r'\$(\d+)?([swtmd])(\d+)', repl, s, flags=re.I)
+        s = re.sub(r'\$(\d+)?([swtmda])(\d+)', repl, s, flags=re.I)
 
         def repl_d(m):
             ref_sid = m.group(1)
@@ -1450,20 +1529,36 @@ class WagoSkillDiffMonitor(BaseScan):
     def _inline_diff_html(self, before, after):
         before = str(before or '')
         after = str(after or '')
-        b = self._tokenize_for_diff(before)
-        a = self._tokenize_for_diff(after)
-        sm = __import__('difflib').SequenceMatcher(a=b, b=a)
+        sm = __import__('difflib').SequenceMatcher(None, before, after, autojunk=False)
+        ops = sm.get_opcodes()
+        merged = []
+        for tag, i1, i2, j1, j2 in ops:
+            if not merged:
+                merged.append([tag, i1, i2, j1, j2])
+                continue
+            ptag, pi1, pi2, pj1, pj2 = merged[-1]
+            if ptag != 'equal' and tag != 'equal':
+                merged[-1] = ['replace', pi1, i2, pj1, j2]
+                continue
+            if ptag != 'equal' and tag == 'equal' and (j2 - j1) <= 2 and (after[j1:j2].strip() == ''):
+                merged[-1] = [ptag, pi1, i2, pj1, j2]
+                continue
+            if ptag == 'equal' and tag != 'equal' and (pi2 - pi1) <= 2 and (before[pi1:pi2].strip() == ''):
+                merged[-1] = [tag, pi1, i2, pj1, j2]
+                continue
+            merged.append([tag, i1, i2, j1, j2])
+
         out = []
-        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        for tag, i1, i2, j1, j2 in merged:
             if tag == 'equal':
-                out.append(html.escape(''.join(a[j1:j2])))
+                out.append(html.escape(after[j1:j2]))
             elif tag == 'insert':
-                out.append(f"<span class='ins'>{html.escape(''.join(a[j1:j2]))}</span>")
+                out.append(f"<span class='ins'>{html.escape(after[j1:j2])}</span>")
             elif tag == 'delete':
-                out.append(f"<span class='del'>{html.escape(''.join(b[i1:i2]))}</span>")
+                out.append(f"<span class='del'>{html.escape(before[i1:i2])}</span>")
             else:
-                out.append(f"<span class='del'>{html.escape(''.join(b[i1:i2]))}</span>")
-                out.append(f"<span class='ins'>{html.escape(''.join(a[j1:j2]))}</span>")
+                out.append(f"<span class='del'>{html.escape(before[i1:i2])}</span>")
+                out.append(f"<span class='ins'>{html.escape(after[j1:j2])}</span>")
         return ''.join(out).replace('\\n', ' ')
 
     def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url=''):
