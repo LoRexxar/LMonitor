@@ -29,6 +29,7 @@ class PortalMythicstatsDpsMonitor(BaseScan):
         if not periods:
             logger.error("[PortalMythicstatsDpsMonitor] no periods found")
             return False
+        logger.info(f"[PortalMythicstatsDpsMonitor] season={season} periods={len(periods)} dungeons={len(dungeons)}")
 
         top3 = periods[:3]
         latest = top3[0]
@@ -48,6 +49,7 @@ class PortalMythicstatsDpsMonitor(BaseScan):
 
             for role in ("damage", "tank", "healer"):
                 rows = rankings.get(role) or []
+                logger.info(f"[PortalMythicstatsDpsMonitor] period={pid} role={role} rows={len(rows)}")
                 upsert_mythicstats_dps_rows(
                     season=cur_season,
                     period_id=int(pid),

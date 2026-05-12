@@ -73,7 +73,8 @@ class PortalVideoMonitor(BaseScan):
                 if not resp:
                     fetch_error = "接口请求失败"
                 elif int(getattr(resp, "status_code", 0) or 0) != 200:
-                    fetch_error = f"HTTP {getattr(resp, 'status_code', '')}"
+                    code = int(getattr(resp, "status_code", 0) or 0)
+                    fetch_error = f"HTTP {code}"
                 else:
                     raw = getattr(resp, "text", "") or ""
                     if raw.strip():
@@ -95,6 +96,15 @@ class PortalVideoMonitor(BaseScan):
         if not isinstance(payload, dict) or not payload:
             if fetch_error:
                 try:
+                    if 'HTTP 412' in fetch_error:
+                        upsert_system_alert(
+                            category='BILIBILI_COOKIE_REQUIRED',
+                            subject=domain,
+                            level=3,
+                            title='B站接口被风控(412)',
+                            content=f"接口返回 {fetch_error}，通常需要配置 cookie 才能稳定访问。\n请更新 TargetAuth(domain={domain}) 或 TargetAuth(domain=bilibili.com) 的 cookie。\n{api}"
+                        )
+                        return
                     upsert_system_alert(
                         category='BILIBILI_API_FAILED',
                         subject=domain,

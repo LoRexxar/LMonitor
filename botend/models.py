@@ -171,6 +171,85 @@ class WowSkillDiffReport(models.Model):
         ]
 
 
+class WowSpellSnapshotState(models.Model):
+    branch = models.CharField(max_length=32, default="wow")
+    locale = models.CharField(max_length=8, default="enUS")
+    snapshot_build = models.CharField(max_length=64, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_spell_snapshot_state'
+        unique_together = (('branch', 'locale'),)
+        indexes = [
+            models.Index(fields=['branch', 'locale']),
+            models.Index(fields=['snapshot_build']),
+            models.Index(fields=['updated_at']),
+        ]
+
+
+class WowSpellSnapshot(models.Model):
+    branch = models.CharField(max_length=32, default="wow")
+    locale = models.CharField(max_length=8, default="enUS")
+    spell_id = models.BigIntegerField()
+    name = models.CharField(max_length=255, default="", blank=True)
+    description = models.TextField(default="", blank=True)
+    aura_description = models.TextField(default="", blank=True)
+    snapshot_build = models.CharField(max_length=64, default="", blank=True)
+    updated_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'wow_spell_snapshot'
+        unique_together = (('branch', 'locale', 'spell_id'),)
+        indexes = [
+            models.Index(fields=['branch', 'locale']),
+            models.Index(fields=['spell_id']),
+            models.Index(fields=['updated_at']),
+        ]
+
+
+class WowSpellEffectSnapshot(models.Model):
+    branch = models.CharField(max_length=32, default="wow")
+    locale = models.CharField(max_length=8, default="enUS")
+    spell_id = models.BigIntegerField()
+    effect_index = models.IntegerField(default=0)
+    effect = models.IntegerField(null=True, blank=True)
+    effect_aura = models.IntegerField(null=True, blank=True)
+    base_points = models.CharField(max_length=64, default="", blank=True)
+    coefficient = models.CharField(max_length=64, default="", blank=True)
+    pvp_multiplier = models.CharField(max_length=64, default="", blank=True)
+    snapshot_build = models.CharField(max_length=64, default="", blank=True)
+    updated_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'wow_spell_effect_snapshot'
+        unique_together = (('branch', 'locale', 'spell_id', 'effect_index'),)
+        indexes = [
+            models.Index(fields=['branch', 'locale']),
+            models.Index(fields=['spell_id']),
+            models.Index(fields=['spell_id', 'effect_index']),
+            models.Index(fields=['updated_at']),
+        ]
+
+
+class WowSpecSpellMapSnapshot(models.Model):
+    branch = models.CharField(max_length=32, default="wow")
+    locale = models.CharField(max_length=8, default="enUS")
+    spec_id = models.IntegerField()
+    spell_id = models.BigIntegerField()
+    snapshot_build = models.CharField(max_length=64, default="", blank=True)
+    updated_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'wow_spec_spell_map_snapshot'
+        unique_together = (('branch', 'locale', 'spec_id', 'spell_id'),)
+        indexes = [
+            models.Index(fields=['branch', 'locale']),
+            models.Index(fields=['spec_id']),
+            models.Index(fields=['spell_id']),
+            models.Index(fields=['updated_at']),
+        ]
+
+
 class PortalToolLink(models.Model):
     name = models.CharField(max_length=200)
     url = models.CharField(max_length=2000)

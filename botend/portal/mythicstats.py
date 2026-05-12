@@ -112,11 +112,17 @@ def _get_html(req, url):
                 driver = req.get(url, "RespByChrome", 0, "", is_origin=1)
                 if driver and getattr(driver, "html", None):
                     return driver.html
-        resp = requests.get(url, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
+        resp = requests.get(url, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
         if resp.status_code == 200:
             return resp.text
     except Exception as e:
-        logger.error(f"[mythicstats] fetch html error: {str(e)}")
+        logger.warning(f"[mythicstats] fetch html error: {str(e)}")
+        try:
+            resp = requests.get(url, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
+            if resp.status_code == 200:
+                return resp.text
+        except Exception:
+            pass
     return ""
 
 
@@ -270,46 +276,58 @@ def _parse_rankings_from_html(html):
         def _strip_tags(s):
             return re.sub(r"<[^>]+>", "", s or "").replace("\xa0", " ").strip()
 
-        def _extract_table(marker):
-            m = re.search(marker, html, flags=re.I)
-            if not m:
+        def _extract_section(marker, stop_marker):
+            m0 = re.search(marker, html, flags=re.I)
+            if not m0:
                 return ""
-            pos = m.end()
-            t0 = html.find("<table", pos)
-            if t0 < 0:
-                return ""
-            t1 = html.find("</table>", t0)
-            if t1 < 0:
-                return ""
-            return html[t0:t1 + len("</table>")]
+            start = m0.end()
+            m1 = re.search(stop_marker, html[start:], flags=re.I) if stop_marker else None
+            end = start + m1.start() if m1 else len(html)
+            return html[start:end]
 
-        def _parse_table(table_html):
-            if not table_html:
+        def _parse_section(section_html):
+            if not section_html:
                 return []
             out = []
-            for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, flags=re.I | re.S):
-                tds = re.findall(r"<td[^>]*>(.*?)</td>", tr, flags=re.I | re.S)
-                if len(tds) < 6:
+            pos = 0
+            while True:
+                m = re.search(
+                    r'<div class="grid grid-cols-6 gap-px w-56">(.*?)</div>\s*<a[^>]+href="([^"]*/spec/[^"]+)"[^>]*>(.*?)</a>',
+                    section_html[pos:],
+                    flags=re.I | re.S,
+                )
+                if not m:
+                    break
+                grid_html = m.group(1) or ""
+                href = (m.group(2) or "").strip()
+                a_html = m.group(3) or ""
+                cells = re.findall(r'<div[^>]*class="[^"]*h-6[^"]*"[^>]*>(.*?)</div>', grid_html, flags=re.I | re.S)
+                if len(cells) < 6:
+                    pos += m.end()
                     continue
-                rank_text = _strip_tags(tds[0])
+                cells = [_strip_tags(x) for x in cells[:6]]
+                rank_text = (cells[0] or "").strip()
                 if not rank_text.isdigit():
+                    pos += m.end()
                     continue
                 rank = int(rank_text)
-                diff_raw, diff_value = _parse_diff(_strip_tags(tds[1]))
-                tier = _strip_tags(tds[2])
-                avg_text = _strip_tags(tds[3])
-                top_text = _strip_tags(tds[4])
-                runs_text = _strip_tags(tds[5])
+                diff_raw, diff_value = _parse_diff((cells[1] or "").strip())
+                tier = (cells[2] or "").strip()
+                avg_text = (cells[3] or "").strip()
+                top_text = (cells[4] or "").strip()
+                runs_text = (cells[5] or "").strip()
                 spec_name = ""
-                spec_url = ""
-                m = re.search(r'<a[^>]+href="([^"]*/spec/[^"]+)"[^>]*>(.*?)</a>', tr, flags=re.I | re.S)
-                if m:
-                    href = (m.group(1) or "").strip()
-                    spec_name = _strip_tags(m.group(2))
-                    if href.startswith("/"):
-                        spec_url = "https://mythicstats.com" + href
-                    else:
-                        spec_url = href
+                mname = re.search(r"<span[^>]*>(.*?)</span>", a_html, flags=re.I | re.S)
+                if mname:
+                    spec_name = _strip_tags(mname.group(1))
+                if not spec_name:
+                    malt = re.search(r'alt="([^"]+)"', a_html, flags=re.I)
+                    if malt:
+                        spec_name = (malt.group(1) or "").strip()
+                if href.startswith("/"):
+                    spec_url = "https://mythicstats.com" + href
+                else:
+                    spec_url = href
                 spec_slug = _extract_slug_from_spec_url(spec_url)
                 out.append(
                     {
@@ -328,40 +346,83 @@ def _parse_rankings_from_html(html):
                         "spec_url": spec_url,
                     }
                 )
+                pos += m.end()
             return out
 
+        damage_section = _extract_section(r"\bdamage\s+specs\b", r"\btank\s+specs\b|\bhealer\s+specs\b")
+        tank_section = _extract_section(r"\btank\s+specs\b", r"\bhealer\s+specs\b")
+        healer_section = _extract_section(r"\bhealer\s+specs\b", None)
         return {
-            "damage": _parse_table(_extract_table(r"damage\s+specs")),
-            "tank": _parse_table(_extract_table(r"tank\s+specs")),
-            "healer": _parse_table(_extract_table(r"healer\s+specs")),
+            "damage": _parse_section(damage_section),
+            "tank": _parse_section(tank_section),
+            "healer": _parse_section(healer_section),
         }
 
     soup = BeautifulSoup(html, "html.parser")
-    tables = soup.find_all("table") or []
     by_role = {"damage": [], "tank": [], "healer": []}
 
-    for table in tables:
-        role = ""
-        cur = table
-        for _ in range(6):
-            cur = cur.find_previous(["h1", "h2", "h3", "h4", "p", "div", "span"])
-            if not cur:
+    def _parse_role_div(marker_pattern, stop_tag):
+        node = soup.find(string=re.compile(marker_pattern, flags=re.I))
+        if not node:
+            return []
+        marker = node.parent
+        end_prev = set(stop_tag.find_all_previous(True)) if stop_tag is not None else None
+        out = []
+        cur = marker
+        while True:
+            grid = cur.find_next("div", class_=lambda c: c and "grid-cols-6" in c and "gap-px" in c)
+            if not grid:
                 break
-            t = (cur.get_text(" ", strip=True) or "").lower()
-            if "damage specs" in t:
-                role = "damage"
+            if end_prev is not None and grid not in end_prev:
                 break
-            if "tank specs" in t:
-                role = "tank"
+            cells = grid.find_all("div", recursive=False) or []
+            texts = [c.get_text(" ", strip=True) for c in cells]
+            if len(texts) < 6 or not (texts[0] or "").strip().isdigit():
+                cur = grid
+                continue
+            a = grid.find_next("a", href=re.compile(r"/spec/"))
+            if not a:
                 break
-            if "healer specs" in t:
-                role = "healer"
+            if end_prev is not None and a not in end_prev:
                 break
-        if not role:
-            continue
-        rows = _parse_role_rows_from_table(table)
-        if rows:
-            by_role[role] = rows
+            rank = int((texts[0] or "").strip())
+            diff_raw, diff_value = _parse_diff((texts[1] or "").strip())
+            tier = (texts[2] or "").strip()
+            avg_text = (texts[3] or "").strip()
+            top_text = (texts[4] or "").strip()
+            runs_text = (texts[5] or "").strip()
+            spec_url = (a.get("href") or "").strip()
+            if spec_url.startswith("/"):
+                spec_url = "https://mythicstats.com" + spec_url
+            span = a.find("span")
+            img = a.find("img")
+            spec_name = (span.get_text(strip=True) if span else "") or ((img.get("alt") or "").strip() if img else "") or (a.get_text(" ", strip=True) or "").strip()
+            spec_slug = _extract_slug_from_spec_url(spec_url)
+            out.append(
+                {
+                    "rank": rank,
+                    "diff_raw": diff_raw,
+                    "diff_value": diff_value,
+                    "tier": tier,
+                    "avg_text": avg_text,
+                    "avg_value": _parse_suffix_number(avg_text),
+                    "top_text": top_text,
+                    "top_value": _parse_suffix_number(top_text),
+                    "runs_text": runs_text,
+                    "runs_value": _parse_suffix_number(runs_text),
+                    "spec_name": spec_name,
+                    "spec_slug": spec_slug,
+                    "spec_url": spec_url,
+                }
+            )
+            cur = a
+        return out
+
+    tank_marker = soup.find(string=re.compile(r"\btank\s+specs\b", flags=re.I))
+    heal_marker = soup.find(string=re.compile(r"\bhealer\s+specs\b", flags=re.I))
+    by_role["damage"] = _parse_role_div(r"\bdamage\s+specs\b", tank_marker.parent if tank_marker else (heal_marker.parent if heal_marker else None))
+    by_role["tank"] = _parse_role_div(r"\btank\s+specs\b", heal_marker.parent if heal_marker else None)
+    by_role["healer"] = _parse_role_div(r"\bhealer\s+specs\b", None)
 
     return by_role
 
@@ -404,6 +465,28 @@ def fetch_mythicstats_dps(*, req=None, season="season-mn-1", dungeon_id=0, perio
         season = "unknown"
 
     rankings = _parse_rankings_from_html(html)
+    empty_rankings = True
+    if isinstance(rankings, dict):
+        for k in ("damage", "tank", "healer"):
+            if rankings.get(k):
+                empty_rankings = False
+                break
+    if empty_rankings and req and getattr(req, "is_chrome", False):
+        try:
+            driver = req.get(url, "RespByChrome", 0, "", is_origin=1)
+            if driver:
+                try:
+                    driver.wait.doc_loaded()
+                except Exception:
+                    pass
+                html2 = getattr(driver, "html", "") or ""
+                if html2 and len(html2) > len(html):
+                    rankings2 = _parse_rankings_from_html(html2)
+                    if isinstance(rankings2, dict) and any((rankings2.get(k) for k in ("damage", "tank", "healer"))):
+                        html = html2
+                        rankings = rankings2
+        except Exception:
+            pass
 
     return {
         "season": season,
