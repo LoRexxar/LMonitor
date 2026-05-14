@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="https://wow.lorexxar.cn/favicon.ico">
-    <title>登录 - LMonitor</title>
+    <title>登录</title>
     {% load static %}
     <meta name="csrf-token" content="{{ csrf_token }}">
     <!-- Tailwind CSS -->
@@ -46,7 +46,7 @@
             <div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mb-4">
                 <i class="fas fa-chart-line text-white text-2xl"></i>
             </div>
-            <h1 class="text-3xl font-bold text-gray-800 mb-2">LMonitor</h1>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">后台</h1>
             <p class="text-gray-600">登录到您的账户</p>
         </div>
         
@@ -179,6 +179,7 @@
             try {
                 const response = await fetch('/auth/login/', {
                     method: 'POST',
+                    credentials: 'same-origin',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRFToken': getCSRFToken()
