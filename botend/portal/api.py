@@ -3,7 +3,7 @@ from django.views import View
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport
+from botend.models import PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport, WowWagoMonitorState
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
     fetch_mythicstats_dps,
@@ -141,6 +141,35 @@ def _skilldiff_to_dict(r):
     }
 
 
+def _state_to_dict(s):
+    status = (getattr(s, 'last_event_status', '') or '').strip()
+    status_map = {
+        'init_has_class_change': '初始化：有职业更新',
+        'init_no_class_change': '初始化：无职业更新',
+        'build_changed_has_class_change': '更新：有职业更新',
+        'build_changed_no_class_change': '更新：无职业更新',
+        'failed': '失败',
+    }
+    run_status = (getattr(s, 'last_run_status', '') or '').strip()
+    run_map = {
+        'success': '正常',
+        'failed': '异常',
+    }
+    return {
+        'branch': (getattr(s, 'branch', '') or '').strip(),
+        'locale': (getattr(s, 'locale', '') or '').strip(),
+        'is_active': bool(getattr(s, 'is_active', False)),
+        'build': (getattr(s, 'build', '') or '').strip(),
+        'last_run_at': _fmt_dt(getattr(s, 'last_run_at', None)),
+        'last_run_status': run_map.get(run_status, run_status),
+        'last_event_at': _fmt_dt(getattr(s, 'last_event_at', None)),
+        'last_event_status': status_map.get(status, status),
+        'report_url': (getattr(s, 'report_url', '') or '').strip(),
+        'wago_diff_url': (getattr(s, 'wago_diff_url', '') or '').strip(),
+        'ext': (getattr(s, 'ext', '') or '').strip(),
+    }
+
+
 class PortalWowSkillDiffListAPIView(View):
     def get(self, request):
         limit = request.GET.get('limit', '20')
@@ -150,6 +179,12 @@ class PortalWowSkillDiffListAPIView(View):
             limit = 20
         rows = list(WowSkillDiffReport.objects.all().order_by('-created_at')[:limit])
         return JsonResponse({'status': 'success', 'data': [_skilldiff_to_dict(x) for x in rows]})
+
+
+class PortalWowSkillDiffStatesAPIView(View):
+    def get(self, request):
+        rows = list(WowWagoMonitorState.objects.filter(is_active=True).order_by('branch', 'locale', 'id'))
+        return JsonResponse({'status': 'success', 'data': [_state_to_dict(x) for x in rows]})
 
 
 class PortalBluepostsAPIView(View):
