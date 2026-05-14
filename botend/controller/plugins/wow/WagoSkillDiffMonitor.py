@@ -15,6 +15,11 @@ from botend.controller.BaseScan import BaseScan
 from botend.models import WowSkillDiffReport, WowSpellEffectSnapshot, WowSpellSnapshot, WowSpellSnapshotState, WowSpecSpellMapSnapshot, WowWagoMonitorState
 from utils.log import logger
 
+try:
+    from core.glm import GLMClient
+except Exception:
+    GLMClient = None
+
 
 class WagoSkillDiffMonitor(BaseScan):
     def __init__(self, req, task):
@@ -222,6 +227,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 'to_build': to_build,
                 'spell_count': int((report or {}).get('spell_count') or 0),
                 'class_count': int((report or {}).get('class_count') or 0),
+                'summary_title': (report or {}).get('summary_title') or '',
             }, ensure_ascii=False)
             st.save(update_fields=['build', 'last_event_at', 'last_event_status', 'report_url', 'wago_diff_url', 'ext'])
             return True
@@ -260,9 +266,85 @@ class WagoSkillDiffMonitor(BaseScan):
             'to_build': to_build,
             'spell_count': int(report.get('spell_count') or 0),
             'class_count': int(report.get('class_count') or 0),
+            'summary_title': report.get('summary_title') or '',
         }, ensure_ascii=False)
         st.save(update_fields=['build', 'last_event_at', 'last_event_status', 'report_url', 'wago_diff_url', 'ext'])
         return True
+
+    def _heuristic_summary_title(self, class_spell_counts, spell_count, changed_tables):
+        cn = {
+            1: '战士',
+            2: '圣骑士',
+            3: '猎人',
+            4: '潜行者',
+            5: '牧师',
+            6: '死亡骑士',
+            7: '萨满',
+            8: '法师',
+            9: '术士',
+            10: '武僧',
+            11: '德鲁伊',
+            12: '恶魔猎手',
+            13: '唤魔师',
+        }
+
+        class_part = ''
+        class_count = len(class_spell_counts or {})
+        if class_count:
+            top = sorted(class_spell_counts.items(), key=lambda x: (-int(x[1] or 0), int(x[0] or 0)))
+            names = []
+            for cid, _ in top[:2]:
+                try:
+                    cid = int(cid)
+                except Exception:
+                    continue
+                names.append(cn.get(cid, str(cid)))
+            if class_count == 1:
+                class_part = f"{names[0]}" if names else "职业"
+            elif class_count == 2:
+                class_part = "、".join(names) if names else "职业"
+            else:
+                class_part = f"{'、'.join(names)}等{class_count}职业" if names else f"{class_count}职业"
+
+        kind = []
+        tables = set([str(x or '').strip() for x in (changed_tables or []) if str(x or '').strip()])
+        if tables.intersection({'TraitNode', 'TraitTree', 'TraitDefinition', 'TraitNodeEntry'}):
+            kind.append('天赋调整')
+        if tables.intersection({'SpellEffect', 'SpellPower', 'SpellMisc', 'SpellAuraOptions', 'SpellCooldowns', 'SpellCastingTimes', 'SpellRange', 'SpellDuration'}):
+            kind.append('数值调整')
+        if tables.intersection({'Spell', 'SpellDescription'}):
+            kind.append('描述调整')
+        if tables.intersection({'SpellName'}):
+            kind.append('技能更名')
+        kind_part = "、".join(kind[:2])
+        prefix = class_part or "职业技能"
+        if kind_part:
+            return f"{prefix}{kind_part}（{spell_count}项）"
+        return f"{prefix}更新（{spell_count}项）"
+
+    def _glm_summary_title(self, class_spell_counts, spell_count, changed_tables):
+        if not GLMClient:
+            return ''
+        glm = GLMClient()
+        if not getattr(glm, 'client', None):
+            return ''
+        top = sorted((class_spell_counts or {}).items(), key=lambda x: (-int(x[1] or 0), int(x[0] or 0)))[:5]
+        payload = {
+            'class_spell_counts_top5': top,
+            'class_count': len(class_spell_counts or {}),
+            'spell_count': int(spell_count or 0),
+            'changed_tables': sorted([str(x or '').strip() for x in (changed_tables or []) if str(x or '').strip()])[:20],
+        }
+        msg = "基于以下JSON生成一个中文标题（15-24字），概括本次职业技能更新，突出主要职业与改动类型，不要包含版本号，不要换行：\n" + json.dumps(payload, ensure_ascii=False)
+        out = glm.send_message(msg, max_tokens=120)
+        if not out:
+            return ''
+        out = out.strip().splitlines()[0].strip()
+        out = re.sub(r'^[#\s:：\-]+', '', out)
+        out = re.sub(r'[\s]+', ' ', out).strip()
+        if len(out) > 40:
+            out = out[:40].strip()
+        return out
 
     def _fetch_current_build(self, branch):
         resp = self._http_get_text('https://wago.tools/')
@@ -548,7 +630,21 @@ class WagoSkillDiffMonitor(BaseScan):
         )
 
         server_title = self._branch_title(branch)
-        content_md = f"# {server_title} 职业技能变更报告：{from_build} → {to_build}\n\n- 技能数：{len(spell_changes)}\n"
+        class_spell_counts = {}
+        for sid in spell_changes.keys():
+            specs = spell_to_specs.get(sid) or []
+            cids = set()
+            for spid in specs:
+                cid = spec_to_class.get(spid)
+                if cid:
+                    cids.add(cid)
+            for cid in cids:
+                class_spell_counts[cid] = int(class_spell_counts.get(cid) or 0) + 1
+
+        summary_title = ''
+        if len(spell_changes) > 0:
+            summary_title = self._glm_summary_title(class_spell_counts, len(spell_changes), changed_tables) or self._heuristic_summary_title(class_spell_counts, len(spell_changes), changed_tables)
+        content_md = f"# {summary_title or (server_title + ' 职业技能变更报告')}\n\n- 版本：{from_build} → {to_build}\n- 技能数：{len(spell_changes)}\n"
         html_meta = self._write_html_report(
             branch=branch,
             server_title=server_title,
@@ -566,6 +662,7 @@ class WagoSkillDiffMonitor(BaseScan):
         content_html_path = (html_meta or {}).get('path') or ''
         class_count = int((html_meta or {}).get('class_count') or 0)
         return {
+            'summary_title': summary_title or '',
             'content_md': content_md,
             'content_html_path': content_html_path or '',
             'display_from_build': display_from_build or '',

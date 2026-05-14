@@ -1,5 +1,9 @@
+import json
+import re
+
 from django.http import JsonResponse
 from django.views import View
+from django.core.cache import cache
 from django.utils import timezone
 from datetime import timedelta
 
@@ -128,7 +132,28 @@ def _skilldiff_to_dict(r):
     branch = (getattr(r, 'branch', '') or '').strip()
     to_build = (getattr(r, 'to_build', '') or '').strip()
     from_build = (getattr(r, 'from_build', '') or '').strip()
-    label = f"{branch} {from_build} → {to_build}".strip()
+    md = (getattr(r, 'content_md', '') or '').strip()
+    summary = ''
+    if md:
+        for line in md.splitlines():
+            line = (line or '').strip()
+            if not line:
+                continue
+            if line.startswith('#'):
+                summary = line.lstrip('#').strip()
+                break
+    if summary and ('职业技能变更报告' in summary):
+        summary = ''
+    if not summary:
+        cc = int(getattr(r, 'class_count', 0) or 0)
+        sc = int(getattr(r, 'spell_count', 0) or 0)
+        if cc and sc:
+            summary = f"职业技能更新（{cc}职业{sc}项）"
+        elif sc:
+            summary = f"职业技能更新（{sc}项）"
+        else:
+            summary = "职业技能更新"
+    label = f"{summary}（{branch} {from_build} → {to_build}）".strip()
     return {
         'id': r.id,
         'title': label,
@@ -155,6 +180,32 @@ def _state_to_dict(s):
         'success': '正常',
         'failed': '异常',
     }
+    summary_title = ''
+    ext_raw = (getattr(s, 'ext', '') or '').strip()
+    if ext_raw:
+        try:
+            ext = json.loads(ext_raw)
+        except Exception:
+            ext = {}
+        if isinstance(ext, dict):
+            summary_title = (ext.get('summary_title') or '').strip()
+    if not summary_title:
+        report_url = (getattr(s, 'report_url', '') or '').strip()
+        m = re.search(r'/portal/wow-skill-diff/(\d+)/', report_url)
+        if m:
+            rid = int(m.group(1))
+            r = WowSkillDiffReport.objects.filter(id=rid).first()
+            if r:
+                md = (getattr(r, 'content_md', '') or '').strip()
+                for line in md.splitlines():
+                    line = (line or '').strip()
+                    if not line:
+                        continue
+                    if line.startswith('#'):
+                        summary_title = line.lstrip('#').strip()
+                        break
+        if summary_title and ('职业技能变更报告' in summary_title):
+            summary_title = ''
     return {
         'branch': (getattr(s, 'branch', '') or '').strip(),
         'locale': (getattr(s, 'locale', '') or '').strip(),
@@ -166,6 +217,7 @@ def _state_to_dict(s):
         'last_event_status': status_map.get(status, status),
         'report_url': (getattr(s, 'report_url', '') or '').strip(),
         'wago_diff_url': (getattr(s, 'wago_diff_url', '') or '').strip(),
+        'summary_title': summary_title,
         'ext': (getattr(s, 'ext', '') or '').strip(),
     }
 
@@ -413,14 +465,9 @@ class PortalMythicstatsDpsAPIView(View):
         active_period = period_id or (periods[0]["id"] if periods else None)
 
         dungeons = []
-        cached = PortalCache.objects.filter(key=f"mythicstats_dps_meta:{season}").first()
-        if cached and (cached.data or "").strip():
-            try:
-                import json
-                meta = json.loads(cached.data) or {}
-                dungeons = meta.get("dungeons") or []
-            except Exception:
-                dungeons = []
+        meta = cache.get(f"mythicstats_dps_meta:{season}")
+        if isinstance(meta, dict):
+            dungeons = meta.get("dungeons") or []
 
         if not dungeons:
             dungeon_rows = list(

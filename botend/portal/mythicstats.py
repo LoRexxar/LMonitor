@@ -2,6 +2,7 @@ import re
 from urllib.parse import urlencode
 
 import requests
+from django.core.cache import cache
 from django.utils import timezone
 
 from botend.models import PortalMythicstatsDpsRow
@@ -560,4 +561,11 @@ def upsert_mythicstats_dps_rows(
 
 
 def upsert_mythicstats_meta_cache(*, season, dungeons, periods):
-    return
+    season = _parse_season(season) or "unknown"
+    payload = {
+        "season": season,
+        "dungeons": dungeons or [],
+        "periods": periods or [],
+        "updated_at": timezone.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    cache.set(f"mythicstats_dps_meta:{season}", payload, timeout=86400)
