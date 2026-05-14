@@ -271,7 +271,7 @@ class WagoSkillDiffMonitor(BaseScan):
         st.save(update_fields=['build', 'last_event_at', 'last_event_status', 'report_url', 'wago_diff_url', 'ext'])
         return True
 
-    def _heuristic_summary_title(self, class_spell_counts, spell_count, changed_tables):
+    def _heuristic_summary_title(self, class_spell_counts, spell_count, changed_tables, samples=None):
         cn = {
             1: '战士',
             2: '圣骑士',
@@ -316,13 +316,34 @@ class WagoSkillDiffMonitor(BaseScan):
             kind.append('描述调整')
         if tables.intersection({'SpellName'}):
             kind.append('技能更名')
+        sample_tags = []
+        for line in list(samples or [])[:12]:
+            s = str(line or '')
+            if '更名' in s:
+                sample_tags.append('更名')
+            if any(k in s for k in ('冷却', 'cooldown', 'recharge')):
+                sample_tags.append('冷却')
+            if any(k in s for k in ('伤害', 'damage', 'base', '基础值', '系数')):
+                sample_tags.append('伤害')
+            if any(k in s for k in ('治疗', 'heal', 'healing')):
+                sample_tags.append('治疗')
+            if any(k in s for k in ('消耗', 'mana', 'energy', 'rage', 'insanity', 'focus', 'runic')):
+                sample_tags.append('资源')
+        sample_tags = [x for x in sample_tags if x]
+        if sample_tags:
+            freq = {}
+            for x in sample_tags:
+                freq[x] = int(freq.get(x) or 0) + 1
+            top_tags = [k for k, _ in sorted(freq.items(), key=lambda x: (-x[1], x[0]))][:2]
+            if top_tags:
+                kind.insert(0, '、'.join(top_tags) + '调整')
         kind_part = "、".join(kind[:2])
         prefix = class_part or "职业技能"
         if kind_part:
             return f"{prefix}{kind_part}（{spell_count}项）"
         return f"{prefix}更新（{spell_count}项）"
 
-    def _glm_summary_title(self, class_spell_counts, spell_count, changed_tables):
+    def _glm_summary_title(self, class_spell_counts, spell_count, changed_tables, samples=None):
         if not GLMClient:
             return ''
         glm = GLMClient()
@@ -334,8 +355,9 @@ class WagoSkillDiffMonitor(BaseScan):
             'class_count': len(class_spell_counts or {}),
             'spell_count': int(spell_count or 0),
             'changed_tables': sorted([str(x or '').strip() for x in (changed_tables or []) if str(x or '').strip()])[:20],
+            'samples': list(samples or [])[:12],
         }
-        msg = "基于以下JSON生成一个中文标题（15-24字），概括本次职业技能更新，突出主要职业与改动类型，不要包含版本号，不要换行：\n" + json.dumps(payload, ensure_ascii=False)
+        msg = "基于以下JSON生成一个中文摘要标题（16-28字），要像新闻标题一样概括“改了什么”，优先利用 samples 里的代表性改动点，不要包含版本号，不要换行：\n" + json.dumps(payload, ensure_ascii=False)
         out = glm.send_message(msg, max_tokens=120)
         if not out:
             return ''
@@ -344,6 +366,108 @@ class WagoSkillDiffMonitor(BaseScan):
         out = re.sub(r'[\s]+', ' ', out).strip()
         if len(out) > 40:
             out = out[:40].strip()
+        return out
+
+    def _extract_summary_samples(self, spell_changes, snap_spells, max_samples=10):
+        def to_float(x):
+            try:
+                s = str(x).strip()
+                if not s:
+                    return None
+                s = s.replace('%', '')
+                return float(s)
+            except Exception:
+                return None
+
+        def kw_hint(text):
+            t = (text or '').lower()
+            hints = []
+            if any(k in t for k in ('cooldown', 'recharge')):
+                hints.append('冷却')
+            if 'damage' in t:
+                hints.append('伤害')
+            if any(k in t for k in ('healing', 'heal')):
+                hints.append('治疗')
+            if any(k in t for k in ('mana', 'energy', 'rage', 'insanity', 'focus', 'runic')):
+                hints.append('资源')
+            if 'range' in t:
+                hints.append('射程')
+            if 'radius' in t:
+                hints.append('半径')
+            return '、'.join(hints[:2])
+
+        field_map = {
+            'EffectBasePointsF': '基础值',
+            'EffectBasePoints': '基础值',
+            'EffectBonusCoefficient': '系数',
+            'BonusCoefficientFromAP': '系数(AP)',
+            'Coefficient': '系数',
+            'PvpMultiplier': 'PvP系数',
+            'PowerCostPct': '消耗比例',
+            'ManaCost': '法力消耗',
+            'ManaPerSecond': '每秒法力',
+            'PowerPctPerSecond': '每秒消耗比例',
+            'Description_lang': '描述',
+            'AuraDescription_lang': '光环描述',
+            'Name_lang': '名称',
+        }
+
+        candidates = []
+        for spell_id, entry in (spell_changes or {}).items():
+            diffs_by_table = (entry or {}).get('diffs') or {}
+            name = ((snap_spells or {}).get(spell_id) or {}).get('name') or str(spell_id)
+            best_score = -1
+            best_line = ''
+            for tkey, items in diffs_by_table.items():
+                for it in items or []:
+                    fields = it.get('fields') or []
+                    meta = it.get('meta') or {}
+                    for f in fields:
+                        field = f.get('field') or ''
+                        bv = f.get('before')
+                        av = f.get('after')
+                        score = 0
+                        label = field_map.get(field, field)
+                        if tkey in ('spelldescription', 'spell'):
+                            score = 900
+                            hint = kw_hint((bv or '') + ' ' + (av or ''))
+                            desc = f"{hint}调整" if hint else "描述调整"
+                            line = f"{name}：{desc}"
+                        elif tkey == 'spellname':
+                            score = 800
+                            b = (bv or '').strip()
+                            a = (av or '').strip()
+                            b = b[:24] + ('…' if len(b) > 24 else '')
+                            a = a[:24] + ('…' if len(a) > 24 else '')
+                            line = f"{name}：更名 {b}→{a}" if b and a else f"{name}：更名"
+                        else:
+                            fb = to_float(bv)
+                            fa = to_float(av)
+                            if fb is None or fa is None:
+                                continue
+                            delta = abs(fa - fb)
+                            score = 200 + min(2000, int(delta * 10))
+                            eff_idx = meta.get('EffectIndex')
+                            if eff_idx is not None and eff_idx != '':
+                                line = f"{name}：效果{eff_idx} {label} {str(bv)[:10]}→{str(av)[:10]}"
+                            else:
+                                line = f"{name}：{label} {str(bv)[:10]}→{str(av)[:10]}"
+                        if score > best_score and line:
+                            best_score = score
+                            best_line = line
+            if best_line:
+                candidates.append((best_score, best_line))
+        candidates.sort(key=lambda x: -x[0])
+        out = []
+        seen = set()
+        for _, line in candidates:
+            k = line.split('：', 1)[0].strip()
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(line)
+            if len(out) >= int(max_samples or 10):
+                break
         return out
 
     def _fetch_current_build(self, branch):
@@ -643,7 +767,8 @@ class WagoSkillDiffMonitor(BaseScan):
 
         summary_title = ''
         if len(spell_changes) > 0:
-            summary_title = self._glm_summary_title(class_spell_counts, len(spell_changes), changed_tables) or self._heuristic_summary_title(class_spell_counts, len(spell_changes), changed_tables)
+            samples = self._extract_summary_samples(spell_changes, snap_spells, max_samples=10)
+            summary_title = self._glm_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples) or self._heuristic_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples)
         content_md = f"# {summary_title or (server_title + ' 职业技能变更报告')}\n\n- 版本：{from_build} → {to_build}\n- 技能数：{len(spell_changes)}\n"
         html_meta = self._write_html_report(
             branch=branch,
