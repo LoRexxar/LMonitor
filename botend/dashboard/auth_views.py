@@ -13,7 +13,7 @@ from django.contrib.auth.models import User
 from django.views import View
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
 from django.core.validators import validate_email
@@ -22,6 +22,7 @@ from django.conf import settings
 import json
 
 
+@method_decorator(ensure_csrf_cookie, name='dispatch')
 class LoginView(View):
     """
     用户登录视图
@@ -38,7 +39,6 @@ class LoginView(View):
         }
         return render(request, 'dashboard/login.html', context)
     
-    @method_decorator(csrf_exempt)
     def post(self, request):
         """处理登录请求"""
         try:
@@ -78,6 +78,7 @@ class LoginView(View):
             })
 
 
+@method_decorator(ensure_csrf_cookie, name='dispatch')
 class RegisterView(View):
     """
     用户注册视图
@@ -96,7 +97,6 @@ class RegisterView(View):
         
         return render(request, 'dashboard/register.html')
     
-    @method_decorator(csrf_exempt)
     def post(self, request):
         """处理注册请求"""
         # 检查是否允许注册
@@ -201,6 +201,7 @@ class LogoutView(View):
         })
 
 
+@method_decorator(ensure_csrf_cookie, name='dispatch')
 class ChangePasswordView(View):
     """
     修改密码视图
@@ -211,7 +212,7 @@ class ChangePasswordView(View):
         """显示修改密码页面"""
         return render(request, 'dashboard/change_password.html')
     
-    @method_decorator([csrf_exempt, login_required])
+    @method_decorator(login_required)
     def post(self, request):
         """处理修改密码请求"""
         try:
