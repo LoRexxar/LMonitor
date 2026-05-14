@@ -149,44 +149,70 @@ class PortalPostMonitor(BaseScan):
             resp = self.req.get(src, 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0'})
             if not resp or resp.status_code != 200:
                 return
-            html_text = resp.text or ""
+            html_text = (getattr(resp, 'content', b'') or b'').decode('utf-8', 'ignore')
+            base = "https://wow.blizzard.cn"
+            urls = []
             seen = set()
-            enriched = []
-            for m in re.finditer(r'href=\"(https?://wow\\.blizzard\\.cn/news/[^\"]+)\"', html_text):
-                url = (m.group(1) or "").strip()
-                if not url or url in seen:
+            for m in re.finditer(r'https?://wow\.blizzard\.cn/news/\d{8}/(?:[^\s"\\\']+\.html|index\.html)?', html_text, flags=re.I):
+                href = (m.group(0) or '').strip()
+                if not href or href.endswith('/news/'):
                     continue
-                seen.add(url)
-                block = html_text[m.start():m.start() + 2400]
-                t = re.search(r'class=\"list-title\"[^>]*>(.*?)</div>', block, flags=re.S)
-                d = re.search(r'class=\"list-time\"[^>]*data-time=\"([0-9\\-]+)\"', block, flags=re.S)
-                title = (t.group(1) if t else "").strip()
-                day = (d.group(1) if d else "").strip()
-                title = re.sub(r'\\s+', ' ', title).strip()
-                title = re.sub(r'<[^>]+>', '', title).strip()
+                u = urljoin(base, href)
+                if u in seen:
+                    continue
+                seen.add(u)
+                urls.append(u)
+                if len(urls) >= 40:
+                    break
+
+            added = 0
+            for u in urls:
+                r2 = self.req.get(u, 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0', 'Referer': src})
+                if not r2 or r2.status_code != 200:
+                    continue
+                detail_html = (getattr(r2, 'content', b'') or b'').decode('utf-8', 'ignore')
+
+                title = ''
+                mh1 = re.search(r'<h1[^>]*>(.*?)</h1>', detail_html, flags=re.I | re.S)
+                if mh1:
+                    title = re.sub(r'<[^>]+>', '', mh1.group(1) or '')
+                    title = html.unescape(title).strip()
                 if not title:
-                    continue
+                    mt = re.search(r'<title>(.*?)</title>', detail_html, flags=re.I | re.S)
+                    if mt:
+                        title = re.sub(r'<[^>]+>', '', mt.group(1) or '')
+                        title = html.unescape(title).strip()
+                        title = re.sub(r'\\s*-\\s*《魔兽世界》官方网站.*$', '', title).strip()
+
                 dt = None
-                if day:
+                mdate = re.search(r'(\\d{4})/(\\d{1,2})/(\\d{1,2})', detail_html)
+                if mdate:
                     try:
-                        dt_raw = datetime.datetime.strptime(day, "%Y-%m-%d")
+                        dt_raw = datetime.datetime(int(mdate.group(1)), int(mdate.group(2)), int(mdate.group(3)))
                         dt = timezone.make_aware(dt_raw, timezone.get_current_timezone())
                     except Exception:
                         dt = None
-                enriched.append((dt or timezone.now(), {'title': title, 'url': url}))
-                if len(enriched) >= 60:
-                    break
-            enriched.sort(key=lambda x: x[0], reverse=True)
-            for dt, it in enriched[:20]:
+                if not dt:
+                    mdate = re.search(r'(\\d{4})-(\\d{1,2})-(\\d{1,2})', detail_html)
+                    if mdate:
+                        try:
+                            dt_raw = datetime.datetime(int(mdate.group(1)), int(mdate.group(2)), int(mdate.group(3)))
+                            dt = timezone.make_aware(dt_raw, timezone.get_current_timezone())
+                        except Exception:
+                            dt = None
+
                 self._upsert_article(
-                    title=it['title'],
-                    url=it['url'],
+                    title=title or u,
+                    url=u,
                     source='blizzard_cn',
                     category='news',
                     author=None,
                     description=None,
-                    publish_time=dt,
+                    publish_time=dt or timezone.now(),
                 )
+                added += 1
+                if added >= 20:
+                    break
         except Exception as e:
             logger.error(f"[PortalPostMonitor] blizzard_cn_news error: {str(e)}")
 
