@@ -208,6 +208,12 @@ def _state_to_dict(s):
                         break
         if summary_title and ('职业技能变更报告' in summary_title):
             summary_title = ''
+    report_url = (getattr(s, 'report_url', '') or '').strip()
+    if report_url in ('-', '#'):
+        report_url = ''
+    wago_url = (getattr(s, 'wago_diff_url', '') or '').strip()
+    if wago_url in ('-', '#'):
+        wago_url = ''
     return {
         'branch': (getattr(s, 'branch', '') or '').strip(),
         'locale': (getattr(s, 'locale', '') or '').strip(),
@@ -217,8 +223,8 @@ def _state_to_dict(s):
         'last_run_status': run_map.get(run_status, run_status),
         'last_event_at': _fmt_dt(getattr(s, 'last_event_at', None)),
         'last_event_status': status_map.get(status, status),
-        'report_url': (getattr(s, 'report_url', '') or '').strip(),
-        'wago_diff_url': (getattr(s, 'wago_diff_url', '') or '').strip(),
+        'report_url': report_url,
+        'wago_diff_url': wago_url,
         'summary_title': summary_title,
         'ext': (getattr(s, 'ext', '') or '').strip(),
     }

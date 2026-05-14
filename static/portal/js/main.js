@@ -40,6 +40,18 @@ function escapeHtml(s) {
     .replaceAll("'", "&#39;");
 }
 
+function sanitizeHref(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  if (s === "-" || s === "#" || s.toLowerCase() === "javascript:void(0);" || s.toLowerCase().startsWith("javascript:")) return "";
+  if (s.startsWith("/")) return s;
+  try {
+    const u = new URL(s);
+    if (u.protocol === "http:" || u.protocol === "https:") return s;
+  } catch (e) {}
+  return "";
+}
+
 function getFaviconSrc(it) {
   const p = String(it?.icon_path || "").trim();
   if (p) return p;
@@ -355,7 +367,7 @@ function renderMythicstatsControls(dungeons, periods) {
   else if (rawNote) note = `数据口径：${rawNote}`;
   const srcUrl = String(payload.source_url || "https://mythicstats.com/dps").trim();
   const noteHtml = note ? `<div class="text-xs text-slate-500 mt-2">` + escapeHtml(note) + `（<a class="text-indigo-700 hover:text-indigo-900" href="` + escapeHtml(srcUrl) + `" target="_blank" rel="noreferrer">MythicStats</a>）</div>` : "";
-  const tipHtml = `<div class="text-xs text-slate-500 mt-1">提示：以下榜单随美服每周三更新，每周初期日志数量较少参考价值不大，请关注日志数量。</div>`;
+  const tipHtml = `<div class="mt-2 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">提示：以下榜单随美服每周三更新，每周初期日志数量较少参考价值不大，请关注日志数量。</div>`;
   const seasons = Array.isArray(payload.seasons) ? payload.seasons : [];
   const seasonOptions =
     `<option value="">当前赛季</option>` +
@@ -758,7 +770,7 @@ function renderWowSkillDiffList(containerId, items) {
     .slice(0, 20)
     .map((it, idx) => {
       const title = escapeHtml(it.title || "");
-      const url = escapeHtml(it.url || "#");
+      const url = escapeHtml(sanitizeHref(it.url) || "#");
       const time = escapeHtml((it.time || "").replaceAll("\n", " ").trim());
       const divider = idx === 0 ? "" : "border-t border-slate-100";
       return `<div class="py-2 ${divider}">
@@ -793,8 +805,8 @@ function renderWowSkillDiffStates(containerId, items) {
       const eventStatus = escapeHtml(it.last_event_status || "");
       const rawEvent = String(it.last_event_status || "");
       const summaryTitle = escapeHtml(it.summary_title || "");
-      const reportUrl = String(it.report_url || "").trim();
-      const wagoUrl = String(it.wago_diff_url || "").trim();
+      const reportUrl = sanitizeHref(it.report_url);
+      const wagoUrl = sanitizeHref(it.wago_diff_url);
       const divider = idx === 0 ? "" : "border-t border-slate-200/70";
       const reportBtn = reportUrl
         ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(reportUrl)}">${svgIcon("icon-chart", "w-3.5 h-3.5")}<span>报告</span></a>`
