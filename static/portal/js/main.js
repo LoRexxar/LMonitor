@@ -555,19 +555,15 @@ function renderMythicstatsTable(role, items) {
     return `<div class="py-2">
       <div class="flex items-start gap-3">
         <div class="w-8 pt-0.5 text-xs font-semibold text-slate-500">${rank}</div>
-        <div class="w-[280px] min-w-[240px] flex items-center gap-2">
+        <div class="w-[500px] min-w-[500px] grid grid-cols-[1fr_44px_56px_76px_76px_52px] items-center gap-2">
           <a class="font-semibold truncate" style="color:${escapeHtml(color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
-          ${tierBadge}
-          <span class="text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</span>
+          <div class="text-right">${tierBadge}</div>
+          <div class="text-right text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</div>
+          <div class="text-right text-[11px] font-semibold text-slate-700">${avg}</div>
+          <div class="text-right text-[11px] font-semibold text-slate-500">${top}</div>
+          <div class="text-right text-[11px] text-slate-500">${runs}</div>
         </div>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-3">
-            <div class="flex-1 min-w-0">${bar}</div>
-            <div class="w-[110px] text-right text-[11px] font-semibold text-slate-700">Avg ${avg}</div>
-            <div class="w-[110px] text-right text-[11px] font-semibold text-slate-500">Top ${top}</div>
-            <div class="w-[90px] text-right text-[11px] text-slate-500 flex-shrink-0">Runs ${runs}</div>
-          </div>
-        </div>
+        <div class="flex-1 min-w-0">${bar}</div>
       </div>
     </div>`;
   });
