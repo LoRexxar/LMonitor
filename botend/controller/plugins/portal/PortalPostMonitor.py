@@ -29,6 +29,7 @@ class PortalPostMonitor(BaseScan):
     def scan(self, url):
         self.update_blueposts()
         self.update_exwind_latest()
+        self.update_blizzard_cn_news()
         self.update_nga_hot()
         return True
 
@@ -141,6 +142,53 @@ class PortalPostMonitor(BaseScan):
                 )
         except Exception as e:
             logger.error(f"[PortalPostMonitor] exwind error: {str(e)}")
+
+    def update_blizzard_cn_news(self):
+        src = "https://wow.blizzard.cn/news/"
+        try:
+            resp = self.req.get(src, 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0'})
+            if not resp or resp.status_code != 200:
+                return
+            html_text = resp.text or ""
+            seen = set()
+            enriched = []
+            for m in re.finditer(r'href=\"(https?://wow\\.blizzard\\.cn/news/[^\"]+)\"', html_text):
+                url = (m.group(1) or "").strip()
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                block = html_text[m.start():m.start() + 2400]
+                t = re.search(r'class=\"list-title\"[^>]*>(.*?)</div>', block, flags=re.S)
+                d = re.search(r'class=\"list-time\"[^>]*data-time=\"([0-9\\-]+)\"', block, flags=re.S)
+                title = (t.group(1) if t else "").strip()
+                day = (d.group(1) if d else "").strip()
+                title = re.sub(r'\\s+', ' ', title).strip()
+                title = re.sub(r'<[^>]+>', '', title).strip()
+                if not title:
+                    continue
+                dt = None
+                if day:
+                    try:
+                        dt_raw = datetime.datetime.strptime(day, "%Y-%m-%d")
+                        dt = timezone.make_aware(dt_raw, timezone.get_current_timezone())
+                    except Exception:
+                        dt = None
+                enriched.append((dt or timezone.now(), {'title': title, 'url': url}))
+                if len(enriched) >= 60:
+                    break
+            enriched.sort(key=lambda x: x[0], reverse=True)
+            for dt, it in enriched[:20]:
+                self._upsert_article(
+                    title=it['title'],
+                    url=it['url'],
+                    source='blizzard_cn',
+                    category='news',
+                    author=None,
+                    description=None,
+                    publish_time=dt,
+                )
+        except Exception as e:
+            logger.error(f"[PortalPostMonitor] blizzard_cn_news error: {str(e)}")
 
     def _get_exwind_publish_time(self, url):
         try:

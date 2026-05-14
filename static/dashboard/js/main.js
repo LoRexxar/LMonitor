@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 初始化新增记录功能
     initAddRecord();
+    initEditRecord();
     
     // 初始化侧边栏切换功能
     initSidebarToggle();
@@ -1163,6 +1164,8 @@ let currentTableColumns = [];
 let currentFieldTypes = {};
 let currentFieldLabels = {};
 let currentTableDisplayName = '';
+let currentTableRowMap = new Map();
+let currentEditRowId = null;
 let simcProfileSpecFilter = '';
 let simcProfileFightStyleFilter = '';
 let secondaryStatRuleMap = null;
@@ -1307,6 +1310,7 @@ function displayTableData(data, fields) {
     
     // 设置当前表的列信息
     currentTableColumns = fields || [];
+    currentTableRowMap = new Map();
     
     // 清空表格
     tableHeader.innerHTML = '';
@@ -1440,8 +1444,9 @@ function displayTableData(data, fields) {
         tr.className = index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50 hover:bg-gray-100';
         
         // 使用行的第一个字段值作为row-id，如果没有则使用index
-        const rowId = row[fields[0]] || index;
+        const rowId = (row && row.id !== undefined && row.id !== null) ? row.id : (row[fields[0]] || index);
         tr.setAttribute('data-row-id', rowId);
+        currentTableRowMap.set(String(rowId), row);
         
         // 所有表格都显示序号列，根据分页计算正确的序号
         const indexTd = document.createElement('td');
@@ -1453,7 +1458,8 @@ function displayTableData(data, fields) {
         displayFields.forEach((field, index) => {
             const td = document.createElement('td');
             const widthClass = getColumnWidth(field, index, displayFields.length);
-            td.className = `px-4 py-4 text-sm text-gray-900 ${widthClass}`;
+            const nowrap = isTimeField(field) ? ' whitespace-nowrap' : '';
+            td.className = `px-4 py-4 text-sm text-gray-900 ${widthClass}${nowrap}`;
             td.setAttribute('data-field', field);
             
             // 处理字段值
@@ -1647,8 +1653,7 @@ function bindTableActions() {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
             const rowId = this.getAttribute('data-row-id');
-            const row = this.closest('tr');
-            toggleRowEdit(row, rowId);
+            openEditRecordModal(rowId);
         });
     });
     
@@ -1714,15 +1719,7 @@ function bindTableActions() {
  * 切换行编辑模式
  */
 function toggleRowEdit(row, rowId) {
-    const isEditing = row.classList.contains('editing');
-    
-    if (isEditing) {
-        // 保存编辑
-        saveRowEdit(row, rowId);
-    } else {
-        // 进入编辑模式
-        enterEditMode(row, rowId);
-    }
+    openEditRecordModal(rowId);
 }
 
 /**
@@ -2509,14 +2506,49 @@ function formatDateTime(dateString) {
     }
     
     try {
-        const date = new Date(dateString);
-        if (isNaN(date.getTime())) {
-            return dateString; // 如果无法解析，返回原始字符串
+        const raw = String(dateString).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+        if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+            const parts = raw.split(/\s+/);
+            const day = parts[0] || '';
+            const time = parts[1] || '';
+            const hm = time.length >= 5 ? time.slice(0, 5) : time;
+            return day && hm ? `${day} ${hm}` : raw;
         }
-        
-        return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+        if (/^\d{2}:\d{2}(:\d{2})?$/.test(raw)) return raw;
+
+        let normalized = raw;
+        if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?$/.test(normalized)) {
+            normalized = normalized.replace(' ', 'T');
+        }
+        normalized = normalized.replace(/\s+/g, ' ').replace(/ /g, 'T');
+
+        const date = new Date(normalized);
+        if (isNaN(date.getTime())) {
+            return raw;
+        }
+
+        const dtf = new Intl.DateTimeFormat('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            hour12: false,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        const parts = dtf.formatToParts(date);
+        const pick = (t) => (parts.find(p => p.type === t)?.value || '');
+        const y = pick('year');
+        const m = pick('month');
+        const d = pick('day');
+        const hh = pick('hour');
+        const mm = pick('minute');
+        if (!y || !m || !d) return raw;
+        return `${y}-${m}-${d} ${hh}:${mm}`;
     } catch (e) {
-        return dateString;
+        return String(dateString);
     }
 }
 
@@ -2945,6 +2977,230 @@ function closeAddRecordModal() {
     addRecordForm.reset();
 }
 
+function initEditRecord() {
+    const modal = document.getElementById('edit-record-modal');
+    const closeModalBtn = document.getElementById('close-edit-modal-btn');
+    const cancelBtn = document.getElementById('cancel-edit-btn');
+    const editRecordForm = document.getElementById('edit-record-form');
+    
+    if (!modal || !editRecordForm) {
+        return;
+    }
+    
+    if (closeModalBtn) closeModalBtn.addEventListener('click', closeEditRecordModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeEditRecordModal);
+    
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            closeEditRecordModal();
+        }
+    });
+    
+    editRecordForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitEditRecord();
+    });
+    
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+            closeEditRecordModal();
+        }
+    });
+}
+
+function openEditRecordModal(rowId) {
+    const modal = document.getElementById('edit-record-modal');
+    const modalTitle = document.getElementById('edit-modal-title');
+    const formFields = document.getElementById('edit-form-fields');
+    const idInput = document.getElementById('edit-row-id');
+    
+    if (!modal || !modalTitle || !formFields || !idInput) {
+        return;
+    }
+    
+    const rowData = currentTableRowMap.get(String(rowId));
+    if (!rowData) {
+        showMessage('无法获取当前行数据，请刷新后重试', 'error');
+        return;
+    }
+    
+    currentEditRowId = String(rowId);
+    idInput.value = currentEditRowId;
+    modalTitle.textContent = `编辑${currentTableDisplayName || currentTableName}记录`;
+    
+    generateEditFormFields(formFields, rowData);
+    modal.classList.remove('hidden');
+}
+
+function closeEditRecordModal() {
+    const modal = document.getElementById('edit-record-modal');
+    const form = document.getElementById('edit-record-form');
+    const fields = document.getElementById('edit-form-fields');
+    const idInput = document.getElementById('edit-row-id');
+    
+    if (modal) modal.classList.add('hidden');
+    if (form) form.reset();
+    if (fields) fields.innerHTML = '';
+    if (idInput) idInput.value = '';
+    currentEditRowId = null;
+}
+
+function generateEditFormFields(container, rowData) {
+    container.innerHTML = '';
+    
+    if (!currentTableColumns || currentTableColumns.length === 0) {
+        container.innerHTML = '<div class="text-center py-8"><i class="fas fa-exclamation-triangle text-gray-400 text-3xl mb-3"></i><p class="text-gray-500">无法获取表字段信息</p></div>';
+        return;
+    }
+    
+    currentTableColumns.forEach(column => {
+        if (column.toLowerCase() === 'id' || column.toLowerCase().includes('time')) {
+            return;
+        }
+        
+        const fieldDiv = document.createElement('div');
+        fieldDiv.className = 'space-y-2';
+        
+        const label = document.createElement('label');
+        label.className = 'block text-sm font-semibold text-gray-700';
+        label.textContent = getFieldDisplayName(column);
+        label.setAttribute('for', `edit-field-${column}`);
+        
+        const inputType = getFieldInputType(column);
+        let inputElement;
+        
+        if (inputType === 'textarea') {
+            inputElement = document.createElement('textarea');
+            inputElement.rows = 4;
+            inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
+            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 resize-none';
+            inputElement.value = rowData && rowData[column] !== null && rowData[column] !== undefined ? String(rowData[column]) : '';
+        } else if (inputType === 'checkbox') {
+            inputElement = document.createElement('input');
+            inputElement.type = 'checkbox';
+            inputElement.className = 'w-5 h-5 text-emerald-600 border-gray-300 rounded focus:ring-2 focus:ring-emerald-500 transition-all duration-200';
+            const v = rowData ? rowData[column] : false;
+            inputElement.checked = v === true || v === 'true' || v === 1 || v === '1';
+        } else {
+            inputElement = document.createElement('input');
+            inputElement.type = inputType;
+            inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
+            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200';
+            
+            if (inputType === 'number') {
+                if (currentFieldTypes && currentFieldTypes[column]) {
+                    const fieldType = currentFieldTypes[column].type;
+                    if (fieldType === 'FloatField' || fieldType === 'DecimalField') {
+                        inputElement.step = 'any';
+                    }
+                }
+            }
+            
+            if (currentFieldTypes && currentFieldTypes[column] && currentFieldTypes[column].max_length) {
+                inputElement.maxLength = currentFieldTypes[column].max_length;
+            }
+            
+            const raw = rowData && rowData[column] !== null && rowData[column] !== undefined ? rowData[column] : '';
+            inputElement.value = inputType === 'number'
+                ? (raw === '' ? '' : String(raw))
+                : String(raw);
+        }
+        
+        inputElement.id = `edit-field-${column}`;
+        inputElement.name = column;
+        
+        if (isRequiredField(column)) {
+            inputElement.required = true;
+            label.innerHTML += ' <span class="text-red-500 ml-1">*</span>';
+        }
+        
+        fieldDiv.appendChild(label);
+        
+        if (inputType === 'checkbox') {
+            const checkboxWrapper = document.createElement('div');
+            checkboxWrapper.className = 'bg-gray-50 p-4 rounded-lg';
+            const checkboxDiv = document.createElement('div');
+            checkboxDiv.className = 'flex items-center';
+            checkboxDiv.appendChild(inputElement);
+            const checkboxLabel = document.createElement('label');
+            checkboxLabel.className = 'ml-3 text-sm font-medium text-gray-700 cursor-pointer';
+            checkboxLabel.textContent = '启用';
+            checkboxLabel.setAttribute('for', `edit-field-${column}`);
+            checkboxDiv.appendChild(checkboxLabel);
+            checkboxWrapper.appendChild(checkboxDiv);
+            fieldDiv.appendChild(checkboxWrapper);
+        } else {
+            fieldDiv.appendChild(inputElement);
+        }
+        
+        container.appendChild(fieldDiv);
+    });
+}
+
+function submitEditRecord() {
+    const rowId = currentEditRowId;
+    if (!rowId) {
+        showMessage('未选择要编辑的记录', 'warning');
+        return;
+    }
+    
+    const updateData = {};
+    currentTableColumns.forEach(column => {
+        if (column === 'id' || column.toLowerCase().includes('time')) {
+            return;
+        }
+        const element = document.getElementById(`edit-field-${column}`);
+        if (!element) {
+            return;
+        }
+        const inputType = getFieldInputType(column);
+        if (inputType === 'checkbox') {
+            updateData[column] = element.checked;
+        } else if (inputType === 'number') {
+            const value = element.value.trim();
+            updateData[column] = value !== '' ? parseFloat(value) : null;
+        } else {
+            updateData[column] = element.value;
+        }
+    });
+    
+    const csrfToken = getCSRFToken();
+    if (!csrfToken) {
+        showMessage('无法获取CSRF令牌，请刷新页面', 'error');
+        return;
+    }
+    
+    const requestData = {
+        action: 'update_table_row',
+        table_name: currentTableName,
+        row_id: rowId,
+        update_data: updateData
+    };
+    
+    fetch('/dashboard/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.status === 'success') {
+            showMessage('数据更新成功', 'success');
+            closeEditRecordModal();
+            fetchTableData(currentTableName, currentPage);
+        } else {
+            showMessage('更新失败: ' + (result.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('更新记录失败:', error);
+        showMessage('更新失败: ' + error.message, 'error');
+    });
+}
+
 /**
  * 生成表单字段
  */
@@ -3048,22 +3304,163 @@ function generateFormFields(container) {
  * 获取字段显示名称
  */
 function getFieldDisplayName(column) {
-    if (currentFieldLabels && currentFieldLabels[column]) {
-        return currentFieldLabels[column];
-    }
+    const rawLabel = (currentFieldLabels && currentFieldLabels[column]) ? String(currentFieldLabels[column]).trim() : '';
+    if (rawLabel && !isProbablyEnglishLabel(rawLabel)) return rawLabel;
     const fieldNames = {
-        'apl_keyword': 'APL关键字',
-        'cn_keyword': '中文关键字',
-        'description': '描述',
-        'is_active': '是否激活',
-        'name': '名称',
-        'url': 'URL',
-        'status': '状态',
-        'content': '内容',
-        'title': '标题'
+        apl_keyword: 'APL关键字',
+        cn_keyword: '中文关键字',
+        id: '编号',
+        name: '名称',
+        title: '标题',
+        url: '链接',
+        link: '链接',
+        target: '目标',
+        type: '类型',
+        tag: '标记',
+        status: '状态',
+        content: '内容',
+        description: '描述',
+        author: '作者',
+        source: '来源',
+        category: '分类',
+        publish_time: '发布时间',
+        created_at: '创建时间',
+        updated_at: '更新时间',
+        create_time: '创建时间',
+        update_time: '更新时间',
+        last_scan_time: '上次扫描时间',
+        wait_time: '间隔(秒)',
+        is_active: '是否启用',
+        is_login: '是否登录',
+        is_verify: '是否验证',
+        is_poc: '是否POC',
+        is_exp: '是否EXP',
+        rss_id: 'RSS编号',
+        content_html: '内容HTML',
+        fight_style: '战斗风格',
+        target_count: '目标数量',
     };
-    
-    return fieldNames[column] || column;
+    if (fieldNames[column]) return fieldNames[column];
+    return translateFieldNameToCn(column);
+}
+
+function isProbablyEnglishLabel(s) {
+    const v = String(s || '').trim();
+    if (!v) return false;
+    if (!/^[\x00-\x7F]+$/.test(v)) return false;
+    return /[A-Za-z]/.test(v);
+}
+
+function translateFieldNameToCn(fieldName) {
+    const raw = String(fieldName || '').trim();
+    if (!raw) return '';
+
+    const snake = raw
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/-+/g, '_')
+        .replace(/\s+/g, '_')
+        .toLowerCase();
+
+    const tokens = snake.split('_').filter(Boolean);
+    if (!tokens.length) return raw;
+
+    const dict = {
+        id: '编号',
+        name: '名称',
+        title: '标题',
+        url: '链接',
+        link: '链接',
+        target: '目标',
+        type: '类型',
+        tag: '标记',
+        flag: '标记',
+        status: '状态',
+        content: '内容',
+        desc: '描述',
+        description: '描述',
+        author: '作者',
+        source: '来源',
+        category: '分类',
+        task: '任务',
+        profile: '配置',
+        rule: '规则',
+        login: '登录',
+        password: '密码',
+        email: '邮箱',
+        token: 'Token',
+        secret: '密钥',
+        webhook: 'Webhook',
+        wechat: '微信',
+        wx: '微信',
+        article: '文章',
+        rss: 'RSS',
+        bili: '哔哩',
+        vuln: '漏洞',
+        poc: 'POC',
+        exp: 'EXP',
+        verify: '验证',
+        group: '群',
+        chat: '聊天',
+        msg: '消息',
+        simc: 'SimC',
+        publish: '发布',
+        published: '发布',
+        create: '创建',
+        created: '创建',
+        update: '更新',
+        updated: '更新',
+        time: '时间',
+        date: '日期',
+        start: '开始',
+        end: '结束',
+        last: '上次',
+        scan: '扫描',
+        wait: '间隔',
+        interval: '间隔',
+        count: '数量',
+        num: '数量',
+        number: '数量',
+        total: '总数',
+        week: '周',
+        season: '赛季',
+        period: '周期',
+        dungeon: '副本',
+        role: '职责',
+        spec: '专精',
+        avg: '平均',
+        top: '最高',
+        runs: '样本数',
+        diff: '差值',
+        rank: '排名',
+        score: '分数',
+        level: '等级',
+        key: '钥石',
+        min: '最小',
+        max: '最大',
+        crit: '暴击',
+        haste: '急速',
+        mastery: '精通',
+        versatility: '全能',
+        coefficient: '系数',
+        percent: '百分比',
+        ratio: '比例',
+        fight: '战斗',
+        style: '风格',
+        html: 'HTML',
+        text: '文本',
+        raw: '原始',
+        value: '数值',
+        is: '是否',
+        active: '启用',
+        enable: '启用',
+        enabled: '启用',
+        disable: '禁用',
+        disabled: '禁用',
+    };
+
+    const parts = tokens.map(t => dict[t] || t);
+    const label = parts.join('');
+    return label || raw;
 }
 
 /**

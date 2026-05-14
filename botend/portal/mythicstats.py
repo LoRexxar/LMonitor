@@ -91,6 +91,32 @@ def _parse_season_from_period_html(html):
     return "", ""
 
 
+def _parse_key_range_note(html):
+    text = re.sub(r"<[^>]+>", " ", html or "")
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return "", None, None
+    m = re.search(r"(Top\s+[^.]{0,120}?\bMythic\+\s*([0-9]{1,2})\s*[-–]\s*([0-9]{1,2})\s*keys\.?)", text, flags=re.I)
+    if m:
+        try:
+            return (m.group(1) or "").strip(), int(m.group(2)), int(m.group(3))
+        except Exception:
+            return (m.group(1) or "").strip(), None, None
+    m = re.search(r"(Top\s+[^.]{0,120}?\bMythic\+\s*([0-9]{1,2})\+\s*keys\.?)", text, flags=re.I)
+    if m:
+        try:
+            return (m.group(1) or "").strip(), int(m.group(2)), None
+        except Exception:
+            return (m.group(1) or "").strip(), None, None
+    m = re.search(r"(Top\s+[^.]{0,120}?\bMythic\+\s*([0-9]{1,2})\s*keys\.?)", text, flags=re.I)
+    if m:
+        try:
+            return (m.group(1) or "").strip(), int(m.group(2)), int(m.group(2))
+        except Exception:
+            return (m.group(1) or "").strip(), None, None
+    return "", None, None
+
+
 def fetch_period_season_slug(*, req=None, period_id=None):
     if not period_id:
         return "", ""
@@ -489,6 +515,7 @@ def fetch_mythicstats_dps(*, req=None, season="season-mn-1", dungeon_id=0, perio
         except Exception:
             pass
 
+    source_note, key_min, key_max = _parse_key_range_note(html)
     return {
         "season": season,
         "dungeon_id": int(dungeon_id or 0),
@@ -497,6 +524,9 @@ def fetch_mythicstats_dps(*, req=None, season="season-mn-1", dungeon_id=0, perio
         "period_label": period_label,
         "periods": periods,
         "rankings": rankings,
+        "source_note": source_note,
+        "key_min": key_min,
+        "key_max": key_max,
     }
 
 
@@ -569,3 +599,31 @@ def upsert_mythicstats_meta_cache(*, season, dungeons, periods):
         "updated_at": timezone.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     cache.set(f"mythicstats_dps_meta:{season}", payload, timeout=86400)
+
+
+def upsert_mythicstats_source_cache(*, season, dungeon_id, period_id, source_note, key_min, key_max):
+    season = _parse_season(season) or "unknown"
+    pid = int(period_id or 0)
+    did = int(dungeon_id or 0)
+    if not pid:
+        return
+    payload = {
+        "season": season,
+        "dungeon_id": did,
+        "period_id": pid,
+        "source_note": (source_note or "").strip(),
+        "key_min": key_min,
+        "key_max": key_max,
+        "updated_at": timezone.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    cache.set(f"mythicstats_dps_source:{season}:{did}:{pid}", payload, timeout=86400)
+
+
+def get_mythicstats_source_cache(*, season, dungeon_id, period_id):
+    season = _parse_season(season) or "unknown"
+    pid = int(period_id or 0)
+    did = int(dungeon_id or 0)
+    if not pid:
+        return {}
+    it = cache.get(f"mythicstats_dps_source:{season}:{did}:{pid}")
+    return it if isinstance(it, dict) else {}

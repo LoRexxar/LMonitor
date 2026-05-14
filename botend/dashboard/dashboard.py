@@ -22,6 +22,7 @@ import json
 import traceback
 import datetime
 import os
+import re
 from django.conf import settings
 
 from utils.log import logger
@@ -271,7 +272,11 @@ class DashboardView(View):
                 }
 
                 verbose_name = str(getattr(field, 'verbose_name', '') or '').strip()
-                if not verbose_name or verbose_name == field.name:
+                if (
+                    (not verbose_name)
+                    or (verbose_name == field.name)
+                    or (re.match(r'^[\x00-\x7F]+$', verbose_name) and field.name in COMMON_FIELD_LABELS)
+                ):
                     verbose_name = COMMON_FIELD_LABELS.get(field.name, field.name)
                 field_labels[field.name] = verbose_name
             

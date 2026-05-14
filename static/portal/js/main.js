@@ -346,6 +346,16 @@ function renderMythicstatsControls(dungeons, periods) {
   if (!dList.length) dList = [{ id: 0, name: "All dungeons" }];
   const pList = Array.isArray(periods) ? periods : [];
   const payload = PORTAL_STATE.dataBySection.mythicstats_dps || {};
+  const rawNote = String(payload.source_note || "").trim();
+  const keyMin = Number(payload.key_min);
+  const keyMax = Number(payload.key_max);
+  let note = "";
+  if (Number.isFinite(keyMin) && Number.isFinite(keyMax) && keyMin > 0 && keyMax > 0) note = `数据口径：Mythic+ ${keyMin}-${keyMax} 层`;
+  else if (Number.isFinite(keyMin) && keyMin > 0 && !Number.isFinite(keyMax)) note = `数据口径：Mythic+ ${keyMin}+ 层`;
+  else if (rawNote) note = `数据口径：${rawNote}`;
+  const srcUrl = String(payload.source_url || "https://mythicstats.com/dps").trim();
+  const noteHtml = note ? `<div class="text-xs text-slate-500 mt-2">` + escapeHtml(note) + `（<a class="text-indigo-700 hover:text-indigo-900" href="` + escapeHtml(srcUrl) + `" target="_blank" rel="noreferrer">MythicStats</a>）</div>` : "";
+  const tipHtml = `<div class="text-xs text-slate-500 mt-1">提示：以下榜单随美服每周三更新，每周初期日志数量较少参考价值不大，请关注日志数量。</div>`;
   const seasons = Array.isArray(payload.seasons) ? payload.seasons : [];
   const seasonOptions =
     `<option value="">当前赛季</option>` +
@@ -375,7 +385,7 @@ function renderMythicstatsControls(dungeons, periods) {
     <select id="mythicstats-period-select" class="text-sm rounded-xl border border-slate-200 bg-white/80 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400">
       ${periodOptions}
     </select>
-  </div>`;
+  </div>${noteHtml}${tipHtml}`;
   const seasonSel = document.getElementById("mythicstats-season-select");
   if (seasonSel) {
     const cur = String(PORTAL_STATE.activeMythicstatsSeason || MYTHICSTATS_DEFAULT_SEASON);
@@ -540,7 +550,10 @@ function renderMythicstatsTable(role, items) {
     const tierBadge = renderMythicstatsTierBadge(tier);
     const runs = escapeHtml(it.runs || "");
     const name = escapeHtml(getMythicstatsSpecDisplay(it));
-    const url = escapeHtml(it.spec_url || "#");
+    let specUrl = String(it?.spec_url || "").trim();
+    if (specUrl && specUrl.startsWith("/")) specUrl = `https://mythicstats.com${specUrl}`;
+    if (specUrl && !/^https?:\/\//i.test(specUrl)) specUrl = `https://mythicstats.com/${specUrl.replace(/^\/+/, "")}`;
+    const url = escapeHtml(specUrl || "https://mythicstats.com/dps");
 
     const avgVal = Number.isFinite(Number(it.avg_value)) ? Number(it.avg_value) : 0;
     const topVal = Number.isFinite(Number(it.top_value)) ? Number(it.top_value) : 0;
