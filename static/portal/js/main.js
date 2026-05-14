@@ -413,7 +413,7 @@ const MYTHICSTATS_SPEC_CN = {
   "unholy-death-knight": "邪恶",
   "frost-death-knight": "冰霜",
   "blood-death-knight": "鲜血",
-  "demonology-warlock": "恶魔学识",
+  "demonology-warlock": "恶魔",
   "affliction-warlock": "痛苦",
   "destruction-warlock": "毁灭",
   "devourer-demon-hunter": "噬灭",
@@ -475,6 +475,19 @@ const MYTHICSTATS_CLASS_COLOR = {
   warrior: "#C79C6E",
 };
 
+function mythicstatsReadableTextColor(hex) {
+  const h = String(hex || "").replace("#", "").trim();
+  if (h.length !== 6) return "#0f172a";
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  if (lum > 210) return "#0f172a";
+  if (lum > 180) return "#1f2937";
+  if (lum > 140) return "#334155";
+  return hex;
+}
+
 function mythicstatsHexToRgba(hex, alpha) {
   const h = String(hex || "").replace("#", "").trim();
   if (h.length !== 6) return `rgba(0,0,0,${alpha})`;
@@ -529,6 +542,7 @@ function renderMythicstatsTable(role, items) {
   const maxTop = Math.max(1, ...filtered.map((x) => (Number.isFinite(Number(x.top_value)) ? Number(x.top_value) : 0)));
   const rows = filtered.slice(0, 60).map((it) => {
     const color = getMythicstatsColor(it);
+    const textColor = mythicstatsReadableTextColor(color);
     const rank = escapeHtml(it.rank);
     const diffRaw = String(it.diff_raw || "").trim();
     const diffVal = Number(it.diff_value);
@@ -557,8 +571,8 @@ function renderMythicstatsTable(role, items) {
     return `<div class="py-1.5">
       <div class="flex items-start gap-3">
         <div class="w-8 pt-0.5 text-xs font-semibold text-slate-500">${rank}</div>
-        <div class="w-[400px] min-w-[400px] grid grid-cols-[1fr_36px_44px_56px_56px_44px] items-center gap-1">
-          <a class="font-semibold truncate" style="color:${escapeHtml(color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
+        <div class="w-[372px] min-w-[372px] grid grid-cols-[72px_36px_44px_56px_56px_44px] items-center gap-1">
+          <a class="font-semibold truncate" style="color:${escapeHtml(textColor)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
           <div class="text-right">${tierBadge}</div>
           <div class="text-right text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</div>
           <div class="text-right text-[11px] font-semibold text-slate-700">${avg}</div>
@@ -572,7 +586,7 @@ function renderMythicstatsTable(role, items) {
   const header = `<div class="py-1 text-xs text-slate-500 font-semibold">
     <div class="flex items-center gap-3">
       <div class="w-8 text-right">#</div>
-      <div class="w-[400px] min-w-[400px] grid grid-cols-[1fr_36px_44px_56px_56px_44px] items-center gap-1">
+      <div class="w-[372px] min-w-[372px] grid grid-cols-[72px_36px_44px_56px_56px_44px] items-center gap-1">
         <div>专精</div>
         <div class="text-right">Tier</div>
         <div class="text-right">Diff</div>
