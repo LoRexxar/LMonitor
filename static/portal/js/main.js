@@ -546,31 +546,26 @@ function renderMythicstatsTable(role, items) {
     const avgPct = Math.max(0, Math.min(100, (avgVal / maxTop) * 100));
     const topPct = Math.max(0, Math.min(100, (topVal / maxTop) * 100));
 
-    const bar = `<div class="mt-1">
-      <div class="relative h-3 rounded bg-slate-200/70 overflow-hidden shadow-inner">
-        <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.25)}"></div>
-        <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.9)}"></div>
-      </div>
-      <div class="mt-1 flex items-center justify-between text-[11px] text-slate-600">
-        <span>Avg ${avg}</span>
-        <span>Top ${top}</span>
+    const bar = `<div class="relative h-6 rounded bg-slate-200/70 overflow-hidden shadow-inner">
+      <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.18)}"></div>
+      <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.92)}"></div>
+      <div class="relative px-2 flex items-center justify-end text-[11px] leading-6 font-semibold text-slate-900">
+        <span class="px-1 rounded bg-white/70">${avg}</span>
+        <span class="mx-1 text-slate-500">/</span>
+        <span class="px-1 rounded bg-white/60 text-slate-700">${top}</span>
       </div>
     </div>`;
 
     return `<div class="py-2">
       <div class="flex items-start gap-3">
         <div class="w-8 pt-0.5 text-xs font-semibold text-slate-500">${rank}</div>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-start justify-between gap-2">
-            <a class="font-semibold truncate" style="color:${escapeHtml(color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
-            <div class="flex items-center gap-2 flex-shrink-0">
-              ${tierBadge}
-              <span class="text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</span>
-              <span class="text-[11px] text-slate-500">Runs ${runs}</span>
-            </div>
-          </div>
-          ${bar}
+        <div class="w-[240px] min-w-[200px] flex items-center gap-2">
+          <a class="font-semibold truncate" style="color:${escapeHtml(color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
+          ${tierBadge}
+          <span class="text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</span>
         </div>
+        <div class="flex-1 min-w-0">${bar}</div>
+        <div class="w-[90px] text-right text-[11px] text-slate-500 flex-shrink-0">Runs ${runs}</div>
       </div>
     </div>`;
   });

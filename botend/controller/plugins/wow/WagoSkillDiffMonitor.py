@@ -1668,7 +1668,7 @@ class WagoSkillDiffMonitor(BaseScan):
         parts.append('<body>')
         parts.append('<div class="card">')
         parts.append(f"<h1 style='margin:0;font-size:18px'>{html.escape(server_title)} 职业技能变更报告：{html.escape(title_from)} → {html.escape(title_to)}</h1>")
-        parts.append(f"<div class='meta'><span>技能数：{len(spell_changes)}</span><span>职业数：{class_count}</span><span>Locale：{html.escape(self.locale)}</span></div>")
+        parts.append(f"<div class='meta'><span>技能数：{len(spell_changes)}</span><span>职业数：{class_count}</span><span>语言：{html.escape(self.locale)}</span></div>")
         if display_from_build or display_to_build:
             parts.append(f"<div class='meta'><span class='subtle'>数据版本：{html.escape(from_build)} → {html.escape(to_build)}</span></div>")
         if wowhead_url:
@@ -1691,10 +1691,23 @@ class WagoSkillDiffMonitor(BaseScan):
             'spelleffect': '技能效果',
             'spell': '技能描述',
             'spelldescription': '技能描述',
+            'spellname': '技能名称',
+            'spellmisc': '技能杂项',
+            'spellauraoptions': '光环选项',
+            'spellinterrupts': '打断/中断',
+            'spelltargetrestrictions': '目标限制',
+            'spellclassoptions': '职业选项',
+            'spellpower': '资源消耗',
+            'spellprocsperminute': '每分钟触发',
+            'spellcastingtimes': '施法时间',
+            'spellranges': '距离',
+            'spellduration': '持续时间',
+            'spellradius': '半径',
         }
         field_title = {
             'Description_lang': '描述',
             'AuraDescription_lang': '光环描述',
+            'Name_lang': '名称',
             'EffectBasePointsF': '基础数值F',
             'EffectBasePoints': '基础数值',
             'EffectBonusCoefficient': '法强系数',
@@ -1703,6 +1716,30 @@ class WagoSkillDiffMonitor(BaseScan):
             'PvpMultiplier': 'PvP系数',
             'EffectAmplitude': '周期',
             'EffectAuraPeriod': '周期',
+            'SpellID': '技能ID',
+            'DifficultyID': '难度ID',
+            'RangeIndex': '距离索引',
+            'DurationIndex': '持续时间索引',
+            'PvPDurationIndex': 'PvP持续时间索引',
+            'CastingTimeIndex': '施法时间索引',
+            'ContentTuningID': '内容调优ID',
+            'LaunchDelay': '发射延迟',
+            'MinDuration': '最短持续时间',
+            'SchoolMask': '法术系别',
+            'ShowFutureSpellPlayerConditionID': '条件ID',
+            'Speed': '速度',
+            'ProcCategoryRecovery': '触发类别恢复',
+            'CumulativeAura': '可叠加光环',
+            'ProcChance': '触发几率',
+            'ProcCharges': '触发次数',
+            'ProcTypeMask_0': '触发类型掩码0',
+            'ProcTypeMask_1': '触发类型掩码1',
+            'SpellProcsPerMinuteID': 'PPM索引',
+            'AuraInterruptFlags_0': '光环中断标记0',
+            'AuraInterruptFlags_1': '光环中断标记1',
+            'ChannelInterruptFlags_0': '引导中断标记0',
+            'ChannelInterruptFlags_1': '引导中断标记1',
+            'InterruptFlags': '中断标记',
         }
 
         def fmt_change(b, a):
