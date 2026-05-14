@@ -11,8 +11,10 @@ from botend.models import PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, 
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
     fetch_mythicstats_dps,
+    get_mythicstats_source_cache,
     upsert_mythicstats_dps_rows,
     upsert_mythicstats_meta_cache,
+    upsert_mythicstats_source_cache,
 )
 
 
@@ -262,7 +264,7 @@ class PortalExwindLatestAPIView(View):
     def get(self, request):
         since = timezone.now() - timedelta(days=7)
         rows = (
-            WowArticle.objects.filter(source='exwind', is_active=True, publish_time__gte=since)
+            WowArticle.objects.filter(source__in=['exwind', 'blizzard_cn'], is_active=True, publish_time__gte=since)
             .order_by('-publish_time')[:60]
         )
         return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
@@ -396,6 +398,14 @@ class PortalMythicstatsDpsAPIView(View):
                     cur = fetch_mythicstats_dps(req=None, season=season, dungeon_id=dungeon_id, period_id=int(pid))
                 period_label = cur.get("period_label") or str(pid)
                 cur_season = cur.get("season") or season
+                upsert_mythicstats_source_cache(
+                    season=cur_season,
+                    dungeon_id=dungeon_id,
+                    period_id=int(pid),
+                    source_note=cur.get("source_note") or "",
+                    key_min=cur.get("key_min"),
+                    key_max=cur.get("key_max"),
+                )
                 exists = PortalMythicstatsDpsRow.objects.filter(season=cur_season, period_id=int(pid), dungeon_id=dungeon_id).exists()
                 if idx > 0 and exists:
                     continue
@@ -435,6 +445,14 @@ class PortalMythicstatsDpsAPIView(View):
             dungeons = base.get("dungeons") or [{"id": 0, "name": "All dungeons"}]
             periods = base.get("periods") or []
             upsert_mythicstats_meta_cache(season=season, dungeons=dungeons, periods=periods)
+            upsert_mythicstats_source_cache(
+                season=base.get("season") or season,
+                dungeon_id=dungeon_id,
+                period_id=period_id,
+                source_note=base.get("source_note") or "",
+                key_min=base.get("key_min"),
+                key_max=base.get("key_max"),
+            )
             dungeon_name = "All dungeons"
             for d in dungeons:
                 try:
@@ -463,6 +481,10 @@ class PortalMythicstatsDpsAPIView(View):
         )
         periods = [{"id": int(x["period_id"]), "label": x.get("period_label") or str(x["period_id"])} for x in period_rows]
         active_period = period_id or (periods[0]["id"] if periods else None)
+        source_payload = get_mythicstats_source_cache(season=season, dungeon_id=dungeon_id, period_id=active_period or 0)
+        source_note = (source_payload.get("source_note") or "").strip()
+        key_min = source_payload.get("key_min")
+        key_max = source_payload.get("key_max")
 
         dungeons = []
         meta = cache.get(f"mythicstats_dps_meta:{season}")
@@ -501,6 +523,11 @@ class PortalMythicstatsDpsAPIView(View):
         dungeons = uniq
 
         def row_to_dict(r):
+            spec_url = (r.spec_url or "").strip()
+            if spec_url.startswith("/"):
+                spec_url = "https://mythicstats.com" + spec_url
+            elif spec_url and (not re.match(r"^https?://", spec_url, flags=re.I)):
+                spec_url = "https://mythicstats.com/" + spec_url.lstrip("/")
             return {
                 "rank": r.rank,
                 "diff_raw": r.diff_raw,
@@ -513,7 +540,7 @@ class PortalMythicstatsDpsAPIView(View):
                 "runs": r.runs_text,
                 "spec_name": r.spec_name,
                 "spec_slug": r.spec_slug,
-                "spec_url": r.spec_url,
+                "spec_url": spec_url,
                 "week": r.week,
             }
 
@@ -545,6 +572,10 @@ class PortalMythicstatsDpsAPIView(View):
                     "dungeon_id": dungeon_id,
                     "periods": periods,
                     "active_period": active_period,
+                    "source_note": source_note,
+                    "key_min": key_min,
+                    "key_max": key_max,
+                    "source_url": "https://mythicstats.com/dps",
                     "dungeons": dungeons,
                     "roles": roles,
                 },
