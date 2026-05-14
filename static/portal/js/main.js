@@ -31,7 +31,8 @@ function showToast(message, type) {
 }
 
 function escapeHtml(s) {
-  return String(s || "")
+  if (s === null || s === undefined) return "";
+  return String(s)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -341,7 +342,8 @@ const MYTHICSTATS_STORAGE_KEY = "portal_mythicstats_season";
 function renderMythicstatsControls(dungeons, periods) {
   const el = document.getElementById("mythicstats-controls");
   if (!el) return;
-  const dList = Array.isArray(dungeons) ? dungeons : [];
+  let dList = Array.isArray(dungeons) ? dungeons : [];
+  if (!dList.length) dList = [{ id: 0, name: "All dungeons" }];
   const pList = Array.isArray(periods) ? periods : [];
   const payload = PORTAL_STATE.dataBySection.mythicstats_dps || {};
   const seasons = Array.isArray(payload.seasons) ? payload.seasons : [];
@@ -408,46 +410,46 @@ function renderMythicstatsControls(dungeons, periods) {
 }
 
 const MYTHICSTATS_SPEC_CN = {
-  "unholy-death-knight": "邪恶死亡骑士",
-  "frost-death-knight": "冰霜死亡骑士",
-  "blood-death-knight": "鲜血死亡骑士",
-  "demonology-warlock": "恶魔学识术士",
-  "affliction-warlock": "痛苦术士",
-  "destruction-warlock": "毁灭术士",
-  "devourer-demon-hunter": "吞噬恶魔猎手",
-  "havoc-demon-hunter": "浩劫恶魔猎手",
-  "vengeance-demon-hunter": "复仇恶魔猎手",
-  "retribution-paladin": "惩戒圣骑士",
-  "protection-paladin": "防护圣骑士",
-  "holy-paladin": "神圣圣骑士",
-  "arms-warrior": "武器战士",
-  "fury-warrior": "狂怒战士",
-  "protection-warrior": "防护战士",
-  "outlaw-rogue": "狂徒潜行者",
-  "subtlety-rogue": "敏锐潜行者",
-  "assassination-rogue": "奇袭潜行者",
-  "feral-druid": "野性德鲁伊",
-  "balance-druid": "平衡德鲁伊",
-  "guardian-druid": "守护德鲁伊",
-  "restoration-druid": "恢复德鲁伊",
-  "survival-hunter": "生存猎人",
-  "beast-mastery-hunter": "兽王猎人",
-  "marksmanship-hunter": "射击猎人",
-  "enhancement-shaman": "增强萨满祭司",
-  "elemental-shaman": "元素萨满祭司",
-  "restoration-shaman": "恢复萨满祭司",
-  "augmentation-evoker": "增辉唤魔师",
-  "devastation-evoker": "湮灭唤魔师",
-  "preservation-evoker": "恩护唤魔师",
-  "windwalker-monk": "踏风武僧",
-  "brewmaster-monk": "酒仙武僧",
-  "mistweaver-monk": "织雾武僧",
-  "shadow-priest": "暗影牧师",
-  "discipline-priest": "戒律牧师",
-  "holy-priest": "神圣牧师",
-  "arcane-mage": "奥术法师",
-  "fire-mage": "火焰法师",
-  "frost-mage": "冰霜法师",
+  "unholy-death-knight": "邪恶",
+  "frost-death-knight": "冰霜",
+  "blood-death-knight": "鲜血",
+  "demonology-warlock": "恶魔学识",
+  "affliction-warlock": "痛苦",
+  "destruction-warlock": "毁灭",
+  "devourer-demon-hunter": "噬灭",
+  "havoc-demon-hunter": "浩劫",
+  "vengeance-demon-hunter": "复仇",
+  "retribution-paladin": "惩戒",
+  "protection-paladin": "防护",
+  "holy-paladin": "神圣",
+  "arms-warrior": "武器",
+  "fury-warrior": "狂怒",
+  "protection-warrior": "防护",
+  "outlaw-rogue": "狂徒",
+  "subtlety-rogue": "敏锐",
+  "assassination-rogue": "奇袭",
+  "feral-druid": "野性",
+  "balance-druid": "平衡",
+  "guardian-druid": "守护",
+  "restoration-druid": "恢复",
+  "survival-hunter": "生存",
+  "beast-mastery-hunter": "兽王",
+  "marksmanship-hunter": "射击",
+  "enhancement-shaman": "增强",
+  "elemental-shaman": "元素",
+  "restoration-shaman": "恢复",
+  "augmentation-evoker": "增辉",
+  "devastation-evoker": "湮灭",
+  "preservation-evoker": "恩护",
+  "windwalker-monk": "踏风",
+  "brewmaster-monk": "酒仙",
+  "mistweaver-monk": "织雾",
+  "shadow-priest": "暗影",
+  "discipline-priest": "戒律",
+  "holy-priest": "神圣",
+  "arcane-mage": "奥术",
+  "fire-mage": "火焰",
+  "frost-mage": "冰霜",
 };
 
 function getMythicstatsSpecDisplay(it) {
@@ -552,10 +554,10 @@ function renderMythicstatsTable(role, items) {
       <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.92)}"></div>
     </div>`;
 
-    return `<div class="py-2">
+    return `<div class="py-1.5">
       <div class="flex items-start gap-3">
         <div class="w-8 pt-0.5 text-xs font-semibold text-slate-500">${rank}</div>
-        <div class="w-[500px] min-w-[500px] grid grid-cols-[1fr_44px_56px_76px_76px_52px] items-center gap-2">
+        <div class="w-[400px] min-w-[400px] grid grid-cols-[1fr_36px_44px_56px_56px_44px] items-center gap-1">
           <a class="font-semibold truncate" style="color:${escapeHtml(color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
           <div class="text-right">${tierBadge}</div>
           <div class="text-right text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</div>
@@ -567,7 +569,21 @@ function renderMythicstatsTable(role, items) {
       </div>
     </div>`;
   });
-  return `<div class="divide-y divide-slate-100">${rows.join("")}</div>`;
+  const header = `<div class="py-1 text-xs text-slate-500 font-semibold">
+    <div class="flex items-center gap-3">
+      <div class="w-8 text-right">#</div>
+      <div class="w-[400px] min-w-[400px] grid grid-cols-[1fr_36px_44px_56px_56px_44px] items-center gap-1">
+        <div>专精</div>
+        <div class="text-right">Tier</div>
+        <div class="text-right">Diff</div>
+        <div class="text-right">Avg</div>
+        <div class="text-right">Top</div>
+        <div class="text-right">Runs</div>
+      </div>
+      <div class="flex-1 min-w-0 text-right">对比</div>
+    </div>
+  </div>`;
+  return `<div>${header}<div class="divide-y divide-slate-100">${rows.join("")}</div></div>`;
 }
 
 function renderMythicstatsTables() {

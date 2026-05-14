@@ -412,17 +412,46 @@ class PortalMythicstatsDpsAPIView(View):
         periods = [{"id": int(x["period_id"]), "label": x.get("period_label") or str(x["period_id"])} for x in period_rows]
         active_period = period_id or (periods[0]["id"] if periods else None)
 
-        dungeon_rows = list(
-            PortalMythicstatsDpsRow.objects.filter(season=season)
-            .exclude(dungeon_id=0)
-            .values("dungeon_id", "dungeon_name")
-            .order_by("dungeon_id")
-            .distinct()
-        )
+        dungeons = []
+        cached = PortalCache.objects.filter(key=f"mythicstats_dps_meta:{season}").first()
+        if cached and (cached.data or "").strip():
+            try:
+                import json
+                meta = json.loads(cached.data) or {}
+                dungeons = meta.get("dungeons") or []
+            except Exception:
+                dungeons = []
+
+        if not dungeons:
+            dungeon_rows = list(
+                PortalMythicstatsDpsRow.objects.filter(season=season)
+                .exclude(dungeon_id=0)
+                .values("dungeon_id", "dungeon_name")
+                .order_by("dungeon_id")
+                .distinct()
+            )
+            dungeons = [
+                {"id": int(x.get("dungeon_id") or 0), "name": x.get("dungeon_name") or str(x.get("dungeon_id") or "")}
+                for x in dungeon_rows
+            ]
+
         dungeons = [{"id": 0, "name": "All dungeons"}] + [
-            {"id": int(x.get("dungeon_id") or 0), "name": x.get("dungeon_name") or str(x.get("dungeon_id") or "")}
-            for x in dungeon_rows
+            {"id": int(x.get("id") or x.get("dungeon_id") or 0), "name": x.get("name") or x.get("dungeon_name") or ""}
+            for x in (dungeons or [])
         ]
+        seen = set()
+        uniq = []
+        for d in dungeons:
+            try:
+                did = int(d.get("id") or 0)
+            except Exception:
+                did = 0
+            if did in seen:
+                continue
+            seen.add(did)
+            name = d.get("name") or ("All dungeons" if did == 0 else str(did))
+            uniq.append({"id": did, "name": name})
+        dungeons = uniq
 
         def row_to_dict(r):
             return {
