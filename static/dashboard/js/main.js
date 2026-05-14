@@ -1450,8 +1450,8 @@ function displayTableData(data, fields) {
         th.textContent = getFieldDisplayName(field);
         headerRow.appendChild(th);
     });
-    // 添加操作列（WechatArticle、WowArticle和RssArticle表不显示操作列）
-    if (currentTableName !== 'WechatArticle' && currentTableName !== 'WowArticle' && currentTableName !== 'RssArticle') {
+    // 添加操作列（WechatArticle和RssArticle表不显示操作列）
+    if (currentTableName !== 'WechatArticle' && currentTableName !== 'RssArticle') {
         const actionTh = document.createElement('th');
         actionTh.className = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32';
         actionTh.textContent = '操作';
@@ -1622,8 +1622,8 @@ function displayTableData(data, fields) {
             tr.appendChild(td);
         });
         
-        // 添加操作列（WechatArticle、WowArticle和RssArticle表不显示操作列）
-        if (currentTableName !== 'WechatArticle' && currentTableName !== 'WowArticle' && currentTableName !== 'RssArticle') {
+        // 添加操作列（WechatArticle和RssArticle表不显示操作列）
+        if (currentTableName !== 'WechatArticle' && currentTableName !== 'RssArticle') {
             const actionTd = document.createElement('td');
             actionTd.className = 'px-4 py-4 whitespace-nowrap text-sm font-medium w-32';
             
@@ -1644,6 +1644,14 @@ function displayTableData(data, fields) {
                             <i class="fas fa-play mr-1"></i>模拟
                         </button>
                         <button class="simc-profile-delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-trash mr-1"></i>删除
+                        </button>
+                    </div>
+                `;
+            } else if (currentTableName === 'WowArticle') {
+                actionTd.innerHTML = `
+                    <div class="flex space-x-2">
+                        <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
                             <i class="fas fa-trash mr-1"></i>删除
                         </button>
                     </div>
