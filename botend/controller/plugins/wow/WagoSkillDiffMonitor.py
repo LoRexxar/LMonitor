@@ -1382,6 +1382,19 @@ class WagoSkillDiffMonitor(BaseScan):
             return None
         effect_index = n - 1
         row = self._get_spelleffect_row_by_index(build, ref_spell_id, effect_index)
+        if not row and code in ('s', 'w', 'm'):
+            best = None
+            best_abs = -1.0
+            for r in self._fetch_spelleffect_rows_by_spell(build, ref_spell_id):
+                bp = r.get('EffectBasePointsF')
+                try:
+                    f = abs(float(str(bp)))
+                except Exception:
+                    continue
+                if f > best_abs:
+                    best_abs = f
+                    best = r
+            row = best or {}
         if not row:
             return None
         if code in ('s', 'w', 'm'):
@@ -1499,6 +1512,7 @@ class WagoSkillDiffMonitor(BaseScan):
             return (m.group(1) or '').strip()
 
         s = re.sub(r'\$L\w+:([^;\]]*);', repl_big_l, s)
+        s = re.sub(r'\$L:([^;\]\s]+);?', repl_big_l, s)
 
         def repl_l(m):
             body = (m.group(1) or '').strip()
@@ -1507,6 +1521,7 @@ class WagoSkillDiffMonitor(BaseScan):
             return body
 
         s = re.sub(r'\$l\w+:([^;\]]*);', repl_l, s)
+        s = re.sub(r'\$l:([^;\]\s]+);?', repl_l, s)
         s = self._replace_numeric_expressions(s)
         s, removed = self._strip_conditionals_with_removed(s)
         s = re.sub(r'\s+', ' ', s).strip()
@@ -1529,36 +1544,57 @@ class WagoSkillDiffMonitor(BaseScan):
     def _inline_diff_html(self, before, after):
         before = str(before or '')
         after = str(after or '')
-        sm = __import__('difflib').SequenceMatcher(None, before, after, autojunk=False)
+        b = self._tokenize_for_diff(before)
+        a = self._tokenize_for_diff(after)
+        sm = __import__('difflib').SequenceMatcher(a=b, b=a, autojunk=False)
         ops = sm.get_opcodes()
-        merged = []
+
+        groups = []
+        cur = None
+
+        def flush():
+            nonlocal cur
+            if cur:
+                groups.append(cur)
+            cur = None
+
         for tag, i1, i2, j1, j2 in ops:
-            if not merged:
-                merged.append([tag, i1, i2, j1, j2])
+            btxt = ''.join(b[i1:i2])
+            atxt = ''.join(a[j1:j2])
+            if tag == 'equal':
+                if cur and btxt.strip() == '' and atxt.strip() == '' and len(btxt) <= 2 and len(atxt) <= 2:
+                    cur['del'] += btxt
+                    cur['ins'] += atxt
+                    continue
+                flush()
+                groups.append({'tag': 'equal', 'text': atxt})
                 continue
-            ptag, pi1, pi2, pj1, pj2 = merged[-1]
-            if ptag != 'equal' and tag != 'equal':
-                merged[-1] = ['replace', pi1, i2, pj1, j2]
-                continue
-            if ptag != 'equal' and tag == 'equal' and (j2 - j1) <= 2 and (after[j1:j2].strip() == ''):
-                merged[-1] = [ptag, pi1, i2, pj1, j2]
-                continue
-            if ptag == 'equal' and tag != 'equal' and (pi2 - pi1) <= 2 and (before[pi1:pi2].strip() == ''):
-                merged[-1] = [tag, pi1, i2, pj1, j2]
-                continue
-            merged.append([tag, i1, i2, j1, j2])
+
+            if not cur:
+                cur = {'tag': 'change', 'del': '', 'ins': ''}
+            if tag in ('delete', 'replace'):
+                cur['del'] += btxt
+            if tag in ('insert', 'replace'):
+                cur['ins'] += atxt
+
+        flush()
 
         out = []
-        for tag, i1, i2, j1, j2 in merged:
-            if tag == 'equal':
-                out.append(html.escape(after[j1:j2]))
-            elif tag == 'insert':
-                out.append(f"<span class='ins'>{html.escape(after[j1:j2])}</span>")
-            elif tag == 'delete':
-                out.append(f"<span class='del'>{html.escape(before[i1:i2])}</span>")
+        for g in groups:
+            if g.get('tag') == 'equal':
+                out.append(html.escape(g.get('text') or ''))
+                continue
+            d = g.get('del') or ''
+            i = g.get('ins') or ''
+            if d and i:
+                out.append(f"<span class='del'>{html.escape(d)}</span>")
+                if d and i and (not d[-1].isspace()) and (not i[0].isspace()):
+                    out.append(' ')
+                out.append(f"<span class='ins'>{html.escape(i)}</span>")
+            elif d:
+                out.append(f"<span class='del'>{html.escape(d)}</span>")
             else:
-                out.append(f"<span class='del'>{html.escape(before[i1:i2])}</span>")
-                out.append(f"<span class='ins'>{html.escape(after[j1:j2])}</span>")
+                out.append(f"<span class='ins'>{html.escape(i)}</span>")
         return ''.join(out).replace('\\n', ' ')
 
     def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url=''):
