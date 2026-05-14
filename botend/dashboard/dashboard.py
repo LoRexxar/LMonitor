@@ -93,6 +93,8 @@ COMMON_FIELD_LABELS = {
     'summary': '摘要',
     'url': '链接',
     'link': '链接',
+    'url_hash': '链接Hash',
+    'target_url_hash': '目标链接Hash',
     'author': '作者',
     'publish_time': '发布时间',
     'created_at': '创建时间',

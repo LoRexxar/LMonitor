@@ -1308,8 +1308,13 @@ function displayTableData(data, fields) {
         return;
     }
     
+    const allFields = Array.from(new Set([
+        ...((fields && Array.isArray(fields)) ? fields : []),
+        ...((data && data.length > 0 && data[0]) ? Object.keys(data[0]) : [])
+    ]));
+
     // 设置当前表的列信息
-    currentTableColumns = fields || [];
+    currentTableColumns = allFields;
     currentTableRowMap = new Map();
     
     // 清空表格
@@ -1323,11 +1328,27 @@ function displayTableData(data, fields) {
     }
     
     // 所有表格都显示序号，不显示数据库ID
-    let displayFields = fields;
+    let displayFields = allFields;
     let showCustomIndex = true;
     
     // 过滤掉ID字段，所有表格都不显示数据库ID
-    displayFields = fields.filter(field => field !== 'id');
+    displayFields = allFields.filter(field => field !== 'id');
+
+    if (currentTableName === 'PortalToolLink') {
+        const orderedFields = [
+            'name',
+            'url',
+            'url_hash',
+            'desc',
+            'source',
+            'sort_order',
+            'is_topbar',
+            'topbar_order',
+            'icon_path',
+            'is_active'
+        ];
+        displayFields = orderedFields.filter(field => allFields.includes(field));
+    }
     
     // 针对WechatArticle表的特殊处理：显示序号、title、author和时间字段
     if (currentTableName === 'WechatArticle') {
@@ -1340,7 +1361,7 @@ function displayTableData(data, fields) {
         );
         // 确保关键字段存在并按顺序排列
         const orderedFields = ['title', 'author', 'publish_time', 'created_at', 'updated_at'];
-        displayFields = orderedFields.filter(field => fields.includes(field));
+        displayFields = orderedFields.filter(field => allFields.includes(field));
     }
     
     // 针对WowArticle表的特殊处理：显示序号、title、author、publish_time
@@ -1352,12 +1373,12 @@ function displayTableData(data, fields) {
         );
         // 确保关键字段存在并按顺序排列
         const orderedFields = ['title', 'author', 'publish_time'];
-        displayFields = orderedFields.filter(field => fields.includes(field));
+        displayFields = orderedFields.filter(field => allFields.includes(field));
     }
     
     // 针对RssArticle表的特殊处理：不显示rss_id、url、content_html，限制title长度并可点击跳转
     else if (currentTableName === 'RssArticle') {
-        displayFields = fields.filter(field => 
+        displayFields = allFields.filter(field => 
             !['rss_id', 'url', 'content_html'].includes(field)
         );
     }
@@ -1444,7 +1465,7 @@ function displayTableData(data, fields) {
         tr.className = index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50 hover:bg-gray-100';
         
         // 使用行的第一个字段值作为row-id，如果没有则使用index
-        const rowId = (row && row.id !== undefined && row.id !== null) ? row.id : (row[fields[0]] || index);
+        const rowId = (row && row.id !== undefined && row.id !== null) ? row.id : (row[allFields[0]] || index);
         tr.setAttribute('data-row-id', rowId);
         currentTableRowMap.set(String(rowId), row);
         
@@ -1578,6 +1599,11 @@ function displayTableData(data, fields) {
                 td.textContent = truncateText(cellText, 30);
                 td.title = cellText;
                 td.className += ' truncate font-mono text-sm';
+            }
+            else if (field.toLowerCase().endsWith('_hash') && cellText) {
+                td.className += ' font-mono text-xs';
+                td.textContent = truncateText(cellText, 16);
+                td.title = cellText;
             }
             else if (isLongTextField(field) || cellText.length > 50) {
                 // 长文本字段截断显示
@@ -3057,6 +3083,25 @@ function generateEditFormFields(container, rowData) {
         if (column.toLowerCase() === 'id' || column.toLowerCase().includes('time')) {
             return;
         }
+        if (column.toLowerCase().endsWith('_hash')) {
+            const fieldDiv = document.createElement('div');
+            fieldDiv.className = 'space-y-2';
+            const label = document.createElement('label');
+            label.className = 'block text-sm font-semibold text-gray-700';
+            label.textContent = getFieldDisplayName(column);
+            label.setAttribute('for', `edit-field-${column}`);
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.id = `edit-field-${column}`;
+            input.name = column;
+            input.readOnly = true;
+            input.className = 'w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 font-mono text-xs text-gray-700';
+            input.value = rowData && rowData[column] !== null && rowData[column] !== undefined ? String(rowData[column]) : '';
+            fieldDiv.appendChild(label);
+            fieldDiv.appendChild(input);
+            container.appendChild(fieldDiv);
+            return;
+        }
         
         const fieldDiv = document.createElement('div');
         fieldDiv.className = 'space-y-2';
@@ -3149,6 +3194,9 @@ function submitEditRecord() {
         if (column === 'id' || column.toLowerCase().includes('time')) {
             return;
         }
+        if (column.toLowerCase().endsWith('_hash')) {
+            return;
+        }
         const element = document.getElementById(`edit-field-${column}`);
         if (!element) {
             return;
@@ -3215,6 +3263,9 @@ function generateFormFields(container) {
     currentTableColumns.forEach(column => {
         // 跳过ID字段和时间字段（通常由系统自动生成）
         if (column.toLowerCase() === 'id' || column.toLowerCase().includes('time')) {
+            return;
+        }
+        if (column.toLowerCase().endsWith('_hash')) {
             return;
         }
         
@@ -3335,6 +3386,7 @@ function getFieldDisplayName(column) {
         is_verify: '是否验证',
         is_poc: '是否POC',
         is_exp: '是否EXP',
+        url_hash: '链接Hash',
         rss_id: 'RSS编号',
         content_html: '内容HTML',
         fight_style: '战斗风格',
@@ -3370,6 +3422,7 @@ function translateFieldNameToCn(fieldName) {
         title: '标题',
         url: '链接',
         link: '链接',
+        hash: 'Hash',
         target: '目标',
         type: '类型',
         tag: '标记',
@@ -3467,6 +3520,9 @@ function translateFieldNameToCn(fieldName) {
  * 获取字段输入类型
  */
 function getFieldInputType(column) {
+    if (column.toLowerCase().endsWith('_hash')) {
+        return 'text';
+    }
     // 如果有字段类型信息，根据Django字段类型判断
     if (currentFieldTypes && currentFieldTypes[column]) {
         const fieldInfo = currentFieldTypes[column];
@@ -3548,6 +3604,9 @@ function submitAddRecord() {
     currentTableColumns.forEach(column => {
         // 跳过自动生成的字段
         if (column === 'id' || column.includes('created_at') || column.includes('updated_at')) {
+            return;
+        }
+        if (column.toLowerCase().endsWith('_hash')) {
             return;
         }
         
