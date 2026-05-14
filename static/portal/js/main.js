@@ -456,73 +456,125 @@ function getMythicstatsSpecDisplay(it) {
   return name || slug;
 }
 
+const MYTHICSTATS_CLASS_COLOR = {
+  "death-knight": "#C41F3B",
+  "demon-hunter": "#A330C9",
+  druid: "#FF7D0A",
+  evoker: "#33937F",
+  hunter: "#ABD473",
+  mage: "#69CCF0",
+  monk: "#00FF96",
+  paladin: "#F58CBA",
+  priest: "#E5E7EB",
+  rogue: "#FFF569",
+  shaman: "#0070DE",
+  warlock: "#9482C9",
+  warrior: "#C79C6E",
+};
+
+function mythicstatsHexToRgba(hex, alpha) {
+  const h = String(hex || "").replace("#", "").trim();
+  if (h.length !== 6) return `rgba(0,0,0,${alpha})`;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function getMythicstatsClassFromSlug(slug) {
+  const s = String(slug || "").trim();
+  if (!s) return "";
+  if (s.endsWith("death-knight")) return "death-knight";
+  if (s.endsWith("demon-hunter")) return "demon-hunter";
+  const parts = s.split("-").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : "";
+}
+
+function getMythicstatsColor(it) {
+  const slug = String(it?.spec_slug || "").trim();
+  const cls = getMythicstatsClassFromSlug(slug);
+  return MYTHICSTATS_CLASS_COLOR[cls] || "#94A3B8";
+}
+
+function renderMythicstatsTierBadge(tierRaw) {
+  const t = String(tierRaw || "").trim().toUpperCase();
+  const styles = {
+    S: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    A: "bg-sky-100 text-sky-800 border-sky-200",
+    B: "bg-indigo-100 text-indigo-800 border-indigo-200",
+    C: "bg-amber-100 text-amber-800 border-amber-200",
+    D: "bg-orange-100 text-orange-800 border-orange-200",
+    F: "bg-rose-100 text-rose-800 border-rose-200",
+  };
+  const cls = styles[t] || "bg-slate-100 text-slate-700 border-slate-200";
+  const label = t || "-";
+  return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}">${escapeHtml(label)}</span>`;
+}
+
 function renderMythicstatsTable(role, items) {
   const q = getSearchQuery();
-  const filtered = q ? (items || []).filter((x) => String(x.spec_name || "").toLowerCase().includes(q)) : (items || []);
+  const filtered = q
+    ? (items || []).filter((x) => {
+        const en = String(x.spec_name || "").toLowerCase();
+        const cn = String(getMythicstatsSpecDisplay(x) || "").toLowerCase();
+        return en.includes(q) || cn.includes(q);
+      })
+    : (items || []);
   if (!filtered.length) {
     return `<div class="text-slate-500">${q ? "无匹配结果" : "暂无数据"}</div>`;
   }
-  const maxAvg = Math.max(
-    1,
-    ...filtered.map((x) => (Number.isFinite(Number(x.avg_value)) ? Number(x.avg_value) : 0))
-  );
-  const maxTop = Math.max(
-    1,
-    ...filtered.map((x) => (Number.isFinite(Number(x.top_value)) ? Number(x.top_value) : 0))
-  );
+  const maxTop = Math.max(1, ...filtered.map((x) => (Number.isFinite(Number(x.top_value)) ? Number(x.top_value) : 0)));
   const rows = filtered.slice(0, 60).map((it) => {
+    const color = getMythicstatsColor(it);
     const rank = escapeHtml(it.rank);
     const diffRaw = String(it.diff_raw || "").trim();
     const diffVal = Number(it.diff_value);
     let diffCls = "text-slate-500";
     if (Number.isFinite(diffVal) && diffVal > 0) diffCls = "text-emerald-700";
     else if (Number.isFinite(diffVal) && diffVal < 0) diffCls = "text-rose-700";
-    const tier = escapeHtml(it.tier || "");
-    const avg = escapeHtml(it.avg || "");
-    const top = escapeHtml(it.top || "");
+
+    const tier = String(it.tier || "").trim().toUpperCase();
+    const tierBadge = renderMythicstatsTierBadge(tier);
     const runs = escapeHtml(it.runs || "");
     const name = escapeHtml(getMythicstatsSpecDisplay(it));
     const url = escapeHtml(it.spec_url || "#");
+
     const avgVal = Number.isFinite(Number(it.avg_value)) ? Number(it.avg_value) : 0;
     const topVal = Number.isFinite(Number(it.top_value)) ? Number(it.top_value) : 0;
-    const avgPct = Math.max(0, Math.min(100, (avgVal / maxAvg) * 100));
+    const avg = escapeHtml(it.avg || "");
+    const top = escapeHtml(it.top || "");
+    const avgPct = Math.max(0, Math.min(100, (avgVal / maxTop) * 100));
     const topPct = Math.max(0, Math.min(100, (topVal / maxTop) * 100));
-    const avgBar = `<div class="relative h-5 rounded bg-slate-100 overflow-hidden">
-      <div class="absolute inset-y-0 left-0 bg-indigo-200" style="width:${avgPct.toFixed(1)}%"></div>
-      <div class="relative px-1 text-xs leading-5 font-medium text-slate-800">${avg}</div>
+
+    const bar = `<div class="mt-1">
+      <div class="relative h-3 rounded bg-slate-200/70 overflow-hidden shadow-inner">
+        <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.25)}"></div>
+        <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.9)}"></div>
+      </div>
+      <div class="mt-1 flex items-center justify-between text-[11px] text-slate-600">
+        <span>Avg ${avg}</span>
+        <span>Top ${top}</span>
+      </div>
     </div>`;
-    const topBar = `<div class="relative h-5 rounded bg-slate-100 overflow-hidden">
-      <div class="absolute inset-y-0 left-0 bg-indigo-100" style="width:${topPct.toFixed(1)}%"></div>
-      <div class="relative px-1 text-xs leading-5 font-medium text-slate-700">${top}</div>
+
+    return `<div class="py-2">
+      <div class="flex items-start gap-3">
+        <div class="w-8 pt-0.5 text-xs font-semibold text-slate-500">${rank}</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-start justify-between gap-2">
+            <a class="font-semibold truncate" style="color:${escapeHtml(color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              ${tierBadge}
+              <span class="text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</span>
+              <span class="text-[11px] text-slate-500">Runs ${runs}</span>
+            </div>
+          </div>
+          ${bar}
+        </div>
+      </div>
     </div>`;
-    return `<tr class="border-t border-slate-100">
-      <td class="py-2 pr-2 text-slate-500">${rank}</td>
-      <td class="py-2 pr-2 ${diffCls}">${escapeHtml(diffRaw || "0")}</td>
-      <td class="py-2 pr-2 text-slate-700">${tier}</td>
-      <td class="py-2 pr-2">${avgBar}</td>
-      <td class="py-2 pr-2">${topBar}</td>
-      <td class="py-2 pr-2 text-slate-700">${runs}</td>
-      <td class="py-2 pr-2">
-        <a class="text-slate-900 hover:text-indigo-700 font-medium" href="${url}" target="_blank" rel="noreferrer">${name}</a>
-      </td>
-    </tr>`;
   });
-  return `
-    <table class="w-full text-sm">
-      <thead class="text-xs text-slate-500">
-        <tr>
-          <th class="text-left py-2 pr-2 font-medium">#</th>
-          <th class="text-left py-2 pr-2 font-medium">Diff</th>
-          <th class="text-left py-2 pr-2 font-medium">Tier</th>
-          <th class="text-left py-2 pr-2 font-medium">Avg</th>
-          <th class="text-left py-2 pr-2 font-medium">Top</th>
-          <th class="text-left py-2 pr-2 font-medium">Runs</th>
-          <th class="text-left py-2 pr-2 font-medium">Spec</th>
-        </tr>
-      </thead>
-      <tbody>${rows.join("")}</tbody>
-    </table>
-  `;
+  return `<div class="divide-y divide-slate-100">${rows.join("")}</div>`;
 }
 
 function renderMythicstatsTables() {
