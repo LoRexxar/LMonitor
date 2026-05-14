@@ -12,7 +12,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from botend.controller.BaseScan import BaseScan
-from botend.models import WowSkillDiffReport, WowSpellEffectSnapshot, WowSpellSnapshot, WowSpellSnapshotState, WowSpecSpellMapSnapshot
+from botend.models import WowSkillDiffReport, WowSpellEffectSnapshot, WowSpellSnapshot, WowSpellSnapshotState, WowSpecSpellMapSnapshot, WowWagoMonitorState
 from utils.log import logger
 
 
@@ -23,6 +23,7 @@ class WagoSkillDiffMonitor(BaseScan):
         self.default_branch = 'wow'
         self.locale = str(getattr(settings, 'WAGO_SKILL_DIFF_LOCALE', 'enUS') or 'enUS')
         self.http_timeout = int(getattr(settings, 'WAGO_SKILL_DIFF_TIMEOUT', 30) or 30)
+        self._build_versions_cache = {'ts': 0, 'versions': []}
         self._chr_classes_cache = {}
         self._skilllineability_cache = {}
         self._chr_specialization_cache = {}
@@ -60,6 +61,15 @@ class WagoSkillDiffMonitor(BaseScan):
         }
 
     def scan(self, url):
+        states = list(WowWagoMonitorState.objects.filter(locale=self.locale, is_active=True).order_by('branch', 'id'))
+        if not states:
+            return self._scan_legacy(url)
+        ok = True
+        for st in states:
+            ok = self._scan_state(st) and ok
+        return ok
+
+    def _scan_legacy(self, url):
         raw_branch = (url or '').strip() or (getattr(self.task, 'target', '') or '').strip()
         if raw_branch in {'-', 'auto', 'default'}:
             raw_branch = ''
@@ -74,22 +84,6 @@ class WagoSkillDiffMonitor(BaseScan):
         if not last_build:
             self.task.flag = current_build
             self.task.save(update_fields=['flag'])
-            try:
-                WowSkillDiffReport.objects.update_or_create(
-                    branch=branch,
-                    locale=self.locale,
-                    to_build=current_build,
-                    defaults={
-                        'from_build': current_build,
-                        'content_md': f"# {self._branch_title(branch)} 职业技能变更报告：{current_build}\n\n- 初始化：已记录当前版本号，后续版本变更时会生成差异报告。\n",
-                        'content_html_path': '',
-                        'changed_tables_json': '[]',
-                        'spell_count': 0,
-                        'class_count': 0,
-                    }
-                )
-            except Exception as e:
-                logger.warning(f"[WagoSkillDiffMonitor] save init WowSkillDiffReport failed: {e}")
             return True
 
         if last_build == current_build:
@@ -121,7 +115,153 @@ class WagoSkillDiffMonitor(BaseScan):
                 )
             except Exception as e:
                 logger.warning(f"[WagoSkillDiffMonitor] save WowSkillDiffReport failed: {e}")
+        return True
 
+    def _fetch_prev_build(self, branch, current_build):
+        versions = []
+        cache = getattr(self, '_build_versions_cache', None) or {}
+        ts = float(cache.get('ts') or 0)
+        now_ts = float(timezone.now().timestamp())
+        cached_versions = cache.get('versions') or []
+        if isinstance(cached_versions, list) and cached_versions and (now_ts - ts) < 3600:
+            versions = cached_versions
+        else:
+            text = self._http_get_text("https://wago.tools/builds-diff")
+            props = self._extract_inertia_props(text or '') if text else {}
+            versions = props.get('versions') or []
+            if isinstance(versions, list) and versions:
+                self._build_versions_cache = {'ts': now_ts, 'versions': versions}
+
+        if not isinstance(versions, list) or not versions:
+            return ''
+        current_build = (current_build or '').strip()
+        if not current_build:
+            return ''
+        if current_build in versions:
+            i = versions.index(current_build)
+            if i + 1 < len(versions):
+                return versions[i + 1]
+        return ''
+
+    def _repair_state_if_needed(self, st, current_build):
+        url = (getattr(st, 'wago_diff_url', '') or '').strip()
+        if not url:
+            return
+        if f"to={current_build}&from={current_build}" not in url:
+            return
+        ext_raw = (getattr(st, 'ext', '') or '').strip()
+        try:
+            ext = json.loads(ext_raw) if ext_raw else {}
+        except Exception:
+            ext = {}
+        if not isinstance(ext, dict):
+            return
+        fb = (ext.get('from_build') or '').strip()
+        tb = (ext.get('to_build') or '').strip()
+        if fb != current_build or tb != current_build:
+            return
+        prev_build = self._fetch_prev_build((getattr(st, 'branch', '') or '').strip(), current_build)
+        if not prev_build or prev_build == current_build:
+            return
+        ext['from_build'] = prev_build
+        st.wago_diff_url = f"https://wago.tools/builds-diff?to={current_build}&from={prev_build}"
+        st.ext = json.dumps(ext, ensure_ascii=False)
+        st.save(update_fields=['wago_diff_url', 'ext'])
+
+    def _scan_state(self, st):
+        now = timezone.now()
+        branch = (st.branch or '').strip() or self.default_branch
+        current_build = self._fetch_current_build(branch)
+        if not current_build:
+            st.last_run_at = now
+            st.last_run_status = 'failed'
+            st.ext = (st.ext or '')
+            if len(st.ext) > 5000:
+                st.ext = st.ext[:5000]
+            st.save(update_fields=['last_run_at', 'last_run_status', 'ext'])
+            return False
+
+        st.last_run_at = now
+        st.last_run_status = 'success'
+        st.save(update_fields=['last_run_at', 'last_run_status'])
+
+        last_build = (st.build or '').strip()
+        if not last_build:
+            prev_build = self._fetch_prev_build(branch, current_build)
+            from_build = prev_build or current_build
+            return self._handle_build_change(st, from_build, current_build, is_init=True)
+        if last_build == current_build:
+            self._repair_state_if_needed(st, current_build)
+            return True
+        return self._handle_build_change(st, last_build, current_build, is_init=False)
+
+    def _handle_build_change(self, st, from_build, to_build, is_init=False):
+        now = timezone.now()
+        branch = (st.branch or '').strip() or self.default_branch
+        wago_diff_url = f"https://wago.tools/builds-diff?to={to_build}&from={from_build}"
+        report = None
+        try:
+            report = self._generate_report(branch, from_build, to_build)
+        except Exception as e:
+            st.last_event_at = now
+            st.last_event_status = 'failed'
+            st.wago_diff_url = wago_diff_url
+            st.ext = f"generate_failed: {e}"
+            st.save(update_fields=['last_event_at', 'last_event_status', 'wago_diff_url', 'ext'])
+            return False
+
+        if not report or int(report.get('spell_count') or 0) <= 0:
+            st.build = to_build
+            st.last_event_at = now
+            st.last_event_status = 'init_no_class_change' if is_init else 'build_changed_no_class_change'
+            st.report_url = ''
+            st.wago_diff_url = wago_diff_url
+            st.ext = json.dumps({
+                'branch': branch,
+                'from_build': from_build,
+                'to_build': to_build,
+                'spell_count': int((report or {}).get('spell_count') or 0),
+                'class_count': int((report or {}).get('class_count') or 0),
+            }, ensure_ascii=False)
+            st.save(update_fields=['build', 'last_event_at', 'last_event_status', 'report_url', 'wago_diff_url', 'ext'])
+            return True
+
+        row = None
+        try:
+            row, _ = WowSkillDiffReport.objects.update_or_create(
+                branch=branch,
+                locale=self.locale,
+                to_build=to_build,
+                defaults={
+                    'from_build': from_build,
+                    'content_md': report.get('content_md') or '',
+                    'content_html_path': report.get('content_html_path') or '',
+                    'changed_tables_json': report.get('changed_tables_json') or '',
+                    'spell_count': int(report.get('spell_count') or 0),
+                    'class_count': int(report.get('class_count') or 0),
+                }
+            )
+        except Exception as e:
+            st.last_event_at = now
+            st.last_event_status = 'failed'
+            st.wago_diff_url = wago_diff_url
+            st.ext = f"save_report_failed: {e}"
+            st.save(update_fields=['last_event_at', 'last_event_status', 'wago_diff_url', 'ext'])
+            return False
+
+        st.build = to_build
+        st.last_event_at = now
+        st.last_event_status = 'init_has_class_change' if is_init else 'build_changed_has_class_change'
+        st.report_url = f"/portal/wow-skill-diff/{row.id}/" if row else ''
+        st.wago_diff_url = wago_diff_url
+        st.ext = json.dumps({
+            'branch': branch,
+            'from_build': from_build,
+            'to_build': to_build,
+            'spell_count': int(report.get('spell_count') or 0),
+            'class_count': int(report.get('class_count') or 0),
+        }, ensure_ascii=False)
+        st.save(update_fields=['build', 'last_event_at', 'last_event_status', 'report_url', 'wago_diff_url', 'ext'])
         return True
 
     def _fetch_current_build(self, branch):

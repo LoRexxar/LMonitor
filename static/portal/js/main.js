@@ -208,6 +208,7 @@ async function loadTools() {
 const SECTION_MAP = {
   blueposts: { url: "/portal/api/blueposts/", listId: "blueposts-list" },
   exwind: { url: "/portal/api/exwind/latest/", listId: "exwind-list" },
+  wow_skill_states: { url: "/portal/api/wow-skill-diff/states/", listId: "wow-skill-diff-states" },
   wow_skill_diffs: { url: "/portal/api/wow-skill-diffs/", listId: "wow-skill-diff-list" },
   nga: { url: "/portal/api/nga-hot/", listId: "nga-list" },
   events: { url: "/portal/api/events/", listId: "events-list" },
@@ -546,26 +547,27 @@ function renderMythicstatsTable(role, items) {
     const avgPct = Math.max(0, Math.min(100, (avgVal / maxTop) * 100));
     const topPct = Math.max(0, Math.min(100, (topVal / maxTop) * 100));
 
-    const bar = `<div class="relative h-6 rounded bg-slate-200/70 overflow-hidden shadow-inner">
-      <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.18)}"></div>
+    const bar = `<div class="relative h-3 rounded bg-slate-200/70 overflow-hidden shadow-inner">
+      <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.22)}"></div>
       <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.92)}"></div>
-      <div class="relative px-2 flex items-center justify-end text-[11px] leading-6 font-semibold text-slate-900">
-        <span class="px-1 rounded bg-white/70">${avg}</span>
-        <span class="mx-1 text-slate-500">/</span>
-        <span class="px-1 rounded bg-white/60 text-slate-700">${top}</span>
-      </div>
     </div>`;
 
     return `<div class="py-2">
       <div class="flex items-start gap-3">
         <div class="w-8 pt-0.5 text-xs font-semibold text-slate-500">${rank}</div>
-        <div class="w-[240px] min-w-[200px] flex items-center gap-2">
+        <div class="w-[280px] min-w-[240px] flex items-center gap-2">
           <a class="font-semibold truncate" style="color:${escapeHtml(color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
           ${tierBadge}
           <span class="text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</span>
         </div>
-        <div class="flex-1 min-w-0">${bar}</div>
-        <div class="w-[90px] text-right text-[11px] text-slate-500 flex-shrink-0">Runs ${runs}</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-3">
+            <div class="flex-1 min-w-0">${bar}</div>
+            <div class="w-[110px] text-right text-[11px] font-semibold text-slate-700">Avg ${avg}</div>
+            <div class="w-[110px] text-right text-[11px] font-semibold text-slate-500">Top ${top}</div>
+            <div class="w-[90px] text-right text-[11px] text-slate-500 flex-shrink-0">Runs ${runs}</div>
+          </div>
+        </div>
       </div>
     </div>`;
   });
@@ -742,6 +744,63 @@ function renderWowSkillDiffList(containerId, items) {
     .join("");
 }
 
+function renderWowSkillDiffStates(containerId, items) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!items || items.length === 0) {
+    el.innerHTML = `<div class="text-slate-500">暂无服务器监控配置</div>`;
+    return;
+  }
+  const q = getSearchQuery();
+  const filtered = filterItems(items, q);
+  if (!filtered.length) {
+    el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
+    return;
+  }
+  const rows = filtered
+    .slice(0, 12)
+    .map((it, idx) => {
+      const branch = escapeHtml(it.branch || "");
+      const build = escapeHtml(it.build || "-");
+      const runAt = escapeHtml(it.last_run_at || "");
+      const runStatus = escapeHtml(it.last_run_status || "");
+      const eventAt = escapeHtml(it.last_event_at || "");
+      const eventStatus = escapeHtml(it.last_event_status || "");
+      const reportUrl = String(it.report_url || "").trim();
+      const wagoUrl = String(it.wago_diff_url || "").trim();
+      const divider = idx === 0 ? "" : "border-t border-slate-100";
+      const reportBtn = reportUrl
+        ? `<a class="portal-pill inline-flex items-center gap-1 px-2 py-1 text-xs" href="${escapeHtml(reportUrl)}">${svgIcon("icon-chart", "w-3.5 h-3.5")}<span>报告</span></a>`
+        : "";
+      const wagoBtn = wagoUrl
+        ? `<a class="portal-pill inline-flex items-center gap-1 px-2 py-1 text-xs" href="${escapeHtml(wagoUrl)}" target="_blank" rel="noreferrer">${svgIcon("icon-globe", "w-3.5 h-3.5")}<span>Wago</span></a>`
+        : "";
+      const statusBadge =
+        runStatus === "异常"
+          ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-50 text-rose-700 border-rose-200">异常</span>`
+          : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">正常</span>`;
+      return `<div class="py-2 ${divider}">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-semibold text-slate-900">${branch} <span class="text-slate-500 font-normal">${build}</span></div>
+            <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">
+              ${statusBadge}
+              ${runAt ? `<span>心跳：${runAt}</span>` : ""}
+              ${eventStatus ? `<span>事件：${eventStatus}</span>` : ""}
+              ${eventAt ? `<span>${eventAt}</span>` : ""}
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            ${reportBtn}
+            ${wagoBtn}
+          </div>
+        </div>
+      </div>`;
+    })
+    .join("");
+  el.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white">${rows}</div>`;
+}
+
 async function loadSection(key) {
   const ep = SECTION_MAP[key];
   if (!ep) return;
@@ -790,6 +849,9 @@ async function loadSection(key) {
     } else if (key === "wow_skill_diffs") {
       PORTAL_STATE.dataBySection[key] = r.data || [];
       renderWowSkillDiffList(ep.listId, r.data || []);
+    } else if (key === "wow_skill_states") {
+      PORTAL_STATE.dataBySection[key] = r.data || [];
+      renderWowSkillDiffStates(ep.listId, r.data || []);
     } else {
       PORTAL_STATE.dataBySection[key] = r.data || [];
       renderSimpleList(ep.listId, r.data || [], { limit: key === "nga" ? 20 : 12 });
@@ -859,6 +921,7 @@ async function loadAll() {
   bindSearch();
   await loadSection("blueposts");
   await loadSection("exwind");
+  await loadSection("wow_skill_states");
   await loadSection("wow_skill_diffs");
   await loadSection("nga");
   await loadSection("events");

@@ -171,6 +171,34 @@ class WowSkillDiffReport(models.Model):
         ]
 
 
+class WowWagoMonitorState(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    branch = models.CharField(max_length=32, default="wow")
+    locale = models.CharField(max_length=8, default="enUS")
+    is_active = models.BooleanField(default=True)
+    build = models.CharField(max_length=64, default="", blank=True)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_run_status = models.CharField(max_length=32, default="", blank=True)
+    last_event_at = models.DateTimeField(null=True, blank=True)
+    last_event_status = models.CharField(max_length=64, default="", blank=True)
+    report_url = models.CharField(max_length=500, default="", blank=True)
+    wago_diff_url = models.CharField(max_length=500, default="", blank=True)
+    ext = models.TextField(default="", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_wago_monitor_state'
+        unique_together = (('branch', 'locale'),)
+        indexes = [
+            models.Index(fields=['is_active']),
+            models.Index(fields=['branch', 'locale']),
+            models.Index(fields=['build']),
+            models.Index(fields=['last_run_at']),
+            models.Index(fields=['last_event_at']),
+        ]
+
+
 class WowSpellSnapshotState(models.Model):
     branch = models.CharField(max_length=32, default="wow")
     locale = models.CharField(max_length=8, default="enUS")

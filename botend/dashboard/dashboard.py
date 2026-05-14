@@ -67,6 +67,8 @@ MODEL_DESCRIPTIONS = {
     'SimcBackendBinary': 'SimC后端软件',
     'WclAnalysisTask': 'WCL分析任务',
     'SystemAlert': '系统报警',
+    'WowWagoMonitorState': 'Wago监控状态',
+    'WowSkillDiffReport': '职业技能变更报告',
 
 }
 
