@@ -29,5 +29,18 @@ class PortalWowSkillDiffReportView(View):
         server_title = server_title_map.get(branch, branch)
         from_build = (row.from_build or '').strip()
         to_build = (row.to_build or '').strip()
-        title = f"{server_title} 职业技能变更报告：{from_build} → {to_build}".strip()
+        md = (row.content_md or '').strip()
+        summary = ''
+        if md:
+            for line in md.splitlines():
+                line = (line or '').strip()
+                if not line:
+                    continue
+                if line.startswith('#'):
+                    summary = line.lstrip('#').strip()
+                    break
+        if summary and ('职业技能变更报告' not in summary):
+            title = f"{server_title}：{summary}（{from_build} → {to_build}）".strip()
+        else:
+            title = f"{server_title} 职业技能变更报告：{from_build} → {to_build}".strip()
         return render(request, 'portal/wow_skill_diff_report.html', {'report': row, 'page_title': title, 'server_title': server_title})

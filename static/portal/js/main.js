@@ -778,31 +778,42 @@ function renderWowSkillDiffStates(containerId, items) {
       const runStatus = escapeHtml(it.last_run_status || "");
       const eventAt = escapeHtml(it.last_event_at || "");
       const eventStatus = escapeHtml(it.last_event_status || "");
+      const rawEvent = String(it.last_event_status || "");
+      const summaryTitle = escapeHtml(it.summary_title || "");
       const reportUrl = String(it.report_url || "").trim();
       const wagoUrl = String(it.wago_diff_url || "").trim();
-      const divider = idx === 0 ? "" : "border-t border-slate-100";
+      const divider = idx === 0 ? "" : "border-t border-slate-200/70";
       const reportBtn = reportUrl
-        ? `<a class="portal-pill inline-flex items-center gap-1 px-2 py-1 text-xs" href="${escapeHtml(reportUrl)}">${svgIcon("icon-chart", "w-3.5 h-3.5")}<span>报告</span></a>`
+        ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(reportUrl)}">${svgIcon("icon-chart", "w-3.5 h-3.5")}<span>报告</span></a>`
         : "";
       const wagoBtn = wagoUrl
-        ? `<a class="portal-pill inline-flex items-center gap-1 px-2 py-1 text-xs" href="${escapeHtml(wagoUrl)}" target="_blank" rel="noreferrer">${svgIcon("icon-globe", "w-3.5 h-3.5")}<span>Wago</span></a>`
+        ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(wagoUrl)}" target="_blank" rel="noreferrer">${svgIcon("icon-globe", "w-3.5 h-3.5")}<span>Wago</span></a>`
         : "";
-      const statusBadge =
+      const runBadge =
         runStatus === "异常"
           ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-50 text-rose-700 border-rose-200">异常</span>`
           : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">正常</span>`;
-      return `<div class="py-2 ${divider}">
-        <div class="flex flex-wrap items-center justify-between gap-2">
+      const hasUpdate = rawEvent.includes("有职业更新");
+      const eventBadge = hasUpdate
+        ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold border bg-amber-100 text-amber-900 border-amber-200">有职业更新</span>`
+        : (eventStatus ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-slate-50 text-slate-700 border-slate-200">${escapeHtml(eventStatus)}</span>` : "");
+
+      return `<div class="py-2.5 ${divider}">
+        <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-start">
           <div class="min-w-0">
-            <div class="font-semibold text-slate-900">${branch} <span class="text-slate-500 font-normal">${build}</span></div>
-            <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">
-              ${statusBadge}
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <div class="font-semibold text-slate-900">${branch}</div>
+              <div class="text-slate-500 font-semibold">${build}</div>
+              ${runBadge}
+              ${eventBadge}
+            </div>
+            <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
+              ${summaryTitle ? `<span class="text-slate-700 font-semibold">${summaryTitle}</span>` : ""}
               ${runAt ? `<span>心跳：${runAt}</span>` : ""}
-              ${eventStatus ? `<span>事件：${eventStatus}</span>` : ""}
-              ${eventAt ? `<span>${eventAt}</span>` : ""}
+              ${eventAt ? `<span>事件时间：${eventAt}</span>` : ""}
             </div>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center justify-end gap-2 pt-0.5">
             ${reportBtn}
             ${wagoBtn}
           </div>
@@ -810,7 +821,7 @@ function renderWowSkillDiffStates(containerId, items) {
       </div>`;
     })
     .join("");
-  el.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white">${rows}</div>`;
+  el.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white overflow-hidden">${rows}</div>`;
 }
 
 async function loadSection(key) {
