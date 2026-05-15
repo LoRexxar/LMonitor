@@ -599,7 +599,7 @@ function renderMythicstatsTable(role, items) {
     const avgPct = Math.max(0, Math.min(100, (avgVal / maxTop) * 100));
     const topPct = Math.max(0, Math.min(100, (topVal / maxTop) * 100));
 
-    const bar = `<div class="relative h-3 rounded bg-slate-200/70 overflow-hidden shadow-inner">
+    const bar = `<div class="relative h-3 w-full rounded bg-slate-200/70 overflow-hidden shadow-inner">
       <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.22)}"></div>
       <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.92)}"></div>
     </div>`;
@@ -615,7 +615,7 @@ function renderMythicstatsTable(role, items) {
           <div class="text-right text-[11px] font-semibold text-slate-500">${top}</div>
           <div class="text-right text-[11px] text-slate-500">${runs}</div>
         </div>
-        <div class="flex-1 min-w-0 flex items-center">${bar}</div>
+        <div class="flex-1 min-w-0">${bar}</div>
       </div>
     </div>`;
   });

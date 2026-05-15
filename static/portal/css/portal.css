@@ -395,8 +395,8 @@ html, body {
 .mythicstats-spec-link {
     text-shadow:
         0 0 0.8px rgba(255, 255, 255, 0.28),
-        -0.3px 0 rgba(0, 0, 0, 0.45),
-        0.3px 0 rgba(0, 0, 0, 0.45),
-        0 -0.3px rgba(0, 0, 0, 0.45),
-        0 0.3px rgba(0, 0, 0, 0.45);
+        -0.4px 0 rgba(0, 0, 0, 0.45),
+        0.4px 0 rgba(0, 0, 0, 0.45),
+        0 -0.4px rgba(0, 0, 0, 0.45),
+        0 0.4px rgba(0, 0, 0, 0.45);
 }
