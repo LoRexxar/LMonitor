@@ -76,7 +76,12 @@ class ChromeDriver:
         self.chrome_options.set_tmp_path(tmp_dir)
         
         if is_proxy:
-            self.chrome_options.set_proxy('{}'.format(PROXY_CONFIG["http"]))
+            proxy = str((PROXY_CONFIG or {}).get("http") or (PROXY_CONFIG or {}).get("https") or "").strip()
+            if proxy:
+                if proxy.startswith('socks5://') or proxy.startswith('socks4://') or proxy.startswith('socks://'):
+                    self.chrome_options.set_argument(f"--proxy-server={proxy}")
+                else:
+                    self.chrome_options.set_proxy(proxy)
 
         self.driver = ChromiumPage(self.chrome_options)
 

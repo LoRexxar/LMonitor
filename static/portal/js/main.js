@@ -403,17 +403,25 @@ function renderPeakSpecGrid(containerId, payload) {
     if (q && !filtered.length) continue;
 
     const titleColor = classColor(classSlug);
+    const softBg = mythicstatsHexToRgba(titleColor, 0.1);
     const title = `${peakCnClass(classSlug, className)} · ${peakCnSpec(specSlug, specName)}`;
 
-    const rows = filtered.slice(0, 3).map((x) => {
+    const top3 = filtered.slice(0, 3);
+    while (top3.length < 3) top3.push(null);
+    const rows = top3.map((x) => {
       const name = escapeHtml(x?.name || "-");
       const score = x?.score != null ? escapeHtml(Number(x.score).toFixed(1)) : "-";
       const realm = String(x?.realm_name || "").trim();
       const region = String(x?.rio_region_slug || "").trim().toUpperCase();
       const server = escapeHtml([realm, region].filter(Boolean).join(" "));
       const href = sanitizeHref(x?.profile_url || "");
-      const link = href ? `<a class="text-indigo-700 hover:text-indigo-900" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${name}</a>` : `<span class="text-slate-900 font-semibold">${name}</span>`;
-      const left = server ? `<div class="text-xs text-slate-900 font-semibold truncate">${link} <span class="text-slate-400">·</span> <span class="text-slate-500 font-medium">${server}</span></div>` : `<div class="text-xs text-slate-900 font-semibold truncate">${link}</div>`;
+      const dotBorder = String(titleColor || "").toLowerCase() === "#ffffff" ? "border-slate-300" : "border-slate-200";
+      const dot = `<span class="inline-block w-2 h-2 rounded-full border ${dotBorder}" style="background:${titleColor}"></span>`;
+      const linkText = href
+        ? `<a class="text-slate-900 hover:underline font-semibold" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${name}</a>`
+        : `<span class="text-slate-900 font-semibold">${name}</span>`;
+      const link = `<span class="inline-flex items-center gap-1.5">${dot}${linkText}</span>`;
+      const left = server ? `<div class="text-xs text-slate-900 truncate">${link} <span class="text-slate-300">·</span> <span class="text-slate-500 font-medium">${server}</span></div>` : `<div class="text-xs text-slate-900 truncate">${link}</div>`;
       return `<div class="flex items-center justify-between gap-2 py-0.5">
         <div class="min-w-0">
           ${left}
@@ -422,14 +430,17 @@ function renderPeakSpecGrid(containerId, payload) {
       </div>`;
     });
 
-    cards.push(`<div class="rounded-xl border border-slate-200 bg-white/70 px-3 py-2">
-      <div class="flex items-center gap-2 pb-2 border-b border-slate-100">
-        <span class="w-2.5 h-2.5 rounded-full border border-slate-200" style="background:${titleColor}"></span>
-        <div class="min-w-0">
-          <div class="text-xs font-semibold text-slate-900 truncate">${escapeHtml(title)}</div>
+    cards.push(`<div class="relative overflow-hidden rounded-xl border border-slate-200 bg-white/70 px-3 py-2">
+      <div class="absolute inset-0 pointer-events-none" style="background:linear-gradient(90deg, ${softBg} 0%, rgba(255,255,255,0) 62%);"></div>
+      <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${titleColor}"></div>
+      <div class="relative">
+        <div class="flex items-center gap-2 pb-2 border-b border-slate-100">
+          <div class="min-w-0">
+            <div class="text-xs font-semibold text-slate-900 truncate">${escapeHtml(title)}</div>
+          </div>
         </div>
+        <div class="pt-1">${rows.join("")}</div>
       </div>
-      <div class="pt-1">${rows.join("")}</div>
     </div>`);
   }
 

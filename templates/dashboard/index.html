@@ -90,7 +90,7 @@
             white-space: nowrap;
         }
     </style>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260515_1" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260515_2" defer></script>
 </head>
 <body class="bg-gray-50 font-sans">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -724,6 +724,18 @@
                                 </select>
                                 <button id="simc-profile-filter-apply" class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200">应用筛选</button>
                                 <button id="simc-profile-filter-reset" class="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200">清空</button>
+                            </div>
+                        </div>
+                        <div id="wow-article-filter-bar" class="hidden">
+                            <div class="flex flex-col md:flex-row items-start md:items-center gap-2">
+                                <select id="wow-article-source-filter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">全部来源</option>
+                                </select>
+                                <select id="wow-article-category-filter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">全部分类</option>
+                                </select>
+                                <button id="wow-article-filter-apply" class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200">应用筛选</button>
+                                <button id="wow-article-filter-reset" class="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200">清空</button>
                             </div>
                         </div>
                         <div class="flex items-center space-x-2">
