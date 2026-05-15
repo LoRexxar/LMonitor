@@ -119,7 +119,9 @@ function renderSimpleList(containerId, items, opts) {
     .slice(0, limit)
     .map((it, idx) => {
       const title = escapeHtml(it.title || "");
-      const url = escapeHtml(it.url || it.source_url || "#");
+      const rawUrl = it.url || it.source_url || "";
+      const href = sanitizeHref(rawUrl);
+      const url = escapeHtml(href);
       const source = escapeHtml(it.source || "");
       const author = escapeHtml(it.author || "");
       const time = escapeHtml((it.time || it.publish_time || it.published_at || "").replaceAll("\n", " ").trim());
@@ -143,7 +145,11 @@ function renderSimpleList(containerId, items, opts) {
 
       const divider = asGrid ? "border-b border-slate-100" : (idx === 0 ? "" : "border-t border-slate-100");
       return `<div class="py-2 ${divider}">
-        <a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>
+        ${
+          url
+            ? `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
+            : `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`
+        }
         ${meta ? `<div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">${meta}</div>` : ""}
       </div>`;
     })
@@ -178,13 +184,20 @@ async function loadTools() {
           .slice(0, 24)
           .map((it) => {
             const name = escapeHtml(it.name || "");
-            const url = escapeHtml(it.url || "#");
+            const href = sanitizeHref(it.url || "");
+            const url = escapeHtml(href);
             const icon = escapeHtml(getFaviconSrc(it));
             const fallback = "/static/portal/favicons/default.svg";
+            if (!url) {
+              return `<span class="portal-pill inline-flex items-center gap-2 cursor-not-allowed opacity-70">
+                <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
+                <span>${name}</span>
+              </span>`;
+            }
             return `<a class="portal-pill inline-flex items-center gap-2" href="${url}" target="_blank" rel="noreferrer">
-              <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
-              <span>${name}</span>
-            </a>`;
+                <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
+                <span>${name}</span>
+              </a>`;
           })
           .join("");
       }
@@ -197,17 +210,27 @@ async function loadTools() {
           .slice(0, 120)
           .map((it) => {
             const name = escapeHtml(it.name || "");
-            const url = escapeHtml(it.url || "#");
+            const href = sanitizeHref(it.url || "");
+            const url = escapeHtml(href);
             const desc = escapeHtml(it.desc || "");
             const icon = escapeHtml(getFaviconSrc(it));
             const fallback = "/static/portal/favicons/default.svg";
+            if (!url) {
+              return `<div class="block p-3 rounded-xl border border-slate-200 bg-white opacity-70">
+                <div class="flex items-center gap-2">
+                  <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
+                  <div class="font-medium">${name}</div>
+                </div>
+                ${desc ? `<div class="text-slate-500 text-xs mt-1">${desc}</div>` : ""}
+              </div>`;
+            }
             return `<a class="block p-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors" href="${url}" target="_blank" rel="noreferrer">
-              <div class="flex items-center gap-2">
-                <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
-                <div class="font-medium">${name}</div>
-              </div>
-              ${desc ? `<div class="text-slate-500 text-xs mt-1">${desc}</div>` : ""}
-            </a>`;
+                <div class="flex items-center gap-2">
+                  <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
+                  <div class="font-medium">${name}</div>
+                </div>
+                ${desc ? `<div class="text-slate-500 text-xs mt-1">${desc}</div>` : ""}
+              </a>`;
           })
           .join("");
       }
@@ -318,7 +341,8 @@ function renderMplusRuns(containerId, items) {
     const tankHtml = renderMember(tank);
     const healerHtml = renderMember(healer);
     const dpsHtml = dpsList.length ? dpsList.map(renderMember).join(" / ") : (Array.isArray(it.dps) ? it.dps.map((x) => escapeHtml(x)).join(" / ") : "-");
-    const link = it.run_url ? `<a class="text-indigo-700 hover:text-indigo-900 text-xs" href="${escapeHtml(it.run_url)}" target="_blank" rel="noreferrer">详情</a>` : "";
+    const runHref = sanitizeHref(it.run_url || "");
+    const link = runHref ? `<a class="text-indigo-700 hover:text-indigo-900 text-xs" href="${escapeHtml(runHref)}" target="_blank" rel="noreferrer">详情</a>` : "";
     return `<tr class="border-t border-slate-100">
       <td class="py-2 pr-2 text-slate-500">${rank}</td>
       <td class="py-2 pr-2">
@@ -365,8 +389,9 @@ function renderMythicstatsControls(dungeons, periods) {
   if (Number.isFinite(keyMin) && Number.isFinite(keyMax) && keyMin > 0 && keyMax > 0) note = `数据口径：Mythic+ ${keyMin}-${keyMax} 层`;
   else if (Number.isFinite(keyMin) && keyMin > 0 && !Number.isFinite(keyMax)) note = `数据口径：Mythic+ ${keyMin}+ 层`;
   else if (rawNote) note = `数据口径：${rawNote}`;
-  const srcUrl = String(payload.source_url || "https://mythicstats.com/dps").trim();
-  const noteHtml = note ? `<div class="text-xs text-slate-500 mt-2">` + escapeHtml(note) + `（<a class="text-indigo-700 hover:text-indigo-900" href="` + escapeHtml(srcUrl) + `" target="_blank" rel="noreferrer">MythicStats</a>）</div>` : "";
+  const rawSrcUrl = String(payload.source_url || "https://mythicstats.com/dps").trim();
+  const srcHref = sanitizeHref(rawSrcUrl) || "https://mythicstats.com/dps";
+  const noteHtml = note ? `<div class="text-xs text-slate-500 mt-2">` + escapeHtml(note) + `（<a class="text-indigo-700 hover:text-indigo-900" href="` + escapeHtml(srcHref) + `" target="_blank" rel="noreferrer">MythicStats</a>）</div>` : "";
   const tipHtml = `<div class="mt-2 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">提示：以下榜单随美服每周三更新，每周初期日志数量较少参考价值不大，请关注日志数量。</div>`;
   const seasons = Array.isArray(payload.seasons) ? payload.seasons : [];
   const seasonOptions =
@@ -683,25 +708,38 @@ function renderVideos(payload) {
     .slice(0, 12)
     .map((it, idx) => {
       const title = escapeHtml(it.title || "");
-      const url = escapeHtml(it.url || "#");
-      const cover = escapeHtml(it.cover_url || it.cover || "");
+      const rawUrl = it.url || "";
+      const urlHref = sanitizeHref(rawUrl);
+      const url = escapeHtml(urlHref);
+      const coverHref = sanitizeHref(it.cover_url || it.cover || "");
+      const cover = escapeHtml(coverHref);
       const author = escapeHtml(it.author || "");
-      const authorUrl = escapeHtml(it.author_url || "#");
+      const authorHref = sanitizeHref(it.author_url || "");
+      const authorUrl = escapeHtml(authorHref);
       const time = escapeHtml((it.published_at || "").replaceAll("\n", " ").trim());
       const tag = escapeHtml(it.tag || "");
       const divider = idx === 0 ? "" : "border-t border-slate-100";
-      const coverHtml = cover
-        ? `<a class="shrink-0 w-20 h-11 rounded-lg overflow-hidden border border-slate-200 bg-slate-100" href="${url}" target="_blank" rel="noreferrer">
-            <img src="${cover}" alt="" class="w-full h-full object-cover" loading="lazy" />
-          </a>`
-        : `<div class="shrink-0 w-20 h-11 rounded-lg overflow-hidden border border-slate-200 portal-skeleton"></div>`;
+      const coverBox = cover
+        ? `<img src="${cover}" alt="" class="w-full h-full object-cover" loading="lazy" />`
+        : `<div class="w-full h-full portal-skeleton"></div>`;
+      const coverHtml = url
+        ? `<a class="shrink-0 w-20 h-11 rounded-lg overflow-hidden border border-slate-200 bg-slate-100" href="${url}" target="_blank" rel="noreferrer">${coverBox}</a>`
+        : `<div class="shrink-0 w-20 h-11 rounded-lg overflow-hidden border border-slate-200 bg-slate-100">${coverBox}</div>`;
       return `<div class="py-2 ${divider}">
         <div class="flex items-start gap-3">
           ${coverHtml}
           <div class="min-w-0 flex-1">
-            <a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>
+            ${
+              url
+                ? `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
+                : `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`
+            }
             <div class="mt-1 text-xs text-slate-500">
-              ${author ? `UP：<a class="text-indigo-700 hover:text-indigo-900" href="${authorUrl}" target="_blank" rel="noreferrer">${author}</a>` : ""}
+              ${
+                author && authorUrl
+                  ? `UP：<a class="text-indigo-700 hover:text-indigo-900" href="${authorUrl}" target="_blank" rel="noreferrer">${author}</a>`
+                  : (author ? `UP：${author}` : "")
+              }
               ${author && time ? " · " : ""}
               ${time}
               ${tag ? ` · ${tag}` : ""}
