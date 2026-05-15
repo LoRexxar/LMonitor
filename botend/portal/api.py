@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport, WowWagoMonitorState
+from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport, WowWagoMonitorState
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
     fetch_mythicstats_dps,
@@ -355,7 +355,59 @@ class PortalMplusAffixesAPIView(View):
 
 class PortalMplusCutoffAPIView(View):
     def get(self, request):
-        return JsonResponse({'status': 'success', 'data': {}})
+        season = (request.GET.get('season') or '').strip()
+        auto_season = (not season) or season in {"season-mn-1", "auto"}
+        if auto_season:
+            last = PortalMplusSeasonCutoff.objects.all().order_by('-updated_at', '-id').first()
+            season = (getattr(last, 'season', '') or '').strip() or 'season-mn-1'
+
+        region_map = {
+            "us": "美服",
+            "eu": "欧服",
+            "cn": "国服",
+        }
+        regions = ["us", "eu", "cn"]
+        rows = list(PortalMplusSeasonCutoff.objects.filter(season=season, region__in=regions).order_by('region', '-updated_at', '-id'))
+        by_region = {}
+        for r in rows:
+            key = (getattr(r, 'region', '') or '').strip().lower()
+            if key and key not in by_region:
+                by_region[key] = r
+
+        items = []
+        updated_at = ""
+        for r in regions:
+            row = by_region.get(r)
+            if not row:
+                continue
+            ut = _fmt_dt(getattr(row, 'updated_at', None))
+            if ut and (not updated_at or ut > updated_at):
+                updated_at = ut
+            cutoff_0_1 = getattr(row, 'cutoff_0_1', None)
+            cutoff_1 = getattr(row, 'cutoff_1', None)
+            title = f"{region_map.get(r, r)} 0.1%：{(round(float(cutoff_0_1), 2) if cutoff_0_1 is not None else '--')} / 1%：{(round(float(cutoff_1), 2) if cutoff_1 is not None else '--')}"
+            items.append({
+                "region": r,
+                "region_name": region_map.get(r, r),
+                "season": (getattr(row, 'season', '') or '').strip(),
+                "cutoff_0_1": cutoff_0_1,
+                "cutoff_1": cutoff_1,
+                "updated_at": ut,
+                "source_updated_at": (getattr(row, 'source_updated_at', '') or '').strip(),
+                "source": (getattr(row, 'source', '') or '').strip() or "raiderio",
+                "source_url": f"https://raider.io/cn/mythic-plus/cutoffs/{season}/{r}",
+                "title": title,
+                "time": ut,
+            })
+
+        return JsonResponse({
+            "status": "success",
+            "data": {
+                "season": season,
+                "updated_at": updated_at,
+                "items": items,
+            },
+        })
 
 
 class PortalMplusRankingsAPIView(View):

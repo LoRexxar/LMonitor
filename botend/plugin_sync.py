@@ -53,7 +53,7 @@ def sync_monitortasks_from_plugin_list(
 
             name = getattr(plugin_cls, "__name__", None) or f"PluginType{idx}"
             wait_time = 600
-            if name == "PortalPeakSpecRankMonitor":
+            if name in {"PortalPeakSpecRankMonitor", "PortalMplusCutoffMonitor"}:
                 wait_time = 3600
             MonitorTask.objects.create(
                 name=name,

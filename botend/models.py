@@ -332,6 +332,24 @@ class PortalMplusRun(models.Model):
         ]
 
 
+class PortalMplusSeasonCutoff(models.Model):
+    season = models.CharField(max_length=64, default="unknown")
+    region = models.CharField(max_length=16, default="world")
+    cutoff_0_1 = models.FloatField(null=True, blank=True)
+    cutoff_1 = models.FloatField(null=True, blank=True)
+    source = models.CharField(max_length=32, default="raiderio")
+    source_updated_at = models.CharField(max_length=128, default="", blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_portal_mplus_season_cutoff'
+        unique_together = (('season', 'region'),)
+        indexes = [
+            models.Index(fields=['season', 'region']),
+            models.Index(fields=['updated_at']),
+        ]
+
+
 class PortalPeakSpecRankRow(models.Model):
     season = models.CharField(max_length=64, default="unknown")
     region = models.CharField(max_length=32, default="world")
