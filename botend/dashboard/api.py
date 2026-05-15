@@ -34,7 +34,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert
+from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert
 from botend.alerting import upsert_system_alert
 from django.db import models
 from core.glm import GLMClient
@@ -108,6 +108,28 @@ class SystemAlertAPIView(View):
         except Exception as e:
             logger.error(f"更新系统报警状态失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({'success': False, 'error': f'更新系统报警状态失败: {str(e)}'})
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class PortalPeakSpecRankRefreshAPIView(View):
+    def post(self, request):
+        try:
+            task = MonitorTask.objects.filter(name="PortalPeakSpecRankMonitor").first()
+            if not task:
+                return JsonResponse({'success': False, 'error': '未找到 PortalPeakSpecRankMonitor 任务，请先执行 SyncMonitorTasksFromPlugins'})
+            from LMonitor.config import Monitor_Type_BaseObject_List
+
+            task_type = int(getattr(task, "type", 0) or 0)
+            if task_type < 0 or task_type >= len(Monitor_Type_BaseObject_List):
+                return JsonResponse({'success': False, 'error': '任务 type 无效'})
+            plugin_cls = Monitor_Type_BaseObject_List[task_type]
+            plugin = plugin_cls(None, task)
+            ok = bool(plugin.scan(getattr(task, "target", "") or ""))
+            total = PortalPeakSpecRankRow.objects.filter(is_active=True).count()
+            return JsonResponse({'success': True, 'ok': ok, 'total': total})
+        except Exception as e:
+            logger.error(f"刷新巅峰榜失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'刷新巅峰榜失败: {str(e)}'})
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')

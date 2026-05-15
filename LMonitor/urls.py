@@ -21,7 +21,7 @@ from django.shortcuts import redirect
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
-from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, SimcBackendBinaryAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView
+from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, SimcBackendBinaryAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
 from botend.portal.views import PortalWowSkillDiffReportView
@@ -35,6 +35,7 @@ from botend.portal.api import (
     PortalMplusAffixesAPIView,
     PortalMplusCutoffAPIView,
     PortalMplusRankingsAPIView,
+    PortalPeakSpecRankingsAPIView,
     PortalRaidRankingsAPIView,
     PortalCharacterAPIView,
     PortalMythicstatsDpsAPIView,
@@ -70,6 +71,7 @@ urlpatterns = [
     path('portal/api/mplus/affixes/', csrf_exempt(PortalMplusAffixesAPIView.as_view()), name="portal_mplus_affixes"),
     path('portal/api/mplus/cutoff/', csrf_exempt(PortalMplusCutoffAPIView.as_view()), name="portal_mplus_cutoff"),
     path('portal/api/mplus/rankings/', csrf_exempt(PortalMplusRankingsAPIView.as_view()), name="portal_mplus_rankings"),
+    path('portal/api/peak/spec-rankings/', csrf_exempt(PortalPeakSpecRankingsAPIView.as_view()), name="portal_peak_spec_rankings"),
     path('portal/api/raid/rankings/', csrf_exempt(PortalRaidRankingsAPIView.as_view()), name="portal_raid_rankings"),
     path('portal/api/character/', csrf_exempt(PortalCharacterAPIView.as_view()), name="portal_character"),
     path('portal/api/mythicstats/dps/', csrf_exempt(PortalMythicstatsDpsAPIView.as_view()), name="portal_mythicstats_dps"),
@@ -89,6 +91,7 @@ urlpatterns = [
     path('api/simc-template/', csrf_exempt(SimcTemplateAPIView.as_view()), name="simc_template"),
     path('api/simc-backend-binary/', csrf_exempt(SimcBackendBinaryAPIView.as_view()), name="simc_backend_binary"),
     path('api/system-alert/', csrf_exempt(SystemAlertAPIView.as_view()), name="system_alert"),
+    path('api/portal/peak/refresh/', csrf_exempt(PortalPeakSpecRankRefreshAPIView.as_view()), name="portal_peak_refresh"),
     path('api/keyword-translation/', csrf_exempt(KeywordTranslationAPIView.as_view()), name="keyword_translation"),
     path('api/oss-config/', csrf_exempt(OssConfigAPIView.as_view()), name="oss_config"),
     path('api/simc-result-proxy/', csrf_exempt(SimcResultProxyAPIView.as_view()), name="simc_result_proxy"),

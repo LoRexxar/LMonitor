@@ -28,11 +28,15 @@ def sync_monitortasks_from_plugin_list(
                 continue
 
             name = getattr(plugin_cls, "__name__", None) or f"PluginType{idx}"
+            wait_time = 600
+            if name == "PortalPeakSpecRankMonitor":
+                wait_time = 3600
             MonitorTask.objects.create(
                 name=name,
                 target=default_target,
                 type=idx,
                 is_active=default_is_active,
+                wait_time=wait_time,
             )
             created += 1
 

@@ -250,6 +250,7 @@ const SECTION_MAP = {
   events: { url: "/portal/api/events/", listId: "events-list" },
   videos: { url: "/portal/api/videos/", listId: "videos-list", tagsId: "videos-tags" },
   mplus_rankings: { url: "/portal/api/mplus/rankings/", listId: "mplus-rankings" },
+  peak_spec_rankings: { url: "/portal/api/peak/spec-rankings/", listId: "peak-spec-rankings" },
   mythicstats_dps: { url: "/portal/api/mythicstats/dps/", listId: "mythicstats-table" },
 };
 
@@ -308,6 +309,136 @@ function renderMplusControls(dungeons) {
       loadSection("mplus_rankings");
     });
   }
+}
+
+const PEAK_CLASS_CN = {
+  "death-knight": "死亡骑士",
+  "demon-hunter": "恶魔猎手",
+  "druid": "德鲁伊",
+  "evoker": "唤魔师",
+  "hunter": "猎人",
+  "mage": "法师",
+  "monk": "武僧",
+  "paladin": "圣骑士",
+  "priest": "牧师",
+  "rogue": "潜行者",
+  "shaman": "萨满祭司",
+  "warlock": "术士",
+  "warrior": "战士",
+};
+
+const PEAK_SPEC_CN = {
+  "blood": "鲜血",
+  "frost": "冰霜",
+  "unholy": "邪恶",
+  "havoc": "浩劫",
+  "vengeance": "复仇",
+  "balance": "平衡",
+  "feral": "野性",
+  "guardian": "守护",
+  "restoration": "恢复",
+  "devastation": "湮灭",
+  "preservation": "恩护",
+  "augmentation": "增辉",
+  "beast-mastery": "兽王",
+  "marksmanship": "射击",
+  "survival": "生存",
+  "arcane": "奥术",
+  "fire": "火焰",
+  "brewmaster": "酒仙",
+  "mistweaver": "织雾",
+  "windwalker": "踏风",
+  "holy": "神圣",
+  "protection": "防护",
+  "retribution": "惩戒",
+  "discipline": "戒律",
+  "shadow": "暗影",
+  "assassination": "奇袭",
+  "outlaw": "狂徒",
+  "subtlety": "敏锐",
+  "elemental": "元素",
+  "enhancement": "增强",
+  "affliction": "痛苦",
+  "demonology": "恶魔学识",
+  "destruction": "毁灭",
+  "arms": "武器",
+  "fury": "狂怒",
+};
+
+function peakCnClass(slug, fallback) {
+  const k = String(slug || "").toLowerCase();
+  return PEAK_CLASS_CN[k] || fallback || slug || "";
+}
+
+function peakCnSpec(slug, fallback) {
+  const k = String(slug || "").toLowerCase();
+  return PEAK_SPEC_CN[k] || fallback || slug || "";
+}
+
+function renderPeakSpecControls(payload) {
+  const el = document.getElementById("peak-spec-controls");
+  if (!el) return;
+  const season = payload?.season ? escapeHtml(payload.season) : "";
+  el.innerHTML = season ? `<div class="text-xs text-slate-500">赛季：${season}</div>` : "";
+}
+
+function renderPeakSpecGrid(containerId, payload) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (!items.length) {
+    el.innerHTML = `<div class="text-slate-500">暂无数据</div>`;
+    return;
+  }
+
+  const q = String(getSearchQuery() || "").trim().toLowerCase();
+  const cards = [];
+  for (const spec of items) {
+    const classSlug = spec?.class_slug || "";
+    const className = spec?.class_name || classSlug;
+    const specName = spec?.spec_name || spec?.spec_slug || "";
+    const specSlug = spec?.spec_slug || "";
+    const top = Array.isArray(spec?.items) ? spec.items : [];
+    const filtered = q ? top.filter((x) => String(x?.name || "").toLowerCase().includes(q)) : top;
+    if (q && !filtered.length) continue;
+
+    const titleColor = classColor(classSlug);
+    const title = `${peakCnClass(classSlug, className)} · ${peakCnSpec(specSlug, specName)}`;
+
+    const rows = filtered.slice(0, 3).map((x) => {
+      const name = escapeHtml(x?.name || "-");
+      const score = x?.score != null ? escapeHtml(Number(x.score).toFixed(1)) : "-";
+      const realm = String(x?.realm_name || "").trim();
+      const region = String(x?.rio_region_slug || "").trim().toUpperCase();
+      const server = escapeHtml([realm, region].filter(Boolean).join(" "));
+      const href = sanitizeHref(x?.profile_url || "");
+      const link = href ? `<a class="text-indigo-700 hover:text-indigo-900" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${name}</a>` : `<span class="text-slate-900 font-semibold">${name}</span>`;
+      const left = server ? `<div class="text-xs text-slate-900 font-semibold truncate">${link} <span class="text-slate-400">·</span> <span class="text-slate-500 font-medium">${server}</span></div>` : `<div class="text-xs text-slate-900 font-semibold truncate">${link}</div>`;
+      return `<div class="flex items-center justify-between gap-2 py-0.5">
+        <div class="min-w-0">
+          ${left}
+        </div>
+        <div class="text-xs text-slate-700 font-semibold tabular-nums">${score}</div>
+      </div>`;
+    });
+
+    cards.push(`<div class="rounded-xl border border-slate-200 bg-white/70 px-3 py-2">
+      <div class="flex items-center gap-2 pb-2 border-b border-slate-100">
+        <span class="w-2.5 h-2.5 rounded-full border border-slate-200" style="background:${titleColor}"></span>
+        <div class="min-w-0">
+          <div class="text-xs font-semibold text-slate-900 truncate">${escapeHtml(title)}</div>
+        </div>
+      </div>
+      <div class="pt-1">${rows.join("")}</div>
+    </div>`);
+  }
+
+  if (!cards.length) {
+    el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
+    return;
+  }
+
+  el.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">${cards.join("")}</div>`;
 }
 
 function renderMplusRuns(containerId, items) {
@@ -918,6 +1049,11 @@ async function loadSection(key) {
       PORTAL_STATE.dataBySection[key] = items;
       renderMplusControls(dungeons);
       renderMplusRuns(ep.listId, items);
+    } else if (key === "peak_spec_rankings") {
+      const payload = r.data || {};
+      PORTAL_STATE.dataBySection[key] = payload;
+      renderPeakSpecControls(payload);
+      renderPeakSpecGrid(ep.listId, payload);
     } else if (key === "events") {
       PORTAL_STATE.dataBySection[key] = r.data || [];
       renderEvents(r.data || []);
@@ -988,6 +1124,9 @@ function bindSearch() {
             renderVideos({ tags: PORTAL_STATE.videoTags, items: PORTAL_STATE.dataBySection.videos || [] });
           } else if (key === "events") {
             renderEvents(PORTAL_STATE.dataBySection[key]);
+          } else if (key === "peak_spec_rankings") {
+            renderPeakSpecControls(PORTAL_STATE.dataBySection[key]);
+            renderPeakSpecGrid(ep.listId, PORTAL_STATE.dataBySection[key]);
           } else if (key === "mythicstats_dps") {
             renderMythicstatsTables();
           } else {
@@ -1013,6 +1152,7 @@ async function loadAll() {
   await loadSection("events");
   await loadSection("videos");
   await loadSection("mplus_rankings");
+  await loadSection("peak_spec_rankings");
   await loadSection("mythicstats_dps");
   updateSearchMeta();
 }

@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport, WowWagoMonitorState
+from botend.models import PortalEvent, PortalMplusRun, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport, WowWagoMonitorState
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
     fetch_mythicstats_dps,
@@ -145,6 +145,22 @@ def _mplus_to_dict(r):
         'source': r.source or '',
         'season': r.season or '',
         'region': r.region or '',
+    }
+
+
+def _peak_row_to_dict(r):
+    profile = (getattr(r, "character_path", "") or "").strip()
+    profile_url = ""
+    if profile:
+        profile_url = "https://raider.io" + (profile if profile.startswith("/") else f"/{profile}")
+    return {
+        "rank": int(getattr(r, "rank", 0) or 0),
+        "name": (getattr(r, "character_name", "") or "").strip(),
+        "score": getattr(r, "score", None),
+        "score_color": (getattr(r, "score_color", "") or "").strip(),
+        "profile_url": profile_url,
+        "realm_name": (getattr(r, "realm_name", "") or "").strip(),
+        "rio_region_slug": (getattr(r, "rio_region_slug", "") or "").strip(),
     }
 
 
@@ -373,6 +389,52 @@ class PortalMplusRankingsAPIView(View):
                 it['rank'] = i + 1
                 items.append(it)
         return JsonResponse({'status': 'success', 'data': {'dungeons': dungeons, 'items': items}})
+
+
+class PortalPeakSpecRankingsAPIView(View):
+    def get(self, request):
+        role = (request.GET.get("role") or "").strip().lower()
+        if role not in {"tank", "healer", "dps"}:
+            role = "all"
+
+        season = (request.GET.get("season") or "").strip()
+        if not season or season in {"auto", "season-mn-1"}:
+            last = PortalPeakSpecRankRow.objects.filter(is_active=True).order_by("-updated_at", "-id").first()
+            season = (getattr(last, "season", "") or "").strip() or "season-mn-1"
+
+        region = (request.GET.get("region") or "world").strip()
+        qs = PortalPeakSpecRankRow.objects.filter(is_active=True, season=season, region=region)
+        if role != "all":
+            qs = qs.filter(spec_role=role)
+        rows = list(qs.order_by("class_slug", "spec_slug", "rank", "id"))
+
+        groups = {}
+        for r in rows:
+            key = ((getattr(r, "class_slug", "") or "").strip(), (getattr(r, "spec_slug", "") or "").strip())
+            if key not in groups:
+                groups[key] = {
+                    "class_slug": key[0],
+                    "class_name": (getattr(r, "class_name", "") or "").strip(),
+                    "spec_slug": key[1],
+                    "spec_name": (getattr(r, "spec_name", "") or "").strip(),
+                    "spec_role": (getattr(r, "spec_role", "") or "").strip(),
+                    "items": [],
+                    "updated_at": _fmt_dt(getattr(r, "updated_at", None)),
+                }
+            groups[key]["items"].append(_peak_row_to_dict(r))
+
+        items = list(groups.values())
+        items.sort(key=lambda x: (x.get("class_slug") or "", x.get("spec_slug") or ""))
+
+        return JsonResponse({
+            "status": "success",
+            "data": {
+                "season": season,
+                "region": region,
+                "role": role,
+                "items": items,
+            },
+        })
 
 
 class PortalRaidRankingsAPIView(View):

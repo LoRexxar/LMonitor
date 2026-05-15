@@ -29,6 +29,7 @@ from botend.controller.plugins.wow.wowheadMonitor import wowheadMonitor
 from botend.controller.plugins.wow.DeprecatedWowPortalMonitor import DeprecatedWowPortalMonitor
 from botend.controller.plugins.portal.PortalPostMonitor import PortalPostMonitor
 from botend.controller.plugins.portal.PortalMplusRunMonitor import PortalMplusRunMonitor
+from botend.controller.plugins.portal.PortalPeakSpecRankMonitor import PortalPeakSpecRankMonitor
 from botend.controller.plugins.portal.PortalVideoMonitor import PortalVideoMonitor
 from botend.controller.plugins.portal.PortalMythicstatsDpsMonitor import PortalMythicstatsDpsMonitor
 from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
@@ -58,6 +59,7 @@ Monitor_Type_BaseObject_List = [
     PortalPostMonitor,
     PortalEventMonitor,
     PortalMplusRunMonitor,
+    PortalPeakSpecRankMonitor,
     PortalVideoMonitor,
     PortalMythicstatsDpsMonitor,
     WagoSkillDiffMonitor,
