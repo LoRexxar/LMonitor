@@ -277,7 +277,7 @@ function classColor(slug) {
     "mage": "#69CCF0",
     "monk": "#00FF96",
     "paladin": "#F58CBA",
-    "priest": "#FFFFFF",
+    "priest": "#E5E7EB",
     "rogue": "#FFF569",
     "shaman": "#0070DE",
     "warlock": "#9482C9",
@@ -415,7 +415,7 @@ function renderPeakSpecGrid(containerId, payload) {
       const region = String(x?.rio_region_slug || "").trim().toUpperCase();
       const server = escapeHtml([realm, region].filter(Boolean).join(" "));
       const href = sanitizeHref(x?.profile_url || "");
-      const dotBorder = String(titleColor || "").toLowerCase() === "#ffffff" ? "border-slate-300" : "border-slate-200";
+      const dotBorder = classSlug === "priest" ? "border-slate-400" : "border-slate-200";
       const dot = `<span class="inline-block w-2 h-2 rounded-full border ${dotBorder}" style="background:${titleColor}"></span>`;
       const linkText = href
         ? `<a class="text-slate-900 hover:underline font-semibold" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${name}</a>`
@@ -474,7 +474,7 @@ function renderMplusRuns(containerId, items) {
     const renderMember = (m) => {
       const name = escapeHtml(m?.name || "-");
       const color = classColor(m?.class_slug);
-      const border = color.toLowerCase() === "#ffffff" ? "border-slate-300" : "border-transparent";
+      const border = m?.class_slug === "priest" ? "border-slate-400" : "border-transparent";
       return `<span class="inline-flex items-center gap-1.5 rounded-md bg-white/70 border ${border} px-1.5 py-0.5">
         <span class="w-2 h-2 rounded-full border border-slate-200" style="background:${color}"></span>
         <span class="text-slate-800 font-semibold">${name}</span>
@@ -718,6 +718,8 @@ function renderMythicstatsTable(role, items) {
   const maxTop = Math.max(1, ...filtered.map((x) => (Number.isFinite(Number(x.top_value)) ? Number(x.top_value) : 0)));
   const rows = filtered.slice(0, 60).map((it) => {
     const color = getMythicstatsColor(it);
+    const cls = getMythicstatsClassFromSlug(String(it?.spec_slug || "").trim());
+    const isPriest = cls === "priest";
     const rank = escapeHtml(it.rank);
     const diffRaw = String(it.diff_raw || "").trim();
     const diffVal = Number(it.diff_value);
@@ -741,16 +743,23 @@ function renderMythicstatsTable(role, items) {
     const avgPct = Math.max(0, Math.min(100, (avgVal / maxTop) * 100));
     const topPct = Math.max(0, Math.min(100, (topVal / maxTop) * 100));
 
-    const bar = `<div class="relative h-3 w-full rounded bg-slate-200/70 overflow-hidden shadow-inner">
-      <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.22)}"></div>
-      <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${mythicstatsHexToRgba(color, 0.92)}"></div>
+    const topBg = isPriest
+      ? "repeating-linear-gradient(135deg, rgba(71,85,105,0.14) 0 6px, rgba(255,255,255,0.32) 6px 12px)"
+      : mythicstatsHexToRgba(color, 0.22);
+    const avgBg = isPriest
+      ? "repeating-linear-gradient(135deg, rgba(71,85,105,0.24) 0 6px, rgba(255,255,255,0.96) 6px 12px)"
+      : mythicstatsHexToRgba(color, 0.92);
+    const fillShadow = isPriest ? "box-shadow:inset 0 0 0 1px rgba(30,41,59,0.35);" : "";
+    const bar = `<div class="relative h-3 w-full rounded bg-slate-200/70 overflow-hidden shadow-inner border border-slate-300/70">
+      <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${topBg};${fillShadow}"></div>
+      <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${avgBg};${fillShadow}"></div>
     </div>`;
 
     return `<div class="py-1.5">
       <div class="flex items-center gap-3">
         <div class="w-8 text-xs font-semibold text-slate-500">${rank}</div>
         <div class="w-[372px] min-w-[372px] grid grid-cols-[72px_36px_44px_56px_56px_44px] items-center gap-1">
-          <a class="font-semibold truncate mythicstats-spec-link" style="color:${escapeHtml(color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
+          <a class="font-semibold truncate mythicstats-spec-link" style="color:${escapeHtml(isPriest ? "#475569" : color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
           <div class="text-right">${tierBadge}</div>
           <div class="text-right text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</div>
           <div class="text-right text-[11px] font-semibold text-slate-700">${avg}</div>
