@@ -59,8 +59,8 @@ Monitor_Type_BaseObject_List = [
     PortalPostMonitor,
     PortalEventMonitor,
     PortalMplusRunMonitor,
-    PortalPeakSpecRankMonitor,
     PortalVideoMonitor,
     PortalMythicstatsDpsMonitor,
     WagoSkillDiffMonitor,
+    PortalPeakSpecRankMonitor,
 ]

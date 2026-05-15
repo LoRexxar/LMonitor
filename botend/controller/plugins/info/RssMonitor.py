@@ -19,9 +19,13 @@ import json
 import time
 import random
 import datetime
-import feedparser
 import socket
 from django.utils import timezone
+
+try:
+    import feedparser
+except Exception:
+    feedparser = None
 
 
 class RssArticleMonitor(BaseScan):
@@ -54,6 +58,9 @@ class RssArticleMonitor(BaseScan):
         return True
 
     def parse_rss_article_list(self):
+        if feedparser is None:
+            logger.error("[Rss Monitor] feedparser not installed")
+            return
 
         for rmt in self.rmts:
             logger.info("[Rss Monitor] Try to get {} article list".format(rmt.name))

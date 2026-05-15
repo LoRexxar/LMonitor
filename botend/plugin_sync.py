@@ -15,8 +15,32 @@ def sync_monitortasks_from_plugin_list(
     skip = set(skip_indexes or [])
     created = 0
     total = len(plugin_list or [])
+    name_to_idx = {}
+    for idx, plugin_cls in enumerate(plugin_list or []):
+        if idx in skip:
+            continue
+        name = getattr(plugin_cls, "__name__", None) or f"PluginType{idx}"
+        name_to_idx[str(name)] = idx
 
     with transaction.atomic():
+        candidates = list(MonitorTask.objects.filter(name__in=list(name_to_idx.keys())))
+        to_fix = []
+        for t in candidates:
+            desired = name_to_idx.get((t.name or "").strip())
+            if desired is None:
+                continue
+            try:
+                cur = int(getattr(t, "type", 0) or 0)
+            except Exception:
+                cur = 0
+            if cur != int(desired):
+                to_fix.append((int(t.id), int(desired)))
+
+        for tid, _desired in to_fix:
+            MonitorTask.objects.filter(id=tid).update(type=-tid)
+        for tid, desired in to_fix:
+            MonitorTask.objects.filter(id=tid).update(type=desired)
+
         for idx, plugin_cls in enumerate(plugin_list or []):
             if idx in skip:
                 continue
