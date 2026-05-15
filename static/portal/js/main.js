@@ -333,6 +333,7 @@ const PEAK_SPEC_CN = {
   "unholy": "邪恶",
   "havoc": "浩劫",
   "vengeance": "复仇",
+  "devourer": "噬灭",
   "balance": "平衡",
   "feral": "野性",
   "guardian": "守护",
@@ -392,19 +393,28 @@ function renderPeakSpecGrid(containerId, payload) {
   }
 
   const q = String(getSearchQuery() || "").trim().toLowerCase();
-  const cards = [];
+  const beforeCards = [];
+  const druidCards = [];
+  const afterCards = [];
+  let sawDruid = false;
   for (const spec of items) {
     const classSlug = spec?.class_slug || "";
     const className = spec?.class_name || classSlug;
     const specName = spec?.spec_name || spec?.spec_slug || "";
     const specSlug = spec?.spec_slug || "";
     const top = Array.isArray(spec?.items) ? spec.items : [];
-    const filtered = q ? top.filter((x) => String(x?.name || "").toLowerCase().includes(q)) : top;
-    if (q && !filtered.length) continue;
 
     const titleColor = classColor(classSlug);
     const softBg = mythicstatsHexToRgba(titleColor, 0.1);
     const title = `${peakCnClass(classSlug, className)} · ${peakCnSpec(specSlug, specName)}`;
+    const titleLower = String(title).toLowerCase();
+
+    let filtered = top;
+    if (q) {
+      const matchTitle = titleLower.includes(q);
+      filtered = matchTitle ? top : top.filter((x) => String(x?.name || "").toLowerCase().includes(q));
+      if (!filtered.length) continue;
+    }
 
     const top3 = filtered.slice(0, 3);
     while (top3.length < 3) top3.push(null);
@@ -430,7 +440,7 @@ function renderPeakSpecGrid(containerId, payload) {
       </div>`;
     });
 
-    cards.push(`<div class="relative overflow-hidden rounded-xl border border-slate-200 bg-white/70 px-3 py-2">
+    const cardHtml = `<div class="relative overflow-hidden rounded-xl border border-slate-200 bg-white/70 px-3 py-2">
       <div class="absolute inset-0 pointer-events-none" style="background:linear-gradient(90deg, ${softBg} 0%, rgba(255,255,255,0) 62%);"></div>
       <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${titleColor}"></div>
       <div class="relative">
@@ -441,15 +451,31 @@ function renderPeakSpecGrid(containerId, payload) {
         </div>
         <div class="pt-1">${rows.join("")}</div>
       </div>
-    </div>`);
+    </div>`;
+
+    if (classSlug === "druid") {
+      sawDruid = true;
+      druidCards.push(cardHtml);
+    } else if (!sawDruid) {
+      beforeCards.push(cardHtml);
+    } else {
+      afterCards.push(cardHtml);
+    }
   }
 
-  if (!cards.length) {
+  const sections = [];
+  const grid3 = (arr) => `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">${arr.join("")}</div>`;
+  const grid4 = (arr) => `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">${arr.join("")}</div>`;
+  if (beforeCards.length) sections.push(grid3(beforeCards));
+  if (druidCards.length) sections.push(grid4(druidCards));
+  if (afterCards.length) sections.push(grid3(afterCards));
+
+  if (!sections.length) {
     el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
     return;
   }
 
-  el.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">${cards.join("")}</div>`;
+  el.innerHTML = `<div class="space-y-3">${sections.join("")}</div>`;
 }
 
 function renderMplusRuns(containerId, items) {
@@ -743,19 +769,21 @@ function renderMythicstatsTable(role, items) {
     const avgPct = Math.max(0, Math.min(100, (avgVal / maxTop) * 100));
     const topPct = Math.max(0, Math.min(100, (topVal / maxTop) * 100));
 
-    const topBg = mythicstatsHexToRgba(color, isPriest ? 0.18 : 0.22);
-    const avgBg = mythicstatsHexToRgba(color, isPriest ? 0.82 : 0.92);
-    const fillShadow = isPriest ? "box-shadow:inset 0 0 0 1px rgba(71,85,105,0.55);" : "";
+    const topBg = isPriest
+      ? "repeating-linear-gradient(135deg, rgba(71,85,105,0.14) 0 6px, rgba(255,255,255,0.32) 6px 12px)"
+      : mythicstatsHexToRgba(color, 0.22);
+    const avgBg = isPriest
+      ? "repeating-linear-gradient(135deg, rgba(71,85,105,0.24) 0 6px, rgba(255,255,255,0.96) 6px 12px)"
+      : mythicstatsHexToRgba(color, 0.92);
+    const fillShadow = "";
     const bar = `<div class="relative h-3 w-full rounded bg-slate-200/70 overflow-hidden shadow-inner border border-slate-300/70">
       <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${topBg};${fillShadow}"></div>
       <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${avgBg};${fillShadow}"></div>
     </div>`;
 
     const specAccentBg = mythicstatsHexToRgba(color, isPriest ? 0.2 : 0.14);
-    const specAccentBorder = isPriest ? "border-slate-400" : "border-slate-200";
-    const specAccentBarBorder = isPriest ? "border-slate-400" : "border-slate-200";
-    const specCell = `<div class="relative overflow-hidden rounded-md px-2 py-1 border ${specAccentBorder}" style="background:linear-gradient(90deg, ${specAccentBg} 0%, rgba(255,255,255,0) 68%);">
-      <div class="absolute left-0 top-0 bottom-0 w-1 border-r ${specAccentBarBorder}" style="background:${escapeHtml(color)}"></div>
+    const specCell = `<div class="relative overflow-hidden rounded-md px-2 py-1" style="background:linear-gradient(90deg, ${specAccentBg} 0%, rgba(255,255,255,0) 68%);">
+      <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${escapeHtml(color)}"></div>
       <div class="relative">
         <a class="font-semibold truncate mythicstats-spec-link block" style="color:#0f172a" href="${url}" target="_blank" rel="noreferrer">${name}</a>
       </div>

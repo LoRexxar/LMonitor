@@ -191,6 +191,7 @@ class PortalPeakSpecRankMonitor(BaseScan):
             {"class_slug": "death-knight", "spec_slug": "unholy"},
             {"class_slug": "demon-hunter", "spec_slug": "havoc"},
             {"class_slug": "demon-hunter", "spec_slug": "vengeance"},
+            {"class_slug": "demon-hunter", "spec_slug": "devourer"},
             {"class_slug": "druid", "spec_slug": "balance"},
             {"class_slug": "druid", "spec_slug": "feral"},
             {"class_slug": "druid", "spec_slug": "guardian"},
