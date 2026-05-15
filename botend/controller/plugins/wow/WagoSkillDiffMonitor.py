@@ -27,6 +27,7 @@ class WagoSkillDiffMonitor(BaseScan):
         self.task = task
         self.default_branch = 'wow'
         self.locale = str(getattr(settings, 'WAGO_SKILL_DIFF_LOCALE', 'enUS') or 'enUS')
+        self.name_locale = 'zhCN'
         self.http_timeout = int(getattr(settings, 'WAGO_SKILL_DIFF_TIMEOUT', 30) or 30)
         self._build_versions_cache = {'ts': 0, 'versions': []}
         self._chr_classes_cache = {}
@@ -368,7 +369,7 @@ class WagoSkillDiffMonitor(BaseScan):
             out = out[:40].strip()
         return out
 
-    def _extract_summary_samples(self, spell_changes, snap_spells, max_samples=10):
+    def _extract_summary_samples(self, spell_changes, snap_spells, max_samples=10, name_lookup=None):
         def to_float(x):
             try:
                 s = str(x).strip()
@@ -415,7 +416,7 @@ class WagoSkillDiffMonitor(BaseScan):
         candidates = []
         for spell_id, entry in (spell_changes or {}).items():
             diffs_by_table = (entry or {}).get('diffs') or {}
-            name = ((snap_spells or {}).get(spell_id) or {}).get('name') or str(spell_id)
+            name = ((name_lookup or {}).get(spell_id) or '').strip() or ((snap_spells or {}).get(spell_id) or {}).get('name') or str(spell_id)
             best_score = -1
             best_line = ''
             for tkey, items in diffs_by_table.items():
@@ -691,6 +692,7 @@ class WagoSkillDiffMonitor(BaseScan):
             WowSpecSpellMapSnapshot.objects.bulk_create(
                 map_objs,
                 update_conflicts=True,
+                unique_fields=['branch', 'locale', 'spec_id', 'spell_id'],
                 update_fields=['snapshot_build', 'updated_at'],
             )
 
@@ -712,6 +714,7 @@ class WagoSkillDiffMonitor(BaseScan):
             WowSpellSnapshot.objects.bulk_create(
                 spell_objs,
                 update_conflicts=True,
+                unique_fields=['branch', 'locale', 'spell_id'],
                 update_fields=['name', 'description', 'aura_description', 'snapshot_build', 'updated_at'],
             )
 
@@ -736,6 +739,7 @@ class WagoSkillDiffMonitor(BaseScan):
             WowSpellEffectSnapshot.objects.bulk_create(
                 eff_objs,
                 update_conflicts=True,
+                unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
                 update_fields=[
                     'effect',
                     'effect_aura',
@@ -767,7 +771,8 @@ class WagoSkillDiffMonitor(BaseScan):
 
         summary_title = ''
         if len(spell_changes) > 0:
-            samples = self._extract_summary_samples(spell_changes, snap_spells, max_samples=10)
+            zh_name_lookup = self._ensure_spell_names_zh(branch, to_build, list(spell_changes.keys()))
+            samples = self._extract_summary_samples(spell_changes, snap_spells, max_samples=10, name_lookup=zh_name_lookup)
             summary_title = self._glm_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples) or self._heuristic_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples)
         content_md = f"# {summary_title or (server_title + ' 职业技能变更报告')}\n\n- 版本：{from_build} → {to_build}\n- 技能数：{len(spell_changes)}\n"
         html_meta = self._write_html_report(
@@ -887,19 +892,21 @@ class WagoSkillDiffMonitor(BaseScan):
         self._skilllineability_cache[build] = m
         return m
 
-    def _load_chr_classes(self, build):
+    def _load_chr_classes(self, build, locale_override=None):
         build = (build or '').strip()
-        if build in self._chr_classes_cache:
-            return self._chr_classes_cache.get(build) or {}
-        url = f"https://wago.tools/db2/ChrClasses/csv?build={build}&locale={self.locale}"
+        use_locale = (locale_override or self.locale or '').strip() or 'enUS'
+        key = (build, use_locale)
+        if key in self._chr_classes_cache:
+            return self._chr_classes_cache.get(key) or {}
+        url = f"https://wago.tools/db2/ChrClasses/csv?build={build}&locale={use_locale}"
         content = self._http_get_bytes(url, timeout=max(60, self.http_timeout))
         if not content:
-            self._chr_classes_cache[build] = {}
+            self._chr_classes_cache[key] = {}
             return {}
         try:
             text = content.decode('utf-8', 'replace')
         except Exception:
-            self._chr_classes_cache[build] = {}
+            self._chr_classes_cache[key] = {}
             return {}
         reader = csv.DictReader(io.StringIO(text))
         out = {}
@@ -913,7 +920,7 @@ class WagoSkillDiffMonitor(BaseScan):
             name = (row.get('Name_lang') or row.get('Name_male_lang') or '').strip()
             if name:
                 out[cid] = name
-        self._chr_classes_cache[build] = out
+        self._chr_classes_cache[key] = out
         return out
 
     def _load_chr_specialization_to_class(self, build):
@@ -954,19 +961,21 @@ class WagoSkillDiffMonitor(BaseScan):
         self._chr_specialization_cache[build] = out
         return out
 
-    def _load_chr_specialization_meta(self, build):
+    def _load_chr_specialization_meta(self, build, locale_override=None):
         build = (build or '').strip()
-        if build in self._chr_specialization_meta_cache:
-            return self._chr_specialization_meta_cache.get(build) or {}
-        url = f"https://wago.tools/db2/ChrSpecialization/csv?build={build}&locale={self.locale}"
+        use_locale = (locale_override or self.locale or '').strip() or 'enUS'
+        key = (build, use_locale)
+        if key in self._chr_specialization_meta_cache:
+            return self._chr_specialization_meta_cache.get(key) or {}
+        url = f"https://wago.tools/db2/ChrSpecialization/csv?build={build}&locale={use_locale}"
         content = self._http_get_bytes(url, timeout=max(60, self.http_timeout))
         if not content:
-            self._chr_specialization_meta_cache[build] = {}
+            self._chr_specialization_meta_cache[key] = {}
             return {}
         try:
             text = content.decode('utf-8', 'replace')
         except Exception:
-            self._chr_specialization_meta_cache[build] = {}
+            self._chr_specialization_meta_cache[key] = {}
             return {}
         reader = csv.DictReader(io.StringIO(text))
         out = {}
@@ -990,7 +999,7 @@ class WagoSkillDiffMonitor(BaseScan):
             name = (row.get('Name_lang') or row.get('FemaleName_lang') or '').strip()
             if class_id > 0:
                 out[spec_id] = {'class_id': class_id, 'name': name or str(spec_id)}
-        self._chr_specialization_meta_cache[build] = out
+        self._chr_specialization_meta_cache[key] = out
         return out
 
     def _load_specialization_spells(self, build):
@@ -1401,7 +1410,7 @@ class WagoSkillDiffMonitor(BaseScan):
             out.append(f)
         return out
 
-    def _fetch_db2_row_by_id_requests(self, table, build, record_id):
+    def _fetch_db2_row_by_id_requests(self, table, build, record_id, locale_override=None):
         table = (table or '').strip()
         build = (build or '').strip()
         try:
@@ -1410,7 +1419,8 @@ class WagoSkillDiffMonitor(BaseScan):
             return {}
         if not table or not build or record_id <= 0:
             return {}
-        url = f"https://wago.tools/db2/{table}?build={build}&locale={self.locale}&filter[ID]=exact:{record_id}"
+        use_locale = (locale_override or self.locale or '').strip() or 'enUS'
+        url = f"https://wago.tools/db2/{table}?build={build}&locale={use_locale}&filter[ID]=exact:{record_id}"
         try:
             r = requests.get(url, timeout=max(30, self.http_timeout), headers={'User-Agent': 'Mozilla/5.0'})
         except Exception:
@@ -1434,7 +1444,7 @@ class WagoSkillDiffMonitor(BaseScan):
             return row if isinstance(row, dict) else {}
         return {}
 
-    def _fetch_spell_names_concurrent(self, build, spell_ids):
+    def _fetch_spell_names_concurrent(self, build, spell_ids, locale_override=None):
         spell_ids = [int(x) for x in (spell_ids or []) if int(x) > 0]
         if not spell_ids:
             return {}
@@ -1443,7 +1453,7 @@ class WagoSkillDiffMonitor(BaseScan):
         out = {}
 
         def work(spell_id):
-            row = self._fetch_db2_row_by_id_requests('SpellName', build, spell_id)
+            row = self._fetch_db2_row_by_id_requests('SpellName', build, spell_id, locale_override=locale_override)
             name = (row.get('Name_lang') or '').strip()
             return spell_id, name
 
@@ -1451,6 +1461,82 @@ class WagoSkillDiffMonitor(BaseScan):
             for spell_id, name in ex.map(work, spell_ids):
                 if name:
                     out[spell_id] = name
+        return out
+
+    def _fetch_spell_name_wowhead_cn(self, spell_id):
+        try:
+            spell_id = int(spell_id)
+        except Exception:
+            return ''
+        if spell_id <= 0:
+            return ''
+        url = f"https://www.wowhead.com/cn/spell={spell_id}"
+        try:
+            r = requests.get(url, timeout=max(30, self.http_timeout), headers={'User-Agent': 'Mozilla/5.0'})
+        except Exception:
+            return ''
+        if r.status_code != 200:
+            return ''
+        t = r.text or ''
+        m = re.search(r'<h1[^>]*>\s*([^<]+?)\s*</h1>', t, flags=re.I)
+        if m:
+            return html.unescape(m.group(1) or '').strip()
+        m = re.search(r'<title[^>]*>\s*([^<]+?)\s*</title>', t, flags=re.I)
+        if not m:
+            return ''
+        title = html.unescape(m.group(1) or '').strip()
+        title = re.sub(r'\s*-\s*Wowhead\s*$', '', title, flags=re.I).strip()
+        title = re.sub(r'\s*-\s*魔兽世界\s*$', '', title, flags=re.I).strip()
+        return title
+
+    def _ensure_spell_names_zh(self, branch, build, spell_ids):
+        spell_ids = [int(x) for x in (spell_ids or []) if int(x) > 0]
+        if not spell_ids:
+            return {}
+        existing = {
+            int(r['spell_id']): (r.get('name_zh') or '').strip()
+            for r in WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
+            .exclude(name_zh='')
+            .values('spell_id', 'name_zh')
+        }
+        missing = [sid for sid in spell_ids if not (existing.get(sid) or '').strip()]
+        fetched = {}
+        if missing:
+            fetched.update(self._fetch_spell_names_concurrent(build, missing, locale_override=self.name_locale))
+        still_missing = [sid for sid in missing if not (fetched.get(sid) or '').strip()]
+        if still_missing:
+            limit = 50
+            for sid in still_missing[:limit]:
+                name = (self._fetch_spell_name_wowhead_cn(sid) or '').strip()
+                if name:
+                    fetched[sid] = name
+        if fetched:
+            now = timezone.now()
+            objs = []
+            for sid, name in fetched.items():
+                if not (name or '').strip():
+                    continue
+                objs.append(
+                    WowSpellSnapshot(
+                        branch=branch,
+                        locale=self.locale,
+                        spell_id=int(sid),
+                        name_zh=(name or '')[:255],
+                        snapshot_build=build,
+                        updated_at=now,
+                    )
+                )
+            if objs:
+                WowSpellSnapshot.objects.bulk_create(
+                    objs,
+                    update_conflicts=True,
+                    unique_fields=['branch', 'locale', 'spell_id'],
+                    update_fields=['name_zh', 'snapshot_build', 'updated_at'],
+                )
+        out = dict(existing)
+        for sid, name in fetched.items():
+            if (name or '').strip():
+                out[int(sid)] = (name or '').strip()
         return out
 
     def _expand_spell_refs(self, build, text, depth=0, visited=None):
@@ -1980,6 +2066,21 @@ class WagoSkillDiffMonitor(BaseScan):
             fetched = self._fetch_spell_names_concurrent(to_build, missing)
             name_cache.update(fetched)
 
+        zh_name_cache = self._ensure_spell_names_zh(branch, to_build, spell_ids)
+        zh_class_names = self._load_chr_classes(to_build, locale_override=self.name_locale)
+        zh_spec_meta = self._load_chr_specialization_meta(to_build, locale_override=self.name_locale)
+        display_class_names = dict(class_names or {})
+        for cid, nm in (zh_class_names or {}).items():
+            if (nm or '').strip():
+                display_class_names[int(cid)] = nm
+        display_spec_meta = {}
+        for sid, meta in (spec_meta or {}).items():
+            zh_name = ((zh_spec_meta or {}).get(sid) or {}).get('name') or ''
+            m = dict(meta or {})
+            if (zh_name or '').strip():
+                m['name'] = zh_name
+            display_spec_meta[sid] = m
+
         class_to_spec_to_spells = {}
         for spell_id in spell_changes.keys():
             specs = spell_to_specs.get(spell_id) or set()
@@ -2038,14 +2139,14 @@ class WagoSkillDiffMonitor(BaseScan):
 
         parts.append("<div class='toc'><div style='font-weight:800'>目录</div>")
         for cid in sorted(class_to_spec_to_spells.keys()):
-            cname = (class_names or {}).get(cid) or str(cid)
+            cname = (display_class_names or {}).get(cid) or str(cid)
             parts.append(f"<div style='margin-top:6px'><a href='#class-{cid}'>{html.escape(cname)}</a></div>")
             spec_map = class_to_spec_to_spells.get(cid) or {}
             for spec_id in sorted(spec_map.keys()):
                 if spec_id == 0:
                     spec_name = '通用'
                 else:
-                    spec_name = ((spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id)
+                    spec_name = ((display_spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id)
                 parts.append(f"<div style='margin-left:14px;margin-top:4px'><a href='#class-{cid}-spec-{spec_id}'>{html.escape(spec_name)}</a></div>")
         parts.append("</div>")
 
@@ -2118,17 +2219,17 @@ class WagoSkillDiffMonitor(BaseScan):
             return ' ' + ' '.join([f"<span class='del'>{html.escape(x)}</span>" for x in removed])
 
         for cid in sorted(class_to_spec_to_spells.keys()):
-            cname = (class_names or {}).get(cid) or str(cid)
+            cname = (display_class_names or {}).get(cid) or str(cid)
             parts.append(f"<h2 id='class-{cid}'>{html.escape(cname)} <span class='subtle'>职业 {cid}</span></h2>")
             spec_map = class_to_spec_to_spells.get(cid) or {}
             for spec_id in sorted(spec_map.keys()):
                 if spec_id == 0:
                     spec_name = '通用'
                 else:
-                    spec_name = ((spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id)
+                    spec_name = ((display_spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id)
                 parts.append(f"<h3 id='class-{cid}-spec-{spec_id}'>{html.escape(spec_name)} <span class='subtle'>专精 {spec_id}</span></h3>")
                 for spell_id in sorted(spec_map.get(spec_id) or []):
-                    sname = (name_cache.get(spell_id) or '').strip() or str(spell_id)
+                    sname = (zh_name_cache.get(spell_id) or '').strip() or (name_cache.get(spell_id) or '').strip() or str(spell_id)
                     wowhead_spell_url = f"https://www.wowhead.com/spell={spell_id}"
                     diffs_by_table = (spell_changes.get(spell_id) or {}).get('diffs') or {}
                     if not diffs_by_table:

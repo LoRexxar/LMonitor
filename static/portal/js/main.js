@@ -249,6 +249,7 @@ const SECTION_MAP = {
   nga: { url: "/portal/api/nga-hot/", listId: "nga-list" },
   events: { url: "/portal/api/events/", listId: "events-list" },
   videos: { url: "/portal/api/videos/", listId: "videos-list", tagsId: "videos-tags" },
+  mplus_cutoffs: { url: "/portal/api/mplus/cutoff/", listId: "mplus-cutoffs" },
   mplus_rankings: { url: "/portal/api/mplus/rankings/", listId: "mplus-rankings" },
   peak_spec_rankings: { url: "/portal/api/peak/spec-rankings/", listId: "peak-spec-rankings" },
   mythicstats_dps: { url: "/portal/api/mythicstats/dps/", listId: "mythicstats-table" },
@@ -260,6 +261,7 @@ const PORTAL_STATE = {
   videoTags: [],
   activeVideoTag: "",
   activeDungeon: "",
+  mplusCutoffsMeta: { season: "", updated_at: "" },
   activeMythicstatsDungeon: 0,
   activeMythicstatsPeriod: "",
   mythicstatsMeta: { dungeons: [], periods: [] },
@@ -309,6 +311,65 @@ function renderMplusControls(dungeons) {
       loadSection("mplus_rankings");
     });
   }
+}
+
+function renderMplusCutoffs(containerId, payload) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const rawItems = payload?.items;
+  const items = Array.isArray(rawItems) ? rawItems : [];
+  const query = getSearchQuery();
+  const filtered = filterItems(items, query);
+  if (!items.length) {
+    el.innerHTML = `<div class="text-slate-500">暂无数据</div>`;
+    return;
+  }
+  if (!filtered.length) {
+    el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
+    return;
+  }
+
+  const season = escapeHtml(payload?.season || "");
+  const updatedAt = escapeHtml(payload?.updated_at || "");
+  const metaParts = [];
+  if (season) metaParts.push(`<span>赛季：${season}</span>`);
+  if (updatedAt) metaParts.push(`<span>更新：${updatedAt}</span>`);
+  const meta = metaParts.length ? `<div class="text-xs text-slate-500 mb-2 flex flex-wrap gap-x-3 gap-y-1">${metaParts.join("")}</div>` : "";
+
+  const fmt = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(2) : "--";
+  };
+
+  const rows = filtered
+    .slice(0, 6)
+    .map((it) => {
+      const region = escapeHtml(it.region_name || it.region || "");
+      const href = sanitizeHref(it.source_url || it.url || "");
+      const url = escapeHtml(href);
+      const rCell = url
+        ? `<a class="font-medium text-slate-900 hover:text-indigo-700" href="${url}" target="_blank" rel="noreferrer">${region}</a>`
+        : `<span class="font-medium text-slate-900">${region}</span>`;
+      return `<tr class="border-t border-slate-100">
+        <td class="px-3 py-2">${rCell}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${escapeHtml(fmt(it.cutoff_0_1))}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${escapeHtml(fmt(it.cutoff_1))}</td>
+      </tr>`;
+    })
+    .join("");
+
+  el.innerHTML = `${meta}<div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50">
+        <tr>
+          <th class="px-3 py-2 text-left font-semibold text-slate-700">服务器</th>
+          <th class="px-3 py-2 text-right font-semibold text-slate-700">0.1%</th>
+          <th class="px-3 py-2 text-right font-semibold text-slate-700">1%</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
 }
 
 const PEAK_CLASS_CN = {
@@ -1096,6 +1157,15 @@ async function loadSection(key) {
     const r = await fetchJson(url);
     if (key === "videos") {
       renderVideos(r.data || {});
+    } else if (key === "mplus_cutoffs") {
+      const payload = r.data || {};
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      PORTAL_STATE.dataBySection[key] = items;
+      PORTAL_STATE.mplusCutoffsMeta = {
+        season: String(payload.season || ""),
+        updated_at: String(payload.updated_at || ""),
+      };
+      renderMplusCutoffs(ep.listId, { season: PORTAL_STATE.mplusCutoffsMeta.season, updated_at: PORTAL_STATE.mplusCutoffsMeta.updated_at, items });
     } else if (key === "mplus_rankings") {
       const payload = r.data || {};
       const items = payload.items || [];
@@ -1174,6 +1244,12 @@ function bindSearch() {
         if (ep.listId && PORTAL_STATE.dataBySection[key]) {
           if (key === "mplus_rankings") {
             renderMplusRuns(ep.listId, PORTAL_STATE.dataBySection[key]);
+          } else if (key === "mplus_cutoffs") {
+            renderMplusCutoffs(ep.listId, {
+              season: PORTAL_STATE.mplusCutoffsMeta.season,
+              updated_at: PORTAL_STATE.mplusCutoffsMeta.updated_at,
+              items: PORTAL_STATE.dataBySection[key] || [],
+            });
           } else if (key === "videos") {
             renderVideos({ tags: PORTAL_STATE.videoTags, items: PORTAL_STATE.dataBySection.videos || [] });
           } else if (key === "events") {
@@ -1205,6 +1281,7 @@ async function loadAll() {
   await loadSection("nga");
   await loadSection("events");
   await loadSection("videos");
+  await loadSection("mplus_cutoffs");
   await loadSection("mplus_rankings");
   await loadSection("peak_spec_rankings");
   await loadSection("mythicstats_dps");
