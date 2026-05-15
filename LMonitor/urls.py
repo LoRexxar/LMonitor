@@ -17,6 +17,7 @@ from django.contrib import admin
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect
+from django.views.generic.base import RedirectView
 
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
@@ -46,6 +47,7 @@ from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
+    path('favicon.ico', RedirectView.as_view(url='/static/portal/favicons/3accfdf0352f2189a3292605e1ad80f12bd5a15c605069102f42c03c3c4fceda.ico', permanent=True)),
     path('', PortalHomeView.as_view(), name='portal_home'),
     
     # 认证相关路由

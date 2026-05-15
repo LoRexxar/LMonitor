@@ -293,9 +293,9 @@ class PortalBluepostsAPIView(View):
 
 class PortalNgaHotAPIView(View):
     def get(self, request):
-        qs = WowArticle.objects.filter(source='nga', category='hot', is_active=True)
+        qs = WowArticle.objects.filter(source='nga', category='hot', is_active=True, reply_count__gt=20)
         if not qs.exists():
-            qs = WowArticle.objects.filter(source='nga', is_active=True)
+            qs = WowArticle.objects.filter(source='nga', is_active=True, reply_count__gt=20)
         rows = list(qs.order_by('-publish_time', '-id')[:40])
         return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
 

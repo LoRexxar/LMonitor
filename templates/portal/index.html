@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="https://wow.lorexxar.cn/favicon.ico">
-    <title>魔兽资讯</title>
+    <link rel="icon" href="/favicon.ico">
+    <title>魔兽世界每日节奏</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260515_4">
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260515_5">
 </head>
 <body class="portal-bg font-sans">
     <header class="portal-header">
@@ -16,9 +16,9 @@
                 <div class="portal-header-brand">
                     <div class="portal-header-logo">
                         <svg class="portal-logo-fallback-icon w-5 h-5 text-indigo-700" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
-                        <img class="portal-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽资讯徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
+                        <img class="portal-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽世界每日节奏徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
                     </div>
-                    <div class="portal-header-title">魔兽资讯</div>
+                    <div class="portal-header-title">魔兽世界每日节奏</div>
                 </div>
             </div>
             <div class="portal-header-actions">
@@ -34,9 +34,12 @@
         <div class="portal-topbar">
             <div class="portal-topbar-inner">
                 <div class="portal-hero">
-                    <div class="portal-hero-logo">
-                        <svg class="portal-logo-fallback-icon w-12 h-12 text-indigo-700/80" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
-                        <img class="portal-hero-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽资讯徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
+                    <div class="portal-hero-brand">
+                        <div class="portal-hero-logo">
+                            <svg class="portal-logo-fallback-icon w-12 h-12 text-indigo-700/80" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
+                            <img class="portal-hero-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽世界每日节奏徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
+                        </div>
+                        <div class="portal-hero-title">魔兽世界每日节奏</div>
                     </div>
                     <div class="portal-hero-search">
                         <input id="portal-search" class="portal-hero-input" placeholder="搜索：标题 / 来源 / 作者 ..." autocomplete="off">
