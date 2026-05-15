@@ -605,8 +605,8 @@ function renderMythicstatsTable(role, items) {
     </div>`;
 
     return `<div class="py-1.5">
-      <div class="flex items-start gap-3">
-        <div class="w-8 pt-0.5 text-xs font-semibold text-slate-500">${rank}</div>
+      <div class="flex items-center gap-3">
+        <div class="w-8 text-xs font-semibold text-slate-500">${rank}</div>
         <div class="w-[372px] min-w-[372px] grid grid-cols-[72px_36px_44px_56px_56px_44px] items-center gap-1">
           <a class="font-semibold truncate mythicstats-spec-link" style="color:${escapeHtml(color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
           <div class="text-right">${tierBadge}</div>
@@ -615,7 +615,7 @@ function renderMythicstatsTable(role, items) {
           <div class="text-right text-[11px] font-semibold text-slate-500">${top}</div>
           <div class="text-right text-[11px] text-slate-500">${runs}</div>
         </div>
-        <div class="flex-1 min-w-0">${bar}</div>
+        <div class="flex-1 min-w-0 flex items-center">${bar}</div>
       </div>
     </div>`;
   });
