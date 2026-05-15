@@ -39,47 +39,89 @@ class wowheadMonitor(BaseScan):
         cookies = ""
 
         driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1, is_proxy=True)
-        if not driver:
-            return True
-        # 处理返回内容
-        self.resolve_data(driver, "wowhead", 10)
+        if driver:
+            post_count, _ = self.resolve_data(driver, "wowhead", 10)
+            if int(post_count or 0) <= 0:
+                driver2 = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1, is_proxy=False)
+                if driver2:
+                    self.resolve_data(driver2, "wowhead", 10)
 
         return True
 
     def resolve_data(self, driver, title="", limit=10):
 
         try:
-            time.sleep(3)
+            time.sleep(2)
 
-            posts = driver.eles('#news-card-simple')
+            posts = []
+            for _ in range(8):
+                posts = driver.eles('.news-card-simple') or driver.eles('#news-card-simple') or []
+                if posts:
+                    break
+                time.sleep(1)
 
-            for post in posts:
-                post_type = post.ele('.news-card-simple-text').text
-                post_title = post.ele('.news-card-simple-text-title').text
-                post_link = post.ele('.news-card-simple-text-title').link
-                post_preview = post.ele('.news-card-simple-text-preview').text
-                post_date = post.ele('.news-card-simple-text-byline').ele('tag:span').attr('title')
+            if not posts:
+                logger.error("[wowheadMonitor] No posts found.")
+                return 0, 0
 
-                original_datetime = datetime.strptime(post_date, "%Y/%m/%d at %H:%M")
-                django_date_time = original_datetime.strftime("%Y-%m-%d %H:%M")
+            new_count = 0
+            for post in posts[:int(limit or 10)]:
+                try:
+                    post_type = post.ele('.news-card-simple-text').text
+                    post_title = post.ele('.news-card-simple-text-title').text
+                    post_link = post.ele('.news-card-simple-text-title').link
+                    post_preview = post.ele('.news-card-simple-text-preview').text
+                    post_date = post.ele('.news-card-simple-text-byline').ele('tag:span').attr('title')
 
-                wa = WowArticle.objects.filter(url=post_link).first()
+                    django_date_time = ''
+                    if post_date:
+                        try:
+                            original_datetime = datetime.strptime(post_date, "%Y/%m/%d at %H:%M")
+                            django_date_time = original_datetime.strftime("%Y-%m-%d %H:%M")
+                        except ValueError:
+                            for fmt in ("%b %d, %Y at %H:%M", "%B %d, %Y at %H:%M"):
+                                try:
+                                    original_datetime = datetime.strptime(post_date, fmt)
+                                    django_date_time = original_datetime.strftime("%Y-%m-%d %H:%M")
+                                    break
+                                except ValueError:
+                                    pass
+                    if not django_date_time:
+                        django_date_time = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-                if wa:
-                    continue
+                    if not post_link:
+                        continue
 
-                obj = WowArticle(title="[{}]{}".format(post_type, post_title), url=post_link, publish_time=django_date_time, author="wowhead", description=post_preview)
-                obj.save()
-                logger.info("[wowhead Monitor] Found new wowhead article.{}".format(post_title))
+                    wa = WowArticle.objects.filter(url=post_link).first()
+                    if wa:
+                        continue
 
-                self.task.flag = post_link
-                self.task.save()
+                    obj = WowArticle(
+                        title="[{}]{}".format(post_type, post_title),
+                        url=post_link,
+                        publish_time=django_date_time,
+                        author="wowhead",
+                        description=post_preview,
+                        source="wowhead",
+                        category="news",
+                    )
+                    obj.save()
+                    new_count += 1
+                    logger.info("[wowhead Monitor] Found new wowhead article.{}".format(post_title))
 
-                self.post_desp = """WowHead新闻<{}>，发帖时间{}
+                    self.task.flag = post_link
+                    self.task.save()
+
+                    self.post_desp = """WowHead新闻<{}>，发帖时间{}
 [{}]《{}》
 {}""".format(title, post_date, post_type, post_title, post_link)
 
-                self.trigger_webhook()
+                    self.trigger_webhook()
+                except Exception as e:
+                    logger.warning("[wowheadMonitor] Parse post failed: {}".format(str(e)))
+                    continue
+
+            return len(posts), new_count
 
         except DrissionPage.errors.ElementNotFoundError:
             logger.error("[wowheadMonitor] bad request.")
@@ -92,6 +134,8 @@ class wowheadMonitor(BaseScan):
 
         except:
             raise
+
+        return 0, 0
 
     def trigger_webhook(self):
         """

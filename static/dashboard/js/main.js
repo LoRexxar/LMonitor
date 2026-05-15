@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化搜索功能
     initSearch();
     initSimcProfileFilters();
+    initWowArticleFilters();
     
     // 初始化页面大小选择器
     initPageSizeSelector();
@@ -1168,6 +1169,8 @@ let currentTableRowMap = new Map();
 let currentEditRowId = null;
 let simcProfileSpecFilter = '';
 let simcProfileFightStyleFilter = '';
+let wowArticleSourceFilter = '';
+let wowArticleCategoryFilter = '';
 let secondaryStatRuleMap = null;
 let secondaryStatRulePromise = null;
 
@@ -1193,6 +1196,7 @@ function fetchTableData(tableName, page = 1) {
     
     // 如果是SimcTask表，使用专门的API
     updateSimcProfileFilterBar();
+    updateWowArticleFilterBar();
     if (tableName === 'SimcTask') {
         fetchSimcTaskData(page);
         return;
@@ -1225,6 +1229,10 @@ function fetchTableData(tableName, page = 1) {
         if (simcProfileSpecFilter) requestData.simc_spec = simcProfileSpecFilter;
         if (simcProfileFightStyleFilter) requestData.simc_fight_style = simcProfileFightStyleFilter;
     }
+    if (tableName === 'WowArticle') {
+        if (wowArticleSourceFilter) requestData.wow_source = wowArticleSourceFilter;
+        if (wowArticleCategoryFilter) requestData.wow_category = wowArticleCategoryFilter;
+    }
     
     // 发送AJAX请求获取表数据
     fetch('/dashboard/', {
@@ -1244,6 +1252,7 @@ function fetchTableData(tableName, page = 1) {
     })
     .then(data => {
         updateSimcProfileFilterBar();
+        updateWowArticleFilterBar();
         if (data.status === 'success') {
             if (data.data && Array.isArray(data.data) && data.fields) {
                 // 更新分页信息
@@ -1261,6 +1270,10 @@ function fetchTableData(tableName, page = 1) {
                     if (selectedTableName) {
                         selectedTableName.textContent = currentTableDisplayName;
                     }
+                }
+
+                if (currentTableName === 'WowArticle' && data.wow_filter_options) {
+                    updateWowArticleFilterOptions(data.wow_filter_options);
                 }
                 
                 displayTableData(data.data, data.fields);
@@ -1293,6 +1306,13 @@ function updateSimcProfileFilterBar() {
     const bar = document.getElementById('simc-profile-filter-bar');
     if (!bar) return;
     if (currentTableName === 'SimcProfile') bar.classList.remove('hidden');
+    else bar.classList.add('hidden');
+}
+
+function updateWowArticleFilterBar() {
+    const bar = document.getElementById('wow-article-filter-bar');
+    if (!bar) return;
+    if (currentTableName === 'WowArticle') bar.classList.remove('hidden');
     else bar.classList.add('hidden');
 }
 
@@ -1364,15 +1384,9 @@ function displayTableData(data, fields) {
         displayFields = orderedFields.filter(field => allFields.includes(field));
     }
     
-    // 针对WowArticle表的特殊处理：显示序号、title、author、publish_time
+    // 针对WowArticle表的特殊处理：显示序号、title、source、category、author、publish_time
     else if (currentTableName === 'WowArticle') {
-        displayFields = fields.filter(field => 
-            field === 'title' || 
-            field === 'author' ||
-            field === 'publish_time'
-        );
-        // 确保关键字段存在并按顺序排列
-        const orderedFields = ['title', 'author', 'publish_time'];
+        const orderedFields = ['title', 'source', 'category', 'author', 'publish_time'];
         displayFields = orderedFields.filter(field => allFields.includes(field));
     }
     
@@ -3826,6 +3840,73 @@ function initSimcProfileFilters() {
             if (currentTableName === 'SimcProfile') fetchTableData('SimcProfile', 1);
         });
     }
+}
+
+function initWowArticleFilters() {
+    const sourceInput = document.getElementById('wow-article-source-filter');
+    const categoryInput = document.getElementById('wow-article-category-filter');
+    const applyBtn = document.getElementById('wow-article-filter-apply');
+    const resetBtn = document.getElementById('wow-article-filter-reset');
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            wowArticleSourceFilter = sourceInput ? sourceInput.value.trim() : '';
+            wowArticleCategoryFilter = categoryInput ? categoryInput.value.trim() : '';
+            if (currentTableName === 'WowArticle') fetchTableData('WowArticle', 1);
+        });
+    }
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            wowArticleSourceFilter = '';
+            wowArticleCategoryFilter = '';
+            if (sourceInput) sourceInput.value = '';
+            if (categoryInput) categoryInput.value = '';
+            if (currentTableName === 'WowArticle') fetchTableData('WowArticle', 1);
+        });
+    }
+}
+
+function updateWowArticleFilterOptions(options) {
+    const sourceInput = document.getElementById('wow-article-source-filter');
+    const categoryInput = document.getElementById('wow-article-category-filter');
+    if (!sourceInput || !categoryInput) return;
+
+    const currentSource = sourceInput.value;
+    const currentCategory = categoryInput.value;
+
+    const sources = (options && Array.isArray(options.sources))
+        ? options.sources.map(v => (v || '').toString().trim()).filter(v => v)
+        : [];
+    const categories = (options && Array.isArray(options.categories))
+        ? options.categories.map(v => (v || '').toString().trim()).filter(v => v)
+        : [];
+
+    sourceInput.innerHTML = '';
+    const allSourceOption = document.createElement('option');
+    allSourceOption.value = '';
+    allSourceOption.textContent = '全部来源';
+    sourceInput.appendChild(allSourceOption);
+    for (const v of sources) {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        sourceInput.appendChild(opt);
+    }
+
+    categoryInput.innerHTML = '';
+    const allCategoryOption = document.createElement('option');
+    allCategoryOption.value = '';
+    allCategoryOption.textContent = '全部分类';
+    categoryInput.appendChild(allCategoryOption);
+    for (const v of categories) {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        categoryInput.appendChild(opt);
+    }
+
+    sourceInput.value = sources.includes(currentSource) ? currentSource : '';
+    categoryInput.value = categories.includes(currentCategory) ? currentCategory : '';
 }
 
 /**

@@ -110,6 +110,7 @@ COMMON_FIELD_LABELS = {
     'tag': '标签',
     'description': '描述',
     'source': '来源',
+    'category': '分类',
     'reference': '参考',
     'solutions': '解决方案',
     'severity': '严重等级',
@@ -240,6 +241,8 @@ class DashboardView(View):
             search_query = data.get('search', '').strip()
             simc_spec_filter = data.get('simc_spec', '').strip()
             simc_fight_style_filter = data.get('simc_fight_style', '').strip()
+            wow_source_filter = data.get('wow_source', '').strip()
+            wow_category_filter = data.get('wow_category', '').strip()
             
             logger.info(f"获取表数据: {table_name}, page: {page}, page_size: {page_size}, search: {search_query}")
             
@@ -326,7 +329,14 @@ class DashboardView(View):
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'WowArticle':
-                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time', 'description').order_by('-id')
+                    queryset = model.objects.values(
+                        'id', 'title', 'url', 'author', 'publish_time', 'description',
+                        'source', 'category'
+                    ).order_by('-id')
+                    if wow_source_filter:
+                        queryset = queryset.filter(source=wow_source_filter)
+                    if wow_category_filter:
+                        queryset = queryset.filter(category=wow_category_filter)
                     queryset = apply_search_filter(queryset, ['title', 'author', 'url'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
@@ -393,7 +403,7 @@ class DashboardView(View):
             
             # 返回数据
             table_description = MODEL_DESCRIPTIONS.get(table_name) or str(getattr(model._meta, 'verbose_name', '') or '').strip() or table_name
-            return JsonResponse({
+            resp = {
                 "status": "success", 
                 "data": items,
                 "fields": fields,
@@ -404,7 +414,19 @@ class DashboardView(View):
                 "page": page,
                 "page_size": page_size,
                 "total_pages": total_pages
-            })
+            }
+            if table_name == 'WowArticle':
+                sources = list(
+                    model.objects.exclude(source__isnull=True).exclude(source='').values_list('source', flat=True).distinct()
+                )
+                categories = list(
+                    model.objects.exclude(category__isnull=True).exclude(category='').values_list('category', flat=True).distinct()
+                )
+                resp["wow_filter_options"] = {
+                    "sources": sorted(sources),
+                    "categories": sorted(categories),
+                }
+            return JsonResponse(resp)
             
         except Exception as e:
             logger.error(f"获取表数据异常: {str(e)}\n{traceback.format_exc()}")

@@ -54,40 +54,93 @@ class PortalPeakSpecRankMonitor(BaseScan):
         return "season-mn-1"
 
     def _fetch_and_upsert(self, *, season, region, class_slug, spec_slug):
-        try:
-            api = "https://raider.io/api/mythic-plus/rankings/specs"
-            params = {
-                "season": season,
-                "region": region,
-                "class": class_slug,
-                "spec": spec_slug,
-                "page": 0,
-                "pageSize": 3,
-            }
-            resp = requests.get(api, params=params, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
-            if resp.status_code != 200:
-                logger.warning(f"[PortalPeakSpecRankMonitor] fetch failed: {class_slug}/{spec_slug} status={resp.status_code}")
+        api = "https://raider.io/api/mythic-plus/rankings/specs"
+        def fetch_page(page):
+            last_status = None
+            last_payload = None
+            for attempt in range(3):
+                try:
+                    params = {
+                        "season": season,
+                        "region": region,
+                        "class": class_slug,
+                        "spec": spec_slug,
+                        "page": page,
+                        "pageSize": 20,
+                    }
+                    resp = requests.get(api, params=params, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
+                    last_status = resp.status_code
+                    if resp.status_code != 200:
+                        time.sleep(0.6 + attempt * 0.6)
+                        continue
+                    last_payload = resp.json() or {}
+                    return last_payload, last_status
+                except Exception as e:
+                    logger.warning(
+                        f"[PortalPeakSpecRankMonitor] fetch error: {class_slug}/{spec_slug} page={page} err={str(e)}"
+                    )
+                    time.sleep(0.6 + attempt * 0.6)
+            return last_payload, last_status
+
+        top_rows = []
+        seen = set()
+        page = 0
+        last_status = None
+        while len(top_rows) < 3 and page < 5:
+            payload, last_status = fetch_page(page)
+            if not payload:
+                logger.warning(
+                    f"[PortalPeakSpecRankMonitor] fetch failed: {class_slug}/{spec_slug} page={page} status={last_status}"
+                )
                 return False
-            payload = resp.json() or {}
-        except Exception as e:
-            logger.warning(f"[PortalPeakSpecRankMonitor] fetch error: {class_slug}/{spec_slug} err={str(e)}")
-            return False
 
-        rankings = payload.get("rankings") or {}
-        rows = rankings.get("rankedCharacters") or []
-        if not isinstance(rows, list):
-            rows = []
+            rankings = payload.get("rankings") or {}
+            rows = rankings.get("rankedCharacters") or []
+            if not isinstance(rows, list):
+                rows = []
 
-        if not rows:
+            if not rows:
+                break
+
+            for row in rows:
+                if len(top_rows) >= 3:
+                    break
+                char = row.get("character") or {}
+                char_path = (char.get("path") or "").strip()
+                realm_obj = char.get("realm") or {}
+                rio_region_obj = char.get("region") or {}
+                realm_slug = (realm_obj.get("slug") or "").strip()
+                rio_region_slug = (rio_region_obj.get("slug") or "").strip()
+                char_name = (char.get("name") or "").strip()
+                if not char_name:
+                    continue
+
+                dedupe_key = (char_path or f"{char_name}|{realm_slug}|{rio_region_slug}").lower()
+                if not dedupe_key or dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                top_rows.append(row)
+
+            page += 1
+            time.sleep(0.2)
+
+        if not top_rows:
             return True
 
-        for row in rows[:3]:
-            try:
-                rank = int(row.get("rank") or 0)
-            except Exception:
-                rank = 0
-            if rank <= 0:
-                continue
+        if len(top_rows) < 3:
+            logger.warning(f"[PortalPeakSpecRankMonitor] not enough rows: {class_slug}/{spec_slug} rows={len(top_rows)}")
+            return True
+
+        PortalPeakSpecRankRow.objects.filter(
+            season=season,
+            region=region,
+            class_slug=class_slug,
+            spec_slug=spec_slug,
+            is_active=True,
+        ).update(is_active=False)
+
+        for idx, row in enumerate(top_rows[:3]):
+            rank = idx + 1
 
             score = row.get("score")
             score_color = (row.get("scoreColor") or "").strip()
@@ -101,9 +154,7 @@ class PortalPeakSpecRankMonitor(BaseScan):
             realm_obj = char.get("realm") or {}
             rio_region_obj = char.get("region") or {}
 
-            cur_class_slug = (class_obj.get("slug") or class_slug).strip()
             cur_class_name = (class_obj.get("name") or "").strip()
-            cur_spec_slug = (spec_obj.get("slug") or spec_slug).strip()
             cur_spec_name = (spec_obj.get("name") or "").strip()
             cur_spec_role = (spec_obj.get("role") or "").strip().lower()
 
@@ -114,8 +165,8 @@ class PortalPeakSpecRankMonitor(BaseScan):
             PortalPeakSpecRankRow.objects.update_or_create(
                 season=season,
                 region=region,
-                class_slug=cur_class_slug,
-                spec_slug=cur_spec_slug,
+                class_slug=class_slug,
+                spec_slug=spec_slug,
                 rank=rank,
                 defaults={
                     "class_name": cur_class_name,
@@ -175,4 +226,3 @@ class PortalPeakSpecRankMonitor(BaseScan):
             {"class_slug": "warrior", "spec_slug": "fury"},
             {"class_slug": "warrior", "spec_slug": "protection"},
         ]
-
