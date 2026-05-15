@@ -27,11 +27,29 @@ def _fmt_dt(dt):
         return ''
 
 
+def _normalize_url(v):
+    s = (v or '').strip()
+    if not s:
+        return ''
+    if s in ('-', '#'):
+        return ''
+    return s
+
+
+def _normalize_display_text(v):
+    s = (v or '').strip()
+    if not s:
+        return ''
+    if s == 'LMonitor':
+        return ''
+    return s
+
+
 def _article_to_dict(a):
     return {
         'title': a.title or '',
-        'url': a.url or '',
-        'author': a.author or '',
+        'url': _normalize_url(a.url),
+        'author': _normalize_display_text(a.author),
         'source': a.source or '',
         'category': a.category or '',
         'publish_time': _fmt_dt(a.publish_time),
@@ -51,7 +69,7 @@ def _event_to_dict(e):
             status = '进行中'
     return {
         'title': e.title or '',
-        'url': e.url or '',
+        'url': _normalize_url(e.url),
         'source': e.source or '',
         'tag': e.tag or '',
         'status': status,
@@ -63,12 +81,12 @@ def _event_to_dict(e):
 def _video_to_dict(v):
     return {
         'title': v.title or '',
-        'url': v.url or '',
+        'url': _normalize_url(v.url),
         'bvid': v.bvid or '',
-        'cover_url': v.cover_url or '',
+        'cover_url': _normalize_url(v.cover_url),
         'published_at': _fmt_dt(v.published_at),
-        'author': v.author_name or '',
-        'author_url': v.author_url or '',
+        'author': _normalize_display_text(v.author_name),
+        'author_url': _normalize_url(v.author_url),
         'tag': v.tag or '',
     }
 
@@ -76,9 +94,9 @@ def _video_to_dict(v):
 def _tool_to_dict(t):
     return {
         'name': t.name or '',
-        'url': t.url or '',
+        'url': _normalize_url(t.url),
         'desc': t.desc or '',
-        'icon_path': getattr(t, 'icon_path', '') or '',
+        'icon_path': _normalize_url(getattr(t, 'icon_path', '') or ''),
         'sort_order': t.sort_order or 0,
         'is_topbar': bool(t.is_topbar),
         'topbar_order': t.topbar_order or 0,
@@ -123,7 +141,7 @@ def _mplus_to_dict(r):
         'healer': r.healer or '',
         'party': party,
         'dps': dps,
-        'run_url': getattr(r, 'run_url', '') or '',
+        'run_url': _normalize_url(getattr(r, 'run_url', '') or ''),
         'source': r.source or '',
         'season': r.season or '',
         'region': r.region or '',
