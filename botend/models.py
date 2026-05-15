@@ -220,6 +220,7 @@ class WowSpellSnapshot(models.Model):
     locale = models.CharField(max_length=8, default="enUS")
     spell_id = models.BigIntegerField()
     name = models.CharField(max_length=255, default="", blank=True)
+    name_zh = models.CharField(max_length=255, default="", blank=True)
     description = models.TextField(default="", blank=True)
     aura_description = models.TextField(default="", blank=True)
     snapshot_build = models.CharField(max_length=64, default="", blank=True)
