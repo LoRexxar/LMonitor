@@ -331,6 +331,40 @@ class PortalMplusRun(models.Model):
         ]
 
 
+class PortalPeakSpecRankRow(models.Model):
+    season = models.CharField(max_length=64, default="unknown")
+    region = models.CharField(max_length=32, default="world")
+
+    class_slug = models.CharField(max_length=64, default="")
+    class_name = models.CharField(max_length=128, default="")
+    spec_slug = models.CharField(max_length=64, default="")
+    spec_name = models.CharField(max_length=128, default="")
+    spec_role = models.CharField(max_length=16, default="")
+
+    rank = models.IntegerField(default=0)
+    character_name = models.CharField(max_length=128, default="")
+    character_path = models.CharField(max_length=500, default="", blank=True)
+    score = models.FloatField(null=True, blank=True)
+    score_color = models.CharField(max_length=16, default="", blank=True)
+
+    rio_region_slug = models.CharField(max_length=16, default="", blank=True)
+    realm_slug = models.CharField(max_length=64, default="", blank=True)
+    realm_name = models.CharField(max_length=128, default="", blank=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'wow_portal_peak_spec_rank_row'
+        unique_together = (('season', 'region', 'class_slug', 'spec_slug', 'rank'),)
+        indexes = [
+            models.Index(fields=['season', 'region']),
+            models.Index(fields=['spec_role']),
+            models.Index(fields=['class_slug', 'spec_slug']),
+            models.Index(fields=['updated_at']),
+        ]
+
+
 class PortalMythicstatsDpsRow(models.Model):
     season = models.CharField(max_length=64, default="unknown")
     period_id = models.IntegerField()

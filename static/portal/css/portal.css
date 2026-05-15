@@ -116,6 +116,21 @@ html, body {
     padding: 0.5rem 0;
 }
 
+.portal-hero-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.portal-hero-title {
+    font-size: 1.4rem;
+    line-height: 1.1;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    color: rgb(15, 23, 42);
+}
+
 .portal-hero-logo {
     width: 8.25rem;
     height: 8.25rem;

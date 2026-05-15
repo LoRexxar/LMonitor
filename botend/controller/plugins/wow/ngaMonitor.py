@@ -10,6 +10,7 @@
 '''
 
 import time
+import re
 import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
@@ -80,8 +81,9 @@ class ngaMonitor(BaseScan):
                     continue
 
                 is_bad = False
-
-                post_count = tds[0].text
+                post_count_raw = tds[0].text
+                m = re.search(r'(\d+)', str(post_count_raw or ''))
+                post_count = int(m.group(1)) if m else 0
                 post_head = tds[1].ele('.:topic')
                 post_link = post_head.link
                 post_name = post_head.texts()
@@ -89,7 +91,7 @@ class ngaMonitor(BaseScan):
 
                 # original_datetime = datetime.strptime(post_date, "%m-%d %H:%M")
                 # django_date_time = original_datetime.strftime("%Y-%m-%d %H:%M")
-                if not post_count or int(post_count) < limit:
+                if not post_count or int(post_count) <= 20:
                     continue
 
                 for black in self.black_list:
