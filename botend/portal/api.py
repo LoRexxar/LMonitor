@@ -36,11 +36,20 @@ def _normalize_url(v):
     return s
 
 
+def _normalize_display_text(v):
+    s = (v or '').strip()
+    if not s:
+        return ''
+    if s == 'LMonitor':
+        return ''
+    return s
+
+
 def _article_to_dict(a):
     return {
         'title': a.title or '',
         'url': _normalize_url(a.url),
-        'author': a.author or '',
+        'author': _normalize_display_text(a.author),
         'source': a.source or '',
         'category': a.category or '',
         'publish_time': _fmt_dt(a.publish_time),
@@ -76,7 +85,7 @@ def _video_to_dict(v):
         'bvid': v.bvid or '',
         'cover_url': _normalize_url(v.cover_url),
         'published_at': _fmt_dt(v.published_at),
-        'author': v.author_name or '',
+        'author': _normalize_display_text(v.author_name),
         'author_url': _normalize_url(v.author_url),
         'tag': v.tag or '',
     }

@@ -160,7 +160,7 @@ class DashboardView(View):
             stats = self.calculate_dashboard_stats()
             
             context = {
-                'title': 'LMonitor Dashboard',
+                'title': '后台',
                 'page_name': 'dashboard',
                 'tables_info': tables_info,
                 'total_tables': len(models),
@@ -371,6 +371,8 @@ class DashboardView(View):
                         item[key] = value.strftime('%Y-%m-%d %H:%M:%S')
                     elif hasattr(value, 'strftime'):
                         item[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+                if item.get('author') == 'LMonitor':
+                    item['author'] = ''
             
             # 计算分页信息
             total_pages = (total_count + page_size - 1) // page_size

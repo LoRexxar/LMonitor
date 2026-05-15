@@ -49,7 +49,7 @@ def main():
                 rss_id=rss.id,
                 title=f"示例 RSS 文章 {i}",
                 url=f"https://example.com/rss/{i}",
-                author="LMonitor",
+                author="demo",
                 publish_time=timezone.now(),
                 content_html="<p>demo</p>",
                 is_active=True,
@@ -60,7 +60,7 @@ def main():
             WowArticle.objects.create(
                 title=f"示例 Wow 文章 {i}",
                 url=f"https://example.com/wow/{i}",
-                author="LMonitor",
+                author="demo",
                 description="用于本地预览的示例数据",
                 publish_time=timezone.now(),
                 is_active=True,
