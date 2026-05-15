@@ -743,23 +743,29 @@ function renderMythicstatsTable(role, items) {
     const avgPct = Math.max(0, Math.min(100, (avgVal / maxTop) * 100));
     const topPct = Math.max(0, Math.min(100, (topVal / maxTop) * 100));
 
-    const topBg = isPriest
-      ? "repeating-linear-gradient(135deg, rgba(71,85,105,0.14) 0 6px, rgba(255,255,255,0.32) 6px 12px)"
-      : mythicstatsHexToRgba(color, 0.22);
-    const avgBg = isPriest
-      ? "repeating-linear-gradient(135deg, rgba(71,85,105,0.24) 0 6px, rgba(255,255,255,0.96) 6px 12px)"
-      : mythicstatsHexToRgba(color, 0.92);
-    const fillShadow = isPriest ? "box-shadow:inset 0 0 0 1px rgba(30,41,59,0.35);" : "";
+    const topBg = mythicstatsHexToRgba(color, isPriest ? 0.18 : 0.22);
+    const avgBg = mythicstatsHexToRgba(color, isPriest ? 0.82 : 0.92);
+    const fillShadow = isPriest ? "box-shadow:inset 0 0 0 1px rgba(71,85,105,0.55);" : "";
     const bar = `<div class="relative h-3 w-full rounded bg-slate-200/70 overflow-hidden shadow-inner border border-slate-300/70">
       <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${topBg};${fillShadow}"></div>
       <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${avgBg};${fillShadow}"></div>
+    </div>`;
+
+    const specAccentBg = mythicstatsHexToRgba(color, isPriest ? 0.2 : 0.14);
+    const specAccentBorder = isPriest ? "border-slate-400" : "border-slate-200";
+    const specAccentBarBorder = isPriest ? "border-slate-400" : "border-slate-200";
+    const specCell = `<div class="relative overflow-hidden rounded-md px-2 py-1 border ${specAccentBorder}" style="background:linear-gradient(90deg, ${specAccentBg} 0%, rgba(255,255,255,0) 68%);">
+      <div class="absolute left-0 top-0 bottom-0 w-1 border-r ${specAccentBarBorder}" style="background:${escapeHtml(color)}"></div>
+      <div class="relative">
+        <a class="font-semibold truncate mythicstats-spec-link block" style="color:#0f172a" href="${url}" target="_blank" rel="noreferrer">${name}</a>
+      </div>
     </div>`;
 
     return `<div class="py-1.5">
       <div class="flex items-center gap-3">
         <div class="w-8 text-xs font-semibold text-slate-500">${rank}</div>
         <div class="w-[372px] min-w-[372px] grid grid-cols-[72px_36px_44px_56px_56px_44px] items-center gap-1">
-          <a class="font-semibold truncate mythicstats-spec-link" style="color:${escapeHtml(isPriest ? "#475569" : color)}" href="${url}" target="_blank" rel="noreferrer">${name}</a>
+          ${specCell}
           <div class="text-right">${tierBadge}</div>
           <div class="text-right text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</div>
           <div class="text-right text-[11px] font-semibold text-slate-700">${avg}</div>
