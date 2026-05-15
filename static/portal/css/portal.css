@@ -198,6 +198,7 @@ html, body {
 
 .portal-card {
     border-radius: 1.125rem;
+    background: rgba(241, 245, 249, 0.75);
 }
 
 .portal-card-accent {
