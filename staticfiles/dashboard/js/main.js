@@ -1,0 +1,6978 @@
+/**
+ * Dashboard页面的JavaScript功能
+ */
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 初始化页面数据
+    initDashboard();
+    
+    // 设置定时刷新
+    setInterval(refreshData, 30000); // 每30秒刷新一次数据
+    
+    // 初始化导航菜单点击事件
+    initNavigation();
+    
+    // 初始化子菜单切换
+    initSubmenuToggle();
+    
+    // 初始化数据库表点击事件
+    initTableSelection();
+    
+    // 初始化转换器
+    initSimcAplConverter();
+    
+    // 初始化新增记录功能
+    initAddRecord();
+    initEditRecord();
+    
+    // 初始化侧边栏切换功能
+    initSidebarToggle();
+    
+    // 初始化搜索功能
+    initSearch();
+    initSimcProfileFilters();
+    initWowArticleFilters();
+    
+    // 初始化页面大小选择器
+    initPageSizeSelector();
+    
+    // 初始化用户菜单
+    initUserMenu();
+    initSystemAlerts();
+    initSimcBackendUploadTool();
+    
+    // 默认显示首页内容
+    const homeMenuItem = document.querySelector('.nav-item[data-section="dashboard-home"]');
+    const homeSection = document.getElementById('dashboard-home');
+    const databaseSection = document.getElementById('database-tables');
+    
+    if (homeMenuItem && homeSection) {
+        // 设置首页菜单为活动状态
+        const navItems = document.querySelectorAll('.nav-item');
+        navItems.forEach(item => item.classList.remove('active'));
+        homeMenuItem.classList.add('active');
+        
+        // 显示首页内容，隐藏其他内容
+        homeSection.style.display = 'block';
+        homeSection.classList.add('active');
+        if (databaseSection) {
+            databaseSection.style.display = 'none';
+            databaseSection.classList.remove('active');
+        }
+    }
+    
+    // 默认展开数据库表菜单（但不激活）
+    const databaseTablesMenu = document.querySelector('.nav-item.has-submenu[data-section="database-tables"]');
+    if (databaseTablesMenu) {
+        // 展开子菜单
+        databaseTablesMenu.classList.add('open');
+        const submenu = databaseTablesMenu.querySelector('.submenu');
+        if (submenu) {
+            submenu.style.maxHeight = submenu.scrollHeight + 'px';
+            submenu.classList.remove('max-h-0');
+        }
+        const chevron = databaseTablesMenu.querySelector('.fa-chevron-down');
+        if (chevron) {
+            chevron.classList.add('rotate-180');
+        }
+    }
+    
+    // 默认展开Tools菜单
+    const toolsMenu = document.querySelector('.nav-item.has-submenu[data-section="tools"]');
+    if (toolsMenu) {
+        // 展开子菜单
+        toolsMenu.classList.add('open');
+        const submenu = toolsMenu.querySelector('.submenu');
+        if (submenu) {
+            submenu.style.maxHeight = submenu.scrollHeight + 'px';
+            submenu.classList.remove('max-h-0');
+        }
+        const chevron = toolsMenu.querySelector('.fa-chevron-down');
+        if (chevron) {
+            chevron.classList.add('rotate-180');
+        }
+    }
+});
+
+/**
+ * 初始化仪表盘数据
+ */
+function initDashboard() {
+    // 这里可以添加AJAX请求获取初始数据
+    updateSystemStatus();
+    updateRecentActivities();
+    updateStatistics();
+}
+
+/**
+ * 刷新仪表盘数据
+ */
+function refreshData() {
+    // 更新系统状态
+    updateSystemStatus();
+    // 更新最近活动
+    updateRecentActivities();
+    // 更新统计数据
+    updateStatistics();
+    fetchUnreadSystemAlerts();
+}
+
+/**
+ * 初始化导航功能
+ */
+function initNavigation() {
+    const navItems = document.querySelectorAll('.nav-item');
+    const submenuItems = document.querySelectorAll('.submenu-item');
+    const contentSections = document.querySelectorAll('.content-section');
+    
+    // 处理主导航项点击
+    navItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            // 检查是否点击的是子菜单项
+            if (e.target.closest('.submenu-item')) {
+                // 如果点击的是子菜单项，阻止事件冒泡
+                e.stopPropagation();
+                return;
+            }
+            
+            // 如果点击的是有子菜单的项，切换子菜单的显示/隐藏
+            if (this.classList.contains('has-submenu')) {
+                this.classList.toggle('open');
+                e.preventDefault();
+                return;
+            }
+            
+            e.preventDefault();
+            
+            // 移除所有导航项的active类和样式
+            navItems.forEach(i => {
+                i.classList.remove('active');
+                const link = i.querySelector('a');
+                if (link) {
+                    link.classList.remove('bg-blue-50', 'text-blue-600', 'font-medium');
+                    link.classList.add('text-gray-700');
+                }
+            });
+            
+            // 为当前点击的导航项添加active类和样式
+            this.classList.add('active');
+            const currentLink = this.querySelector('a');
+            if (currentLink) {
+                currentLink.classList.add('bg-blue-50', 'text-blue-600', 'font-medium');
+                currentLink.classList.remove('text-gray-700');
+            }
+            
+            // 获取对应的内容区域ID
+            const sectionId = this.getAttribute('data-section');
+            
+            // 隐藏所有内容区域
+            contentSections.forEach(section => {
+                section.style.display = 'none';
+                section.classList.remove('active');
+            });
+            
+            // 显示对应的内容区域
+            const targetSection = document.getElementById(sectionId);
+            if (targetSection) {
+                targetSection.style.display = 'block';
+                targetSection.classList.add('active');
+                if (sectionId === 'news') {
+                    loadNewsWowArticles();
+                }
+            }
+        });
+    });
+    
+    // 处理子菜单项点击
+    submenuItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation(); // 阻止事件冒泡到父级菜单项
+            
+            // 移除所有子菜单项的active类
+            submenuItems.forEach(i => i.classList.remove('active'));
+            
+            // 为当前点击的子菜单项添加active类
+            this.classList.add('active');
+            
+            // 确保父级菜单项也是active
+            const parentNavItem = this.closest('.nav-item');
+            navItems.forEach(i => i.classList.remove('active'));
+            parentNavItem.classList.add('active');
+            
+            // 检查是否是工具菜单项
+            const toolName = this.getAttribute('data-tool');
+            const tableName = this.getAttribute('data-table');
+            
+            if (toolName) {
+                // 处理工具菜单项
+                const toolTitle = this.querySelector('a').textContent;
+                
+                // 显示工具内容区域
+                contentSections.forEach(section => {
+                    section.style.display = 'none';
+                    section.classList.remove('active');
+                });
+                const toolsSection = document.getElementById('tools');
+                if (toolsSection) {
+                    toolsSection.style.display = 'block';
+                    toolsSection.classList.add('active');
+                    
+                    // 更新选中的工具名显示
+                    const selectedToolName = document.getElementById('selected-tool-name');
+                    if (selectedToolName) {
+                        selectedToolName.textContent = toolTitle;
+                    }
+                    
+                    // 隐藏所有工具内容
+                    const toolContents = document.querySelectorAll('.tool-content');
+                    toolContents.forEach(content => {
+                        content.style.display = 'none';
+                    });
+                    
+                    // 显示选中的工具内容
+                    const selectedToolContent = document.getElementById(toolName);
+                    if (selectedToolContent) {
+                        selectedToolContent.style.display = 'block';
+                        if (toolName === 'wcl-analysis-entry') {
+                            initWclDashboardModule();
+                            fetchWclDashboardTasks();
+                        }
+                    }
+                }
+            } else if (tableName) {
+                // 处理数据库表菜单项
+                const tableTitle = this.querySelector('a').textContent;
+                currentTableDisplayName = String(tableTitle || '').trim();
+                
+                if (tableName === 'SimcTask') {
+                    // 特殊处理SimcTask，显示专门的SimC任务管理界面
+                    contentSections.forEach(section => {
+                        section.style.display = 'none';
+                        section.classList.remove('active');
+                    });
+                    const toolsSection = document.getElementById('tools');
+                    if (toolsSection) {
+                        toolsSection.style.display = 'block';
+                        toolsSection.classList.add('active');
+                        
+                        // 更新选中的工具名显示
+                        const selectedToolName = document.getElementById('selected-tool-name');
+                        if (selectedToolName) {
+                            selectedToolName.textContent = 'SimC任务管理';
+                        }
+                        
+                        // 隐藏所有工具内容
+                        const toolContents = document.querySelectorAll('.tool-content');
+                        toolContents.forEach(content => {
+                            content.style.display = 'none';
+                        });
+                        
+                        // 显示SimC任务管理内容
+                        const simcTaskContent = document.getElementById('simc-task-management');
+                        if (simcTaskContent) {
+                            simcTaskContent.style.display = 'block';
+                            // 获取SimC任务数据
+                            fetchSimcTaskData();
+                        }
+                    }
+                } else if (tableName === 'SimcTemplate') {
+                    // 特殊处理SimcTemplate，显示专门的SimC模板管理界面
+                    contentSections.forEach(section => {
+                        section.style.display = 'none';
+                        section.classList.remove('active');
+                    });
+                    const toolsSection = document.getElementById('tools');
+                    if (toolsSection) {
+                        toolsSection.style.display = 'block';
+                        toolsSection.classList.add('active');
+                        
+                        // 更新选中的工具名显示
+                        const selectedToolName = document.getElementById('selected-tool-name');
+                        if (selectedToolName) {
+                            selectedToolName.textContent = 'SimC模板管理';
+                        }
+                        
+                        // 隐藏所有工具内容
+                        const toolContents = document.querySelectorAll('.tool-content');
+                        toolContents.forEach(content => {
+                            content.style.display = 'none';
+                        });
+                        
+                        // 显示SimC模板管理内容
+                        const simcTemplateContent = document.getElementById('simc-template-management');
+                        if (simcTemplateContent) {
+                            simcTemplateContent.style.display = 'block';
+                            // 加载模板数据
+                            loadSimcTemplate();
+                        }
+                    }
+                } else {
+                    // 显示数据库表内容区域
+                    contentSections.forEach(section => {
+                        section.style.display = 'none';
+                        section.classList.remove('active');
+                    });
+                    const databaseTablesSection = document.getElementById('database-tables');
+                    if (databaseTablesSection) {
+                        databaseTablesSection.style.display = 'block';
+                        databaseTablesSection.classList.add('active');
+                        
+                        // 更新选中的表名显示
+                        const selectedTableName = document.getElementById('selected-table-name');
+                        if (selectedTableName) {
+                            selectedTableName.textContent = currentTableDisplayName || tableName;
+                        }
+                        
+                        // 获取表数据
+                        fetchTableData(tableName);
+                    }
+                }
+            }
+        });
+    });
+}
+
+function loadNewsWowArticles(page = 1) {
+    const container = document.getElementById('news-wow-list');
+    if (!container) return;
+    container.innerHTML = '<div class="animate-pulse space-y-3"><div class="h-4 bg-gray-200 rounded w-2/3"></div><div class="h-4 bg-gray-200 rounded w-4/5"></div><div class="h-4 bg-gray-200 rounded w-3/5"></div></div>';
+    const csrfToken = getCSRFToken();
+    if (!csrfToken) {
+        container.innerHTML = '<div class="text-red-500">错误: 无法获取CSRF令牌</div>';
+        return;
+    }
+    const requestData = { action: 'get_table_data', table_name: 'WowArticle', page: page, page_size: 20 };
+    fetch('/dashboard/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify(requestData)
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status !== 'success') {
+            container.innerHTML = `<div class="text-red-500">获取数据失败: ${data.message || '未知错误'}</div>`;
+            return;
+        }
+        const items = data.data || [];
+        displayNewsWowArticles(items);
+        displayNewsWowPagination(data.page || page, data.total_pages || 1, data.total_count || items.length);
+    })
+    .catch(err => {
+        container.innerHTML = `<div class="text-red-500">请求错误: ${err.message}</div>`;
+    });
+}
+
+function displayNewsWowArticles(items) {
+    const container = document.getElementById('news-wow-list');
+    if (!container) return;
+    if (!items.length) {
+        container.innerHTML = '<div class="text-gray-500">暂无新闻</div>';
+        return;
+    }
+    const html = items.map(item => {
+        const title = item.title || '';
+        const url = item.url || '#';
+        const description = item.description || '';
+        const author = item.author || '';
+        const time = item.publish_time ? formatDateTime(item.publish_time) : '';
+        return `
+        <div class="bg-white rounded-xl shadow p-6">
+            <div class="flex items-start justify-between gap-4">
+                <a href="${url}" target="_blank" rel="noopener" class="text-blue-600 hover:underline font-semibold leading-snug">${escapeHtml(title)}</a>
+                <span class="inline-flex items-center px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded whitespace-nowrap">${time || '未标注时间'}</span>
+            </div>
+            ${description ? `<div class="mt-2 text-gray-700 text-sm">${escapeHtml(description)}</div>` : ``}
+            <div class="mt-3 flex items-center justify-between gap-3">
+                <div class="text-gray-500 text-xs">作者：${escapeHtml(author || '未知')}</div>
+                <a href="${url}" target="_blank" rel="noopener" class="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs">打开原文</a>
+            </div>
+        </div>`;
+    }).join('');
+    container.innerHTML = `<div class="space-y-4">${html}</div>`;
+}
+
+function displayNewsWowPagination(currentPage, totalPages, totalCount) {
+    const pager = document.getElementById('news-wow-pagination');
+    if (!pager) return;
+    if (totalPages <= 1) {
+        pager.innerHTML = '';
+        return;
+    }
+    const prevDisabled = currentPage <= 1 ? 'opacity-50 cursor-not-allowed' : '';
+    const nextDisabled = currentPage >= totalPages ? 'opacity-50 cursor-not-allowed' : '';
+    pager.innerHTML = `
+        <div class="text-sm text-gray-600">共 ${totalCount} 条，页 ${currentPage}/${totalPages}</div>
+        <div class="space-x-2">
+            <button id="news-wow-prev" class="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded ${prevDisabled}">上一页</button>
+            <button id="news-wow-next" class="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded ${nextDisabled}">下一页</button>
+        </div>
+    `;
+    const prevBtn = document.getElementById('news-wow-prev');
+    const nextBtn = document.getElementById('news-wow-next');
+    if (prevBtn) {
+        prevBtn.onclick = () => { if (currentPage > 1) loadNewsWowArticles(currentPage - 1); };
+    }
+    if (nextBtn) {
+        nextBtn.onclick = () => { if (currentPage < totalPages) loadNewsWowArticles(currentPage + 1); };
+    }
+}
+
+// 初始化SimC任务管理事件监听器
+function parseSimcTaskExt(ext) {
+    if (!ext) return {};
+    if (typeof ext === 'object') return ext;
+    const text = String(ext).trim();
+    if (!text) return {};
+    try {
+        const parsed = JSON.parse(text);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) {
+        return { selected_attributes: text };
+    }
+}
+
+function applyRegularPreset(presetValue, timeInputId, targetInputId) {
+    if (!presetValue || presetValue === 'custom') return;
+    const [timeValue, targetValue] = String(presetValue).split(',');
+    const timeInput = document.getElementById(timeInputId);
+    const targetInput = document.getElementById(targetInputId);
+    if (timeInput && timeValue) timeInput.value = String(parseInt(timeValue, 10) || 300);
+    if (targetInput && targetValue) targetInput.value = String(parseInt(targetValue, 10) || 1);
+}
+
+function toPositiveInt(value, fallbackValue) {
+    const n = parseInt(value, 10);
+    if (!Number.isFinite(n) || n <= 0) return fallbackValue;
+    return n;
+}
+
+function syncSimulationRegularPresetByInputs() {
+    const preset = document.getElementById('simulation-regular-preset');
+    const timeInput = document.getElementById('simulation-regular-time');
+    const targetInput = document.getElementById('simulation-regular-target-count');
+    if (!preset || !timeInput || !targetInput) return;
+    const t = String(toPositiveInt(timeInput.value, 300));
+    const c = String(toPositiveInt(targetInput.value, 1));
+    const expected = `${t},${c}`;
+    const matched = Array.from(preset.options || []).some(opt => opt.value === expected);
+    preset.value = matched ? expected : 'custom';
+}
+
+async function loadSimulationRegularDefaultsByProfile(profileId) {
+    const fallback = { time: 300, target_count: 1 };
+    const pid = toPositiveInt(profileId, 0);
+    if (!pid) return fallback;
+    try {
+        const response = await fetch(`/api/simc-profile/${pid}/`, {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken(),
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) return fallback;
+        const data = await response.json();
+        if (!data || !data.success) return fallback;
+        const payload = (data.data && typeof data.data === 'object') ? data.data : data;
+        return {
+            time: toPositiveInt(payload.time, 300),
+            target_count: toPositiveInt(payload.target_count, 1)
+        };
+    } catch (error) {
+        console.warn('加载模拟默认参数失败，回退到标准值:', error);
+        return fallback;
+    }
+}
+
+function getSpecBadgeClass(specValue) {
+    const spec = String(specValue || '').trim().toLowerCase();
+    if (spec === 'fury') return 'bg-orange-100 text-orange-800 border border-orange-200';
+    if (spec === 'arms') return 'bg-blue-100 text-blue-800 border border-blue-200';
+    if (spec === 'protection') return 'bg-slate-100 text-slate-800 border border-slate-200';
+    if (spec === 'fire') return 'bg-red-100 text-red-800 border border-red-200';
+    if (spec === 'frost') return 'bg-cyan-100 text-cyan-800 border border-cyan-200';
+    if (spec === 'arcane') return 'bg-purple-100 text-purple-800 border border-purple-200';
+    return 'bg-gray-100 text-gray-700 border border-gray-200';
+}
+
+function getSpecDotClass(specValue) {
+    const spec = String(specValue || '').trim().toLowerCase();
+    if (spec === 'fury') return 'bg-orange-500 text-white';
+    if (spec === 'arms') return 'bg-blue-500 text-white';
+    if (spec === 'protection') return 'bg-slate-500 text-white';
+    if (spec === 'fire') return 'bg-red-500 text-white';
+    if (spec === 'frost') return 'bg-cyan-500 text-white';
+    if (spec === 'arcane') return 'bg-purple-500 text-white';
+    return 'bg-gray-500 text-white';
+}
+
+function renderSpecBadgeHtml(specValue) {
+    const spec = String(specValue || '').trim();
+    const text = spec || '-';
+    const cls = getSpecBadgeClass(spec);
+    const dotCls = getSpecDotClass(spec);
+    const mark = spec ? spec.charAt(0).toUpperCase() : '?';
+    return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}"><span class="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${dotCls}">${escapeHtml(mark)}</span><span>${escapeHtml(text)}</span></span>`;
+}
+
+function toggleTaskTypeFields(prefix, taskType) {
+    const isAttribute = String(taskType) === '2';
+    const attrSelect = document.getElementById(prefix ? `${prefix}-simc-task-profile` : 'simc-task-profile');
+    const regularBox = document.getElementById(prefix ? `${prefix}-simc-task-regular-options` : 'simc-task-regular-options');
+    const stepBox = document.getElementById(prefix ? `${prefix}-simc-task-attribute-step-wrapper` : 'simc-task-attribute-step-wrapper');
+
+    if (attrSelect && attrSelect.parentElement) {
+        attrSelect.style.display = isAttribute ? 'block' : 'none';
+        attrSelect.parentElement.style.display = isAttribute ? 'block' : 'none';
+        if (!isAttribute) attrSelect.value = '';
+    }
+    if (regularBox) regularBox.style.display = isAttribute ? 'none' : 'grid';
+    if (stepBox) stepBox.style.display = isAttribute ? 'block' : 'none';
+}
+
+function initSimcTaskManagement() {
+    // 新增任务按钮
+    const addSimcTaskBtn = document.getElementById('add-simc-task-btn');
+    if (addSimcTaskBtn) {
+        addSimcTaskBtn.addEventListener('click', openAddSimcTaskModal);
+    }
+
+    const compareBtn = document.getElementById('compare-simc-regular-tasks-btn');
+    if (compareBtn) {
+        compareBtn.addEventListener('click', openSimcRegularCompare);
+    }
+    
+    // 任务类型选择事件监听器（新增任务）
+    const addTaskTypeSelect = document.getElementById('simc-task-type');
+    if (addTaskTypeSelect) {
+        addTaskTypeSelect.addEventListener('change', function() {
+            toggleTaskTypeFields('', this.value);
+        });
+    }
+    
+    // 编辑任务类型选择事件监听器（编辑任务）
+    const editTaskTypeSelect = document.getElementById('edit-simc-task-type');
+    if (editTaskTypeSelect) {
+        editTaskTypeSelect.addEventListener('change', function() {
+            toggleTaskTypeFields('edit', this.value);
+        });
+    }
+    
+    // 取消新增任务
+    const cancelAddBtn = document.getElementById('cancel-add-simc-task');
+    if (cancelAddBtn) {
+        cancelAddBtn.addEventListener('click', function() {
+            document.getElementById('add-simc-task-modal').style.display = 'none';
+            // 清空表单
+            document.getElementById('simc-task-name').value = '';
+            document.getElementById('simc-task-type').value = '1';
+            document.getElementById('simc-task-profile').value = '';
+            document.getElementById('simc-task-regular-time').value = '';
+            document.getElementById('simc-task-regular-target-count').value = '';
+            document.getElementById('simc-task-attribute-step').value = '50';
+            toggleTaskTypeFields('', '1');
+        });
+    }
+    
+    // 确认新增任务
+    const confirmAddBtn = document.getElementById('confirm-add-simc-task');
+    if (confirmAddBtn) {
+        confirmAddBtn.addEventListener('click', submitAddSimcTask);
+    }
+    
+    // 取消编辑任务
+    const cancelEditBtn = document.getElementById('cancel-edit-simc-task');
+    if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', function() {
+            document.getElementById('edit-simc-task-modal').style.display = 'none';
+        });
+    }
+    
+    // 确认编辑任务
+    const confirmEditBtn = document.getElementById('confirm-edit-simc-task');
+    if (confirmEditBtn) {
+        confirmEditBtn.addEventListener('click', updateSimcTask);
+    }
+    
+    // 关闭查看任务模态框
+    const closeViewBtn = document.getElementById('close-view-simc-task');
+    if (closeViewBtn) {
+        closeViewBtn.addEventListener('click', function() {
+            document.getElementById('view-simc-task-modal').style.display = 'none';
+        });
+    }
+    
+    // 复制SimC代码
+    const copyCodeBtn = document.getElementById('copy-simc-code');
+    if (copyCodeBtn) {
+        copyCodeBtn.addEventListener('click', function() {
+            const codeTextarea = document.getElementById('view-simc-task-code');
+            if (codeTextarea) {
+                codeTextarea.select();
+                document.execCommand('copy');
+                showMessage('SimC代码已复制到剪贴板', 'success');
+            }
+        });
+    }
+    
+    // 加载初始数据
+    fetchSimcTaskData();
+}
+
+// 在DOMContentLoaded事件中初始化SimC任务管理
+document.addEventListener('DOMContentLoaded', function() {
+    initSimcTaskManagement();
+    startSimcBackendUpdatePolling();
+});
+
+/**
+ * 初始化APL保存功能
+ */
+function initAplSaveFeature() {
+    const saveAplBtn = document.getElementById('save-apl');
+    const viewSavedAplBtn = document.getElementById('view-saved-apl');
+    const aplSaveSection = document.getElementById('apl-save-section');
+    const savedAplSection = document.getElementById('saved-apl-section');
+    const cancelSaveBtn = document.getElementById('cancel-save');
+    const confirmSaveBtn = document.getElementById('confirm-save');
+    const refreshAplListBtn = document.getElementById('refresh-apl-list');
+    const previewCurrentBtn = document.getElementById('preview-current-apl');
+    const previewModal = document.getElementById('apl-translation-preview-modal');
+    const closePreviewBtn = document.getElementById('close-apl-preview');
+    const copyRawBtn = document.getElementById('copy-apl-preview-raw');
+    const copyCnBtn = document.getElementById('copy-apl-preview-cn');
+    
+    if (!saveAplBtn || !viewSavedAplBtn) {
+        return;
+    }
+    
+    // 保存APL按钮
+    saveAplBtn.addEventListener('click', function() {
+        const modeSelect = document.getElementById('apl-convert-mode');
+        const mode = modeSelect ? modeSelect.value : 'apl_to_cn';
+        const sourceText = (document.getElementById('apl-input').value || '').trim();
+        const resultText = (document.getElementById('simc-input').value || '').trim();
+        const aplForSave = mode === 'cn_to_apl' ? (resultText || '') : (sourceText || '');
+
+        if (!aplForSave) {
+            showMessage('当前没有可保存的APL内容', 'warning');
+            return;
+        }
+        
+        // 显示保存表单
+        aplSaveSection.style.display = 'block';
+        savedAplSection.style.display = 'none';
+        
+        // 清空表单并填充当前APL代码
+        document.getElementById('apl-title').value = '';
+        document.getElementById('apl-edit-input').value = aplForSave;
+    });
+    
+    // 查看已保存APL按钮
+    viewSavedAplBtn.addEventListener('click', function() {
+        aplSaveSection.style.display = 'none';
+        savedAplSection.style.display = 'block';
+        loadSavedAplList();
+    });
+
+    if (previewCurrentBtn) {
+        previewCurrentBtn.addEventListener('click', async function() {
+            await previewCurrentConverterContent();
+        });
+    }
+    
+    // 取消保存
+    if (cancelSaveBtn) {
+        cancelSaveBtn.addEventListener('click', function() {
+            aplSaveSection.style.display = 'none';
+        });
+    }
+    
+    // 确认保存
+    if (confirmSaveBtn) {
+        confirmSaveBtn.addEventListener('click', function() {
+            saveAplCode();
+        });
+    }
+    
+    // 刷新APL列表
+    if (refreshAplListBtn) {
+        refreshAplListBtn.addEventListener('click', function() {
+            loadSavedAplList();
+        });
+    }
+    
+    // 关闭APL列表
+    const closeAplListBtn = document.getElementById('close-apl-list');
+    if (closeAplListBtn) {
+        closeAplListBtn.addEventListener('click', function() {
+            savedAplSection.style.display = 'none';
+        });
+    }
+    
+    // 点击浮窗外部关闭浮窗
+    if (aplSaveSection) {
+        aplSaveSection.addEventListener('click', function(e) {
+            if (e.target === aplSaveSection) {
+                aplSaveSection.style.display = 'none';
+            }
+        });
+    }
+    
+    if (savedAplSection) {
+        savedAplSection.addEventListener('click', function(e) {
+            if (e.target === savedAplSection) {
+                savedAplSection.style.display = 'none';
+            }
+        });
+    }
+
+    if (closePreviewBtn) {
+        closePreviewBtn.addEventListener('click', function() {
+            previewModal.style.display = 'none';
+        });
+    }
+    if (previewModal) {
+        previewModal.addEventListener('click', function(e) {
+            if (e.target === previewModal) previewModal.style.display = 'none';
+        });
+    }
+    if (copyRawBtn) {
+        copyRawBtn.addEventListener('click', function() {
+            const raw = document.getElementById('apl-preview-raw').value || '';
+            navigator.clipboard.writeText(raw).then(() => showMessage('已复制APL原文', 'success'));
+        });
+    }
+    if (copyCnBtn) {
+        copyCnBtn.addEventListener('click', function() {
+            const cn = document.getElementById('apl-preview-cn').value || '';
+            navigator.clipboard.writeText(cn).then(() => showMessage('已复制中文翻译', 'success'));
+        });
+    }
+
+    const addRegularPreset = document.getElementById('simc-task-regular-preset');
+    if (addRegularPreset) {
+        addRegularPreset.addEventListener('change', function() {
+            applyRegularPreset(this.value, 'simc-task-regular-time', 'simc-task-regular-target-count');
+        });
+    }
+    const editRegularPreset = document.getElementById('edit-simc-task-regular-preset');
+    if (editRegularPreset) {
+        editRegularPreset.addEventListener('change', function() {
+            applyRegularPreset(this.value, 'edit-simc-task-regular-time', 'edit-simc-task-regular-target-count');
+        });
+    }
+}
+
+/**
+ * 保存APL代码
+ */
+async function saveAplCode() {
+    const title = document.getElementById('apl-title').value.trim();
+    const aplCode = document.getElementById('apl-edit-input').value.trim();
+    
+    if (!title) {
+        showMessage('请输入APL标题', 'warning');
+        return;
+    }
+    
+    if (!aplCode) {
+        showMessage('请先输入APL代码内容', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/apl-storage/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({
+                title: title,
+                apl_code: aplCode
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage('APL保存成功', 'success');
+            document.getElementById('apl-save-section').style.display = 'none';
+            // 如果已保存列表正在显示，刷新它
+            if (document.getElementById('saved-apl-section').style.display !== 'none') {
+                loadSavedAplList();
+            }
+        } else {
+            showMessage('保存失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('保存APL失败:', error);
+        showMessage('保存失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 加载已保存的APL列表
+ */
+async function loadSavedAplList() {
+    try {
+        const response = await fetch('/api/apl-storage/', {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken()
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            displaySavedAplList(data.data);
+        } else {
+            showMessage('加载APL列表失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('加载APL列表失败:', error);
+        showMessage('加载APL列表失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 显示已保存的APL列表
+ */
+function displaySavedAplList(aplList) {
+    const container = document.getElementById('saved-apl-list');
+    
+    if (aplList.length === 0) {
+        container.innerHTML = '<div class="text-gray-500 text-center py-4">暂无保存的APL</div>';
+        return;
+    }
+    
+    container.innerHTML = aplList.map(apl => `
+        <div class="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:border-gray-300 transition-colors duration-200">
+            <div class="flex justify-between items-center">
+                <div class="flex-1">
+                    <h5 class="font-semibold text-gray-800">${escapeHtml(apl.title)}</h5>
+                </div>
+                <div class="flex space-x-2 ml-4">
+                    <button onclick="loadAplCode(${apl.id})" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200">
+                        <i class="fas fa-download mr-1"></i>加载
+                    </button>
+                    <button onclick="previewAplTranslation(${apl.id})" class="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200">
+                        <i class="fas fa-language mr-1"></i>翻译预览
+                    </button>
+                    <button onclick="editAplCode(${apl.id})" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200">
+                        <i class="fas fa-edit mr-1"></i>编辑
+                    </button>
+                    <button onclick="deleteAplCode(${apl.id})" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200">
+                        <i class="fas fa-trash mr-1"></i>删除
+                    </button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function previewAplTranslation(aplId) {
+    try {
+        const response = await fetch(`/api/apl-storage/${aplId}/`, {
+            method: 'GET',
+            headers: { 'X-CSRFToken': getCSRFToken() }
+        });
+        const data = await response.json();
+        if (!data.success) {
+            showMessage('加载APL失败: ' + (data.error || '未知错误'), 'error');
+            return;
+        }
+        const aplData = data.data || {};
+        const raw = aplData.apl_code || '';
+        await previewAplTranslationContent(raw, aplData.title || `#${aplId}`);
+    } catch (error) {
+        console.error('APL翻译预览失败:', error);
+        showMessage('APL翻译预览失败: ' + error.message, 'error');
+    }
+}
+
+async function previewAplTranslationContent(rawContent, titleText) {
+    const raw = String(rawContent || '').trim();
+    if (!raw) {
+        showMessage('APL内容为空，无法预览', 'warning');
+        return;
+    }
+    const cn = await convertText(raw, 'apl_to_cn');
+    document.getElementById('apl-preview-title').textContent = titleText || 'APL预览';
+    document.getElementById('apl-preview-raw').value = raw;
+    document.getElementById('apl-preview-cn').value = cn || '';
+    document.getElementById('apl-translation-preview-modal').style.display = 'block';
+}
+
+/**
+ * 加载APL代码到编辑器
+ */
+async function loadAplCode(aplId) {
+    try {
+        const response = await fetch(`/api/apl-storage/${aplId}/`, {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken()
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const aplData = data.data;
+            document.getElementById('apl-input').value = aplData.apl_code || '';
+            // 清空右侧输入框，因为模型中不再存储cn_code
+            document.getElementById('simc-input').value = '';
+            
+            // 隐藏已保存列表
+            document.getElementById('saved-apl-section').style.display = 'none';
+            
+            showMessage(`已加载APL: ${aplData.title}`, 'success');
+        } else {
+            showMessage('加载APL失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('加载APL失败:', error);
+        showMessage('加载APL失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 编辑APL代码
+ */
+async function editAplCode(aplId) {
+    try {
+        // 获取APL详细信息
+        const response = await fetch(`/api/apl-storage/${aplId}/`, {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken()
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const aplData = data.data;
+            
+            // 填充编辑表单
+             document.getElementById('apl-title').value = aplData.title;
+             document.getElementById('apl-edit-input').value = aplData.apl_code || '';
+             
+             // 显示保存表单，但修改为编辑模式
+            const aplSaveSection = document.getElementById('apl-save-section');
+            const confirmSaveBtn = document.getElementById('confirm-save');
+            
+            aplSaveSection.style.display = 'block';
+            document.getElementById('saved-apl-section').style.display = 'none';
+            
+            // 修改按钮文本和功能
+            confirmSaveBtn.innerHTML = '<i class="fas fa-save mr-2"></i>更新保存';
+            
+            // 移除之前的事件监听器并添加新的
+            const newConfirmBtn = confirmSaveBtn.cloneNode(true);
+            confirmSaveBtn.parentNode.replaceChild(newConfirmBtn, confirmSaveBtn);
+            
+            newConfirmBtn.addEventListener('click', function() {
+                updateAplCode(aplId);
+            });
+            
+        } else {
+            showMessage('获取APL信息失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('获取APL信息失败:', error);
+        showMessage('获取APL信息失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 更新APL代码
+ */
+async function updateAplCode(aplId) {
+    const title = document.getElementById('apl-title').value.trim();
+    const aplCode = document.getElementById('apl-edit-input').value.trim();
+    
+    if (!title) {
+        showMessage('请输入APL标题', 'warning');
+        return;
+    }
+    
+    if (!aplCode) {
+        showMessage('请先输入APL代码内容', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/apl-storage/', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({
+                id: aplId,
+                title: title,
+                apl_code: aplCode
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage('APL更新成功', 'success');
+            document.getElementById('apl-save-section').style.display = 'none';
+            
+            // 恢复按钮原始状态
+            const confirmSaveBtn = document.getElementById('confirm-save');
+            confirmSaveBtn.innerHTML = '<i class="fas fa-save mr-2"></i>确认保存';
+            
+            // 重新初始化APL保存功能
+            initAplSaveFeature();
+            
+            // 如果已保存列表正在显示，刷新它
+            if (document.getElementById('saved-apl-section').style.display !== 'none') {
+                loadSavedAplList();
+            }
+        } else {
+            showMessage('更新失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('更新APL失败:', error);
+        showMessage('更新失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 删除APL代码
+ */
+async function deleteAplCode(aplId) {
+    if (!confirm('确定要删除这个APL吗？')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/apl-storage/', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({ id: aplId })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage('APL删除成功', 'success');
+            loadSavedAplList(); // 刷新列表
+        } else {
+            showMessage('删除失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        console.error('删除APL失败:', error);
+        showMessage('删除失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * HTML转义函数
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/**
+ * 处理子菜单展开/收起
+ */
+function initSubmenuToggle() {
+    const hasSubmenuItems = document.querySelectorAll('.has-submenu');
+    
+    hasSubmenuItems.forEach(item => {
+        const mainLink = item.querySelector('a');
+        const submenu = item.querySelector('.submenu');
+        const chevron = item.querySelector('.fa-chevron-down');
+        
+        if (mainLink && submenu) {
+            mainLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                if (item.classList.contains('open')) {
+                    // 收起子菜单
+                    item.classList.remove('open');
+                    submenu.style.maxHeight = '0';
+                    if (chevron) chevron.classList.remove('rotate-180');
+                } else {
+                    // 展开子菜单
+                    item.classList.add('open');
+                    submenu.style.maxHeight = submenu.scrollHeight + 'px';
+                    if (chevron) chevron.classList.add('rotate-180');
+                }
+            });
+        }
+    });
+}
+
+/**
+ * 初始化数据库表选择和计算总记录数
+ */
+function initTableSelection() {
+    // 计算总记录数
+    calculateTotalRecords();
+    
+    // 初始化子菜单展开/收起功能
+    initSubmenuToggle();
+}
+
+/**
+ * 计算所有表的总记录数
+ */
+function calculateTotalRecords() {
+    const totalRecordsElement = document.getElementById('total-records');
+    if (!totalRecordsElement) return;
+    
+    // 获取所有表项
+    const tableItems = document.querySelectorAll('.table-overview-item');
+    let totalRecords = 0;
+    
+    // 计算总记录数
+    tableItems.forEach(item => {
+        const countText = item.querySelector('p:last-child').textContent;
+        const count = parseInt(countText.replace('记录数: ', ''));
+        if (!isNaN(count)) {
+            totalRecords += count;
+        }
+    });
+    
+    // 更新总记录数显示
+    totalRecordsElement.textContent = totalRecords.toLocaleString();
+}
+
+// 全局分页变量
+let currentPage = 1;
+let pageSize = 50;
+let totalPages = 1;
+let totalCount = 0;
+
+// 全局表格变量
+let currentTableName = '';
+let currentTableColumns = [];
+let currentFieldTypes = {};
+let currentFieldLabels = {};
+let currentTableDisplayName = '';
+let currentTableRowMap = new Map();
+let currentEditRowId = null;
+let simcProfileSpecFilter = '';
+let simcProfileFightStyleFilter = '';
+let wowArticleSourceFilter = '';
+let wowArticleCategoryFilter = '';
+let secondaryStatRuleMap = null;
+let secondaryStatRulePromise = null;
+
+
+/**
+ * 获取表数据
+ */
+function fetchTableData(tableName, page = 1) {
+    // 显示加载中
+    const tableBody = document.getElementById('table-body');
+    if (!tableBody) {
+        return;
+    }
+    tableBody.innerHTML = `<tr><td colspan="100%" class="p-6"><div class="animate-pulse space-y-3"><div class="h-4 bg-gray-200 rounded w-2/3"></div><div class="h-4 bg-gray-200 rounded w-4/5"></div><div class="h-4 bg-gray-200 rounded w-3/5"></div></div></td></tr>`;
+    
+    // 保存当前表名和页码
+    currentTableName = tableName;
+    currentPage = page;
+    if (tableName === 'SimcSecondaryStatRule') {
+        secondaryStatRuleMap = null;
+        secondaryStatRulePromise = null;
+    }
+    
+    // 如果是SimcTask表，使用专门的API
+    updateSimcProfileFilterBar();
+    updateWowArticleFilterBar();
+    if (tableName === 'SimcTask') {
+        fetchSimcTaskData(page);
+        return;
+    }
+    
+    // 获取CSRF令牌
+    const csrfToken = getCSRFToken();
+    if (!csrfToken) {
+        console.error('无法获取CSRF令牌');
+        const tableBody = document.getElementById('table-body');
+        if (tableBody) {
+            tableBody.innerHTML = '<tr><td colspan="100%" class="p-6 text-red-600">错误: 无法获取CSRF令牌，请刷新页面</td></tr>';
+        }
+        return;
+    }
+    
+    // 构建请求数据
+    const requestData = {
+        action: 'get_table_data',
+        table_name: tableName,
+        page: page,
+        page_size: pageSize
+    };
+    
+    // 如果有搜索查询，添加到请求数据中
+    if (searchQuery && searchQuery.length > 0) {
+        requestData.search = searchQuery;
+    }
+    if (tableName === 'SimcProfile') {
+        if (simcProfileSpecFilter) requestData.simc_spec = simcProfileSpecFilter;
+        if (simcProfileFightStyleFilter) requestData.simc_fight_style = simcProfileFightStyleFilter;
+    }
+    if (tableName === 'WowArticle') {
+        if (wowArticleSourceFilter) requestData.wow_source = wowArticleSourceFilter;
+        if (wowArticleCategoryFilter) requestData.wow_category = wowArticleCategoryFilter;
+    }
+    
+    // 发送AJAX请求获取表数据
+    fetch('/dashboard/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => {
+        if (!response.ok) {
+            console.error('HTTP响应错误:', response.status, response.statusText);
+            throw new Error(`HTTP错误! 状态: ${response.status} ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        updateSimcProfileFilterBar();
+        updateWowArticleFilterBar();
+        if (data.status === 'success') {
+            if (data.data && Array.isArray(data.data) && data.fields) {
+                // 更新分页信息
+                totalPages = data.total_pages || 1;
+                totalCount = data.total_count || 0;
+                currentPage = data.page || 1;
+                pageSize = data.page_size || 50;
+                
+                // 保存字段类型信息
+                currentFieldTypes = data.field_types || {};
+                currentFieldLabels = data.field_labels || {};
+                if (data.table_description) {
+                    currentTableDisplayName = data.table_description;
+                    const selectedTableName = document.getElementById('selected-table-name');
+                    if (selectedTableName) {
+                        selectedTableName.textContent = currentTableDisplayName;
+                    }
+                }
+
+                if (currentTableName === 'WowArticle' && data.wow_filter_options) {
+                    updateWowArticleFilterOptions(data.wow_filter_options);
+                }
+                
+                displayTableData(data.data, data.fields);
+                updatePagination();
+            } else {
+                console.error('返回的数据格式不正确:', data);
+                const tableBody = document.getElementById('table-body');
+                if (tableBody) {
+                    tableBody.innerHTML = '<tr><td colspan="100%" class="p-6 text-red-600">错误: 返回的数据格式不正确</td></tr>';
+                }
+            }
+        } else {
+            console.error('获取数据失败:', data.message || '未知错误');
+            const tableBody = document.getElementById('table-body');
+            if (tableBody) {
+                tableBody.innerHTML = `<tr><td colspan="100%" class="p-6 text-red-600">获取数据失败: ${escapeHtml(data.message || '未知错误')}</td></tr>`;
+            }
+        }
+    })
+    .catch(error => {
+        console.error('获取表数据时发生错误:', error);
+        const tableBody = document.getElementById('table-body');
+        if (tableBody) {
+            tableBody.innerHTML = `<tr><td colspan="100%" class="p-6 text-red-600">获取数据时发生错误: ${escapeHtml(error.message)}</td></tr>`;
+        }
+    });
+}
+
+function updateSimcProfileFilterBar() {
+    const bar = document.getElementById('simc-profile-filter-bar');
+    if (!bar) return;
+    if (currentTableName === 'SimcProfile') bar.classList.remove('hidden');
+    else bar.classList.add('hidden');
+}
+
+function updateWowArticleFilterBar() {
+    const bar = document.getElementById('wow-article-filter-bar');
+    if (!bar) return;
+    if (currentTableName === 'WowArticle') bar.classList.remove('hidden');
+    else bar.classList.add('hidden');
+}
+
+/**
+ * 显示表数据
+ */
+function displayTableData(data, fields) {
+    const tableHeader = document.getElementById('table-header');
+    const tableBody = document.getElementById('table-body');
+    
+    // 如果表格元素不存在，直接返回
+    if (!tableHeader || !tableBody) {
+        return;
+    }
+    
+    const allFields = Array.from(new Set([
+        ...((fields && Array.isArray(fields)) ? fields : []),
+        ...((data && data.length > 0 && data[0]) ? Object.keys(data[0]) : [])
+    ]));
+
+    // 设置当前表的列信息
+    currentTableColumns = allFields;
+    currentTableRowMap = new Map();
+    
+    // 清空表格
+    tableHeader.innerHTML = '';
+    tableBody.innerHTML = '';
+    
+    // 如果没有数据
+    if (!data || data.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-gray-500">暂无数据</td></tr>';
+        return;
+    }
+    
+    // 所有表格都显示序号，不显示数据库ID
+    let displayFields = allFields;
+    let showCustomIndex = true;
+    
+    // 过滤掉ID字段，所有表格都不显示数据库ID
+    displayFields = allFields.filter(field => field !== 'id');
+
+    if (currentTableName === 'PortalToolLink') {
+        const orderedFields = [
+            'name',
+            'url',
+            'url_hash',
+            'desc',
+            'source',
+            'sort_order',
+            'is_topbar',
+            'topbar_order',
+            'icon_path',
+            'is_active'
+        ];
+        displayFields = orderedFields.filter(field => allFields.includes(field));
+    }
+    
+    // 针对WechatArticle表的特殊处理：显示序号、title、author和时间字段
+    if (currentTableName === 'WechatArticle') {
+        displayFields = fields.filter(field => 
+            field === 'title' || 
+            field === 'author' || 
+            field === 'created_at' || 
+            field === 'updated_at' ||
+            field === 'publish_time'
+        );
+        // 确保关键字段存在并按顺序排列
+        const orderedFields = ['title', 'author', 'publish_time', 'created_at', 'updated_at'];
+        displayFields = orderedFields.filter(field => allFields.includes(field));
+    }
+    
+    // 针对WowArticle表的特殊处理：显示序号、title、source、category、author、publish_time
+    else if (currentTableName === 'WowArticle') {
+        const orderedFields = ['title', 'source', 'category', 'author', 'publish_time'];
+        displayFields = orderedFields.filter(field => allFields.includes(field));
+    }
+    
+    // 针对RssArticle表的特殊处理：不显示rss_id、url、content_html，限制title长度并可点击跳转
+    else if (currentTableName === 'RssArticle') {
+        displayFields = allFields.filter(field => 
+            !['rss_id', 'url', 'content_html'].includes(field)
+        );
+    }
+    // SimcProfile表只显示指定字段
+    else if (currentTableName === 'SimcProfile') {
+        displayFields = ['name', 'spec', 'fight_style', 'time', 'target_count'];
+    }
+    else if (currentTableName === 'SimcSecondaryStatRule') {
+        displayFields = [
+            'spec',
+            'crit_per_percent',
+            'haste_per_percent',
+            'mastery_per_percent',
+            'mastery_coefficient',
+            'versatility_per_percent'
+        ];
+    }
+    
+    // 创建表头
+    const headerRow = document.createElement('tr');
+    
+    // 所有表格都显示序号列
+    const indexTh = document.createElement('th');
+    indexTh.className = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16';
+    indexTh.textContent = '序号';
+    headerRow.appendChild(indexTh);
+    
+    // 定义列宽度映射
+    const getColumnWidth = (field, index, totalFields) => {
+        // 常见字段的宽度设置
+        const fieldWidthMap = {
+            'id': 'w-16',           // ID列较窄
+            'name': 'w-48',         // 名称列较宽
+            'title': 'w-48',        // 标题列较宽
+            'target': 'w-64',       // 目标URL列更宽
+            'url': 'w-64',          // URL列更宽
+            'type': 'w-20',         // 类型列较窄
+            'status': 'w-20',       // 状态列较窄
+            'is_active': 'w-20',    // 布尔字段较窄
+            'is_login': 'w-20',     // 布尔字段较窄
+            'is_poc': 'w-20',       // 布尔字段较窄
+            'is_exp': 'w-20',       // 布尔字段较窄
+            'is_verify': 'w-20',    // 布尔字段较窄
+            'flag': 'w-16',         // 标志列较窄
+            'wait_time': 'w-24',    // 等待时间列中等
+            'last_scan_time': 'w-40', // 时间列中等
+            'create_time': 'w-40',  // 创建时间列中等
+        };
+        
+        // 如果有预定义宽度，使用预定义的
+        if (fieldWidthMap[field.toLowerCase()]) {
+            return fieldWidthMap[field.toLowerCase()];
+        }
+        
+        // 根据字段名长度和位置动态分配
+        if (field.length <= 5) {
+            return 'w-20';  // 短字段名
+        } else if (field.length <= 10) {
+            return 'w-32';  // 中等字段名
+        } else {
+            return 'w-48';  // 长字段名
+        }
+    };
+    
+    displayFields.forEach((field, index) => {
+        const th = document.createElement('th');
+        const widthClass = getColumnWidth(field, index, displayFields.length);
+        th.className = `px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${widthClass}`;
+        th.textContent = getFieldDisplayName(field);
+        headerRow.appendChild(th);
+    });
+    // 添加操作列（WechatArticle和RssArticle表不显示操作列）
+    if (currentTableName !== 'WechatArticle' && currentTableName !== 'RssArticle') {
+        const actionTh = document.createElement('th');
+        actionTh.className = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32';
+        actionTh.textContent = '操作';
+        headerRow.appendChild(actionTh);
+    }
+    tableHeader.appendChild(headerRow);
+    
+    // 创建表格内容
+    data.forEach((row, index) => {
+        const tr = document.createElement('tr');
+        tr.className = index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50 hover:bg-gray-100';
+        
+        // 使用行的第一个字段值作为row-id，如果没有则使用index
+        const rowId = (row && row.id !== undefined && row.id !== null) ? row.id : (row[allFields[0]] || index);
+        tr.setAttribute('data-row-id', rowId);
+        currentTableRowMap.set(String(rowId), row);
+        
+        // 所有表格都显示序号列，根据分页计算正确的序号
+        const indexTd = document.createElement('td');
+        indexTd.className = 'px-4 py-4 text-sm text-gray-900 w-16';
+        const globalIndex = (currentPage - 1) * pageSize + index + 1;
+        indexTd.textContent = globalIndex;
+        tr.appendChild(indexTd);
+        
+        displayFields.forEach((field, index) => {
+            const td = document.createElement('td');
+            const widthClass = getColumnWidth(field, index, displayFields.length);
+            const nowrap = isTimeField(field) ? ' whitespace-nowrap' : '';
+            td.className = `px-4 py-4 text-sm text-gray-900 ${widthClass}${nowrap}`;
+            td.setAttribute('data-field', field);
+            
+            // 处理字段值
+            const cellValue = row[field] !== null ? row[field] : '';
+            let cellText = String(cellValue);
+            
+            // 处理undefined值
+            if (cellValue === undefined || cellText === 'undefined') {
+                cellText = '';
+            }
+            
+            // 根据字段类型和名称进行特殊处理
+            if (isUrlField(field) && cellText) {
+                // URL字段显示为链接
+                const link = document.createElement('a');
+                link.href = cellText;
+                link.target = '_blank';
+                link.textContent = truncateText(cellText, 30);
+                link.className = 'text-blue-600 hover:text-blue-800 hover:underline cursor-pointer';
+                link.title = cellText;
+                td.appendChild(link);
+            }
+            else if (isBooleanField(field, cellValue)) {
+                // 布尔字段显示为状态标签
+                const badge = document.createElement('span');
+                const isTrue = cellValue === true || cellValue === 'true' || cellValue === 1 || cellValue === '1';
+                badge.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    isTrue ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                }`;
+                // 根据字段名称显示不同的文本
+                if (field === 'is_active') {
+                    badge.textContent = isTrue ? '启用' : '禁用';
+                } else {
+                    badge.textContent = isTrue ? '是' : '否';
+                }
+                td.appendChild(badge);
+            }
+            else if (isTimeField(field)) {
+                // 时间字段格式化显示
+                if (cellText && cellText !== 'null') {
+                    const formattedTime = formatDateTime(cellText);
+                    td.textContent = formattedTime;
+                    td.className += ' text-gray-600';
+                } else {
+                    td.textContent = '-';
+                    td.className += ' text-gray-400';
+                }
+            }
+            else if (isNumericField(field)) {
+                // 数值字段右对齐
+                td.className += ' text-right';
+                if (field === 'score' && cellText) {
+                    // 分数字段添加颜色
+                    const score = parseFloat(cellText);
+                    if (score >= 7) {
+                        td.className += ' text-red-600 font-medium';
+                    } else if (score >= 4) {
+                        td.className += ' text-yellow-600 font-medium';
+                    } else {
+                        td.className += ' text-green-600';
+                    }
+                }
+                td.textContent = cellText || '0';
+            }
+            else if (isStatusField(field)) {
+                // 状态字段显示为彩色标签
+                const statusBadge = document.createElement('span');
+                const statusConfig = getStatusConfig(field, cellValue);
+                statusBadge.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusConfig.class}`;
+                statusBadge.textContent = statusConfig.text;
+                td.appendChild(statusBadge);
+            }
+            else if ((currentTableName === 'WechatArticle' || currentTableName === 'WowArticle' || currentTableName === 'RssArticle') && field === 'title') {
+                // WechatArticle、WowArticle和RssArticle表的title字段特殊处理
+                const url = row['url'] || '';
+                if (url) {
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.target = '_blank';
+                    link.textContent = truncateText(cellText, 40);
+                    link.className = 'text-blue-600 hover:text-blue-800 hover:underline cursor-pointer';
+                    link.title = cellText;
+                    td.appendChild(link);
+                } else {
+                    td.textContent = truncateText(cellText, 40);
+                    td.title = cellText;
+                }
+            }
+            else if (currentTableName === 'SimcProfile' && field === 'spec') {
+                td.innerHTML = renderSpecBadgeHtml(cellText);
+            }
+            else if (currentTableName === 'SimcProfile' && field === 'fight_style') {
+                // SimcProfile表的战斗风格字段特殊处理
+                const fightStyleMap = {
+                    'Patchwerk': '木桩战斗',
+                    'HecticAddCleave': '混乱小怪切换',
+                    'HelterSkelter': '随机目标切换',
+                    'Ultraxion': '奥创之源',
+                    'Beastlord': '兽王',
+                    'CastingPatchwerk': '施法木桩'
+                };
+                const displayText = fightStyleMap[cellText] || cellText;
+                const badge = document.createElement('span');
+                badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800';
+                badge.textContent = displayText;
+                badge.title = cellText;
+                td.appendChild(badge);
+            }
+            else if (currentTableName === 'SimcProfile' && (field === 'gear_strength' || field === 'gear_crit' || field === 'gear_haste' || field === 'gear_mastery' || field === 'gear_versatility')) {
+                // SimcProfile表的装备属性字段右对齐并添加样式
+                td.className += ' text-right font-mono';
+                td.textContent = cellText || '0';
+            }
+            else if (currentTableName === 'SimcProfile' && field === 'action_list') {
+                // SimcProfile表的动作列表字段截断显示
+                td.textContent = truncateText(cellText, 30);
+                td.title = cellText;
+                td.className += ' truncate font-mono text-sm';
+            }
+            else if (field.toLowerCase().endsWith('_hash') && cellText) {
+                td.className += ' font-mono text-xs';
+                td.textContent = truncateText(cellText, 16);
+                td.title = cellText;
+            }
+            else if (isLongTextField(field) || cellText.length > 50) {
+                // 长文本字段截断显示
+                td.textContent = truncateText(cellText, 50);
+                td.title = cellText;
+                td.className += ' truncate';
+            }
+            else {
+                // 普通字段直接显示
+                td.textContent = cellText || '-';
+                if (!cellText) {
+                    td.className += ' text-gray-400';
+                }
+            }
+            
+            tr.appendChild(td);
+        });
+        
+        // 添加操作列（WechatArticle和RssArticle表不显示操作列）
+        if (currentTableName !== 'WechatArticle' && currentTableName !== 'RssArticle') {
+            const actionTd = document.createElement('td');
+            actionTd.className = 'px-4 py-4 whitespace-nowrap text-sm font-medium w-32';
+            
+            // SimcProfile表使用特殊的操作按钮
+            if (currentTableName === 'SimcProfile') {
+                actionTd.innerHTML = `
+                    <div class="flex space-x-1">
+                        <button class="simc-profile-edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-edit mr-1"></i>编辑
+                        </button>
+                        <button class="simc-profile-copy-btn text-green-600 hover:text-green-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-copy mr-1"></i>复制
+                        </button>
+                        <button class="simc-profile-apl-btn text-orange-600 hover:text-orange-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-list mr-1"></i>APL
+                        </button>
+                        <button class="simc-profile-simulate-btn text-purple-600 hover:text-purple-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-play mr-1"></i>模拟
+                        </button>
+                        <button class="simc-profile-delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-profile-id="${rowId}">
+                            <i class="fas fa-trash mr-1"></i>删除
+                        </button>
+                    </div>
+                `;
+            } else if (currentTableName === 'WowArticle') {
+                actionTd.innerHTML = `
+                    <div class="flex space-x-2">
+                        <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
+                            <i class="fas fa-trash mr-1"></i>删除
+                        </button>
+                    </div>
+                `;
+            } else {
+                actionTd.innerHTML = `
+                    <div class="flex space-x-2">
+                        <button class="edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-row-id="${rowId}">
+                            <i class="fas fa-edit mr-1"></i>编辑
+                        </button>
+                        <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
+                            <i class="fas fa-trash mr-1"></i>删除
+                        </button>
+                    </div>
+                `;
+            }
+            tr.appendChild(actionTd);
+        }
+        
+        tableBody.appendChild(tr);
+    });
+    
+    // 绑定编辑和删除事件
+    bindTableActions();
+}
+
+/**
+ * 绑定表格操作事件
+ */
+function bindTableActions() {
+    // 绑定编辑按钮事件
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const rowId = this.getAttribute('data-row-id');
+            openEditRecordModal(rowId);
+        });
+    });
+    
+    // 绑定删除按钮事件
+    document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const rowId = this.getAttribute('data-row-id');
+            if (confirm('确定要删除这条记录吗？')) {
+                deleteTableRow(rowId);
+            }
+        });
+    });
+    
+    // 绑定SimcProfile表的特殊操作按钮事件
+    document.querySelectorAll('.simc-profile-edit-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const profileId = this.getAttribute('data-profile-id');
+            editSimcProfile(profileId);
+        });
+    });
+    
+    document.querySelectorAll('.simc-profile-copy-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const profileId = this.getAttribute('data-profile-id');
+            const row = this.closest('tr');
+            const nameCell = row ? row.querySelector('td[data-field="name"]') : null;
+            const sourceName = nameCell ? String(nameCell.textContent || '').trim() : '';
+            copySimcProfile(profileId, sourceName);
+        });
+    });
+    
+    document.querySelectorAll('.simc-profile-simulate-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const profileId = this.getAttribute('data-profile-id');
+            window.currentSimulationProfileId = profileId;
+            openSimulationTypeModal();
+        });
+    });
+    
+    document.querySelectorAll('.simc-profile-delete-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const profileId = this.getAttribute('data-profile-id');
+            deleteSimcProfile(profileId);
+        });
+    });
+    
+    // 绑定SimcProfile表的APL查看按钮事件
+    document.querySelectorAll('.simc-profile-apl-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const profileId = this.getAttribute('data-profile-id');
+            viewSimcProfileActionList(profileId);
+        });
+    });
+}
+
+/**
+ * 切换行编辑模式
+ */
+function toggleRowEdit(row, rowId) {
+    openEditRecordModal(rowId);
+}
+
+/**
+ * 进入编辑模式
+ */
+function enterEditMode(row, rowId) {
+    row.classList.add('editing');
+    
+    // 将所有数据单元格转换为输入框
+    const dataCells = row.querySelectorAll('td[data-field]');
+    dataCells.forEach(cell => {
+        const field = cell.getAttribute('data-field');
+        const currentValue = cell.textContent.trim();
+        
+        // 跳过时间字段，保持只读状态
+        if (isTimeField(field)) {
+            return;
+        }
+        
+        let inputElement;
+        
+        // 检查是否为布尔字段
+        if (currentValue === 'True' || currentValue === 'False' || currentValue === 'true' || currentValue === 'false' || 
+            currentValue === '启用' || currentValue === '禁用' || currentValue === '是' || currentValue === '否') {
+            // 创建下拉选择框
+            inputElement = document.createElement('select');
+            inputElement.className = 'w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent';
+            
+            const trueOption = document.createElement('option');
+            const falseOption = document.createElement('option');
+            
+            // 根据字段类型设置选项文本和值
+            if (field === 'is_active') {
+                trueOption.value = 'True';
+                trueOption.textContent = '启用';
+                trueOption.selected = (currentValue === '启用' || currentValue === 'True' || currentValue === 'true');
+                
+                falseOption.value = 'False';
+                falseOption.textContent = '禁用';
+                falseOption.selected = (currentValue === '禁用' || currentValue === 'False' || currentValue === 'false');
+            } else {
+                trueOption.value = 'True';
+                trueOption.textContent = '是';
+                trueOption.selected = (currentValue === '是' || currentValue === 'True' || currentValue === 'true');
+                
+                falseOption.value = 'False';
+                falseOption.textContent = '否';
+                falseOption.selected = (currentValue === '否' || currentValue === 'False' || currentValue === 'false');
+            }
+            
+            inputElement.appendChild(trueOption);
+            inputElement.appendChild(falseOption);
+        } else {
+            // 创建文本输入框
+            inputElement = document.createElement('input');
+            inputElement.type = 'text';
+            inputElement.value = currentValue;
+            inputElement.className = 'w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent';
+        }
+        
+        inputElement.setAttribute('data-original-value', currentValue);
+        
+        // 替换单元格内容
+        cell.innerHTML = '';
+        cell.appendChild(inputElement);
+    });
+    
+    // 更新操作按钮
+    const actionCell = row.querySelector('td:last-child');
+    actionCell.innerHTML = `
+        <div class="flex space-x-2">
+            <button class="save-btn text-green-600 hover:text-green-900 transition-colors duration-200" data-row-id="${rowId}">
+                <i class="fas fa-save mr-1"></i>保存
+            </button>
+            <button class="cancel-btn text-gray-600 hover:text-gray-900 transition-colors duration-200" data-row-id="${rowId}">
+                <i class="fas fa-times mr-1"></i>取消
+            </button>
+        </div>
+    `;
+    
+    // 绑定保存和取消按钮事件
+    actionCell.querySelector('.save-btn').addEventListener('click', function(e) {
+        e.preventDefault();
+        saveRowEdit(row, rowId);
+    });
+    
+    actionCell.querySelector('.cancel-btn').addEventListener('click', function(e) {
+        e.preventDefault();
+        cancelRowEdit(row, rowId);
+    });
+}
+
+/**
+ * 保存行编辑
+ */
+function saveRowEdit(row, rowId) {
+    const dataCells = row.querySelectorAll('td[data-field]');
+    const updateData = {};
+    
+    // 收集编辑后的数据
+    dataCells.forEach(cell => {
+        const field = cell.getAttribute('data-field');
+        const input = cell.querySelector('input, select');
+        if (input) {
+            // 排除时间字段，这些字段应该是只读的
+            if (isTimeField(field)) {
+                return; // 跳过时间字段
+            }
+            
+            let value = input.value;
+            
+            // 处理布尔字段
+            if (value === 'true' || value === 'True' || value === '启用' || value === '是') {
+                value = true;
+            } else if (value === 'false' || value === 'False' || value === '禁用' || value === '否') {
+                value = false;
+            }
+            // 处理数字字段
+            else if (!isNaN(value) && value !== '') {
+                value = Number(value);
+            }
+            
+            updateData[field] = value;
+        }
+    });
+    
+    // 发送更新请求到服务器
+    updateTableRow(rowId, updateData, row);
+}
+
+/**
+ * 取消行编辑
+ */
+function cancelRowEdit(row, rowId) {
+    row.classList.remove('editing');
+    
+    // 恢复原始值
+    const dataCells = row.querySelectorAll('td[data-field]');
+    dataCells.forEach(cell => {
+        const input = cell.querySelector('input, select');
+        if (input) {
+            const originalValue = input.getAttribute('data-original-value');
+            cell.textContent = originalValue;
+        }
+    });
+    
+    // 恢复操作按钮
+    const actionCell = row.querySelector('td:last-child');
+    actionCell.innerHTML = `
+        <div class="flex space-x-2">
+            <button class="edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-row-id="${rowId}">
+                <i class="fas fa-edit mr-1"></i>编辑
+            </button>
+            <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
+                <i class="fas fa-trash mr-1"></i>删除
+            </button>
+        </div>
+    `;
+    
+    // 重新绑定事件
+    bindTableActions();
+}
+
+/**
+ * 更新表格行数据
+ */
+function updateTableRow(rowId, updateData, row) {
+    // 获取CSRF令牌
+    const csrfToken = getCSRFToken();
+    if (!csrfToken) {
+        alert('无法获取CSRF令牌，请刷新页面');
+        return;
+    }
+    
+    // 构建请求数据
+    const requestData = {
+        action: 'update_table_row',
+        table_name: currentTableName,
+        row_id: rowId,
+        update_data: updateData
+    };
+    
+    // 发送更新请求
+    fetch('/dashboard/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // 更新成功，退出编辑模式
+            row.classList.remove('editing');
+            
+            // 更新单元格显示
+            const dataCells = row.querySelectorAll('td[data-field]');
+            dataCells.forEach(cell => {
+                const field = cell.getAttribute('data-field');
+                const input = cell.querySelector('input, select');
+                if (input && updateData[field] !== undefined) {
+                    const value = updateData[field];
+                    
+                    // 清空单元格内容
+                    cell.innerHTML = '';
+                    
+                    // 根据字段类型设置显示内容
+                    if (isBooleanField(field, value)) {
+                        // 布尔字段显示为状态标签
+                        const badge = document.createElement('span');
+                        const isTrue = value === true || value === 'true' || value === 1 || value === '1';
+                        badge.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            isTrue ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`;
+                        // 根据字段名称显示不同的文本
+                        if (field === 'is_active') {
+                            badge.textContent = isTrue ? '启用' : '禁用';
+                        } else {
+                            badge.textContent = isTrue ? '是' : '否';
+                        }
+                        cell.appendChild(badge);
+                    } else {
+                        // 其他字段直接显示文本
+                        cell.textContent = value;
+                    }
+                }
+            });
+            
+            // 恢复操作按钮
+            const actionCell = row.querySelector('td:last-child');
+            actionCell.innerHTML = `
+                <div class="flex space-x-2">
+                    <button class="edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-row-id="${rowId}">
+                        <i class="fas fa-edit mr-1"></i>编辑
+                    </button>
+                    <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
+                        <i class="fas fa-trash mr-1"></i>删除
+                    </button>
+                </div>
+            `;
+            
+            // 重新绑定事件
+            bindTableActions();
+            
+            // 显示成功消息
+            showMessage('数据更新成功', 'success');
+        } else {
+            alert('更新失败: ' + (data.message || '未知错误'));
+        }
+    })
+    .catch(error => {
+        console.error('更新数据时发生错误:', error);
+        alert('更新数据时发生错误: ' + error.message);
+    });
+}
+
+/**
+ * 删除表格行
+ */
+function deleteTableRow(rowId) {
+    // 获取CSRF令牌
+    const csrfToken = getCSRFToken();
+    if (!csrfToken) {
+        alert('无法获取CSRF令牌，请刷新页面');
+        return;
+    }
+    
+    // 构建请求数据
+    const requestData = {
+        action: 'delete_table_row',
+        table_name: currentTableName,
+        row_id: rowId
+    };
+    
+    // 发送删除请求
+    fetch('/dashboard/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // 删除成功，移除行
+            const row = document.querySelector(`tr[data-row-id="${rowId}"]`);
+            if (row) {
+                row.remove();
+            }
+            
+            // 显示成功消息
+            showMessage('数据删除成功', 'success');
+        } else {
+            showMessage('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('删除数据时发生错误:', error);
+        showMessage('删除数据时发生错误: ' + error.message, 'error');
+    });
+}
+
+/**
+ * 显示消息提示
+ */
+function showMessage(message, type = 'info') {
+    const root = document.getElementById('toast-root');
+    if (!root) {
+        return;
+    }
+    if (!root.classList.contains('fixed')) {
+        root.className = 'fixed top-4 right-4 z-50 space-y-2';
+    }
+    const toast = document.createElement('div');
+    const level = String(type || 'info');
+    const colorClass = level === 'success'
+        ? 'border-green-500'
+        : level === 'error'
+        ? 'border-red-500'
+        : level === 'warning'
+        ? 'border-yellow-500'
+        : 'border-blue-500';
+    toast.className = `bg-white shadow-lg rounded-lg px-4 py-3 border-l-4 ${colorClass} text-gray-800 transition-opacity duration-200`;
+    toast.textContent = String(message || '');
+    root.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 220);
+    }, 2600);
+}
+
+let currentSystemAlerts = [];
+let currentSystemAlertTotalUnread = 0;
+const systemAlertHomeDisplayLimit = 5;
+const systemAlertFetchLimit = 100;
+let simcUploadSelectedFile = null;
+
+function initSystemAlerts() {
+    const list = document.getElementById('system-alert-home-list');
+    const empty = document.getElementById('system-alert-home-empty');
+    const hint = document.getElementById('system-alert-home-hint');
+    if (!list || !empty || !hint) {
+        return;
+    }
+    const refreshBtn = document.getElementById('system-alert-home-refresh');
+    const markAllBtn = document.getElementById('system-alert-home-mark-all');
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', async function() {
+            await fetchUnreadSystemAlerts(false);
+        });
+    }
+
+    if (markAllBtn) {
+        markAllBtn.addEventListener('click', async function() {
+            try {
+                const resp = await fetch('/api/system-alert/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark_all_read' })
+                });
+                const data = await resp.json();
+                if (data && data.success) {
+                    await fetchUnreadSystemAlerts(false);
+                    showMessage('已全部标记为已读', 'success');
+                    return;
+                }
+                showMessage(data && data.error ? data.error : '操作失败', 'error');
+            } catch (e) {
+                showMessage('操作失败: ' + (e && e.message ? e.message : '未知错误'), 'error');
+            }
+        });
+    }
+
+    fetchUnreadSystemAlerts();
+}
+
+function initSimcBackendUploadTool() {
+    const dropzone = document.getElementById('simc-upload-dropzone');
+    const fileInput = document.getElementById('simc-upload-file');
+    const selectedWrap = document.getElementById('simc-upload-selected');
+    const selectedName = document.getElementById('simc-upload-selected-name');
+    const selectedMeta = document.getElementById('simc-upload-selected-meta');
+    const submitBtn = document.getElementById('simc-upload-submit');
+    const clearBtn = document.getElementById('simc-upload-clear');
+    const result = document.getElementById('simc-upload-result');
+    if (!dropzone || !fileInput || !submitBtn || !clearBtn || !result || !selectedWrap || !selectedName || !selectedMeta) {
+        return;
+    }
+
+    const setSelectedFile = (file) => {
+        simcUploadSelectedFile = file || null;
+        if (!simcUploadSelectedFile) {
+            selectedWrap.classList.add('hidden');
+            selectedName.textContent = '';
+            selectedMeta.textContent = '';
+            submitBtn.disabled = true;
+            clearBtn.disabled = true;
+            return;
+        }
+        selectedWrap.classList.remove('hidden');
+        selectedName.textContent = simcUploadSelectedFile.name || '';
+        const size = Number(simcUploadSelectedFile.size || 0);
+        const sizeText = size > 0 ? `${(size / (1024 * 1024)).toFixed(2)} MB` : '';
+        selectedMeta.textContent = [sizeText, simcUploadSelectedFile.type || ''].filter(Boolean).join(' · ');
+        submitBtn.disabled = false;
+        clearBtn.disabled = false;
+    };
+
+    const clearSelected = () => {
+        fileInput.value = '';
+        setSelectedFile(null);
+        result.textContent = '';
+    };
+
+    clearBtn.addEventListener('click', function() {
+        clearSelected();
+    });
+
+    dropzone.addEventListener('click', function() {
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', function() {
+        const file = fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+        setSelectedFile(file);
+    });
+
+    const stopDefaults = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+        dropzone.addEventListener(evt, stopDefaults);
+    });
+
+    dropzone.addEventListener('dragenter', function() {
+        dropzone.classList.add('border-blue-400');
+    });
+    dropzone.addEventListener('dragleave', function() {
+        dropzone.classList.remove('border-blue-400');
+    });
+    dropzone.addEventListener('drop', function(e) {
+        dropzone.classList.remove('border-blue-400');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length ? e.dataTransfer.files[0] : null;
+        if (file) {
+            setSelectedFile(file);
+        }
+    });
+
+    const renderBackendInfo = (data) => {
+        const platform = document.getElementById('simc-upload-platform');
+        const currentVersion = document.getElementById('simc-upload-current-version');
+        const path = document.getElementById('simc-upload-path');
+        const status = document.getElementById('simc-upload-status');
+        const lastError = document.getElementById('simc-upload-last-error');
+        if (platform) platform.textContent = (data && data.platform) ? String(data.platform) : '-';
+        if (currentVersion) currentVersion.textContent = (data && data.current_version) ? String(data.current_version) : '-';
+        if (path) path.textContent = (data && data.simc_path) ? String(data.simc_path) : '-';
+        if (status) status.textContent = (data && data.update_status) ? String(data.update_status) : '-';
+        const err = (data && data.last_error) ? String(data.last_error) : '';
+        if (lastError) {
+            if (err) {
+                lastError.textContent = err;
+                lastError.classList.remove('hidden');
+            } else {
+                lastError.textContent = '';
+                lastError.classList.add('hidden');
+            }
+        }
+    };
+
+    const fetchBackendInfo = async () => {
+        try {
+            const resp = await fetch('/api/simc-backend-binary/', { method: 'GET' });
+            const data = await resp.json();
+            if (data && data.success) {
+                renderBackendInfo(data.data || {});
+            }
+        } catch (e) {
+            return;
+        }
+    };
+
+    const setUploading = (uploading) => {
+        submitBtn.disabled = uploading || !simcUploadSelectedFile;
+        clearBtn.disabled = uploading || !simcUploadSelectedFile;
+        if (uploading) {
+            result.textContent = '上传中...';
+        }
+    };
+
+    submitBtn.addEventListener('click', async function() {
+        if (!simcUploadSelectedFile) {
+            return;
+        }
+        setUploading(true);
+        try {
+            const form = new FormData();
+            form.append('file', simcUploadSelectedFile);
+            const resp = await fetch('/api/simc-backend-binary/', { method: 'POST', body: form });
+            const data = await resp.json();
+            if (data && data.success) {
+                showMessage('上传成功，已开始安装/更新后端', 'success');
+                result.textContent = '上传成功，正在刷新状态...';
+                clearSelected();
+                await fetchBackendInfo();
+                return;
+            }
+            const err = data && data.error ? String(data.error) : '上传失败';
+            showMessage(err, 'error');
+            result.textContent = err;
+        } catch (e) {
+            const err = e && e.message ? e.message : '上传失败';
+            showMessage(err, 'error');
+            result.textContent = err;
+        } finally {
+            setUploading(false);
+        }
+    });
+
+    fetchBackendInfo();
+}
+
+async function fetchUnreadSystemAlerts(silent = true) {
+    try {
+        const resp = await fetch(`/api/system-alert/?limit=${systemAlertFetchLimit}`, { method: 'GET' });
+        const data = await resp.json();
+        if (!data || !data.success) {
+            if (!silent) {
+                showMessage(data && data.error ? data.error : '获取报警失败', 'error');
+            }
+            return;
+        }
+        currentSystemAlerts = Array.isArray(data.data) ? data.data : [];
+        currentSystemAlertTotalUnread = Number(data.total_unread || 0);
+        renderSystemAlertHome();
+    } catch (e) {
+        if (!silent) {
+            showMessage('获取报警失败: ' + (e && e.message ? e.message : '未知错误'), 'error');
+        }
+        return;
+    }
+}
+
+function renderSystemAlertHome() {
+    const list = document.getElementById('system-alert-home-list');
+    const empty = document.getElementById('system-alert-home-empty');
+    const hint = document.getElementById('system-alert-home-hint');
+    if (!list || !empty || !hint) {
+        return;
+    }
+
+    list.innerHTML = '';
+    const alerts = Array.isArray(currentSystemAlerts) ? currentSystemAlerts : [];
+    if (!alerts.length) {
+        empty.classList.remove('hidden');
+        hint.textContent = '';
+        return;
+    }
+    empty.classList.add('hidden');
+    const shownCount = Math.min(systemAlertHomeDisplayLimit, alerts.length);
+    const totalUnread = currentSystemAlertTotalUnread > 0 ? currentSystemAlertTotalUnread : alerts.length;
+    hint.textContent = `展示最近 ${shownCount} 条未读（已加载 ${alerts.length} / 共 ${totalUnread} 条）`;
+
+    alerts.slice(0, shownCount).forEach(a => {
+        const level = Number(a.level || 3);
+        const borderClass = level >= 3 ? 'border-red-500' : level === 2 ? 'border-yellow-500' : 'border-blue-500';
+        const badgeClass = level >= 3 ? 'bg-red-50 text-red-700' : level === 2 ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700';
+        const badgeText = level >= 3 ? '致命' : level === 2 ? '警告' : '提示';
+
+        const wrap = document.createElement('div');
+        wrap.className = `bg-white border-l-4 ${borderClass} rounded-lg shadow-sm p-4`;
+
+        const header = document.createElement('div');
+        header.className = 'flex items-start justify-between gap-3';
+
+        const left = document.createElement('div');
+        left.className = 'min-w-0';
+
+        const title = document.createElement('div');
+        title.className = 'text-sm font-semibold text-gray-900 break-words';
+        title.textContent = String(a.title || a.category || '报警');
+
+        const meta = document.createElement('div');
+        meta.className = 'mt-1 text-xs text-gray-500';
+        const count = a.count ? `触发 ${a.count} 次` : '';
+        const last = a.last_seen_at ? `最近: ${a.last_seen_at}` : '';
+        meta.textContent = [count, last].filter(Boolean).join(' · ');
+
+        left.appendChild(title);
+        left.appendChild(meta);
+
+        const right = document.createElement('div');
+        right.className = 'flex items-center gap-2 flex-shrink-0';
+
+        const badge = document.createElement('span');
+        badge.className = `px-2 py-0.5 rounded-full text-xs font-medium ${badgeClass}`;
+        badge.textContent = badgeText;
+
+        const btn = document.createElement('button');
+        btn.className = 'px-3 py-1.5 bg-gray-900 text-white rounded-md text-xs hover:bg-gray-800 transition-colors duration-200';
+        btn.textContent = '已读';
+        btn.addEventListener('click', async function() {
+            try {
+                const resp = await fetch('/api/system-alert/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark_read', id: a.id })
+                });
+                const data = await resp.json();
+                if (data && data.success) {
+                    await fetchUnreadSystemAlerts(false);
+                    showMessage('已标记为已读', 'success');
+                    return;
+                }
+                showMessage(data && data.error ? data.error : '操作失败', 'error');
+            } catch (e) {
+                showMessage('操作失败: ' + (e && e.message ? e.message : '未知错误'), 'error');
+            }
+        });
+
+        right.appendChild(badge);
+        right.appendChild(btn);
+
+        header.appendChild(left);
+        header.appendChild(right);
+
+        const content = document.createElement('div');
+        content.className = 'mt-3 text-sm text-gray-700 whitespace-pre-wrap break-words';
+        content.textContent = String(a.content || '');
+
+        wrap.appendChild(header);
+        wrap.appendChild(content);
+        list.appendChild(wrap);
+    });
+}
+
+/**
+ * 更新系统状态信息
+ */
+function updateSystemStatus() {
+    // 模拟数据，实际应用中应该从服务器获取
+    const uptime = Math.floor(Math.random() * 30) + 1;
+    const cpuUsage = Math.floor(Math.random() * 100) + '%';
+    const memoryUsage = (Math.random() * 7 + 1).toFixed(1) + 'GB/8GB';
+    
+    // 更新DOM元素
+    const uptimeEl = document.querySelector('#system-uptime');
+    const uptimeHomeEl = document.querySelector('#system-uptime-home');
+    const cpuEl = document.querySelector('#system-cpu');
+    const memoryEl = document.querySelector('#system-memory');
+    
+    const uptimeText = `${uptime}天`;
+    if (uptimeEl) uptimeEl.textContent = `服务运行时间: ${uptimeText}`;
+    if (uptimeHomeEl) uptimeHomeEl.textContent = uptimeText;
+    if (cpuEl) cpuEl.textContent = `CPU使用率: ${cpuUsage}`;
+    if (memoryEl) memoryEl.textContent = `内存使用: ${memoryUsage}`;
+}
+
+/**
+ * 更新最近活动信息
+ */
+function updateRecentActivities() {
+    // 实际应用中应该从服务器获取数据
+    // 这里只是模拟数据
+    const activities = [
+        { time: formatDateTime(new Date()), action: '收到新的webhook请求' },
+        { time: formatDateTime(new Date(Date.now() - 1000 * 60 * 30)), action: '系统自动更新完成' },
+        { time: formatDateTime(new Date(Date.now() - 1000 * 60 * 60)), action: '用户登录' }
+    ];
+    
+    // 更新DOM元素
+    const activitiesEl = document.querySelector('#recent-activities-list');
+    if (activitiesEl) {
+        activitiesEl.innerHTML = '';
+        activities.forEach(activity => {
+            const li = document.createElement('li');
+            li.textContent = `${activity.time} - ${activity.action}`;
+            activitiesEl.appendChild(li);
+        });
+    }
+}
+
+/**
+ * 更新统计数据
+ */
+function updateStatistics() {
+    // 实际应用中应该从服务器获取数据
+    // 这里只是模拟数据
+    const totalRequests = Math.floor(Math.random() * 10000) + 1000;
+    const todayRequests = Math.floor(Math.random() * 200);
+    const avgResponseTime = (Math.random() * 2).toFixed(1);
+    
+    // 更新DOM元素
+    const totalEl = document.querySelector('#stat-total');
+    const todayEl = document.querySelector('#stat-today');
+    const avgTimeEl = document.querySelector('#stat-avg-time');
+    
+    if (totalEl) totalEl.textContent = `总请求数: ${totalRequests.toLocaleString()}`;
+    if (todayEl) todayEl.textContent = `今日请求: ${todayRequests}`;
+    if (avgTimeEl) avgTimeEl.textContent = `平均响应时间: ${avgResponseTime}秒`;
+}
+
+/**
+ * 判断是否为URL字段
+ */
+function isUrlField(field) {
+    const urlFields = ['url', 'link', 'target', 'source_url'];
+    return urlFields.includes(field.toLowerCase());
+}
+
+/**
+ * 判断是否为布尔字段
+ */
+function isBooleanField(field, value) {
+    const booleanFields = ['is_active', 'is_login', 'is_poc', 'is_exp', 'is_verify', 'is_zombie'];
+    return booleanFields.includes(field.toLowerCase()) || 
+           typeof value === 'boolean' || 
+           value === 'true' || value === 'false';
+}
+
+/**
+ * 判断是否为时间字段
+ */
+function isTimeField(field) {
+    const timeFields = ['time', 'date', 'created_at', 'updated_at', 'publish_time', 'last_scan_time', 'last_spider_time', 'last_publish_time', 'create_time'];
+    // 排除wait_time，它应该显示为数值而不是时间
+    if (field.toLowerCase() === 'wait_time') {
+        return false;
+    }
+    // 排除SimcProfile表中的time字段，它是纯数字而不是日期
+    if (currentTableName === 'SimcProfile' && field.toLowerCase() === 'time') {
+        return false;
+    }
+    return timeFields.some(timeField => field.toLowerCase().includes(timeField));
+}
+
+/**
+ * 判断是否为数值字段
+ */
+function isNumericField(field) {
+    const numericFields = ['score', 'severity', 'wait_time', 'type', 'state', 'flag', 'room_member_count', 'msg_type', 'active_type'];
+    return numericFields.includes(field.toLowerCase());
+}
+
+/**
+ * 判断是否为状态字段
+ */
+function isStatusField(field) {
+    const statusFields = ['status', 'login_status', 'state'];
+    return statusFields.includes(field.toLowerCase());
+}
+
+/**
+ * 判断是否为长文本字段
+ */
+function isLongTextField(field) {
+    const longTextFields = ['description', 'content_html', 'solutions', 'summary', 'digest', 'reference'];
+    return longTextFields.includes(field.toLowerCase());
+}
+
+/**
+ * 截断文本
+ */
+function truncateText(text, maxLength) {
+    if (!text || text.length <= maxLength) {
+        return text;
+    }
+    return text.substring(0, maxLength) + '...';
+}
+
+/**
+ * 格式化日期时间
+ */
+function formatDateTime(dateString) {
+    if (!dateString || dateString === 'null' || dateString === 'undefined' || dateString === undefined) {
+        return '';
+    }
+    
+    try {
+        const raw = String(dateString).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+        if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+            const parts = raw.split(/\s+/);
+            const day = parts[0] || '';
+            const time = parts[1] || '';
+            const hm = time.length >= 5 ? time.slice(0, 5) : time;
+            return day && hm ? `${day} ${hm}` : raw;
+        }
+        if (/^\d{2}:\d{2}(:\d{2})?$/.test(raw)) return raw;
+
+        let normalized = raw;
+        if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?$/.test(normalized)) {
+            normalized = normalized.replace(' ', 'T');
+        }
+        normalized = normalized.replace(/\s+/g, ' ').replace(/ /g, 'T');
+
+        const date = new Date(normalized);
+        if (isNaN(date.getTime())) {
+            return raw;
+        }
+
+        const dtf = new Intl.DateTimeFormat('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            hour12: false,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        const parts = dtf.formatToParts(date);
+        const pick = (t) => (parts.find(p => p.type === t)?.value || '');
+        const y = pick('year');
+        const m = pick('month');
+        const d = pick('day');
+        const hh = pick('hour');
+        const mm = pick('minute');
+        if (!y || !m || !d) return raw;
+        return `${y}-${m}-${d} ${hh}:${mm}`;
+    } catch (e) {
+        return String(dateString);
+    }
+}
+
+function formatShanghaiHms(dateInput) {
+    try {
+        const date = dateInput ? new Date(dateInput) : new Date();
+        if (isNaN(date.getTime())) return '';
+        return date.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch (e) {
+        return '';
+    }
+}
+
+/**
+ * 获取状态配置
+ */
+function getStatusConfig(field, value) {
+    const configs = {
+        'login_status': {
+            0: { text: '未登录', class: 'bg-gray-100 text-gray-800' },
+            1: { text: '已登录', class: 'bg-green-100 text-green-800' },
+            2: { text: '登录失败', class: 'bg-red-100 text-red-800' }
+        },
+        'state': {
+            0: { text: '正常', class: 'bg-green-100 text-green-800' },
+            1: { text: '异常', class: 'bg-red-100 text-red-800' },
+            2: { text: '待处理', class: 'bg-yellow-100 text-yellow-800' }
+        },
+        'status': {
+            0: { text: '禁用', class: 'bg-gray-100 text-gray-800' },
+            1: { text: '启用', class: 'bg-green-100 text-green-800' }
+        }
+    };
+    
+    const fieldConfig = configs[field.toLowerCase()];
+    if (fieldConfig && fieldConfig[value]) {
+        return fieldConfig[value];
+    }
+    
+    // 默认配置
+    return {
+        text: String(value),
+        class: 'bg-gray-100 text-gray-800'
+    };
+}
+
+/**
+ * 更新分页控件
+ */
+function updatePagination() {
+    const paginationContainer = document.getElementById('pagination-container');
+    if (!paginationContainer) {
+        return;
+    }
+    
+    // 更新分页信息显示
+    const pageInfo = document.getElementById('page-info');
+    if (pageInfo) {
+        const startRecord = (currentPage - 1) * pageSize + 1;
+        const endRecord = Math.min(currentPage * pageSize, totalCount);
+        pageInfo.textContent = `显示 ${startRecord}-${endRecord} 条，共 ${totalCount} 条记录`;
+    }
+    
+    // 更新分页按钮
+    const paginationButtons = document.getElementById('pagination-buttons');
+    if (!paginationButtons) {
+        return;
+    }
+    
+    paginationButtons.innerHTML = '';
+    
+    // 如果只有一页，不显示分页按钮
+    if (totalPages <= 1) {
+        return;
+    }
+    
+    // 上一页按钮
+    const prevButton = document.createElement('button');
+    prevButton.className = `px-3 py-1 mx-1 rounded ${currentPage === 1 ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}`;
+    prevButton.textContent = '上一页';
+    prevButton.disabled = currentPage === 1;
+    prevButton.addEventListener('click', () => {
+        if (currentPage > 1) {
+            fetchTableData(currentTableName, currentPage - 1);
+        }
+    });
+    paginationButtons.appendChild(prevButton);
+    
+    // 页码按钮
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    
+    // 调整起始页
+    if (endPage - startPage + 1 < maxVisiblePages) {
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    // 如果起始页大于1，显示第一页和省略号
+    if (startPage > 1) {
+        const firstPageButton = document.createElement('button');
+        firstPageButton.className = 'px-3 py-1 mx-1 rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50';
+        firstPageButton.textContent = '1';
+        firstPageButton.addEventListener('click', () => {
+            fetchTableData(currentTableName, 1);
+        });
+        paginationButtons.appendChild(firstPageButton);
+        
+        if (startPage > 2) {
+            const ellipsis = document.createElement('span');
+            ellipsis.className = 'px-3 py-1 mx-1 text-gray-500';
+            ellipsis.textContent = '...';
+            paginationButtons.appendChild(ellipsis);
+        }
+    }
+    
+    // 显示页码按钮
+    for (let i = startPage; i <= endPage; i++) {
+        const pageButton = document.createElement('button');
+        pageButton.className = `px-3 py-1 mx-1 rounded ${i === currentPage ? 'bg-blue-500 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`;
+        pageButton.textContent = i;
+        pageButton.addEventListener('click', () => {
+            fetchTableData(currentTableName, i);
+        });
+        paginationButtons.appendChild(pageButton);
+    }
+    
+    // 如果结束页小于总页数，显示省略号和最后一页
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            const ellipsis = document.createElement('span');
+            ellipsis.className = 'px-3 py-1 mx-1 text-gray-500';
+            ellipsis.textContent = '...';
+            paginationButtons.appendChild(ellipsis);
+        }
+        
+        const lastPageButton = document.createElement('button');
+        lastPageButton.className = 'px-3 py-1 mx-1 rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50';
+        lastPageButton.textContent = totalPages;
+        lastPageButton.addEventListener('click', () => {
+            fetchTableData(currentTableName, totalPages);
+        });
+        paginationButtons.appendChild(lastPageButton);
+    }
+    
+    // 下一页按钮
+    const nextButton = document.createElement('button');
+    nextButton.className = `px-3 py-1 mx-1 rounded ${currentPage === totalPages ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}`;
+    nextButton.textContent = '下一页';
+    nextButton.disabled = currentPage === totalPages;
+    nextButton.addEventListener('click', () => {
+        if (currentPage < totalPages) {
+            fetchTableData(currentTableName, currentPage + 1);
+        }
+    });
+    paginationButtons.appendChild(nextButton);
+}
+
+/**
+ * 获取Django CSRF Token
+ */
+function getCSRFToken() {
+    // 首先尝试从cookie中获取
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.startsWith('csrftoken=')) {
+            return cookie.substring('csrftoken='.length, cookie.length);
+        }
+    }
+    
+    // 如果cookie中没有，尝试从meta标签获取
+    const metaToken = document.querySelector('meta[name="csrf-token"]');
+    if (metaToken) {
+        return metaToken.getAttribute('content');
+    }
+    
+    // 如果meta标签中没有，尝试从input标签获取
+    const inputToken = document.querySelector('input[name="csrfmiddlewaretoken"]');
+    if (inputToken) {
+        return inputToken.value;
+    }
+    
+    console.error('无法获取CSRF令牌');
+    return null;
+}
+
+/**
+ * 初始化SimC APL转换工具
+ */
+function initSimcAplConverter() {
+    const modeSelect = document.getElementById('apl-convert-mode');
+    const switchBtn = document.getElementById('apl-convert-switch');
+    const execBtn = document.getElementById('apl-convert-exec');
+    const statusText = document.getElementById('apl-convert-status');
+    const sourceLabel = document.getElementById('apl-source-label');
+    const targetLabel = document.getElementById('apl-target-label');
+    const clearAllBtn = document.getElementById('clear-all');
+    const copyResultBtn = document.getElementById('copy-result');
+    const simcInput = document.getElementById('simc-input');
+    const aplInput = document.getElementById('apl-input');
+    
+    if (!modeSelect || !switchBtn || !execBtn || !statusText || !sourceLabel || !targetLabel || !clearAllBtn || !copyResultBtn || !simcInput || !aplInput) {
+        return; // 如果元素不存在，直接返回
+    }
+
+    function setStatus(text, level) {
+        statusText.textContent = text || '';
+        statusText.classList.remove('text-gray-500', 'text-blue-600', 'text-green-600', 'text-red-600', 'text-amber-600');
+        const levelMap = {
+            loading: 'text-blue-600',
+            success: 'text-green-600',
+            error: 'text-red-600',
+            warning: 'text-amber-600',
+            info: 'text-gray-500'
+        };
+        statusText.classList.add(levelMap[level] || 'text-gray-500');
+    }
+
+    function refreshModeDisplay() {
+        const mode = modeSelect.value || 'apl_to_cn';
+        if (mode === 'cn_to_apl') {
+            sourceLabel.textContent = '中文描述（原文）';
+            targetLabel.textContent = 'APL结果';
+            aplInput.placeholder = '请输入中文动作说明，例如：起手冲锋后释放爆发技能...';
+            simcInput.placeholder = '生成的APL结果将显示在这里...';
+        } else {
+            sourceLabel.textContent = 'APL代码（原文）';
+            targetLabel.textContent = '中文结果';
+            aplInput.placeholder = '请输入APL格式的代码...';
+            simcInput.placeholder = '翻译结果将显示在这里...';
+        }
+    }
+
+    async function executeConvert() {
+        const mode = modeSelect.value || 'apl_to_cn';
+        const sourceText = String(aplInput.value || '').trim();
+        if (!sourceText) {
+            const sourceName = mode === 'cn_to_apl' ? '中文描述' : 'APL代码';
+            showMessage(`请先输入${sourceName}`, 'warning');
+            setStatus('等待输入内容', 'warning');
+            return false;
+        }
+        try {
+            execBtn.disabled = true;
+            setStatus('翻译中...', 'loading');
+            const result = await convertText(sourceText, mode);
+            simcInput.value = result || '';
+            setStatus('翻译完成', 'success');
+            showMessage('翻译成功', 'success');
+            return true;
+        } catch (error) {
+            setStatus('翻译失败', 'error');
+            showMessage('翻译失败: ' + error.message, 'error');
+            return false;
+        } finally {
+            execBtn.disabled = false;
+        }
+    }
+
+    modeSelect.addEventListener('change', function() {
+        refreshModeDisplay();
+        const modeText = this.value === 'cn_to_apl' ? '中文 -> APL' : 'APL -> 中文';
+        setStatus(`当前方向：${modeText}`, 'info');
+    });
+
+    switchBtn.addEventListener('click', function() {
+        modeSelect.value = modeSelect.value === 'apl_to_cn' ? 'cn_to_apl' : 'apl_to_cn';
+        modeSelect.dispatchEvent(new Event('change'));
+    });
+
+    execBtn.addEventListener('click', function() {
+        executeConvert();
+    });
+
+    aplInput.addEventListener('keydown', function(event) {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+            event.preventDefault();
+            executeConvert();
+        }
+    });
+
+    clearAllBtn.addEventListener('click', function() {
+        aplInput.value = '';
+        simcInput.value = '';
+        setStatus('已清空，准备就绪', 'info');
+        showMessage('已清空所有内容', 'info');
+    });
+
+    copyResultBtn.addEventListener('click', function() {
+        const resultText = String(simcInput.value || '').trim();
+        if (!resultText) {
+            showMessage('当前没有可复制的翻译结果', 'warning');
+            return;
+        }
+        navigator.clipboard.writeText(resultText)
+            .then(() => showMessage('结果已复制到剪贴板', 'success'))
+            .catch(() => showMessage('复制失败', 'error'));
+    });
+
+    window.__previewCurrentConverterContent = executeConvert;
+    refreshModeDisplay();
+    setStatus('准备就绪', 'info');
+
+    // 初始化APL保存功能
+    initAplSaveFeature();
+}
+
+async function previewCurrentConverterContent() {
+    if (typeof window.__previewCurrentConverterContent !== 'function') {
+        showMessage('翻译器尚未初始化', 'warning');
+        return false;
+    }
+    return window.__previewCurrentConverterContent();
+}
+
+/**
+ * 文本转换函数
+ */
+async function convertText(text, conversionType) {
+    try {
+        const response = await fetch('/api/convert-text/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({
+                text: text,
+                conversion_type: conversionType
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('网络请求失败');
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            return data.result;
+        } else {
+            throw new Error(data.error || '转换失败');
+        }
+    } catch (error) {
+        throw error;
+    }
+}
+
+/**
+ * 初始化新增记录功能
+ */
+function initAddRecord() {
+    const addRecordBtn = document.getElementById('add-record-btn');
+    const modal = document.getElementById('add-record-modal');
+    const closeModalBtn = document.getElementById('close-modal-btn');
+    const cancelBtn = document.getElementById('cancel-btn');
+    const addRecordForm = document.getElementById('add-record-form');
+    
+    if (!addRecordBtn || !modal) {
+        return; // 如果元素不存在，直接返回
+    }
+    
+    // 新增记录按钮点击事件
+    addRecordBtn.addEventListener('click', function() {
+        if (!currentTableName) {
+            showMessage('请先选择一个表', 'warning');
+            return;
+        }
+        openAddRecordModal();
+    });
+    
+    // 关闭弹窗事件
+    closeModalBtn.addEventListener('click', closeAddRecordModal);
+    cancelBtn.addEventListener('click', closeAddRecordModal);
+    
+    // 点击弹窗外部关闭
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            closeAddRecordModal();
+        }
+    });
+    
+    // 表单提交事件
+    addRecordForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitAddRecord();
+    });
+}
+
+/**
+ * 打开新增记录弹窗
+ */
+function openAddRecordModal() {
+    // SimcProfile表使用专门的模态框
+    if (currentTableName === 'SimcProfile') {
+        openAddSimcProfileModal();
+        return;
+    }
+    
+    const modal = document.getElementById('add-record-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const formFields = document.getElementById('form-fields');
+    
+    // 设置弹窗标题
+    modalTitle.textContent = `新增${currentTableDisplayName || currentTableName}记录`;
+    
+    // 生成表单字段
+    generateFormFields(formFields);
+    
+    // 显示弹窗
+    modal.classList.remove('hidden');
+}
+
+/**
+ * 关闭新增记录弹窗
+ */
+function closeAddRecordModal() {
+    const modal = document.getElementById('add-record-modal');
+    const addRecordForm = document.getElementById('add-record-form');
+    
+    // 隐藏弹窗
+    modal.classList.add('hidden');
+    
+    // 重置表单
+    addRecordForm.reset();
+}
+
+function initEditRecord() {
+    const modal = document.getElementById('edit-record-modal');
+    const closeModalBtn = document.getElementById('close-edit-modal-btn');
+    const cancelBtn = document.getElementById('cancel-edit-btn');
+    const editRecordForm = document.getElementById('edit-record-form');
+    
+    if (!modal || !editRecordForm) {
+        return;
+    }
+    
+    if (closeModalBtn) closeModalBtn.addEventListener('click', closeEditRecordModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeEditRecordModal);
+    
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            closeEditRecordModal();
+        }
+    });
+    
+    editRecordForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitEditRecord();
+    });
+    
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+            closeEditRecordModal();
+        }
+    });
+}
+
+function openEditRecordModal(rowId) {
+    const modal = document.getElementById('edit-record-modal');
+    const modalTitle = document.getElementById('edit-modal-title');
+    const formFields = document.getElementById('edit-form-fields');
+    const idInput = document.getElementById('edit-row-id');
+    
+    if (!modal || !modalTitle || !formFields || !idInput) {
+        return;
+    }
+    
+    const rowData = currentTableRowMap.get(String(rowId));
+    if (!rowData) {
+        showMessage('无法获取当前行数据，请刷新后重试', 'error');
+        return;
+    }
+    
+    currentEditRowId = String(rowId);
+    idInput.value = currentEditRowId;
+    modalTitle.textContent = `编辑${currentTableDisplayName || currentTableName}记录`;
+    
+    generateEditFormFields(formFields, rowData);
+    modal.classList.remove('hidden');
+}
+
+function closeEditRecordModal() {
+    const modal = document.getElementById('edit-record-modal');
+    const form = document.getElementById('edit-record-form');
+    const fields = document.getElementById('edit-form-fields');
+    const idInput = document.getElementById('edit-row-id');
+    
+    if (modal) modal.classList.add('hidden');
+    if (form) form.reset();
+    if (fields) fields.innerHTML = '';
+    if (idInput) idInput.value = '';
+    currentEditRowId = null;
+}
+
+function generateEditFormFields(container, rowData) {
+    container.innerHTML = '';
+    
+    if (!currentTableColumns || currentTableColumns.length === 0) {
+        container.innerHTML = '<div class="text-center py-8"><i class="fas fa-exclamation-triangle text-gray-400 text-3xl mb-3"></i><p class="text-gray-500">无法获取表字段信息</p></div>';
+        return;
+    }
+    
+    currentTableColumns.forEach(column => {
+        if (column.toLowerCase() === 'id' || column.toLowerCase().includes('time')) {
+            return;
+        }
+        if (column.toLowerCase().endsWith('_hash')) {
+            const fieldDiv = document.createElement('div');
+            fieldDiv.className = 'space-y-2';
+            const label = document.createElement('label');
+            label.className = 'block text-sm font-semibold text-gray-700';
+            label.textContent = getFieldDisplayName(column);
+            label.setAttribute('for', `edit-field-${column}`);
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.id = `edit-field-${column}`;
+            input.name = column;
+            input.readOnly = true;
+            input.className = 'w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 font-mono text-xs text-gray-700';
+            input.value = rowData && rowData[column] !== null && rowData[column] !== undefined ? String(rowData[column]) : '';
+            fieldDiv.appendChild(label);
+            fieldDiv.appendChild(input);
+            container.appendChild(fieldDiv);
+            return;
+        }
+        
+        const fieldDiv = document.createElement('div');
+        fieldDiv.className = 'space-y-2';
+        
+        const label = document.createElement('label');
+        label.className = 'block text-sm font-semibold text-gray-700';
+        label.textContent = getFieldDisplayName(column);
+        label.setAttribute('for', `edit-field-${column}`);
+        
+        const inputType = getFieldInputType(column);
+        let inputElement;
+        
+        if (inputType === 'textarea') {
+            inputElement = document.createElement('textarea');
+            inputElement.rows = 4;
+            inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
+            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 resize-none';
+            inputElement.value = rowData && rowData[column] !== null && rowData[column] !== undefined ? String(rowData[column]) : '';
+        } else if (inputType === 'checkbox') {
+            inputElement = document.createElement('input');
+            inputElement.type = 'checkbox';
+            inputElement.className = 'w-5 h-5 text-emerald-600 border-gray-300 rounded focus:ring-2 focus:ring-emerald-500 transition-all duration-200';
+            const v = rowData ? rowData[column] : false;
+            inputElement.checked = v === true || v === 'true' || v === 1 || v === '1';
+        } else {
+            inputElement = document.createElement('input');
+            inputElement.type = inputType;
+            inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
+            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200';
+            
+            if (inputType === 'number') {
+                if (currentFieldTypes && currentFieldTypes[column]) {
+                    const fieldType = currentFieldTypes[column].type;
+                    if (fieldType === 'FloatField' || fieldType === 'DecimalField') {
+                        inputElement.step = 'any';
+                    }
+                }
+            }
+            
+            if (currentFieldTypes && currentFieldTypes[column] && currentFieldTypes[column].max_length) {
+                inputElement.maxLength = currentFieldTypes[column].max_length;
+            }
+            
+            const raw = rowData && rowData[column] !== null && rowData[column] !== undefined ? rowData[column] : '';
+            inputElement.value = inputType === 'number'
+                ? (raw === '' ? '' : String(raw))
+                : String(raw);
+        }
+        
+        inputElement.id = `edit-field-${column}`;
+        inputElement.name = column;
+        
+        if (isRequiredField(column)) {
+            inputElement.required = true;
+            label.innerHTML += ' <span class="text-red-500 ml-1">*</span>';
+        }
+        
+        fieldDiv.appendChild(label);
+        
+        if (inputType === 'checkbox') {
+            const checkboxWrapper = document.createElement('div');
+            checkboxWrapper.className = 'bg-gray-50 p-4 rounded-lg';
+            const checkboxDiv = document.createElement('div');
+            checkboxDiv.className = 'flex items-center';
+            checkboxDiv.appendChild(inputElement);
+            const checkboxLabel = document.createElement('label');
+            checkboxLabel.className = 'ml-3 text-sm font-medium text-gray-700 cursor-pointer';
+            checkboxLabel.textContent = '启用';
+            checkboxLabel.setAttribute('for', `edit-field-${column}`);
+            checkboxDiv.appendChild(checkboxLabel);
+            checkboxWrapper.appendChild(checkboxDiv);
+            fieldDiv.appendChild(checkboxWrapper);
+        } else {
+            fieldDiv.appendChild(inputElement);
+        }
+        
+        container.appendChild(fieldDiv);
+    });
+}
+
+function submitEditRecord() {
+    const rowId = currentEditRowId;
+    if (!rowId) {
+        showMessage('未选择要编辑的记录', 'warning');
+        return;
+    }
+    
+    const updateData = {};
+    currentTableColumns.forEach(column => {
+        if (column === 'id' || column.toLowerCase().includes('time')) {
+            return;
+        }
+        if (column.toLowerCase().endsWith('_hash')) {
+            return;
+        }
+        const element = document.getElementById(`edit-field-${column}`);
+        if (!element) {
+            return;
+        }
+        const inputType = getFieldInputType(column);
+        if (inputType === 'checkbox') {
+            updateData[column] = element.checked;
+        } else if (inputType === 'number') {
+            const value = element.value.trim();
+            updateData[column] = value !== '' ? parseFloat(value) : null;
+        } else {
+            updateData[column] = element.value;
+        }
+    });
+    
+    const csrfToken = getCSRFToken();
+    if (!csrfToken) {
+        showMessage('无法获取CSRF令牌，请刷新页面', 'error');
+        return;
+    }
+    
+    const requestData = {
+        action: 'update_table_row',
+        table_name: currentTableName,
+        row_id: rowId,
+        update_data: updateData
+    };
+    
+    fetch('/dashboard/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.status === 'success') {
+            showMessage('数据更新成功', 'success');
+            closeEditRecordModal();
+            fetchTableData(currentTableName, currentPage);
+        } else {
+            showMessage('更新失败: ' + (result.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('更新记录失败:', error);
+        showMessage('更新失败: ' + error.message, 'error');
+    });
+}
+
+/**
+ * 生成表单字段
+ */
+function generateFormFields(container) {
+    container.innerHTML = '';
+    
+    if (!currentTableColumns || currentTableColumns.length === 0) {
+        container.innerHTML = '<div class="text-center py-8"><i class="fas fa-exclamation-triangle text-gray-400 text-3xl mb-3"></i><p class="text-gray-500">无法获取表字段信息</p></div>';
+        return;
+    }
+    
+    currentTableColumns.forEach(column => {
+        // 跳过ID字段和时间字段（通常由系统自动生成）
+        if (column.toLowerCase() === 'id' || column.toLowerCase().includes('time')) {
+            return;
+        }
+        if (column.toLowerCase().endsWith('_hash')) {
+            return;
+        }
+        
+        const fieldDiv = document.createElement('div');
+        fieldDiv.className = 'space-y-2';
+        
+        const label = document.createElement('label');
+        label.className = 'block text-sm font-semibold text-gray-700';
+        label.textContent = getFieldDisplayName(column);
+        label.setAttribute('for', `field-${column}`);
+        
+        const inputType = getFieldInputType(column);
+        let inputElement;
+        
+        if (inputType === 'textarea') {
+            // 创建textarea元素
+            inputElement = document.createElement('textarea');
+            inputElement.rows = 4;
+            inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
+            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none';
+        } else if (inputType === 'checkbox') {
+            // 创建checkbox元素
+            inputElement = document.createElement('input');
+            inputElement.type = 'checkbox';
+            inputElement.className = 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500 transition-all duration-200';
+            // 为checkbox添加默认值处理
+            if (currentFieldTypes && currentFieldTypes[column] && currentFieldTypes[column].default !== null) {
+                inputElement.checked = currentFieldTypes[column].default;
+            }
+        } else {
+            // 创建普通input元素
+            inputElement = document.createElement('input');
+            inputElement.type = inputType;
+            inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
+            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200';
+            
+            // 为数字类型设置step属性
+            if (inputType === 'number') {
+                if (currentFieldTypes && currentFieldTypes[column]) {
+                    const fieldType = currentFieldTypes[column].type;
+                    if (fieldType === 'FloatField' || fieldType === 'DecimalField') {
+                        inputElement.step = 'any';
+                    }
+                }
+            }
+            
+            // 为字符字段设置最大长度
+            if (currentFieldTypes && currentFieldTypes[column] && currentFieldTypes[column].max_length) {
+                inputElement.maxLength = currentFieldTypes[column].max_length;
+            }
+        }
+        
+        inputElement.id = `field-${column}`;
+        inputElement.name = column;
+        
+        // 设置必填字段
+        if (isRequiredField(column)) {
+            inputElement.required = true;
+            label.innerHTML += ' <span class="text-red-500 ml-1">*</span>';
+        }
+        
+        fieldDiv.appendChild(label);
+        
+        // 为checkbox创建特殊布局
+        if (inputType === 'checkbox') {
+            const checkboxWrapper = document.createElement('div');
+            checkboxWrapper.className = 'bg-gray-50 p-4 rounded-lg';
+            const checkboxDiv = document.createElement('div');
+            checkboxDiv.className = 'flex items-center';
+            checkboxDiv.appendChild(inputElement);
+            const checkboxLabel = document.createElement('label');
+            checkboxLabel.className = 'ml-3 text-sm font-medium text-gray-700 cursor-pointer';
+            checkboxLabel.textContent = '启用';
+            checkboxLabel.setAttribute('for', `field-${column}`);
+            checkboxDiv.appendChild(checkboxLabel);
+            checkboxWrapper.appendChild(checkboxDiv);
+            fieldDiv.appendChild(checkboxWrapper);
+        } else {
+            fieldDiv.appendChild(inputElement);
+        }
+        
+        container.appendChild(fieldDiv);
+    });
+}
+
+/**
+ * 获取字段显示名称
+ */
+function getFieldDisplayName(column) {
+    const rawLabel = (currentFieldLabels && currentFieldLabels[column]) ? String(currentFieldLabels[column]).trim() : '';
+    if (rawLabel && !isProbablyEnglishLabel(rawLabel)) return rawLabel;
+    const fieldNames = {
+        apl_keyword: 'APL关键字',
+        cn_keyword: '中文关键字',
+        id: '编号',
+        name: '名称',
+        title: '标题',
+        url: '链接',
+        link: '链接',
+        target: '目标',
+        type: '类型',
+        tag: '标记',
+        status: '状态',
+        content: '内容',
+        description: '描述',
+        author: '作者',
+        source: '来源',
+        category: '分类',
+        publish_time: '发布时间',
+        created_at: '创建时间',
+        updated_at: '更新时间',
+        create_time: '创建时间',
+        update_time: '更新时间',
+        last_scan_time: '上次扫描时间',
+        wait_time: '间隔(秒)',
+        is_active: '是否启用',
+        is_login: '是否登录',
+        is_verify: '是否验证',
+        is_poc: '是否POC',
+        is_exp: '是否EXP',
+        url_hash: '链接Hash',
+        rss_id: 'RSS编号',
+        content_html: '内容HTML',
+        fight_style: '战斗风格',
+        target_count: '目标数量',
+    };
+    if (fieldNames[column]) return fieldNames[column];
+    return translateFieldNameToCn(column);
+}
+
+function isProbablyEnglishLabel(s) {
+    const v = String(s || '').trim();
+    if (!v) return false;
+    if (!/^[\x00-\x7F]+$/.test(v)) return false;
+    return /[A-Za-z]/.test(v);
+}
+
+function translateFieldNameToCn(fieldName) {
+    const raw = String(fieldName || '').trim();
+    if (!raw) return '';
+
+    const snake = raw
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/-+/g, '_')
+        .replace(/\s+/g, '_')
+        .toLowerCase();
+
+    const tokens = snake.split('_').filter(Boolean);
+    if (!tokens.length) return raw;
+
+    const dict = {
+        id: '编号',
+        name: '名称',
+        title: '标题',
+        url: '链接',
+        link: '链接',
+        hash: 'Hash',
+        target: '目标',
+        type: '类型',
+        tag: '标记',
+        flag: '标记',
+        status: '状态',
+        content: '内容',
+        desc: '描述',
+        description: '描述',
+        author: '作者',
+        source: '来源',
+        category: '分类',
+        task: '任务',
+        profile: '配置',
+        rule: '规则',
+        login: '登录',
+        password: '密码',
+        email: '邮箱',
+        token: 'Token',
+        secret: '密钥',
+        webhook: 'Webhook',
+        wechat: '微信',
+        wx: '微信',
+        article: '文章',
+        rss: 'RSS',
+        bili: '哔哩',
+        vuln: '漏洞',
+        poc: 'POC',
+        exp: 'EXP',
+        verify: '验证',
+        group: '群',
+        chat: '聊天',
+        msg: '消息',
+        simc: 'SimC',
+        publish: '发布',
+        published: '发布',
+        create: '创建',
+        created: '创建',
+        update: '更新',
+        updated: '更新',
+        time: '时间',
+        date: '日期',
+        start: '开始',
+        end: '结束',
+        last: '上次',
+        scan: '扫描',
+        wait: '间隔',
+        interval: '间隔',
+        count: '数量',
+        num: '数量',
+        number: '数量',
+        total: '总数',
+        week: '周',
+        season: '赛季',
+        period: '周期',
+        dungeon: '副本',
+        role: '职责',
+        spec: '专精',
+        avg: '平均',
+        top: '最高',
+        runs: '样本数',
+        diff: '差值',
+        rank: '排名',
+        score: '分数',
+        level: '等级',
+        key: '钥石',
+        min: '最小',
+        max: '最大',
+        crit: '暴击',
+        haste: '急速',
+        mastery: '精通',
+        versatility: '全能',
+        coefficient: '系数',
+        percent: '百分比',
+        ratio: '比例',
+        fight: '战斗',
+        style: '风格',
+        html: 'HTML',
+        text: '文本',
+        raw: '原始',
+        value: '数值',
+        is: '是否',
+        active: '启用',
+        enable: '启用',
+        enabled: '启用',
+        disable: '禁用',
+        disabled: '禁用',
+    };
+
+    const parts = tokens.map(t => dict[t] || t);
+    const label = parts.join('');
+    return label || raw;
+}
+
+/**
+ * 获取字段输入类型
+ */
+function getFieldInputType(column) {
+    if (column.toLowerCase().endsWith('_hash')) {
+        return 'text';
+    }
+    // 如果有字段类型信息，根据Django字段类型判断
+    if (currentFieldTypes && currentFieldTypes[column]) {
+        const fieldInfo = currentFieldTypes[column];
+        const fieldType = fieldInfo.type;
+        
+        switch (fieldType) {
+            case 'BooleanField':
+                return 'checkbox';
+            case 'IntegerField':
+            case 'BigIntegerField':
+            case 'SmallIntegerField':
+            case 'PositiveIntegerField':
+            case 'PositiveSmallIntegerField':
+                return 'number';
+            case 'FloatField':
+            case 'DecimalField':
+                return 'number';
+            case 'DateField':
+                return 'date';
+            case 'DateTimeField':
+                return 'datetime-local';
+            case 'TimeField':
+                return 'time';
+            case 'EmailField':
+                return 'email';
+            case 'URLField':
+                return 'url';
+            case 'TextField':
+                return 'textarea';
+            case 'CharField':
+                // 根据字段名进一步判断
+                if (column.toLowerCase().includes('password')) {
+                    return 'password';
+                }
+                if (column.toLowerCase().includes('url')) {
+                    return 'url';
+                }
+                if (column.toLowerCase().includes('email')) {
+                    return 'email';
+                }
+                return 'text';
+            default:
+                return 'text';
+        }
+    }
+    
+    // 回退到基于字段名的判断
+    if (column.toLowerCase().includes('url')) {
+        return 'url';
+    }
+    if (column.toLowerCase().includes('email')) {
+        return 'email';
+    }
+    if (column.toLowerCase().includes('password')) {
+        return 'password';
+    }
+    if (column.toLowerCase().includes('number') || column.toLowerCase().includes('count')) {
+        return 'number';
+    }
+    return 'text';
+}
+
+/**
+ * 判断是否为必填字段
+ */
+function isRequiredField(column) {
+    const requiredFields = ['apl_keyword', 'cn_keyword', 'name', 'title', 'url'];
+    return requiredFields.includes(column.toLowerCase());
+}
+
+/**
+ * 提交新增记录
+ */
+function submitAddRecord() {
+    const form = document.getElementById('add-record-form');
+    const data = {};
+    
+    // 遍历所有表单字段，正确处理不同类型的输入
+    currentTableColumns.forEach(column => {
+        // 跳过自动生成的字段
+        if (column === 'id' || column.includes('created_at') || column.includes('updated_at')) {
+            return;
+        }
+        if (column.toLowerCase().endsWith('_hash')) {
+            return;
+        }
+        
+        const element = document.getElementById(`field-${column}`);
+        if (element) {
+            const inputType = getFieldInputType(column);
+            
+            if (inputType === 'checkbox') {
+                // 对于checkbox，获取checked状态
+                data[column] = element.checked;
+            } else if (inputType === 'number') {
+                // 对于数字类型，转换为数字或保持空值
+                const value = element.value.trim();
+                if (value !== '') {
+                    data[column] = parseFloat(value);
+                } else {
+                    data[column] = null;
+                }
+            } else {
+                // 对于其他类型，直接获取值
+                data[column] = element.value;
+            }
+        }
+    });
+    
+    // 根据表名选择不同的API端点
+    let apiUrl, requestData;
+    
+    if (currentTableName === 'SimcAplKeywordPair') {
+        // 使用关键字管理API
+        apiUrl = '/api/keyword-manager/';
+        requestData = data;
+    } else {
+        // 使用通用的dashboard API
+        apiUrl = '/dashboard/';
+        requestData = {
+            action: 'create_table_row',
+            table_name: currentTableName,
+            create_data: data
+        };
+    }
+    
+    // 发送POST请求
+    fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCSRFToken()
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success || result.status === 'success') {
+            showMessage('记录添加成功', 'success');
+            closeAddRecordModal();
+            // 刷新表格数据
+            fetchTableData(currentTableName, currentPage);
+        } else {
+            showMessage('添加失败: ' + (result.error || result.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('添加记录失败:', error);
+        showMessage('添加失败: ' + error.message, 'error');
+    });
+}
+
+
+
+/**
+ * 初始化侧边栏切换功能
+ */
+function initSidebarToggle() {
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    
+    if (!sidebarToggle || !sidebar || !sidebarOverlay) {
+        return;
+    }
+    
+    // 汉堡菜单按钮点击事件
+    sidebarToggle.addEventListener('click', function() {
+        toggleSidebar();
+    });
+    
+    // 遮罩层点击关闭侧边栏
+    sidebarOverlay.addEventListener('click', function() {
+        closeSidebar();
+    });
+    
+    // ESC键关闭侧边栏
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && sidebar.classList.contains('open')) {
+            closeSidebar();
+        }
+    });
+    
+    // 窗口大小改变时处理侧边栏状态
+    window.addEventListener('resize', function() {
+        if (window.innerWidth >= 1024) {
+            // 大屏幕时确保侧边栏和遮罩层状态正确
+            sidebar.classList.remove('open');
+            sidebarOverlay.classList.remove('show');
+        }
+    });
+}
+
+/**
+ * 切换侧边栏显示状态
+ */
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    
+    if (sidebar.classList.contains('open')) {
+        closeSidebar();
+    } else {
+        openSidebar();
+    }
+}
+
+/**
+ * 打开侧边栏
+ */
+function openSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    
+    sidebar.classList.add('open');
+    sidebarOverlay.classList.add('show');
+    
+    // 防止背景滚动
+    document.body.style.overflow = 'hidden';
+}
+
+/**
+ * 关闭侧边栏
+ */
+function closeSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    
+    sidebar.classList.remove('open');
+    sidebarOverlay.classList.remove('show');
+    
+    // 恢复背景滚动
+    document.body.style.overflow = '';
+}
+
+// 搜索相关变量
+let searchQuery = '';
+let searchTimeout = null;
+
+/**
+ * 初始化搜索功能
+ */
+function initSearch() {
+    const searchInput = document.getElementById('search-input');
+    if (!searchInput) {
+        return;
+    }
+    
+    // 监听搜索输入框的输入事件
+    searchInput.addEventListener('input', function(e) {
+        const query = e.target.value.trim();
+        
+        // 清除之前的定时器
+        if (searchTimeout) {
+            clearTimeout(searchTimeout);
+        }
+        
+        // 设置新的定时器，延迟500ms执行搜索
+        searchTimeout = setTimeout(() => {
+            performSearch(query);
+        }, 500);
+    });
+    
+    // 监听回车键
+    searchInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const query = e.target.value.trim();
+            performSearch(query);
+        }
+    });
+}
+
+function initSimcProfileFilters() {
+    const specInput = document.getElementById('simc-profile-spec-filter');
+    const fightStyleInput = document.getElementById('simc-profile-fight-style-filter');
+    const applyBtn = document.getElementById('simc-profile-filter-apply');
+    const resetBtn = document.getElementById('simc-profile-filter-reset');
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            simcProfileSpecFilter = specInput ? specInput.value.trim() : '';
+            simcProfileFightStyleFilter = fightStyleInput ? fightStyleInput.value.trim() : '';
+            if (currentTableName === 'SimcProfile') fetchTableData('SimcProfile', 1);
+        });
+    }
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            simcProfileSpecFilter = '';
+            simcProfileFightStyleFilter = '';
+            if (specInput) specInput.value = '';
+            if (fightStyleInput) fightStyleInput.value = '';
+            if (currentTableName === 'SimcProfile') fetchTableData('SimcProfile', 1);
+        });
+    }
+}
+
+function initWowArticleFilters() {
+    const sourceInput = document.getElementById('wow-article-source-filter');
+    const categoryInput = document.getElementById('wow-article-category-filter');
+    const applyBtn = document.getElementById('wow-article-filter-apply');
+    const resetBtn = document.getElementById('wow-article-filter-reset');
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            wowArticleSourceFilter = sourceInput ? sourceInput.value.trim() : '';
+            wowArticleCategoryFilter = categoryInput ? categoryInput.value.trim() : '';
+            if (currentTableName === 'WowArticle') fetchTableData('WowArticle', 1);
+        });
+    }
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            wowArticleSourceFilter = '';
+            wowArticleCategoryFilter = '';
+            if (sourceInput) sourceInput.value = '';
+            if (categoryInput) categoryInput.value = '';
+            if (currentTableName === 'WowArticle') fetchTableData('WowArticle', 1);
+        });
+    }
+}
+
+function updateWowArticleFilterOptions(options) {
+    const sourceInput = document.getElementById('wow-article-source-filter');
+    const categoryInput = document.getElementById('wow-article-category-filter');
+    if (!sourceInput || !categoryInput) return;
+
+    const currentSource = sourceInput.value;
+    const currentCategory = categoryInput.value;
+
+    const sources = (options && Array.isArray(options.sources))
+        ? options.sources.map(v => (v || '').toString().trim()).filter(v => v)
+        : [];
+    const categories = (options && Array.isArray(options.categories))
+        ? options.categories.map(v => (v || '').toString().trim()).filter(v => v)
+        : [];
+
+    sourceInput.innerHTML = '';
+    const allSourceOption = document.createElement('option');
+    allSourceOption.value = '';
+    allSourceOption.textContent = '全部来源';
+    sourceInput.appendChild(allSourceOption);
+    for (const v of sources) {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        sourceInput.appendChild(opt);
+    }
+
+    categoryInput.innerHTML = '';
+    const allCategoryOption = document.createElement('option');
+    allCategoryOption.value = '';
+    allCategoryOption.textContent = '全部分类';
+    categoryInput.appendChild(allCategoryOption);
+    for (const v of categories) {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        categoryInput.appendChild(opt);
+    }
+
+    sourceInput.value = sources.includes(currentSource) ? currentSource : '';
+    categoryInput.value = categories.includes(currentCategory) ? currentCategory : '';
+}
+
+/**
+ * 初始化页面大小选择器
+ */
+function initPageSizeSelector() {
+    const pageSizeSelect = document.getElementById('page-size-select');
+    if (!pageSizeSelect) {
+        return;
+    }
+    
+    // 监听选择器变化事件
+    pageSizeSelect.addEventListener('change', function(e) {
+        const newPageSize = parseInt(e.target.value);
+        if (newPageSize && newPageSize !== pageSize) {
+            pageSize = newPageSize;
+            
+            // 如果有选中的表，重置到第一页并重新获取数据
+            if (currentTableName) {
+                currentPage = 1;
+                fetchTableData(currentTableName, currentPage);
+            }
+        }
+    });
+}
+
+/**
+ * 执行搜索
+ */
+function performSearch(query) {
+    searchQuery = query;
+    
+    // 如果没有选中表，不执行搜索
+    if (!currentTableName) {
+        return;
+    }
+    
+    // 重置到第一页
+    currentPage = 1;
+    
+    // 重新获取数据
+    fetchTableData(currentTableName, currentPage);
+}
+
+/**
+ * 清除搜索
+ */
+function clearSearch() {
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    searchQuery = '';
+    
+    // 如果有选中的表，重新加载数据
+    if (currentTableName) {
+        currentPage = 1;
+        fetchTableData(currentTableName, currentPage);
+    }
+}
+
+/**
+ * 初始化用户菜单功能
+ */
+function initUserMenu() {
+    const userMenuButton = document.getElementById('user-menu-button');
+    const userMenu = document.getElementById('user-menu');
+    const logoutBtn = document.getElementById('logout-btn');
+    
+    if (userMenuButton && userMenu) {
+        // 点击用户菜单按钮切换菜单显示
+        userMenuButton.addEventListener('click', function(e) {
+            e.stopPropagation();
+            userMenu.classList.toggle('hidden');
+        });
+        
+        // 点击页面其他地方关闭菜单
+        document.addEventListener('click', function(e) {
+            if (!userMenuButton.contains(e.target) && !userMenu.contains(e.target)) {
+                userMenu.classList.add('hidden');
+            }
+        });
+    }
+    
+    // 登出功能
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            
+            try {
+                const response = await fetch('/auth/logout/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCSRFToken()
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // 登出成功，跳转到登录页面
+                    window.location.href = result.redirect_url || '/auth/login/';
+                } else {
+                    showMessage('登出失败: ' + (result.message || '未知错误'), 'error');
+                }
+            } catch (error) {
+                console.error('登出错误:', error);
+                showMessage('登出失败，请稍后重试', 'error');
+            }
+        });
+    }
+}
+
+// 在DOMContentLoaded事件中初始化SimC APL转换工具
+// 关键字管理功能的初始化已移至主要的DOMContentLoaded事件中
+
+// SimcTask 相关函数
+let selectedRegularSimcTaskIds = new Set();
+
+function setSimcRegularCompareButtonEnabled(enabled) {
+    const btn = document.getElementById('compare-simc-regular-tasks-btn');
+    if (!btn) return;
+    btn.disabled = !enabled;
+    if (enabled) {
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+        btn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+}
+
+function openSimcRegularCompare() {
+    const ids = Array.from(selectedRegularSimcTaskIds);
+    if (ids.length < 2) {
+        showMessage('请至少选择 2 个已完成的常规模拟任务进行对比', 'warning');
+        return;
+    }
+    window.open(`/simc-compare/?task_ids=${encodeURIComponent(ids.join(','))}`, '_blank');
+}
+
+function toggleSimcRegularTaskSelection(taskId, checked) {
+    const id = parseInt(taskId);
+    if (!Number.isFinite(id)) return;
+    if (checked) {
+        selectedRegularSimcTaskIds.add(id);
+    } else {
+        selectedRegularSimcTaskIds.delete(id);
+    }
+    setSimcRegularCompareButtonEnabled(selectedRegularSimcTaskIds.size >= 2);
+}
+
+function updateSimcTaskSelectAllState(selectableIds) {
+    const selectAll = document.getElementById('simc-task-select-all');
+    if (!selectAll) return;
+
+    if (!selectableIds || selectableIds.length === 0) {
+        selectAll.checked = false;
+        selectAll.indeterminate = false;
+        return;
+    }
+
+    const selectedCount = selectableIds.filter(id => selectedRegularSimcTaskIds.has(id)).length;
+    selectAll.checked = selectedCount === selectableIds.length;
+    selectAll.indeterminate = selectedCount > 0 && selectedCount < selectableIds.length;
+}
+
+function toggleSelectAllRegularSimcTasks(selectableIds, checked) {
+    if (!selectableIds || selectableIds.length === 0) return;
+    selectableIds.forEach(id => {
+        const checkbox = document.querySelector(`input[data-simc-regular-task-checkbox="1"][data-task-id="${id}"]`);
+        if (checkbox) checkbox.checked = checked;
+        toggleSimcRegularTaskSelection(id, checked);
+    });
+    updateSimcTaskSelectAllState(selectableIds);
+}
+
+let simcBackendUpdatePollTimer = null;
+
+function renderSimcBackendUpdatePanel(payload) {
+    const panel = document.getElementById('simc-backend-update-panel');
+    if (!panel) return;
+    const statusEl = document.getElementById('simc-backend-update-status');
+    const versionEl = document.getElementById('simc-backend-update-version');
+    const needEl = document.getElementById('simc-backend-update-need');
+    const runningEl = document.getElementById('simc-backend-update-running');
+    const barEl = document.getElementById('simc-backend-update-progress-bar');
+    const textEl = document.getElementById('simc-backend-update-progress-text');
+
+    const data = payload && payload.data ? payload.data : null;
+    if (!payload || !payload.success || !data) {
+        panel.classList.add('hidden');
+        return;
+    }
+
+    const progress = Number.isFinite(parseInt(data.update_progress, 10)) ? parseInt(data.update_progress, 10) : 0;
+    const statusText = String(data.update_status || '').trim();
+    const hasError = String(data.last_error || '').trim();
+    const isUpdating = !!data.is_updating;
+    const cur = String(data.current_version || '').trim();
+    const latest = String(data.latest_version || '').trim();
+    const needUpdate = typeof data.need_update !== 'undefined'
+        ? !!data.need_update
+        : (!!latest && latest !== cur);
+    const shouldShow = isUpdating || progress > 0 || !!statusText || !!hasError;
+
+    if (!shouldShow) {
+        panel.classList.add('hidden');
+        return;
+    }
+
+    panel.classList.remove('hidden');
+    if (statusEl) statusEl.textContent = hasError ? `失败：${hasError}` : (statusText || '处理中');
+    if (versionEl) {
+        versionEl.textContent = cur || latest ? `当前: ${cur || '-'}  最新: ${latest || '-'}` : '';
+    }
+    if (needEl) {
+        needEl.textContent = `需要更新: ${needUpdate ? '是' : '否'}`;
+        needEl.className = `inline-flex items-center px-2 py-0.5 rounded-full ${needUpdate ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`;
+    }
+    if (runningEl) {
+        runningEl.textContent = `正在更新: ${isUpdating ? '是' : '否'}`;
+        runningEl.className = `inline-flex items-center px-2 py-0.5 rounded-full ${isUpdating ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`;
+    }
+    if (barEl) barEl.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+    if (textEl) textEl.textContent = isUpdating ? `进度: ${progress}%` : (progress ? `进度: ${progress}%` : '');
+}
+
+function startSimcBackendUpdatePolling() {
+    if (simcBackendUpdatePollTimer) return;
+
+    const pollOnce = async () => {
+        try {
+            const resp = await fetch('/api/simc-backend-binary/', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                }
+            });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            renderSimcBackendUpdatePanel(data);
+            const row = data && data.data ? data.data : {};
+            const isUpdating = !!row.is_updating;
+            const nextDelay = isUpdating ? 1500 : 30000;
+            simcBackendUpdatePollTimer = setTimeout(() => {
+                simcBackendUpdatePollTimer = null;
+                startSimcBackendUpdatePolling();
+            }, nextDelay);
+        } catch (e) {
+            simcBackendUpdatePollTimer = setTimeout(() => {
+                simcBackendUpdatePollTimer = null;
+                startSimcBackendUpdatePolling();
+            }, 30000);
+        }
+    };
+
+    pollOnce();
+}
+
+function fetchSimcTaskData(page = 1) {
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-task/', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            // 用户未登录，重定向到登录页面
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return; // 处理重定向情况
+        if (data.success) {
+            displaySimcTaskData(data.data);
+        } else {
+            showMessage('获取SimC任务数据失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching SimC task data:', error);
+        showMessage('获取SimC任务数据时发生错误', 'error');
+    });
+}
+
+function displaySimcTaskData(tasks) {
+    const taskListContainer = document.getElementById('simc-task-list');
+    if (!taskListContainer) return;
+    
+    if (!tasks || tasks.length === 0) {
+        taskListContainer.innerHTML = `
+            <tr>
+                <td colspan="7" class="text-center py-8 text-gray-500">
+                    <i class="fas fa-tasks text-4xl mb-4"></i>
+                    <p>暂无任务数据</p>
+                </td>
+            </tr>
+        `;
+        selectedRegularSimcTaskIds = new Set();
+        setSimcRegularCompareButtonEnabled(false);
+        updateSimcTaskSelectAllState([]);
+        return;
+    }
+    
+    const selectableIds = [];
+    let html = '';
+    tasks.forEach(task => {
+        // 获取状态显示文本和样式
+        let statusText, statusClass;
+        switch(task.current_status) {
+            case 0:
+                statusText = '未开始';
+                statusClass = 'bg-gray-100 text-gray-800';
+                break;
+            case 1:
+                statusText = '进行中';
+                statusClass = 'bg-blue-100 text-blue-800';
+                break;
+            case 4:
+                statusText = '预处理中';
+                statusClass = 'bg-amber-100 text-amber-800';
+                break;
+            case 2:
+                statusText = '完成';
+                statusClass = 'bg-green-100 text-green-800';
+                break;
+            case 3:
+                statusText = '失败';
+                statusClass = 'bg-red-100 text-red-800';
+                break;
+            default:
+                statusText = '未知';
+                statusClass = 'bg-gray-100 text-gray-800';
+        }
+        
+        // 获取任务类型显示文本
+        let taskTypeText;
+        let taskTypeBadgeClass = 'bg-blue-50 text-blue-700 border border-blue-200';
+        let taskTypeExtraHtml = '';
+        switch(task.task_type) {
+            case 1:
+                taskTypeText = '常规模拟';
+                break;
+            case 2:
+                taskTypeText = '属性模拟';
+                taskTypeBadgeClass = 'bg-purple-50 text-purple-700 border border-purple-200';
+                // 如果是属性模拟且有ext数据，显示选中的属性
+                const extPayload = parseSimcTaskExt(task.ext || task.ext_detail || {});
+                if (extPayload.selected_attributes) {
+                    const statMap = {
+                        'crit': '暴击',
+                        'haste': '急速', 
+                        'mastery': '精通',
+                        'versatility': '全能'
+                    };
+                    const selectedStats = String(extPayload.selected_attributes).split('_').map(stat => statMap[stat.trim()] || stat.trim()).join(' + ');
+                    taskTypeExtraHtml = `<div class="text-[11px] text-gray-500 mt-1">${selectedStats}</div>`;
+                }
+                break;
+            default:
+                taskTypeText = '常规模拟';
+        }
+
+        const isRegularTask = task.task_type === 1;
+        const isCompleted = task.current_status === 2;
+        const resultFile = task.result_file || '';
+        const canCompare = isRegularTask && isCompleted && typeof resultFile === 'string' && resultFile.endsWith('.html') && !resultFile.includes('\n');
+        if (canCompare) selectableIds.push(task.id);
+
+        const compareCheckboxCell = canCompare
+            ? `<input type="checkbox" data-simc-regular-task-checkbox="1" data-task-id="${task.id}" class="h-4 w-4 text-blue-600 border-gray-300 rounded" ${selectedRegularSimcTaskIds.has(task.id) ? 'checked' : ''} onchange="toggleSimcRegularTaskSelection(${task.id}, this.checked)">`
+            : '';
+        
+        html += `
+            <tr class="hover:bg-gray-50 transition-colors duration-150">
+                <td class="px-3 py-3 text-center">${compareCheckboxCell}</td>
+                <td class="px-3 py-3 text-center text-sm text-gray-900 font-mono">${task.id}</td>
+                <td class="px-4 py-3">
+                    <div class="text-sm font-medium text-gray-900">${escapeHtml(task.name || '')}</div>
+                    <div class="text-xs text-gray-500 mt-1">${escapeHtml(task.simc_profile_name || '')}</div>
+                </td>
+                <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(task.simc_profile_spec || '')}</td>
+                <td class="px-3 py-3">
+                    <div class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${taskTypeBadgeClass}">
+                        ${taskTypeText}
+                    </div>
+                    ${taskTypeExtraHtml}
+                </td>
+                <td class="px-3 py-3 text-center">
+                    <span class="inline-flex px-2.5 py-1 text-xs font-semibold rounded-full border ${statusClass}">
+                        ${statusText}
+                    </span>
+                </td>
+
+                <td class="px-4 py-3 text-center text-sm font-medium">
+                    <div class="flex flex-wrap justify-center gap-2">
+                        <button onclick="viewSimcTask(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors duration-200 text-xs">
+                            <i class="fas fa-eye mr-1"></i>查看
+                        </button>
+                        ${task.current_status === 2 && task.result_file ? `
+                        ${task.task_type === 2 && task.result_file.includes(',') ? `
+                        <div class="relative inline-block">
+                            <button onclick="toggleResultDropdown(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors duration-200 text-xs">
+                                <i class="fas fa-file-alt mr-1"></i>查看结果 <i class="fas fa-chevron-down ml-1"></i>
+                            </button>
+                            <div id="result-dropdown-${task.id}" class="hidden fixed bg-white border border-gray-300 rounded shadow-xl z-50 min-w-64 max-w-80 max-h-80 overflow-y-auto">
+                                ${task.result_file.split(',').map((file, index) => {
+                                    const fileName = file.trim();
+                                    const parts = fileName.replace('.html', '').split('_');
+                                    const attrName = parts[1] || 'unknown';
+                                    const stepValue = parts[2] || '0';
+                                    
+                                    // 属性名称映射
+                                    const attrMap = {
+                                        'crit': '暴击',
+                                        'haste': '急速', 
+                                        'mastery': '精通',
+                                        'versatility': '全能',
+                                        'vers': '全能'
+                                    };
+                                    const displayAttrName = attrMap[attrName.toLowerCase()] || attrName;
+                                    
+                                    return `
+                                    <button onclick="viewSimcResult('${escapeHtml(fileName)}'); toggleResultDropdown(${task.id})" class="block w-full text-left px-3 py-2 hover:bg-gray-100 text-sm text-gray-700">
+                                        <div class="font-medium">${displayAttrName} +${stepValue}</div>
+                                        <div class="text-xs text-gray-500">${fileName}</div>
+                                    </button>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                        <div class="relative inline-block">
+                            <button onclick="toggleAnalysisDropdown(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
+                                <i class="fas fa-chart-bar mr-1"></i>查看分析 <i class="fas fa-chevron-down ml-1"></i>
+                            </button>
+                            <div id="analysis-dropdown-${task.id}" class="hidden fixed bg-white border border-gray-300 rounded shadow-xl z-50 min-w-64 max-w-80 max-h-80 overflow-y-auto">
+                                ${task.result_file.split(',').map((file, index) => {
+                                    const fileName = file.trim();
+                                    const parts = fileName.replace('.html', '').split('_');
+                                    const attrName = parts[1] || 'unknown';
+                                    const stepValue = parts[2] || '0';
+                                    
+                                    // 属性名称映射
+                                    const attrNameMap = {
+                                        'crit': '暴击',
+                                        'haste': '急速', 
+                                        'mastery': '精通',
+                                        'versatility': '全能',
+                                        'vers': '全能'
+                                    };
+                                    const displayAttrName = attrNameMap[attrName.toLowerCase()] || attrName;
+                                    
+                                    return `
+                                    <button onclick="viewSimcAnalysis('${escapeHtml(fileName)}'); toggleAnalysisDropdown(${task.id})" class="block w-full text-left px-3 py-2 hover:bg-gray-100 text-sm">
+                                        <div class="font-medium text-gray-900">${displayAttrName} +${stepValue}</div>
+                                        <div class="text-xs text-gray-500">${fileName}</div>
+                                    </button>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                        <button onclick="viewAttributeAnalysis(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors duration-200 text-xs">
+                            <i class="fas fa-chart-line mr-1"></i>综合分析
+                        </button>` : `
+                        <button onclick="viewSimcResult('${escapeHtml(task.result_file)}')" class="inline-flex items-center px-2.5 py-1.5 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors duration-200 text-xs">
+                            <i class="fas fa-file-alt mr-1"></i>查看结果
+                        </button>
+                        <button onclick="viewSimcAnalysis('${escapeHtml(task.result_file)}')" class="inline-flex items-center px-2.5 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
+                            <i class="fas fa-chart-bar mr-1"></i>查看分析
+                        </button>`}
+                        ` : ''}
+                        <button onclick='viewTaskLog(${task.id}, ${JSON.stringify(task).replace(/'/g, '&#39;')})' class="inline-flex items-center px-2.5 py-1.5 bg-slate-600 text-white rounded-md hover:bg-slate-700 transition-colors duration-200 text-xs">
+                            <i class="fas fa-file-lines mr-1"></i>查看日志
+                        </button>
+                        ${task.current_status === 2 || task.current_status === 3 ? `
+                        <button onclick="rerunSimcTask(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors duration-200 text-xs">
+                            <i class="fas fa-redo mr-1"></i>重跑
+                        </button>
+                        ` : ''}
+                        <button onclick="editSimcTask(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors duration-200 text-xs">
+                            <i class="fas fa-edit mr-1"></i>编辑
+                        </button>
+                        <button onclick="deleteSimcTask(${task.id})" class="inline-flex items-center px-2.5 py-1.5 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors duration-200 text-xs">
+                            <i class="fas fa-trash mr-1"></i>删除
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+    
+    taskListContainer.innerHTML = html;
+
+    selectedRegularSimcTaskIds = new Set(Array.from(selectedRegularSimcTaskIds).filter(id => selectableIds.includes(id)));
+    setSimcRegularCompareButtonEnabled(selectedRegularSimcTaskIds.size >= 2);
+    updateSimcTaskSelectAllState(selectableIds);
+
+    const selectAll = document.getElementById('simc-task-select-all');
+    if (selectAll) {
+        selectAll.onchange = function() {
+            toggleSelectAllRegularSimcTasks(selectableIds, this.checked);
+        };
+    }
+}
+
+function openAddSimcTaskModal() {
+    const modal = document.getElementById('add-simc-task-modal');
+    if (!modal) {
+        console.error('SimC任务新增模态框未找到');
+        return;
+    }
+    
+    // 加载SimC配置选项到配置选择下拉框中
+    loadSimcProfileOptions('simc-config-select');
+    
+    // 清空表单
+    document.getElementById('simc-task-name').value = '';
+    document.getElementById('simc-task-type').value = '1';
+    document.getElementById('simc-config-select').value = '';
+    document.getElementById('simc-task-profile').value = '';
+    document.getElementById('simc-task-regular-time').value = '';
+    document.getElementById('simc-task-regular-target-count').value = '';
+    document.getElementById('simc-task-regular-preset').value = '300,1';
+    applyRegularPreset('300,1', 'simc-task-regular-time', 'simc-task-regular-target-count');
+    document.getElementById('simc-task-attribute-step').value = '50';
+    
+    toggleTaskTypeFields('', '1');
+    
+    modal.style.display = 'block';
+}
+
+function submitAddSimcTask() {
+    const taskName = document.getElementById('simc-task-name').value.trim();
+    const taskType = document.getElementById('simc-task-type').value;
+    const simcConfigId = document.getElementById('simc-config-select').value;
+    const regularTime = document.getElementById('simc-task-regular-time').value.trim();
+    const regularTargetCount = document.getElementById('simc-task-regular-target-count').value.trim();
+    const attributeStep = document.getElementById('simc-task-attribute-step').value.trim();
+    
+    if (!taskName) {
+        showMessage('请输入任务名称', 'error');
+        return;
+    }
+    
+    if (!taskType) {
+        showMessage('请选择任务类型', 'error');
+        return;
+    }
+    
+    if (!simcConfigId) {
+        showMessage('请选择SimC配置', 'error');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    const requestData = {
+        name: taskName,
+        task_type: parseInt(taskType),
+        simc_profile_id: parseInt(simcConfigId)
+    };
+    
+    if (taskType === '2') { // 属性模拟
+        const profileSelect = document.getElementById('simc-task-profile');
+        const extData = profileSelect.value;
+        
+        if (!extData) {
+            showMessage('属性模拟任务请选择属性组合', 'error');
+            return;
+        }
+        
+        requestData.selected_attributes = extData;
+        if (attributeStep) {
+            requestData.attribute_step = parseInt(attributeStep);
+        }
+    } else {
+        if (regularTime) {
+            requestData.regular_time = parseInt(regularTime);
+        }
+        if (regularTargetCount) {
+            requestData.regular_target_count = parseInt(regularTargetCount);
+        }
+    }
+    
+    fetch('/api/simc-task/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC任务创建成功', 'success');
+            document.getElementById('add-simc-task-modal').style.display = 'none';
+            fetchSimcTaskData();
+        } else {
+            showMessage('创建失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error creating SimC task:', error);
+        showMessage('创建SimC任务时发生错误', 'error');
+    });
+}
+
+function editSimcTask(taskId) {
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-task/', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success && data.data) {
+            // 查找指定ID的任务
+            const task = data.data.find(t => t.id === parseInt(taskId));
+            if (task) {
+                openEditSimcTaskModal(task);
+            } else {
+                showMessage('未找到指定的任务', 'error');
+            }
+        } else {
+            showMessage('获取任务信息失败: ' + (data.error || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching task:', error);
+        showMessage('获取任务信息时发生错误', 'error');
+    });
+}
+
+async function openEditSimcTaskModal(task) {
+    const modal = document.getElementById('edit-simc-task-modal');
+    if (!modal) {
+        console.error('Edit SimC task modal not found');
+        return;
+    }
+    
+    // 加载SimC配置选项到编辑模态框
+    await loadSimcProfileOptions('edit-simc-config-select');
+    
+    // 填充表单数据
+    document.getElementById('edit-simc-task-name').value = task.name || '';
+    document.getElementById('edit-simc-task-type').value = task.task_type || '1';
+    document.getElementById('edit-simc-config-select').value = task.simc_profile_id || '';
+    document.getElementById('edit-simc-task-status').value = task.current_status || '0';
+    document.getElementById('edit-simc-task-regular-preset').value = '300,1';
+    applyRegularPreset('300,1', 'edit-simc-task-regular-time', 'edit-simc-task-regular-target-count');
+    document.getElementById('edit-simc-task-attribute-step').value = '50';
+
+    const extPayload = parseSimcTaskExt(task.ext || (task.ext_detail || {}));
+    
+    // 处理属性模拟的扩展信息 - 设置属性组合选择框
+    const profileSelect = document.getElementById('edit-simc-task-profile');
+    toggleTaskTypeFields('edit', task.task_type);
+    if (parseInt(task.task_type) === 2) {
+        profileSelect.value = extPayload.selected_attributes || task.ext || '';
+        document.getElementById('edit-simc-task-attribute-step').value = extPayload.attribute_step || 50;
+    } else {
+        const regularTime = extPayload.regular_time || 300;
+        const regularTargetCount = extPayload.regular_target_count || 1;
+        document.getElementById('edit-simc-task-regular-time').value = regularTime;
+        document.getElementById('edit-simc-task-regular-target-count').value = regularTargetCount;
+        const rt = String(extPayload.regular_time || '');
+        const rc = String(extPayload.regular_target_count || '');
+        const presetValue = `${rt},${rc}`;
+        if (['300,1', '300,2', '40,5', '40,10', '180,5'].includes(presetValue)) {
+            document.getElementById('edit-simc-task-regular-preset').value = presetValue;
+        } else {
+            const fallbackPreset = `${regularTime},${regularTargetCount}`;
+            if (['300,1', '300,2', '40,5', '40,10', '180,5'].includes(fallbackPreset)) {
+                document.getElementById('edit-simc-task-regular-preset').value = fallbackPreset;
+            }
+        }
+    }
+    
+    // 存储任务ID用于更新
+    modal.setAttribute('data-task-id', task.id);
+    
+    modal.style.display = 'block';
+}
+
+function updateSimcTask() {
+    const modal = document.getElementById('edit-simc-task-modal');
+    const taskId = modal.getAttribute('data-task-id');
+    const taskName = document.getElementById('edit-simc-task-name').value.trim();
+    const taskType = document.getElementById('edit-simc-task-type').value;
+    const simcConfigId = document.getElementById('edit-simc-config-select').value;
+    const currentStatus = document.getElementById('edit-simc-task-status').value;
+    const regularTime = document.getElementById('edit-simc-task-regular-time').value.trim();
+    const regularTargetCount = document.getElementById('edit-simc-task-regular-target-count').value.trim();
+    const attributeStep = document.getElementById('edit-simc-task-attribute-step').value.trim();
+    
+    if (!taskName) {
+        showMessage('请输入任务名称', 'error');
+        return;
+    }
+    
+    if (!taskType) {
+        showMessage('请选择任务类型', 'error');
+        return;
+    }
+    
+    if (!simcConfigId) {
+        showMessage('请选择SimC配置', 'error');
+        return;
+    }
+    
+    // 处理属性模拟的扩展信息
+    let extData = '';
+    if (taskType === '2') { // 属性模拟
+        const profileSelect = document.getElementById('edit-simc-task-profile');
+        extData = profileSelect.value;
+        
+        if (!extData) {
+            showMessage('属性模拟任务请选择属性组合', 'error');
+            return;
+        }
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    const requestData = {
+        id: parseInt(taskId),
+        name: taskName,
+        task_type: parseInt(taskType),
+        simc_profile_id: parseInt(simcConfigId),
+        current_status: parseInt(currentStatus)
+    };
+    
+    if (taskType === '2') {
+        requestData.selected_attributes = extData;
+        if (attributeStep) {
+            requestData.attribute_step = parseInt(attributeStep);
+        }
+    } else {
+        if (regularTime) {
+            requestData.regular_time = parseInt(regularTime);
+        }
+        if (regularTargetCount) {
+            requestData.regular_target_count = parseInt(regularTargetCount);
+        }
+    }
+    
+    fetch('/api/simc-task/', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC任务更新成功', 'success');
+            modal.style.display = 'none';
+            fetchSimcTaskData();
+        } else {
+            showMessage('更新失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error updating SimC task:', error);
+        showMessage('更新SimC任务时发生错误', 'error');
+    });
+}
+
+function deleteSimcTask(taskId) {
+    if (!confirm('确定要删除这个SimC任务吗？')) {
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-task/', {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            id: taskId
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC任务删除成功', 'success');
+            fetchSimcTaskData();
+        } else {
+            showMessage('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting SimC task:', error);
+        showMessage('删除SimC任务时发生错误', 'error');
+    });
+}
+
+function viewSimcTask(taskId) {
+    // 获取任务详情
+    fetch('/api/simc-task/', {
+        method: 'GET',
+        headers: {
+            'X-CSRFToken': getCSRFToken(),
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error('获取任务列表失败');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data && data.success) {
+            const task = data.data.find(t => t.id == taskId);
+            if (task) {
+                openViewSimcTaskModal(task);
+            } else {
+                throw new Error('未找到指定的任务');
+            }
+        } else {
+            throw new Error(data.message || '获取任务详情失败');
+        }
+    })
+    .catch(error => {
+        console.error('获取SimC任务详情失败:', error);
+        showMessage('获取SimC任务详情失败: ' + error.message, 'error');
+    });
+}
+
+function openViewSimcTaskModal(task) {
+    const modal = document.getElementById('view-simc-task-modal');
+    if (!modal) {
+        console.error('SimC任务查看模态框未找到');
+        return;
+    }
+    
+    // 填充任务名称
+    document.getElementById('view-simc-task-name').value = task.name || '';
+    
+    // 生成SimC代码
+    generateSimcCode(task.simc_profile_id, task.result_file, task.ext_detail || null)
+        .then(simcCode => {
+            document.getElementById('view-simc-task-code').value = simcCode;
+            modal.style.display = 'block';
+        })
+        .catch(error => {
+            console.error('生成SimC代码失败:', error);
+            showMessage('生成SimC代码失败: ' + error.message, 'error');
+        });
+}
+
+function viewSimcResult(resultFile) {
+    if (!resultFile) {
+        showMessage('结果文件路径不存在', 'error');
+        return;
+    }
+    
+    // 从API获取OSS配置
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/oss-config/', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            const ossBaseUrl = data.data.base_url || '';
+            const fullPath = ossBaseUrl + resultFile;
+            
+            // 打开OSS结果文件路径
+            window.open(fullPath, '_blank');
+        } else {
+            showMessage('获取OSS配置失败: ' + (data.error || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching OSS config:', error);
+        showMessage('获取OSS配置时发生错误', 'error');
+    });
+}
+
+function viewSimcAnalysis(resultFile) {
+    if (!resultFile) {
+        showMessage('结果文件路径不存在', 'error');
+        return;
+    }
+    
+    // 构建自定义分析页面的URL
+    const analysisUrl = `/simc-result/?file=${encodeURIComponent(resultFile)}`;
+    
+    // 在新标签页中打开自定义分析页面
+    window.open(analysisUrl, '_blank');
+}
+
+async function loadSimcProfileOptions(selectElementId) {
+    try {
+        const response = await fetch('/api/simc-profile/', {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken(),
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('获取SimC配置列表失败');
+        }
+        
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || '获取SimC配置列表失败');
+        }
+        
+        const selectElement = document.getElementById(selectElementId);
+        if (!selectElement) {
+            console.error('选择器元素未找到:', selectElementId);
+            return;
+        }
+        
+        // 清空现有选项，保留默认选项
+        selectElement.innerHTML = '<option value="">请选择SimC配置...</option>';
+        
+        // 添加配置选项
+        data.data.forEach(profile => {
+            const option = document.createElement('option');
+            option.value = profile.id;
+            option.textContent = `${profile.name}${profile.spec ? ` [${profile.spec}]` : ''}`;
+            selectElement.appendChild(option);
+        });
+        
+    } catch (error) {
+        console.error('加载SimC配置选项失败:', error);
+        showMessage('加载SimC配置选项失败: ' + error.message, 'error');
+    }
+}
+
+
+async function generateSimcCode(profileId, resultFile = '', taskExtDetail = null) {
+    try {
+        // 获取SimC配置详情
+        const profileResponse = await fetch('/api/simc-profile/', {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken(),
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!profileResponse.ok) {
+            throw new Error('获取SimC配置失败');
+        }
+        
+        const profileData = await profileResponse.json();
+        if (!profileData.success) {
+            throw new Error(profileData.error || '获取SimC配置失败');
+        }
+        
+        const profile = profileData.data.find(p => p.id == profileId);
+        if (!profile) {
+            throw new Error('未找到指定的SimC配置');
+        }
+        
+        // 获取启用的模板内容
+        const templateResponse = await fetch('/api/simc-template/', {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken(),
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!templateResponse.ok) {
+            throw new Error('获取SimC模板失败');
+        }
+        
+        const templateData = await templateResponse.json();
+        if (!templateData.success) {
+            throw new Error(templateData.error || '获取SimC模板失败');
+        }
+        
+        // 查找启用且匹配专精的模板（支持逗号分隔专精）
+        const profileSpec = String(profile.spec || '').trim().toLowerCase();
+        const activeTemplates = (templateData.templates || []).filter(t => t.is_active);
+        const activeTemplate = activeTemplates.find(t => isTemplateSpecMatched(t.spec, profileSpec))
+            || activeTemplates.find(t => isTemplateSpecMatched(t.spec, 'default') || isTemplateSpecMatched(t.spec, 'all') || isTemplateSpecMatched(t.spec, '*'))
+            || activeTemplates[0];
+        if (!activeTemplate) {
+            throw new Error('没有找到启用的SimC模板');
+        }
+        
+        let simcCode = activeTemplate.template_content;
+        
+        // 替换模板中的占位符
+        const overrideTime = taskExtDetail && taskExtDetail.regular_time !== undefined && taskExtDetail.regular_time !== null && taskExtDetail.regular_time !== ''
+            ? parseInt(taskExtDetail.regular_time, 10)
+            : null;
+        const overrideTargetCount = taskExtDetail && taskExtDetail.regular_target_count !== undefined && taskExtDetail.regular_target_count !== null && taskExtDetail.regular_target_count !== ''
+            ? parseInt(taskExtDetail.regular_target_count, 10)
+            : null;
+        const finalTime = Number.isFinite(overrideTime) && overrideTime > 0 ? overrideTime : (profile.time || '300');
+        const finalTargetCount = Number.isFinite(overrideTargetCount) && overrideTargetCount > 0 ? overrideTargetCount : (profile.target_count || '1');
+
+        simcCode = simcCode.replace(/{fight_style}/g, profile.fight_style || 'Patchwerk');
+        simcCode = simcCode.replace(/{time}/g, finalTime);
+        simcCode = simcCode.replace(/{target_count}/g, finalTargetCount);
+        simcCode = simcCode.replace(/{spec}/g, profile.spec || 'fury');
+        simcCode = simcCode.replace(/{talent}/g, profile.talent || '');
+        simcCode = simcCode.replace(/{action_list}/g, profile.action_list || '');
+        simcCode = simcCode.replace(/{gear_strength}/g, profile.gear_strength || '93330');
+        simcCode = simcCode.replace(/{gear_crit}/g, profile.gear_crit || '8730');
+        simcCode = simcCode.replace(/{gear_haste}/g, profile.gear_haste || '20141');
+        simcCode = simcCode.replace(/{gear_mastery}/g, profile.gear_mastery || '21785');
+        simcCode = simcCode.replace(/{gear_versatility}/g, profile.gear_versatility || '7257');
+        simcCode = simcCode.replace(/{result_file}/g, resultFile || 'result.html');
+        if (!simcCode.includes('{spec}') && /(^|\n)\s*spec\s*=/.test(simcCode)) {
+            simcCode = simcCode.replace(/^\s*spec\s*=.*$/m, `spec=${profile.spec || 'fury'}`);
+        }
+        
+        return simcCode;
+    } catch (error) {
+        throw error;
+    }
+}
+
+function isTemplateSpecMatched(templateSpec, profileSpec) {
+    const tpl = String(templateSpec || '').trim().toLowerCase();
+    const target = String(profileSpec || '').trim().toLowerCase();
+    if (!tpl || !target) return false;
+    if (tpl === target) return true;
+    const parts = tpl.split(',').map(s => s.trim()).filter(Boolean);
+    return parts.includes(target);
+}
+
+// SimC配置管理相关函数
+function initSimcProfileManagement() {
+    // 新增配置模态框事件
+    const addModal = document.getElementById('add-simc-profile-modal');
+    const editModal = document.getElementById('edit-simc-profile-modal');
+    
+    if (addModal) {
+        // 取消按钮
+        const cancelBtn = document.getElementById('cancel-add-simc-profile');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                addModal.classList.add('hidden');
+            });
+        }
+        
+        // 确认新增按钮
+        const confirmBtn = document.getElementById('confirm-add-simc-profile');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', submitAddSimcProfile);
+        }
+        
+        // 点击背景关闭
+        addModal.addEventListener('click', (e) => {
+            if (e.target === addModal) {
+                addModal.classList.add('hidden');
+            }
+        });
+
+        const addSpecInput = document.getElementById('add-simc-profile-spec');
+        const addTalentInput = document.getElementById('add-simc-profile-talent');
+        const addCritInput = document.getElementById('add-simc-profile-crit');
+        const addHasteInput = document.getElementById('add-simc-profile-haste');
+        const addMasteryInput = document.getElementById('add-simc-profile-mastery');
+        const addVersatilityInput = document.getElementById('add-simc-profile-versatility');
+        const addAplPreviewBtn = document.getElementById('add-simc-profile-apl-preview-btn');
+        const addAplInput = document.getElementById('add-simc-profile-action-list');
+        const addCnEditor = document.getElementById('add-simc-profile-apl-preview-cn');
+        const addAplAuto = document.getElementById('add-simc-profile-apl-preview-auto');
+        const addAplCopyBtn = document.getElementById('add-simc-profile-apl-preview-copy');
+        const addRebuildCnBtn = document.getElementById('add-simc-profile-apl-rebuild-cn-btn');
+        if (addSpecInput) addSpecInput.addEventListener('input', () => updateTalentPreview('add'));
+        if (addSpecInput) addSpecInput.addEventListener('change', () => updateTalentPreview('add'));
+        if (addTalentInput) addTalentInput.addEventListener('input', () => updateTalentPreview('add'));
+        if (addCritInput) addCritInput.addEventListener('input', () => updateSecondaryStatPreview('add'));
+        if (addHasteInput) addHasteInput.addEventListener('input', () => updateSecondaryStatPreview('add'));
+        if (addMasteryInput) addMasteryInput.addEventListener('input', () => updateSecondaryStatPreview('add'));
+        if (addVersatilityInput) addVersatilityInput.addEventListener('input', () => updateSecondaryStatPreview('add'));
+        if (addAplPreviewBtn) addAplPreviewBtn.addEventListener('click', () => syncCnEditorToApl('add', { force: true }));
+        if (addCnEditor) addCnEditor.addEventListener('input', () => scheduleCnEditorToAplSync('add'));
+        if (addAplInput) addAplInput.addEventListener('input', () => setSimcProfileAplPreviewStatus('add', 'APL已手动修改，可点“从APL重建中文”', 'info'));
+        if (addAplAuto) addAplAuto.addEventListener('change', () => scheduleCnEditorToAplSync('add', true));
+        if (addAplCopyBtn) addAplCopyBtn.addEventListener('click', () => copySimcProfileAplPreview('add'));
+        if (addRebuildCnBtn) addRebuildCnBtn.addEventListener('click', () => scheduleSimcProfileAplPreview('add', true));
+    }
+    
+    if (editModal) {
+        // 取消按钮
+        const cancelBtn = document.getElementById('cancel-edit-simc-profile');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                editModal.classList.add('hidden');
+            });
+        }
+        
+        // 确认保存按钮
+        const confirmBtn = document.getElementById('confirm-edit-simc-profile');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', updateSimcProfile);
+        }
+        
+        // 点击背景关闭
+        editModal.addEventListener('click', (e) => {
+            if (e.target === editModal) {
+                editModal.classList.add('hidden');
+            }
+        });
+
+        const editSpecInput = document.getElementById('edit-simc-profile-spec');
+        const editTalentInput = document.getElementById('edit-simc-profile-talent');
+        const editCritInput = document.getElementById('edit-simc-profile-crit');
+        const editHasteInput = document.getElementById('edit-simc-profile-haste');
+        const editMasteryInput = document.getElementById('edit-simc-profile-mastery');
+        const editVersatilityInput = document.getElementById('edit-simc-profile-versatility');
+        const editAplPreviewBtn = document.getElementById('edit-simc-profile-apl-preview-btn');
+        const editAplInput = document.getElementById('edit-simc-profile-action-list');
+        const editCnEditor = document.getElementById('edit-simc-profile-apl-preview-cn');
+        const editAplAuto = document.getElementById('edit-simc-profile-apl-preview-auto');
+        const editAplCopyBtn = document.getElementById('edit-simc-profile-apl-preview-copy');
+        const editRebuildCnBtn = document.getElementById('edit-simc-profile-apl-rebuild-cn-btn');
+        if (editSpecInput) editSpecInput.addEventListener('input', () => updateTalentPreview('edit'));
+        if (editSpecInput) editSpecInput.addEventListener('change', () => updateTalentPreview('edit'));
+        if (editTalentInput) editTalentInput.addEventListener('input', () => updateTalentPreview('edit'));
+        if (editCritInput) editCritInput.addEventListener('input', () => updateSecondaryStatPreview('edit'));
+        if (editHasteInput) editHasteInput.addEventListener('input', () => updateSecondaryStatPreview('edit'));
+        if (editMasteryInput) editMasteryInput.addEventListener('input', () => updateSecondaryStatPreview('edit'));
+        if (editVersatilityInput) editVersatilityInput.addEventListener('input', () => updateSecondaryStatPreview('edit'));
+        if (editAplPreviewBtn) editAplPreviewBtn.addEventListener('click', () => syncCnEditorToApl('edit', { force: true }));
+        if (editCnEditor) editCnEditor.addEventListener('input', () => scheduleCnEditorToAplSync('edit'));
+        if (editAplInput) editAplInput.addEventListener('input', () => setSimcProfileAplPreviewStatus('edit', 'APL已手动修改，可点“从APL重建中文”', 'info'));
+        if (editAplAuto) editAplAuto.addEventListener('change', () => scheduleCnEditorToAplSync('edit', true));
+        if (editAplCopyBtn) editAplCopyBtn.addEventListener('click', () => copySimcProfileAplPreview('edit'));
+        if (editRebuildCnBtn) editRebuildCnBtn.addEventListener('click', () => scheduleSimcProfileAplPreview('edit', true));
+    }
+}
+
+const simcProfileAplPreviewTimers = { add: null, edit: null };
+const simcProfileCnToAplTimers = { add: null, edit: null };
+
+function setSimcProfileAplPreviewStatus(mode, text, level) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const statusEl = document.getElementById(`${prefix}-simc-profile-apl-preview-status`);
+    if (!statusEl) return;
+    statusEl.textContent = text || '';
+    statusEl.classList.remove('text-gray-400', 'text-gray-500', 'text-blue-600', 'text-green-600', 'text-red-600', 'text-amber-600');
+    const levelMap = {
+        loading: 'text-blue-600',
+        success: 'text-green-600',
+        error: 'text-red-600',
+        warning: 'text-amber-600',
+        info: 'text-gray-500'
+    };
+    statusEl.classList.add(levelMap[level] || 'text-gray-400');
+}
+
+function scheduleSimcProfileAplPreview(mode, immediate) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    if (simcProfileAplPreviewTimers[prefix]) {
+        clearTimeout(simcProfileAplPreviewTimers[prefix]);
+    }
+    const delay = immediate ? 80 : 450;
+    simcProfileAplPreviewTimers[prefix] = setTimeout(() => {
+        syncAplToCnEditor(prefix, { quiet: true });
+    }, delay);
+}
+
+function scheduleCnEditorToAplSync(mode, immediate) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const auto = document.getElementById(`${prefix}-simc-profile-apl-preview-auto`);
+    const enableAuto = !auto || auto.checked;
+    if (!enableAuto && !immediate) return;
+    if (simcProfileCnToAplTimers[prefix]) {
+        clearTimeout(simcProfileCnToAplTimers[prefix]);
+    }
+    const delay = immediate ? 80 : 500;
+    simcProfileCnToAplTimers[prefix] = setTimeout(() => {
+        syncCnEditorToApl(prefix, { quiet: true });
+    }, delay);
+}
+
+async function syncAplToCnEditor(mode, options = {}) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const actionInput = document.getElementById(`${prefix}-simc-profile-action-list`);
+    const cnEditor = document.getElementById(`${prefix}-simc-profile-apl-preview-cn`);
+    const rebuildBtn = document.getElementById(`${prefix}-simc-profile-apl-rebuild-cn-btn`);
+    if (!actionInput || !cnEditor) return;
+    const raw = String(actionInput.value || '').trim();
+    if (!raw) {
+        cnEditor.value = '';
+        setSimcProfileAplPreviewStatus(prefix, 'APL为空', 'warning');
+        if (options.force) showMessage('当前 APL 为空，无法重建中文', 'warning');
+        return;
+    }
+    try {
+        if (rebuildBtn) rebuildBtn.disabled = true;
+        setSimcProfileAplPreviewStatus(prefix, '从APL重建中文中...', 'loading');
+        const cn = await convertText(raw, 'apl_to_cn');
+        cnEditor.value = cn || '';
+        setSimcProfileAplPreviewStatus(prefix, `中文已重建 ${formatShanghaiHms()}`, 'success');
+        if (!options.quiet) showMessage('已从APL重建中文编辑内容', 'success');
+    } catch (error) {
+        setSimcProfileAplPreviewStatus(prefix, '重建失败', 'error');
+        showMessage('从APL重建中文失败: ' + error.message, 'error');
+    } finally {
+        if (rebuildBtn) rebuildBtn.disabled = false;
+    }
+}
+
+function copySimcProfileAplPreview(mode) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const output = document.getElementById(`${prefix}-simc-profile-apl-preview-cn`);
+    const text = String(output && output.value ? output.value : '').trim();
+    if (!text) {
+        showMessage('暂无可复制的中文预览内容', 'warning');
+        return;
+    }
+    navigator.clipboard.writeText(text)
+        .then(() => showMessage('中文预览已复制', 'success'))
+        .catch(() => showMessage('复制失败', 'error'));
+}
+
+async function syncCnEditorToApl(mode, options = {}) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const actionInput = document.getElementById(`${prefix}-simc-profile-action-list`);
+    const cnEditor = document.getElementById(`${prefix}-simc-profile-apl-preview-cn`);
+    const syncBtn = document.getElementById(`${prefix}-simc-profile-apl-preview-btn`);
+    if (!actionInput || !cnEditor) return;
+    const cnText = String(cnEditor.value || '').trim();
+    if (!cnText) {
+        const existingApl = String(actionInput.value || '').trim();
+        if (options.force && existingApl) {
+            setSimcProfileAplPreviewStatus(prefix, '中文为空，保留手工APL用于保存', 'info');
+            if (!options.quiet) {
+                showMessage('检测到手工APL，已跳过中文同步并直接保存APL', 'info');
+            }
+            return true;
+        }
+        actionInput.value = '';
+        setSimcProfileAplPreviewStatus(prefix, '中文为空，APL已清空', 'warning');
+        if (options.force && !options.quiet) showMessage('中文编辑内容为空，已清空 APL 列表', 'warning');
+        return true;
+    }
+    try {
+        if (syncBtn) syncBtn.disabled = true;
+        setSimcProfileAplPreviewStatus(prefix, '中文同步到APL中...', 'loading');
+        const apl = await convertText(cnText, 'cn_to_apl');
+        const normalized = normalizeCnToAplOutput(apl);
+        if (!normalized) throw new Error('返回内容为空');
+        actionInput.value = normalized;
+        setSimcProfileAplPreviewStatus(prefix, `APL已同步 ${formatShanghaiHms()}`, 'success');
+        if (!options.quiet) showMessage('中文编辑已同步到 APL', 'success');
+        return true;
+    } catch (error) {
+        setSimcProfileAplPreviewStatus(prefix, '同步失败', 'error');
+        showMessage('中文同步到APL失败: ' + error.message, 'error');
+        return false;
+    } finally {
+        if (syncBtn) syncBtn.disabled = false;
+    }
+}
+
+function normalizeCnToAplOutput(rawText) {
+    const text = String(rawText || '').replace(/\r/g, '');
+    const lines = text.split('\n');
+    const normalized = [];
+    let inFence = false;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = String(line || '').trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith('```')) {
+            inFence = !inFence;
+            continue;
+        }
+        if (inFence) {
+            if (trimmed.startsWith('actions')) {
+                normalized.push(trimmed);
+            } else if (trimmed.startsWith('#')) {
+                normalized.push(trimmed);
+            } else if (trimmed.startsWith('/')) {
+                normalized.push(`actions+=${trimmed}`);
+            } else {
+                normalized.push(`actions+=/${trimmed.replace(/^\/+/, '')}`);
+            }
+            continue;
+        }
+        if (trimmed.startsWith('actions')) {
+            normalized.push(trimmed);
+        } else if (trimmed.startsWith('#')) {
+            normalized.push(trimmed);
+        } else if (trimmed.startsWith('/')) {
+            normalized.push(`actions+=${trimmed}`);
+        } else {
+            normalized.push(`actions+=/${trimmed.replace(/^\/+/, '')}`);
+        }
+    }
+    return normalized.join('\n').trim();
+}
+
+function getTalentPreviewMeta(specRaw, talentRaw) {
+    const spec = String(specRaw || '').trim().toLowerCase();
+    const talent = String(talentRaw || '').trim();
+
+    const map = {
+        fury: { path: 'warrior/fury', icon: 'ability_warrior_innerrage' },
+        arms: { path: 'warrior/arms', icon: 'ability_warrior_savageblow' },
+        protection: { path: 'warrior/protection', icon: 'ability_warrior_defensivestance' },
+        fire: { path: 'mage/fire', icon: 'spell_fire_firebolt02' },
+        frost: { path: 'mage/frost', icon: 'spell_frost_frostbolt02' },
+        arcane: { path: 'mage/arcane', icon: 'spell_holy_magicalsentry' }
+    };
+    const info = map[spec] || { path: '', icon: 'inv_misc_questionmark' };
+    const baseUrl = info.path
+        ? `https://www.wowhead.com/talent-calc/${info.path}`
+        : 'https://www.wowhead.com/talent-calc';
+    let calcUrl = baseUrl;
+    let unresolvedHero = false;
+    if (talent) {
+        // 支持：完整/半完整 wowhead 链接、hero/code 路径、纯天赋串
+        const parsed = normalizeTalentPathParts(talent);
+        const parts = parsed.parts;
+        if (parts.length > 0) {
+            const classSpec = String(info.path || '').split('/').filter(Boolean);
+            const looksClassSpecPath = classSpec.length === 2
+                && parts.length >= 3
+                && String(parts[0]).toLowerCase() === classSpec[0]
+                && String(parts[1]).toLowerCase() === classSpec[1];
+            const lacksHeroPath =
+                (looksClassSpecPath && parts.length === 3) ||
+                (!looksClassSpecPath && !parsed.hadWowheadPath && parts.length === 1);
+            if (lacksHeroPath) {
+                // 无法从纯码稳定反推英雄天赋分支，避免拼出错误链接
+                unresolvedHero = true;
+                calcUrl = baseUrl;
+            } else {
+                const useAbsolutePath = parsed.hadWowheadPath || looksClassSpecPath;
+                const encoded = parts.map(part => encodeURIComponent(part)).join('/');
+                calcUrl = useAbsolutePath
+                    ? `https://www.wowhead.com/talent-calc/${encoded}`
+                    : `${baseUrl}/${encoded}`;
+            }
+        }
+    }
+    const iconUrl = `https://wow.zamimg.com/images/wow/icons/large/${info.icon}.jpg`;
+    return { spec, talent, calcUrl, iconUrl, unresolvedHero };
+}
+
+function normalizeTalentPathParts(talentRaw) {
+    let raw = String(talentRaw || '').trim().replace(/^`+|`+$/g, '');
+    let hadWowheadPath = false;
+    if (!raw) return { parts: [], hadWowheadPath };
+
+    if (/^https?:\/\//i.test(raw)) {
+        try {
+            const url = new URL(raw);
+            raw = `${url.pathname || ''}${url.search || ''}`;
+            hadWowheadPath = /(^|\.)wowhead\.com$/i.test(url.hostname || '');
+        } catch (e) {
+            // ignore parse errors and continue with raw
+        }
+    } else if (/^(?:www\.)?wowhead\.com\//i.test(raw)) {
+        hadWowheadPath = true;
+        raw = raw.replace(/^(?:www\.)?wowhead\.com\//i, '/');
+    }
+
+    raw = raw.replace(/^\/+/, '');
+    const lowerRaw = raw.toLowerCase();
+    const marker = 'talent-calc/';
+    const idx = lowerRaw.indexOf(marker);
+    if (idx >= 0) {
+        hadWowheadPath = true;
+        raw = raw.slice(idx + marker.length);
+    }
+
+    if (/^\?talents=/i.test(raw)) {
+        raw = raw.replace(/^\?talents=/i, '');
+    }
+    raw = raw
+        .replace(/\?talents=/i, '')
+        .split('#')[0]
+        .split('?')[0]
+        .replace(/^\/+|\/+$/g, '');
+
+    const parts = raw.split('/').map(part => part.trim()).filter(Boolean);
+    return { parts, hadWowheadPath };
+}
+
+function buildRaidbotsTalentPreviewUrl(talentRaw) {
+    const parts = normalizeTalentPathParts(talentRaw).parts;
+    if (!parts.length) return '';
+
+    let previewPath = '';
+    // 优先保留 hero/code（例如 slayer/EA...），避免英雄天赋圈丢失
+    if (parts.length >= 4) {
+        previewPath = `${encodeURIComponent(parts[parts.length - 2])}/${encodeURIComponent(parts[parts.length - 1])}`;
+    } else if (parts.length === 2) {
+        previewPath = `${encodeURIComponent(parts[0])}/${encodeURIComponent(parts[1])}`;
+    } else {
+        previewPath = encodeURIComponent(parts[parts.length - 1]);
+    }
+    if (!previewPath) return '';
+    return `https://www.raidbots.com/simbot/render/talents/${previewPath}?bgcolor=160f0b&level=80&width=280`;
+}
+
+function parseNonNegativeNumber(value) {
+    const n = parseFloat(value);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return n;
+}
+
+function applyGreenStatDiminishingReturn(rawPercent) {
+    let remaining = parseNonNegativeNumber(rawPercent);
+    if (remaining <= 0) return 0;
+
+    let effective = 0;
+    let cursor = 0;
+    while (remaining > 0) {
+        const segment = Math.min(10, remaining);
+        const segmentIndex = Math.floor(cursor / 10);
+        let reduction = 0;
+        if (segmentIndex >= 3) {
+            reduction = (segmentIndex - 2) * 10;
+        }
+        reduction = Math.min(90, Math.max(0, reduction));
+        const factor = 1 - reduction / 100;
+        effective += segment * factor;
+        remaining -= segment;
+        cursor += segment;
+    }
+    return effective;
+}
+
+async function ensureSecondaryStatRuleMap(forceRefresh = false) {
+    if (!forceRefresh && secondaryStatRuleMap) return secondaryStatRuleMap;
+    if (!forceRefresh && secondaryStatRulePromise) return secondaryStatRulePromise;
+
+    const requestData = {
+        action: 'get_table_data',
+        table_name: 'SimcSecondaryStatRule',
+        page: 1,
+        page_size: 500
+    };
+
+    secondaryStatRulePromise = fetch('/dashboard/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCSRFToken()
+        },
+        body: JSON.stringify(requestData)
+    })
+        .then(resp => {
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            return resp.json();
+        })
+        .then(data => {
+            if (!data || data.status !== 'success' || !Array.isArray(data.data)) {
+                throw new Error((data && data.message) || '加载绿字转换比例失败');
+            }
+            const map = {};
+            data.data.forEach(item => {
+                const spec = String(item.spec || '').trim().toLowerCase();
+                if (!spec) return;
+                map[spec] = item;
+            });
+            secondaryStatRuleMap = map;
+            return map;
+        })
+        .catch(error => {
+            secondaryStatRuleMap = {};
+            console.error('加载绿字转换比例失败:', error);
+            return secondaryStatRuleMap;
+        })
+        .finally(() => {
+            secondaryStatRulePromise = null;
+        });
+
+    return secondaryStatRulePromise;
+}
+
+function formatPercentValue(value) {
+    if (!Number.isFinite(value)) return '--';
+    return `${value.toFixed(2)}%`;
+}
+
+async function updateSecondaryStatPreview(mode) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const specInput = document.getElementById(`${prefix}-simc-profile-spec`);
+    const critInput = document.getElementById(`${prefix}-simc-profile-crit`);
+    const hasteInput = document.getElementById(`${prefix}-simc-profile-haste`);
+    const masteryInput = document.getElementById(`${prefix}-simc-profile-mastery`);
+    const versatilityInput = document.getElementById(`${prefix}-simc-profile-versatility`);
+    const ruleText = document.getElementById(`${prefix}-secondary-stat-preview-rule`);
+    const valueText = document.getElementById(`${prefix}-secondary-stat-preview-values`);
+    if (!specInput || !ruleText || !valueText) return;
+
+    const spec = String(specInput.value || '').trim().toLowerCase();
+    if (!spec) {
+        ruleText.textContent = '属性预览结果';
+        valueText.textContent = '暴击 -- | 急速 -- | 精通 -- | 全能 --';
+        return;
+    }
+
+    const map = await ensureSecondaryStatRuleMap();
+    const rule = map[spec];
+    if (!rule) {
+        ruleText.textContent = `属性预览结果（${spec} 未配置转换比例）`;
+        valueText.textContent = '暴击 -- | 急速 -- | 精通 -- | 全能 --';
+        return;
+    }
+
+    const critPer = parseFloat(rule.crit_per_percent);
+    const hastePer = parseFloat(rule.haste_per_percent);
+    const masteryPer = parseFloat(rule.mastery_per_percent);
+    const masteryCoef = parseFloat(rule.mastery_coefficient);
+    const versatilityPer = parseFloat(rule.versatility_per_percent);
+    const divisorsValid = [critPer, hastePer, masteryPer, versatilityPer].every(v => Number.isFinite(v) && v > 0);
+    if (!divisorsValid || !Number.isFinite(masteryCoef) || masteryCoef <= 0) {
+        ruleText.textContent = `属性预览结果（${spec} 配置异常）`;
+        valueText.textContent = '暴击 -- | 急速 -- | 精通 -- | 全能 --';
+        return;
+    }
+
+    const critRaw = parseNonNegativeNumber(critInput && critInput.value) / critPer;
+    const hasteRaw = parseNonNegativeNumber(hasteInput && hasteInput.value) / hastePer;
+    const masteryRaw = parseNonNegativeNumber(masteryInput && masteryInput.value) / masteryPer;
+    const versatilityRaw = parseNonNegativeNumber(versatilityInput && versatilityInput.value) / versatilityPer;
+
+    const critPct = 5 + applyGreenStatDiminishingReturn(critRaw);
+    const hastePct = applyGreenStatDiminishingReturn(hasteRaw);
+    const masteryPct = (8 + applyGreenStatDiminishingReturn(masteryRaw)) * masteryCoef;
+    const versatilityPct = applyGreenStatDiminishingReturn(versatilityRaw);
+
+    ruleText.textContent = `属性预览结果（${spec}）`;
+    valueText.textContent = `暴击 ${formatPercentValue(critPct)} | 急速 ${formatPercentValue(hastePct)} | 精通 ${formatPercentValue(masteryPct)} | 全能 ${formatPercentValue(versatilityPct)}`;
+}
+
+function updateTalentPreview(mode) {
+    const prefix = mode === 'edit' ? 'edit' : 'add';
+    const specInput = document.getElementById(`${prefix}-simc-profile-spec`);
+    const talentInput = document.getElementById(`${prefix}-simc-profile-talent`);
+    const image = document.getElementById(`${prefix}-talent-preview-image`);
+    const link = document.getElementById(`${prefix}-talent-preview-link`);
+    const text = document.getElementById(`${prefix}-talent-preview-text`);
+    const raidbotsFrame = document.getElementById(`${prefix}-talent-preview-raidbots`);
+    const raidbotsTip = document.getElementById(`${prefix}-talent-preview-raidbots-tip`);
+    if (!specInput || !talentInput || !image || !link || !text) return;
+
+    const meta = getTalentPreviewMeta(specInput.value, talentInput.value);
+    image.src = meta.iconUrl;
+    link.href = meta.calcUrl;
+    text.textContent = meta.talent
+        ? (
+            meta.unresolvedHero
+                ? `专精: ${meta.spec || '未指定'}，天赋串缺少英雄天赋分支，已保留基础链接`
+                : `专精: ${meta.spec || '未指定'}，天赋串长度: ${meta.talent.length}`
+        )
+        : `专精: ${meta.spec || '未指定'}，当前未输入天赋串`;
+
+    if (raidbotsFrame && raidbotsTip) {
+        const raidbotsUrl = buildRaidbotsTalentPreviewUrl(meta.talent);
+        if (!raidbotsUrl) {
+            raidbotsFrame.classList.add('hidden');
+            raidbotsFrame.removeAttribute('src');
+            raidbotsTip.textContent = 'Raidbots 缩略图：输入有效天赋串后显示';
+        } else {
+            raidbotsFrame.classList.remove('hidden');
+            raidbotsTip.textContent = 'Raidbots 缩略图';
+            raidbotsFrame.src = raidbotsUrl;
+            raidbotsFrame.onload = () => {
+                raidbotsTip.textContent = 'Raidbots 缩略图';
+            };
+            raidbotsFrame.onerror = () => {
+                raidbotsTip.textContent = 'Raidbots 缩略图加载失败，可用上方链接打开 Wowhead';
+            };
+        }
+    }
+    updateSecondaryStatPreview(mode);
+}
+
+// 页面加载完成后初始化SimC配置管理
+document.addEventListener('DOMContentLoaded', function() {
+    initSimcProfileManagement();
+    initSimcTemplateManagement();
+});
+
+// SimC模板管理相关函数
+function initSimcTemplateManagement() {
+    // 初始化刷新列表按钮事件
+    const refreshBtn = document.getElementById('refresh-template-list');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', loadTemplateList);
+    }
+    
+    // 初始化新增模板按钮事件
+    const addBtn = document.getElementById('add-template-btn');
+    if (addBtn) {
+        addBtn.addEventListener('click', openAddTemplateModal);
+    }
+    
+    // 初始化新增模态框事件
+    const cancelAddBtn = document.getElementById('cancel-add-template');
+    const confirmAddBtn = document.getElementById('confirm-add-template');
+    
+    if (cancelAddBtn) {
+        cancelAddBtn.addEventListener('click', closeAddTemplateModal);
+    }
+    
+    if (confirmAddBtn) {
+        confirmAddBtn.addEventListener('click', saveTemplateAdd);
+    }
+    
+    // 初始化编辑模态框事件
+    const cancelEditBtn = document.getElementById('cancel-edit-template');
+    const confirmEditBtn = document.getElementById('confirm-edit-template');
+    
+    if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', closeEditTemplateModal);
+    }
+    
+    if (confirmEditBtn) {
+        confirmEditBtn.addEventListener('click', saveTemplateEdit);
+    }
+    
+    // 页面加载时自动加载模板列表
+    loadTemplateList();
+}
+
+// 加载模板列表
+function loadTemplateList() {
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-template/', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            displayTemplateList(data.templates || []);
+        } else {
+            showMessage('加载模板列表失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error loading template list:', error);
+        showMessage('加载模板列表时发生错误', 'error');
+    });
+}
+
+// 显示模板列表
+function displayTemplateList(templates) {
+    const tbody = document.getElementById('template-list');
+    const emptyState = document.getElementById('template-empty-state');
+    
+    if (!tbody) return;
+    
+    tbody.innerHTML = '';
+    
+    if (templates.length === 0) {
+        if (emptyState) {
+            emptyState.style.display = 'block';
+        }
+        return;
+    }
+    
+    if (emptyState) {
+        emptyState.style.display = 'none';
+    }
+    
+    templates.forEach(template => {
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-gray-50';
+        
+        // 截取模板内容预览
+        const preview = template.template_content.length > 100 
+            ? template.template_content.substring(0, 100) + '...' 
+            : template.template_content;
+        
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${template.id}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(template.spec || 'default')}</td>
+            <td class="px-6 py-4 text-sm text-gray-900">
+                <div class="max-w-xs truncate" title="${escapeHtml(template.template_content)}">
+                    ${escapeHtml(preview)}
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                    template.is_active 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-gray-100 text-gray-800'
+                }">
+                    ${template.is_active ? '启用' : '禁用'}
+                </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <button onclick="editTemplate(${template.id})" class="text-blue-600 hover:text-blue-900 mr-3">
+                    <i class="fas fa-edit mr-1"></i>编辑
+                </button>
+                <button onclick="toggleTemplateStatus(${template.id}, ${!template.is_active})" 
+                        class="${template.is_active ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}">
+                    <i class="fas fa-${template.is_active ? 'ban' : 'check'} mr-1"></i>
+                    ${template.is_active ? '禁用' : '启用'}
+                </button>
+            </td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+}
+
+// 编辑模板
+function editTemplate(templateId) {
+    const csrfToken = getCSRFToken();
+    
+    fetch(`/api/simc-template/?id=${templateId}`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            openEditTemplateModal(templateId, data.template_content, data.spec || 'default');
+        } else {
+            showMessage('加载模板内容失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error loading template for edit:', error);
+        showMessage('加载模板内容时发生错误', 'error');
+    });
+}
+
+// 打开编辑模板模态框
+function openEditTemplateModal(templateId, content, spec) {
+    const modal = document.getElementById('edit-template-modal');
+    const idInput = document.getElementById('edit-template-id');
+    const contentTextarea = document.getElementById('edit-template-content');
+    const specInput = document.getElementById('edit-template-spec');
+    
+    if (modal && idInput && contentTextarea && specInput) {
+        idInput.value = templateId;
+        contentTextarea.value = content;
+        specInput.value = spec || 'default';
+        modal.classList.remove('hidden');
+    }
+}
+
+// 关闭编辑模板模态框
+function closeEditTemplateModal() {
+    const modal = document.getElementById('edit-template-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+// 打开新增模板模态框
+function openAddTemplateModal() {
+    const modal = document.getElementById('add-template-modal');
+    const contentTextarea = document.getElementById('add-template-content');
+    const specInput = document.getElementById('add-template-spec');
+    
+    // 清空表单
+    if (contentTextarea) contentTextarea.value = '';
+    if (specInput) specInput.value = 'default';
+    
+    // 显示模态框
+    if (modal) {
+        modal.classList.remove('hidden');
+    }
+}
+
+// 关闭新增模板模态框
+function closeAddTemplateModal() {
+    const modal = document.getElementById('add-template-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+    
+    // 清空表单
+    const contentTextarea = document.getElementById('add-template-content');
+    const specInput = document.getElementById('add-template-spec');
+    if (contentTextarea) contentTextarea.value = '';
+    if (specInput) specInput.value = 'default';
+}
+
+// 保存新增模板
+function saveTemplateAdd() {
+    const contentTextarea = document.getElementById('add-template-content');
+    const specInput = document.getElementById('add-template-spec');
+    const templateContent = contentTextarea ? contentTextarea.value.trim() : '';
+    const templateSpec = specInput ? specInput.value.trim() : '';
+    
+    if (!templateContent) {
+        showMessage('模板内容不能为空', 'error');
+        return;
+    }
+    if (!templateSpec) {
+        showMessage('适配专精不能为空', 'error');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-template/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            template_content: templateContent,
+            spec: templateSpec
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage(data.message || '模板创建成功', 'success');
+            closeAddTemplateModal();
+            loadTemplateList(); // 重新加载模板列表
+        } else {
+            showMessage('创建模板失败: ' + (data.error || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error creating template:', error);
+        showMessage('创建模板时发生错误', 'error');
+    });
+}
+
+// 保存模板编辑
+function saveTemplateEdit() {
+    const idInput = document.getElementById('edit-template-id');
+    const contentTextarea = document.getElementById('edit-template-content');
+    const specInput = document.getElementById('edit-template-spec');
+    
+    if (!idInput || !contentTextarea || !specInput) {
+        showMessage('找不到必要的表单元素', 'error');
+        return;
+    }
+    
+    const templateId = idInput.value;
+    const content = contentTextarea.value.trim();
+    const spec = specInput.value.trim();
+    
+    if (!content) {
+        showMessage('请输入模板内容', 'warning');
+        return;
+    }
+    if (!spec) {
+        showMessage('请输入适配专精', 'warning');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch(`/api/simc-template/?id=${templateId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            template_content: content,
+            spec: spec
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('模板保存成功', 'success');
+            closeEditTemplateModal();
+            loadTemplateList(); // 重新加载列表
+        } else {
+            showMessage('保存模板失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error saving template:', error);
+        showMessage('保存模板时发生错误', 'error');
+    });
+}
+
+// 切换模板状态（启用/禁用）
+function toggleTemplateStatus(templateId, newStatus) {
+    const csrfToken = getCSRFToken();
+    
+    fetch(`/api/simc-template/?id=${templateId}`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            is_active: newStatus
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage(`模板已${newStatus ? '启用' : '禁用'}`, 'success');
+            loadTemplateList(); // 重新加载列表
+        } else {
+            showMessage(`${newStatus ? '启用' : '禁用'}模板失败: ` + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error toggling template status:', error);
+        showMessage('更新模板状态时发生错误', 'error');
+    });
+}
+
+// 兼容旧版本的loadSimcTemplate函数，用于菜单点击时调用
+function loadSimcTemplate() {
+    loadTemplateList();
+}
+
+function openAddSimcProfileModal() {
+    const modal = document.getElementById('add-simc-profile-modal');
+    if (!modal) {
+        console.error('Add SimC profile modal not found');
+        return;
+    }
+    
+    // 清空表单
+    document.getElementById('add-simc-profile-name').value = '';
+    document.getElementById('add-simc-profile-spec').value = 'fury';
+    document.getElementById('add-simc-profile-fight-style').value = 'Patchwerk';
+    document.getElementById('add-simc-profile-time').value = '40';
+    document.getElementById('add-simc-profile-target-count').value = '1';
+    document.getElementById('add-simc-profile-strength').value = '93330';
+    document.getElementById('add-simc-profile-crit').value = '8730';
+    document.getElementById('add-simc-profile-haste').value = '20141';
+    document.getElementById('add-simc-profile-mastery').value = '21785';
+    document.getElementById('add-simc-profile-versatility').value = '7257';
+    document.getElementById('add-simc-profile-talent').value = '';
+    document.getElementById('add-simc-profile-action-list').value = '';
+    document.getElementById('add-simc-profile-apl-preview-cn').value = '';
+    const addAuto = document.getElementById('add-simc-profile-apl-preview-auto');
+    if (addAuto) addAuto.checked = true;
+    setSimcProfileAplPreviewStatus('add', '未开始', 'info');
+    updateTalentPreview('add');
+    
+    modal.classList.remove('hidden');
+}
+
+async function submitAddSimcProfile() {
+    const profileName = document.getElementById('add-simc-profile-name').value.trim();
+    const spec = document.getElementById('add-simc-profile-spec').value.trim();
+    const fightStyle = document.getElementById('add-simc-profile-fight-style').value;
+    const time = parseInt(document.getElementById('add-simc-profile-time').value);
+    const targetCount = parseInt(document.getElementById('add-simc-profile-target-count').value);
+    const strength = parseInt(document.getElementById('add-simc-profile-strength').value);
+    const crit = parseInt(document.getElementById('add-simc-profile-crit').value);
+    const haste = parseInt(document.getElementById('add-simc-profile-haste').value);
+    const mastery = parseInt(document.getElementById('add-simc-profile-mastery').value);
+    const versatility = parseInt(document.getElementById('add-simc-profile-versatility').value);
+    const talent = document.getElementById('add-simc-profile-talent').value.trim();
+    const syncOk = await syncCnEditorToApl('add', { force: true, quiet: true });
+    if (!syncOk) return;
+    const actionList = document.getElementById('add-simc-profile-action-list').value.trim();
+    
+    if (!profileName) {
+        showMessage('请输入配置名称', 'error');
+        return;
+    }
+    if (!spec) {
+        showMessage('请输入专精', 'error');
+        return;
+    }
+    
+    if (!actionList) {
+        showMessage('请输入动作列表', 'error');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-profile/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            name: profileName,
+            spec: spec,
+            fight_style: fightStyle,
+            time: time,
+            target_count: targetCount,
+            gear_strength: strength,
+             gear_crit: crit,
+             gear_haste: haste,
+             gear_mastery: mastery,
+             gear_versatility: versatility,
+            talent: talent,
+            action_list: actionList
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC配置创建成功', 'success');
+            document.getElementById('add-simc-profile-modal').classList.add('hidden');
+            // 如果当前显示的是SimcProfile表，刷新数据
+            if (currentTableName === 'SimcProfile') {
+                fetchTableData('SimcProfile', currentPage);
+            }
+        } else {
+            showMessage('创建失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error creating SimC profile:', error);
+        showMessage('创建SimC配置时发生错误', 'error');
+    });
+}
+
+function editSimcProfile(profileId) {
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-profile/', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            // 确保类型一致性，将profileId转换为数字进行比较
+            const profile = data.data.find(p => p.id == profileId);
+            if (profile) {
+                openEditSimcProfileModal(profile);
+            } else {
+                showMessage('未找到指定的配置', 'error');
+            }
+        } else {
+            showMessage('获取配置信息失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching SimC profile:', error);
+        showMessage('获取配置信息时发生错误', 'error');
+    });
+}
+
+function openEditSimcProfileModal(profile) {
+    const modal = document.getElementById('edit-simc-profile-modal');
+    if (!modal) {
+        console.error('Edit SimC profile modal not found');
+        return;
+    }
+    
+    // 填充表单数据
+    document.getElementById('edit-simc-profile-name').value = profile.name || '';
+    const specSelect = document.getElementById('edit-simc-profile-spec');
+    const profileSpec = profile.spec || 'fury';
+    if (specSelect) {
+        specSelect.value = Array.from(specSelect.options).some(o => o.value === profileSpec) ? profileSpec : 'fury';
+    }
+    document.getElementById('edit-simc-profile-fight-style').value = profile.fight_style || 'Patchwerk';
+    document.getElementById('edit-simc-profile-time').value = profile.time || 40;
+    document.getElementById('edit-simc-profile-target-count').value = profile.target_count || 1;
+    document.getElementById('edit-simc-profile-strength').value = profile.gear_strength || 0;
+    document.getElementById('edit-simc-profile-crit').value = profile.gear_crit || 0;
+    document.getElementById('edit-simc-profile-haste').value = profile.gear_haste || 0;
+    document.getElementById('edit-simc-profile-mastery').value = profile.gear_mastery || 0;
+    document.getElementById('edit-simc-profile-versatility').value = profile.gear_versatility || 0;
+    document.getElementById('edit-simc-profile-talent').value = profile.talent || '';
+    document.getElementById('edit-simc-profile-action-list').value = profile.action_list || '';
+    document.getElementById('edit-simc-profile-apl-preview-cn').value = '';
+    const editAuto = document.getElementById('edit-simc-profile-apl-preview-auto');
+    if (editAuto) editAuto.checked = true;
+    setSimcProfileAplPreviewStatus('edit', '未开始', 'info');
+    updateTalentPreview('edit');
+    
+    // 存储配置ID用于更新
+    modal.setAttribute('data-profile-id', profile.id);
+    
+    modal.classList.remove('hidden');
+    scheduleSimcProfileAplPreview('edit', true);
+}
+
+async function updateSimcProfile() {
+    const modal = document.getElementById('edit-simc-profile-modal');
+    const profileId = modal.getAttribute('data-profile-id');
+    const profileName = document.getElementById('edit-simc-profile-name').value.trim();
+    const spec = document.getElementById('edit-simc-profile-spec').value.trim();
+    const fightStyle = document.getElementById('edit-simc-profile-fight-style').value;
+    const time = parseInt(document.getElementById('edit-simc-profile-time').value);
+    const targetCount = parseInt(document.getElementById('edit-simc-profile-target-count').value);
+    const strength = parseInt(document.getElementById('edit-simc-profile-strength').value);
+    const crit = parseInt(document.getElementById('edit-simc-profile-crit').value);
+    const haste = parseInt(document.getElementById('edit-simc-profile-haste').value);
+    const mastery = parseInt(document.getElementById('edit-simc-profile-mastery').value);
+    const versatility = parseInt(document.getElementById('edit-simc-profile-versatility').value);
+    const talent = document.getElementById('edit-simc-profile-talent').value.trim();
+    const syncOk = await syncCnEditorToApl('edit', { force: true, quiet: true });
+    if (!syncOk) return;
+    const actionList = document.getElementById('edit-simc-profile-action-list').value.trim();
+    
+    if (!profileName) {
+        showMessage('请输入配置名称', 'error');
+        return;
+    }
+    if (!spec) {
+        showMessage('请输入专精', 'error');
+        return;
+    }
+    
+    if (!actionList) {
+        showMessage('请输入动作列表', 'error');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-profile/', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            id: parseInt(profileId),
+            name: profileName,
+            spec: spec,
+            fight_style: fightStyle,
+            time: time,
+            target_count: targetCount,
+            gear_strength: strength,
+            gear_crit: crit,
+            gear_haste: haste,
+            gear_mastery: mastery,
+            gear_versatility: versatility,
+            talent: talent,
+            action_list: actionList
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC配置更新成功', 'success');
+            modal.classList.add('hidden');
+            // 如果当前显示的是SimcProfile表，刷新数据
+            if (currentTableName === 'SimcProfile') {
+                fetchTableData('SimcProfile', currentPage);
+            }
+        } else {
+            showMessage('更新失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error updating SimC profile:', error);
+        showMessage('更新SimC配置时发生错误', 'error');
+    });
+}
+
+async function generateGlmAplCandidatesAndCompare(profileId) {
+    const btn = document.getElementById('simulation-start-btn');
+    const resolvedProfileId = parseInt(profileId || window.currentSimulationProfileId);
+    if (!btn) return;
+    if (!resolvedProfileId) {
+        showMessage('未找到可模拟的配置ID', 'warning');
+        return;
+    }
+
+    const oldText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>预处理中...';
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
+        const resp = await fetch('/api/simc-apl-candidates/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            signal: controller.signal,
+            body: JSON.stringify({
+                profile_id: resolvedProfileId,
+                candidate_count: 5,
+                include_base: true
+            })
+        });
+        clearTimeout(timeoutId);
+        const data = await resp.json();
+        if (!resp.ok || !data || !data.success) {
+            throw new Error((data && (data.error || data.message)) || '候选方案生成失败');
+        }
+        const taskIds = (((data.data || {}).task_ids) || []).map(x => parseInt(x)).filter(x => Number.isFinite(x));
+        showMessage(`已创建 ${taskIds.length} 个对比任务，当前处于“预处理中”，完成后会自动进入模拟`, 'success');
+        fetchSimcTaskData();
+        setTimeout(() => fetchSimcTaskData(), 2000);
+    } catch (error) {
+        if (error && error.name === 'AbortError') {
+            showMessage('生成候选方案超时（120秒），请稍后重试', 'error');
+            return;
+        }
+        showMessage('生成APL候选方案失败: ' + error.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = oldText;
+    }
+}
+
+function deleteSimcProfile(profileId) {
+    if (!confirm('确定要删除这个SimC配置吗？')) {
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    fetch('/api/simc-profile/', {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            id: profileId
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('SimC配置删除成功', 'success');
+            // 如果当前显示的是SimcProfile表，刷新数据
+            if (currentTableName === 'SimcProfile') {
+                fetchTableData('SimcProfile', currentPage);
+            }
+        } else {
+            showMessage('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting SimC profile:', error);
+        showMessage('删除SimC配置时发生错误', 'error');
+    });
+}
+
+function buildSimcProfileCopyName(baseName, attempt) {
+    const safeBase = String(baseName || '').trim() || '未命名配置';
+    if (attempt <= 1) {
+        return `${safeBase}_副本`;
+    }
+    return `${safeBase}_副本${attempt}`;
+}
+
+async function copySimcProfile(profileId, sourceName) {
+    const csrfToken = getCSRFToken();
+
+    for (let attempt = 1; attempt <= 20; attempt += 1) {
+        const newName = buildSimcProfileCopyName(sourceName, attempt);
+        try {
+            const response = await fetch('/api/simc-profile/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({
+                    name: newName,
+                    copy_from_id: profileId
+                })
+            });
+
+            if (response.status === 302 || response.redirected) {
+                window.location.href = '/auth/login/';
+                return;
+            }
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data && data.success) {
+                showMessage(`SimC配置复制成功: ${newName}`, 'success');
+                if (currentTableName === 'SimcProfile') {
+                    fetchTableData('SimcProfile', currentPage);
+                }
+                return;
+            }
+
+            const errorText = String((data && data.error) || '');
+            if (errorText.includes('配置名称已存在') && attempt < 20) {
+                continue;
+            }
+            showMessage(`复制失败: ${errorText || '未知错误'}`, 'error');
+            return;
+        } catch (error) {
+            console.error('Error copying SimC profile:', error);
+            showMessage('复制SimC配置时发生错误', 'error');
+            return;
+        }
+    }
+
+    showMessage('复制失败: 自动命名重试次数过多', 'error');
+}
+
+// 打开模拟类型选择弹窗
+async function openSimulationTypeModal() {
+    document.getElementById('simulation-type-modal').classList.remove('hidden');
+    
+    // 重置表单状态
+    document.querySelector('input[name="simulation-type"][value="1"]').checked = true;
+    document.getElementById('attribute-combinations').classList.add('hidden');
+    const regularOptions = document.getElementById('simulation-regular-options');
+    if (regularOptions) regularOptions.classList.remove('hidden');
+    document.querySelectorAll('input[name="attribute-combination"]').forEach(cb => cb.checked = false);
+    const regularTimeInput = document.getElementById('simulation-regular-time');
+    const regularTargetInput = document.getElementById('simulation-regular-target-count');
+    const attributeStepInput = document.getElementById('simulation-attribute-step');
+    const preset = document.getElementById('simulation-regular-preset');
+    const defaults = await loadSimulationRegularDefaultsByProfile(window.currentSimulationProfileId);
+    const finalTime = toPositiveInt(defaults.time, 300);
+    const finalTargetCount = toPositiveInt(defaults.target_count, 1);
+    if (regularTimeInput) regularTimeInput.value = String(finalTime);
+    if (regularTargetInput) regularTargetInput.value = String(finalTargetCount);
+    syncSimulationRegularPresetByInputs();
+    if (attributeStepInput) attributeStepInput.value = '50';
+    
+    // 绑定模拟类型切换事件
+    const radios = document.querySelectorAll('input[name="simulation-type"]');
+    radios.forEach(radio => {
+        if (radio.dataset.boundSimulationType === '1') return;
+        radio.addEventListener('change', function() {
+            const attributeCombinations = document.getElementById('attribute-combinations');
+            const regularOptions = document.getElementById('simulation-regular-options');
+            if (this.value === '2') {
+                attributeCombinations.classList.remove('hidden');
+                if (regularOptions) regularOptions.classList.add('hidden');
+            } else if (this.value === '3') {
+                attributeCombinations.classList.add('hidden');
+                if (regularOptions) regularOptions.classList.add('hidden');
+            } else {
+                attributeCombinations.classList.add('hidden');
+                if (regularOptions) regularOptions.classList.remove('hidden');
+            }
+        });
+        radio.dataset.boundSimulationType = '1';
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const simulationPreset = document.getElementById('simulation-regular-preset');
+    const regularTimeInput = document.getElementById('simulation-regular-time');
+    const regularTargetInput = document.getElementById('simulation-regular-target-count');
+    if (simulationPreset) {
+        simulationPreset.addEventListener('change', function() {
+            applyRegularPreset(this.value, 'simulation-regular-time', 'simulation-regular-target-count');
+            syncSimulationRegularPresetByInputs();
+        });
+    }
+    if (regularTimeInput) {
+        regularTimeInput.addEventListener('input', syncSimulationRegularPresetByInputs);
+    }
+    if (regularTargetInput) {
+        regularTargetInput.addEventListener('input', syncSimulationRegularPresetByInputs);
+    }
+    syncSimulationRegularPresetByInputs();
+});
+
+// 关闭模拟类型选择弹窗
+function closeSimulationTypeModal() {
+    document.getElementById('simulation-type-modal').classList.add('hidden');
+}
+
+// 开始模拟
+function startSimulation() {
+    const profileId = window.currentSimulationProfileId;
+    const simulationType = document.querySelector('input[name="simulation-type"]:checked').value;
+    const regularTime = (document.getElementById('simulation-regular-time') || {}).value || '';
+    const regularTargetCount = (document.getElementById('simulation-regular-target-count') || {}).value || '';
+    const attributeStep = (document.getElementById('simulation-attribute-step') || {}).value || '';
+    
+    if (simulationType === '1') {
+        // 常规模拟
+        createSimulationTask(profileId, 1, null, {
+            regular_time: regularTime ? parseInt(regularTime) : undefined,
+            regular_target_count: regularTargetCount ? parseInt(regularTargetCount) : undefined
+        });
+    } else if (simulationType === '2') {
+        // 属性模拟
+        const selectedCombinations = Array.from(document.querySelectorAll('input[name="attribute-combination"]:checked'))
+            .map(cb => cb.value);
+        
+        if (selectedCombinations.length === 0) {
+            showMessage('请至少选择一个属性组合', 'error');
+            return;
+        }
+        
+        // 批量创建属性模拟任务
+        createBatchSimulationTasks(profileId, selectedCombinations, attributeStep ? parseInt(attributeStep) : undefined);
+    } else if (simulationType === '3') {
+        // APL候选对比模拟
+        generateGlmAplCandidatesAndCompare(profileId);
+    }
+    
+    closeSimulationTypeModal();
+}
+
+// 创建模拟任务
+function createSimulationTask(profileId, taskType, attributeCombination, extraOptions = {}) {
+    const requestBody = {
+        task_type: taskType
+    };
+    
+    if (attributeCombination) {
+        requestBody.selected_attributes = attributeCombination;
+    }
+    if (extraOptions.regular_time) {
+        requestBody.regular_time = parseInt(extraOptions.regular_time);
+    }
+    if (extraOptions.regular_target_count) {
+        requestBody.regular_target_count = parseInt(extraOptions.regular_target_count);
+    }
+    if (extraOptions.attribute_step) {
+        requestBody.attribute_step = parseInt(extraOptions.attribute_step);
+    }
+    
+    const csrfToken = getCSRFToken();
+    
+    // 发送POST请求到后端API
+    return fetch(`/api/simc-profile/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            profile_id: profileId,
+            simulate_now: true,
+            ...requestBody
+        })
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return { success: false, error: '无响应数据' };
+        if (data.success) {
+            const taskTypeText = taskType === 1 ? '常规模拟' : `属性模拟(${attributeCombination})`;
+            showMessage(`${taskTypeText}任务创建成功！任务ID: ${data.task_id}`, 'success');
+            return { success: true, taskId: data.task_id, combination: attributeCombination };
+        } else {
+            showMessage(`创建模拟任务失败: ${data.message || data.error || '未知错误'}`, 'error');
+            return { success: false, error: data.message || data.error || '未知错误', combination: attributeCombination };
+        }
+    })
+    .catch(error => {
+        console.error('Error creating simulation task:', error);
+        showMessage('创建模拟任务时发生错误', 'error');
+        return { success: false, error: error.message, combination: attributeCombination };
+    });
+}
+
+// 批量创建属性模拟任务
+function createBatchSimulationTasks(profileId, selectedCombinations, attributeStep) {
+    let completedTasks = 0;
+    let successfulTasks = 0;
+    let failedTasks = [];
+    const totalTasks = selectedCombinations.length;
+    
+    showMessage(`开始创建 ${totalTasks} 个属性模拟任务...`, 'info');
+    
+    selectedCombinations.forEach(async (combination) => {
+        try {
+            const result = await createSimulationTask(profileId, 2, combination, {
+                attribute_step: attributeStep
+            });
+            completedTasks++;
+            
+            if (result.success) {
+                successfulTasks++;
+            } else {
+                failedTasks.push({ combination, error: result.error });
+            }
+            
+            // 所有任务都处理完成后显示汇总结果
+            if (completedTasks === totalTasks) {
+                if (successfulTasks === totalTasks) {
+                    showMessage(`所有 ${totalTasks} 个属性模拟任务创建成功！`, 'success');
+                } else if (successfulTasks > 0) {
+                    showMessage(`成功创建 ${successfulTasks} 个任务，${failedTasks.length} 个任务创建失败`, 'warning');
+                    console.error('失败的任务:', failedTasks);
+                } else {
+                    showMessage('所有属性模拟任务创建失败', 'error');
+                    console.error('失败的任务:', failedTasks);
+                }
+                
+                // 刷新页面显示新任务
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            }
+        } catch (error) {
+            completedTasks++;
+            failedTasks.push({ combination, error: error.message });
+            console.error(`任务创建异常 (${combination}):`, error);
+            
+            if (completedTasks === totalTasks) {
+                showMessage('批量任务创建过程中发生错误', 'error');
+            }
+        }
+    });
+}
+
+// 控制结果文件下拉菜单
+function toggleResultDropdown(taskId) {
+    const dropdown = document.getElementById(`result-dropdown-${taskId}`);
+    if (dropdown) {
+        if (dropdown.classList.contains('hidden')) {
+            // 获取按钮位置并定位下拉菜单
+            const button = document.querySelector(`[onclick*="toggleResultDropdown(${taskId})"]`);
+            if (button) {
+                const rect = button.getBoundingClientRect();
+                dropdown.style.top = `${rect.bottom + 4}px`;
+                dropdown.style.left = `${rect.left}px`;
+            }
+            dropdown.classList.remove('hidden');
+            
+            // 点击其他地方时关闭下拉菜单
+            document.addEventListener('click', function closeDropdown(e) {
+                if (!dropdown.contains(e.target) && !e.target.closest(`[onclick*="toggleResultDropdown(${taskId})"]`)) {
+                    dropdown.classList.add('hidden');
+                    document.removeEventListener('click', closeDropdown);
+                }
+            });
+        } else {
+            dropdown.classList.add('hidden');
+        }
+    }
+}
+
+// 控制分析文件下拉菜单
+function toggleAnalysisDropdown(taskId) {
+    const dropdown = document.getElementById(`analysis-dropdown-${taskId}`);
+    if (dropdown) {
+        if (dropdown.classList.contains('hidden')) {
+            // 获取按钮位置并定位下拉菜单
+            const button = document.querySelector(`[onclick*="toggleAnalysisDropdown(${taskId})"]`);
+            if (button) {
+                const rect = button.getBoundingClientRect();
+                dropdown.style.top = `${rect.bottom + 4}px`;
+                dropdown.style.left = `${rect.left}px`;
+            }
+            dropdown.classList.remove('hidden');
+            
+            // 点击其他地方时关闭下拉菜单
+            document.addEventListener('click', function closeDropdown(e) {
+                if (!dropdown.contains(e.target) && !e.target.closest(`[onclick*="toggleAnalysisDropdown(${taskId})"]`)) {
+                    dropdown.classList.add('hidden');
+                    document.removeEventListener('click', closeDropdown);
+                }
+            });
+        } else {
+            dropdown.classList.add('hidden');
+        }
+    }
+}
+
+// 属性模拟分析功能
+function viewAttributeAnalysis(taskId) {
+    if (!taskId) {
+        showMessage('任务ID不存在', 'error');
+        return;
+    }
+    
+    // 构建属性模拟分析页面的URL
+    const analysisUrl = `/simc-attribute-analysis-ssr/?task_id=${taskId}`;
+    
+    // 在新标签页中打开属性模拟分析页面
+    window.open(analysisUrl, '_blank');
+}
+
+function viewErrorInfo(taskId, resultFile) {
+    // 向后兼容：旧入口统一跳到日志查看
+    viewTaskLog(taskId, { resultFile });
+}
+
+function viewTaskLog(taskId, task = null) {
+    /**
+     * 查看任务日志（所有状态都可查看）
+     * @param {number} taskId - 任务ID
+     * @param {object|null} task - 任务对象（可选）
+     */
+    try {
+        if (!taskId) {
+            showMessage('任务ID不存在', 'warning');
+            return;
+        }
+
+        const t = task || {};
+        const extPayload = parseSimcTaskExt(t.ext || t.ext_detail || {});
+        const compare = (extPayload && extPayload.apl_compare) ? extPayload.apl_compare : {};
+        const lines = [];
+        lines.push(`任务ID: ${taskId}`);
+        if (t.name) lines.push(`任务名称: ${t.name}`);
+        if (typeof t.current_status !== 'undefined') {
+            const statusMap = { 0: '未开始', 1: '进行中', 2: '完成', 3: '失败', 4: '预处理中' };
+            lines.push(`任务状态: ${statusMap[t.current_status] || t.current_status}`);
+        }
+        if (t.task_type) {
+            const typeMap = { 1: '常规模拟', 2: '属性模拟' };
+            lines.push(`任务类型: ${typeMap[t.task_type] || t.task_type}`);
+        }
+        if (t.simc_profile_name) lines.push(`配置名称: ${t.simc_profile_name}`);
+        if (t.simc_profile_spec) lines.push(`配置专精: ${t.simc_profile_spec}`);
+        if (t.create_time) lines.push(`创建时间: ${t.create_time}`);
+        if (t.modified_time) lines.push(`更新时间: ${t.modified_time}`);
+        if (compare && Object.keys(compare).length) {
+            lines.push('');
+            lines.push('[APL候选信息]');
+            if (compare.batch_id) lines.push(`批次ID: ${compare.batch_id}`);
+            if (typeof compare.candidate_index !== 'undefined') lines.push(`候选序号: ${compare.candidate_index}`);
+            if (compare.candidate_name) lines.push(`候选名称: ${compare.candidate_name}`);
+            if (compare.candidate_reason) lines.push(`候选说明: ${compare.candidate_reason}`);
+            if (compare.preprocess_stage) lines.push(`预处理阶段: ${compare.preprocess_stage}`);
+            if (compare.preprocess_error) lines.push(`预处理错误: ${compare.preprocess_error}`);
+            if (compare.preprocess_reasoning) {
+                lines.push('');
+                lines.push('[GLM Reasoning]');
+                lines.push(String(compare.preprocess_reasoning));
+            }
+        }
+        if (extPayload && (extPayload.simc_error_summary || extPayload.simc_error_native || typeof extPayload.simc_error_code !== 'undefined')) {
+            lines.push('');
+            lines.push('[SimC原生错误信息]');
+            if (typeof extPayload.simc_error_code !== 'undefined') lines.push(`返回码: ${extPayload.simc_error_code}`);
+            if (extPayload.simc_error_summary) lines.push(`摘要: ${String(extPayload.simc_error_summary)}`);
+            if (extPayload.simc_error_native) {
+                lines.push('原生输出:');
+                lines.push(String(extPayload.simc_error_native));
+            }
+        }
+        if (t.result_file) {
+            lines.push('');
+            lines.push('[结果/错误字段]');
+            lines.push(String(t.result_file));
+        }
+        if (!lines.length) lines.push('暂无日志内容');
+        openErrorInfoModal(taskId, lines.join('\n'));
+    } catch (error) {
+        console.error('查看任务日志失败:', error);
+        showMessage(`查看任务日志失败: ${error.message}`, 'error');
+    }
+}
+
+function openErrorInfoModal(taskId, errorContent) {
+    /**
+     * 打开错误信息模态框
+     * @param {number} taskId - 任务ID
+     * @param {string} errorContent - 错误内容
+     */
+    const modal = document.getElementById('error-info-modal');
+    if (!modal) {
+        console.error('错误信息模态框未找到');
+        return;
+    }
+    
+    // 填充错误信息
+    const taskIdElement = document.getElementById('error-task-id');
+    const errorContentElement = document.getElementById('error-content');
+    
+    if (taskIdElement) {
+        taskIdElement.textContent = taskId;
+    }
+    
+    if (errorContentElement) {
+        errorContentElement.textContent = errorContent;
+    }
+    
+    // 显示模态框
+    modal.style.display = 'block';
+}
+
+/**
+ * 查看SimcProfile的action_list并跳转到APL互转页面
+ */
+async function viewSimcProfileActionList(profileId) {
+    try {
+        // 获取SimcProfile数据
+        const response = await fetch(`/api/simc-profile/${profileId}/`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const profile = await response.json();
+        const actionList = profile.action_list || '';
+        
+        // 跳转到APL互转页面
+        const aplConverterItem = document.querySelector('li[data-tool="simc-apl-converter"] a');
+        if (aplConverterItem) {
+            aplConverterItem.click();
+            
+            // 等待页面切换完成后填充内容
+            setTimeout(() => {
+                const aplInput = document.getElementById('apl-input');
+                if (aplInput) {
+                    aplInput.value = actionList;
+                    // 触发输入事件以确保任何监听器都能响应
+                    aplInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    
+                    // 显示成功消息
+                    showMessage(`已将配置"${profile.name}"的Action List加载到APL输入框`, 'success');
+                } else {
+                    showMessage('未找到APL输入框，请手动切换到APL互转页面', 'error');
+                }
+            }, 300);
+        } else {
+            showMessage('未找到APL互转页面链接', 'error');
+        }
+    } catch (error) {
+        console.error('查看SimC配置Action List错误:', error);
+        showMessage('查看Action List失败', 'error');
+    }
+}
+
+// 重跑SimC任务
+function rerunSimcTask(taskId) {
+    if (!confirm('确定要重跑这个任务吗？任务将重新加入队列并生成新的结果。')) {
+        return;
+    }
+    
+    fetch('/api/simc-task/', {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCSRFToken()
+        },
+        body: JSON.stringify({
+            id: taskId,
+            action: 'rerun'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showMessage(data.message || '任务重跑成功', 'success');
+            // 刷新任务列表
+            fetchSimcTaskData();
+        } else {
+            showMessage(data.error || '重跑任务失败', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('重跑任务错误:', error);
+        showMessage('重跑任务失败', 'error');
+    });
+}
+
+let wclDashboardInited = false;
+let wclDashboardSubmitting = false;
+
+function initWclDashboardModule() {
+    if (wclDashboardInited) return;
+    wclDashboardInited = true;
+
+    const refreshBtn = document.getElementById('wcl-dashboard-refresh-btn');
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => fetchWclDashboardTasks());
+    }
+}
+
+async function submitWclDashboardTask() {
+    if (wclDashboardSubmitting) {
+        return;
+    }
+    const input = document.getElementById('wcl-dashboard-url');
+    const msg = document.getElementById('wcl-dashboard-message');
+    const submitBtn = document.getElementById('wcl-dashboard-submit-btn');
+    const wclUrl = (input && input.value ? input.value : '').trim();
+    if (!wclUrl) {
+        if (msg) {
+            msg.className = 'text-sm text-red-600';
+            msg.textContent = '请输入WCL链接';
+        }
+        return;
+    }
+
+    wclDashboardSubmitting = true;
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.classList.add('opacity-60', 'cursor-not-allowed');
+    }
+
+    if (msg) {
+        msg.className = 'text-sm text-gray-600';
+        msg.textContent = '任务提交中...';
+    }
+
+    try {
+        const resp = await fetch('/api/wcl-analysis-task/', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({ wcl_url: wclUrl })
+        });
+        const data = await resp.json();
+        if (!data || !data.success) {
+            if (msg) {
+                msg.className = 'text-sm text-red-600';
+                msg.textContent = (data && data.error) || '任务提交失败';
+            }
+            return;
+        }
+
+        if (msg) {
+            msg.className = 'text-sm text-green-600';
+            msg.innerHTML = `任务已提交，<a class="underline" target="_blank" href="${data.data.report_url}">点击查看结果页</a>（处理中可刷新）`;
+        }
+        if (input) input.value = '';
+        fetchWclDashboardTasks();
+    } catch (e) {
+        if (msg) {
+            msg.className = 'text-sm text-red-600';
+            msg.textContent = `任务提交失败: ${e.message || ''}`;
+        }
+    } finally {
+        wclDashboardSubmitting = false;
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+        }
+    }
+}
+
+async function fetchWclDashboardTasks() {
+    const tbody = document.getElementById('wcl-dashboard-task-list');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-500">加载中...</td></tr>';
+    try {
+        const resp = await fetch('/api/wcl-analysis-task/?limit=50', {
+            method: 'GET',
+            credentials: 'same-origin'
+        });
+        const data = await resp.json();
+        if (!data || !data.success) {
+            tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-red-600">${(data && data.error) || '加载失败'}</td></tr>`;
+            return;
+        }
+        const tasks = data.data || [];
+        if (!tasks.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-500">暂无任务</td></tr>';
+            return;
+        }
+
+        const statusMap = {
+            0: '待处理',
+            1: '处理中',
+            2: '成功',
+            3: '失败'
+        };
+        tbody.innerHTML = tasks.map(t => `
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 text-sm text-gray-900">${t.id}</td>
+                <td class="px-4 py-3 text-sm text-gray-700 break-all">${escapeHtml(t.wcl_url || '')}</td>
+                <td class="px-4 py-3 text-sm text-gray-700">${statusMap[t.status] || t.status}</td>
+                <td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(t.summary || '')}</td>
+                <td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(t.created_at || '')}</td>
+                <td class="px-4 py-3 text-sm">
+                    <a class="text-blue-600 hover:text-blue-800" target="_blank" href="${t.report_url || '#'}">查看</a>
+                </td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-red-600">加载失败</td></tr>';
+    }
+}
