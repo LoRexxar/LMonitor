@@ -38,13 +38,23 @@ class wowheadMonitor(BaseScan):
         """
         cookies = ""
 
-        driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1, is_proxy=True)
-        if driver:
-            post_count, _ = self.resolve_data(driver, "wowhead", 10)
-            if int(post_count or 0) <= 0:
-                driver2 = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1, is_proxy=False)
-                if driver2:
-                    self.resolve_data(driver2, "wowhead", 10)
+        resp = self.req.getResponse(self.target_url, cookies)
+        if resp is False or resp is None:
+            logger.error("[wowheadMonitor] Request failed.")
+            return False
+        status_code = getattr(resp, 'status_code', 200)
+        if int(status_code or 0) >= 400:
+            logger.error("[wowheadMonitor] Request bad status: {}".format(status_code))
+            return False
+
+        driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1, is_proxy=False)
+        if not driver or not hasattr(driver, 'eles'):
+            logger.error("[wowheadMonitor] Chrome request failed.")
+            return False
+
+        post_count, _ = self.resolve_data(driver, "wowhead", 10)
+        if int(post_count or 0) <= 0:
+            return False
 
         return True
 
