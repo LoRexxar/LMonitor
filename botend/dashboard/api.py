@@ -34,7 +34,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert
+from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport
 from botend.alerting import upsert_system_alert
 from django.db import models
 from core.glm import GLMClient
@@ -46,6 +46,22 @@ def _fmt_dt(dt):
     if timezone.is_naive(dt):
         dt = timezone.make_aware(dt, timezone.get_default_timezone())
     return timezone.localtime(dt).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _static_root():
+    base_dir = str(getattr(settings, "BASE_DIR", "") or "")
+    if base_dir:
+        return os.path.join(base_dir, "static")
+    return os.path.join(os.getcwd(), "static")
+
+
+def _safe_join_static(rel_path):
+    rel_path = str(rel_path or "").replace("\\", "/").lstrip("/")
+    root = os.path.abspath(_static_root())
+    full = os.path.abspath(os.path.join(root, rel_path))
+    if not full.startswith(root):
+        return None
+    return full
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
@@ -224,6 +240,105 @@ class ConvertTextAPIView(View):
         except Exception as e:
             logger.error(f"CN2APL错误: {str(e)}")
             raise e
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class WowDailyReportListAPIView(View):
+    def get(self, request):
+        try:
+            limit = request.GET.get("limit", "30")
+            try:
+                limit = max(1, min(200, int(limit)))
+            except ValueError:
+                limit = 30
+            rows = list(WowDailyReport.objects.all().order_by("-report_date", "-updated_at", "-id")[:limit])
+            data = []
+            for r in rows:
+                data.append(
+                    {
+                        "id": r.id,
+                        "report_date": getattr(r, "report_date", None).isoformat() if getattr(r, "report_date", None) else "",
+                        "md_path": getattr(r, "md_path", "") or "",
+                        "updated_at": _fmt_dt(getattr(r, "updated_at", None)),
+                    }
+                )
+            return JsonResponse({"success": True, "data": data, "total": len(data)})
+        except Exception as e:
+            logger.error(f"获取WoW日报列表失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({"success": False, "error": f"获取WoW日报列表失败: {str(e)}"})
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class WowDailyReportContentAPIView(View):
+    def get(self, request):
+        try:
+            rid = (request.GET.get("id") or "").strip()
+            date_s = (request.GET.get("date") or "").strip()
+            row = None
+            if rid:
+                try:
+                    row = WowDailyReport.objects.filter(id=int(rid)).first()
+                except Exception:
+                    row = None
+            if not row and date_s:
+                try:
+                    row = WowDailyReport.objects.filter(report_date=date_s).first()
+                except Exception:
+                    row = None
+            if not row:
+                return JsonResponse({"success": False, "error": "未找到日报记录"})
+            md_path = (getattr(row, "md_path", "") or "").strip()
+            full = _safe_join_static(md_path)
+            if not full or (not os.path.exists(full)):
+                return JsonResponse({"success": False, "error": "日报文件不存在"})
+            with open(full, "r", encoding="utf-8") as f:
+                content = f.read()
+            return JsonResponse(
+                {
+                    "success": True,
+                    "data": {
+                        "id": row.id,
+                        "report_date": getattr(row, "report_date", None).isoformat() if getattr(row, "report_date", None) else "",
+                        "md_path": md_path,
+                        "updated_at": _fmt_dt(getattr(row, "updated_at", None)),
+                        "content": content,
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"获取WoW日报内容失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({"success": False, "error": f"获取WoW日报内容失败: {str(e)}"})
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class WowDailyReportDownloadAPIView(View):
+    def get(self, request):
+        try:
+            date_s = (request.GET.get("date") or "").strip()
+            rid = (request.GET.get("id") or "").strip()
+            row = None
+            if rid:
+                try:
+                    row = WowDailyReport.objects.filter(id=int(rid)).first()
+                except Exception:
+                    row = None
+            if not row and date_s:
+                row = WowDailyReport.objects.filter(report_date=date_s).first()
+            if not row:
+                return JsonResponse({"success": False, "error": "未找到日报记录"})
+            md_path = (getattr(row, "md_path", "") or "").strip()
+            full = _safe_join_static(md_path)
+            if not full or (not os.path.exists(full)):
+                return JsonResponse({"success": False, "error": "日报文件不存在"})
+            with open(full, "rb") as f:
+                content = f.read()
+            filename = os.path.basename(md_path) or "wow_daily_report.md"
+            resp = HttpResponse(content, content_type="text/markdown; charset=utf-8")
+            resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return resp
+        except Exception as e:
+            logger.error(f"下载WoW日报失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({"success": False, "error": f"下载WoW日报失败: {str(e)}"})
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
