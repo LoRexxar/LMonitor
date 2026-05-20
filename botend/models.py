@@ -171,6 +171,21 @@ class WowSkillDiffReport(models.Model):
         ]
 
 
+class WowDailyReport(models.Model):
+    report_date = models.DateField(unique=True)
+    md_path = models.CharField(max_length=500, default="")
+    ext_json = models.TextField(default="", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_daily_report'
+        indexes = [
+            models.Index(fields=['report_date']),
+            models.Index(fields=['updated_at']),
+        ]
+
+
 class WowWagoMonitorState(models.Model):
     id = models.BigAutoField(primary_key=True)
     branch = models.CharField(max_length=32, default="wow")
