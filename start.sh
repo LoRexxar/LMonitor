@@ -19,7 +19,7 @@ kill_existing() {
 }
 
 start_child() {
-    /usr/bin/python3 /root/manage.py LMonitorCoreBackend &
+    /usr/bin/python3 /home/lighthouse/LMonitor/manage.py LMonitorCoreBackend &
     start_ts="$(date +%s)"
 }
 

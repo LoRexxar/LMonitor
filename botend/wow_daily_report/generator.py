@@ -4,7 +4,7 @@ import os
 import re
 
 from django.conf import settings
-from django.db.models import Max
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from botend.models import (
@@ -42,6 +42,26 @@ def _collapse_space(s):
     return re.sub(r"\s+", " ", str(s or "")).strip()
 
 
+_BAN_WORDS = ("系统", "入库", "采集", "数据库")
+
+
+def _has_ban_word(s):
+    t = str(s or "")
+    return any(w in t for w in _BAN_WORDS)
+
+
+def _sanitize_text(s):
+    t = _collapse_space(s)
+    if not t:
+        return ""
+    t = re.sub(r"^[\"“”']+|[\"“”']+$", "", t).strip()
+    t = re.sub(r"^系统.*?(?:标题为|标题：)\s*", "", t).strip()
+    parts = re.split(r"[。！？；;]\s*", t)
+    parts = [p.strip() for p in parts if p and not _has_ban_word(p)]
+    t = "。".join(parts).strip("。").strip()
+    return _collapse_space(t)
+
+
 def _ensure_zh_len(text, *, min_len=100, max_len=200, pad=""):
     s = _collapse_space(text)
     if len(s) > max_len:
@@ -50,10 +70,12 @@ def _ensure_zh_len(text, *, min_len=100, max_len=200, pad=""):
         return s
     tail = _collapse_space(pad)
     if not tail:
-        tail = "数据来源为系统当日已采集入库内容，仅供快速浏览；如需细节请打开原链接查看全文，并以原站点信息为准。"
+        tail = "建议结合原文与游戏内实际表现判断影响，相关数据可能在后续热修中继续调整。"
     need = min_len - len(s)
     if need > 0:
-        s = (s + " " + tail[:need]).strip()
+        if s and s[-1] not in "。！？；;.!?":
+            s = s + "。"
+        s = (s + tail[:need]).strip()
     if len(s) > max_len:
         s = s[:max_len].rstrip()
     return s
@@ -99,11 +121,13 @@ def _glm_summarize(*, title, desc, max_chars=160):
     if not getattr(glm, "client", None):
         return ""
     prompt = (
-        "把下面这条魔兽世界资讯用中文概括成 100-160 字简介，不要换行，不要加标题：\n"
+        "你是一名日报编辑。请严格基于给定信息生成 100-160 字中文摘要："
+        "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
         + json.dumps({"title": title or "", "desc": desc or ""}, ensure_ascii=False)
     )
     out = glm.send_message(prompt, max_tokens=220, thinking_type="disabled")
     out = _collapse_space(out)
+    out = _sanitize_text(out)
     if not out:
         return ""
     if len(out) > int(max_chars or 160):
@@ -111,12 +135,44 @@ def _glm_summarize(*, title, desc, max_chars=160):
     return out
 
 
-def _md_item(title, url, intro):
+def _glm_summarize_payload(*, payload, min_chars=100, max_chars=200):
+    if not GLMClient:
+        return ""
+    try:
+        glm = GLMClient()
+    except Exception:
+        return ""
+    if not getattr(glm, "client", None):
+        return ""
+    prompt = (
+        "你是一名日报编辑。请严格基于给定信息生成 100-200 字中文摘要："
+        "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
+        + json.dumps(payload, ensure_ascii=False)
+    )
+    out = glm.send_message(prompt, max_tokens=260, thinking_type="disabled")
+    out = _collapse_space(out)
+    out = _sanitize_text(out)
+    if not out:
+        return ""
+    if _has_ban_word(out):
+        return ""
+    if len(out) > int(max_chars or 200):
+        out = out[: int(max_chars or 200)].rstrip()
+    if len(out) < int(min_chars or 100):
+        out = _ensure_zh_len(out, min_len=int(min_chars or 100), max_len=int(max_chars or 200))
+    return out
+
+
+def _md_item(title, url, intro, *, ensure_len=True):
+    title = _sanitize_text(title) or "（无标题）"
+    intro = _sanitize_text(intro) or ""
+    if ensure_len:
+        intro = _ensure_zh_len(intro)
     return "\n".join(
         [
-            f"### {_collapse_space(title) or '（无标题）'}",
-            f"- 原链接：{_safe_url(url)}",
-            _ensure_zh_len(intro),
+            f"### {title}",
+            f"- 链接：{_safe_url(url)}",
+            intro,
             "",
         ]
     )
@@ -125,57 +181,75 @@ def _md_item(title, url, intro):
 def _render_section(title, items):
     out = [f"## {title}", ""]
     if not items:
-        out.append(_md_item("今日无新增", "-", "今日没有采集到该栏目对应的新内容或可识别变动。"))
+        out.append("今日无新增。")
+        out.append("")
         return "\n".join(out)
     for it in items:
         out.append(_md_item(it.get("title"), it.get("url"), it.get("intro")))
     return "\n".join(out)
 
 
-def generate_wow_daily_report(*, report_date=None, use_llm=False):
+def generate_wow_daily_report(*, report_date=None, use_llm=True):
     if report_date is None:
         report_date = timezone.localdate()
     today_start, today_end = _date_range(report_date)
     prev_ext = _load_prev_ext(report_date)
 
     news_rows = list(
-        WowArticle.objects.filter(
-            is_active=True,
-            category="news",
-            publish_time__gte=today_start,
-            publish_time__lt=today_end,
+        WowArticle.objects.filter(is_active=True, category="news")
+        .filter(
+            Q(created_at__gte=today_start, created_at__lt=today_end)
+            | Q(publish_time__gte=today_start, publish_time__lt=today_end)
         )
-        .order_by("-publish_time", "-id")[:20]
+        .order_by("-created_at", "-publish_time", "-id")[:20]
     )
     news_items = []
     for a in news_rows[:10]:
         title = (a.title or "").strip()
         url = (a.url or "").strip()
-        desc = (a.description or "").strip()
-        intro = desc
-        if use_llm and (not intro or len(_collapse_space(intro)) > 260):
-            s = _glm_summarize(title=title, desc=desc)
-            if s:
-                intro = s
+        desc = _sanitize_text((a.description or "").strip())
+        intro = ""
+        if use_llm:
+            intro = _glm_summarize_payload(
+                payload={
+                    "type": "news",
+                    "title": title,
+                    "source": (a.source or "").strip(),
+                    "description": desc,
+                    "url": url,
+                }
+            )
         if not intro:
-            intro = f"来源：{(a.source or '').strip() or 'unknown'}；系统于今日采集入库，标题为“{title}”。若需要细节请打开原链接查看全文。"
+            intro = desc or f"这条新闻的关键信息需要结合原文确认，目前仅能从标题判断主题：{title}。建议点开链接查看事件背景、涉及改动与对玩家的直接影响。"
         news_items.append({"title": title, "url": url, "intro": intro})
 
     nga_rows = list(
-        WowArticle.objects.filter(
-            is_active=True,
-            source="nga",
-            publish_time__gte=today_start,
-            publish_time__lt=today_end,
+        WowArticle.objects.filter(is_active=True, source="nga")
+        .filter(
+            Q(created_at__gte=today_start, created_at__lt=today_end)
+            | Q(publish_time__gte=today_start, publish_time__lt=today_end)
         )
-        .order_by("-reply_count", "-publish_time", "-id")[:10]
+        .order_by("-reply_count", "-created_at", "-publish_time", "-id")[:10]
     )
     nga_items = []
     for a in nga_rows[:3]:
         title = (a.title or "").strip()
         url = (a.url or "").strip()
         reply = int(getattr(a, "reply_count", 0) or 0)
-        intro = f"该帖为系统今日采集的 NGA 热议内容之一，当前记录的回复数为 {reply}。建议优先查看楼主核心观点与高赞回复，快速把握争议点、结论与实用信息。"
+        desc = _sanitize_text((a.description or "").strip())
+        intro = ""
+        if use_llm:
+            intro = _glm_summarize_payload(
+                payload={
+                    "type": "nga_hot",
+                    "title": title,
+                    "reply_count": reply,
+                    "description": desc,
+                    "url": url,
+                }
+            )
+        if not intro:
+            intro = desc or f"该帖为当日热议贴之一，当前可见回复数 {reply}。建议先定位楼主主张与结论，再浏览高赞回复提炼共识与争议点，最后对照自身职业/玩法选择可执行建议。"
         nga_items.append({"title": title, "url": url, "intro": intro})
 
     wago_states = list(
@@ -202,7 +276,20 @@ def generate_wow_daily_report(*, report_date=None, use_llm=False):
         report_url = (getattr(st, "report_url", "") or "").strip()
         wago_url = (getattr(st, "wago_diff_url", "") or "").strip()
         title = summary_title or f"Wago 变更：{branch} {locale}".strip()
-        intro = f"该条为系统今日监测到的 Wago DB2 差异与职业技能相关变动。点击可查看完整差异报告；若需要原始对比可使用 Wago Diff 链接进一步核对。"
+        intro = ""
+        if use_llm:
+            intro = _glm_summarize_payload(
+                payload={
+                    "type": "wago_diff",
+                    "title": title,
+                    "branch": branch,
+                    "locale": locale,
+                    "report_url": report_url,
+                    "wago_diff_url": wago_url,
+                }
+            )
+        if not intro:
+            intro = "该条为职业技能/数据表差异变动汇总，建议点开报告查看变更表与受影响职业概览，并结合补丁/热修语境判断实际影响。"
         url = report_url or wago_url
         if not url:
             continue
@@ -255,8 +342,18 @@ def generate_wow_daily_report(*, report_date=None, use_llm=False):
                 f"{reg.upper()} 0.1%：{(round(float(c01), 2) if c01 is not None else '--')}，1%：{(round(float(c1), 2) if c1 is not None else '--')}{delta_txt}"
             )
         if parts:
-            intro = " | ".join(parts)
-            intro = f"赛季：{season}。{intro}。分数线用于参考 0.1% 与 1% 的大秘境评分门槛，便于判断冲层进度与赛季节奏。"
+            intro_base = " | ".join(parts)
+            intro = ""
+            if use_llm:
+                intro = _glm_summarize_payload(
+                    payload={
+                        "type": "mplus_cutoff",
+                        "season": season,
+                        "regions": intro_base,
+                    }
+                )
+            if not intro:
+                intro = f"赛季：{season}。{intro_base}。用于快速判断 0.1%/1% 门槛是否上升或回落，辅助规划冲分节奏。"
             cutoff_items.append(
                 {
                     "title": f"大秘境分数线变动（{season}）",
@@ -303,15 +400,31 @@ def generate_wow_daily_report(*, report_date=None, use_llm=False):
                     f"该地下城出现新的最快限时记录：{_fmt_seconds(cur.get('time_seconds'))}（{cur.get('level')}层）。"
                     f"上次日报记录为 {_fmt_seconds(old_row.get('time_seconds'))}。建议点开原链接核对队伍构成与路线细节。"
                 )
+                if use_llm:
+                    s = _glm_summarize_payload(
+                        payload={
+                            "type": "topruns_record",
+                            "dungeon_slug": slug,
+                            "new_time": _fmt_seconds(cur.get("time_seconds")),
+                            "new_level": cur.get("level"),
+                            "old_time": _fmt_seconds(old_row.get("time_seconds")),
+                            "url": url,
+                        }
+                    )
+                    if s:
+                        intro = s
                 run_items.append({"title": title, "url": url, "intro": intro})
         else:
-            run_items.append(
-                {
-                    "title": f"TopRuns 无新最快记录（{season}）",
-                    "url": "https://raider.io/mythic-plus-runs",
-                    "intro": "与上一份日报快照相比，未检测到各地下城出现更快的限时成绩。若系统今日未刷新 TopRuns 数据，也可能导致变动暂未入库。",
-                }
+            intro = (
+                "与上一份日报快照相比，未检测到更快的限时成绩出现。"
+                "若你在冲榜，可以继续关注各地下城的路线优化、阵容搭配与关键怪处理。"
+                "多数排名提升来自更稳定的拉怪节奏、更少的死亡与更高效的爆发窗口利用；也建议对照本周词缀与热门路线的细节变化来做微调。"
             )
+            if use_llm:
+                s = _glm_summarize_payload(payload={"type": "topruns_no_change", "season": season})
+                if s:
+                    intro = s
+            run_items.append({"title": f"TopRuns 无新最快记录（{season}）", "url": "https://raider.io/mythic-plus-runs", "intro": intro})
 
     peak_latest = PortalPeakSpecRankRow.objects.filter(is_active=True).order_by("-updated_at", "-id").first()
     peak_items = []
@@ -344,15 +457,32 @@ def generate_wow_daily_report(*, report_date=None, use_llm=False):
                     f"该专精 Top{int(r.rank or 0)} 出现新的上榜玩家：{name}（替换 {old_name}）。"
                     f"当前记录分数为 {getattr(r, 'score', None) or '--'}，可点开链接查看角色详情与近期大秘境表现。"
                 )
+                if use_llm:
+                    s = _glm_summarize_payload(
+                        payload={
+                            "type": "peak_new_player",
+                            "class": (r.class_name or r.class_slug),
+                            "spec": (r.spec_name or r.spec_slug),
+                            "rank": int(r.rank or 0),
+                            "new_player": name,
+                            "old_player": old_name,
+                            "score": getattr(r, "score", None),
+                            "url": url,
+                        }
+                    )
+                    if s:
+                        intro = s
                 peak_items.append({"title": title, "url": url, "intro": intro})
         else:
-            peak_items.append(
-                {
-                    "title": f"巅峰榜未出现新玩家（{season}）",
-                    "url": "https://raider.io",
-                    "intro": "与上一份日报快照相比，未检测到各专精 Top3 名单出现新的角色名。若系统今日未刷新巅峰榜数据，也可能导致变动暂未入库。",
-                }
+            intro = (
+                "与上一份日报快照相比，未检测到各专精 Top3 名单出现新的角色名。"
+                "如果你在追榜，建议重点对照当前分数、钥石路线与队伍配置的变化，观察是否出现适配本周词缀的主流打法迁移。"
             )
+            if use_llm:
+                s = _glm_summarize_payload(payload={"type": "peak_no_change", "season": season})
+                if s:
+                    intro = s
+            peak_items.append({"title": f"巅峰榜未出现新玩家（{season}）", "url": "https://raider.io", "intro": intro})
 
     ms_latest = PortalMythicstatsDpsRow.objects.all().order_by("-updated_at", "-id").first()
     ms_items = []
@@ -381,10 +511,21 @@ def generate_wow_daily_report(*, report_date=None, use_llm=False):
         if rows:
             top_names = [f"#{r.rank} {r.spec_name}" for r in rows[:5]]
             ms_snapshot = {"season": season, "period_id": int(pid or 0), "top10": [r.spec_slug for r in rows if r.spec_slug]}
-            intro = (
-                f"赛季：{season}，周期：{period_label or pid}（All dungeons）。"
-                f"本期前五为：{('、'.join(top_names))}。该榜单为常规通报，用于快速把握当前环境下 DPS 专精整体梯度与排名变化。"
-            )
+            intro = ""
+            if use_llm:
+                intro = _glm_summarize_payload(
+                    payload={
+                        "type": "mythicstats_dps",
+                        "season": season,
+                        "period": period_label or pid,
+                        "top5": top_names,
+                    }
+                )
+            if not intro:
+                intro = (
+                    f"赛季：{season}，周期：{period_label or pid}。前五：{('、'.join(top_names))}。"
+                    "该榜单反映当前环境下的伤害表现与流行专精倾向，可用于决定换专精、选团本/大秘境配置时的参考；实际强度仍需结合队伍构成与词缀环境判断。"
+                )
             ms_items.append(
                 {
                     "title": f"Mythicstats DPS 榜单通报（{period_label or pid}）",
@@ -404,8 +545,7 @@ def generate_wow_daily_report(*, report_date=None, use_llm=False):
     md_parts = []
     md_parts.append(f"# 魔兽世界日报（{report_date.strftime('%Y-%m-%d')}）")
     md_parts.append("")
-    md_parts.append(f"- 生成时间：{timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S')}")
-    md_parts.append("- 数据范围：仅统计系统今日已采集入库或可由快照差异判定的变动")
+    md_parts.append(f"- 更新时间：{timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S')}")
     md_parts.append("")
     md_parts.append(_render_section("魔兽世界新闻", news_items))
     md_parts.append(_render_section("NGA 热议追踪", nga_items))

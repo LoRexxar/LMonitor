@@ -17,6 +17,7 @@ from botend.interface.xxxbot import xxxbotInterface
 
 from botend.models import WowArticle
 from datetime import datetime
+from django.utils import timezone
 
 
 class wowheadMonitor(BaseScan):
@@ -83,21 +84,23 @@ class wowheadMonitor(BaseScan):
                     post_preview = post.ele('.news-card-simple-text-preview').text
                     post_date = post.ele('.news-card-simple-text-byline').ele('tag:span').attr('title')
 
-                    django_date_time = ''
+                    django_date_time = None
                     if post_date:
                         try:
                             original_datetime = datetime.strptime(post_date, "%Y/%m/%d at %H:%M")
-                            django_date_time = original_datetime.strftime("%Y-%m-%d %H:%M")
+                            django_date_time = original_datetime
                         except ValueError:
                             for fmt in ("%b %d, %Y at %H:%M", "%B %d, %Y at %H:%M"):
                                 try:
                                     original_datetime = datetime.strptime(post_date, fmt)
-                                    django_date_time = original_datetime.strftime("%Y-%m-%d %H:%M")
+                                    django_date_time = original_datetime
                                     break
                                 except ValueError:
                                     pass
                     if not django_date_time:
-                        django_date_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        django_date_time = timezone.localtime(timezone.now()).replace(tzinfo=None)
+                    if timezone.is_naive(django_date_time):
+                        django_date_time = timezone.make_aware(django_date_time, timezone.get_current_timezone())
 
                     if not post_link:
                         continue

@@ -114,7 +114,6 @@ class GLMClient:
             return None
         except Exception as e:
             self.last_error = str(e)
-            print(f"发生错误: {e}")
             return None
 
     def send_message_with_tools(self, message, tools, tool_handler, max_rounds=6):
@@ -181,7 +180,6 @@ class GLMClient:
             return None
         except Exception as e:
             self.last_error = str(e)
-            print(f"发生错误: {e}")
             return None
 
 def main():

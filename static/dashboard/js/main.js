@@ -567,7 +567,7 @@ function renderWowDailyReportPreview(date, md) {
             return;
         }
     } catch (e) {}
-    previewEl.innerHTML = `<pre class="whitespace-pre-wrap text-sm text-gray-800">${escapeHtml(md)}</pre>`;
+    previewEl.innerHTML = renderSimpleMarkdown(md);
 }
 
 function setWowDailyReportActions(enabled) {
@@ -604,7 +604,7 @@ function downloadWowDailyReport() {
     const date = wowDailyReportState.selectedDate || '';
     const id = wowDailyReportState.selectedId;
     const url = id ? `/api/wow-daily-report/download/?id=${encodeURIComponent(id)}` : `/api/wow-daily-report/download/?date=${encodeURIComponent(date)}`;
-    window.open(url, '_blank');
+    downloadFileByFetch(url, date);
 }
 
 function escapeHtml(str) {
@@ -614,6 +614,108 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function renderSimpleMarkdown(md) {
+    const lines = String(md || '').replace(/\r\n/g, '\n').split('\n');
+    const out = [];
+    let inCode = false;
+    let listOpen = false;
+    const closeList = () => {
+        if (listOpen) {
+            out.push('</ul>');
+            listOpen = false;
+        }
+    };
+    const inline = (s) => {
+        let x = escapeHtml(s);
+        x = x.replace(/`([^`]+)`/g, '<code>$1</code>');
+        x = x.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+        return x;
+    };
+    for (const raw of lines) {
+        const line = raw || '';
+        if (line.trim().startsWith('```')) {
+            if (!inCode) {
+                closeList();
+                out.push('<pre><code>');
+                inCode = true;
+            } else {
+                out.push('</code></pre>');
+                inCode = false;
+            }
+            continue;
+        }
+        if (inCode) {
+            out.push(escapeHtml(line) + '\n');
+            continue;
+        }
+        const t = line.trim();
+        if (!t) {
+            closeList();
+            continue;
+        }
+        if (t.startsWith('### ')) {
+            closeList();
+            out.push(`<h3>${inline(t.slice(4))}</h3>`);
+            continue;
+        }
+        if (t.startsWith('## ')) {
+            closeList();
+            out.push(`<h2>${inline(t.slice(3))}</h2>`);
+            continue;
+        }
+        if (t.startsWith('# ')) {
+            closeList();
+            out.push(`<h1>${inline(t.slice(2))}</h1>`);
+            continue;
+        }
+        if (t.startsWith('- ')) {
+            if (!listOpen) {
+                out.push('<ul>');
+                listOpen = true;
+            }
+            out.push(`<li>${inline(t.slice(2))}</li>`);
+            continue;
+        }
+        closeList();
+        out.push(`<p>${inline(t)}</p>`);
+    }
+    if (inCode) {
+        out.push('</code></pre>');
+        inCode = false;
+    }
+    closeList();
+    return out.join('');
+}
+
+async function downloadFileByFetch(url, date) {
+    try {
+        const resp = await fetch(url, { method: 'GET' });
+        const ct = (resp.headers.get('content-type') || '').toLowerCase();
+        if (!resp.ok) {
+            if (ct.includes('application/json')) {
+                const j = await resp.json();
+                throw new Error((j && j.error) || '下载失败');
+            }
+            throw new Error('下载失败');
+        }
+        if (ct.includes('application/json')) {
+            const j = await resp.json();
+            throw new Error((j && j.error) || '下载失败');
+        }
+        const blob = await resp.blob();
+        const a = document.createElement('a');
+        const filename = date ? `wow_daily_report_${date}.md` : 'wow_daily_report.md';
+        a.href = window.URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(a.href);
+    } catch (e) {
+        showMessage(`下载失败：${String(e.message || e)}`, 'warning');
+    }
 }
 
 // 初始化SimC任务管理事件监听器

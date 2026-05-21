@@ -13,11 +13,10 @@ class WowDailyReportMonitor(BaseScan):
 
     def scan(self, url):
         report_date = timezone.localdate()
-        generate_wow_daily_report(report_date=report_date, use_llm=False)
+        generate_wow_daily_report(report_date=report_date, use_llm=True)
         try:
             self.task.flag = f"{report_date.isoformat()}@{int(time.time())}"
             self.task.save()
         except Exception:
             pass
         return True
-
