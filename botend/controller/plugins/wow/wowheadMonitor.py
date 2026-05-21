@@ -10,6 +10,8 @@
 '''
 
 import time
+import re
+import html
 import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
@@ -107,14 +109,20 @@ class wowheadMonitor(BaseScan):
 
                     wa = WowArticle.objects.filter(url=post_link).first()
                     if wa:
+                        if not (getattr(wa, "description", "") or "").strip() or len((getattr(wa, "description", "") or "")) < 800:
+                            body = self._fetch_article_body(post_link, cookies="")
+                            if body:
+                                wa.description = body
+                                wa.save(update_fields=["description"])
                         continue
 
+                    body = self._fetch_article_body(post_link, cookies="")
                     obj = WowArticle(
                         title="[{}]{}".format(post_type, post_title),
                         url=post_link,
                         publish_time=django_date_time,
                         author="wowhead",
-                        description=post_preview,
+                        description=body or post_preview,
                         source="wowhead",
                         category="news",
                     )
@@ -149,6 +157,56 @@ class wowheadMonitor(BaseScan):
             raise
 
         return 0, 0
+
+    def _fetch_article_body(self, url, cookies=""):
+        try:
+            resp = self.req.getResponse(url, cookies)
+            if not resp:
+                return ""
+            status_code = getattr(resp, 'status_code', 200)
+            if int(status_code or 0) >= 400:
+                return ""
+            html_text = getattr(resp, 'text', '') or ''
+            if not html_text:
+                return ""
+            return self._extract_body_from_html(html_text)
+        except Exception:
+            return ""
+
+    def _extract_body_from_html(self, html_text):
+        t = html_text or ""
+        blocks = []
+        for pat in (
+            r'<div[^>]+class="[^"]*(?:news-post-content|news-post-text|content-body)[^"]*"[^>]*>([\s\S]*?)</div>',
+            r'<article[^>]*>([\s\S]*?)</article>',
+        ):
+            m = re.search(pat, t, flags=re.I)
+            if m:
+                blocks.append(m.group(1) or "")
+        if not blocks:
+            return ""
+        raw = max(blocks, key=lambda x: len(x or ""))
+        raw = re.sub(r'<(script|style|noscript)[^>]*>[\s\S]*?</\1>', '', raw, flags=re.I)
+        raw = re.sub(r'(?i)<br\s*/?>', '\n', raw)
+        raw = re.sub(r'(?i)</p\s*>', '\n\n', raw)
+        raw = re.sub(r'(?i)</div\s*>', '\n\n', raw)
+        raw = re.sub(r'(?i)</li\s*>', '\n', raw)
+        raw = re.sub(r'<[^>]+>', '', raw)
+        raw = html.unescape(raw)
+        raw = raw.replace('\r\n', '\n').replace('\r', '\n')
+        lines = [ln.strip() for ln in raw.split('\n')]
+        out = []
+        blank = 0
+        for ln in lines:
+            if not ln:
+                blank += 1
+                if blank <= 1:
+                    out.append("")
+                continue
+            blank = 0
+            out.append(ln)
+        text = "\n".join(out).strip()
+        return text
 
     def trigger_webhook(self):
         """

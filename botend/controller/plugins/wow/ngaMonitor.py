@@ -11,12 +11,10 @@
 
 import time
 import re
-import datetime
 import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
-from django.utils import timezone
 
 from botend.models import WowArticle
 
@@ -91,18 +89,6 @@ class ngaMonitor(BaseScan):
                 post_name = post_head.texts()
                 post_date = tds[2].ele('.silver postdate').text
 
-                publish_dt = None
-                post_date_s = (post_date or "").strip()
-                if post_date_s:
-                    try:
-                        y = timezone.localdate().year
-                        naive = datetime.datetime.strptime(f"{y}-{post_date_s}", "%Y-%m-%d %H:%M")
-                        publish_dt = timezone.make_aware(naive, timezone.get_current_timezone())
-                        now = timezone.localtime(timezone.now())
-                        if publish_dt > now + datetime.timedelta(days=1):
-                            publish_dt = publish_dt.replace(year=publish_dt.year - 1)
-                    except Exception:
-                        publish_dt = None
                 if not post_count or int(post_count) <= 20:
                     continue
 
@@ -113,6 +99,13 @@ class ngaMonitor(BaseScan):
                 wa = WowArticle.objects.filter(url=post_link).first()
 
                 if wa:
+                    try:
+                        cur = int(getattr(wa, "reply_count", 0) or 0)
+                    except Exception:
+                        cur = 0
+                    if int(post_count or 0) > 0 and int(post_count) != cur:
+                        wa.reply_count = int(post_count or 0)
+                        wa.save(update_fields=["reply_count"])
                     continue
 
                 if is_bad:
@@ -124,7 +117,6 @@ class ngaMonitor(BaseScan):
                     author="nga{}".format(title),
                     description="",
                     reply_count=int(post_count or 0),
-                    publish_time=publish_dt,
                     source="nga",
                     category="nga",
                 )
