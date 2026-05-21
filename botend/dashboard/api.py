@@ -357,7 +357,26 @@ class WowDailyReportGenerateAPIView(View):
     def post(self, request):
         try:
             meta = generate_wow_daily_report(report_date=timezone.localdate(), use_llm=True)
-            return JsonResponse({"success": True, "data": {"md_path": meta.get("md_path")}})
+            ext = meta.get("ext") if isinstance(meta, dict) else {}
+            llm_errors = []
+            if isinstance(ext, dict):
+                llm_errors = ext.get("llm_errors") or []
+            first_err = ""
+            if isinstance(llm_errors, list) and llm_errors:
+                try:
+                    first_err = str((llm_errors[0] or {}).get("error") or "")
+                except Exception:
+                    first_err = ""
+            return JsonResponse(
+                {
+                    "success": True,
+                    "data": {
+                        "md_path": meta.get("md_path"),
+                        "llm_ok": not bool(llm_errors),
+                        "llm_error": first_err,
+                    },
+                }
+            )
         except Exception as e:
             logger.error(f"生成WoW日报失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({"success": False, "error": f"生成WoW日报失败: {str(e)}"})
