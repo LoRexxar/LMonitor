@@ -387,7 +387,7 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
         title = (a.title or "").strip()
         url = (a.url or "").strip()
         reply = int(getattr(a, "reply_count", 0) or 0)
-        desc = _sanitize_text((a.description or "").strip())
+        desc = _sanitize_summary((a.description or "").strip())
         intro = ""
         if use_llm:
             intro = _glm_summarize_payload(
