@@ -433,6 +433,10 @@ function initWowDailyReportPage() {
     if (refreshBtn) {
         refreshBtn.onclick = () => loadWowDailyReports();
     }
+    const genBtn = document.getElementById('wow-daily-report-generate');
+    if (genBtn) {
+        genBtn.onclick = () => generateWowDailyReport();
+    }
     const copyBtn = document.getElementById('wow-daily-report-copy');
     if (copyBtn) {
         copyBtn.onclick = () => copyWowDailyReport();
@@ -440,6 +444,27 @@ function initWowDailyReportPage() {
     const downloadBtn = document.getElementById('wow-daily-report-download');
     if (downloadBtn) {
         downloadBtn.onclick = () => downloadWowDailyReport();
+    }
+}
+
+async function generateWowDailyReport() {
+    const genBtn = document.getElementById('wow-daily-report-generate');
+    const hintEl = document.getElementById('wow-daily-report-hint');
+    if (genBtn) genBtn.disabled = true;
+    if (hintEl) hintEl.textContent = '正在生成...';
+    try {
+        const resp = await fetch('/api/wow-daily-report/generate/', { method: 'POST' });
+        const data = await resp.json();
+        if (!data || !data.success) {
+            throw new Error((data && data.error) || '生成失败');
+        }
+        showMessage('已生成并更新今天的日报', 'success');
+        await loadWowDailyReports();
+    } catch (e) {
+        showMessage(`生成失败：${String(e.message || e)}`, 'warning');
+        if (hintEl) hintEl.textContent = `生成失败：${String(e.message || e)}`;
+    } finally {
+        if (genBtn) genBtn.disabled = false;
     }
 }
 

@@ -38,6 +38,8 @@ from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair
 from botend.alerting import upsert_system_alert
 from django.db import models
 from core.glm import GLMClient
+from botend.monitor_env import is_task_runnable, env_limit_hint
+from botend.wow_daily_report.generator import generate_wow_daily_report
 
 
 def _fmt_dt(dt):
@@ -133,6 +135,15 @@ class PortalPeakSpecRankRefreshAPIView(View):
             task = MonitorTask.objects.filter(name="PortalPeakSpecRankMonitor").first()
             if not task:
                 return JsonResponse({'success': False, 'error': '未找到 PortalPeakSpecRankMonitor 任务，请先执行 SyncMonitorTasksFromPlugins'})
+            if not is_task_runnable(task):
+                return JsonResponse(
+                    {
+                        'success': False,
+                        'error': env_limit_hint(getattr(task, "env_limit", 0)),
+                        'code': 'env_limit_blocked',
+                        'env_limit': int(getattr(task, "env_limit", 0) or 0),
+                    }
+                )
             from LMonitor.config import Monitor_Type_BaseObject_List
 
             task_type = int(getattr(task, "type", 0) or 0)
@@ -339,6 +350,17 @@ class WowDailyReportDownloadAPIView(View):
         except Exception as e:
             logger.error(f"下载WoW日报失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({"success": False, "error": f"下载WoW日报失败: {str(e)}"})
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class WowDailyReportGenerateAPIView(View):
+    def post(self, request):
+        try:
+            meta = generate_wow_daily_report(report_date=timezone.localdate(), use_llm=True)
+            return JsonResponse({"success": True, "data": {"md_path": meta.get("md_path")}})
+        except Exception as e:
+            logger.error(f"生成WoW日报失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({"success": False, "error": f"生成WoW日报失败: {str(e)}"})
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')

@@ -8,6 +8,7 @@ class MonitorTask(models.Model):
     name = models.CharField(max_length=100)
     target = models.CharField(max_length=2000)
     type = models.IntegerField(default=0)
+    env_limit = models.IntegerField(default=0)
     last_scan_time = models.DateTimeField(auto_now=True)
     wait_time = models.IntegerField(default=600)
     flag = models.CharField(max_length=2000, null=True, default=None)

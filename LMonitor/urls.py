@@ -22,7 +22,7 @@ from django.views.generic.base import RedirectView
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
-from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, SimcBackendBinaryAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView, WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView
+from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, SimcBackendBinaryAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView, WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView, WowDailyReportGenerateAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
 from botend.portal.views import PortalWowSkillDiffReportView
@@ -97,6 +97,7 @@ urlpatterns = [
     path('api/wow-daily-report/list/', csrf_exempt(WowDailyReportListAPIView.as_view()), name="wow_daily_report_list"),
     path('api/wow-daily-report/content/', csrf_exempt(WowDailyReportContentAPIView.as_view()), name="wow_daily_report_content"),
     path('api/wow-daily-report/download/', csrf_exempt(WowDailyReportDownloadAPIView.as_view()), name="wow_daily_report_download"),
+    path('api/wow-daily-report/generate/', csrf_exempt(WowDailyReportGenerateAPIView.as_view()), name="wow_daily_report_generate"),
     path('api/keyword-translation/', csrf_exempt(KeywordTranslationAPIView.as_view()), name="keyword_translation"),
     path('api/oss-config/', csrf_exempt(OssConfigAPIView.as_view()), name="oss_config"),
     path('api/simc-result-proxy/', csrf_exempt(SimcResultProxyAPIView.as_view()), name="simc_result_proxy"),
