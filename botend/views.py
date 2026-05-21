@@ -13,6 +13,7 @@ from utils.log import logger
 from core.threadingpool import ThreadPool
 
 from botend.models import MonitorTask, MonitorWebhook
+from botend.monitor_env import filter_runnable_tasks
 from botend.plugin_sync import sync_monitortasks_from_plugin_list
 from LMonitor.config import Monitor_Type_BaseObject_List
 from LMonitor.settings import THREAD_LIMIT_NUM
@@ -40,7 +41,7 @@ class LMonitorCoreBackend:
         # 任务与线程分发
         self.threadpool = ThreadPool()
 
-        MonitorTasks = MonitorTask.objects.filter(is_active=1).count()
+        MonitorTasks = filter_runnable_tasks(MonitorTask.objects.filter(is_active=1)).count()
         left_tasks = MonitorTasks
 
         logger.info("[LMonitor Main] Monitor Backend Start...now {} targets in monitor.".format(left_tasks))
@@ -100,7 +101,7 @@ class LMonitorCore:
                     continue
 
                 try:
-                    tasks = MonitorTask.objects.filter(is_active=1).order_by('-last_scan_time')
+                    tasks = filter_runnable_tasks(MonitorTask.objects.filter(is_active=1)).order_by('-last_scan_time')
 
                     for task in tasks:
                         if (timezone.now() - task.last_scan_time).total_seconds() < task.wait_time:

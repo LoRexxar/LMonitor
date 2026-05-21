@@ -105,6 +105,7 @@ COMMON_FIELD_LABELS = {
     'last_spider_time': '上次抓取时间',
     'last_publish_time': '上次发布时间',
     'wait_time': '等待时间',
+    'env_limit': '环境限制',
     'flag': '标记',
     'state': '状态',
     'tag': '标签',
