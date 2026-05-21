@@ -56,7 +56,7 @@ class PortalPostMonitor(BaseScan):
         if existing is None:
             defaults['publish_time'] = publish_time or timezone.now()
         else:
-            if publish_time and not getattr(existing, "publish_time", None):
+            if (source != "nga") and publish_time and not getattr(existing, "publish_time", None):
                 defaults['publish_time'] = publish_time
         WowArticle.objects.update_or_create(url=url, defaults=defaults)
 
@@ -136,13 +136,20 @@ class PortalPostMonitor(BaseScan):
                     break
             enriched.sort(key=lambda x: x[0], reverse=True)
             for dt, it in enriched[:20]:
+                desc_full = None
+                try:
+                    existing = WowArticle.objects.filter(url=it['url']).only("id", "description").first()
+                except Exception:
+                    existing = None
+                if not existing or not (getattr(existing, "description", "") or "").strip() or len((getattr(existing, "description", "") or "")) < 800:
+                    desc_full = self._fetch_full_text(it['url'], source='exwind')
                 self._upsert_article(
                     title=it['title'],
                     url=it['url'],
                     source='exwind',
                     category='news',
                     author=None,
-                    description=None,
+                    description=desc_full,
                     publish_time=dt,
                 )
         except Exception as e:
@@ -198,18 +205,96 @@ class PortalPostMonitor(BaseScan):
                 if not title:
                     continue
 
+                desc_full = None
+                try:
+                    existing = WowArticle.objects.filter(url=url).only("id", "description").first()
+                except Exception:
+                    existing = None
+                if not existing or not (getattr(existing, "description", "") or "").strip() or len((getattr(existing, "description", "") or "")) < 800:
+                    desc_full = self._fetch_full_text(url, source='blizzard_cn')
+
                 self._upsert_article(
                     title=title,
                     url=url,
                     source='blizzard_cn',
                     category='news',
                     author=None,
-                    description=desc or None,
+                    description=desc_full or (desc or None),
                     publish_time=dt or timezone.now(),
                 )
                 added += 1
         except Exception as e:
             logger.error(f"[PortalPostMonitor] blizzard_cn_news error: {str(e)}")
+
+    def _fetch_full_text(self, url, source=''):
+        try:
+            resp = self.req.get(url, 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0'})
+            if not resp or resp.status_code != 200:
+                return None
+            html_text = resp.text or ''
+            if not html_text:
+                return None
+            if source == 'blizzard_cn':
+                return self._extract_blizzard_cn_body(html_text)
+            if source == 'exwind':
+                return self._extract_exwind_body(html_text)
+            return self._strip_html_text(html_text)
+        except Exception:
+            return None
+
+    def _strip_html_text(self, raw_html):
+        t = raw_html or ""
+        t = re.sub(r'<(script|style|noscript)[^>]*>[\s\S]*?</\1>', '', t, flags=re.I)
+        t = re.sub(r'(?i)<br\s*/?>', '\n', t)
+        t = re.sub(r'(?i)</p\s*>', '\n\n', t)
+        t = re.sub(r'(?i)</div\s*>', '\n\n', t)
+        t = re.sub(r'(?i)</li\s*>', '\n', t)
+        t = re.sub(r'<[^>]+>', '', t)
+        t = html.unescape(t)
+        t = t.replace('\r\n', '\n').replace('\r', '\n')
+        lines = [ln.strip() for ln in t.split('\n')]
+        out = []
+        blank = 0
+        for ln in lines:
+            if not ln:
+                blank += 1
+                if blank <= 1:
+                    out.append("")
+                continue
+            blank = 0
+            out.append(ln)
+        text = "\n".join(out).strip()
+        return text or None
+
+    def _extract_blizzard_cn_body(self, html_text):
+        t = html_text or ""
+        blocks = []
+        for pat in (
+            r'<div[^>]+class="[^"]*(?:detail-desc|detail-content|news-detail)[^"]*"[^>]*>([\s\S]*?)</div>',
+            r'<article[^>]*>([\s\S]*?)</article>',
+        ):
+            m = re.search(pat, t, flags=re.I)
+            if m:
+                blocks.append(m.group(1) or "")
+        if not blocks:
+            return None
+        raw = max(blocks, key=lambda x: len(x or ""))
+        return self._strip_html_text(raw)
+
+    def _extract_exwind_body(self, html_text):
+        t = html_text or ""
+        blocks = []
+        for pat in (
+            r'<div[^>]+class="[^"]*(?:entry-content|post-content|content)[^"]*"[^>]*>([\s\S]*?)</div>',
+            r'<article[^>]*>([\s\S]*?)</article>',
+        ):
+            m = re.search(pat, t, flags=re.I)
+            if m:
+                blocks.append(m.group(1) or "")
+        if not blocks:
+            return None
+        raw = max(blocks, key=lambda x: len(x or ""))
+        return self._strip_html_text(raw)
 
     def _get_exwind_publish_time(self, url):
         try:

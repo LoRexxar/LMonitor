@@ -42,15 +42,24 @@ def _collapse_space(s):
     return re.sub(r"\s+", " ", str(s or "")).strip()
 
 
-_BAN_WORDS = ("系统", "入库", "采集", "数据库")
+def _sanitize_title(s):
+    t = _collapse_space(s)
+    if not t:
+        return ""
+    t = re.sub(r"^[\"“”']+|[\"“”']+$", "", t).strip()
+    t = re.sub(r"^系统.*?(?:标题为|标题：)\s*", "", t).strip()
+    return _collapse_space(t)
+
+
+_SUMMARY_BAN_WORDS = ("入库", "采集", "数据库")
 
 
 def _has_ban_word(s):
     t = str(s or "")
-    return any(w in t for w in _BAN_WORDS)
+    return any(w in t for w in _SUMMARY_BAN_WORDS)
 
 
-def _sanitize_text(s):
+def _sanitize_summary(s):
     t = _collapse_space(s)
     if not t:
         return ""
@@ -62,6 +71,25 @@ def _sanitize_text(s):
     return _collapse_space(t)
 
 
+def _normalize_body(s):
+    t = str(s or "").replace("\r\n", "\n").replace("\r", "\n")
+    t = t.strip()
+    if not t:
+        return ""
+    lines = [ln.rstrip() for ln in t.split("\n")]
+    out = []
+    blank = 0
+    for ln in lines:
+        if not ln.strip():
+            blank += 1
+            if blank <= 1:
+                out.append("")
+            continue
+        blank = 0
+        out.append(ln)
+    return "\n".join(out).strip()
+
+
 def _ensure_zh_len(text, *, min_len=100, max_len=200, pad=""):
     s = _collapse_space(text)
     if len(s) > max_len:
@@ -70,7 +98,7 @@ def _ensure_zh_len(text, *, min_len=100, max_len=200, pad=""):
         return s
     tail = _collapse_space(pad)
     if not tail:
-        tail = "建议结合原文与游戏内实际表现判断影响，相关数据可能在后续热修中继续调整。"
+        tail = "更多细节可在链接中查看队伍配置、路线与关键节点处理。"
     need = min_len - len(s)
     if need > 0:
         if s and s[-1] not in "。！？；;.!?":
@@ -127,7 +155,7 @@ def _glm_summarize(*, title, desc, max_chars=160):
     )
     out = glm.send_message(prompt, max_tokens=220, thinking_type="disabled")
     out = _collapse_space(out)
-    out = _sanitize_text(out)
+    out = _sanitize_summary(out)
     if not out:
         return ""
     if len(out) > int(max_chars or 160):
@@ -146,12 +174,13 @@ def _glm_summarize_payload(*, payload, min_chars=100, max_chars=200):
         return ""
     prompt = (
         "你是一名日报编辑。请严格基于给定信息生成 100-200 字中文摘要："
+        "输出需要有分析视角，优先说明“发生了什么/变化幅度/可能原因或影响/玩家可关注点”；"
         "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
         + json.dumps(payload, ensure_ascii=False)
     )
     out = glm.send_message(prompt, max_tokens=260, thinking_type="disabled")
     out = _collapse_space(out)
-    out = _sanitize_text(out)
+    out = _sanitize_summary(out)
     if not out:
         return ""
     if _has_ban_word(out):
@@ -164,8 +193,8 @@ def _glm_summarize_payload(*, payload, min_chars=100, max_chars=200):
 
 
 def _md_item(title, url, intro, *, ensure_len=True):
-    title = _sanitize_text(title) or "（无标题）"
-    intro = _sanitize_text(intro) or ""
+    title = _sanitize_title(title) or "（无标题）"
+    intro = _sanitize_summary(intro) or ""
     if ensure_len:
         intro = _ensure_zh_len(intro)
     return "\n".join(
@@ -176,6 +205,147 @@ def _md_item(title, url, intro, *, ensure_len=True):
             "",
         ]
     )
+
+
+def _md_news_item(title, url, body):
+    title = _sanitize_title(title) or "（无标题）"
+    body = _normalize_body(body)
+    if not body:
+        body = "（正文为空或抓取失败）"
+    return "\n".join(
+        [
+            f"### {title}",
+            f"- 链接：{_safe_url(url)}",
+            "",
+            body,
+            "",
+        ]
+    )
+
+
+def _render_news_section(title, items):
+    out = [f"## {title}", ""]
+    if not items:
+        out.append("今日无新增。")
+        out.append("")
+        return "\n".join(out)
+    for it in items:
+        out.append(_md_news_item(it.get("title"), it.get("url"), it.get("body")))
+    return "\n".join(out)
+
+
+def _render_cutoff_section(*, title, items, snapshot):
+    out = [f"## {title}", ""]
+    if not items or not snapshot:
+        out.append("今日无新增。")
+        out.append("")
+        return "\n".join(out)
+
+    url = (items[0].get("url") if items else "") or "-"
+    out.append(f"- 链接：{_safe_url(url)}")
+    out.append("")
+    out.append("| 区域 | 0.1% | Δ0.1% | 1% | Δ1% |")
+    out.append("| --- | ---: | ---: | ---: | ---: |")
+    for reg in ("cn", "eu", "us"):
+        cur = (snapshot or {}).get(reg) if isinstance(snapshot, dict) else None
+        if not isinstance(cur, dict):
+            continue
+        c01 = cur.get("cutoff_0_1")
+        c1 = cur.get("cutoff_1")
+        d01 = cur.get("delta_0_1")
+        d1 = cur.get("delta_1")
+        def _fmt_num(x):
+            try:
+                return f"{float(x):.2f}"
+            except Exception:
+                return "--"
+        def _fmt_delta(x):
+            try:
+                v = float(x)
+                sign = "+" if v >= 0 else ""
+                return f"{sign}{v:.2f}"
+            except Exception:
+                return "--"
+        out.append(f"| {reg.upper()} | {_fmt_num(c01)} | {_fmt_delta(d01)} | {_fmt_num(c1)} | {_fmt_delta(d1)} |")
+    out.append("")
+    return "\n".join(out)
+
+
+def _md_mythicstats_item(*, title, url, season, period, top5, summary):
+    title = _sanitize_title(title) or "（无标题）"
+    season = _sanitize_title(season)
+    period = _sanitize_title(period)
+    top5 = top5 or []
+    summary = _sanitize_summary(summary)
+    if not summary:
+        summary = (
+            "从前五专精可以快速判断当前周期的强势梯队与环境倾向。"
+            "建议结合自身队伍构成、词缀与目标副本选择，关注这些专精在关键窗口的爆发与稳定性差异。"
+        )
+    summary = _ensure_zh_len(summary, pad="更多细节可在链接中查看样本与统计口径。")
+    out = [
+        f"### {title}",
+        f"- 链接：{_safe_url(url)}",
+    ]
+    if season or period:
+        out.append(f"- 赛季/周期：{season or '--'} / {period or '--'}")
+    if top5:
+        out.append("- 前五：")
+        for i, name in enumerate(top5[:5], start=1):
+            out.append(f"  - #{i} {name}")
+    out.append(summary)
+    out.append("")
+    return "\n".join(out)
+
+
+def _render_mythicstats_section(*, title, items):
+    out = [f"## {title}", ""]
+    if not items:
+        out.append("今日无新增。")
+        out.append("")
+        return "\n".join(out)
+    for it in items:
+        out.append(
+            _md_mythicstats_item(
+                title=it.get("title"),
+                url=it.get("url"),
+                season=it.get("season"),
+                period=it.get("period"),
+                top5=it.get("top5"),
+                summary=it.get("summary"),
+            )
+        )
+    return "\n".join(out)
+
+def _topruns_record_fallback_intro(*, slug, old_row, cur, url):
+    try:
+        new_sec = int(cur.get("time_seconds") or 0)
+    except Exception:
+        new_sec = 0
+    try:
+        old_sec = int((old_row or {}).get("time_seconds") or 0)
+    except Exception:
+        old_sec = 0
+    delta = old_sec - new_sec if (new_sec > 0 and old_sec > 0) else 0
+    delta_txt = f"（提升 {delta} 秒）" if delta > 0 else ""
+    base = (
+        f"{slug} 出现新的最快限时记录：{_fmt_seconds(new_sec)}（{int(cur.get('level') or 0)}层），"
+        f"对比上次日报 { _fmt_seconds(old_sec) }{delta_txt}。"
+        "这类提升通常来自路线微调、爆发窗口安排更集中、关键怪处理更干净或更少的失误。"
+        "建议重点对照队伍构成、词缀与拉怪节奏，提炼可复用的路线节点与控场细节。"
+    )
+    return _ensure_zh_len(base, pad="更多细节可在链接中查看队伍配置、路线与关键节点处理。")
+
+
+def _peak_new_player_fallback_intro(*, class_name, spec_name, rank, new_player, old_player, score):
+    score_txt = str(score) if score is not None else "--"
+    base = (
+        f"{class_name}-{spec_name} 的巅峰榜 Top{int(rank or 0)} 出现新上榜：{new_player}，替换 {old_player}。"
+        f"当前分数 {score_txt}。"
+        "这类变动通常意味着该专精在当前词缀/版本节奏下的路线与队伍配置有新的高分解法被验证，或是冲榜玩家在关键地下城完成了更稳的高层成绩。"
+        "建议重点关注其近期钥石选择、队伍构成与路线节点处理，判断是否有可复用的拉怪节奏与控场细节。"
+    )
+    return _ensure_zh_len(base, pad="更多细节可在链接中查看角色近期大秘境记录与队伍构成。")
 
 
 def _render_section(title, items):
@@ -204,21 +374,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
     for a in news_rows[:10]:
         title = (a.title or "").strip()
         url = (a.url or "").strip()
-        desc = _sanitize_text((a.description or "").strip())
-        intro = ""
-        if use_llm:
-            intro = _glm_summarize_payload(
-                payload={
-                    "type": "news",
-                    "title": title,
-                    "source": (a.source or "").strip(),
-                    "description": desc,
-                    "url": url,
-                }
-            )
-        if not intro:
-            intro = desc or f"这条新闻的关键信息需要结合原文确认，目前仅能从标题判断主题：{title}。建议点开链接查看事件背景、涉及改动与对玩家的直接影响。"
-        news_items.append({"title": title, "url": url, "intro": intro})
+        body = (a.description or "").strip()
+        news_items.append({"title": title, "url": url, "body": body})
 
     nga_rows = list(
         WowArticle.objects.filter(is_active=True, source="nga")
@@ -294,6 +451,7 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
     cutoff_latest = PortalMplusSeasonCutoff.objects.all().order_by("-updated_at", "-id").first()
     cutoff_items = []
     cutoff_snapshot = {}
+    cutoff_table_snapshot = {}
     if cutoff_latest:
         season = (getattr(cutoff_latest, "season", "") or "").strip() or "unknown"
         regions = ["cn", "eu", "us"]
@@ -329,6 +487,12 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                         d1 = float(c1) - float(old_reg.get("cutoff_1"))
                 except Exception:
                     d1 = None
+            cutoff_table_snapshot[reg] = {
+                "cutoff_0_1": c01,
+                "cutoff_1": c1,
+                "delta_0_1": d01,
+                "delta_1": d1,
+            }
             delta_txt = ""
             if d01 is not None or d1 is not None:
                 delta_txt = f"（较上次日报：0.1% {('+' if (d01 or 0) >= 0 else '')}{(round(d01, 2) if d01 is not None else '--')}，1% {('+' if (d1 or 0) >= 0 else '')}{(round(d1, 2) if d1 is not None else '--')}）"
@@ -407,6 +571,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                     )
                     if s:
                         intro = s
+                if not intro:
+                    intro = _topruns_record_fallback_intro(slug=slug, old_row=old_row, cur=cur, url=url)
                 run_items.append({"title": title, "url": url, "intro": intro})
         else:
             intro = (
@@ -432,35 +598,102 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
             .order_by("class_slug", "spec_slug", "rank")
         )
         old = (((prev_ext.get("peak") or {}) if isinstance(prev_ext, dict) else {}) or {}).get("rows") or {}
-        new_people = []
+        old_by_spec = {}
+        if isinstance(old, dict):
+            for k, v in old.items():
+                try:
+                    parts = str(k).split("|")
+                    if len(parts) != 3:
+                        continue
+                    cslug = (parts[0] or "").strip()
+                    sslug = (parts[1] or "").strip()
+                    rk = int(parts[2] or 0)
+                except Exception:
+                    continue
+                if not cslug or not sslug or rk not in (1, 2, 3):
+                    continue
+                spec_key = f"{cslug}|{sslug}"
+                old_by_spec.setdefault(spec_key, {})[rk] = (str(v or "")).strip()
+
+        new_by_spec = {}
+        candidates = []
         for r in rows:
-            key = f"{(r.class_slug or '').strip()}|{(r.spec_slug or '').strip()}|{int(r.rank or 0)}"
-            name = (getattr(r, "character_name", "") or "").strip()
-            if not key or not name:
+            try:
+                rk = int(getattr(r, "rank", 0) or 0)
+            except Exception:
+                rk = 0
+            if rk not in (1, 2, 3):
                 continue
+            cslug = (r.class_slug or "").strip()
+            sslug = (r.spec_slug or "").strip()
+            name = (getattr(r, "character_name", "") or "").strip()
+            if not cslug or not sslug or not name:
+                continue
+            key = f"{cslug}|{sslug}|{rk}"
             peak_snapshot[key] = name
-            old_name = old.get(key) if isinstance(old, dict) else None
-            if old_name and old_name != name:
-                new_people.append((key, old_name, name, r))
+            spec_key = f"{cslug}|{sslug}"
+            new_by_spec.setdefault(spec_key, {})[rk] = name
+            old_name = None
+            try:
+                old_name = old.get(key) if isinstance(old, dict) else None
+            except Exception:
+                old_name = None
+            if old_name and str(old_name).strip() != name:
+                candidates.append((spec_key, str(old_name).strip(), name, r, rk))
+
+        swap_only_specs = set()
+        for spec_key, new_map in new_by_spec.items():
+            old_map = old_by_spec.get(spec_key) or {}
+            old_set = {n for n in (old_map.values() or []) if (n or "").strip()}
+            new_set = {n for n in (new_map.values() or []) if (n or "").strip()}
+            if old_set and old_set == new_set:
+                swap_only_specs.add(spec_key)
+
+        new_people = []
+        for spec_key, old_name, name, r, rk in candidates:
+            if spec_key in swap_only_specs:
+                continue
+            old_set = {n for n in ((old_by_spec.get(spec_key) or {}).values() or []) if (n or "").strip()}
+            if not old_set:
+                continue
+            if name in old_set:
+                continue
+            new_people.append((spec_key, old_name, name, r, rk))
+
         if new_people:
-            for _key, old_name, name, r in new_people[:8]:
-                title = f"巅峰榜新玩家：{(r.class_name or r.class_slug)}-{(r.spec_name or r.spec_slug)}"
+            for _spec_key, old_name, name, r, rk in new_people[:8]:
+                class_name = (r.class_name or r.class_slug)
+                spec_name = (r.spec_name or r.spec_slug)
+                title = f"巅峰榜新玩家：{class_name}-{spec_name}"
                 profile = (getattr(r, "character_path", "") or "").strip()
                 url = "https://raider.io" + (profile if profile.startswith("/") else f"/{profile}") if profile else "https://raider.io"
-                intro = (
-                    f"该专精 Top{int(r.rank or 0)} 出现新的上榜玩家：{name}（替换 {old_name}）。"
-                    f"当前记录分数为 {getattr(r, 'score', None) or '--'}，可点开链接查看角色详情与近期大秘境表现。"
+                score = getattr(r, "score", None)
+                intro = _peak_new_player_fallback_intro(
+                    class_name=class_name,
+                    spec_name=spec_name,
+                    rank=rk,
+                    new_player=name,
+                    old_player=old_name,
+                    score=score,
                 )
                 if use_llm:
+                    old_map = old_by_spec.get(_spec_key) or {}
+                    new_map = new_by_spec.get(_spec_key) or {}
+                    old_top3 = [old_map.get(i) for i in (1, 2, 3)]
+                    new_top3 = [new_map.get(i) for i in (1, 2, 3)]
                     s = _glm_summarize_payload(
                         payload={
                             "type": "peak_new_player",
-                            "class": (r.class_name or r.class_slug),
-                            "spec": (r.spec_name or r.spec_slug),
-                            "rank": int(r.rank or 0),
+                            "season": season,
+                            "region": region,
+                            "class": class_name,
+                            "spec": spec_name,
+                            "rank": int(rk or 0),
                             "new_player": name,
                             "old_player": old_name,
-                            "score": getattr(r, "score", None),
+                            "score": score,
+                            "old_top3": old_top3,
+                            "new_top3": new_top3,
                             "url": url,
                         }
                     )
@@ -503,28 +736,26 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                 .order_by("rank")[:10]
             )
         if rows:
-            top_names = [f"#{r.rank} {r.spec_name}" for r in rows[:5]]
+            top_names = [str(getattr(r, "spec_name", "") or "").strip() for r in rows[:5] if (getattr(r, "spec_name", "") or "").strip()]
             ms_snapshot = {"season": season, "period_id": int(pid or 0), "top10": [r.spec_slug for r in rows if r.spec_slug]}
-            intro = ""
+            summary = ""
             if use_llm:
-                intro = _glm_summarize_payload(
+                summary = _glm_summarize_payload(
                     payload={
                         "type": "mythicstats_dps",
                         "season": season,
                         "period": period_label or pid,
-                        "top5": top_names,
+                        "top5": [f"#{i+1} {n}" for i, n in enumerate(top_names[:5])],
                     }
-                )
-            if not intro:
-                intro = (
-                    f"赛季：{season}，周期：{period_label or pid}。前五：{('、'.join(top_names))}。"
-                    "该榜单反映当前环境下的伤害表现与流行专精倾向，可用于决定换专精、选团本/大秘境配置时的参考；实际强度仍需结合队伍构成与词缀环境判断。"
                 )
             ms_items.append(
                 {
                     "title": f"Mythicstats DPS 榜单通报（{period_label or pid}）",
                     "url": "https://mythicstats.com/dps",
-                    "intro": intro,
+                    "season": season,
+                    "period": str(period_label or pid),
+                    "top5": top_names[:5],
+                    "summary": summary,
                 }
             )
 
@@ -541,13 +772,13 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
     md_parts.append("")
     md_parts.append(f"- 更新时间：{timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S')}")
     md_parts.append("")
-    md_parts.append(_render_section("魔兽世界新闻", news_items))
+    md_parts.append(_render_news_section("魔兽世界新闻", news_items))
     md_parts.append(_render_section("NGA 热议追踪", nga_items))
     md_parts.append(_render_section("魔兽世界更新数据挖掘", wago_items))
-    md_parts.append(_render_section("大秘境分数线变动", cutoff_items))
+    md_parts.append(_render_cutoff_section(title="大秘境分数线变动", items=cutoff_items, snapshot=cutoff_table_snapshot))
     md_parts.append(_render_section("大秘境 TopRuns 新最快记录", run_items))
     md_parts.append(_render_section("大秘境巅峰榜新玩家", peak_items))
-    md_parts.append(_render_section("Mythicstats DPS 榜单通报", ms_items))
+    md_parts.append(_render_mythicstats_section(title="Mythicstats DPS 榜单通报", items=ms_items))
 
     md_content = "\n".join(md_parts).rstrip() + "\n"
 
