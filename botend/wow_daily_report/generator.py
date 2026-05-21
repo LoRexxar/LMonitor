@@ -17,6 +17,7 @@ from botend.models import (
     WowSkillDiffReport,
     WowWagoMonitorState,
 )
+from botend.wow_i18n import cn_class_spec, cn_dungeon_from_slug, cn_mythicstats_spec_display
 
 try:
     from core.glm import GLMClient
@@ -172,12 +173,33 @@ def _glm_summarize_payload(*, payload, min_chars=100, max_chars=200):
         return ""
     if not getattr(glm, "client", None):
         return ""
-    prompt = (
-        "你是一名日报编辑。请严格基于给定信息生成 100-200 字中文摘要："
-        "输出需要有分析视角，优先说明“发生了什么/变化幅度/可能原因或影响/玩家可关注点”；"
-        "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
-        + json.dumps(payload, ensure_ascii=False)
-    )
+    payload_type = (payload or {}).get("type") if isinstance(payload, dict) else ""
+    if payload_type == "peak_new_player":
+        prompt = (
+            "你是一名魔兽世界大秘境日报编辑。请严格基于给定信息生成 100-200 字中文摘要："
+            "先用 1 句把变化讲清楚（专精/名次/新旧玩家/分数）；"
+            "再用 1 句给出基于信息的解读，但不要泛化推测、不要写空话；"
+            "最后用 1 句给出可操作的关注点（比如去链接里看其近期钥石副本、层数、队伍构成与路线）。"
+            "禁止使用模板化句式：不要出现“这类变动通常意味着”“建议重点关注”“用于快速判断”“反映当前环境”等；"
+            "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
+            + json.dumps(payload, ensure_ascii=False)
+        )
+    elif payload_type == "mythicstats_dps":
+        prompt = (
+            "你是一名魔兽世界大秘境日报编辑。请严格基于给定信息生成 100-200 字中文摘要："
+            "不要复述表格/列表原文，优先提炼前五专精透露出的趋势（如偏DOT/爆发/近战占比等，仅限从名字本身做轻量归纳）；"
+            "给出 1-2 条面向玩家的决策提示（换专精/配装/队伍搭配/本周词缀适配），避免空话。"
+            "禁止使用模板化句式：不要出现“反映当前环境”“可用于决定”等；"
+            "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
+            + json.dumps(payload, ensure_ascii=False)
+        )
+    else:
+        prompt = (
+            "你是一名日报编辑。请严格基于给定信息生成 100-200 字中文摘要："
+            "输出需要有分析视角，优先说明“发生了什么/变化幅度/可能原因或影响/玩家可关注点”；"
+            "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
+            + json.dumps(payload, ensure_ascii=False)
+        )
     out = glm.send_message(prompt, max_tokens=260, thinking_type="disabled")
     out = _collapse_space(out)
     out = _sanitize_summary(out)
@@ -328,8 +350,9 @@ def _topruns_record_fallback_intro(*, slug, old_row, cur, url):
         old_sec = 0
     delta = old_sec - new_sec if (new_sec > 0 and old_sec > 0) else 0
     delta_txt = f"（提升 {delta} 秒）" if delta > 0 else ""
+    dungeon_cn = cn_dungeon_from_slug(slug, slug)
     base = (
-        f"{slug} 出现新的最快限时记录：{_fmt_seconds(new_sec)}（{int(cur.get('level') or 0)}层），"
+        f"{dungeon_cn} 出现新的最快限时记录：{_fmt_seconds(new_sec)}（{int(cur.get('level') or 0)}层），"
         f"对比上次日报 { _fmt_seconds(old_sec) }{delta_txt}。"
         "这类提升通常来自路线微调、爆发窗口安排更集中、关键怪处理更干净或更少的失误。"
         "建议重点对照队伍构成、词缀与拉怪节奏，提炼可复用的路线节点与控场细节。"
@@ -342,8 +365,8 @@ def _peak_new_player_fallback_intro(*, class_name, spec_name, rank, new_player, 
     base = (
         f"{class_name}-{spec_name} 的巅峰榜 Top{int(rank or 0)} 出现新上榜：{new_player}，替换 {old_player}。"
         f"当前分数 {score_txt}。"
-        "这类变动通常意味着该专精在当前词缀/版本节奏下的路线与队伍配置有新的高分解法被验证，或是冲榜玩家在关键地下城完成了更稳的高层成绩。"
-        "建议重点关注其近期钥石选择、队伍构成与路线节点处理，判断是否有可复用的拉怪节奏与控场细节。"
+        "这种变动更像是该专精在这一档位的冲榜解法发生了更新：要么有人打出了更稳定的高层成绩，要么有人在热门副本里做出了更高效的路线与节奏。"
+        "如果你也在冲该专精榜单，可以点开链接对照其近期最高层记录的副本、层数、队伍职业构成与路线细节，找出最值得复用的节点处理。"
     )
     return _ensure_zh_len(base, pad="更多细节可在链接中查看角色近期大秘境记录与队伍构成。")
 
@@ -553,6 +576,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
             new_records.sort(key=lambda x: x[2].get("time_seconds") or 0)
             for slug, old_row, cur in new_records[:5]:
                 title = f"TopRuns 新纪录：{slug}"
+                dungeon_cn = cn_dungeon_from_slug(slug, slug)
+                title = f"TopRuns 新纪录：{dungeon_cn}"
                 url = cur.get("run_url") or f"https://raider.io/mythic-plus-runs/season-{season}"
                 intro = (
                     f"该地下城出现新的最快限时记录：{_fmt_seconds(cur.get('time_seconds'))}（{cur.get('level')}层）。"
@@ -563,6 +588,7 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                         payload={
                             "type": "topruns_record",
                             "dungeon_slug": slug,
+                            "dungeon_cn": dungeon_cn,
                             "new_time": _fmt_seconds(cur.get("time_seconds")),
                             "new_level": cur.get("level"),
                             "old_time": _fmt_seconds(old_row.get("time_seconds")),
@@ -664,13 +690,14 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
             for _spec_key, old_name, name, r, rk in new_people[:8]:
                 class_name = (r.class_name or r.class_slug)
                 spec_name = (r.spec_name or r.spec_slug)
-                title = f"巅峰榜新玩家：{class_name}-{spec_name}"
+                cs = cn_class_spec(class_slug=r.class_slug, spec_slug=r.spec_slug, class_name=class_name, spec_name=spec_name)
+                title = f"巅峰榜新玩家：{cs}"
                 profile = (getattr(r, "character_path", "") or "").strip()
                 url = "https://raider.io" + (profile if profile.startswith("/") else f"/{profile}") if profile else "https://raider.io"
                 score = getattr(r, "score", None)
                 intro = _peak_new_player_fallback_intro(
-                    class_name=class_name,
-                    spec_name=spec_name,
+                    class_name=cn_class_spec(class_slug=r.class_slug, spec_slug="", class_name=class_name, spec_name="") or class_name,
+                    spec_name=cn_class_spec(class_slug="", spec_slug=r.spec_slug, class_name="", spec_name=spec_name) or spec_name,
                     rank=rk,
                     new_player=name,
                     old_player=old_name,
@@ -686,8 +713,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                             "type": "peak_new_player",
                             "season": season,
                             "region": region,
-                            "class": class_name,
-                            "spec": spec_name,
+                            "class": cn_class_spec(class_slug=r.class_slug, spec_slug="", class_name=class_name, spec_name="") or class_name,
+                            "spec": cn_class_spec(class_slug="", spec_slug=r.spec_slug, class_name="", spec_name=spec_name) or spec_name,
                             "rank": int(rk or 0),
                             "new_player": name,
                             "old_player": old_name,
@@ -736,7 +763,10 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                 .order_by("rank")[:10]
             )
         if rows:
-            top_names = [str(getattr(r, "spec_name", "") or "").strip() for r in rows[:5] if (getattr(r, "spec_name", "") or "").strip()]
+            top_names = [
+                cn_mythicstats_spec_display(getattr(r, "spec_slug", ""), getattr(r, "spec_name", ""))
+                for r in rows[:5]
+            ]
             ms_snapshot = {"season": season, "period_id": int(pid or 0), "top10": [r.spec_slug for r in rows if r.spec_slug]}
             summary = ""
             if use_llm:
