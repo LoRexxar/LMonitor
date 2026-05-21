@@ -24,6 +24,29 @@ try:
 except Exception:
     GLMClient = None
 
+try:
+    from utils.log import logger
+except Exception:
+    logger = None
+
+
+_LLM_RUN_ERRORS = []
+
+
+def _llm_note(kind, err):
+    try:
+        s = _collapse_space(err)
+    except Exception:
+        s = str(err or "").strip()
+    if not s:
+        return
+    _LLM_RUN_ERRORS.append({"type": str(kind or ""), "error": s[:500]})
+    if logger:
+        try:
+            logger.warning(f"[WowDailyReport][LLM] {kind}: {s}")
+        except Exception:
+            pass
+
 
 def _date_range(local_date):
     tz = timezone.get_current_timezone()
@@ -142,12 +165,15 @@ def _load_prev_ext(report_date):
 
 def _glm_summarize(*, title, desc, max_chars=160):
     if not GLMClient:
+        _llm_note("glm_init", "GLMClient 不可用")
         return ""
     try:
         glm = GLMClient()
     except Exception:
+        _llm_note("glm_init", "GLMClient 初始化失败")
         return ""
     if not getattr(glm, "client", None):
+        _llm_note("glm_init", "GLM client 未初始化")
         return ""
     prompt = (
         "你是一名日报编辑。请严格基于给定信息生成 100-160 字中文摘要："
@@ -155,6 +181,9 @@ def _glm_summarize(*, title, desc, max_chars=160):
         + json.dumps({"title": title or "", "desc": desc or ""}, ensure_ascii=False)
     )
     out = glm.send_message(prompt, max_tokens=220, thinking_type="disabled")
+    if not out:
+        _llm_note("glm_send", getattr(glm, "last_error", "") or "empty")
+        return ""
     out = _collapse_space(out)
     out = _sanitize_summary(out)
     if not out:
@@ -166,12 +195,15 @@ def _glm_summarize(*, title, desc, max_chars=160):
 
 def _glm_summarize_payload(*, payload, min_chars=100, max_chars=200):
     if not GLMClient:
+        _llm_note((payload or {}).get("type") if isinstance(payload, dict) else "glm_init", "GLMClient 不可用")
         return ""
     try:
         glm = GLMClient()
     except Exception:
+        _llm_note((payload or {}).get("type") if isinstance(payload, dict) else "glm_init", "GLMClient 初始化失败")
         return ""
     if not getattr(glm, "client", None):
+        _llm_note((payload or {}).get("type") if isinstance(payload, dict) else "glm_init", "GLM client 未初始化")
         return ""
     payload_type = (payload or {}).get("type") if isinstance(payload, dict) else ""
     if payload_type == "peak_new_player":
@@ -201,11 +233,15 @@ def _glm_summarize_payload(*, payload, min_chars=100, max_chars=200):
             + json.dumps(payload, ensure_ascii=False)
         )
     out = glm.send_message(prompt, max_tokens=260, thinking_type="disabled")
+    if not out:
+        _llm_note(payload_type or "glm_send", getattr(glm, "last_error", "") or "empty")
+        return ""
     out = _collapse_space(out)
     out = _sanitize_summary(out)
     if not out:
         return ""
     if _has_ban_word(out):
+        _llm_note(payload_type or "glm_filter", "命中禁用词过滤")
         return ""
     if len(out) > int(max_chars or 200):
         out = out[: int(max_chars or 200)].rstrip()
@@ -383,6 +419,8 @@ def _render_section(title, items):
 
 
 def generate_wow_daily_report(*, report_date=None, use_llm=True):
+    global _LLM_RUN_ERRORS
+    _LLM_RUN_ERRORS = []
     if report_date is None:
         report_date = timezone.localdate()
     today_start, today_end = _date_range(report_date)
@@ -791,6 +829,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
 
     ext = {
         "generated_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S"),
+        "llm_enabled": bool(use_llm),
+        "llm_errors": list(_LLM_RUN_ERRORS) if _LLM_RUN_ERRORS else [],
         "cutoffs": {"by_region": cutoff_snapshot},
         "topruns": {"by_dungeon": run_snapshot},
         "peak": {"rows": peak_snapshot},
