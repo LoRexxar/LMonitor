@@ -38,6 +38,7 @@ class PortalPostMonitor(BaseScan):
         if not url:
             return
         url_hash = _hash_url(url)
+        existing = WowArticle.objects.filter(url=url).only("id", "publish_time").first()
         try:
             reply_count_i = int(reply_count) if reply_count is not None else None
         except Exception:
@@ -46,13 +47,17 @@ class PortalPostMonitor(BaseScan):
             'title': (title or '').strip() or None,
             'author': (author or '').strip() or None,
             'description': (description or '').strip() or None,
-            'publish_time': publish_time or timezone.now(),
             'reply_count': reply_count_i if reply_count_i is not None else 0,
             'source': source,
             'category': category,
             'url_hash': url_hash,
             'is_active': True,
         }
+        if existing is None:
+            defaults['publish_time'] = publish_time or timezone.now()
+        else:
+            if publish_time and not getattr(existing, "publish_time", None):
+                defaults['publish_time'] = publish_time
         WowArticle.objects.update_or_create(url=url, defaults=defaults)
 
     def update_blueposts(self):

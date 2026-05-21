@@ -9,7 +9,7 @@
 '''
 
 from django.views import View
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
@@ -344,7 +344,7 @@ class WowDailyReportDownloadAPIView(View):
             with open(full, "rb") as f:
                 content = f.read()
             filename = os.path.basename(md_path) or "wow_daily_report.md"
-            resp = HttpResponse(content, content_type="text/markdown; charset=utf-8")
+            resp = HttpResponse(content, content_type="application/octet-stream")
             resp["Content-Disposition"] = f'attachment; filename="{filename}"'
             return resp
         except Exception as e:
