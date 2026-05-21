@@ -3,53 +3,51 @@
 RESTART_INTERVAL="${RESTART_INTERVAL:-21600}"
 CHECK_INTERVAL="${CHECK_INTERVAL:-10}"
 
-child_pid=""
+PATTERN="${PATTERN:-LMonitorCoreBackend}"
 start_ts=0
+
+kill_existing() {
+    pids="$(ps aux | grep "$PATTERN" | grep -v grep | awk '{print $2}')"
+    if [ -n "$pids" ]; then
+        kill -INT $pids 2>/dev/null || true
+        sleep 3
+        pids2="$(ps aux | grep "$PATTERN" | grep -v grep | awk '{print $2}')"
+        if [ -n "$pids2" ]; then
+            kill -KILL $pids2 2>/dev/null || true
+        fi
+    fi
+}
 
 start_child() {
     /usr/bin/python3 /root/manage.py LMonitorCoreBackend &
-    child_pid="$!"
     start_ts="$(date +%s)"
 }
 
-stop_child() {
-    if [ -n "$child_pid" ] && kill -0 "$child_pid" 2>/dev/null; then
-        kill -INT "$child_pid" 2>/dev/null || true
-        for ((i=0; i<30; i++)); do
-            sleep 1
-            if ! kill -0 "$child_pid" 2>/dev/null; then
-                break
-            fi
-        done
-        if kill -0 "$child_pid" 2>/dev/null; then
-            kill -KILL "$child_pid" 2>/dev/null || true
-        fi
+is_running() {
+    if [ "$(ps aux | grep "$PATTERN" | grep -v grep | wc -l)" -gt 0 ]; then
+        return 0
     fi
-    child_pid=""
+    return 1
 }
 
-trap 'stop_child; exit 0' INT TERM
+trap 'kill_existing; exit 0' INT TERM
 
 echo "start"
+kill_existing
 start_child
 
 while :; do
     now="$(date +%s)"
 
-    if [ -n "$child_pid" ] && ! kill -0 "$child_pid" 2>/dev/null; then
-        child_pid=""
-    fi
-
-    if [ -z "$child_pid" ]; then
+    if ! is_running; then
         echo "start"
+        kill_existing
         start_child
-        continue
     fi
 
-    if [ "$RESTART_INTERVAL" -gt 0 ] && [ $((now - start_ts)) -ge "$RESTART_INTERVAL" ]; then
+    if [ "$RESTART_INTERVAL" -gt 0 ] && [ "$start_ts" -gt 0 ] && [ $((now - start_ts)) -ge "$RESTART_INTERVAL" ]; then
         echo "restart"
-        stop_child
-        echo "start"
+        kill_existing
         start_child
     fi
 
