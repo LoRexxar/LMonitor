@@ -112,6 +112,7 @@ debug.log
 static/simc_results/*
 static/wcl_reports/*
 static/wcl_snapshots/*
+static/portal/reports/*
 
 # Trae local workspace files
 .trae/

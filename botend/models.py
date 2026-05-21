@@ -109,8 +109,6 @@ class WowArticle(models.Model):
     source = models.CharField(max_length=32, default="unknown")
     category = models.CharField(max_length=32, default="unknown")
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         indexes = [
@@ -118,8 +116,6 @@ class WowArticle(models.Model):
             models.Index(fields=['source']),
             models.Index(fields=['category']),
             models.Index(fields=['publish_time']),
-            models.Index(fields=['created_at']),
-            models.Index(fields=['updated_at']),
         ]
 
     def save(self, *args, **kwargs):

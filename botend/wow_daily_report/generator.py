@@ -197,11 +197,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
 
     news_rows = list(
         WowArticle.objects.filter(is_active=True, category="news")
-        .filter(
-            Q(created_at__gte=today_start, created_at__lt=today_end)
-            | Q(publish_time__gte=today_start, publish_time__lt=today_end)
-        )
-        .order_by("-created_at", "-publish_time", "-id")[:20]
+        .filter(publish_time__gte=today_start, publish_time__lt=today_end)
+        .order_by("-publish_time", "-id")[:20]
     )
     news_items = []
     for a in news_rows[:10]:
@@ -225,11 +222,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
 
     nga_rows = list(
         WowArticle.objects.filter(is_active=True, source="nga")
-        .filter(
-            Q(created_at__gte=today_start, created_at__lt=today_end)
-            | Q(publish_time__gte=today_start, publish_time__lt=today_end)
-        )
-        .order_by("-reply_count", "-created_at", "-publish_time", "-id")[:10]
+        .filter(publish_time__gte=today_start, publish_time__lt=today_end)
+        .order_by("-reply_count", "-publish_time", "-id")[:10]
     )
     nga_items = []
     for a in nga_rows[:3]:
