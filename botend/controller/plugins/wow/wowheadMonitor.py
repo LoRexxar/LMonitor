@@ -41,18 +41,22 @@ class wowheadMonitor(BaseScan):
         """
         cookies = ""
 
-        resp = self.req.getResponse(self.target_url, cookies)
-        if resp is False or resp is None:
-            logger.error("[wowheadMonitor] Request failed.")
-            return False
-        status_code = getattr(resp, 'status_code', 200)
-        if int(status_code or 0) >= 400:
-            logger.error("[wowheadMonitor] Request bad status: {}".format(status_code))
-            return False
+        driver = None
+        try:
+            driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1)
+        except Exception as e:
+            logger.warning("[wowheadMonitor] Chrome request init failed: {}".format(str(e)))
 
-        driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1)
         if not driver or not hasattr(driver, 'eles'):
             logger.error("[wowheadMonitor] Chrome request failed.")
+            resp = self.req.getResponse(self.target_url, cookies)
+            if resp is False or resp is None:
+                logger.error("[wowheadMonitor] Request failed.")
+                return False
+            status_code = getattr(resp, 'status_code', 200)
+            if int(status_code or 0) >= 400:
+                logger.error("[wowheadMonitor] Request bad status: {}".format(status_code))
+                return False
             return False
 
         post_count, _ = self.resolve_data(driver, "wowhead", 10)
@@ -80,11 +84,27 @@ class wowheadMonitor(BaseScan):
             new_count = 0
             for post in posts[:int(limit or 10)]:
                 try:
-                    post_type = post.ele('.news-card-simple-text').text
-                    post_title = post.ele('.news-card-simple-text-title').text
-                    post_link = post.ele('.news-card-simple-text-title').link
-                    post_preview = post.ele('.news-card-simple-text-preview').text
-                    post_date = post.ele('.news-card-simple-text-byline').ele('tag:span').attr('title')
+                    post_type = ""
+                    type_eles = post.eles('.news-card-simple-text-type .meta-text') or post.eles('.news-card-simple-text-type') or []
+                    if type_eles:
+                        post_type = (type_eles[0].text or "").strip()
+
+                    post_title = ""
+                    post_link = ""
+                    title_link_eles = post.eles('.news-card-simple-text-title a') or []
+                    if title_link_eles:
+                        post_title = (title_link_eles[0].text or "").strip()
+                        post_link = (getattr(title_link_eles[0], "link", "") or "").strip() or (title_link_eles[0].attr("href") or "").strip()
+
+                    post_preview = ""
+                    preview_eles = post.eles('.news-card-simple-text-preview') or []
+                    if preview_eles:
+                        post_preview = (preview_eles[0].text or "").strip()
+
+                    post_date = ""
+                    date_eles = post.eles('.news-card-simple-text-byline-posted') or post.eles('.news-card-simple-text-byline span') or []
+                    if date_eles:
+                        post_date = (date_eles[0].attr('title') or "").strip()
 
                     django_date_time = None
                     if post_date:
@@ -106,6 +126,8 @@ class wowheadMonitor(BaseScan):
 
                     if not post_link:
                         continue
+                    if post_link.startswith('/'):
+                        post_link = "https://www.wowhead.com{}".format(post_link)
 
                     wa = WowArticle.objects.filter(url=post_link).first()
                     if wa:
