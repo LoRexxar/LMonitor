@@ -125,11 +125,19 @@ class LMonitorCore:
                     task_url = now_task.target
                     task_class = Monitor_Type_BaseObject_List[task_type]
 
+                    try:
+                        Lreq.set_current_task(now_task)
+                    except Exception:
+                        pass
                     t = task_class(Lreq, now_task)
                     try:
                         t.scan(task_url)
                     except Exception:
                         logger.warning('[Scan] task error, {}'.format(traceback.format_exc()))
+                    try:
+                        Lreq.set_current_task(None)
+                    except Exception:
+                        pass
 
                     now_task.save()
                     finished += 1
