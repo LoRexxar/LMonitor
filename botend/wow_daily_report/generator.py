@@ -1,7 +1,9 @@
 import datetime
+import html
 import json
 import os
 import re
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db.models import Max, Q
@@ -12,6 +14,7 @@ from botend.models import (
     PortalMplusSeasonCutoff,
     PortalMythicstatsDpsRow,
     PortalPeakSpecRankRow,
+    TargetAuth,
     WowArticle,
     WowDailyReport,
     WowSkillDiffReport,
@@ -29,8 +32,14 @@ try:
 except Exception:
     logger = None
 
+try:
+    from utils.LReq import LReq
+except Exception:
+    LReq = None
+
 
 _LLM_RUN_ERRORS = []
+_NGA_REQ = None
 
 
 def _llm_note(kind, err):
@@ -114,6 +123,104 @@ def _normalize_body(s):
     return "\n".join(out).strip()
 
 
+def _get_nga_req():
+    global _NGA_REQ
+    if _NGA_REQ is not None:
+        return _NGA_REQ
+    if not LReq:
+        _NGA_REQ = None
+        return None
+    try:
+        _NGA_REQ = LReq(is_chrome=False)
+    except Exception:
+        _NGA_REQ = None
+    return _NGA_REQ
+
+
+def _get_cookie_for_url(url):
+    try:
+        domain = urlparse(str(url or "")).netloc
+    except Exception:
+        domain = ""
+    if not domain:
+        return ""
+    try:
+        auth = TargetAuth.objects.filter(domain=domain).first()
+    except Exception:
+        auth = None
+    return (getattr(auth, "cookie", "") or "").strip() if auth else ""
+
+
+def _strip_html_text(raw_html):
+    t = raw_html or ""
+    t = re.sub(r"<(script|style|noscript)[^>]*>[\s\S]*?</\1>", "", t, flags=re.I)
+    t = re.sub(r"(?i)<br\s*/?>", "\n", t)
+    t = re.sub(r"(?i)</p\s*>", "\n\n", t)
+    t = re.sub(r"(?i)</div\s*>", "\n\n", t)
+    t = re.sub(r"(?i)</li\s*>", "\n", t)
+    t = re.sub(r"<[^>]+>", "", t)
+    t = html.unescape(t)
+    t = t.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [ln.strip() for ln in t.split("\n")]
+    out = []
+    blank = 0
+    for ln in lines:
+        if not ln:
+            blank += 1
+            if blank <= 1:
+                out.append("")
+            continue
+        blank = 0
+        out.append(ln)
+    return "\n".join(out).strip()
+
+
+def _extract_nga_material(html_text):
+    t = html_text or ""
+    blocks = []
+    for pat in (
+        r'id="postcontent\d*"\s*[^>]*>([\s\S]*?)</span>',
+        r'class="postcontent[^"]*"\s*[^>]*>([\s\S]*?)</td>',
+        r'class="postcontent[^"]*"\s*[^>]*>([\s\S]*?)</div>',
+    ):
+        blocks = re.findall(pat, t, flags=re.I)
+        if blocks:
+            break
+    if not blocks:
+        return ""
+    first = _strip_html_text(blocks[0] or "")
+    second = _strip_html_text(blocks[1] or "") if len(blocks) > 1 else ""
+    first = _collapse_space(first)
+    second = _collapse_space(second)
+    parts = []
+    if first:
+        parts.append(first[:380])
+    if second:
+        parts.append(second[:220])
+    return _collapse_space(" ".join([p for p in parts if p]))
+
+
+def _fetch_nga_material(url):
+    req = _get_nga_req()
+    if not req:
+        return ""
+    cookies = _get_cookie_for_url(url)
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://nga.178.com/"}
+    try:
+        resp = req.get(url, "Response", 0, cookies, headers=headers)
+    except Exception:
+        resp = None
+    if not resp or getattr(resp, "status_code", 0) != 200:
+        return ""
+    html_text = getattr(resp, "text", "") or ""
+    if not html_text:
+        try:
+            html_text = (getattr(resp, "content", b"") or b"").decode("utf-8", "ignore")
+        except Exception:
+            html_text = ""
+    return _extract_nga_material(html_text)
+
+
 def _ensure_zh_len(text, *, min_len=100, max_len=200, pad=""):
     s = _collapse_space(text)
     if len(s) > max_len:
@@ -122,7 +229,7 @@ def _ensure_zh_len(text, *, min_len=100, max_len=200, pad=""):
         return s
     tail = _collapse_space(pad)
     if not tail:
-        tail = "更多细节可在链接中查看队伍配置、路线与关键节点处理。"
+        tail = "更多细节请查看链接原文。"
     need = min_len - len(s)
     if need > 0:
         if s and s[-1] not in "。！？；;.!?":
@@ -225,6 +332,15 @@ def _glm_summarize_payload(*, payload, min_chars=100, max_chars=200):
             "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
             + json.dumps(payload, ensure_ascii=False)
         )
+    elif payload_type == "nga_hot":
+        prompt = (
+            "你是一名魔兽世界社区热议日报编辑。请严格基于给定信息生成 80-160 字中文摘要："
+            "先提炼讨论主题与核心分歧点/共识点（若信息不足就明确写“根据已抓取内容只能确认话题方向”）；"
+            "再给读者一个阅读建议（先看楼主论点/再看高赞回复/关注数据或实测等）。"
+            "不要出现模板句：不要写“该帖为当日热议贴之一”“建议先定位楼主主张与结论”等固定句；"
+            "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
+            + json.dumps(payload, ensure_ascii=False)
+        )
     else:
         prompt = (
             "你是一名日报编辑。请严格基于给定信息生成 100-200 字中文摘要："
@@ -250,11 +366,11 @@ def _glm_summarize_payload(*, payload, min_chars=100, max_chars=200):
     return out
 
 
-def _md_item(title, url, intro, *, ensure_len=True):
+def _md_item(title, url, intro, *, ensure_len=True, pad=""):
     title = _sanitize_title(title) or "（无标题）"
     intro = _sanitize_summary(intro) or ""
     if ensure_len:
-        intro = _ensure_zh_len(intro)
+        intro = _ensure_zh_len(intro, pad=pad)
     return "\n".join(
         [
             f"### {title}",
@@ -414,7 +530,15 @@ def _render_section(title, items):
         out.append("")
         return "\n".join(out)
     for it in items:
-        out.append(_md_item(it.get("title"), it.get("url"), it.get("intro")))
+        out.append(
+            _md_item(
+                it.get("title"),
+                it.get("url"),
+                it.get("intro"),
+                ensure_len=bool(it.get("ensure_len", True)),
+                pad=it.get("pad") or "",
+            )
+        )
     return "\n".join(out)
 
 
@@ -449,20 +573,45 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
         url = (a.url or "").strip()
         reply = int(getattr(a, "reply_count", 0) or 0)
         desc = _sanitize_summary((a.description or "").strip())
+        material = desc
+        if not material or len(material) < 60:
+            fetched = _fetch_nga_material(url)
+            fetched = _sanitize_summary(fetched)
+            if fetched:
+                material = fetched
+                try:
+                    a.description = fetched
+                    a.save(update_fields=["description"])
+                except Exception:
+                    pass
+
         intro = ""
-        if use_llm:
+        used_llm = False
+        if use_llm and material:
             intro = _glm_summarize_payload(
                 payload={
                     "type": "nga_hot",
                     "title": title,
                     "reply_count": reply,
-                    "description": desc,
+                    "material": material,
                     "url": url,
-                }
+                },
+                min_chars=80,
+                max_chars=160,
             )
+            used_llm = bool(intro)
+
         if not intro:
-            intro = desc or f"该帖为当日热议贴之一，当前可见回复数 {reply}。建议先定位楼主主张与结论，再浏览高赞回复提炼共识与争议点，最后对照自身职业/玩法选择可执行建议。"
-        nga_items.append({"title": title, "url": url, "intro": intro})
+            intro = material or ""
+
+        nga_items.append(
+            {
+                "title": title,
+                "url": url,
+                "intro": intro,
+                "ensure_len": bool(used_llm),
+            }
+        )
 
     wago_states = list(
         WowWagoMonitorState.objects.filter(
@@ -648,7 +797,14 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                 s = _glm_summarize_payload(payload={"type": "topruns_no_change", "season": season})
                 if s:
                     intro = s
-            run_items.append({"title": f"TopRuns 无新最快记录（{season}）", "url": "https://raider.io/mythic-plus-runs", "intro": intro})
+            run_items.append(
+                {
+                    "title": f"TopRuns 无新最快记录（{season}）",
+                    "url": "https://raider.io/mythic-plus-runs",
+                    "intro": intro,
+                    "pad": "更多细节可在链接中查看各地下城的榜单与队伍配置。",
+                }
+            )
 
     peak_latest = PortalPeakSpecRankRow.objects.filter(is_active=True).order_by("-updated_at", "-id").first()
     peak_items = []
