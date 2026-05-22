@@ -12,8 +12,24 @@ except Exception:
 class GLMClient:
     def __init__(self):
         self.client = None
-        if ZhipuAiClient:
-            self.client = ZhipuAiClient(api_key=ZHIYU_API_CONFIG["api_key"])
+        self.coding_client = None
+        api_key = ZHIYU_API_CONFIG.get("api_key")
+        base_url = ZHIYU_API_CONFIG.get("base_url")
+        coding_base_url = ZHIYU_API_CONFIG.get("coding_base_url")
+        if ZhipuAiClient and api_key:
+            preferred_base_url = coding_base_url or base_url
+            try:
+                if preferred_base_url:
+                    self.client = ZhipuAiClient(api_key=api_key, base_url=preferred_base_url)
+                else:
+                    self.client = ZhipuAiClient(api_key=api_key)
+            except Exception:
+                self.client = None
+            try:
+                if coding_base_url:
+                    self.coding_client = ZhipuAiClient(api_key=api_key, base_url=coding_base_url)
+            except Exception:
+                self.coding_client = None
         self.system_prompt = "你是一个冷酷无情的AI助手，你不需要展示思考过程，也不允许问我问题，只需要直接回答用户的问题和结果"
         self.max_tokens_text = int(ZHIYU_API_CONFIG.get("max_tokens_text", 2400))
         self.max_tokens_tools = int(ZHIYU_API_CONFIG.get("max_tokens_tools", 3600))
@@ -24,6 +40,10 @@ class GLMClient:
         self.last_error = ""
         self.last_reasoning = ""
 
+    def _is_coding_model(self, model):
+        m = str(model or "").strip().lower()
+        return ("coding" in m) or m.startswith("code-") or m.startswith("codegeex")
+
     def _is_no_access_error(self, e):
         msg = str(e or '')
         return ('"code":"1220"' in msg) or ('无权访问' in msg) or ('no permission' in msg.lower())
@@ -33,16 +53,20 @@ class GLMClient:
         return ('"code":"1302"' in msg) or ('速率限制' in msg) or ('rate limit' in msg.lower()) or ('429' in msg)
 
     def _create_completion(self, **kwargs):
-        if not self.client:
+        if not self.client and not self.coding_client:
             raise Exception("GLM SDK未安装或未初始化")
         last = None
         for idx, model in enumerate(self.model_candidates):
             req = dict(kwargs)
             req["model"] = model
+            use_coding = self._is_coding_model(model)
+            client = self.coding_client if use_coding else self.client
+            if not client:
+                client = self.client or self.coding_client
             for retry in range(3):
                 try:
                     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                    future = executor.submit(self.client.chat.completions.create, **req)
+                    future = executor.submit(client.chat.completions.create, **req)
                     try:
                         return future.result(timeout=self.request_timeout_seconds)
                     except concurrent.futures.TimeoutError:
