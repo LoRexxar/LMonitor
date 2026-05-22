@@ -13,6 +13,7 @@ class MonitorTask(models.Model):
     wait_time = models.IntegerField(default=600)
     flag = models.CharField(max_length=2000, null=True, default=None)
     is_active = models.BooleanField(default=True)
+    proxy_enabled = models.BooleanField(default=False)
 
 
 class TargetAuth(models.Model):
@@ -90,7 +91,7 @@ class RssMonitorTask(models.Model):
 
 class RssArticle(models.Model):
     rss_id = models.IntegerField()
-    title = models.CharField(max_length=255, default=None, null=True)
+    title = models.CharField(max_length=500, default=None, null=True)
     url = models.CharField(max_length=2000, default=None, null=True)
     author = models.CharField(max_length=255, default=None, null=True)
     publish_time = models.DateTimeField(default=None, null=True)

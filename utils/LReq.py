@@ -41,6 +41,7 @@ class LReq:
         self.s = requests.Session()
         self.is_chrome = bool(is_chrome and ChromeDriver)
         self.csp = False
+        self.current_task = None
         self._cfg = self._get_cfg()
         self._apply_session_proxy()
 
@@ -60,13 +61,43 @@ class LReq:
         return {}
 
     def _apply_session_proxy(self):
-        if not self._cfg.get('enable_proxy'):
-            return
-        proxies = self._cfg.get('proxies') or {}
-        if proxies and isinstance(proxies, dict):
-            self.s.proxies.update(proxies)
+        return
 
-    def init_porxy(self):
+    def _get_global_proxies(self):
+        proxies = self._cfg.get('proxies')
+        if not proxies and django_settings:
+            proxies = getattr(django_settings, 'PROXY_CONFIG', None)
+        return proxies if isinstance(proxies, dict) else {}
+
+    def _set_requests_proxy_enabled(self, enabled):
+        if enabled:
+            proxies = self._get_global_proxies()
+            values = [str(v or '').strip().lower() for v in proxies.values()] if isinstance(proxies, dict) else []
+            uses_socks = any(v.startswith('socks') for v in values if v)
+            if uses_socks:
+                try:
+                    import socks  # noqa: F401
+                except Exception:
+                    logger.warning("[LReq] socks proxy enabled but PySocks not installed, skip proxy")
+                    self.s.proxies.clear()
+                    return
+            self.s.proxies.clear()
+            self.s.proxies.update(proxies)
+            return
+        self.s.proxies.clear()
+
+    def set_current_task(self, task):
+        self.current_task = task
+        task_enabled = bool(getattr(task, 'proxy_enabled', False)) if task else False
+        self._set_requests_proxy_enabled(task_enabled)
+
+    def _is_task_proxy_enabled(self):
+        task = getattr(self, 'current_task', None)
+        if not task:
+            return False
+        return bool(getattr(task, 'proxy_enabled', False))
+
+    def _ensure_proxy_chrome(self):
         if not self.csp:
             self.csp = ChromeDriver(is_proxy=True)
 
@@ -233,7 +264,7 @@ class LReq:
             logger.warning("[LReq] Request {} bad status: {}".format(url, r.status_code))
         return r
 
-    def getRespByChrome(self, url, cookies, is_origin=0, is_proxy=False):
+    def getRespByChrome(self, url, cookies, is_origin=0, is_proxy=None):
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
         cookies = cookies if cookies else ""
@@ -241,8 +272,10 @@ class LReq:
         if not self.is_chrome:
             return self.getResp(url, cookies)
 
-        if is_proxy:
-            self.init_porxy()
+        use_proxy = bool(is_proxy) if is_proxy is not None else self._is_task_proxy_enabled()
+
+        if use_proxy:
+            self._ensure_proxy_chrome()
             resp = self.csp.get_resp(url, cookies, is_origin=is_origin)
             if resp is False:
                 try:
