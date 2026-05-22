@@ -50,7 +50,7 @@ class wowheadMonitor(BaseScan):
             logger.error("[wowheadMonitor] Request bad status: {}".format(status_code))
             return False
 
-        driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1, is_proxy=False)
+        driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1, is_proxy=True)
         if not driver or not hasattr(driver, 'eles'):
             logger.error("[wowheadMonitor] Chrome request failed.")
             return False
