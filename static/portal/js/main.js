@@ -244,6 +244,7 @@ async function loadTools() {
 const SECTION_MAP = {
   blueposts: { url: "/portal/api/blueposts/", listId: "blueposts-list" },
   exwind: { url: "/portal/api/exwind/latest/", listId: "exwind-list" },
+  wowhead: { url: "/portal/api/wowhead/latest/", listId: "wowhead-list" },
   wow_skill_states: { url: "/portal/api/wow-skill-diff/states/", listId: "wow-skill-diff-states" },
   wow_skill_diffs: { url: "/portal/api/wow-skill-diffs/", listId: "wow-skill-diff-list" },
   nga: { url: "/portal/api/nga-hot/", listId: "nga-list" },
@@ -1276,6 +1277,7 @@ async function loadAll() {
   bindSearch();
   await loadSection("blueposts");
   await loadSection("exwind");
+  await loadSection("wowhead");
   await loadSection("wow_skill_states");
   await loadSection("wow_skill_diffs");
   await loadSection("nga");

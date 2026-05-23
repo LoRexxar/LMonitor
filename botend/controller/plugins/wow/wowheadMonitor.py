@@ -41,18 +41,22 @@ class wowheadMonitor(BaseScan):
         """
         cookies = ""
 
-        resp = self.req.getResponse(self.target_url, cookies)
-        if resp is False or resp is None:
-            logger.error("[wowheadMonitor] Request failed.")
-            return False
-        status_code = getattr(resp, 'status_code', 200)
-        if int(status_code or 0) >= 400:
-            logger.error("[wowheadMonitor] Request bad status: {}".format(status_code))
-            return False
+        driver = None
+        try:
+            driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1)
+        except Exception as e:
+            logger.warning("[wowheadMonitor] Chrome request init failed: {}".format(str(e)))
 
-        driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1)
         if not driver or not hasattr(driver, 'eles'):
             logger.error("[wowheadMonitor] Chrome request failed.")
+            resp = self.req.getResponse(self.target_url, cookies)
+            if resp is False or resp is None:
+                logger.error("[wowheadMonitor] Request failed.")
+                return False
+            status_code = getattr(resp, 'status_code', 200)
+            if int(status_code or 0) >= 400:
+                logger.error("[wowheadMonitor] Request bad status: {}".format(status_code))
+                return False
             return False
 
         post_count, _ = self.resolve_data(driver, "wowhead", 10)
@@ -66,33 +70,56 @@ class wowheadMonitor(BaseScan):
         try:
             time.sleep(2)
 
-            posts = []
+            posts_data = []
             for _ in range(8):
-                posts = driver.eles('.news-card-simple') or driver.eles('#news-card-simple') or []
-                if posts:
-                    break
+                page_html = (getattr(driver, "html", "") or "").strip()
+                if "news-card-simple-text-title" in page_html:
+                    posts_data = self._parse_posts_from_page_html(page_html, limit=limit)
+                    if posts_data:
+                        break
                 time.sleep(1)
 
-            if not posts:
+            if not posts_data:
                 logger.error("[wowheadMonitor] No posts found.")
                 return 0, 0
 
             new_count = 0
-            for post in posts[:int(limit or 10)]:
+            for post in posts_data[:int(limit or 10)]:
                 try:
-                    post_type = post.ele('.news-card-simple-text').text
-                    post_title = post.ele('.news-card-simple-text-title').text
-                    post_link = post.ele('.news-card-simple-text-title').link
-                    post_preview = post.ele('.news-card-simple-text-preview').text
-                    post_date = post.ele('.news-card-simple-text-byline').ele('tag:span').attr('title')
+                    post_type = (post.get("type") or "").strip()
+                    post_title = (post.get("title") or "").strip()
+                    post_link = (post.get("link") or "").strip()
+                    post_preview = (post.get("preview") or "").strip()
+                    post_date = (post.get("date") or "").strip()
 
                     django_date_time = None
                     if post_date:
                         try:
-                            original_datetime = datetime.strptime(post_date, "%Y/%m/%d at %H:%M")
+                            original_datetime = datetime.strptime(post_date, "%Y/%m/%d at %I:%M %p")
                             django_date_time = original_datetime
                         except ValueError:
-                            for fmt in ("%b %d, %Y at %H:%M", "%B %d, %Y at %H:%M"):
+                            try:
+                                original_datetime = datetime.strptime(post_date, "%Y/%m/%d at %H:%M")
+                                django_date_time = original_datetime
+                            except ValueError:
+                                django_date_time = None
+                        if not django_date_time:
+                            try:
+                                original_datetime = datetime.strptime(post_date, "%Y/%m/%d at %H:%M %p")
+                                django_date_time = original_datetime
+                            except ValueError:
+                                django_date_time = None
+                    if not django_date_time and post_date:
+                        try:
+                            original_datetime = datetime.strptime(post_date, "%Y/%m/%d at %I:%M%p")
+                            django_date_time = original_datetime
+                        except ValueError:
+                            for fmt in (
+                                "%b %d, %Y at %H:%M",
+                                "%B %d, %Y at %H:%M",
+                                "%b %d, %Y at %I:%M %p",
+                                "%B %d, %Y at %I:%M %p",
+                            ):
                                 try:
                                     original_datetime = datetime.strptime(post_date, fmt)
                                     django_date_time = original_datetime
@@ -142,7 +169,7 @@ class wowheadMonitor(BaseScan):
                     logger.warning("[wowheadMonitor] Parse post failed: {}".format(str(e)))
                     continue
 
-            return len(posts), new_count
+            return len(posts_data), new_count
 
         except DrissionPage.errors.ElementNotFoundError:
             logger.error("[wowheadMonitor] bad request.")
@@ -157,6 +184,60 @@ class wowheadMonitor(BaseScan):
             raise
 
         return 0, 0
+
+    def _parse_posts_from_page_html(self, page_html, limit=10):
+        t = page_html or ""
+        if not t:
+            return []
+
+        cards = []
+        title_pat = re.compile(
+            r'news-card-simple-text-title"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>',
+            flags=re.I,
+        )
+        for m in title_pat.finditer(t):
+            link = html.unescape((m.group(1) or "").strip())
+            title_text = re.sub(r'<[^>]+>', '', (m.group(2) or ''), flags=re.I).strip()
+            title_text = html.unescape(title_text)
+            if link.startswith('/'):
+                link = "https://www.wowhead.com{}".format(link)
+            if not (title_text and link):
+                continue
+
+            start = max(0, int(m.start()) - 800)
+            end = min(len(t), int(m.end()) + 1200)
+            window = t[start:end]
+
+            type_text = ""
+            type_matches = re.findall(r'class="meta-text"[^>]*>([^<]+)</span>', window, flags=re.I)
+            if type_matches:
+                type_text = html.unescape((type_matches[-1] or "").strip())
+
+            preview_text = ""
+            mp = re.search(r'class="[^"]*\bnews-card-simple-text-preview\b[^"]*"[^>]*>([\s\S]*?)</span>', window, flags=re.I)
+            if mp:
+                preview_text = re.sub(r'<[^>]+>', '', (mp.group(1) or ''), flags=re.I).strip()
+                preview_text = html.unescape(preview_text)
+
+            date_text = ""
+            md = re.search(r'class="[^"]*\bnews-card-simple-text-byline-posted\b[^"]*"[^>]*title="([^"]+)"', window, flags=re.I)
+            if md:
+                date_text = html.unescape((md.group(1) or "").strip())
+
+            cards.append(
+                {
+                    "type": type_text,
+                    "title": title_text,
+                    "link": link,
+                    "preview": preview_text,
+                    "date": date_text,
+                }
+            )
+
+            if len(cards) >= int(limit or 10):
+                break
+
+        return cards
 
     def _fetch_article_body(self, url, cookies=""):
         try:
