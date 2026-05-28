@@ -1093,7 +1093,7 @@ function renderWowSkillDiffStates(containerId, items) {
       const reportUrl = sanitizeHref(it.report_url);
       const wagoUrl = sanitizeHref(it.wago_diff_url);
       const hotfixPushId = Number(it.hotfix_push_id || 0) || 0;
-      const hotfixBuild = escapeHtml(it.hotfix_build || "-");
+      const hotfixRegionName = escapeHtml(it.hotfix_region_name || it.hotfix_region || "");
       const hotfixRunAt = escapeHtml(it.hotfix_last_run_at || "");
       const hotfixRunStatus = escapeHtml(it.hotfix_last_run_status || "");
       const hotfixEventAt = escapeHtml(it.hotfix_last_event_at || "");
@@ -1136,7 +1136,7 @@ function renderWowSkillDiffStates(containerId, items) {
               <div class="text-slate-500 font-semibold">${build}</div>
               ${runBadge}
               ${eventBadge}
-              ${hotfixPushId > 0 ? `<div class="text-slate-500 font-semibold">${hotfixBuild} Hotfix#${hotfixPushId}</div>` : ""}
+              ${hotfixPushId > 0 ? `<div class="text-slate-500 font-semibold">Hotfix#${hotfixPushId}</div>` : ""}
               ${hotfixPushId > 0 ? hotfixBadge : ""}
             </div>
             <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">

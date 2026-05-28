@@ -9,9 +9,8 @@
 
 '''
 
-import time
 import re
-import DrissionPage
+from urllib.parse import urljoin
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
@@ -54,40 +53,56 @@ class ngaMonitor(BaseScan):
 
         for title in self.target_list:
             url = self.target_list[title]["url"]
-            driver = self.req.get(url, 'RespByChrome', 0, cookies, is_origin=1)
+            html = self.req.get(url, 'RespByCloak', 0, cookies)
             # 处理返回内容
-            self.resolve_data(driver, title, self.target_list[title]["limit"])
+            self.resolve_data(html, title, self.target_list[title]["limit"])
 
         return True
 
-    def resolve_data(self, driver, title="", limit=10):
+    def resolve_data(self, html, title="", limit=10):
 
         try:
-            time.sleep(3)
+            if not html:
+                logger.error("[ngaMonitor] empty html.")
+                return
+            if isinstance(html, (bytes, bytearray)):
+                try:
+                    html = html.decode('utf-8', 'ignore')
+                except Exception:
+                    html = str(html)
+
             try:
-                driver.run_js("g()")
-            except DrissionPage.errors.JavaScriptError:
-                pass
-            except DrissionPage.errors.ContextLostError:
-                logger.error("[ngaMonitor] page refresh. return back")
+                from bs4 import BeautifulSoup
+            except Exception:
+                logger.error("[ngaMonitor] BeautifulSoup not available.")
                 return
 
-            posts = driver.ele('#topicrows').eles('tag:tbody')
+            soup = BeautifulSoup(str(html), 'html.parser')
+            topicrows = soup.find(id='topicrows')
+            if not topicrows:
+                logger.error("[ngaMonitor] topicrows not found.")
+                return
+
+            posts = topicrows.find_all('tbody')
 
             for post in posts:
-                tds = post.eles('tag:td')
+                tds = post.find_all('td')
 
                 if not tds:
                     continue
 
                 is_bad = False
-                post_count_raw = tds[0].text
+                post_count_raw = tds[0].get_text(" ", strip=True)
                 m = re.search(r'(\d+)', str(post_count_raw or ''))
                 post_count = int(m.group(1)) if m else 0
-                post_head = tds[1].ele('.:topic')
-                post_link = post_head.link
-                post_name = post_head.texts()
-                post_date = tds[2].ele('.silver postdate').text
+                post_head = tds[1].select_one('.topic') if len(tds) > 1 else None
+                if not post_head:
+                    continue
+                post_link = post_head.get('href')
+                post_link = urljoin('https://nga.178.com/', str(post_link or '').strip())
+                post_name = post_head.get_text(" ", strip=True)
+                post_date_ele = tds[2].select_one('.silver.postdate') if len(tds) > 2 else None
+                post_date = post_date_ele.get_text(" ", strip=True) if post_date_ele else ""
 
                 if not post_count or int(post_count) <= 20:
                     continue
@@ -131,12 +146,6 @@ class ngaMonitor(BaseScan):
 {}""".format(title, post_count, post_date, post_name, post_link)
 
                 self.trigger_webhook()
-
-        except DrissionPage.errors.ElementNotFoundError:
-            logger.error("[ngaMonitor] bad request.")
-
-        except DrissionPage.errors.PageDisconnectedError:
-            logger.error("[ngaMonitor] PageDisconnectedError.")
 
         except AttributeError:
             logger.error("[ngaMonitor] No posts found.")

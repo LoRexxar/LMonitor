@@ -14,6 +14,7 @@ from django.utils import timezone
 from botend.controller.BaseScan import BaseScan
 from botend.models import WowSkillDiffReport, WowSpellEffectSnapshot, WowSpellSnapshot, WowSpellSnapshotState, WowSpecSpellMapSnapshot, WowWagoMonitorState
 from utils.log import logger
+from botend.controller.plugins.wow.wago_regions import wago_region_id, wago_region_name
 
 try:
     from core.glm import GLMClient
@@ -208,8 +209,40 @@ class WagoSkillDiffMonitor(BaseScan):
             return True
 
         now = timezone.now()
+        hotfix_locale = (getattr(st, 'locale', '') or '').strip() or self.locale
+        region_id = self._to_int(getattr(st, 'hotfix_region_id', 0) or 0)
+        region_raw = (getattr(st, 'hotfix_region', '') or '').strip()
+        if region_id <= 0 and region_raw:
+            region_id = wago_region_id(region_raw)
+            if region_id > 0:
+                name = wago_region_name(region_id)
+                try:
+                    st.hotfix_region_id = region_id
+                    if name and region_raw != name:
+                        st.hotfix_region = name
+                        st.save(update_fields=['hotfix_region_id', 'hotfix_region'])
+                    else:
+                        st.save(update_fields=['hotfix_region_id'])
+                except Exception:
+                    region_id = self._to_int(getattr(st, 'hotfix_region_id', 0) or 0)
+        if region_id <= 0:
+            region_id = self._infer_hotfix_region_id(build_num, hotfix_locale)
+            if region_id > 0:
+                try:
+                    st.hotfix_region_id = region_id
+                    if not region_raw:
+                        name = wago_region_name(region_id)
+                        if name:
+                            st.hotfix_region = name
+                            st.save(update_fields=['hotfix_region_id', 'hotfix_region'])
+                        else:
+                            st.save(update_fields=['hotfix_region_id'])
+                    else:
+                        st.save(update_fields=['hotfix_region_id'])
+                except Exception:
+                    region_id = self._to_int(getattr(st, 'hotfix_region_id', 0) or 0)
         last_push = self._to_int(getattr(st, 'hotfix_push_id', 0) or 0)
-        latest_push = self._fetch_latest_hotfix_push_id(build_num)
+        latest_push = self._fetch_latest_hotfix_push_id(build_num, locale=hotfix_locale, region_id=region_id)
         st.hotfix_last_run_at = now
         st.hotfix_last_run_status = 'success' if latest_push > 0 else 'failed'
         st.save(update_fields=['hotfix_last_run_at', 'hotfix_last_run_status'])
@@ -220,17 +253,17 @@ class WagoSkillDiffMonitor(BaseScan):
         is_init = last_push <= 0
         from_push = last_push
         if is_init:
-            prev_push = self._fetch_prev_hotfix_push_id(build_num, latest_push)
+            prev_push = self._fetch_prev_hotfix_push_id(build_num, latest_push, locale=hotfix_locale, region_id=region_id)
             from_push = prev_push if prev_push > 0 else max(0, latest_push - 1)
         try:
-            report = self._generate_hotfix_report(branch, current_build, build_num, from_push, latest_push)
+            report = self._generate_hotfix_report(branch, current_build, build_num, from_push, latest_push, locale=hotfix_locale, region_id=region_id)
         except Exception as e:
             st.hotfix_push_id = latest_push
             st.hotfix_build = current_build
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
             st.hotfix_report_url = ''
-            st.hotfix_wago_url = self._hotfix_url(build_num, latest_push)
+            st.hotfix_wago_url = self._hotfix_url(build_num, latest_push, locale=hotfix_locale, region_id=region_id)
             st.hotfix_spell_count = 0
             st.hotfix_class_count = 0
             st.hotfix_summary_title = ''
@@ -255,7 +288,7 @@ class WagoSkillDiffMonitor(BaseScan):
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'init_no_class_change' if is_init else 'build_changed_no_class_change'
             st.hotfix_report_url = ''
-            st.hotfix_wago_url = self._hotfix_url(build_num, latest_push)
+            st.hotfix_wago_url = self._hotfix_url(build_num, latest_push, locale=hotfix_locale, region_id=region_id)
             st.hotfix_spell_count = int((report or {}).get('spell_count') or 0)
             st.hotfix_class_count = int((report or {}).get('class_count') or 0)
             st.hotfix_summary_title = ((report or {}).get('summary_title') or '')[:255]
@@ -297,7 +330,7 @@ class WagoSkillDiffMonitor(BaseScan):
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
             st.hotfix_report_url = ''
-            st.hotfix_wago_url = self._hotfix_url(build_num, latest_push)
+            st.hotfix_wago_url = self._hotfix_url(build_num, latest_push, locale=hotfix_locale, region_id=region_id)
             st.hotfix_spell_count = int(report.get('spell_count') or 0) if report else 0
             st.hotfix_class_count = int(report.get('class_count') or 0) if report else 0
             st.hotfix_summary_title = ''
@@ -321,7 +354,7 @@ class WagoSkillDiffMonitor(BaseScan):
         st.hotfix_last_event_at = now
         st.hotfix_last_event_status = 'init_has_class_change' if is_init else 'build_changed_has_class_change'
         st.hotfix_report_url = f"/portal/wow-skill-diff/{row.id}/" if row else ''
-        st.hotfix_wago_url = self._hotfix_url(build_num, latest_push)
+        st.hotfix_wago_url = self._hotfix_url(build_num, latest_push, locale=hotfix_locale, region_id=region_id)
         st.hotfix_spell_count = int(report.get('spell_count') or 0)
         st.hotfix_class_count = int(report.get('class_count') or 0)
         st.hotfix_summary_title = (report.get('summary_title') or '')[:255]
@@ -366,13 +399,20 @@ class WagoSkillDiffMonitor(BaseScan):
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         return full_path
 
-    def _hotfix_url(self, build_num, push_id=0):
+    def _hotfix_url(self, build_num, push_id=0, locale='', region_id=0):
         build_num = str(build_num or '').strip()
         if not build_num:
             return 'https://wago.tools/hotfixes'
+        locale = (locale or '').strip()
+        region_id = self._to_int(region_id or 0)
+        extra = ''
+        if locale:
+            extra += f"&filter%5Blocale%5D={locale}"
+        if region_id > 0:
+            extra += f"&filter%5Bregion_id%5D={region_id}"
         if push_id:
-            return f"https://wago.tools/hotfixes?filter%5Bbuild%5D={build_num}&filter%5Bpush_id%5D={int(push_id)}"
-        return f"https://wago.tools/hotfixes?filter%5Bbuild%5D={build_num}"
+            return f"https://wago.tools/hotfixes?filter%5Bbuild%5D={build_num}&filter%5Bpush_id%5D={int(push_id)}{extra}"
+        return f"https://wago.tools/hotfixes?filter%5Bbuild%5D={build_num}{extra}"
 
     def _extract_build_number(self, build_str):
         build_str = str(build_str or '').strip()
@@ -400,8 +440,8 @@ class WagoSkillDiffMonitor(BaseScan):
             return {}
         return obj if isinstance(obj, dict) else {}
 
-    def _fetch_latest_hotfix_push_id(self, build_num):
-        hotfixes = self._fetch_hotfix_rows(build_num, page=1) or []
+    def _fetch_latest_hotfix_push_id(self, build_num, *, locale='', region_id=0):
+        hotfixes = self._fetch_hotfix_rows(build_num, page=1, locale=locale, region_id=region_id) or []
         latest = 0
         for row in hotfixes:
             pid = self._to_int((row or {}).get('push_id') or 0)
@@ -409,7 +449,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 latest = pid
         return latest
 
-    def _fetch_prev_hotfix_push_id(self, build_num, latest_push):
+    def _fetch_prev_hotfix_push_id(self, build_num, latest_push, *, locale='', region_id=0):
         latest_push = self._to_int(latest_push or 0)
         if latest_push <= 0:
             return 0
@@ -418,7 +458,7 @@ class WagoSkillDiffMonitor(BaseScan):
         found = []
         page = 1
         while page <= max_pages and len(found) < 2:
-            rows = self._fetch_hotfix_rows(build_num, page=page) or []
+            rows = self._fetch_hotfix_rows(build_num, page=page, locale=locale, region_id=region_id) or []
             if not rows:
                 break
             for r in rows:
@@ -440,7 +480,25 @@ class WagoSkillDiffMonitor(BaseScan):
                 return pid
         return 0
 
-    def _fetch_hotfix_rows(self, build_num, page=1, push_id=0):
+    def _infer_hotfix_region_id(self, build_num, locale):
+        locale = (locale or '').strip()
+        rows = self._fetch_hotfix_rows(build_num, page=1, locale=locale) or []
+        if not rows:
+            return 0
+        best = 0
+        best_push = 0
+        for r in rows:
+            pid = self._to_int((r or {}).get('push_id') or 0)
+            rid = self._to_int((r or {}).get('region_id') or 0)
+            row_locale = (str((r or {}).get('locale') or '') or '').strip()
+            if locale and row_locale and row_locale != locale:
+                continue
+            if pid > best_push and rid > 0:
+                best_push = pid
+                best = rid
+        return best
+
+    def _fetch_hotfix_rows(self, build_num, page=1, push_id=0, *, locale='', region_id=0):
         build_num = str(build_num or '').strip()
         if not build_num:
             return []
@@ -450,6 +508,12 @@ class WagoSkillDiffMonitor(BaseScan):
             page = 1
         page = max(1, page)
         url = f"https://wago.tools/hotfixes?filter%5Bbuild%5D={build_num}&page={page}"
+        locale = (locale or '').strip()
+        region_id = self._to_int(region_id or 0)
+        if locale:
+            url += f"&filter%5Blocale%5D={locale}"
+        if region_id > 0:
+            url += f"&filter%5Bregion_id%5D={region_id}"
         if push_id:
             url += f"&filter%5Bpush_id%5D={int(push_id)}"
         text = self._http_get_text(url, timeout=max(60, self.http_timeout))
@@ -1570,7 +1634,7 @@ class WagoSkillDiffMonitor(BaseScan):
             'class_count': class_count,
         }
 
-    def _generate_hotfix_report(self, branch, current_build, build_num, from_push, to_push):
+    def _generate_hotfix_report(self, branch, current_build, build_num, from_push, to_push, *, locale='', region_id=0):
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         max_pushes = int(getattr(settings, 'WAGO_HOTFIX_MAX_PUSHES', 20) or 20)
         max_entries = int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 2000) or 2000)
@@ -1579,7 +1643,7 @@ class WagoSkillDiffMonitor(BaseScan):
         push_ids = set()
         page = 1
         while page <= max_pages and len(hotfix_rows) < max_entries:
-            rows = self._fetch_hotfix_rows(build_num, page=page) or []
+            rows = self._fetch_hotfix_rows(build_num, page=page, locale=locale, region_id=region_id) or []
             if not rows:
                 break
             min_pid = 0

@@ -26,13 +26,17 @@ try:
     from core.chromeheadless import ChromeDriver
 except Exception:
     ChromeDriver = None
+try:
+    from core.cloakheadless import CloakDriver
+except Exception:
+    CloakDriver = None
 
 
 class LReq:
     """
     请求类
     """
-    def __init__(self, is_chrome=False):
+    def __init__(self, is_chrome=False, is_cloak=False):
 
         self.ua = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/538",
                    "Mozilla/5.0 (iPad; U; CPU OS 3_2_1 like Mac OS X; en-us) AppleWebKit/531.21.10 (KHTML, like Gecko) Mobile/7B405",
@@ -40,7 +44,10 @@ class LReq:
 
         self.s = requests.Session()
         self.is_chrome = bool(is_chrome and ChromeDriver)
+        self.is_cloak = bool(is_cloak and CloakDriver)
         self.csp = False
+        self.clp = False
+        self.cl = None
         self.current_task = None
         self._cfg = self._get_cfg()
         self._apply_session_proxy()
@@ -54,6 +61,16 @@ class LReq:
                 logger.warning("[LReq] ChromeDriver init failed, fallback to requests mode")
         elif is_chrome and not ChromeDriver:
             logger.warning("[LReq] ChromeDriver not available, fallback to requests mode")
+
+        if self.is_cloak:
+            try:
+                self.cl = CloakDriver()
+            except Exception:
+                self.is_cloak = False
+                self.cl = None
+                logger.warning("[LReq] CloakDriver init failed, fallback to requests mode")
+        elif is_cloak and not CloakDriver:
+            logger.warning("[LReq] CloakDriver not available, fallback to requests mode")
 
     def _get_cfg(self):
         if django_settings:
@@ -100,6 +117,10 @@ class LReq:
     def _ensure_proxy_chrome(self):
         if not self.csp:
             self.csp = ChromeDriver(is_proxy=True)
+
+    def _ensure_proxy_cloak(self):
+        if not self.clp:
+            self.clp = CloakDriver(is_proxy=True)
 
     @staticmethod
     def get_timeout():
@@ -183,6 +204,28 @@ class LReq:
             self.cs = None
             return False
 
+    def reset_cloak(self):
+        if not self.is_cloak:
+            return False
+        try:
+            if getattr(self, 'cl', None):
+                self.cl.close_driver()
+        except Exception:
+            pass
+        try:
+            if getattr(self, 'clp', None):
+                self.clp.close_driver()
+        except Exception:
+            pass
+        self.clp = False
+        try:
+            self.cl = CloakDriver()
+            return True
+        except Exception:
+            self.is_cloak = False
+            self.cl = None
+            return False
+
     def get(self, url, type='Resp', times=0, *args, **kwargs):
         max_retries = int(self._cfg.get('retries', 1))
         attempt = int(times or 0)
@@ -199,6 +242,8 @@ class LReq:
                 logger.warning("[LReq] Request {} error...".format(url))
                 if self.is_chrome:
                     self.reset_chrome()
+                if self.is_cloak:
+                    self.reset_cloak()
 
             except requests.exceptions.ChunkedEncodingError:
                 logger.warning("[LReq] Request {} chunked encoding error...".format(url))
@@ -229,6 +274,8 @@ class LReq:
                 logger.warning("[LReq] Request {} error...".format(url))
                 if self.is_chrome:
                     self.reset_chrome()
+                if self.is_cloak:
+                    self.reset_cloak()
 
             except requests.exceptions.ChunkedEncodingError:
                 logger.warning("[LReq] Request {} chunked encoding error...".format(url))
@@ -292,6 +339,34 @@ class LReq:
                 return self.cs.get_resp(url, cookies, is_origin=is_origin)
         return resp
 
+    def getRespByCloak(self, url, cookies, is_origin=0, is_proxy=None):
+        url = self.check_url(url)
+        logger.info("[LReq] New request {}".format(url))
+        cookies = cookies if cookies else ""
+
+        if not self.is_cloak:
+            return self.getResp(url, cookies)
+
+        use_proxy = bool(is_proxy) if is_proxy is not None else self._is_task_proxy_enabled()
+
+        if use_proxy:
+            self._ensure_proxy_cloak()
+            resp = self.clp.get_resp(url, cookies, is_origin=is_origin)
+            if resp is False:
+                try:
+                    self.clp.close_driver()
+                except Exception:
+                    pass
+                self.clp = CloakDriver(is_proxy=True)
+                return self.clp.get_resp(url, cookies, is_origin=is_origin)
+            return resp
+
+        resp = self.cl.get_resp(url, cookies, is_origin=is_origin)
+        if resp is False:
+            if self.reset_cloak():
+                return self.cl.get_resp(url, cookies, is_origin=is_origin)
+        return resp
+
     def postResp(self, url, data, cookies, headers=None):
         headers = headers or {}
         url = self.check_url(url)
@@ -324,6 +399,10 @@ class LReq:
             self.cs.close_driver()
         if getattr(self, "csp", None):
             self.csp.close_driver()
+        if getattr(self, "cl", None):
+            self.cl.close_driver()
+        if getattr(self, "clp", None):
+            self.clp.close_driver()
 
 
 if __name__ == "__main__":

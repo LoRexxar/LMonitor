@@ -212,6 +212,8 @@ class WowWagoMonitorState(models.Model):
     hotfix_spell_count = models.IntegerField(default=0)
     hotfix_class_count = models.IntegerField(default=0)
     hotfix_summary_title = models.CharField(max_length=255, default="", blank=True)
+    hotfix_region_id = models.IntegerField(default=0)
+    hotfix_region = models.CharField(max_length=32, default="", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -227,6 +229,8 @@ class WowWagoMonitorState(models.Model):
             models.Index(fields=['hotfix_push_id']),
             models.Index(fields=['hotfix_last_run_at']),
             models.Index(fields=['hotfix_last_event_at']),
+            models.Index(fields=['hotfix_region_id']),
+            models.Index(fields=['hotfix_region']),
         ]
 
 

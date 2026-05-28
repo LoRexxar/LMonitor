@@ -76,7 +76,7 @@ class LMonitorCore:
     """
 
     def scan(self):
-        Lreq = LReq(is_chrome=True)
+        Lreq = LReq(is_chrome=True, is_cloak=True)
         req_cfg = getattr(django_settings, 'REQUEST_CONFIG', {}) or {}
         recycle_every = int(req_cfg.get('chrome_recycle_every', 0) or 0)
         finished = 0
