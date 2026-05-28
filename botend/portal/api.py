@@ -347,10 +347,20 @@ class PortalExwindLatestAPIView(View):
         return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
 
 
+class PortalWowheadLatestAPIView(View):
+    def get(self, request):
+        since = timezone.now() - timedelta(days=7)
+        rows = (
+            WowArticle.objects.filter(source='wowhead', category='news', is_active=True, publish_time__gte=since)
+            .order_by('-publish_time')[:60]
+        )
+        return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
+
+
+
 class PortalEventsAPIView(View):
     def get(self, request):
         rows = list(PortalEvent.objects.filter(is_active=True).order_by('-start_at', '-id')[:30])
-        return JsonResponse({'status': 'success', 'data': [_event_to_dict(x) for x in rows]})
 
 
 class PortalVideosAPIView(View):
