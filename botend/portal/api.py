@@ -248,6 +248,32 @@ def _state_to_dict(s):
     wago_url = (getattr(s, 'wago_diff_url', '') or '').strip()
     if wago_url in ('-', '#'):
         wago_url = ''
+
+    hotfix_status = (getattr(s, 'hotfix_last_event_status', '') or '').strip()
+    hotfix_run_status = (getattr(s, 'hotfix_last_run_status', '') or '').strip()
+    hotfix_report_url = (getattr(s, 'hotfix_report_url', '') or '').strip()
+    if hotfix_report_url in ('-', '#'):
+        hotfix_report_url = ''
+    hotfix_wago_url = (getattr(s, 'hotfix_wago_url', '') or '').strip()
+    if hotfix_wago_url in ('-', '#'):
+        hotfix_wago_url = ''
+    hotfix_summary_title = (getattr(s, 'hotfix_summary_title', '') or '').strip()
+    if not hotfix_summary_title and hotfix_report_url:
+        m = re.search(r'/portal/wow-skill-diff/(\d+)/', hotfix_report_url)
+        if m:
+            rid = int(m.group(1))
+            r = WowSkillDiffReport.objects.filter(id=rid).first()
+            if r:
+                md = (getattr(r, 'content_md', '') or '').strip()
+                for line in md.splitlines():
+                    line = (line or '').strip()
+                    if not line:
+                        continue
+                    if line.startswith('#'):
+                        hotfix_summary_title = line.lstrip('#').strip()
+                        break
+        if hotfix_summary_title and ('职业技能变更报告' in hotfix_summary_title):
+            hotfix_summary_title = ''
     return {
         'branch': (getattr(s, 'branch', '') or '').strip(),
         'locale': (getattr(s, 'locale', '') or '').strip(),
@@ -261,6 +287,17 @@ def _state_to_dict(s):
         'wago_diff_url': wago_url,
         'summary_title': summary_title,
         'ext': (getattr(s, 'ext', '') or '').strip(),
+        'hotfix_build': (getattr(s, 'hotfix_build', '') or '').strip(),
+        'hotfix_push_id': int(getattr(s, 'hotfix_push_id', 0) or 0),
+        'hotfix_last_run_at': _fmt_dt(getattr(s, 'hotfix_last_run_at', None)),
+        'hotfix_last_run_status': run_map.get(hotfix_run_status, hotfix_run_status),
+        'hotfix_last_event_at': _fmt_dt(getattr(s, 'hotfix_last_event_at', None)),
+        'hotfix_last_event_status': status_map.get(hotfix_status, hotfix_status),
+        'hotfix_report_url': hotfix_report_url,
+        'hotfix_wago_url': hotfix_wago_url,
+        'hotfix_spell_count': int(getattr(s, 'hotfix_spell_count', 0) or 0),
+        'hotfix_class_count': int(getattr(s, 'hotfix_class_count', 0) or 0),
+        'hotfix_summary_title': hotfix_summary_title,
     }
 
 

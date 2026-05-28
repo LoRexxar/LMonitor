@@ -201,6 +201,17 @@ class WowWagoMonitorState(models.Model):
     report_url = models.CharField(max_length=500, default="", blank=True)
     wago_diff_url = models.CharField(max_length=500, default="", blank=True)
     ext = models.TextField(default="", blank=True)
+    hotfix_push_id = models.BigIntegerField(default=0)
+    hotfix_build = models.CharField(max_length=64, default="", blank=True)
+    hotfix_last_run_at = models.DateTimeField(null=True, blank=True)
+    hotfix_last_run_status = models.CharField(max_length=32, default="", blank=True)
+    hotfix_last_event_at = models.DateTimeField(null=True, blank=True)
+    hotfix_last_event_status = models.CharField(max_length=64, default="", blank=True)
+    hotfix_report_url = models.CharField(max_length=500, default="", blank=True)
+    hotfix_wago_url = models.CharField(max_length=500, default="", blank=True)
+    hotfix_spell_count = models.IntegerField(default=0)
+    hotfix_class_count = models.IntegerField(default=0)
+    hotfix_summary_title = models.CharField(max_length=255, default="", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -213,6 +224,9 @@ class WowWagoMonitorState(models.Model):
             models.Index(fields=['build']),
             models.Index(fields=['last_run_at']),
             models.Index(fields=['last_event_at']),
+            models.Index(fields=['hotfix_push_id']),
+            models.Index(fields=['hotfix_last_run_at']),
+            models.Index(fields=['hotfix_last_event_at']),
         ]
 
 

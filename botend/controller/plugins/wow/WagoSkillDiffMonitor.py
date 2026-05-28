@@ -198,8 +198,776 @@ class WagoSkillDiffMonitor(BaseScan):
             return self._handle_build_change(st, from_build, current_build, is_init=True)
         if last_build == current_build:
             self._repair_state_if_needed(st, current_build)
+            self._scan_hotfix_if_needed(st, branch, current_build)
             return True
         return self._handle_build_change(st, last_build, current_build, is_init=False)
+
+    def _scan_hotfix_if_needed(self, st, branch, current_build):
+        build_num = self._extract_build_number(current_build)
+        if not build_num:
+            return True
+
+        now = timezone.now()
+        last_push = self._to_int(getattr(st, 'hotfix_push_id', 0) or 0)
+        latest_push = self._fetch_latest_hotfix_push_id(build_num)
+        st.hotfix_last_run_at = now
+        st.hotfix_last_run_status = 'success' if latest_push > 0 else 'failed'
+        st.save(update_fields=['hotfix_last_run_at', 'hotfix_last_run_status'])
+        if latest_push <= 0 or latest_push <= last_push:
+            return True
+
+        report = None
+        is_init = last_push <= 0
+        from_push = last_push
+        if is_init:
+            prev_push = self._fetch_prev_hotfix_push_id(build_num, latest_push)
+            from_push = prev_push if prev_push > 0 else max(0, latest_push - 1)
+        try:
+            report = self._generate_hotfix_report(branch, current_build, build_num, from_push, latest_push)
+        except Exception as e:
+            st.hotfix_push_id = latest_push
+            st.hotfix_build = current_build
+            st.hotfix_last_event_at = now
+            st.hotfix_last_event_status = 'failed'
+            st.hotfix_report_url = ''
+            st.hotfix_wago_url = self._hotfix_url(build_num, latest_push)
+            st.hotfix_spell_count = 0
+            st.hotfix_class_count = 0
+            st.hotfix_summary_title = ''
+            st.save(
+                update_fields=[
+                    'hotfix_push_id',
+                    'hotfix_build',
+                    'hotfix_last_event_at',
+                    'hotfix_last_event_status',
+                    'hotfix_report_url',
+                    'hotfix_wago_url',
+                    'hotfix_spell_count',
+                    'hotfix_class_count',
+                    'hotfix_summary_title',
+                ]
+            )
+            return False
+
+        if not report or int(report.get('spell_count') or 0) <= 0:
+            st.hotfix_push_id = latest_push
+            st.hotfix_build = current_build
+            st.hotfix_last_event_at = now
+            st.hotfix_last_event_status = 'init_no_class_change' if is_init else 'build_changed_no_class_change'
+            st.hotfix_report_url = ''
+            st.hotfix_wago_url = self._hotfix_url(build_num, latest_push)
+            st.hotfix_spell_count = int((report or {}).get('spell_count') or 0)
+            st.hotfix_class_count = int((report or {}).get('class_count') or 0)
+            st.hotfix_summary_title = ((report or {}).get('summary_title') or '')[:255]
+            st.save(
+                update_fields=[
+                    'hotfix_push_id',
+                    'hotfix_build',
+                    'hotfix_last_event_at',
+                    'hotfix_last_event_status',
+                    'hotfix_report_url',
+                    'hotfix_wago_url',
+                    'hotfix_spell_count',
+                    'hotfix_class_count',
+                    'hotfix_summary_title',
+                ]
+            )
+            return True
+
+        row = None
+        try:
+            row, _ = WowSkillDiffReport.objects.update_or_create(
+                branch=branch,
+                locale=self.locale,
+                to_build=report.get('to_build') or '',
+                defaults={
+                    'from_build': report.get('from_build') or '',
+                    'content_md': report.get('content_md') or '',
+                    'content_html_path': report.get('content_html_path') or '',
+                    'changed_tables_json': report.get('changed_tables_json') or '',
+                    'spell_count': int(report.get('spell_count') or 0),
+                    'class_count': int(report.get('class_count') or 0),
+                    'display_from_build': report.get('display_from_build') or '',
+                    'display_to_build': report.get('display_to_build') or '',
+                }
+            )
+        except Exception as e:
+            st.hotfix_push_id = latest_push
+            st.hotfix_build = current_build
+            st.hotfix_last_event_at = now
+            st.hotfix_last_event_status = 'failed'
+            st.hotfix_report_url = ''
+            st.hotfix_wago_url = self._hotfix_url(build_num, latest_push)
+            st.hotfix_spell_count = int(report.get('spell_count') or 0) if report else 0
+            st.hotfix_class_count = int(report.get('class_count') or 0) if report else 0
+            st.hotfix_summary_title = ''
+            st.save(
+                update_fields=[
+                    'hotfix_push_id',
+                    'hotfix_build',
+                    'hotfix_last_event_at',
+                    'hotfix_last_event_status',
+                    'hotfix_report_url',
+                    'hotfix_wago_url',
+                    'hotfix_spell_count',
+                    'hotfix_class_count',
+                    'hotfix_summary_title',
+                ]
+            )
+            return False
+
+        st.hotfix_push_id = latest_push
+        st.hotfix_build = current_build
+        st.hotfix_last_event_at = now
+        st.hotfix_last_event_status = 'init_has_class_change' if is_init else 'build_changed_has_class_change'
+        st.hotfix_report_url = f"/portal/wow-skill-diff/{row.id}/" if row else ''
+        st.hotfix_wago_url = self._hotfix_url(build_num, latest_push)
+        st.hotfix_spell_count = int(report.get('spell_count') or 0)
+        st.hotfix_class_count = int(report.get('class_count') or 0)
+        st.hotfix_summary_title = (report.get('summary_title') or '')[:255]
+        st.save(
+            update_fields=[
+                'hotfix_push_id',
+                'hotfix_build',
+                'hotfix_last_event_at',
+                'hotfix_last_event_status',
+                'hotfix_report_url',
+                'hotfix_wago_url',
+                'hotfix_spell_count',
+                'hotfix_class_count',
+                'hotfix_summary_title',
+            ]
+        )
+        return True
+
+    def _hotfix_day_key(self, dt):
+        try:
+            d = timezone.localtime(dt).date()
+        except Exception:
+            d = (dt or timezone.now()).date()
+        return d.strftime('%Y%m%d')
+
+    def _reset_hotfix_daily_state(self, branch, day_key):
+        p = self._hotfix_daily_state_fullpath(branch, day_key)
+        if not p:
+            return False
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+        except Exception:
+            return False
+        return True
+
+    def _hotfix_daily_state_fullpath(self, branch, day_key):
+        rel_path = f"portal/reports/wow_hotfix_state_{branch}_{self.locale}_{day_key}.json"
+        base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
+        static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
+        full_path = os.path.join(static_dir, rel_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        return full_path
+
+    def _hotfix_url(self, build_num, push_id=0):
+        build_num = str(build_num or '').strip()
+        if not build_num:
+            return 'https://wago.tools/hotfixes'
+        if push_id:
+            return f"https://wago.tools/hotfixes?filter%5Bbuild%5D={build_num}&filter%5Bpush_id%5D={int(push_id)}"
+        return f"https://wago.tools/hotfixes?filter%5Bbuild%5D={build_num}"
+
+    def _extract_build_number(self, build_str):
+        build_str = str(build_str or '').strip()
+        if not build_str:
+            return ''
+        parts = [x.strip() for x in build_str.split('.') if x.strip()]
+        if not parts:
+            return ''
+        last = parts[-1]
+        return last if last.isdigit() else ''
+
+    def _to_int(self, v, default=0):
+        try:
+            return int(str(v).strip() or str(default))
+        except Exception:
+            return int(default or 0)
+
+    def _load_state_ext(self, st):
+        raw = getattr(st, 'ext', '') or ''
+        if not raw:
+            return {}
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            return {}
+        return obj if isinstance(obj, dict) else {}
+
+    def _fetch_latest_hotfix_push_id(self, build_num):
+        hotfixes = self._fetch_hotfix_rows(build_num, page=1) or []
+        latest = 0
+        for row in hotfixes:
+            pid = self._to_int((row or {}).get('push_id') or 0)
+            if pid > latest:
+                latest = pid
+        return latest
+
+    def _fetch_prev_hotfix_push_id(self, build_num, latest_push):
+        latest_push = self._to_int(latest_push or 0)
+        if latest_push <= 0:
+            return 0
+        max_pages = 6
+        seen = set()
+        found = []
+        page = 1
+        while page <= max_pages and len(found) < 2:
+            rows = self._fetch_hotfix_rows(build_num, page=page) or []
+            if not rows:
+                break
+            for r in rows:
+                pid = self._to_int((r or {}).get('push_id') or 0)
+                if pid <= 0 or pid in seen:
+                    continue
+                seen.add(pid)
+                found.append(pid)
+                if len(found) >= 2:
+                    break
+            page += 1
+        if not found:
+            return 0
+        found = sorted(set(found), reverse=True)
+        if len(found) >= 2 and found[0] == latest_push:
+            return found[1]
+        for pid in found:
+            if pid < latest_push:
+                return pid
+        return 0
+
+    def _fetch_hotfix_rows(self, build_num, page=1, push_id=0):
+        build_num = str(build_num or '').strip()
+        if not build_num:
+            return []
+        try:
+            page = int(page or 1)
+        except Exception:
+            page = 1
+        page = max(1, page)
+        url = f"https://wago.tools/hotfixes?filter%5Bbuild%5D={build_num}&page={page}"
+        if push_id:
+            url += f"&filter%5Bpush_id%5D={int(push_id)}"
+        text = self._http_get_text(url, timeout=max(60, self.http_timeout))
+        if not text:
+            return []
+        props = self._extract_inertia_props(text)
+        payload = props.get('hotfixes') or {}
+        data = []
+        if isinstance(payload, dict):
+            data = payload.get('data') or []
+        return data if isinstance(data, list) else []
+
+    def _load_hotfix_daily_state(self, branch, day_key):
+        p = self._hotfix_daily_state_fullpath(branch, day_key)
+        if not p or not os.path.exists(p):
+            return {}
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                obj = json.loads(f.read() or '{}')
+        except Exception:
+            return {}
+        return obj if isinstance(obj, dict) else {}
+
+    def _save_hotfix_daily_state(self, branch, day_key, state):
+        p = self._hotfix_daily_state_fullpath(branch, day_key)
+        if not p:
+            return False
+        try:
+            with open(p, 'w', encoding='utf-8') as f:
+                f.write(json.dumps(state or {}, ensure_ascii=False))
+        except Exception:
+            return False
+        return True
+
+    def _generate_hotfix_daily_report(self, branch, current_build, build_num, day_key, base_from_push, delta_from_push, delta_to_push):
+        state = self._load_hotfix_daily_state(branch, day_key)
+        delta = self._generate_hotfix_delta(
+            branch=branch,
+            current_build=current_build,
+            build_num=build_num,
+            from_push=delta_from_push,
+            to_push=delta_to_push,
+        )
+        if not delta:
+            return None
+
+        merged = self._merge_hotfix_daily_state(
+            state=state,
+            branch=branch,
+            current_build=current_build,
+            day_key=day_key,
+            base_from_push=base_from_push,
+            to_push=delta_to_push,
+            delta=delta,
+        )
+        self._save_hotfix_daily_state(branch, day_key, merged)
+
+        spell_changes = self._build_spell_changes_from_hotfix_state(merged)
+        if not spell_changes:
+            return None
+
+        class_names = self._load_chr_classes(current_build)
+        spec_meta = self._load_chr_specialization_meta(current_build)
+        spec_to_class = {sid: meta.get('class_id') for sid, meta in (spec_meta or {}).items() if meta.get('class_id')}
+        spell_to_specs = self._load_specialization_spells(current_build)
+        if not spec_to_class or not spell_to_specs:
+            return None
+
+        snap_spells = {}
+        spell_ids = sorted(set(int(x) for x in spell_changes.keys()))
+        for r in WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids).values('spell_id', 'name', 'description', 'aura_description'):
+            sid = int(r.get('spell_id') or 0)
+            if sid <= 0:
+                continue
+            snap_spells[sid] = {
+                'name': r.get('name') or '',
+                'description': r.get('description') or '',
+                'aura_description': r.get('aura_description') or '',
+            }
+
+        server_title = self._branch_title(branch)
+        class_spell_counts = {}
+        for sid in spell_changes.keys():
+            specs = spell_to_specs.get(sid) or []
+            cids = set()
+            for spid in specs:
+                cid = spec_to_class.get(spid)
+                if cid:
+                    cids.add(cid)
+            for cid in cids:
+                class_spell_counts[cid] = int(class_spell_counts.get(cid) or 0) + 1
+
+        changed_tables = set((merged or {}).get('changed_tables') or [])
+        summary_title = ''
+        if len(spell_changes) > 0:
+            zh_name_lookup = self._ensure_spell_names_zh(branch, current_build, list(spell_changes.keys()))
+            samples = self._extract_summary_samples(spell_changes, snap_spells, max_samples=10, name_lookup=zh_name_lookup)
+            summary_title = self._glm_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples) or self._heuristic_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples)
+
+        from_push_id = int((merged or {}).get('from_push_id') or base_from_push or 0)
+        to_push_id = int((merged or {}).get('to_push_id') or delta_to_push or 0)
+        display_from = f"{current_build} Hotfix({day_key})#{from_push_id}"
+        display_to = f"{current_build} Hotfix({day_key})#{to_push_id}"
+        from_build_key = f"{current_build}-hfd{day_key}-from{from_push_id}"
+        to_build_key = f"{current_build}-hfd{day_key}"
+
+        content_md = f"# {summary_title or (server_title + ' 职业技能变更报告')}\n\n- 版本：{display_from} → {display_to}\n- 技能数：{len(spell_changes)}\n"
+        html_meta = self._write_html_report(
+            branch=branch,
+            server_title=server_title,
+            from_build=from_build_key,
+            to_build=to_build_key,
+            display_from_build=display_from,
+            display_to_build=display_to,
+            class_names=class_names,
+            spec_meta=spec_meta,
+            spell_to_specs=spell_to_specs,
+            spec_to_class=spec_to_class,
+            spell_changes=spell_changes,
+            data_build=current_build,
+        )
+        content_html_path = (html_meta or {}).get('path') or ''
+        class_count = int((html_meta or {}).get('class_count') or 0)
+        return {
+            'summary_title': summary_title or '',
+            'from_build': from_build_key,
+            'to_build': to_build_key,
+            'display_from_build': display_from,
+            'display_to_build': display_to,
+            'content_md': content_md,
+            'content_html_path': content_html_path or '',
+            'changed_tables_json': json.dumps(sorted(changed_tables), ensure_ascii=False),
+            'spell_count': len(spell_changes),
+            'class_count': class_count,
+            'from_push_id': from_push_id,
+            'to_push_id': to_push_id,
+        }
+
+    def _merge_hotfix_daily_state(self, state, branch, current_build, day_key, base_from_push, to_push, delta):
+        out = state if isinstance(state, dict) else {}
+        out['branch'] = branch
+        out['locale'] = self.locale
+        out['day_key'] = day_key
+        out['current_build'] = current_build
+        out['from_push_id'] = int(out.get('from_push_id') or base_from_push or 0)
+        out['to_push_id'] = int(to_push or 0)
+        out['changed_tables'] = sorted(set((out.get('changed_tables') or []) + (delta.get('changed_tables') or [])))
+        spells = out.get('spells') or {}
+        if not isinstance(spells, dict):
+            spells = {}
+        delta_spells = delta.get('spells') or {}
+        if not isinstance(delta_spells, dict):
+            delta_spells = {}
+        for sid, entry in delta_spells.items():
+            sid = str(sid).strip()
+            if not sid:
+                continue
+            se = spells.get(sid) or {}
+            if not isinstance(se, dict):
+                se = {}
+            sdiffs = se.get('diffs') or {}
+            if not isinstance(sdiffs, dict):
+                sdiffs = {}
+            ediffs = (entry or {}).get('diffs') or {}
+            if not isinstance(ediffs, dict):
+                ediffs = {}
+            for tkey, recs in ediffs.items():
+                tkey = (tkey or '').strip().lower()
+                if not tkey:
+                    continue
+                trecs = sdiffs.get(tkey) or {}
+                if not isinstance(trecs, dict):
+                    trecs = {}
+                if not isinstance(recs, dict):
+                    recs = {}
+                for rid, payload in recs.items():
+                    rid = str(rid).strip()
+                    if not rid:
+                        continue
+                    pr = trecs.get(rid) or {}
+                    if not isinstance(pr, dict):
+                        pr = {}
+                    pr['action'] = (payload or {}).get('action') or pr.get('action') or ''
+                    if (payload or {}).get('meta') is not None:
+                        pr['meta'] = (payload or {}).get('meta')
+                    fields = pr.get('fields') or {}
+                    if not isinstance(fields, dict):
+                        fields = {}
+                    pfields = (payload or {}).get('fields') or {}
+                    if not isinstance(pfields, dict):
+                        pfields = {}
+                    for fname, fv in pfields.items():
+                        fname = str(fname).strip()
+                        if not fname:
+                            continue
+                        cur = fields.get(fname) or {}
+                        if not isinstance(cur, dict):
+                            cur = {}
+                        if 'before' not in cur:
+                            cur['before'] = (fv or {}).get('before') or ''
+                        cur['after'] = (fv or {}).get('after') or ''
+                        fields[fname] = cur
+                    pr['fields'] = fields
+                    trecs[rid] = pr
+                sdiffs[tkey] = trecs
+            se['diffs'] = sdiffs
+            spells[sid] = se
+        out['spells'] = spells
+        return out
+
+    def _build_spell_changes_from_hotfix_state(self, state):
+        spells = (state or {}).get('spells') or {}
+        if not isinstance(spells, dict):
+            return {}
+        out = {}
+        for sid, se in spells.items():
+            try:
+                spell_id = int(str(sid).strip() or '0')
+            except Exception:
+                spell_id = 0
+            if spell_id <= 0 or not isinstance(se, dict):
+                continue
+            diffs_by_table = {}
+            tables = set()
+            sdiffs = se.get('diffs') or {}
+            if not isinstance(sdiffs, dict):
+                continue
+            for tkey, trecs in sdiffs.items():
+                tkey = (tkey or '').strip().lower()
+                if not tkey or not isinstance(trecs, dict):
+                    continue
+                payloads = []
+                for rid, pr in trecs.items():
+                    if not isinstance(pr, dict):
+                        continue
+                    try:
+                        pid = int(str(rid).strip() or '0')
+                    except Exception:
+                        pid = 0
+                    fields = pr.get('fields') or {}
+                    if not isinstance(fields, dict):
+                        continue
+                    flist = []
+                    for fname, fv in fields.items():
+                        if not isinstance(fv, dict):
+                            continue
+                        b = str(fv.get('before') or '')
+                        a = str(fv.get('after') or '')
+                        if b == a:
+                            continue
+                        flist.append({'field': fname, 'before': b, 'after': a})
+                    flist = self._filter_diff_fields(tkey, flist)
+                    if not flist:
+                        continue
+                    payload = {'id': pid, 'action': (pr.get('action') or '').strip(), 'fields': flist}
+                    meta = pr.get('meta')
+                    if meta is not None:
+                        payload['meta'] = meta
+                    payloads.append(payload)
+                if payloads:
+                    diffs_by_table[tkey] = payloads
+                    tables.add(tkey)
+            if diffs_by_table:
+                out[spell_id] = {'tables': tables, 'diffs': diffs_by_table}
+        return out
+
+    def _generate_hotfix_delta(self, branch, current_build, build_num, from_push, to_push):
+        max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
+        max_pushes = int(getattr(settings, 'WAGO_HOTFIX_MAX_PUSHES', 20) or 20)
+        max_entries = int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 2000) or 2000)
+
+        hotfix_rows = []
+        push_ids = set()
+        page = 1
+        while page <= max_pages and len(hotfix_rows) < max_entries:
+            rows = self._fetch_hotfix_rows(build_num, page=page) or []
+            if not rows:
+                break
+            min_pid = 0
+            for r in rows:
+                pid = self._to_int((r or {}).get('push_id') or 0)
+                if pid <= 0:
+                    continue
+                if min_pid <= 0 or pid < min_pid:
+                    min_pid = pid
+                if pid <= int(from_push or 0):
+                    continue
+                if int(to_push or 0) > 0 and pid > int(to_push or 0):
+                    continue
+                hotfix_rows.append(r)
+                push_ids.add(pid)
+                if len(hotfix_rows) >= max_entries:
+                    break
+            if min_pid > 0 and min_pid <= int(from_push or 0):
+                break
+            page += 1
+
+        if not hotfix_rows:
+            return None
+
+        push_sorted = sorted(push_ids)
+        if max_pushes > 0 and len(push_sorted) > max_pushes:
+            keep = set(push_sorted[-max_pushes:])
+            hotfix_rows = [r for r in hotfix_rows if self._to_int((r or {}).get('push_id') or 0) in keep]
+
+        spec_meta = self._load_chr_specialization_meta(current_build)
+        spec_to_class = {sid: meta.get('class_id') for sid, meta in (spec_meta or {}).items() if meta.get('class_id')}
+        spell_to_specs = self._load_specialization_spells(current_build)
+        if not spec_to_class or not spell_to_specs:
+            return None
+
+        spell_ids = set()
+        effect_records = []
+        changed_tables = set()
+        for r in hotfix_rows:
+            tkey = (str((r or {}).get('table_name') or '').strip() or '').lower()
+            rid = self._to_int((r or {}).get('record_id') or 0)
+            if not tkey or rid <= 0:
+                continue
+            if tkey not in self.core_tables:
+                continue
+            if tkey == 'spelleffect':
+                row = self._fetch_db2_row_by_id('SpellEffect', current_build, rid)
+                sid = self._extract_spell_id('spelleffect', row)
+                if sid <= 0:
+                    continue
+                try:
+                    eff_idx = int(str((row or {}).get('EffectIndex') or '0').strip() or '0')
+                except Exception:
+                    eff_idx = 0
+                effect_records.append({'id': rid, 'spell_id': sid, 'effect_index': eff_idx})
+                spell_ids.add(sid)
+            else:
+                spell_ids.add(rid)
+            changed_tables.add(tkey)
+
+        spell_ids = sorted(set(int(x) for x in spell_ids if int(x) > 0))
+        if not spell_ids:
+            return None
+
+        filtered_spell_ids = []
+        for sid in spell_ids:
+            if self._spell_has_class(sid, spell_to_specs, spec_to_class, current_build):
+                filtered_spell_ids.append(sid)
+        spell_ids = filtered_spell_ids
+        if not spell_ids:
+            return None
+
+        snap_spells = {}
+        for sid in spell_ids:
+            snap_spells[sid] = {}
+
+        existing_spell_rows = {
+            int(r.spell_id): r
+            for r in WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
+        }
+        existing_eff_rows = {
+            (int(r.spell_id), int(r.effect_index)): r
+            for r in WowSpellEffectSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
+        }
+
+        for sid in spell_ids:
+            row = self._fetch_db2_row_by_id('SpellName', current_build, sid)
+            n = (row.get('Name_lang') if isinstance(row, dict) else None)
+            if n is not None:
+                snap_spells.setdefault(sid, {})
+                snap_spells[sid]['name'] = str(n)
+            row = self._fetch_db2_row_by_id('SpellDescription', current_build, sid)
+            if isinstance(row, dict):
+                d = row.get('Description_lang')
+                a = row.get('AuraDescription_lang')
+                if d is not None:
+                    snap_spells.setdefault(sid, {})
+                    snap_spells[sid]['description'] = str(d)
+                if a is not None:
+                    snap_spells.setdefault(sid, {})
+                    snap_spells[sid]['aura_description'] = str(a)
+
+        snap_effects = {}
+        for rec in effect_records:
+            sid = int(rec.get('spell_id') or 0)
+            if sid <= 0 or sid not in set(spell_ids):
+                continue
+            rid = int(rec.get('id') or 0)
+            if rid <= 0:
+                continue
+            row = self._fetch_db2_row_by_id('SpellEffect', current_build, rid)
+            if not isinstance(row, dict):
+                continue
+            try:
+                eff_idx = int(str((row or {}).get('EffectIndex') or '0').strip() or '0')
+            except Exception:
+                eff_idx = int(rec.get('effect_index') or 0)
+            key = (sid, int(eff_idx or 0))
+            e = {}
+            for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura')):
+                try:
+                    e[nk] = int(str((row or {}).get(k) or '').strip() or '0')
+                except Exception:
+                    e[nk] = None
+            bp = (row or {}).get('EffectBasePointsF')
+            if bp is None or bp == '':
+                bp = (row or {}).get('EffectBasePoints')
+            coef = (row or {}).get('EffectBonusCoefficient')
+            if coef is None or coef == '':
+                coef = (row or {}).get('BonusCoefficientFromAP')
+            if coef is None or coef == '':
+                coef = (row or {}).get('Coefficient')
+            pvp = (row or {}).get('PvpMultiplier')
+            e['base_points'] = str(bp if bp is not None else '')
+            e['coefficient'] = str(coef if coef is not None else '')
+            e['pvp_multiplier'] = str(pvp if pvp is not None else '')
+            snap_effects[key] = e
+
+        spells = {}
+        now = timezone.now()
+        for sid in spell_ids:
+            before = existing_spell_rows.get(sid)
+            after = snap_spells.get(sid) or {}
+            diffs = {}
+            if 'name' in after:
+                b = (before.name if before else '') or ''
+                a = after.get('name') or ''
+                flist = self._filter_diff_fields('spellname', [{'field': 'Name_lang', 'before': str(b), 'after': str(a)}])
+                if flist:
+                    diffs.setdefault('spellname', {}).setdefault(str(sid), {'action': 'changed', 'fields': {}})
+                    for f in flist:
+                        diffs['spellname'][str(sid)]['fields'][f.get('field')] = {'before': f.get('before') or '', 'after': f.get('after') or ''}
+            for fk, label in (('description', 'Description_lang'), ('aura_description', 'AuraDescription_lang')):
+                if fk in after:
+                    b = (getattr(before, fk) if before else '') or ''
+                    a = after.get(fk) or ''
+                    flist = self._filter_diff_fields('spelldescription', [{'field': label, 'before': str(b), 'after': str(a)}])
+                    if flist:
+                        diffs.setdefault('spelldescription', {}).setdefault(str(sid), {'action': 'changed', 'fields': {}})
+                        for f in flist:
+                            diffs['spelldescription'][str(sid)]['fields'][f.get('field')] = {'before': f.get('before') or '', 'after': f.get('after') or ''}
+
+            for (esid, eff_idx), patch in snap_effects.items():
+                if esid != sid:
+                    continue
+                before_eff = existing_eff_rows.get((sid, eff_idx))
+                fields = [
+                    {'field': 'Effect', 'before': str(before_eff.effect) if before_eff and before_eff.effect is not None else '', 'after': str(patch.get('effect') if patch.get('effect') is not None else '')},
+                    {'field': 'EffectAura', 'before': str(before_eff.effect_aura) if before_eff and before_eff.effect_aura is not None else '', 'after': str(patch.get('effect_aura') if patch.get('effect_aura') is not None else '')},
+                    {'field': 'EffectBasePointsF', 'before': str((before_eff.base_points if before_eff else '') or ''), 'after': str(patch.get('base_points') or '')},
+                    {'field': 'EffectBonusCoefficient', 'before': str((before_eff.coefficient if before_eff else '') or ''), 'after': str(patch.get('coefficient') or '')},
+                    {'field': 'PvpMultiplier', 'before': str((before_eff.pvp_multiplier if before_eff else '') or ''), 'after': str(patch.get('pvp_multiplier') or '')},
+                ]
+                flist = self._filter_diff_fields('spelleffect', fields)
+                if flist:
+                    diffs.setdefault('spelleffect', {}).setdefault(str(eff_idx), {'action': 'changed', 'meta': {'EffectIndex': eff_idx}, 'fields': {}})
+                    for f in flist:
+                        diffs['spelleffect'][str(eff_idx)]['fields'][f.get('field')] = {'before': f.get('before') or '', 'after': f.get('after') or ''}
+
+            if diffs:
+                spells[str(sid)] = {'diffs': diffs}
+
+        spell_objs = []
+        for sid, patch in snap_spells.items():
+            spell_objs.append(
+                WowSpellSnapshot(
+                    branch=branch,
+                    locale=self.locale,
+                    spell_id=sid,
+                    name=(patch.get('name') or '')[:255],
+                    description=patch.get('description') or '',
+                    aura_description=patch.get('aura_description') or '',
+                    snapshot_build=current_build,
+                    updated_at=now,
+                )
+            )
+        if spell_objs:
+            WowSpellSnapshot.objects.bulk_create(
+                spell_objs,
+                update_conflicts=True,
+                unique_fields=['branch', 'locale', 'spell_id'],
+                update_fields=['name', 'description', 'aura_description', 'snapshot_build', 'updated_at'],
+            )
+
+        if snap_effects:
+            eff_objs = []
+            for (sid, eff_idx), patch in snap_effects.items():
+                eff_objs.append(
+                    WowSpellEffectSnapshot(
+                        branch=branch,
+                        locale=self.locale,
+                        spell_id=sid,
+                        effect_index=eff_idx,
+                        effect=patch.get('effect'),
+                        effect_aura=patch.get('effect_aura'),
+                        base_points=patch.get('base_points') or '',
+                        coefficient=patch.get('coefficient') or '',
+                        pvp_multiplier=patch.get('pvp_multiplier') or '',
+                        snapshot_build=current_build,
+                        updated_at=now,
+                    )
+                )
+            WowSpellEffectSnapshot.objects.bulk_create(
+                eff_objs,
+                update_conflicts=True,
+                unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
+                update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
+            )
+
+        WowSpellSnapshotState.objects.update_or_create(
+            branch=branch,
+            locale=self.locale,
+            defaults={'snapshot_build': current_build},
+        )
+
+        if not spells:
+            return None
+
+        return {
+            'spells': spells,
+            'changed_tables': sorted(changed_tables),
+        }
 
     def _handle_build_change(self, st, from_build, to_build, is_init=False):
         now = timezone.now()
@@ -797,6 +1565,426 @@ class WagoSkillDiffMonitor(BaseScan):
             'content_html_path': content_html_path or '',
             'display_from_build': display_from_build or '',
             'display_to_build': display_to_build or '',
+            'changed_tables_json': json.dumps(sorted(changed_tables), ensure_ascii=False),
+            'spell_count': len(spell_changes),
+            'class_count': class_count,
+        }
+
+    def _generate_hotfix_report(self, branch, current_build, build_num, from_push, to_push):
+        max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
+        max_pushes = int(getattr(settings, 'WAGO_HOTFIX_MAX_PUSHES', 20) or 20)
+        max_entries = int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 2000) or 2000)
+
+        hotfix_rows = []
+        push_ids = set()
+        page = 1
+        while page <= max_pages and len(hotfix_rows) < max_entries:
+            rows = self._fetch_hotfix_rows(build_num, page=page) or []
+            if not rows:
+                break
+            min_pid = 0
+            for r in rows:
+                pid = self._to_int((r or {}).get('push_id') or 0)
+                if pid <= 0:
+                    continue
+                if min_pid <= 0 or pid < min_pid:
+                    min_pid = pid
+                if pid <= int(from_push or 0):
+                    continue
+                if int(to_push or 0) > 0 and pid > int(to_push or 0):
+                    continue
+                hotfix_rows.append(r)
+                push_ids.add(pid)
+                if len(hotfix_rows) >= max_entries:
+                    break
+            if min_pid > 0 and min_pid <= int(from_push or 0):
+                break
+            page += 1
+
+        if not hotfix_rows:
+            return None
+
+        push_sorted = sorted(push_ids)
+        if max_pushes > 0 and len(push_sorted) > max_pushes:
+            keep = set(push_sorted[-max_pushes:])
+            hotfix_rows = [r for r in hotfix_rows if self._to_int((r or {}).get('push_id') or 0) in keep]
+            push_sorted = sorted(keep)
+
+        class_names = self._load_chr_classes(current_build)
+        spec_meta = self._load_chr_specialization_meta(current_build)
+        spec_to_class = {sid: meta.get('class_id') for sid, meta in (spec_meta or {}).items() if meta.get('class_id')}
+        spell_to_specs = self._load_specialization_spells(current_build)
+        if not spec_to_class or not spell_to_specs:
+            return None
+
+        spell_ids = set()
+        effect_records = []
+        for r in hotfix_rows:
+            tkey = (str((r or {}).get('table_name') or '').strip() or '').lower()
+            rid = self._to_int((r or {}).get('record_id') or 0)
+            if not tkey or rid <= 0:
+                continue
+            if tkey not in self.core_tables:
+                continue
+            if tkey == 'spelleffect':
+                row = self._fetch_db2_row_by_id('SpellEffect', current_build, rid)
+                sid = self._extract_spell_id('spelleffect', row)
+                if sid <= 0:
+                    continue
+                try:
+                    eff_idx = int(str((row or {}).get('EffectIndex') or '0').strip() or '0')
+                except Exception:
+                    eff_idx = 0
+                effect_records.append({'id': rid, 'spell_id': sid, 'effect_index': eff_idx})
+                spell_ids.add(sid)
+            else:
+                spell_ids.add(rid)
+
+        spell_ids = sorted(set(int(x) for x in spell_ids if int(x) > 0))
+        if not spell_ids:
+            return None
+
+        filtered_spell_ids = []
+        for sid in spell_ids:
+            if self._spell_has_class(sid, spell_to_specs, spec_to_class, current_build):
+                filtered_spell_ids.append(sid)
+        spell_ids = filtered_spell_ids
+        if not spell_ids:
+            return None
+
+        snap_spells = {}
+        for sid in spell_ids:
+            snap_spells[sid] = {}
+
+        existing_spell_rows = {
+            int(r.spell_id): r
+            for r in WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
+        }
+        existing_eff_rows = {
+            (int(r.spell_id), int(r.effect_index)): r
+            for r in WowSpellEffectSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
+        }
+
+        need_name = []
+        for sid in spell_ids:
+            n = (existing_spell_rows.get(sid).name if existing_spell_rows.get(sid) else '').strip()
+            if not n:
+                need_name.append(sid)
+        if need_name:
+            fetched = self._fetch_spell_names_concurrent(current_build, need_name)
+            for sid, nm in (fetched or {}).items():
+                if nm:
+                    snap_spells.setdefault(int(sid), {})
+                    snap_spells[int(sid)]['name'] = nm
+
+        for sid in spell_ids:
+            row = self._fetch_db2_row_by_id('SpellName', current_build, sid)
+            n = (row.get('Name_lang') if isinstance(row, dict) else None)
+            if n is not None:
+                snap_spells.setdefault(sid, {})
+                snap_spells[sid]['name'] = str(n)
+            row = self._fetch_db2_row_by_id('SpellDescription', current_build, sid)
+            if isinstance(row, dict):
+                d = row.get('Description_lang')
+                a = row.get('AuraDescription_lang')
+                if d is not None:
+                    snap_spells.setdefault(sid, {})
+                    snap_spells[sid]['description'] = str(d)
+                if a is not None:
+                    snap_spells.setdefault(sid, {})
+                    snap_spells[sid]['aura_description'] = str(a)
+
+        snap_effects = {}
+        for rec in effect_records:
+            sid = int(rec.get('spell_id') or 0)
+            if sid <= 0 or sid not in set(spell_ids):
+                continue
+            rid = int(rec.get('id') or 0)
+            if rid <= 0:
+                continue
+            row = self._fetch_db2_row_by_id('SpellEffect', current_build, rid)
+            if not isinstance(row, dict):
+                continue
+            try:
+                eff_idx = int(str((row or {}).get('EffectIndex') or '0').strip() or '0')
+            except Exception:
+                eff_idx = int(rec.get('effect_index') or 0)
+            key = (sid, int(eff_idx or 0))
+            e = {}
+            for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura')):
+                try:
+                    e[nk] = int(str((row or {}).get(k) or '').strip() or '0')
+                except Exception:
+                    e[nk] = None
+            bp = (row or {}).get('EffectBasePointsF')
+            if bp is None or bp == '':
+                bp = (row or {}).get('EffectBasePoints')
+            coef = (row or {}).get('EffectBonusCoefficient')
+            if coef is None or coef == '':
+                coef = (row or {}).get('BonusCoefficientFromAP')
+            if coef is None or coef == '':
+                coef = (row or {}).get('Coefficient')
+            pvp = (row or {}).get('PvpMultiplier')
+            e['base_points'] = str(bp if bp is not None else '')
+            e['coefficient'] = str(coef if coef is not None else '')
+            e['pvp_multiplier'] = str(pvp if pvp is not None else '')
+            snap_effects[key] = e
+
+        spell_changes = {}
+        changed_tables = set()
+        for sid in spell_ids:
+            before = existing_spell_rows.get(sid)
+            after = snap_spells.get(sid) or {}
+            diffs_by_table = {}
+            if 'name' in after:
+                b = (before.name if before else '') or ''
+                a = after.get('name') or ''
+                if str(b) != str(a):
+                    action = 'added' if not b and a else ('removed' if b and not a else 'changed')
+                    diffs_by_table.setdefault('spellname', []).append({
+                        'id': sid,
+                        'action': action,
+                        'fields': self._filter_diff_fields('spellname', [{'field': 'Name_lang', 'before': str(b), 'after': str(a)}]),
+                    })
+                    changed_tables.add('spellname')
+            for fk, label in (('description', 'Description_lang'), ('aura_description', 'AuraDescription_lang')):
+                if fk in after:
+                    b = (getattr(before, fk) if before else '') or ''
+                    a = after.get(fk) or ''
+                    if str(b) != str(a):
+                        action = 'added' if not b and a else ('removed' if b and not a else 'changed')
+                        diffs_by_table.setdefault('spelldescription', []).append({
+                            'id': sid,
+                            'action': action,
+                            'fields': self._filter_diff_fields('spelldescription', [{'field': label, 'before': str(b), 'after': str(a)}]),
+                        })
+                        changed_tables.add('spelldescription')
+
+            for (esid, eff_idx), patch in snap_effects.items():
+                if esid != sid:
+                    continue
+                before_eff = existing_eff_rows.get((sid, eff_idx))
+                fields = []
+                b_effect = str(before_eff.effect) if before_eff and before_eff.effect is not None else ''
+                a_effect = str(patch.get('effect') if patch.get('effect') is not None else '')
+                fields.append({'field': 'Effect', 'before': b_effect, 'after': a_effect})
+                b_aura = str(before_eff.effect_aura) if before_eff and before_eff.effect_aura is not None else ''
+                a_aura = str(patch.get('effect_aura') if patch.get('effect_aura') is not None else '')
+                fields.append({'field': 'EffectAura', 'before': b_aura, 'after': a_aura})
+                b_bp = (before_eff.base_points if before_eff else '') or ''
+                a_bp = (patch.get('base_points') or '')
+                fields.append({'field': 'EffectBasePointsF', 'before': str(b_bp), 'after': str(a_bp)})
+                b_coef = (before_eff.coefficient if before_eff else '') or ''
+                a_coef = (patch.get('coefficient') or '')
+                fields.append({'field': 'EffectBonusCoefficient', 'before': str(b_coef), 'after': str(a_coef)})
+                b_pvp = (before_eff.pvp_multiplier if before_eff else '') or ''
+                a_pvp = (patch.get('pvp_multiplier') or '')
+                fields.append({'field': 'PvpMultiplier', 'before': str(b_pvp), 'after': str(a_pvp)})
+                filtered_fields = self._filter_diff_fields('spelleffect', fields)
+                if filtered_fields:
+                    action = 'added' if not before_eff else 'changed'
+                    diffs_by_table.setdefault('spelleffect', []).append({
+                        'id': eff_idx,
+                        'action': action,
+                        'meta': {'EffectIndex': eff_idx},
+                        'fields': filtered_fields,
+                    })
+                    changed_tables.add('spelleffect')
+
+            visible = False
+            for tkey, items in diffs_by_table.items():
+                for it in items or []:
+                    if it.get('fields'):
+                        visible = True
+                        break
+                if visible:
+                    break
+            if visible:
+                spell_changes[sid] = {'tables': set(diffs_by_table.keys()), 'diffs': diffs_by_table}
+
+        if not spell_changes:
+            now = timezone.now()
+            spell_objs = []
+            for sid, patch in snap_spells.items():
+                spell_objs.append(
+                    WowSpellSnapshot(
+                        branch=branch,
+                        locale=self.locale,
+                        spell_id=sid,
+                        name=(patch.get('name') or '')[:255],
+                        description=patch.get('description') or '',
+                        aura_description=patch.get('aura_description') or '',
+                        snapshot_build=current_build,
+                        updated_at=now,
+                    )
+                )
+            if spell_objs:
+                WowSpellSnapshot.objects.bulk_create(
+                    spell_objs,
+                    update_conflicts=True,
+                    unique_fields=['branch', 'locale', 'spell_id'],
+                    update_fields=['name', 'description', 'aura_description', 'snapshot_build', 'updated_at'],
+                )
+            if snap_effects:
+                eff_objs = []
+                for (sid, eff_idx), patch in snap_effects.items():
+                    eff_objs.append(
+                        WowSpellEffectSnapshot(
+                            branch=branch,
+                            locale=self.locale,
+                            spell_id=sid,
+                            effect_index=eff_idx,
+                            effect=patch.get('effect'),
+                            effect_aura=patch.get('effect_aura'),
+                            base_points=patch.get('base_points') or '',
+                            coefficient=patch.get('coefficient') or '',
+                            pvp_multiplier=patch.get('pvp_multiplier') or '',
+                            snapshot_build=current_build,
+                            updated_at=now,
+                        )
+                    )
+                WowSpellEffectSnapshot.objects.bulk_create(
+                    eff_objs,
+                    update_conflicts=True,
+                    unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
+                    update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
+                )
+            WowSpellSnapshotState.objects.update_or_create(
+                branch=branch,
+                locale=self.locale,
+                defaults={'snapshot_build': current_build},
+            )
+            return None
+
+        snap_map_add = set()
+        for sid in spell_changes.keys():
+            specs = spell_to_specs.get(sid) or set()
+            for spec_id in specs:
+                snap_map_add.add((spec_id, sid))
+            snap_spells.setdefault(sid, {})
+
+        now = timezone.now()
+        if snap_map_add:
+            map_objs = []
+            for spec_id, spell_id in snap_map_add:
+                map_objs.append(
+                    WowSpecSpellMapSnapshot(
+                        branch=branch,
+                        locale=self.locale,
+                        spec_id=spec_id,
+                        spell_id=spell_id,
+                        snapshot_build=current_build,
+                        updated_at=now,
+                    )
+                )
+            WowSpecSpellMapSnapshot.objects.bulk_create(
+                map_objs,
+                update_conflicts=True,
+                unique_fields=['branch', 'locale', 'spec_id', 'spell_id'],
+                update_fields=['snapshot_build', 'updated_at'],
+            )
+
+        if snap_spells:
+            spell_objs = []
+            for spell_id, patch in snap_spells.items():
+                spell_objs.append(
+                    WowSpellSnapshot(
+                        branch=branch,
+                        locale=self.locale,
+                        spell_id=spell_id,
+                        name=(patch.get('name') or '')[:255],
+                        description=patch.get('description') or '',
+                        aura_description=patch.get('aura_description') or '',
+                        snapshot_build=current_build,
+                        updated_at=now,
+                    )
+                )
+            WowSpellSnapshot.objects.bulk_create(
+                spell_objs,
+                update_conflicts=True,
+                unique_fields=['branch', 'locale', 'spell_id'],
+                update_fields=['name', 'description', 'aura_description', 'snapshot_build', 'updated_at'],
+            )
+
+        if snap_effects:
+            eff_objs = []
+            for (spell_id, effect_index), patch in snap_effects.items():
+                eff_objs.append(
+                    WowSpellEffectSnapshot(
+                        branch=branch,
+                        locale=self.locale,
+                        spell_id=spell_id,
+                        effect_index=effect_index,
+                        effect=patch.get('effect'),
+                        effect_aura=patch.get('effect_aura'),
+                        base_points=patch.get('base_points') or '',
+                        coefficient=patch.get('coefficient') or '',
+                        pvp_multiplier=patch.get('pvp_multiplier') or '',
+                        snapshot_build=current_build,
+                        updated_at=now,
+                    )
+                )
+            WowSpellEffectSnapshot.objects.bulk_create(
+                eff_objs,
+                update_conflicts=True,
+                unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
+                update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
+            )
+
+        WowSpellSnapshotState.objects.update_or_create(
+            branch=branch,
+            locale=self.locale,
+            defaults={'snapshot_build': current_build},
+        )
+
+        server_title = self._branch_title(branch)
+        class_spell_counts = {}
+        for sid in spell_changes.keys():
+            specs = spell_to_specs.get(sid) or []
+            cids = set()
+            for spid in specs:
+                cid = spec_to_class.get(spid)
+                if cid:
+                    cids.add(cid)
+            for cid in cids:
+                class_spell_counts[cid] = int(class_spell_counts.get(cid) or 0) + 1
+
+        summary_title = ''
+        if len(spell_changes) > 0:
+            zh_name_lookup = self._ensure_spell_names_zh(branch, current_build, list(spell_changes.keys()))
+            samples = self._extract_summary_samples(spell_changes, snap_spells, max_samples=10, name_lookup=zh_name_lookup)
+            summary_title = self._glm_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples) or self._heuristic_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples)
+
+        display_from = f"{current_build} Hotfix#{int(from_push)}"
+        display_to = f"{current_build} Hotfix#{int(to_push)}"
+        from_build_key = f"{current_build}-hf{int(from_push)}"
+        to_build_key = f"{current_build}-hf{int(to_push)}"
+
+        content_md = f"# {summary_title or (server_title + ' 职业技能变更报告')}\n\n- 版本：{display_from} → {display_to}\n- 技能数：{len(spell_changes)}\n"
+        html_meta = self._write_html_report(
+            branch=branch,
+            server_title=server_title,
+            from_build=from_build_key,
+            to_build=to_build_key,
+            display_from_build=display_from,
+            display_to_build=display_to,
+            class_names=class_names,
+            spec_meta=spec_meta,
+            spell_to_specs=spell_to_specs,
+            spec_to_class=spec_to_class,
+            spell_changes=spell_changes,
+            data_build=current_build,
+        )
+        content_html_path = (html_meta or {}).get('path') or ''
+        class_count = int((html_meta or {}).get('class_count') or 0)
+        return {
+            'summary_title': summary_title or '',
+            'from_build': from_build_key,
+            'to_build': to_build_key,
+            'display_from_build': display_from,
+            'display_to_build': display_to,
+            'content_md': content_md,
+            'content_html_path': content_html_path or '',
             'changed_tables_json': json.dumps(sorted(changed_tables), ensure_ascii=False),
             'spell_count': len(spell_changes),
             'class_count': class_count,
@@ -2045,7 +3233,8 @@ class WagoSkillDiffMonitor(BaseScan):
                 out.append(f"<span class='ins'>{html.escape(i)}</span>")
         return ''.join(out).replace('\\n', ' ')
 
-    def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url=''):
+    def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url='', data_build=''):
+        data_build = (data_build or '').strip() or to_build
         rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{to_build.replace('.', '_')}.html"
         base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
         static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
@@ -2063,12 +3252,12 @@ class WagoSkillDiffMonitor(BaseScan):
         name_cache.update(snap_names)
         missing = [sid for sid in spell_ids if not (name_cache.get(sid) or '').strip()]
         if missing:
-            fetched = self._fetch_spell_names_concurrent(to_build, missing)
+            fetched = self._fetch_spell_names_concurrent(data_build, missing)
             name_cache.update(fetched)
 
-        zh_name_cache = self._ensure_spell_names_zh(branch, to_build, spell_ids)
-        zh_class_names = self._load_chr_classes(to_build, locale_override=self.name_locale)
-        zh_spec_meta = self._load_chr_specialization_meta(to_build, locale_override=self.name_locale)
+        zh_name_cache = self._ensure_spell_names_zh(branch, data_build, spell_ids)
+        zh_class_names = self._load_chr_classes(data_build, locale_override=self.name_locale)
+        zh_spec_meta = self._load_chr_specialization_meta(data_build, locale_override=self.name_locale)
         display_class_names = dict(class_names or {})
         for cid, nm in (zh_class_names or {}).items():
             if (nm or '').strip():
@@ -2092,7 +3281,7 @@ class WagoSkillDiffMonitor(BaseScan):
                         continue
                     class_to_spec_to_spells.setdefault(cid, {}).setdefault(spec_id, set()).add(spell_id)
             else:
-                for cid in self._spell_class_ids(spell_id, spell_to_specs, spec_to_class, to_build):
+                for cid in self._spell_class_ids(spell_id, spell_to_specs, spec_to_class, data_build):
                     class_to_spec_to_spells.setdefault(cid, {}).setdefault(0, set()).add(spell_id)
 
         class_count = len(class_to_spec_to_spells)
