@@ -8,6 +8,7 @@ from django.utils import timezone
 from datetime import timedelta
 
 from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport, WowWagoMonitorState
+from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
     fetch_mythicstats_dps,
@@ -251,6 +252,7 @@ def _state_to_dict(s):
 
     hotfix_status = (getattr(s, 'hotfix_last_event_status', '') or '').strip()
     hotfix_run_status = (getattr(s, 'hotfix_last_run_status', '') or '').strip()
+    hotfix_region = (getattr(s, 'hotfix_region', '') or '').strip()
     hotfix_report_url = (getattr(s, 'hotfix_report_url', '') or '').strip()
     if hotfix_report_url in ('-', '#'):
         hotfix_report_url = ''
@@ -289,6 +291,9 @@ def _state_to_dict(s):
         'ext': (getattr(s, 'ext', '') or '').strip(),
         'hotfix_build': (getattr(s, 'hotfix_build', '') or '').strip(),
         'hotfix_push_id': int(getattr(s, 'hotfix_push_id', 0) or 0),
+        'hotfix_region_id': int(getattr(s, 'hotfix_region_id', 0) or 0),
+        'hotfix_region': hotfix_region,
+        'hotfix_region_name': hotfix_region or wago_region_name(getattr(s, 'hotfix_region_id', 0) or 0),
         'hotfix_last_run_at': _fmt_dt(getattr(s, 'hotfix_last_run_at', None)),
         'hotfix_last_run_status': run_map.get(hotfix_run_status, hotfix_run_status),
         'hotfix_last_event_at': _fmt_dt(getattr(s, 'hotfix_last_event_at', None)),
