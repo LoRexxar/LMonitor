@@ -317,6 +317,8 @@ class LReq:
         cookies = cookies if cookies else ""
 
         if not self.is_chrome:
+            if is_origin:
+                return False
             return self.getResp(url, cookies)
 
         use_proxy = bool(is_proxy) if is_proxy is not None else self._is_task_proxy_enabled()
@@ -345,6 +347,8 @@ class LReq:
         cookies = cookies if cookies else ""
 
         if not self.is_cloak:
+            if is_origin:
+                return False
             return self.getResp(url, cookies)
 
         use_proxy = bool(is_proxy) if is_proxy is not None else self._is_task_proxy_enabled()
