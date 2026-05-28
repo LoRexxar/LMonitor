@@ -51,6 +51,9 @@ class BiliOnlionMonitor(BaseScan):
         return True
 
     def resolve_data_live(self, driver):
+        if not driver or not hasattr(driver, 'eles'):
+            self.title = ""
+            return
 
         try:
             title_ele = (driver.eles('.:live-skin-main-text') or [None])[0]
