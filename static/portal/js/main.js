@@ -1093,7 +1093,6 @@ function renderWowSkillDiffStates(containerId, items) {
       const reportUrl = sanitizeHref(it.report_url);
       const wagoUrl = sanitizeHref(it.wago_diff_url);
       const hotfixPushId = Number(it.hotfix_push_id || 0) || 0;
-      const hotfixRegionName = escapeHtml(it.hotfix_region_name || it.hotfix_region || "");
       const hotfixRunAt = escapeHtml(it.hotfix_last_run_at || "");
       const hotfixRunStatus = escapeHtml(it.hotfix_last_run_status || "");
       const hotfixEventAt = escapeHtml(it.hotfix_last_event_at || "");
