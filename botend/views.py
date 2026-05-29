@@ -6,6 +6,7 @@ import time
 import traceback
 import threading
 from django.db.utils import OperationalError
+from django.db import close_old_connections
 from django.utils import timezone
 from django.conf import settings as django_settings
 from utils.LReq import LReq
@@ -76,6 +77,8 @@ class LMonitorCore:
     """
 
     def scan(self):
+        from django.db import connections
+        connections.close_all()
         Lreq = LReq(is_chrome=True, is_cloak=True)
         req_cfg = getattr(django_settings, 'REQUEST_CONFIG', {}) or {}
         recycle_every = int(req_cfg.get('chrome_recycle_every', 0) or 0)
@@ -83,6 +86,7 @@ class LMonitorCore:
 
         while 1:
             try:
+                close_old_connections()
                 global is_Block
                 now_task = False
                 need_wait = False
