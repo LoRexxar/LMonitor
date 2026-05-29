@@ -532,18 +532,21 @@ class WagoSkillDiffMonitor(BaseScan):
         try:
             driver_obj.driver.get(url)
             driver_obj.driver.wait.load_start()
+            try:
+                driver_obj.driver.wait.eles_loaded('css:td', timeout=15)
+            except Exception:
+                pass
+
             if search:
-                try:
-                    driver_obj.driver.wait.eles_loaded('css:td', timeout=10)
-                except Exception:
-                    pass
                 import time as _t
-                _t.sleep(2)
-            else:
-                try:
-                    driver_obj.driver.wait.eles_loaded('css:td', timeout=10)
-                except Exception:
-                    pass
+                for _ in range(20):
+                    try:
+                        first_td = driver_obj.driver.ele('css:tbody tr td:nth-child(7)', timeout=1)
+                        if first_td and (first_td.text or '').strip().lower() == search.lower():
+                            break
+                    except Exception:
+                        pass
+                    _t.sleep(0.5)
 
             rows = []
             trs = driver_obj.driver.eles('css:tbody tr', timeout=5)
