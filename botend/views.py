@@ -2,6 +2,7 @@
 # encoding: utf-8
 
 
+import os
 import time
 import traceback
 import threading
@@ -77,21 +78,7 @@ class LMonitorCore:
     """
 
     def scan(self):
-        try:
-            from django.utils.asyncio import _asyncio_unsafe
-            _asyncio_unsafe.set(False)
-        except Exception:
-            pass
-        try:
-            from django.db import connections
-            for conn in connections.all():
-                try:
-                    conn.close()
-                    conn.inc_thread_sharing()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', '1')
         Lreq = LReq(is_chrome=True, is_cloak=True)
         req_cfg = getattr(django_settings, 'REQUEST_CONFIG', {}) or {}
         recycle_every = int(req_cfg.get('chrome_recycle_every', 0) or 0)
