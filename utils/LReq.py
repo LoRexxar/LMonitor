@@ -207,6 +207,10 @@ class LReq:
     def reset_cloak(self):
         if not self.is_cloak:
             return False
+        if CloakDriver and getattr(CloakDriver, '_init_failed', False):
+            self.is_cloak = False
+            self.cl = None
+            return False
         try:
             if getattr(self, 'cl', None):
                 self.cl.close_driver()

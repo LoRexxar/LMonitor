@@ -591,7 +591,72 @@ class WagoSkillDiffMonitor(BaseScan):
             return rows
         except Exception as e:
             logger.warning(f"[WagoSkillDiff] browser fetch failed: {e}")
-            return []
+            try:
+                driver_obj.close_driver()
+            except Exception:
+                pass
+            self.__class__._chrome_driver = None
+            try:
+                driver_obj2 = self._get_chrome_driver()
+                if not driver_obj2:
+                    return []
+                driver_obj2.driver.get(url)
+                driver_obj2.driver.wait.load_start()
+                try:
+                    driver_obj2.driver.wait.eles_loaded('css:td', timeout=15)
+                except Exception:
+                    pass
+                if search:
+                    import time as _t
+                    for _ in range(20):
+                        try:
+                            first_td = driver_obj2.driver.ele('css:tbody tr td:nth-child(7)', timeout=1)
+                            if first_td and (first_td.text or '').strip().lower() == search.lower():
+                                break
+                        except Exception:
+                            pass
+                        _t.sleep(0.5)
+                rows2 = []
+                trs2 = driver_obj2.driver.eles('css:tbody tr', timeout=5)
+                for tr in (trs2 or []):
+                    tds = tr.eles('css:td')
+                    if len(tds) < 8:
+                        continue
+                    push_id = self._to_int(tds[0].text.strip() if tds[0].text else 0)
+                    table_name = (tds[1].text or '').strip()
+                    record_id = self._to_int(tds[2].text.strip() if tds[2].text else 0)
+                    build = (tds[3].text or '').strip()
+                    status = (tds[4].text or '').strip()
+                    region_raw = (tds[5].text or '').strip()
+                    locale = (tds[6].text or '').strip()
+                    first_seen_at = (tds[7].text or '').strip()
+                    row_region_id = 0
+                    region_name = ''
+                    if region_raw.isdigit():
+                        row_region_id = int(region_raw)
+                    elif region_raw:
+                        region_name = region_raw
+                        try:
+                            row_region_id = wago_region_id(region_raw)
+                        except Exception:
+                            row_region_id = 0
+                    if region_id > 0 and row_region_id != region_id:
+                        continue
+                    rows2.append({
+                        'push_id': push_id,
+                        'table_name': table_name,
+                        'record_id': record_id,
+                        'build': build,
+                        'status': status,
+                        'region_id': row_region_id,
+                        'region': region_name or (str(row_region_id) if row_region_id > 0 else ''),
+                        'locale': locale,
+                        'first_seen_at': first_seen_at,
+                    })
+                return rows2
+            except Exception as e2:
+                logger.warning(f"[WagoSkillDiff] browser retry also failed: {e2}")
+                return []
 
     def _fetch_hotfix_page_data(self, build_num='', page=1, *, search='', region_id=0):
         search = (search or '').strip()
