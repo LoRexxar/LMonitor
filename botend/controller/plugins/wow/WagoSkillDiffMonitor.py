@@ -204,6 +204,8 @@ class WagoSkillDiffMonitor(BaseScan):
         return self._handle_build_change(st, last_build, current_build, is_init=False)
 
     def _scan_hotfix_if_needed(self, st, branch, current_build):
+        if (branch or '').strip().lower() != 'wow':
+            return True
         now = timezone.now()
         hotfix_locale = 'enUS'
         last_push = self._to_int(getattr(st, 'hotfix_push_id', 0) or 0)
