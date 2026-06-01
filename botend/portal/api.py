@@ -289,8 +289,6 @@ def _state_to_dict(s):
         'summary_title': summary_title,
         'ext': (getattr(s, 'ext', '') or '').strip(),
         'hotfix_push_id': int(getattr(s, 'hotfix_push_id', 0) or 0),
-        'hotfix_region_id': int(getattr(s, 'hotfix_region_id', 0) or 0),
-        'hotfix_region_name': wago_region_name(getattr(s, 'hotfix_region_id', 0) or 0),
         'hotfix_last_run_at': _fmt_dt(getattr(s, 'hotfix_last_run_at', None)),
         'hotfix_last_run_status': run_map.get(hotfix_run_status, hotfix_run_status),
         'hotfix_last_event_at': _fmt_dt(getattr(s, 'hotfix_last_event_at', None)),

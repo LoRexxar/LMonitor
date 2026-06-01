@@ -205,19 +205,9 @@ class WagoSkillDiffMonitor(BaseScan):
 
     def _scan_hotfix_if_needed(self, st, branch, current_build):
         now = timezone.now()
-        hotfix_locale = (getattr(st, 'locale', '') or '').strip() or self.locale
-        region_id = self._to_int(getattr(st, 'hotfix_region_id', 0) or 0)
-        if region_id <= 0:
-            build_num = self._extract_build_number(current_build)
-            region_id = self._infer_hotfix_region_id(build_num, hotfix_locale, branch=branch)
-            if region_id > 0:
-                try:
-                    st.hotfix_region_id = region_id
-                    st.save(update_fields=['hotfix_region_id'])
-                except Exception:
-                    region_id = self._to_int(getattr(st, 'hotfix_region_id', 0) or 0)
+        hotfix_locale = 'enUS'
         last_push = self._to_int(getattr(st, 'hotfix_push_id', 0) or 0)
-        latest_push = self._fetch_latest_hotfix_push_id(locale=hotfix_locale, region_id=region_id)
+        latest_push = self._fetch_latest_hotfix_push_id(locale=hotfix_locale)
         st.hotfix_last_run_at = now
         st.hotfix_last_run_status = 'success' if latest_push > 0 else 'no_data'
         st.save(update_fields=['hotfix_last_run_at', 'hotfix_last_run_status'])
@@ -228,16 +218,16 @@ class WagoSkillDiffMonitor(BaseScan):
         is_init = last_push <= 0
         from_push = last_push
         if is_init:
-            prev_push = self._fetch_prev_hotfix_push_id(latest_push, locale=hotfix_locale, region_id=region_id)
+            prev_push = self._fetch_prev_hotfix_push_id(latest_push, locale=hotfix_locale)
             from_push = prev_push if prev_push > 0 else max(0, latest_push - 1)
         try:
-            report = self._generate_hotfix_report(branch, current_build, from_push, latest_push, locale=hotfix_locale, region_id=region_id)
+            report = self._generate_hotfix_report(branch, current_build, from_push, latest_push, locale=hotfix_locale)
         except Exception as e:
             st.hotfix_push_id = latest_push
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
             st.hotfix_report_url = ''
-            st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale, region_id=region_id)
+            st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
             st.hotfix_spell_count = 0
             st.hotfix_class_count = 0
             st.hotfix_summary_title = ''
@@ -260,7 +250,7 @@ class WagoSkillDiffMonitor(BaseScan):
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'init_no_class_change' if is_init else 'no_class_change'
             st.hotfix_report_url = ''
-            st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale, region_id=region_id)
+            st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
             st.hotfix_spell_count = int((report or {}).get('spell_count') or 0)
             st.hotfix_class_count = int((report or {}).get('class_count') or 0)
             st.hotfix_summary_title = ((report or {}).get('summary_title') or '')[:255]
@@ -300,7 +290,7 @@ class WagoSkillDiffMonitor(BaseScan):
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
             st.hotfix_report_url = ''
-            st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale, region_id=region_id)
+            st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
             st.hotfix_spell_count = int(report.get('spell_count') or 0) if report else 0
             st.hotfix_class_count = int(report.get('class_count') or 0) if report else 0
             st.hotfix_summary_title = ''
@@ -322,7 +312,7 @@ class WagoSkillDiffMonitor(BaseScan):
         st.hotfix_last_event_at = now
         st.hotfix_last_event_status = 'init_has_class_change' if is_init else 'has_class_change'
         st.hotfix_report_url = f"/portal/wow-skill-diff/{row.id}/" if row else ''
-        st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale, region_id=region_id)
+        st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
         st.hotfix_spell_count = int(report.get('spell_count') or 0)
         st.hotfix_class_count = int(report.get('class_count') or 0)
         st.hotfix_summary_title = (report.get('summary_title') or '')[:255]
@@ -366,9 +356,8 @@ class WagoSkillDiffMonitor(BaseScan):
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         return full_path
 
-    def _hotfix_url(self, build_num='', push_id=0, locale='', region_id=0):
+    def _hotfix_url(self, build_num='', push_id=0, locale=''):
         locale = (locale or '').strip()
-        region_id = self._to_int(region_id or 0)
         build_num = str(build_num or '').strip()
         params = []
         if build_num:
@@ -377,8 +366,6 @@ class WagoSkillDiffMonitor(BaseScan):
             params.append(f"filter%5Bpush_id%5D={int(push_id)}")
         if locale:
             params.append(f"filter%5Blocale%5D={locale}")
-        if region_id > 0:
-            params.append(f"filter%5Bregion_id%5D={region_id}")
         qs = '&'.join(params)
         return f"https://wago.tools/hotfixes?{qs}" if qs else 'https://wago.tools/hotfixes'
 
@@ -408,15 +395,14 @@ class WagoSkillDiffMonitor(BaseScan):
             return {}
         return obj if isinstance(obj, dict) else {}
 
-    def _fetch_latest_hotfix_push_id(self, *, locale='', region_id=0):
+    def _fetch_latest_hotfix_push_id(self, *, locale=''):
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         locale = (locale or '').strip()
-        region_id = self._to_int(region_id or 0)
         search = locale
         latest = 0
         page = 1
         while page <= max_pages:
-            raw = self._fetch_hotfix_page_data(page=page, search=search, region_id=region_id) or []
+            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
             if not raw:
                 break
             for row in raw:
@@ -428,19 +414,18 @@ class WagoSkillDiffMonitor(BaseScan):
             page += 1
         return latest
 
-    def _fetch_prev_hotfix_push_id(self, latest_push, *, locale='', region_id=0):
+    def _fetch_prev_hotfix_push_id(self, latest_push, *, locale=''):
         latest_push = self._to_int(latest_push or 0)
         if latest_push <= 0:
             return 0
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         locale = (locale or '').strip()
-        region_id = self._to_int(region_id or 0)
         search = locale
         seen = set()
         found = []
         page = 1
         while page <= max_pages and len(found) < 2:
-            raw = self._fetch_hotfix_page_data(page=page, search=search, region_id=region_id) or []
+            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
             if not raw:
                 break
             for r in raw:
@@ -462,39 +447,6 @@ class WagoSkillDiffMonitor(BaseScan):
                 return pid
         return 0
 
-    def _infer_hotfix_region_id(self, build_num='', locale='', branch=''):
-        locale = (locale or '').strip()
-        max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
-        b = (branch or '').strip().lower()
-        preferred = set()
-        if b == 'wowt':
-            preferred.add(50)
-        elif b == 'wowxptr':
-            preferred.add(57)
-        best = 0
-        best_push = 0
-        search = locale
-        page = 1
-        while page <= max_pages and best <= 0:
-            raw = self._fetch_hotfix_page_data(build_num, page=page, search=search) or []
-            if not raw:
-                break
-            for r in raw:
-                pid = self._to_int((r or {}).get('push_id') or 0)
-                rid = self._to_int((r or {}).get('region_id') or 0)
-                if preferred and rid not in preferred:
-                    continue
-                if pid > best_push and rid > 0:
-                    best_push = pid
-                    best = rid
-            page += 1
-        if best <= 0:
-            if b == 'wowt':
-                return 50
-            if b == 'wowxptr':
-                return 57
-        return best
-
     _chrome_driver = None
 
     def _get_chrome_driver(self):
@@ -508,14 +460,13 @@ class WagoSkillDiffMonitor(BaseScan):
             self.__class__._chrome_driver = False
         return self.__class__._chrome_driver
 
-    def _fetch_hotfix_page_data_via_browser(self, search='', page=1, *, region_id=0):
+    def _fetch_hotfix_page_data_via_browser(self, search='', page=1):
         try:
             page = int(page or 1)
         except Exception:
             page = 1
         page = max(1, page)
         search = (search or '').strip()
-        region_id = self._to_int(region_id or 0)
 
         driver_obj = self._get_chrome_driver()
         if not driver_obj:
@@ -530,64 +481,7 @@ class WagoSkillDiffMonitor(BaseScan):
         url = f"https://wago.tools/hotfixes?{qs}" if qs else "https://wago.tools/hotfixes"
 
         try:
-            driver_obj.driver.get(url)
-            driver_obj.driver.wait.load_start()
-            try:
-                driver_obj.driver.wait.eles_loaded('css:td', timeout=15)
-            except Exception:
-                pass
-
-            if search:
-                import time as _t
-                for _ in range(20):
-                    try:
-                        first_td = driver_obj.driver.ele('css:tbody tr td:nth-child(7)', timeout=1)
-                        if first_td and (first_td.text or '').strip().lower() == search.lower():
-                            break
-                    except Exception:
-                        pass
-                    _t.sleep(0.5)
-
-            rows = []
-            trs = driver_obj.driver.eles('css:tbody tr', timeout=5)
-            for tr in (trs or []):
-                tds = tr.eles('css:td')
-                if len(tds) < 8:
-                    continue
-                push_id = self._to_int(tds[0].text.strip() if tds[0].text else 0)
-                table_name = (tds[1].text or '').strip()
-                record_id = self._to_int(tds[2].text.strip() if tds[2].text else 0)
-                build = (tds[3].text or '').strip()
-                status = (tds[4].text or '').strip()
-                region_raw = (tds[5].text or '').strip()
-                locale = (tds[6].text or '').strip()
-                first_seen_at = (tds[7].text or '').strip()
-
-                row_region_id = 0
-                region_name = ''
-                if region_raw.isdigit():
-                    row_region_id = int(region_raw)
-                elif region_raw:
-                    region_name = region_raw
-                    try:
-                        row_region_id = wago_region_id(region_raw)
-                    except Exception:
-                        row_region_id = 0
-
-                if region_id > 0 and row_region_id != region_id:
-                    continue
-
-                rows.append({
-                    'push_id': push_id,
-                    'table_name': table_name,
-                    'record_id': record_id,
-                    'build': build,
-                    'status': status,
-                    'region_id': row_region_id,
-                    'region': region_name or (str(row_region_id) if row_region_id > 0 else ''),
-                    'locale': locale,
-                    'first_seen_at': first_seen_at,
-                })
+            rows = self._browser_fetch_with_stability(driver_obj, url, search)
             return rows
         except Exception as e:
             logger.warning(f"[WagoSkillDiff] browser fetch failed: {e}")
@@ -600,68 +494,88 @@ class WagoSkillDiffMonitor(BaseScan):
                 driver_obj2 = self._get_chrome_driver()
                 if not driver_obj2:
                     return []
-                driver_obj2.driver.get(url)
-                driver_obj2.driver.wait.load_start()
-                try:
-                    driver_obj2.driver.wait.eles_loaded('css:td', timeout=15)
-                except Exception:
-                    pass
-                if search:
-                    import time as _t
-                    for _ in range(20):
-                        try:
-                            first_td = driver_obj2.driver.ele('css:tbody tr td:nth-child(7)', timeout=1)
-                            if first_td and (first_td.text or '').strip().lower() == search.lower():
-                                break
-                        except Exception:
-                            pass
-                        _t.sleep(0.5)
-                rows2 = []
-                trs2 = driver_obj2.driver.eles('css:tbody tr', timeout=5)
-                for tr in (trs2 or []):
-                    tds = tr.eles('css:td')
-                    if len(tds) < 8:
-                        continue
-                    push_id = self._to_int(tds[0].text.strip() if tds[0].text else 0)
-                    table_name = (tds[1].text or '').strip()
-                    record_id = self._to_int(tds[2].text.strip() if tds[2].text else 0)
-                    build = (tds[3].text or '').strip()
-                    status = (tds[4].text or '').strip()
-                    region_raw = (tds[5].text or '').strip()
-                    locale = (tds[6].text or '').strip()
-                    first_seen_at = (tds[7].text or '').strip()
-                    row_region_id = 0
-                    region_name = ''
-                    if region_raw.isdigit():
-                        row_region_id = int(region_raw)
-                    elif region_raw:
-                        region_name = region_raw
-                        try:
-                            row_region_id = wago_region_id(region_raw)
-                        except Exception:
-                            row_region_id = 0
-                    if region_id > 0 and row_region_id != region_id:
-                        continue
-                    rows2.append({
-                        'push_id': push_id,
-                        'table_name': table_name,
-                        'record_id': record_id,
-                        'build': build,
-                        'status': status,
-                        'region_id': row_region_id,
-                        'region': region_name or (str(row_region_id) if row_region_id > 0 else ''),
-                        'locale': locale,
-                        'first_seen_at': first_seen_at,
-                    })
-                return rows2
+                return self._browser_fetch_with_stability(driver_obj2, url, search)
             except Exception as e2:
                 logger.warning(f"[WagoSkillDiff] browser retry also failed: {e2}")
                 return []
 
-    def _fetch_hotfix_page_data(self, build_num='', page=1, *, search='', region_id=0):
+    def _browser_fetch_with_stability(self, driver_obj, url, search=''):
+        import time as _t
+        driver_obj.driver.get(url)
+        driver_obj.driver.wait.load_start()
+        try:
+            driver_obj.driver.wait.eles_loaded('css:td', timeout=15)
+        except Exception:
+            pass
+
+        prev_count = -1
+        stable = 0
+        deadline = _t.time() + 15
+        while _t.time() < deadline:
+            try:
+                trs = driver_obj.driver.eles('css:tbody tr', timeout=1)
+                count = len(trs) if trs else 0
+                locale_ok = True
+                if search and count > 0:
+                    try:
+                        first_locale = trs[0].eles('css:td')[6].text if len(trs[0].eles('css:td')) > 6 else ''
+                        locale_ok = (first_locale or '').strip().lower() == search.lower()
+                    except Exception:
+                        locale_ok = False
+                if count > 0 and count == prev_count and locale_ok:
+                    stable += 1
+                    if stable >= 2:
+                        break
+                else:
+                    stable = 0
+                prev_count = count
+            except Exception:
+                stable = 0
+            _t.sleep(0.5)
+
+        rows = []
+        trs = driver_obj.driver.eles('css:tbody tr', timeout=5)
+        for tr in (trs or []):
+            tds = tr.eles('css:td')
+            if len(tds) < 8:
+                continue
+            push_id = self._to_int(tds[0].text.strip() if tds[0].text else 0)
+            table_name = (tds[1].text or '').strip()
+            record_id = self._to_int(tds[2].text.strip() if tds[2].text else 0)
+            build = (tds[3].text or '').strip()
+            status = (tds[4].text or '').strip()
+            region_raw = (tds[5].text or '').strip()
+            locale = (tds[6].text or '').strip()
+            first_seen_at = (tds[7].text or '').strip()
+
+            row_region_id = 0
+            region_name = ''
+            if region_raw.isdigit():
+                row_region_id = int(region_raw)
+            elif region_raw:
+                region_name = region_raw
+                try:
+                    row_region_id = wago_region_id(region_raw)
+                except Exception:
+                    row_region_id = 0
+
+            rows.append({
+                'push_id': push_id,
+                'table_name': table_name,
+                'record_id': record_id,
+                'build': build,
+                'status': status,
+                'region_id': row_region_id,
+                'region': region_name or (str(row_region_id) if row_region_id > 0 else ''),
+                'locale': locale,
+                'first_seen_at': first_seen_at,
+            })
+        return rows
+
+    def _fetch_hotfix_page_data(self, build_num='', page=1, *, search=''):
         search = (search or '').strip()
         if search:
-            return self._fetch_hotfix_page_data_via_browser(search=search, page=page, region_id=region_id)
+            return self._fetch_hotfix_page_data_via_browser(search=search, page=page)
         build_num = str(build_num or '').strip()
         try:
             page = int(page or 1)
@@ -682,12 +596,11 @@ class WagoSkillDiffMonitor(BaseScan):
             data = payload.get('data') or []
         return data if isinstance(data, list) else []
 
-    def _fetch_hotfix_rows(self, build_num='', page=1, push_id=0, *, locale='', region_id=0):
+    def _fetch_hotfix_rows(self, build_num='', page=1, push_id=0, *, locale=''):
         locale = (locale or '').strip()
-        region_id = self._to_int(region_id or 0)
         push_id = self._to_int(push_id or 0)
         search = locale
-        raw = self._fetch_hotfix_page_data(build_num, page=page, search=search, region_id=region_id) or []
+        raw = self._fetch_hotfix_page_data(build_num, page=page, search=search) or []
         if not raw:
             return []
         out = []
@@ -951,7 +864,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 out[spell_id] = {'tables': tables, 'diffs': diffs_by_table}
         return out
 
-    def _generate_hotfix_delta(self, branch, current_build, from_push, to_push, *, locale='', region_id=0):
+    def _generate_hotfix_delta(self, branch, current_build, from_push, to_push, *, locale=''):
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         max_pushes = int(getattr(settings, 'WAGO_HOTFIX_MAX_PUSHES', 20) or 20)
         max_entries = int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 2000) or 2000)
@@ -959,11 +872,10 @@ class WagoSkillDiffMonitor(BaseScan):
         hotfix_rows = []
         push_ids = set()
         locale = (locale or '').strip()
-        region_id = self._to_int(region_id or 0)
         search = locale
         page = 1
         while page <= max_pages and len(hotfix_rows) < max_entries:
-            raw = self._fetch_hotfix_page_data(page=page, search=search, region_id=region_id) or []
+            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
             if not raw:
                 break
             min_pid = 0
@@ -974,8 +886,6 @@ class WagoSkillDiffMonitor(BaseScan):
                 if min_pid <= 0 or pid < min_pid:
                     min_pid = pid
                 if locale and (str((r or {}).get('locale') or '').strip() or '') != locale:
-                    continue
-                if region_id > 0 and self._to_int((r or {}).get('region_id') or 0) != region_id:
                     continue
                 if pid <= int(from_push or 0):
                     continue
@@ -1812,7 +1722,7 @@ class WagoSkillDiffMonitor(BaseScan):
             'class_count': class_count,
         }
 
-    def _generate_hotfix_report(self, branch, current_build, from_push, to_push, *, locale='', region_id=0):
+    def _generate_hotfix_report(self, branch, current_build, from_push, to_push, *, locale=''):
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         max_pushes = int(getattr(settings, 'WAGO_HOTFIX_MAX_PUSHES', 20) or 20)
         max_entries = int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 2000) or 2000)
@@ -1820,11 +1730,10 @@ class WagoSkillDiffMonitor(BaseScan):
         hotfix_rows = []
         push_ids = set()
         locale = (locale or '').strip() or self.locale
-        region_id = self._to_int(region_id or 0)
         search = locale
         page = 1
         while page <= max_pages and len(hotfix_rows) < max_entries:
-            raw = self._fetch_hotfix_page_data(page=page, search=search, region_id=region_id) or []
+            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
             if not raw:
                 break
             min_pid = 0
@@ -1835,8 +1744,6 @@ class WagoSkillDiffMonitor(BaseScan):
                 if min_pid <= 0 or pid < min_pid:
                     min_pid = pid
                 if locale and (str((r or {}).get('locale') or '').strip() or '') != locale:
-                    continue
-                if region_id > 0 and self._to_int((r or {}).get('region_id') or 0) != region_id:
                     continue
                 if pid <= int(from_push or 0):
                     continue
