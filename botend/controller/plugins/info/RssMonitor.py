@@ -122,9 +122,12 @@ class RssArticleMonitor(BaseScan):
 
                 # check time
                 publish_time = "2000-01-01 02:44:46"
-                if "published_parsed" in msg:
-                    dt = datetime.datetime.fromtimestamp(time.mktime(msg.published_parsed))
-                    publish_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f%Z")
+                if "published_parsed" in msg and msg.published_parsed is not None:
+                    try:
+                        dt = datetime.datetime.fromtimestamp(time.mktime(msg.published_parsed))
+                        publish_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f%Z")
+                    except (ValueError, OverflowError, TypeError, OSError):
+                        logger.warning("[Rss Monitor] invalid published_parsed for article: {}".format(title))
                 elif "updated_date" in msg:
                     publish_time = msg.updated_date
 
