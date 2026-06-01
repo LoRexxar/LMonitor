@@ -412,7 +412,7 @@ const PEAK_SPEC_CN = {
   "mistweaver": "织雾",
   "windwalker": "踏风",
   "holy": "奶骑",
-  "protection": "防骑",
+  "protection": "防护",
   "retribution": "惩戒",
   "discipline": "戒律",
   "shadow": "暗影",
