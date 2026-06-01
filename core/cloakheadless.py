@@ -1,3 +1,6 @@
+import glob
+import os
+import shutil
 import time
 import traceback
 
@@ -14,16 +17,33 @@ except Exception:
     PROXY_CONFIG = None
 
 
+def _cleanup_stale_playwright_temp():
+    tmp = os.getenv('TEMP') or os.getenv('TMP') or '/tmp'
+    if not tmp or not os.path.isdir(tmp):
+        return
+    prefix = os.path.join(tmp, 'playwright_chromiumdev_profile-')
+    for d in glob.glob(prefix + '*'):
+        try:
+            shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            pass
+
+
 class CloakDriver:
+    _init_failed = False
+
     def __init__(self, is_proxy=False):
         self.is_proxy = bool(is_proxy)
         self.browser = None
         self.context = None
         self.page = None
+        if CloakDriver._init_failed:
+            raise RuntimeError("[Cloak Headless] previously failed, skip")
         try:
             self.init_object(is_proxy)
         except Exception:
-            logger.error("[Cloak Headless] {}".format(traceback.format_exc()))
+            CloakDriver._init_failed = True
+            logger.warning("[Cloak Headless] init failed, will not retry")
             raise
         self.origin_url = ""
 
@@ -53,16 +73,36 @@ class CloakDriver:
 
         proxy = self._get_proxy() if is_proxy else None
 
-        user_data_dir = (wcl_cfg.get("chrome_user_data_dir") or "").strip()
-        if user_data_dir:
-            self.context = launch_persistent_context(user_data_dir, headless=headless, proxy=proxy, args=args)
-            self.page = self.context.new_page()
-            self.browser = None
-            return
+        _cleanup_stale_playwright_temp()
 
-        self.browser = launch(headless=headless, proxy=proxy, args=args)
-        self.context = self.browser.new_context()
-        self.page = self.context.new_page()
+        user_data_dir = (wcl_cfg.get("chrome_user_data_dir") or "").strip()
+        last_exc = None
+        for attempt in range(3):
+            try:
+                if attempt > 0:
+                    time.sleep(2 * attempt)
+                    _cleanup_stale_playwright_temp()
+                if user_data_dir:
+                    self.context = launch_persistent_context(user_data_dir, headless=headless, proxy=proxy, args=args)
+                    self.page = self.context.new_page()
+                    self.browser = None
+                    return
+                self.browser = launch(headless=headless, proxy=proxy, args=args)
+                self.context = self.browser.new_context()
+                self.page = self.context.new_page()
+                return
+            except Exception as e:
+                last_exc = e
+                short_msg = str(e).split('\n')[0][:200]
+                logger.warning(f"[Cloak Headless] launch attempt {attempt + 1} failed: {short_msg}")
+                try:
+                    self.close_driver()
+                except Exception:
+                    pass
+                if "asyncio loop" in str(e).lower():
+                    break
+        if last_exc:
+            raise last_exc
 
     def _rebuild(self):
         try:

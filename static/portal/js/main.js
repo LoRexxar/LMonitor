@@ -398,8 +398,8 @@ const PEAK_SPEC_CN = {
   "devourer": "噬灭",
   "balance": "平衡",
   "feral": "野性",
-  "guardian": "守护",
-  "restoration": "恢复",
+  "guardian": "熊德",
+  "restoration": "奶德",
   "devastation": "湮灭",
   "preservation": "恩护",
   "augmentation": "增辉",
@@ -411,8 +411,8 @@ const PEAK_SPEC_CN = {
   "brewmaster": "酒仙",
   "mistweaver": "织雾",
   "windwalker": "踏风",
-  "holy": "神圣",
-  "protection": "防护",
+  "holy": "奶骑",
+  "protection": "防骑",
   "retribution": "惩戒",
   "discipline": "戒律",
   "shadow": "暗影",
@@ -697,18 +697,18 @@ const MYTHICSTATS_SPEC_CN = {
   "havoc-demon-hunter": "浩劫",
   "vengeance-demon-hunter": "复仇",
   "retribution-paladin": "惩戒",
-  "protection-paladin": "防护",
-  "holy-paladin": "神圣",
+  "protection-paladin": "防骑",
+  "holy-paladin": "奶骑",
   "arms-warrior": "武器",
   "fury-warrior": "狂怒",
-  "protection-warrior": "防护",
+  "protection-warrior": "防战",
   "outlaw-rogue": "狂徒",
   "subtlety-rogue": "敏锐",
   "assassination-rogue": "奇袭",
   "feral-druid": "野性",
   "balance-druid": "平衡",
-  "guardian-druid": "守护",
-  "restoration-druid": "恢复",
+  "guardian-druid": "熊德",
+  "restoration-druid": "奶德",
   "survival-hunter": "生存",
   "beast-mastery-hunter": "兽王",
   "marksmanship-hunter": "射击",
@@ -723,7 +723,7 @@ const MYTHICSTATS_SPEC_CN = {
   "mistweaver-monk": "织雾",
   "shadow-priest": "暗影",
   "discipline-priest": "戒律",
-  "holy-priest": "神圣",
+  "holy-priest": "神牧",
   "arcane-mage": "奥术",
   "fire-mage": "火焰",
   "frost-mage": "冰霜",
@@ -1079,6 +1079,59 @@ function renderWowSkillDiffStates(containerId, items) {
     el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
     return;
   }
+  let hotfixItem = filtered[0];
+  for (const it of filtered) {
+    if (Number(it.hotfix_push_id || 0) > Number(hotfixItem.hotfix_push_id || 0)) {
+      hotfixItem = it;
+    }
+  }
+  const hotfixPushId = Number(hotfixItem.hotfix_push_id || 0) || 0;
+  let hotfixRow = "";
+  if (hotfixPushId > 0) {
+    const hotfixRunAt = escapeHtml(hotfixItem.hotfix_last_run_at || "");
+    const hotfixRunStatus = escapeHtml(hotfixItem.hotfix_last_run_status || "");
+    const hotfixEventAt = escapeHtml(hotfixItem.hotfix_last_event_at || "");
+    const hotfixEventStatus = escapeHtml(hotfixItem.hotfix_last_event_status || "");
+    const rawHotfixEvent = String(hotfixItem.hotfix_last_event_status || "");
+    const hotfixSummaryTitle = escapeHtml(hotfixItem.hotfix_summary_title || "");
+    const hotfixReportUrl = sanitizeHref(hotfixItem.hotfix_report_url);
+    const hotfixWagoUrl = sanitizeHref(hotfixItem.hotfix_wago_url);
+    const hotfixRunBadge =
+      hotfixRunStatus === "异常"
+        ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-50 text-rose-700 border-rose-200">异常</span>`
+        : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">正常</span>`;
+    const hotfixHasUpdate = rawHotfixEvent.includes("有职业更新");
+    const hotfixBadge = hotfixHasUpdate
+      ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold border bg-violet-100 text-violet-900 border-violet-200">Hotfix 有更新</span>`
+      : (hotfixEventStatus ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-slate-50 text-slate-700 border-slate-200">${escapeHtml(hotfixEventStatus)}</span>` : "");
+    const hotfixReportBtn = hotfixReportUrl
+      ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(hotfixReportUrl)}">${svgIcon("icon-chart", "w-3.5 h-3.5")}<span>Hotfix</span></a>`
+      : "";
+    const hotfixWagoBtn = hotfixWagoUrl
+      ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(hotfixWagoUrl)}" target="_blank" rel="noreferrer">${svgIcon("icon-globe", "w-3.5 h-3.5")}<span>Hotfix Wago</span></a>`
+      : "";
+    hotfixRow = `<div class="py-2.5 border-b border-slate-200/70">
+      <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-start">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <div class="font-semibold text-slate-900">Hotfix</div>
+            <div class="text-slate-500 font-semibold">#${hotfixPushId}</div>
+            ${hotfixRunBadge}
+            ${hotfixBadge}
+          </div>
+          <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
+            ${hotfixSummaryTitle ? `<span class="text-slate-700 font-semibold">${hotfixSummaryTitle}</span>` : ""}
+            ${hotfixRunAt ? `<span>心跳：${hotfixRunAt}</span>` : ""}
+            ${hotfixEventAt ? `<span>事件时间：${hotfixEventAt}</span>` : ""}
+          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-0.5">
+          ${hotfixReportBtn}
+          ${hotfixWagoBtn}
+        </div>
+      </div>
+    </div>`;
+  }
   const rows = filtered
     .slice(0, 12)
     .map((it, idx) => {
@@ -1092,27 +1145,12 @@ function renderWowSkillDiffStates(containerId, items) {
       const summaryTitle = escapeHtml(it.summary_title || "");
       const reportUrl = sanitizeHref(it.report_url);
       const wagoUrl = sanitizeHref(it.wago_diff_url);
-      const hotfixPushId = Number(it.hotfix_push_id || 0) || 0;
-      const hotfixRunAt = escapeHtml(it.hotfix_last_run_at || "");
-      const hotfixRunStatus = escapeHtml(it.hotfix_last_run_status || "");
-      const hotfixEventAt = escapeHtml(it.hotfix_last_event_at || "");
-      const hotfixEventStatus = escapeHtml(it.hotfix_last_event_status || "");
-      const rawHotfixEvent = String(it.hotfix_last_event_status || "");
-      const hotfixSummaryTitle = escapeHtml(it.hotfix_summary_title || "");
-      const hotfixReportUrl = sanitizeHref(it.hotfix_report_url);
-      const hotfixWagoUrl = sanitizeHref(it.hotfix_wago_url);
       const divider = idx === 0 ? "" : "border-t border-slate-200/70";
       const reportBtn = reportUrl
         ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(reportUrl)}">${svgIcon("icon-chart", "w-3.5 h-3.5")}<span>报告</span></a>`
         : "";
       const wagoBtn = wagoUrl
         ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(wagoUrl)}" target="_blank" rel="noreferrer">${svgIcon("icon-globe", "w-3.5 h-3.5")}<span>Wago</span></a>`
-        : "";
-      const hotfixReportBtn = hotfixReportUrl
-        ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(hotfixReportUrl)}">${svgIcon("icon-chart", "w-3.5 h-3.5")}<span>Hotfix</span></a>`
-        : "";
-      const hotfixWagoBtn = hotfixWagoUrl
-        ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(hotfixWagoUrl)}" target="_blank" rel="noreferrer">${svgIcon("icon-globe", "w-3.5 h-3.5")}<span>Hotfix Wago</span></a>`
         : "";
       const runBadge =
         runStatus === "异常"
@@ -1122,11 +1160,6 @@ function renderWowSkillDiffStates(containerId, items) {
       const eventBadge = hasUpdate
         ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold border bg-amber-100 text-amber-900 border-amber-200">有职业更新</span>`
         : (eventStatus ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-slate-50 text-slate-700 border-slate-200">${escapeHtml(eventStatus)}</span>` : "");
-      const hotfixHasUpdate = rawHotfixEvent.includes("有职业更新");
-      const hotfixBadge = hotfixHasUpdate
-        ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold border bg-violet-100 text-violet-900 border-violet-200">Hotfix 有更新</span>`
-        : (hotfixEventStatus ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-slate-50 text-slate-700 border-slate-200">${escapeHtml(hotfixEventStatus)}</span>` : "");
-
       return `<div class="py-2.5 ${divider}">
         <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-start">
           <div class="min-w-0">
@@ -1135,29 +1168,22 @@ function renderWowSkillDiffStates(containerId, items) {
               <div class="text-slate-500 font-semibold">${build}</div>
               ${runBadge}
               ${eventBadge}
-              ${hotfixPushId > 0 ? `<div class="text-slate-500 font-semibold">Hotfix#${hotfixPushId}</div>` : ""}
-              ${hotfixPushId > 0 ? hotfixBadge : ""}
             </div>
             <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
               ${summaryTitle ? `<span class="text-slate-700 font-semibold">${summaryTitle}</span>` : ""}
               ${runAt ? `<span>心跳：${runAt}</span>` : ""}
               ${eventAt ? `<span>事件时间：${eventAt}</span>` : ""}
-              ${hotfixSummaryTitle ? `<span class="text-slate-700 font-semibold">${hotfixSummaryTitle}</span>` : ""}
-              ${hotfixRunAt ? `<span>Hotfix 心跳：${hotfixRunAt}</span>` : ""}
-              ${hotfixEventAt ? `<span>Hotfix 事件：${hotfixEventAt}</span>` : ""}
             </div>
           </div>
           <div class="flex items-center justify-end gap-2 pt-0.5">
             ${reportBtn}
             ${wagoBtn}
-            ${hotfixReportBtn}
-            ${hotfixWagoBtn}
           </div>
         </div>
       </div>`;
     })
     .join("");
-  el.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white overflow-hidden px-3 py-2">${rows}</div>`;
+  el.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white overflow-hidden px-3 py-2">${hotfixRow}${rows}</div>`;
 }
 
 async function loadSection(key) {

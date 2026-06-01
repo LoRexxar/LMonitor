@@ -1,7 +1,10 @@
 import json
 import re
+import time
 
 import requests
+import urllib3
+from django.conf import settings as django_settings
 
 from botend.controller.BaseScan import BaseScan
 from botend.models import PortalMplusRun
@@ -50,35 +53,67 @@ class PortalMplusRunMonitor(BaseScan):
             logger.error(f"[PortalMplusRunMonitor] error: {str(e)}")
             return False
 
+    def _get_proxies(self):
+        proxies = getattr(django_settings, 'PROXY_CONFIG', None)
+        return proxies if isinstance(proxies, dict) and proxies else None
+
+    def _request_with_retry(self, url, timeout=25, retries=3, parse_json=True):
+        proxies = self._get_proxies()
+        headers = {"User-Agent": "Mozilla/5.0"}
+        last_err = None
+        for attempt in range(retries):
+            try:
+                if attempt > 0:
+                    time.sleep(1 + attempt)
+                resp = requests.get(url, timeout=timeout, headers=headers, proxies=proxies)
+                if resp.status_code != 200:
+                    return None
+                if parse_json:
+                    return resp.json() or {}
+                return resp.text or ''
+            except (requests.exceptions.SSLError, urllib3.exceptions.SSLError) as e:
+                last_err = e
+                logger.warning(f"[PortalMplusRunMonitor] SSL error (attempt {attempt + 1}/{retries}): {e}")
+                continue
+            except requests.exceptions.RequestException as e:
+                last_err = e
+                logger.warning(f"[PortalMplusRunMonitor] fetch failed (attempt {attempt + 1}/{retries}): {e}")
+                continue
+        logger.warning(f"[PortalMplusRunMonitor] fetch failed after {retries} retries: {last_err}")
+        return None
+
     def _fetch_json(self, url):
         try:
-            resp = requests.get(url, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"[PortalMplusRunMonitor] fetch failed: {str(e)}")
-            return None
-        if resp.status_code != 200:
-            return None
-        try:
-            return resp.json() or {}
+            resp = self.req.getResponse(url, '', headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+            if resp is not None and getattr(resp, 'status_code', 0) == 200:
+                return resp.json() or {}
         except Exception:
-            return None
+            pass
+        result = self._request_with_retry(url, timeout=25, retries=3, parse_json=True)
+        return result
 
     def _get_season_dungeons(self, season_slug):
         try:
-            resp = requests.get(
-                "https://raider.io/api/v1/mythic-plus/static-data?expansion_id=11",
-                timeout=25,
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            if resp.status_code != 200:
+            url = "https://raider.io/api/v1/mythic-plus/static-data?expansion_id=11"
+            try:
+                resp = self.req.getResponse(url, '', headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+                if resp is not None and getattr(resp, 'status_code', 0) == 200:
+                    payload = resp.json() or {}
+                    seasons = payload.get("seasons") or []
+                    for s in seasons:
+                        if (s.get("slug") or "").strip() == season_slug:
+                            return s.get("dungeons") or []
+            except Exception:
+                pass
+            payload = self._request_with_retry(url, timeout=25, retries=3, parse_json=True)
+            if not payload:
                 return []
-            payload = resp.json() or {}
             seasons = payload.get("seasons") or []
             for s in seasons:
                 if (s.get("slug") or "").strip() == season_slug:
                     return s.get("dungeons") or []
         except Exception:
-            return []
+            pass
         return []
 
     def _upsert_row(self, row, source, season=None, region=None):
