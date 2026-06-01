@@ -2860,8 +2860,8 @@ function formatDateTime(dateString) {
             const parts = raw.split(/\s+/);
             const day = parts[0] || '';
             const time = parts[1] || '';
-            const hm = time.length >= 5 ? time.slice(0, 5) : time;
-            return day && hm ? `${day} ${hm}` : raw;
+            const hms = time.length >= 8 ? time.slice(0, 8) : (time.length >= 5 ? time.slice(0, 5) : time);
+            return day && hms ? `${day} ${hms}` : raw;
         }
         if (/^\d{2}:\d{2}(:\d{2})?$/.test(raw)) return raw;
 
@@ -2893,8 +2893,9 @@ function formatDateTime(dateString) {
         const d = pick('day');
         const hh = pick('hour');
         const mm = pick('minute');
+        const ss = pick('second');
         if (!y || !m || !d) return raw;
-        return `${y}-${m}-${d} ${hh}:${mm}`;
+        return ss ? `${y}-${m}-${d} ${hh}:${mm}:${ss}` : `${y}-${m}-${d} ${hh}:${mm}`;
     } catch (e) {
         return String(dateString);
     }
@@ -3402,7 +3403,7 @@ function generateEditFormFields(container, rowData) {
     }
     
     currentTableColumns.forEach(column => {
-        if (column.toLowerCase() === 'id' || column.toLowerCase().includes('time')) {
+        if (column.toLowerCase() === 'id' || isTimeField(column)) {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -3513,7 +3514,7 @@ function submitEditRecord() {
     
     const updateData = {};
     currentTableColumns.forEach(column => {
-        if (column === 'id' || column.toLowerCase().includes('time')) {
+        if (column === 'id' || isTimeField(column)) {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -3584,7 +3585,7 @@ function generateFormFields(container) {
     
     currentTableColumns.forEach(column => {
         // 跳过ID字段和时间字段（通常由系统自动生成）
-        if (column.toLowerCase() === 'id' || column.toLowerCase().includes('time')) {
+        if (column.toLowerCase() === 'id' || isTimeField(column)) {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -3925,7 +3926,7 @@ function submitAddRecord() {
     // 遍历所有表单字段，正确处理不同类型的输入
     currentTableColumns.forEach(column => {
         // 跳过自动生成的字段
-        if (column === 'id' || column.includes('created_at') || column.includes('updated_at')) {
+        if (column === 'id' || isTimeField(column)) {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
