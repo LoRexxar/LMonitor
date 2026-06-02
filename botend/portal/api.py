@@ -432,6 +432,8 @@ class PortalMplusCutoffAPIView(View):
                 updated_at = ut
             cutoff_0_1 = getattr(row, 'cutoff_0_1', None)
             cutoff_1 = getattr(row, 'cutoff_1', None)
+            cutoff_0_1_prev = getattr(row, 'cutoff_0_1_prev', None)
+            cutoff_1_prev = getattr(row, 'cutoff_1_prev', None)
             title = f"{region_map.get(r, r)} 0.1%：{(round(float(cutoff_0_1), 2) if cutoff_0_1 is not None else '--')} / 1%：{(round(float(cutoff_1), 2) if cutoff_1 is not None else '--')}"
             items.append({
                 "region": r,
@@ -439,6 +441,8 @@ class PortalMplusCutoffAPIView(View):
                 "season": (getattr(row, 'season', '') or '').strip(),
                 "cutoff_0_1": cutoff_0_1,
                 "cutoff_1": cutoff_1,
+                "cutoff_0_1_prev": cutoff_0_1_prev,
+                "cutoff_1_prev": cutoff_1_prev,
                 "updated_at": ut,
                 "source_updated_at": (getattr(row, 'source_updated_at', '') or '').strip(),
                 "source": (getattr(row, 'source', '') or '').strip() or "raiderio",

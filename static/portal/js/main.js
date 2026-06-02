@@ -342,6 +342,17 @@ function renderMplusCutoffs(containerId, payload) {
     return Number.isFinite(n) ? n.toFixed(2) : "--";
   };
 
+  const fmtDiff = (cur, prev) => {
+    const c = Number(cur);
+    const p = Number(prev);
+    if (!Number.isFinite(c) || !Number.isFinite(p)) return { text: "--", cls: "text-slate-400" };
+    const d = c - p;
+    if (Math.abs(d) < 0.005) return { text: "0.00", cls: "text-slate-400" };
+    const sign = d > 0 ? "+" : "";
+    const cls = d > 0 ? "text-emerald-600" : "text-red-500";
+    return { text: `${sign}${d.toFixed(2)}`, cls };
+  };
+
   const rows = filtered
     .slice(0, 6)
     .map((it) => {
@@ -351,10 +362,14 @@ function renderMplusCutoffs(containerId, payload) {
       const rCell = url
         ? `<a class="font-medium text-slate-900 hover:text-indigo-700" href="${url}" target="_blank" rel="noreferrer">${region}</a>`
         : `<span class="font-medium text-slate-900">${region}</span>`;
+      const diff01 = fmtDiff(it.cutoff_0_1, it.cutoff_0_1_prev);
+      const diff1 = fmtDiff(it.cutoff_1, it.cutoff_1_prev);
       return `<tr class="border-t border-slate-100">
         <td class="px-3 py-2">${rCell}</td>
         <td class="px-3 py-2 text-right tabular-nums">${escapeHtml(fmt(it.cutoff_0_1))}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-xs ${diff01.cls}">${escapeHtml(diff01.text)}</td>
         <td class="px-3 py-2 text-right tabular-nums">${escapeHtml(fmt(it.cutoff_1))}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-xs ${diff1.cls}">${escapeHtml(diff1.text)}</td>
       </tr>`;
     })
     .join("");
@@ -365,7 +380,9 @@ function renderMplusCutoffs(containerId, payload) {
         <tr>
           <th class="px-3 py-2 text-left font-semibold text-slate-700">服务器</th>
           <th class="px-3 py-2 text-right font-semibold text-slate-700">0.1%</th>
+          <th class="px-3 py-2 text-right font-semibold text-slate-700">较前</th>
           <th class="px-3 py-2 text-right font-semibold text-slate-700">1%</th>
+          <th class="px-3 py-2 text-right font-semibold text-slate-700">较前</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>

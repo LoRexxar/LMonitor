@@ -1,4 +1,5 @@
 import time
+from datetime import date
 
 import requests
 
@@ -89,12 +90,32 @@ class PortalMplusCutoffMonitor(BaseScan):
         cutoff_1 = _get(payload, ["cutoffs", "p990", "all", "quantileMinValue"])
         source_updated_at = _get(payload, ["cutoffs", "updatedAt"], "") or ""
 
+        today = date.today()
+        try:
+            existing = PortalMplusSeasonCutoff.objects.filter(
+                season=season, region=region
+            ).first()
+        except Exception:
+            existing = None
+
+        prev_0_1 = getattr(existing, 'cutoff_0_1_prev', None) if existing else None
+        prev_1 = getattr(existing, 'cutoff_1_prev', None) if existing else None
+        prev_date = getattr(existing, 'prev_updated_at', None) if existing else None
+
+        if prev_date != today:
+            prev_0_1 = getattr(existing, 'cutoff_0_1', None) if existing else None
+            prev_1 = getattr(existing, 'cutoff_1', None) if existing else None
+            prev_date = today
+
         PortalMplusSeasonCutoff.objects.update_or_create(
             season=season,
             region=region,
             defaults={
                 "cutoff_0_1": cutoff_0_1,
                 "cutoff_1": cutoff_1,
+                "cutoff_0_1_prev": prev_0_1,
+                "cutoff_1_prev": prev_1,
+                "prev_updated_at": prev_date,
                 "source": "raiderio",
                 "source_updated_at": str(source_updated_at),
             },
