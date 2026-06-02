@@ -207,6 +207,12 @@
                             WoW 日报
                         </a>
                     </li>
+                    <li class="nav-item" data-section="error-logs">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-bug mr-3"></i>
+                            错误日志
+                        </a>
+                    </li>
                     <li class="nav-item has-submenu" data-section="tools">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-tools mr-3"></i>
@@ -465,6 +471,61 @@
                 </div>
             </div>
             
+            <!-- 错误日志内容区域 -->
+            <div class="content-section" id="error-logs" style="display: none;">
+                <div class="mb-6">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2">错误日志</h2>
+                    <p class="text-gray-600">系统自动收集的所有 ERROR/CRITICAL 级别日志</p>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <div class="flex items-center space-x-4">
+                            <div class="relative">
+                                <input type="text" id="error-log-search" placeholder="搜索错误日志..." class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                            </div>
+                            <select id="error-log-page-size" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="20">显示 20 条</option>
+                                <option value="50">显示 50 条</option>
+                                <option value="100">显示 100 条</option>
+                            </select>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="error-log-show-read" class="h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                <span class="text-sm text-gray-700">显示已读</span>
+                            </label>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button id="error-log-refresh" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center">
+                                <i class="fas fa-sync-alt mr-2"></i>刷新
+                            </button>
+                            <button id="error-log-mark-all-read" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200 flex items-center">
+                                <i class="fas fa-check-double mr-2"></i>全部已读
+                            </button>
+                            <button id="error-log-delete-all-read" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200 flex items-center">
+                                <i class="fas fa-trash-alt mr-2"></i>清除已读
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                    <div id="error-log-list" class="divide-y divide-gray-200">
+                    </div>
+                    <div id="error-log-empty" class="text-center py-12 hidden">
+                        <i class="fas fa-check-circle text-green-400 text-4xl mb-4"></i>
+                        <p class="text-gray-500 text-lg">暂无错误日志</p>
+                        <p class="text-gray-400 text-sm">系统运行正常</p>
+                    </div>
+                    <div id="error-log-pagination" class="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                        <div class="flex items-center justify-between">
+                            <div id="error-log-page-info" class="text-sm text-gray-700">显示 0 条，共 0 条记录</div>
+                            <div id="error-log-page-buttons" class="flex items-center space-x-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Tools内容区域 -->
             <div class="content-section" id="tools" style="display: none;">
                 <div class="mb-6">

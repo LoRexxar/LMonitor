@@ -10,6 +10,15 @@ class PortalHomeView(View):
         return render(request, 'portal/index.html')
 
 
+class PortalArticleView(View):
+    def get(self, request, article_id):
+        try:
+            article_id = int(article_id)
+        except Exception:
+            return HttpResponse('Not Found', status=404)
+        return render(request, 'portal/article.html', {'article_id': article_id})
+
+
 class PortalWowSkillDiffReportView(View):
     def get(self, request, report_id):
         try:

@@ -115,10 +115,13 @@ function renderSimpleList(containerId, items, opts) {
   const limit = typeof opts?.limit === "number" ? opts.limit : 12;
   const asGrid = containerId === "nga-list";
   const showReplyBadge = opts?.showReplyBadge === true || containerId === "nga-list";
+  const isArticleList = containerId === "blueposts-list" || containerId === "wowhead-list";
   const html = filtered
     .slice(0, limit)
     .map((it, idx) => {
       const title = escapeHtml(it.title || "");
+      const titleCn = escapeHtml(it.title_cn || "");
+      const displayTitle = titleCn || title;
       const rawUrl = it.url || it.source_url || "";
       const href = sanitizeHref(rawUrl);
       const url = escapeHtml(href);
@@ -144,12 +147,22 @@ function renderSimpleList(containerId, items, opts) {
       const meta = parts.join("");
 
       const divider = asGrid ? "border-b border-slate-100" : (idx === 0 ? "" : "border-t border-slate-100");
+
+      const articleId = it.id;
+      const articleLink = isArticleList && articleId ? `/portal/article/${articleId}/` : "";
+      const externalLinkIcon = href ? `<a href="${url}" target="_blank" rel="noreferrer" class="inline-flex items-center text-slate-400 hover:text-indigo-600 ml-1" title="查看原文">${svgIcon("icon-globe", "w-3.5 h-3.5")}</a>` : "";
+
+      let titleHtml;
+      if (articleLink) {
+        titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${escapeHtml(articleLink)}">${displayTitle}${titleCn ? externalLinkIcon : ""}</a>`;
+      } else if (url) {
+        titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`;
+      } else {
+        titleHtml = `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`;
+      }
+
       return `<div class="py-2 ${divider}">
-        ${
-          url
-            ? `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
-            : `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`
-        }
+        ${titleHtml}
         ${meta ? `<div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">${meta}</div>` : ""}
       </div>`;
     })
@@ -342,6 +355,17 @@ function renderMplusCutoffs(containerId, payload) {
     return Number.isFinite(n) ? n.toFixed(2) : "--";
   };
 
+  const fmtDiff = (cur, prev) => {
+    const c = Number(cur);
+    const p = Number(prev);
+    if (!Number.isFinite(c) || !Number.isFinite(p)) return { text: "--", cls: "text-slate-400" };
+    const d = c - p;
+    if (Math.abs(d) < 0.005) return { text: "0.00", cls: "text-slate-400" };
+    const sign = d > 0 ? "+" : "";
+    const cls = d > 0 ? "text-emerald-600" : "text-red-500";
+    return { text: `${sign}${d.toFixed(2)}`, cls };
+  };
+
   const rows = filtered
     .slice(0, 6)
     .map((it) => {
@@ -351,10 +375,14 @@ function renderMplusCutoffs(containerId, payload) {
       const rCell = url
         ? `<a class="font-medium text-slate-900 hover:text-indigo-700" href="${url}" target="_blank" rel="noreferrer">${region}</a>`
         : `<span class="font-medium text-slate-900">${region}</span>`;
+      const diff01 = fmtDiff(it.cutoff_0_1, it.cutoff_0_1_prev);
+      const diff1 = fmtDiff(it.cutoff_1, it.cutoff_1_prev);
       return `<tr class="border-t border-slate-100">
         <td class="px-3 py-2">${rCell}</td>
         <td class="px-3 py-2 text-right tabular-nums">${escapeHtml(fmt(it.cutoff_0_1))}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-xs ${diff01.cls}">${escapeHtml(diff01.text)}</td>
         <td class="px-3 py-2 text-right tabular-nums">${escapeHtml(fmt(it.cutoff_1))}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-xs ${diff1.cls}">${escapeHtml(diff1.text)}</td>
       </tr>`;
     })
     .join("");
@@ -365,7 +393,9 @@ function renderMplusCutoffs(containerId, payload) {
         <tr>
           <th class="px-3 py-2 text-left font-semibold text-slate-700">服务器</th>
           <th class="px-3 py-2 text-right font-semibold text-slate-700">0.1%</th>
+          <th class="px-3 py-2 text-right font-semibold text-slate-700">较前</th>
           <th class="px-3 py-2 text-right font-semibold text-slate-700">1%</th>
+          <th class="px-3 py-2 text-right font-semibold text-slate-700">较前</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -549,56 +579,79 @@ function renderMplusRuns(containerId, items) {
   }
   const q = getSearchQuery();
   const filtered = filterItems(items, q);
-  const rows = filtered.slice(0, 10).map((it) => {
-    const rank = escapeHtml(it.rank);
+
+  const fmtTime = (sec) => {
+    if (!sec && sec !== 0) return "--";
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
+  const renderMember = (m) => {
+    const name = escapeHtml(m?.name || "-");
+    const color = classColor(m?.class_slug);
+    const border = m?.class_slug === "priest" ? "border-slate-400" : "border-transparent";
+    return `<span class="inline-flex items-center gap-1 rounded-md bg-white/70 border ${border} px-1.5 py-0.5">
+      <span class="w-2 h-2 rounded-full border border-slate-200" style="background:${color}"></span>
+      <span class="text-slate-800 text-xs font-medium">${name}</span>
+    </span>`;
+  };
+
+  const rows = filtered.map((it) => {
     const dungeon = escapeHtml(it.dungeon_cn || it.dungeon || "");
-    const level = escapeHtml(it.level);
-    const score = it.score ? escapeHtml(it.score) : "";
-    const time = it.time_seconds ? `${Math.floor(it.time_seconds / 60)}:${String(it.time_seconds % 60).padStart(2, "0")}` : "";
+    const level = it.level || 0;
+    const time = fmtTime(it.time_seconds);
+    const score = it.score ? Number(it.score).toFixed(1) : "--";
     const party = Array.isArray(it.party) ? it.party : [];
     const tank = party.find((p) => (p.role || "") === "tank") || {};
     const healer = party.find((p) => (p.role || "") === "healer") || {};
     const dpsList = party.filter((p) => (p.role || "") === "dps");
-    const renderMember = (m) => {
-      const name = escapeHtml(m?.name || "-");
-      const color = classColor(m?.class_slug);
-      const border = m?.class_slug === "priest" ? "border-slate-400" : "border-transparent";
-      return `<span class="inline-flex items-center gap-1.5 rounded-md bg-white/70 border ${border} px-1.5 py-0.5">
-        <span class="w-2 h-2 rounded-full border border-slate-200" style="background:${color}"></span>
-        <span class="text-slate-800 font-semibold">${name}</span>
-      </span>`;
-    };
     const tankHtml = renderMember(tank);
     const healerHtml = renderMember(healer);
-    const dpsHtml = dpsList.length ? dpsList.map(renderMember).join(" / ") : (Array.isArray(it.dps) ? it.dps.map((x) => escapeHtml(x)).join(" / ") : "-");
+    const dpsHtml = dpsList.length
+      ? dpsList.map(renderMember).join("")
+      : (Array.isArray(it.dps) ? it.dps.map((x) => `<span class="text-xs text-slate-600">${escapeHtml(x)}</span>`).join(" / ") : "-");
     const runHref = sanitizeHref(it.run_url || "");
-    const link = runHref ? `<a class="text-indigo-700 hover:text-indigo-900 text-xs" href="${escapeHtml(runHref)}" target="_blank" rel="noreferrer">详情</a>` : "";
-    return `<tr class="border-t border-slate-100">
-      <td class="py-2 pr-2 text-slate-500">${rank}</td>
-      <td class="py-2 pr-2">
+    const link = runHref
+      ? `<a class="text-indigo-600 hover:text-indigo-800 text-xs font-medium" href="${escapeHtml(runHref)}" target="_blank" rel="noreferrer">Raider.IO</a>`
+      : "";
+
+    return `<tr class="border-t border-slate-100 hover:bg-slate-50/50">
+      <td class="px-3 py-2.5">
         <div class="font-medium text-slate-900">${dungeon}</div>
-        <div class="text-xs text-slate-500 mt-0.5">T：${tankHtml} · N：${healerHtml} · DPS：${dpsHtml}</div>
       </td>
-      <td class="py-2 pr-2 text-slate-700">+${level}</td>
-      <td class="py-2 pr-2 text-slate-700">${time}</td>
-      <td class="py-2 pr-2 text-slate-700">${score}</td>
-      <td class="py-2 pr-2 text-right">${link}</td>
+      <td class="px-3 py-2.5 text-center">
+        <span class="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-semibold text-sm">+${level}</span>
+      </td>
+      <td class="px-3 py-2.5 text-center tabular-nums text-slate-700">${time}</td>
+      <td class="px-3 py-2.5 text-center tabular-nums text-slate-700">${score}</td>
+      <td class="px-3 py-2.5">
+        <div class="flex flex-wrap items-center gap-1">
+          <span class="text-slate-400 text-xs">T</span>${tankHtml}
+          <span class="text-slate-400 text-xs ml-1">N</span>${healerHtml}
+          <span class="text-slate-400 text-xs ml-1">D</span>${dpsHtml}
+        </div>
+      </td>
+      <td class="px-3 py-2.5 text-right">${link}</td>
     </tr>`;
   });
+
   el.innerHTML = `
-    <table class="w-full text-sm">
-      <thead class="text-xs text-slate-500">
-        <tr>
-          <th class="text-left py-2 pr-2 font-medium">排名</th>
-          <th class="text-left py-2 pr-2 font-medium">地下城</th>
-          <th class="text-left py-2 pr-2 font-medium">层数</th>
-          <th class="text-left py-2 pr-2 font-medium">时间</th>
-          <th class="text-left py-2 pr-2 font-medium">分数</th>
-          <th class="text-right py-2 pr-2 font-medium">链接</th>
-        </tr>
-      </thead>
-      <tbody>${rows.join("")}</tbody>
-    </table>
+    <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50">
+          <tr>
+            <th class="px-3 py-2 text-left font-semibold text-slate-700">副本</th>
+            <th class="px-3 py-2 text-center font-semibold text-slate-700">层数</th>
+            <th class="px-3 py-2 text-center font-semibold text-slate-700">时间</th>
+            <th class="px-3 py-2 text-center font-semibold text-slate-700">分数</th>
+            <th class="px-3 py-2 text-left font-semibold text-slate-700">队伍配置</th>
+            <th class="px-3 py-2 text-right font-semibold text-slate-700">链接</th>
+          </tr>
+        </thead>
+        <tbody>${rows.join("")}</tbody>
+      </table>
+    </div>
   `;
 }
 

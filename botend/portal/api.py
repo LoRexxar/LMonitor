@@ -48,13 +48,17 @@ def _normalize_display_text(v):
 
 def _article_to_dict(a):
     return {
+        'id': a.id,
         'title': a.title or '',
+        'title_cn': a.title_cn or '',
         'url': _normalize_url(a.url),
         'author': _normalize_display_text(a.author),
         'source': a.source or '',
         'category': a.category or '',
         'publish_time': _fmt_dt(a.publish_time),
         'reply_count': int(getattr(a, 'reply_count', 0) or 0),
+        'has_content': bool(a.content),
+        'has_translation': bool(a.content_cn),
     }
 
 
@@ -357,6 +361,36 @@ class PortalWowheadLatestAPIView(View):
         return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
 
 
+class PortalArticleDetailAPIView(View):
+    def get(self, request, article_id):
+        try:
+            article = WowArticle.objects.get(id=article_id, is_active=True)
+        except WowArticle.DoesNotExist:
+            return JsonResponse({'status': 'error', 'message': '文章不存在'}, status=404)
+
+        content_cn = None
+        if article.content_cn:
+            try:
+                content_cn = json.loads(article.content_cn)
+            except Exception:
+                content_cn = None
+
+        return JsonResponse({
+            'status': 'success',
+            'data': {
+                'id': article.id,
+                'title': article.title or '',
+                'title_cn': article.title_cn or '',
+                'url': _normalize_url(article.url),
+                'author': _normalize_display_text(article.author),
+                'source': article.source or '',
+                'category': article.category or '',
+                'publish_time': _fmt_dt(article.publish_time),
+                'content': article.content or '',
+                'content_cn': content_cn,
+            }
+        })
+
 
 class PortalEventsAPIView(View):
     def get(self, request):
@@ -432,6 +466,8 @@ class PortalMplusCutoffAPIView(View):
                 updated_at = ut
             cutoff_0_1 = getattr(row, 'cutoff_0_1', None)
             cutoff_1 = getattr(row, 'cutoff_1', None)
+            cutoff_0_1_prev = getattr(row, 'cutoff_0_1_prev', None)
+            cutoff_1_prev = getattr(row, 'cutoff_1_prev', None)
             title = f"{region_map.get(r, r)} 0.1%：{(round(float(cutoff_0_1), 2) if cutoff_0_1 is not None else '--')} / 1%：{(round(float(cutoff_1), 2) if cutoff_1 is not None else '--')}"
             items.append({
                 "region": r,
@@ -439,6 +475,8 @@ class PortalMplusCutoffAPIView(View):
                 "season": (getattr(row, 'season', '') or '').strip(),
                 "cutoff_0_1": cutoff_0_1,
                 "cutoff_1": cutoff_1,
+                "cutoff_0_1_prev": cutoff_0_1_prev,
+                "cutoff_1_prev": cutoff_1_prev,
                 "updated_at": ut,
                 "source_updated_at": (getattr(row, 'source_updated_at', '') or '').strip(),
                 "source": (getattr(row, 'source', '') or '').strip() or "raiderio",
@@ -472,21 +510,26 @@ class PortalMplusRankingsAPIView(View):
             {'slug': 'skyreach', 'name_cn': '通天峰'},
             {'slug': 'windrunner-spire', 'name_cn': '风行者之塔'},
         ]
+        dungeon_name_map = {d['slug']: d['name_cn'] for d in dungeons}
 
         qs = PortalMplusRun.objects.filter(is_active=True, season=season, region=region)
         if dungeon:
             qs = qs.filter(dungeon_slug=dungeon).order_by('rank')[:30]
-        else:
-            qs = qs.order_by('-score', 'rank', 'id')[:60]
-
-        items = []
-        if dungeon:
             items = [_mplus_to_dict(x) for x in qs]
         else:
-            for i, x in enumerate(qs):
-                it = _mplus_to_dict(x)
-                it['rank'] = i + 1
-                items.append(it)
+            qs = qs.order_by('dungeon_slug', '-level', 'time_seconds')
+            best_by_dungeon = {}
+            for x in qs:
+                slug = (getattr(x, 'dungeon_slug', '') or '').strip()
+                if slug and slug not in best_by_dungeon:
+                    best_by_dungeon[slug] = x
+            items = []
+            for slug in [d['slug'] for d in dungeons]:
+                run = best_by_dungeon.get(slug)
+                if run:
+                    it = _mplus_to_dict(run)
+                    it['dungeon_cn'] = dungeon_name_map.get(slug, it.get('dungeon_cn', ''))
+                    items.append(it)
         return JsonResponse({'status': 'success', 'data': {'dungeons': dungeons, 'items': items}})
 
 

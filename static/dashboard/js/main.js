@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initSimcProfileFilters();
     initWowArticleFilters();
     initWowDailyReportPage();
+    initErrorLogPage();
     
     // 初始化页面大小选择器
     initPageSizeSelector();
@@ -7275,5 +7276,213 @@ async function fetchWclDashboardTasks() {
         `).join('');
     } catch (e) {
         tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-red-600">加载失败</td></tr>';
+    }
+}
+
+
+function initErrorLogPage() {
+    const refreshBtn = document.getElementById('error-log-refresh');
+    const markAllBtn = document.getElementById('error-log-mark-all-read');
+    const deleteAllReadBtn = document.getElementById('error-log-delete-all-read');
+    const searchInput = document.getElementById('error-log-search');
+    const pageSizeSelect = document.getElementById('error-log-page-size');
+    const showReadCheckbox = document.getElementById('error-log-show-read');
+
+    let currentPage = 1;
+    let currentSearch = '';
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => loadErrorLogs(1));
+    }
+    if (markAllBtn) {
+        markAllBtn.addEventListener('click', async () => {
+            if (!confirm('确定将所有错误日志标记为已读？')) return;
+            try {
+                const resp = await fetch('/api/system-alert/', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark_all_read', category: 'ERROR_LOG' })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('已全部标记为已读', 'success');
+                    loadErrorLogs(1);
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('操作失败', 'error');
+            }
+        });
+    }
+    if (deleteAllReadBtn) {
+        deleteAllReadBtn.addEventListener('click', async () => {
+            if (!confirm('确定清除所有已读的错误日志？此操作不可恢复。')) return;
+            try {
+                const resp = await fetch('/api/system-alert/', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'delete_all_read', category: 'ERROR_LOG' })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('已清除所有已读日志', 'success');
+                    loadErrorLogs(1);
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('操作失败', 'error');
+            }
+        });
+    }
+    if (searchInput) {
+        let searchTimer = null;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                currentSearch = searchInput.value.trim();
+                loadErrorLogs(1);
+            }, 300);
+        });
+    }
+    if (pageSizeSelect) {
+        pageSizeSelect.addEventListener('change', () => loadErrorLogs(1));
+    }
+    if (showReadCheckbox) {
+        showReadCheckbox.addEventListener('change', () => loadErrorLogs(1));
+    }
+
+    async function loadErrorLogs(page) {
+        currentPage = page || 1;
+        const listEl = document.getElementById('error-log-list');
+        const emptyEl = document.getElementById('error-log-empty');
+        const pageInfoEl = document.getElementById('error-log-page-info');
+        const pageButtonsEl = document.getElementById('error-log-page-buttons');
+        if (!listEl) return;
+
+        const pageSize = pageSizeSelect ? pageSizeSelect.value : '20';
+        const showRead = showReadCheckbox ? showReadCheckbox.checked : false;
+
+        let url = `/api/system-alert/?category=ERROR_LOG&page=${currentPage}&page_size=${pageSize}`;
+        if (showRead) url += '&show_read=true';
+
+        listEl.innerHTML = '<div class="px-6 py-8 text-center text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>加载中...</div>';
+        if (emptyEl) emptyEl.classList.add('hidden');
+
+        try {
+            const resp = await fetch(url, { method: 'GET', credentials: 'same-origin' });
+            const data = await resp.json();
+            if (!data.success) {
+                listEl.innerHTML = `<div class="px-6 py-8 text-center text-red-600">${data.error || '加载失败'}</div>`;
+                return;
+            }
+
+            let items = data.data || [];
+            if (currentSearch) {
+                const q = currentSearch.toLowerCase();
+                items = items.filter(a =>
+                    (a.title || '').toLowerCase().includes(q) ||
+                    (a.content || '').toLowerCase().includes(q) ||
+                    (a.subject || '').toLowerCase().includes(q)
+                );
+            }
+
+            if (!items.length) {
+                listEl.innerHTML = '';
+                if (emptyEl) emptyEl.classList.remove('hidden');
+            } else {
+                if (emptyEl) emptyEl.classList.add('hidden');
+                listEl.innerHTML = items.map(a => `
+                    <div class="px-6 py-4 hover:bg-gray-50 transition-colors duration-150 ${a.is_read ? 'opacity-60' : ''}">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                        <i class="fas fa-exclamation-circle mr-1"></i>ERROR
+                                    </span>
+                                    <span class="text-xs text-gray-500">${escapeHtml(a.subject || '')}</span>
+                                    <span class="text-xs text-gray-400">×${a.count || 1}</span>
+                                </div>
+                                <p class="text-sm text-gray-900 font-mono break-all">${escapeHtml(a.title || '')}</p>
+                                ${a.content && a.content !== a.title ? `<pre class="mt-2 text-xs text-gray-600 bg-gray-50 rounded p-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-all">${escapeHtml(a.content)}</pre>` : ''}
+                                <div class="mt-2 flex items-center gap-4 text-xs text-gray-500">
+                                    <span><i class="fas fa-clock mr-1"></i>首次: ${escapeHtml(a.first_seen_at || '')}</span>
+                                    <span><i class="fas fa-clock mr-1"></i>最近: ${escapeHtml(a.last_seen_at || '')}</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 ml-4">
+                                <button onclick="markErrorLogRead(${a.id})" class="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors">
+                                    <i class="fas fa-check mr-1"></i>已读
+                                </button>
+                                <button onclick="deleteErrorLog(${a.id})" class="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors">
+                                    <i class="fas fa-trash mr-1"></i>删除
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            if (pageInfoEl) {
+                const total = data.total || 0;
+                const start = total ? (currentPage - 1) * parseInt(pageSize) + 1 : 0;
+                const end = Math.min(currentPage * parseInt(pageSize), total);
+                pageInfoEl.textContent = `显示 ${start}-${end} 条，共 ${total} 条记录`;
+            }
+            if (pageButtonsEl) {
+                const totalPages = data.total_pages || 1;
+                let btns = '';
+                if (currentPage > 1) {
+                    btns += `<button onclick="loadErrorLogsGlobal(${currentPage - 1})" class="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50">上一页</button>`;
+                }
+                btns += `<span class="px-3 py-1 text-sm text-gray-700">${currentPage} / ${totalPages}</span>`;
+                if (currentPage < totalPages) {
+                    btns += `<button onclick="loadErrorLogsGlobal(${currentPage + 1})" class="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50">下一页</button>`;
+                }
+                pageButtonsEl.innerHTML = btns;
+            }
+        } catch (e) {
+            listEl.innerHTML = '<div class="px-6 py-8 text-center text-red-600">加载失败</div>';
+        }
+    }
+
+    window.loadErrorLogsGlobal = loadErrorLogs;
+    window.markErrorLogRead = async function(id) {
+        try {
+            const resp = await fetch('/api/system-alert/', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'mark_read', id: id })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                loadErrorLogs(currentPage);
+            }
+        } catch (e) {}
+    };
+    window.deleteErrorLog = async function(id) {
+        if (!confirm('确定删除此条错误日志？')) return;
+        try {
+            const resp = await fetch('/api/system-alert/', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete', id: id })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('已删除', 'success');
+                loadErrorLogs(currentPage);
+            }
+        } catch (e) {}
+    };
+
+    const navItem = document.querySelector('.nav-item[data-section="error-logs"]');
+    if (navItem) {
+        navItem.addEventListener('click', () => loadErrorLogs(1));
     }
 }

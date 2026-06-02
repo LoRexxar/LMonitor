@@ -76,9 +76,25 @@ class SystemAlertAPIView(View):
             except ValueError:
                 limit = 20
 
+            category = (request.GET.get('category') or '').strip()
+            show_read = request.GET.get('show_read', '').strip().lower() in ('1', 'true', 'yes')
+            page = max(1, int(request.GET.get('page', '1')))
+            page_size = max(1, min(100, int(request.GET.get('page_size', '20'))))
+
+            qs = SystemAlert.objects.all()
+            if category:
+                qs = qs.filter(category=category)
+            if not show_read:
+                qs = qs.filter(is_read=False)
+
+            total_count = qs.count()
+            total_pages = (total_count + page_size - 1) // page_size
+            offset = (page - 1) * page_size
+            alerts = list(qs.order_by('-last_seen_at')[offset:offset + page_size])
+
             unread_qs = SystemAlert.objects.filter(is_read=False)
             total_unread = unread_qs.count()
-            alerts = list(unread_qs.order_by('-last_seen_at')[:limit])
+
             return JsonResponse({
                 'success': True,
                 'data': [
@@ -96,8 +112,11 @@ class SystemAlertAPIView(View):
                     }
                     for a in alerts
                 ],
-                'total': len(alerts),
+                'total': total_count,
                 'total_unread': total_unread,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': total_pages,
             })
         except Exception as e:
             logger.error(f"获取系统报警失败: {str(e)}\n{traceback.format_exc()}")
@@ -119,7 +138,28 @@ class SystemAlertAPIView(View):
                 return JsonResponse({'success': True})
 
             if action == 'mark_all_read':
-                SystemAlert.objects.filter(is_read=False).update(is_read=True, read_at=now)
+                category = (payload.get('category') or '').strip()
+                qs = SystemAlert.objects.filter(is_read=False)
+                if category:
+                    qs = qs.filter(category=category)
+                qs.update(is_read=True, read_at=now)
+                return JsonResponse({'success': True})
+
+            if action == 'delete':
+                alert_id = payload.get('id')
+                try:
+                    alert_id = int(alert_id)
+                except Exception:
+                    return JsonResponse({'success': False, 'error': 'id参数错误'})
+                SystemAlert.objects.filter(id=alert_id).delete()
+                return JsonResponse({'success': True})
+
+            if action == 'delete_all_read':
+                category = (payload.get('category') or '').strip()
+                qs = SystemAlert.objects.filter(is_read=True)
+                if category:
+                    qs = qs.filter(category=category)
+                qs.delete()
                 return JsonResponse({'success': True})
 
             return JsonResponse({'success': False, 'error': '未知操作'})
