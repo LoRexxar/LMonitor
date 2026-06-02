@@ -476,21 +476,26 @@ class PortalMplusRankingsAPIView(View):
             {'slug': 'skyreach', 'name_cn': '通天峰'},
             {'slug': 'windrunner-spire', 'name_cn': '风行者之塔'},
         ]
+        dungeon_name_map = {d['slug']: d['name_cn'] for d in dungeons}
 
         qs = PortalMplusRun.objects.filter(is_active=True, season=season, region=region)
         if dungeon:
             qs = qs.filter(dungeon_slug=dungeon).order_by('rank')[:30]
-        else:
-            qs = qs.order_by('-score', 'rank', 'id')[:60]
-
-        items = []
-        if dungeon:
             items = [_mplus_to_dict(x) for x in qs]
         else:
-            for i, x in enumerate(qs):
-                it = _mplus_to_dict(x)
-                it['rank'] = i + 1
-                items.append(it)
+            qs = qs.order_by('dungeon_slug', '-level', 'time_seconds')
+            best_by_dungeon = {}
+            for x in qs:
+                slug = (getattr(x, 'dungeon_slug', '') or '').strip()
+                if slug and slug not in best_by_dungeon:
+                    best_by_dungeon[slug] = x
+            items = []
+            for slug in [d['slug'] for d in dungeons]:
+                run = best_by_dungeon.get(slug)
+                if run:
+                    it = _mplus_to_dict(run)
+                    it['dungeon_cn'] = dungeon_name_map.get(slug, it.get('dungeon_cn', ''))
+                    items.append(it)
         return JsonResponse({'status': 'success', 'data': {'dungeons': dungeons, 'items': items}})
 
 
