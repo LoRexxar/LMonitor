@@ -101,10 +101,13 @@ class RssArticle(models.Model):
 
 class WowArticle(models.Model):
     title = models.CharField(max_length=255, default=None, null=True)
+    title_cn = models.CharField(max_length=255, default=None, null=True, blank=True)
     url = models.CharField(max_length=2000, default=None, null=True)
     url_hash = models.CharField(max_length=64, null=True, blank=True, unique=True)
     author = models.CharField(max_length=255, default=None, null=True)
     description = models.TextField(null=True)
+    content = models.TextField(null=True, blank=True)
+    content_cn = models.TextField(null=True, blank=True)
     publish_time = models.DateTimeField(default=timezone.now, null=True)
     reply_count = models.IntegerField(default=0)
     source = models.CharField(max_length=32, default="unknown")

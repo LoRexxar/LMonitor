@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title id="page-title">文章详情 - 魔兽世界每日节奏</title>
+    {% load static %}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260515_16">
+    <style>
+        .article-content { line-height: 1.8; }
+        .article-content p { margin-bottom: 1rem; }
+        .translation-pair { margin-bottom: 1.5rem; }
+        .original-text { color: #334155; }
+        .translated-text { color: #4f46e5; font-style: italic; }
+        .translated-text::before { content: "译："; font-weight: 600; font-style: normal; }
+    </style>
+</head>
+<body class="portal-bg font-sans">
+    <header class="portal-header">
+        <div class="portal-header-inner">
+            <div class="portal-header-left">
+                <div class="portal-header-brand">
+                    <div class="portal-header-logo">
+                        <svg class="portal-logo-fallback-icon w-5 h-5 text-indigo-700" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
+                        <img class="portal-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
+                    </div>
+                    <a href="/" class="portal-header-title hover:text-indigo-700">魔兽世界每日节奏 WowDaily.cn</a>
+                </div>
+            </div>
+        </div>
+    </header>
+    <div class="max-w-[900px] mx-auto px-4 py-6">
+        <div id="article-container" class="portal-card shadow-sm border border-slate-200/70 p-6">
+            <div class="text-center text-slate-500">加载中...</div>
+        </div>
+    </div>
+
+    <script>
+        const ARTICLE_ID = {{ article_id|default:"null" }};
+
+        function escapeHtml(s) {
+            if (!s) return "";
+            return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+
+        function sanitizeHref(u) {
+            if (!u) return "";
+            const s = String(u).trim();
+            if (/^https?:\/\//i.test(s)) return s;
+            return "";
+        }
+
+        async function loadArticle() {
+            const container = document.getElementById('article-container');
+            if (!ARTICLE_ID) {
+                container.innerHTML = '<div class="text-center text-red-500">文章ID无效</div>';
+                return;
+            }
+
+            try {
+                const resp = await fetch(`/portal/api/article/${ARTICLE_ID}/`);
+                if (!resp.ok) {
+                    container.innerHTML = '<div class="text-center text-red-500">文章不存在</div>';
+                    return;
+                }
+                const data = await resp.json();
+                if (data.status !== 'success') {
+                    container.innerHTML = '<div class="text-center text-red-500">加载失败</div>';
+                    return;
+                }
+
+                const article = data.data;
+                document.getElementById('page-title').textContent = `${article.title_cn || article.title} - 魔兽世界每日节奏`;
+
+                const sourceNames = {
+                    'blizzard_tracker': '暴雪蓝贴',
+                    'wowhead': 'Wowhead',
+                    'exwind': 'Exwind',
+                    'blizzard_cn': '暴雪中国',
+                    'nga': 'NGA'
+                };
+                const sourceName = sourceNames[article.source] || article.source;
+                const href = sanitizeHref(article.url);
+
+                let contentHtml = '';
+                if (article.content_cn && Array.isArray(article.content_cn)) {
+                    contentHtml = article.content_cn.map(pair => `
+                        <div class="translation-pair">
+                            <div class="original-text">${escapeHtml(pair.original)}</div>
+                            ${pair.translated ? `<div class="translated-text">${escapeHtml(pair.translated)}</div>` : ''}
+                        </div>
+                    `).join('');
+                } else if (article.content) {
+                    contentHtml = article.content.split('\n').filter(p => p.trim()).map(p =>
+                        `<p>${escapeHtml(p)}</p>`
+                    ).join('');
+                } else {
+                    contentHtml = '<div class="text-slate-500">暂无内容，请访问原文查看。</div>';
+                }
+
+                container.innerHTML = `
+                    <div class="mb-6">
+                        <h1 class="text-2xl font-bold text-slate-900 mb-2">${escapeHtml(article.title)}</h1>
+                        ${article.title_cn ? `<h2 class="text-lg text-indigo-700 mb-3">${escapeHtml(article.title_cn)}</h2>` : ''}
+                        <div class="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">${escapeHtml(sourceName)}</span>
+                            ${article.author ? `<span>作者：${escapeHtml(article.author)}</span>` : ''}
+                            <span>${escapeHtml(article.publish_time)}</span>
+                            ${href ? `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer" class="text-indigo-600 hover:text-indigo-800">查看原文</a>` : ''}
+                        </div>
+                    </div>
+                    <hr class="border-slate-200 mb-6">
+                    <div class="article-content text-sm">
+                        ${contentHtml}
+                    </div>
+                `;
+            } catch (e) {
+                container.innerHTML = '<div class="text-center text-red-500">加载失败：' + escapeHtml(e.message) + '</div>';
+            }
+        }
+
+        loadArticle();
+    </script>
+</body>
+</html>

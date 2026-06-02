@@ -25,6 +25,7 @@ from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttrib
 from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, SimcBackendBinaryAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView, WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView, WowDailyReportGenerateAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
+from botend.portal.views import PortalArticleView
 from botend.portal.views import PortalWowSkillDiffReportView
 from botend.portal.api import (
     PortalBluepostsAPIView,
@@ -43,6 +44,7 @@ from botend.portal.api import (
     PortalMythicstatsDpsAPIView,
     PortalWowSkillDiffListAPIView,
     PortalWowSkillDiffStatesAPIView,
+    PortalArticleDetailAPIView,
 )
 from django.http import HttpResponse, JsonResponse
 
@@ -50,6 +52,7 @@ urlpatterns = [
     # path('admin/', admin.site.urls),
     path('favicon.ico', RedirectView.as_view(url='/static/portal/favicons/3accfdf0352f2189a3292605e1ad80f12bd5a15c605069102f42c03c3c4fceda.ico', permanent=True)),
     path('', PortalHomeView.as_view(), name='portal_home'),
+    path('portal/article/<int:article_id>/', PortalArticleView.as_view(), name='portal_article'),
     
     # 认证相关路由
     path('auth/login/', LoginView.as_view(), name='login'),
@@ -81,6 +84,7 @@ urlpatterns = [
     path('portal/api/mythicstats/dps/', csrf_exempt(PortalMythicstatsDpsAPIView.as_view()), name="portal_mythicstats_dps"),
     path('portal/api/wow-skill-diffs/', csrf_exempt(PortalWowSkillDiffListAPIView.as_view()), name="portal_wow_skill_diffs"),
     path('portal/api/wow-skill-diff/states/', csrf_exempt(PortalWowSkillDiffStatesAPIView.as_view()), name="portal_wow_skill_diff_states"),
+    path('portal/api/article/<int:article_id>/', csrf_exempt(PortalArticleDetailAPIView.as_view()), name="portal_article_detail"),
     path('portal/wow-skill-diff/<int:report_id>/', PortalWowSkillDiffReportView.as_view(), name="portal_wow_skill_diff_report"),
     
     # API路由

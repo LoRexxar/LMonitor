@@ -48,13 +48,17 @@ def _normalize_display_text(v):
 
 def _article_to_dict(a):
     return {
+        'id': a.id,
         'title': a.title or '',
+        'title_cn': a.title_cn or '',
         'url': _normalize_url(a.url),
         'author': _normalize_display_text(a.author),
         'source': a.source or '',
         'category': a.category or '',
         'publish_time': _fmt_dt(a.publish_time),
         'reply_count': int(getattr(a, 'reply_count', 0) or 0),
+        'has_content': bool(a.content),
+        'has_translation': bool(a.content_cn),
     }
 
 
@@ -356,6 +360,36 @@ class PortalWowheadLatestAPIView(View):
         )
         return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
 
+
+class PortalArticleDetailAPIView(View):
+    def get(self, request, article_id):
+        try:
+            article = WowArticle.objects.get(id=article_id, is_active=True)
+        except WowArticle.DoesNotExist:
+            return JsonResponse({'status': 'error', 'message': '文章不存在'}, status=404)
+
+        content_cn = None
+        if article.content_cn:
+            try:
+                content_cn = json.loads(article.content_cn)
+            except Exception:
+                content_cn = None
+
+        return JsonResponse({
+            'status': 'success',
+            'data': {
+                'id': article.id,
+                'title': article.title or '',
+                'title_cn': article.title_cn or '',
+                'url': _normalize_url(article.url),
+                'author': _normalize_display_text(article.author),
+                'source': article.source or '',
+                'category': article.category or '',
+                'publish_time': _fmt_dt(article.publish_time),
+                'content': article.content or '',
+                'content_cn': content_cn,
+            }
+        })
 
 
 class PortalEventsAPIView(View):

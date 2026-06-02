@@ -115,10 +115,13 @@ function renderSimpleList(containerId, items, opts) {
   const limit = typeof opts?.limit === "number" ? opts.limit : 12;
   const asGrid = containerId === "nga-list";
   const showReplyBadge = opts?.showReplyBadge === true || containerId === "nga-list";
+  const isArticleList = containerId === "blueposts-list" || containerId === "wowhead-list";
   const html = filtered
     .slice(0, limit)
     .map((it, idx) => {
       const title = escapeHtml(it.title || "");
+      const titleCn = escapeHtml(it.title_cn || "");
+      const displayTitle = titleCn || title;
       const rawUrl = it.url || it.source_url || "";
       const href = sanitizeHref(rawUrl);
       const url = escapeHtml(href);
@@ -144,12 +147,22 @@ function renderSimpleList(containerId, items, opts) {
       const meta = parts.join("");
 
       const divider = asGrid ? "border-b border-slate-100" : (idx === 0 ? "" : "border-t border-slate-100");
+
+      const articleId = it.id;
+      const articleLink = isArticleList && articleId ? `/portal/article/${articleId}/` : "";
+      const externalLinkIcon = href ? `<a href="${url}" target="_blank" rel="noreferrer" class="inline-flex items-center text-slate-400 hover:text-indigo-600 ml-1" title="查看原文">${svgIcon("icon-globe", "w-3.5 h-3.5")}</a>` : "";
+
+      let titleHtml;
+      if (articleLink) {
+        titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${escapeHtml(articleLink)}">${displayTitle}${titleCn ? externalLinkIcon : ""}</a>`;
+      } else if (url) {
+        titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`;
+      } else {
+        titleHtml = `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`;
+      }
+
       return `<div class="py-2 ${divider}">
-        ${
-          url
-            ? `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
-            : `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`
-        }
+        ${titleHtml}
         ${meta ? `<div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">${meta}</div>` : ""}
       </div>`;
     })
