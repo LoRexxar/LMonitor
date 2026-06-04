@@ -665,7 +665,7 @@ function renderMplusRuns(containerId, items) {
 const MYTHICSTATS_DEFAULT_SEASON = "";
 const MYTHICSTATS_STORAGE_KEY = "portal_mythicstats_season";
 
-function renderMythicstatsControls(dungeons, periods) {
+function renderMythicstatsControls(dungeons, periods, seasonsFromApi) {
   const el = document.getElementById("mythicstats-controls");
   if (!el) return;
   let dList = Array.isArray(dungeons) ? dungeons : [];
@@ -683,10 +683,12 @@ function renderMythicstatsControls(dungeons, periods) {
   const srcHref = sanitizeHref(rawSrcUrl) || "https://mythicstats.com/dps";
   const noteHtml = note ? `<div class="text-xs text-slate-500 mt-2">` + escapeHtml(note) + `（<a class="text-indigo-700 hover:text-indigo-900" href="` + escapeHtml(srcHref) + `" target="_blank" rel="noreferrer">MythicStats</a>）</div>` : "";
   const tipHtml = `<div class="mt-2 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">提示：以下榜单随美服每周三更新，每周初期日志数量较少参考价值不大，请关注日志数量。</div>`;
-  const seasons = Array.isArray(payload.seasons) ? payload.seasons : [];
+  const seasons = Array.isArray(seasonsFromApi) ? seasonsFromApi : (Array.isArray(payload.seasons) ? payload.seasons : []);
+  const currentSeason = String(PORTAL_STATE.activeMythicstatsSeason || MYTHICSTATS_DEFAULT_SEASON);
+  const allSeasons = currentSeason && !seasons.includes(currentSeason) ? [currentSeason, ...seasons] : seasons;
   const seasonOptions =
     `<option value="">当前赛季</option>` +
-    seasons
+    allSeasons
       .map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`)
       .join("");
   const dungeonOptions = dList
@@ -1303,7 +1305,7 @@ async function loadSection(key) {
       const ap = payload.active_period ? String(payload.active_period) : "";
       const hasAp = (payload.periods || []).some((p) => String(p.id) === String(PORTAL_STATE.activeMythicstatsPeriod || ""));
       if (!PORTAL_STATE.activeMythicstatsPeriod || !hasAp) PORTAL_STATE.activeMythicstatsPeriod = ap;
-      renderMythicstatsControls(payload.dungeons || [], payload.periods || []);
+      renderMythicstatsControls(payload.dungeons || [], payload.periods || [], payload.seasons || []);
       renderMythicstatsTables();
     } else if (key === "wow_skill_diffs") {
       PORTAL_STATE.dataBySection[key] = r.data || [];
