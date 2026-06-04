@@ -152,6 +152,9 @@ function renderSimpleList(containerId, items, opts) {
       const articleLink = isArticleList && articleId ? `/portal/article/${articleId}/` : "";
       const externalLinkIcon = href ? `<a href="${url}" target="_blank" rel="noreferrer" class="inline-flex items-center text-slate-400 hover:text-indigo-600 ml-1" title="查看原文">${svgIcon("icon-globe", "w-3.5 h-3.5")}</a>` : "";
 
+      const contentPreview = asGrid ? escapeHtml(it.content_preview || "") : "";
+      const tooltipAttr = contentPreview ? `data-content="${contentPreview.replace(/"/g, '&quot;')}"` : "";
+
       let titleHtml;
       if (articleLink) {
         if (titleCn && title) {
@@ -168,7 +171,8 @@ function renderSimpleList(containerId, items, opts) {
         titleHtml = `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`;
       }
 
-      return `<div class="py-2 ${divider}">
+      const itemClass = asGrid ? "py-2 nga-item" : `py-2 ${divider}`;
+      return `<div class="${itemClass}" ${tooltipAttr}>
         ${titleHtml}
         ${meta ? `<div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">${meta}</div>` : ""}
       </div>`;
@@ -176,6 +180,78 @@ function renderSimpleList(containerId, items, opts) {
     .join("");
 
   el.innerHTML = asGrid ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-x-6">${html}</div>` : html;
+
+  if (asGrid) {
+    initNgaTooltips(el);
+  }
+}
+
+function initNgaTooltips(container) {
+  let tooltip = null;
+  let hideTimer = null;
+
+  const createTooltip = () => {
+    if (!tooltip) {
+      tooltip = document.createElement('div');
+      tooltip.className = 'nga-tooltip';
+      document.body.appendChild(tooltip);
+    }
+    return tooltip;
+  };
+
+  const showTooltip = (item, content) => {
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
+    const tip = createTooltip();
+    tip.textContent = content;
+    tip.classList.add('visible');
+
+    const rect = item.getBoundingClientRect();
+    const tipWidth = 400;
+    const tipHeight = Math.min(300, tip.scrollHeight);
+
+    let left = rect.left;
+    let top = rect.bottom + 8;
+
+    if (left + tipWidth > window.innerWidth - 16) {
+      left = window.innerWidth - tipWidth - 16;
+    }
+    if (left < 16) {
+      left = 16;
+    }
+    if (top + tipHeight > window.innerHeight - 16) {
+      top = rect.top - tipHeight - 8;
+    }
+
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  };
+
+  const hideTooltip = () => {
+    hideTimer = setTimeout(() => {
+      if (tooltip) {
+        tooltip.classList.remove('visible');
+      }
+    }, 100);
+  };
+
+  container.addEventListener('mouseover', (e) => {
+    const item = e.target.closest('.nga-item');
+    if (!item) return;
+    const content = item.dataset.content;
+    if (content) {
+      showTooltip(item, content);
+    }
+  });
+
+  container.addEventListener('mouseout', (e) => {
+    const item = e.target.closest('.nga-item');
+    if (item) {
+      hideTooltip();
+    }
+  });
 }
 
 function renderSkeleton(containerId, lines = 8) {
