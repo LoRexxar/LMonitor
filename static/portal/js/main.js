@@ -154,7 +154,14 @@ function renderSimpleList(containerId, items, opts) {
 
       let titleHtml;
       if (articleLink) {
-        titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${escapeHtml(articleLink)}">${displayTitle}${titleCn ? externalLinkIcon : ""}</a>`;
+        if (titleCn && title) {
+          titleHtml = `<a class="block hover:text-indigo-700" href="${escapeHtml(articleLink)}">
+            <div class="font-medium text-slate-900 portal-line-clamp-2">${titleCn}${externalLinkIcon}</div>
+            <div class="text-xs text-slate-500 mt-0.5 portal-line-clamp-1">${title}</div>
+          </a>`;
+        } else {
+          titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${escapeHtml(articleLink)}">${title}${externalLinkIcon}</a>`;
+        }
       } else if (url) {
         titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`;
       } else {
