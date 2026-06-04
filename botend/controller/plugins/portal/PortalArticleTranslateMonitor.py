@@ -6,6 +6,7 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from django.db.models import Q
 
 from botend.controller.BaseScan import BaseScan
 from botend.models import WowArticle
@@ -20,33 +21,43 @@ class PortalArticleTranslateMonitor(BaseScan):
         self.glm = GLMClient()
 
     def scan(self, url):
-        articles = WowArticle.objects.filter(
+        query = Q(
             source__in=['blizzard_tracker', 'wowhead'],
             category__in=['bluepost', 'news'],
             is_active=True,
-            content__isnull=True,
-        ).order_by('-publish_time')[:10]
+            url__isnull=False,
+        ) & ~Q(url='') & (
+            Q(content__isnull=True) | Q(content='') |
+            Q(title_cn__isnull=True) | Q(title_cn='') |
+            Q(content_cn__isnull=True) | Q(content_cn='')
+        )
 
-        count = 0
+        articles = WowArticle.objects.filter(query).order_by('-publish_time')[:10]
+
+        fetched_count = 0
+        translated_count = 0
         for article in articles:
             try:
-                content = self._fetch_content(article.url, article.source)
-                if content:
-                    article.content = content
-                    article.save()
-                    count += 1
-                    logger.info(f"[PortalArticleTranslateMonitor] fetched content: {article.title[:50]}")
+                if not article.content:
+                    content = self._fetch_content(article.url, article.source)
+                    if content:
+                        article.content = content
+                        article.save()
+                        fetched_count += 1
+                        logger.info(f"[PortalArticleTranslateMonitor] fetched content: {article.title[:50]}")
 
-                title_cn = self._translate_title(article.title)
-                if title_cn:
-                    article.title_cn = title_cn
-                    article.save()
+                if article.title and not article.title_cn:
+                    title_cn = self._translate_title(article.title)
+                    if title_cn:
+                        article.title_cn = title_cn
+                        article.save()
 
-                if content:
-                    content_cn = self._translate_content(content)
+                if article.content and not article.content_cn:
+                    content_cn = self._translate_content(article.content)
                     if content_cn:
                         article.content_cn = content_cn
                         article.save()
+                        translated_count += 1
                         logger.info(f"[PortalArticleTranslateMonitor] translated: {article.title[:50]}")
 
                 time.sleep(1)
@@ -54,7 +65,7 @@ class PortalArticleTranslateMonitor(BaseScan):
                 logger.error(f"[PortalArticleTranslateMonitor] error processing {article.url}: {str(e)}")
                 continue
 
-        logger.info(f"[PortalArticleTranslateMonitor] processed {count} articles")
+        logger.info(f"[PortalArticleTranslateMonitor] fetched {fetched_count}, translated {translated_count}")
         return True
 
     def _fetch_content(self, url, source):
