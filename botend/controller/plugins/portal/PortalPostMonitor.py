@@ -33,12 +33,12 @@ class PortalPostMonitor(BaseScan):
         self.update_nga_hot()
         return True
 
-    def _upsert_article(self, *, title, url, source, category, author=None, description=None, publish_time=None, reply_count=None):
+    def _upsert_article(self, *, title, url, source, category, author=None, description=None, publish_time=None, reply_count=None, content=None):
         url = (url or '').strip()
         if not url:
             return
         url_hash = _hash_url(url)
-        existing = WowArticle.objects.filter(url=url).only("id", "publish_time").first()
+        existing = WowArticle.objects.filter(url=url).only("id", "publish_time", "content").first()
         try:
             reply_count_i = int(reply_count) if reply_count is not None else None
         except Exception:
@@ -53,6 +53,8 @@ class PortalPostMonitor(BaseScan):
             'url_hash': url_hash,
             'is_active': True,
         }
+        if content and (not existing or not getattr(existing, 'content', None)):
+            defaults['content'] = content
         if existing is None:
             defaults['publish_time'] = publish_time or timezone.now()
         else:
@@ -337,6 +339,36 @@ class PortalPostMonitor(BaseScan):
         except Exception:
             return None
 
+    def _fetch_nga_post_content(self, url):
+        try:
+            cookies = ''
+            domain = urlparse(url).netloc or 'nga.178.com'
+            auth = TargetAuth.objects.filter(domain=domain).first()
+            if auth and auth.cookie:
+                cookies = auth.cookie
+            headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://nga.178.com/'}
+            resp = self.req.get(url, 'Response', 0, cookies, headers=headers)
+            if not resp or resp.status_code != 200:
+                return None
+            html_text = resp.text or ''
+            if not html_text:
+                return None
+            patterns = [
+                r'<div[^>]+class="[^"]*postcontent[^"]*"[^>]*>([\s\S]*?)</div>',
+                r'<div[^>]+id="postcontent\d*"[^>]*>([\s\S]*?)</div>',
+                r'<div[^>]+class="[^"]*forumbox[^"]*post[^"]*"[^>]*>([\s\S]*?)</div>',
+                r'<td[^>]+class="[^"]*postcontent[^"]*"[^>]*>([\s\S]*?)</td>',
+            ]
+            for pat in patterns:
+                m = re.search(pat, html_text, flags=re.I)
+                if m:
+                    content = self._strip_html_text(m.group(1))
+                    if content and len(content) > 10:
+                        return content
+            return None
+        except Exception:
+            return None
+
     def update_nga_hot(self):
         try:
             if self.req and getattr(self.req, 'is_chrome', False):
@@ -387,6 +419,7 @@ class PortalPostMonitor(BaseScan):
                     if post_link in seen:
                         continue
                     seen.add(post_link)
+                    content = self._fetch_nga_post_content(post_link)
                     self._upsert_article(
                         title=post_name,
                         url=post_link,
@@ -396,6 +429,7 @@ class PortalPostMonitor(BaseScan):
                         description=None,
                         publish_time=None,
                         reply_count=reply_count,
+                        content=content,
                     )
                     added += 1
                     if added >= 30:
@@ -461,6 +495,7 @@ class PortalPostMonitor(BaseScan):
                 if post_link in seen:
                     continue
                 seen.add(post_link)
+                content = self._fetch_nga_post_content(post_link)
                 self._upsert_article(
                     title=post_name,
                     url=post_link,
@@ -469,6 +504,7 @@ class PortalPostMonitor(BaseScan):
                     author=None,
                     description=None,
                     publish_time=None,
+                    content=content,
                 )
                 added += 1
                 if added >= 30:
