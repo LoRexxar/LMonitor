@@ -9,6 +9,7 @@
 
 '''
 
+import json
 import time
 import re
 import html
@@ -140,7 +141,18 @@ class wowheadMonitor(BaseScan):
                             body = self._fetch_article_body(post_link, cookies="")
                             if body:
                                 wa.description = body
-                                wa.save(update_fields=["description"])
+                                # 同步写入 content，供 Portal 详情页与翻译监控使用
+                                if not (getattr(wa, "content", "") or "").strip():
+                                    wa.content = body
+                                    wa.save(update_fields=["description", "content"])
+                                else:
+                                    wa.save(update_fields=["description"])
+                        # 若 content 缺失，补抓正文
+                        if not (getattr(wa, "content", "") or "").strip() or len((getattr(wa, "content", "") or "")) < 800:
+                            body = self._fetch_article_body(post_link, cookies="")
+                            if body:
+                                wa.content = body
+                                wa.save(update_fields=["content"])
                         continue
 
                     body = self._fetch_article_body(post_link, cookies="")
@@ -149,7 +161,8 @@ class wowheadMonitor(BaseScan):
                         url=post_link,
                         publish_time=django_date_time,
                         author="wowhead",
-                        description=body or post_preview,
+                        description=post_preview or body,
+                        content=body or "",
                         source="wowhead",
                         category="news",
                     )
@@ -241,13 +254,23 @@ class wowheadMonitor(BaseScan):
 
     def _fetch_article_body(self, url, cookies=""):
         try:
-            resp = self.req.getResponse(url, cookies)
-            if not resp:
-                return ""
-            status_code = getattr(resp, 'status_code', 200)
-            if int(status_code or 0) >= 400:
-                return ""
-            html_text = getattr(resp, 'text', '') or ''
+            html_text = ""
+            # Wowhead 部分页面正文可能需要前端渲染，优先尝试 Chrome 渲染版本
+            try:
+                if self.req and getattr(self.req, 'is_chrome', False):
+                    driver = self.req.get(url, 'RespByChrome', 0, cookies, is_origin=1)
+                    if driver and hasattr(driver, 'html'):
+                        html_text = (getattr(driver, 'html', '') or '').strip()
+            except Exception:
+                html_text = html_text or ""
+            if not html_text:
+                resp = self.req.getResponse(url, cookies)
+                if not resp:
+                    return ""
+                status_code = getattr(resp, 'status_code', 200)
+                if int(status_code or 0) >= 400:
+                    return ""
+                html_text = getattr(resp, 'text', '') or ''
             if not html_text:
                 return ""
             return self._extract_body_from_html(html_text)
@@ -287,7 +310,65 @@ class wowheadMonitor(BaseScan):
             blank = 0
             out.append(ln)
         text = "\n".join(out).strip()
-        return text
+        # 兜底：正则没抓到/抓到的太短时，用 BS4 再试一轮
+        if len(text) >= 400:
+            return text
+        try:
+            from bs4 import BeautifulSoup
+        except Exception:
+            return text
+        try:
+            soup = BeautifulSoup(t, 'html.parser')
+            for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe']):
+                tag.decompose()
+            # JSON-LD articleBody（如果有）
+            try:
+                for sc in soup.find_all('script', attrs={'type': 'application/ld+json'}):
+                    raw = (sc.string or sc.get_text() or '').strip()
+                    if not raw:
+                        continue
+                    try:
+                        obj = json.loads(raw)
+                    except Exception:
+                        continue
+                    candidates = []
+                    if isinstance(obj, dict):
+                        candidates.append(obj)
+                    elif isinstance(obj, list):
+                        candidates.extend([x for x in obj if isinstance(x, dict)])
+                    for it in candidates:
+                        body = (it.get('articleBody') or it.get('text') or '').strip()
+                        if body and len(body) > 200:
+                            return body
+            except Exception:
+                pass
+
+            selectors = [
+                '#blog-post .text',
+                '#news-post .text',
+                '.news-post .text',
+                '.blog-post .text',
+                '.article-content',
+                '.post-content',
+                '.news-post-content',
+                '.news-post-text',
+                '.content-body',
+                '.text',
+                'article',
+                'main',
+            ]
+            best = ""
+            for sel in selectors:
+                el = soup.select_one(sel)
+                if not el:
+                    continue
+                cand = el.get_text(separator='\n', strip=True)
+                if cand and len(cand) > len(best):
+                    best = cand
+            best = (best or "").strip()
+            return best if len(best) > len(text) else text
+        except Exception:
+            return text
 
     def trigger_webhook(self):
         """
