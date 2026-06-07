@@ -58,7 +58,56 @@ class PortalPostMonitor(BaseScan):
         else:
             if (source != "nga") and publish_time and not getattr(existing, "publish_time", None):
                 defaults['publish_time'] = publish_time
-        WowArticle.objects.update_or_create(url=url, defaults=defaults)
+        obj, _ = WowArticle.objects.update_or_create(url=url, defaults=defaults)
+        return obj
+
+    def _fetch_nga_main_post(self, url):
+        """
+        抓取 NGA 主楼内容（用于 Portal 悬浮预览）。
+        仅返回纯文本，做适度截断与清洗。
+        """
+        url = (url or '').strip()
+        if not url:
+            return ""
+        cookies = ''
+        try:
+            domain = urlparse(url).netloc
+            auth = TargetAuth.objects.filter(domain=domain).first()
+            if auth and auth.cookie:
+                cookies = auth.cookie
+        except Exception:
+            cookies = ''
+        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://nga.178.com/'}
+        html_text = ''
+        try:
+            resp = self.req.get(url, 'Response', 0, cookies, headers=headers)
+            if resp and getattr(resp, 'status_code', 0) == 200:
+                html_text = (resp.text or '')
+        except Exception:
+            html_text = ''
+        if not html_text:
+            return ""
+        try:
+            from bs4 import BeautifulSoup
+        except Exception:
+            return ""
+        try:
+            soup = BeautifulSoup(html_text, 'html.parser')
+            # NGA 主楼一般是 postcontent0 / postcontent1
+            el = soup.find(id=re.compile(r'^postcontent0$')) or soup.find(id=re.compile(r'^postcontent1$'))
+            if not el:
+                el = soup.find(id=re.compile(r'^postcontent\d+$'))
+            if not el:
+                return ""
+            for tag in el(['script', 'style']):
+                tag.decompose()
+            txt = el.get_text(separator='\n', strip=True)
+            txt = re.sub(r'\n{3,}', '\n\n', txt).strip()
+            if len(txt) > 1800:
+                txt = txt[:1800].rstrip() + '...'
+            return txt
+        except Exception:
+            return ""
 
     def update_blueposts(self):
         rss_url = 'https://us.forums.blizzard.com/en/wow/g/blizzard-tracker/posts.rss'
@@ -387,7 +436,7 @@ class PortalPostMonitor(BaseScan):
                     if post_link in seen:
                         continue
                     seen.add(post_link)
-                    self._upsert_article(
+                    obj = self._upsert_article(
                         title=post_name,
                         url=post_link,
                         source='nga',
@@ -397,6 +446,15 @@ class PortalPostMonitor(BaseScan):
                         publish_time=None,
                         reply_count=reply_count,
                     )
+                    # 补抓主楼内容（用于 Portal 悬浮预览）
+                    try:
+                        if obj and (not (getattr(obj, 'content', '') or '').strip() or len((getattr(obj, 'content', '') or '')) < 80):
+                            content = self._fetch_nga_main_post(post_link)
+                            if content:
+                                obj.content = content
+                                obj.save(update_fields=['content'])
+                    except Exception:
+                        pass
                     added += 1
                     if added >= 30:
                         break
@@ -461,7 +519,7 @@ class PortalPostMonitor(BaseScan):
                 if post_link in seen:
                     continue
                 seen.add(post_link)
-                self._upsert_article(
+                obj = self._upsert_article(
                     title=post_name,
                     url=post_link,
                     source='nga',
@@ -470,6 +528,15 @@ class PortalPostMonitor(BaseScan):
                     description=None,
                     publish_time=None,
                 )
+                # 补抓主楼内容（用于 Portal 悬浮预览）
+                try:
+                    if obj and (not (getattr(obj, 'content', '') or '').strip() or len((getattr(obj, 'content', '') or '')) < 80):
+                        content = self._fetch_nga_main_post(post_link)
+                        if content:
+                            obj.content = content
+                            obj.save(update_fields=['content'])
+                except Exception:
+                    pass
                 added += 1
                 if added >= 30:
                     break
