@@ -227,7 +227,7 @@ class PortalArticleTranslateMonitor(BaseScan):
             return None
         try:
             prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
-            result = self.glm.send_message(prompt, max_tokens=200)
+            result = self.glm.send_message(prompt, max_tokens=200, thinking_type="disabled")
             if result:
                 return result.strip().strip('"').strip("'")
             return None
@@ -265,7 +265,7 @@ class PortalArticleTranslateMonitor(BaseScan):
                     "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
                     f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
                 )
-                result = self.glm.send_message(prompt, max_tokens=2400)
+                result = self.glm.send_message(prompt, max_tokens=2400, thinking_type="disabled")
                 translated_list = None
                 if result:
                     try:

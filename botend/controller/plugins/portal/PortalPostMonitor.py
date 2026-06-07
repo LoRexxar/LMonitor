@@ -12,6 +12,8 @@ from botend.alerting import upsert_system_alert
 from django.utils import timezone
 from utils.log import logger
 from urllib.parse import urljoin, urlparse
+from core.glm import GLMClient
+import json
 
 
 def _hash_url(url):
@@ -25,6 +27,8 @@ class PortalPostMonitor(BaseScan):
     def __init__(self, req, task):
         super().__init__(req, task)
         self.task = task
+        self.glm = GLMClient()
+        self._translate_budget = 3
 
     def scan(self, url):
         self.update_blueposts()
@@ -139,7 +143,7 @@ class PortalPostMonitor(BaseScan):
                         break
                 if not title or not link:
                     continue
-                self._upsert_article(
+                obj = self._upsert_article(
                     title=title,
                     url=link,
                     source='blizzard_tracker',
@@ -148,11 +152,160 @@ class PortalPostMonitor(BaseScan):
                     description=None,
                     publish_time=dt,
                 )
+                # 1) 抓取主楼内容并落库（content/description）
+                # 2) 标题/内容分段走 GLM 翻译（title_cn/content_cn）
+                if obj and self._translate_budget > 0:
+                    did = self._ensure_article_filled_and_translated(obj, source='blizzard_tracker')
+                    if did:
+                        self._translate_budget -= 1
                 i += 1
                 if i >= 20:
                     break
         except Exception as e:
             logger.error(f"[PortalPostMonitor] blueposts error: {str(e)}")
+
+    def _ensure_article_filled_and_translated(self, article: WowArticle, source: str) -> bool:
+        """
+        保证端到端链路可跑通：
+        - 先把正文抓到 content（以及 description）
+        - 再把 title/content 分段翻译写入 title_cn/content_cn
+        - 若失败，下次 scan 继续补齐（不会永久跳过）
+        """
+        updated = []
+        try:
+            # 先补正文（抓不到就下次再试）
+            need_fetch = (not (article.content or "").strip()) or len((article.content or "").strip()) < 200
+            if need_fetch and source == "blizzard_tracker":
+                body = self._fetch_blizzard_tracker_body(article.url)
+                if body:
+                    article.content = body
+                    if not (article.description or "").strip():
+                        article.description = body[:1200]
+                    updated.extend(["content", "description"])
+
+            # 再补翻译（无 key 就不翻译）
+            if not getattr(self.glm, "api_key", ""):
+                if updated:
+                    article.save(update_fields=list(set(updated)))
+                    return True
+                return False
+
+            if (article.title or "").strip() and not (article.title_cn or "").strip():
+                title_cn = self._translate_title(article.title)
+                if title_cn:
+                    article.title_cn = title_cn
+                    updated.append("title_cn")
+
+            if (article.content or "").strip() and not (article.content_cn or "").strip():
+                content_cn = self._translate_content(article.content)
+                if content_cn:
+                    article.content_cn = content_cn
+                    updated.append("content_cn")
+
+            if updated:
+                article.save(update_fields=list(set(updated)))
+                return True
+            return False
+        except Exception:
+            try:
+                if updated:
+                    article.save(update_fields=list(set(updated)))
+                    return True
+            except Exception:
+                pass
+            return False
+
+    def _fetch_blizzard_tracker_body(self, url: str) -> str:
+        url = (url or "").strip()
+        if not url:
+            return ""
+        headers = {
+            # 论坛对不同 UA 的 HTML 结构差异较大，Firefox UA 更稳定
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+            "Referer": "https://us.forums.blizzard.com/",
+        }
+        html_text = ""
+        try:
+            resp = self.req.get(url, "Response", 0, "", headers=headers)
+            if resp and getattr(resp, "status_code", 0) == 200:
+                html_text = resp.text or ""
+        except Exception:
+            html_text = ""
+        if not html_text:
+            return ""
+        try:
+            from bs4 import BeautifulSoup
+        except Exception:
+            return ""
+        try:
+            soup = BeautifulSoup(html_text, "html.parser")
+            for tag in soup(["script", "style", "nav", "header", "footer", "aside", "iframe"]):
+                tag.decompose()
+            # discourse crawler 结构：.topic-body.crawler-post 里会有 div.post=itemprop text
+            el = soup.select_one(".topic-body.crawler-post .post") or soup.select_one(".crawler-post .post")
+            if not el:
+                el = soup.find("div", class_="post")
+            if not el:
+                return ""
+            txt = el.get_text(separator="\n", strip=True)
+            txt = re.sub(r"\n{3,}", "\n\n", txt).strip()
+            return txt
+        except Exception:
+            return ""
+
+    def _translate_title(self, title: str) -> str:
+        title = (title or "").strip()
+        if not title:
+            return ""
+        prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
+        result = self.glm.send_message(prompt, max_tokens=200, thinking_type="disabled")
+        return (result or "").strip().strip('"').strip("'")
+
+    def _translate_content(self, content: str) -> str:
+        content = (content or "").strip()
+        if not content:
+            return ""
+        paragraphs = [p.strip() for p in content.split("\n") if p and p.strip()]
+        if not paragraphs:
+            return ""
+        translated_pairs = []
+        i = 0
+        while i < len(paragraphs):
+            batch = []
+            total = 0
+            while i < len(paragraphs) and len(batch) < 10:
+                p = paragraphs[i]
+                if len(p) > 2000:
+                    p = p[:2000]
+                if batch and (total + len(p) > 4000):
+                    break
+                batch.append(p)
+                total += len(p)
+                i += 1
+
+            prompt = (
+                "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
+                "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
+                f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
+            )
+            result = self.glm.send_message(prompt, max_tokens=2400, thinking_type="disabled")
+            translated_list = None
+            if result:
+                try:
+                    translated_list = json.loads(result)
+                except Exception:
+                    translated_list = None
+            if not isinstance(translated_list, list):
+                translated_list = [t.strip() for t in (result or "").splitlines() if t.strip()]
+
+            for j, orig in enumerate(batch):
+                trans = ""
+                if j < len(translated_list) and isinstance(translated_list[j], str):
+                    trans = translated_list[j].strip()
+                translated_pairs.append({"original": orig, "translated": trans})
+
+            time.sleep(0.6)
+        return json.dumps(translated_pairs, ensure_ascii=False)
 
     def update_exwind_latest(self):
         try:

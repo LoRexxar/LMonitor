@@ -17,6 +17,7 @@ import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
+from core.glm import GLMClient
 
 from botend.models import WowArticle
 from datetime import datetime
@@ -33,6 +34,9 @@ class wowheadMonitor(BaseScan):
         self.post_desp = ""
         self.target_url = "https://www.wowhead.com/wow/retail"
         self.task = task
+        self.glm = GLMClient()
+        # 单次 scan 最多翻译多少篇（避免一次性跑太久/触发限流）
+        self._translate_budget = 3
 
     def scan(self, url):
         """
@@ -85,6 +89,7 @@ class wowheadMonitor(BaseScan):
                 return 0, 0
 
             new_count = 0
+            translated_count = 0
             for post in posts_data[:int(limit or 10)]:
                 try:
                     post_type = (post.get("type") or "").strip()
@@ -153,6 +158,11 @@ class wowheadMonitor(BaseScan):
                             if body:
                                 wa.content = body
                                 wa.save(update_fields=["content"])
+                        # 若译文缺失，补翻译（标题/内容）
+                        if translated_count < self._translate_budget:
+                            translated = self._ensure_translated(wa)
+                            if translated:
+                                translated_count += 1
                         continue
 
                     body = self._fetch_article_body(post_link, cookies="")
@@ -169,6 +179,11 @@ class wowheadMonitor(BaseScan):
                     obj.save()
                     new_count += 1
                     logger.info("[wowhead Monitor] Found new wowhead article.{}".format(post_title))
+
+                    if translated_count < self._translate_budget:
+                        translated = self._ensure_translated(obj)
+                        if translated:
+                            translated_count += 1
 
                     self.task.flag = post_link
                     self.task.save()
@@ -197,6 +212,94 @@ class wowheadMonitor(BaseScan):
             raise
 
         return 0, 0
+
+    def _ensure_translated(self, article: WowArticle) -> bool:
+        """
+        端到端链路要求：
+        1) 先抓取并落库原文（title/content）
+        2) 标题与正文分段走 GLM 翻译
+        3) 保存 title_cn/content_cn
+        4) 若本次抓取/翻译失败，下一次 scan 会继续补齐
+        """
+        try:
+            if not getattr(self.glm, "api_key", ""):
+                return False
+
+            updated = []
+            if (article.title or "").strip() and not (article.title_cn or "").strip():
+                title_cn = self._translate_title(article.title)
+                if title_cn:
+                    article.title_cn = title_cn
+                    updated.append("title_cn")
+
+            if (article.content or "").strip() and not (article.content_cn or "").strip():
+                content_cn = self._translate_content(article.content)
+                if content_cn:
+                    article.content_cn = content_cn
+                    updated.append("content_cn")
+
+            if updated:
+                article.save(update_fields=updated)
+                return True
+            return False
+        except Exception:
+            return False
+
+    def _translate_title(self, title: str) -> str:
+        title = (title or "").strip()
+        if not title:
+            return ""
+        prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
+        result = self.glm.send_message(prompt, max_tokens=200, thinking_type="disabled")
+        return (result or "").strip().strip('"').strip("'")
+
+    def _translate_content(self, content: str) -> str:
+        content = (content or "").strip()
+        if not content:
+            return ""
+        paragraphs = [p.strip() for p in content.split("\n") if p and p.strip()]
+        if not paragraphs:
+            return ""
+
+        translated_pairs = []
+        i = 0
+        while i < len(paragraphs):
+            batch = []
+            total = 0
+            while i < len(paragraphs) and len(batch) < 10:
+                p = paragraphs[i]
+                if len(p) > 2000:
+                    p = p[:2000]
+                if batch and (total + len(p) > 4000):
+                    break
+                batch.append(p)
+                total += len(p)
+                i += 1
+
+            prompt = (
+                "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
+                "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
+                f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
+            )
+            result = self.glm.send_message(prompt, max_tokens=2400, thinking_type="disabled")
+            translated_list = None
+            if result:
+                try:
+                    translated_list = json.loads(result)
+                except Exception:
+                    translated_list = None
+            if not isinstance(translated_list, list):
+                translated_list = [t.strip() for t in (result or "").splitlines() if t.strip()]
+
+            for j, orig in enumerate(batch):
+                trans = ""
+                if j < len(translated_list) and isinstance(translated_list[j], str):
+                    trans = translated_list[j].strip()
+                translated_pairs.append({"original": orig, "translated": trans})
+
+            time.sleep(0.6)
+
+        return json.dumps(translated_pairs, ensure_ascii=False)
 
     def _parse_posts_from_page_html(self, page_html, limit=10):
         t = page_html or ""
