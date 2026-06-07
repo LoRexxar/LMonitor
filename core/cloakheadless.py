@@ -35,7 +35,7 @@ class CloakDriver:
         self.browser = None
         self.context = None
         self.page = None
-        # playwright 实例（fallback 模式下需要手动 stop）
+        # playwright 实例（需要手动 stop）
         self._pw = None
         try:
             self.init_object(is_proxy)
@@ -51,28 +51,18 @@ class CloakDriver:
 
     def init_object(self, is_proxy=False):
         """
-        优先使用 cloakbrowser（带 stealth chromium），失败则 fallback 到官方 playwright chromium。
+        使用官方 Playwright Chromium 进行 headless 渲染（稳定优先）。
 
-        说明：cloakbrowser 的 stealth chromium 在部分 Windows 环境可能会因为
-        安全策略/依赖缺失而无法 spawn（常见报错 BrowserType.launch: spawn UNKNOWN）。
-        这时 fallback 仍然可以提供 headless 渲染能力，避免任务直接降级到 requests。
+        说明：
+        - 之前的 cloakbrowser(stealth chromium) 在部分 Windows 环境可能无法启动（spawn UNKNOWN）。
+        - 监控/采集场景更需要“稳定可跑”，因此这里默认使用 Playwright 官方浏览器。
+        - 如确实需要 cloakbrowser，可在配置中开启（WCL_FETCH_CONFIG.use_cloakbrowser=true）。
         """
-        launch = None
-        launch_persistent_context = None
-        try:
-            from cloakbrowser import launch as _launch, launch_persistent_context as _lpc
-            launch = _launch
-            launch_persistent_context = _lpc
-        except Exception:
-            launch = None
-            launch_persistent_context = None
-
         def _proxy_to_playwright(proxy_val):
             if not proxy_val:
                 return None
             if isinstance(proxy_val, dict):
                 return proxy_val
-            # string -> {"server": "..."}
             return {"server": str(proxy_val)}
 
         def _launch_playwright(user_data_dir, headless, proxy_val, args):
@@ -81,21 +71,14 @@ class CloakDriver:
             pw_proxy = _proxy_to_playwright(proxy_val)
             if user_data_dir:
                 self.context = self._pw.chromium.launch_persistent_context(
-                    user_data_dir,
-                    headless=headless,
-                    proxy=pw_proxy,
-                    args=args,
+                    user_data_dir, headless=headless, proxy=pw_proxy, args=args
                 )
                 self.page = self.context.new_page()
                 self.browser = None
-                return
-            self.browser = self._pw.chromium.launch(
-                headless=headless,
-                proxy=pw_proxy,
-                args=args,
-            )
-            self.context = self.browser.new_context()
-            self.page = self.context.new_page()
+            else:
+                self.browser = self._pw.chromium.launch(headless=headless, proxy=pw_proxy, args=args)
+                self.context = self.browser.new_context()
+                self.page = self.context.new_page()
 
         wcl_cfg = getattr(django_settings, "WCL_FETCH_CONFIG", {}) if django_settings else {}
         wcl_cfg = wcl_cfg or {}
@@ -117,25 +100,26 @@ class CloakDriver:
         _cleanup_stale_playwright_temp()
 
         user_data_dir = (wcl_cfg.get("chrome_user_data_dir") or "").strip()
+        use_cloakbrowser = bool(wcl_cfg.get("use_cloakbrowser", False))
         last_exc = None
         for attempt in range(3):
             try:
                 if attempt > 0:
                     time.sleep(2 * attempt)
                     _cleanup_stale_playwright_temp()
-                if launch and launch_persistent_context:
+                if use_cloakbrowser:
+                    # 可选：使用 cloakbrowser（如果你确认本机能启动其 stealth chromium）
+                    from cloakbrowser import launch, launch_persistent_context
                     if user_data_dir:
                         self.context = launch_persistent_context(user_data_dir, headless=headless, proxy=proxy, args=args)
                         self.page = self.context.new_page()
                         self.browser = None
-                        return
-                    self.browser = launch(headless=headless, proxy=proxy, args=args)
-                    self.context = self.browser.new_context()
-                    self.page = self.context.new_page()
-                    return
-
-                # cloakbrowser 不可用时直接走 playwright
-                _launch_playwright(user_data_dir, headless, proxy, args)
+                    else:
+                        self.browser = launch(headless=headless, proxy=proxy, args=args)
+                        self.context = self.browser.new_context()
+                        self.page = self.context.new_page()
+                else:
+                    _launch_playwright(user_data_dir, headless, proxy, args)
                 return
             except Exception as e:
                 last_exc = e
@@ -147,10 +131,6 @@ class CloakDriver:
                     pass
                 if "asyncio loop" in str(e).lower():
                     break
-                # 如果 cloakbrowser 存在但启动失败（如 spawn UNKNOWN），下一次尝试改走 playwright fallback
-                if launch and ("spawn unknown" in str(e).lower() or "browsertype.launch" in str(e).lower()):
-                    launch = None
-                    launch_persistent_context = None
         if last_exc:
             raise last_exc
 
