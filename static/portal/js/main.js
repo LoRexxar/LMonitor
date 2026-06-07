@@ -131,8 +131,8 @@ function bindNgaHoverTooltips(containerEl) {
     el.addEventListener("mouseenter", async (ev) => {
       const id = el.getAttribute("data-nga-article-id");
       const preview = await fetchNgaPreviewText(id);
-      if (!preview) return;
-      const html = `<div class="font-semibold text-slate-900 mb-1">主楼预览</div><div class="text-slate-700">${escapeHtml(preview)}</div>`;
+      const safe = preview || "暂无预览内容（可能需要配置 NGA Cookie 才能抓取主楼）";
+      const html = `<div class="font-semibold text-slate-900 mb-1">主楼预览</div><div class="text-slate-700">${escapeHtml(safe)}</div>`;
       showNgaTooltipAt(ev.clientX, ev.clientY, html);
     });
     el.addEventListener("mousemove", (ev) => {
