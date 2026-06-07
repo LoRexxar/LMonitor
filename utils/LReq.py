@@ -49,6 +49,8 @@ class LReq:
             # Firefox (Windows)
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
         ]
+        # wowhead 对部分 Chrome/Edge UA 会返回 403，这里固定使用 Firefox UA
+        self.ua_wowhead = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
         self.s = requests.Session()
         self.is_chrome = bool(is_chrome and ChromeDriver)
@@ -146,8 +148,16 @@ class LReq:
         if cookies:
             cookies = cookies.replace('\r', ';').replace('\n', ';')
             cookies = '; '.join([p.strip() for p in cookies.split(';') if p.strip()])
+        ua = random.choice(self.ua)
+        try:
+            u = str(url or "").lower()
+            if "wowhead.com" in u:
+                ua = getattr(self, "ua_wowhead", ua) or ua
+        except Exception:
+            pass
+
         header = {
-            "User-Agent": random.choice(self.ua),
+            "User-Agent": ua,
             "Referer": url,
             "Cookie": cookies,
             # 一些站点（如 wowhead）对缺少基础 Accept 头会更严格，补齐常见浏览器默认值
