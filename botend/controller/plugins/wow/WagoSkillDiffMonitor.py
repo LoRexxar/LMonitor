@@ -577,15 +577,24 @@ class WagoSkillDiffMonitor(BaseScan):
     def _fetch_hotfix_page_data(self, build_num='', page=1, *, search=''):
         search = (search or '').strip()
         if search:
-            return self._fetch_hotfix_page_data_via_browser(search=search, page=page)
+            # 优先走浏览器（对部分反爬更稳）；但如果 Chrome 不可用/抓取失败，要有 HTTP 兜底，
+            # 否则 hotfix 流程会出现 “latest_push=0” 从而导致状态异常。
+            rows = self._fetch_hotfix_page_data_via_browser(search=search, page=page) or []
+            if rows:
+                return rows
         build_num = str(build_num or '').strip()
         try:
             page = int(page or 1)
         except Exception:
             page = 1
         page = max(1, page)
-        if build_num:
+        # OpenAI / Inertia props 页面解析（无需 Chrome）
+        if build_num and search:
+            url = f"https://wago.tools/hotfixes?filter%5Bbuild%5D={build_num}&filter%5Blocale%5D={search}&page={page}"
+        elif build_num:
             url = f"https://wago.tools/hotfixes?filter%5Bbuild%5D={build_num}&page={page}"
+        elif search:
+            url = f"https://wago.tools/hotfixes?filter%5Blocale%5D={search}&page={page}"
         else:
             url = f"https://wago.tools/hotfixes?page={page}"
         text = self._http_get_text(url, timeout=max(60, self.http_timeout))
