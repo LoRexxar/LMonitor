@@ -79,8 +79,17 @@ class LMonitorCore:
 
     def scan(self):
         os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', '1')
-        Lreq = LReq(is_chrome=True, is_cloak=True)
+        # NOTE:
+        # CloakDriver 依赖 cloakbrowser（Playwright 相关封装），本地环境经常未安装。
+        # 以前这里强制 is_cloak=True 会导致每次启动都打印 init failed 警告，
+        # 实际上多数任务仅用 requests / Chrome 即可。
+        # 现在改为：默认关闭 cloak，仅在配置显式开启时启用。
         req_cfg = getattr(django_settings, 'REQUEST_CONFIG', {}) or {}
+        enable_cloak = str(req_cfg.get('enable_cloak', '')).strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+        if not enable_cloak:
+            enable_cloak = str(os.getenv('LMONITOR_ENABLE_CLOAK', '')).strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+
+        Lreq = LReq(is_chrome=True, is_cloak=enable_cloak)
         recycle_every = int(req_cfg.get('chrome_recycle_every', 0) or 0)
         finished = 0
 
