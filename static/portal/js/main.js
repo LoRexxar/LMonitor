@@ -245,18 +245,24 @@ function renderSimpleList(containerId, items, opts) {
 
       const articleId = it.id;
       const articleLink = isArticleList && articleId ? `/portal/article/${articleId}/` : "";
-      const externalLinkIcon = href ? `<a href="${url}" target="_blank" rel="noreferrer" class="inline-flex items-center text-slate-400 hover:text-indigo-600 ml-1" title="查看原文">${svgIcon("icon-globe", "w-3.5 h-3.5")}</a>` : "";
+      const externalLinkIcon = href ? `<a href="${url}" target="_blank" rel="noreferrer" class="shrink-0 inline-flex items-center text-slate-400 hover:text-indigo-600" title="查看原文">${svgIcon("icon-globe", "w-3.5 h-3.5")}</a>` : "";
       const titleClampCls = isArticleList ? "portal-line-clamp-1" : "portal-line-clamp-2";
 
       let titleHtml;
       if (articleLink) {
         if (titleCn && title) {
-          titleHtml = `<a class="block hover:text-indigo-700" href="${escapeHtml(articleLink)}">
-            <div class="font-medium text-slate-900 ${titleClampCls}">${titleCn}${externalLinkIcon}</div>
-            <div class="text-xs text-slate-500 mt-0.5 portal-line-clamp-1">${title}</div>
-          </a>`;
+          titleHtml = `<div class="block">
+            <div class="flex items-start gap-1 min-w-0">
+              <a class="min-w-0 flex-1 font-medium text-slate-900 hover:text-indigo-700 ${titleClampCls}" href="${escapeHtml(articleLink)}">${titleCn}</a>
+              ${externalLinkIcon}
+            </div>
+            <a class="block hover:text-indigo-700 text-xs text-slate-500 mt-0.5 portal-line-clamp-1" href="${escapeHtml(articleLink)}">${title}</a>
+          </div>`;
         } else {
-          titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium ${titleClampCls}" href="${escapeHtml(articleLink)}">${title}${externalLinkIcon}</a>`;
+          titleHtml = `<div class="flex items-start gap-1 min-w-0">
+            <a class="min-w-0 flex-1 text-slate-900 hover:text-indigo-700 font-medium ${titleClampCls}" href="${escapeHtml(articleLink)}">${title}</a>
+            ${externalLinkIcon}
+          </div>`;
         }
       } else if (url) {
         titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium ${titleClampCls}" href="${url}" target="_blank" rel="noreferrer">${title}</a>`;
