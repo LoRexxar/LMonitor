@@ -409,11 +409,12 @@ html, body {
 
 .portal-line-clamp-1 {
     display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    max-width: 100%;
-    min-width: 0;
 }
 
 .mythicstats-spec-link {
