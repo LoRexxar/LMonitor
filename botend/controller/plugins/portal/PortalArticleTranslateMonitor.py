@@ -70,14 +70,11 @@ class PortalArticleTranslateMonitor(BaseScan):
 
     def _fetch_content(self, url, source):
         try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            resp = requests.get(url, headers=headers, timeout=30)
-            if resp.status_code != 200:
+            html_text = self._fetch_html(url, source)
+            if not html_text:
                 return None
 
-            soup = BeautifulSoup(resp.text, 'html.parser')
+            soup = BeautifulSoup(html_text, 'html.parser')
 
             for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe']):
                 tag.decompose()
@@ -95,6 +92,51 @@ class PortalArticleTranslateMonitor(BaseScan):
             return content
         except Exception as e:
             logger.error(f"[PortalArticleTranslateMonitor] fetch error: {str(e)}")
+            return None
+
+    def _fetch_html(self, url, source):
+        """
+        优先使用 LReq（可选 Chrome/代理/重试），避免 requests 直接拉取在某些站点被拦截/拿到不完整 HTML。
+        """
+        url = (url or '').strip()
+        if not url:
+            return None
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36'
+        }
+        try:
+            # wowhead 某些页面内容依赖前端渲染，优先尝试 Chrome 渲染版本
+            if source == 'wowhead' and self.req and getattr(self.req, 'is_chrome', False):
+                driver = None
+                try:
+                    driver = self.req.get(url, 'RespByChrome', 0, '', is_origin=1)
+                except Exception:
+                    driver = None
+                if driver and hasattr(driver, 'html'):
+                    t = (getattr(driver, 'html', '') or '').strip()
+                    if t:
+                        return t
+        except Exception:
+            pass
+
+        # 通用：走 LReq 的 Response（含重试/代理等）
+        try:
+            if self.req and hasattr(self.req, 'getResponse'):
+                resp = self.req.getResponse(url, '', headers=headers)
+                if resp and getattr(resp, 'status_code', 0) == 200:
+                    t = (getattr(resp, 'text', '') or '').strip()
+                    if t:
+                        return t
+        except Exception:
+            pass
+
+        # 兜底：requests 直接抓
+        try:
+            resp = requests.get(url, headers=headers, timeout=30)
+            if resp.status_code != 200:
+                return None
+            return (resp.text or '').strip() or None
+        except Exception:
             return None
 
     def _extract_blizzard_content(self, soup):
@@ -116,11 +158,43 @@ class PortalArticleTranslateMonitor(BaseScan):
         return None
 
     def _extract_wowhead_content(self, soup):
+        # 1) 优先尝试 JSON-LD 中的 articleBody（通常最干净）
+        try:
+            for sc in soup.find_all('script', attrs={'type': 'application/ld+json'}):
+                raw = (sc.string or sc.get_text() or '').strip()
+                if not raw:
+                    continue
+                try:
+                    obj = json.loads(raw)
+                except Exception:
+                    continue
+                candidates = []
+                if isinstance(obj, dict):
+                    candidates.append(obj)
+                elif isinstance(obj, list):
+                    candidates.extend([x for x in obj if isinstance(x, dict)])
+                for it in candidates:
+                    body = (it.get('articleBody') or it.get('text') or '').strip()
+                    if body and len(body) > 200:
+                        return body
+        except Exception:
+            pass
+
         selectors = [
+            # Wowhead 文章正文常见容器
+            '#blog-post .text',
+            '#news-post .text',
+            '.news-post .text',
+            '.blog-post .text',
+            '.article-content',
+            '.post-content',
+            '.news-post-content',
+            '.news-post-text',
+            '.content-body',
+            # 兜底：页面上可能存在多个 .text，放最后再尝试
             '.text',
             '.blog-content',
             'article .content',
-            '#blog-post .text',
             '.news-content',
         ]
         for selector in selectors:
@@ -153,7 +227,7 @@ class PortalArticleTranslateMonitor(BaseScan):
             return None
         try:
             prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
-            result = self.glm.send_message(prompt, max_tokens=200)
+            result = self.glm.send_message(prompt, max_tokens=200, thinking_type="disabled")
             if result:
                 return result.strip().strip('"').strip("'")
             return None
@@ -165,36 +239,52 @@ class PortalArticleTranslateMonitor(BaseScan):
         if not content:
             return None
         try:
-            paragraphs = [p.strip() for p in content.split('\n') if p.strip()]
+            paragraphs = [p.strip() for p in content.split('\n') if p and p.strip()]
             if not paragraphs:
                 return None
 
             translated_pairs = []
-            batch_size = 5
-            for i in range(0, len(paragraphs), batch_size):
-                batch = paragraphs[i:i + batch_size]
-                batch_text = '\n'.join(batch)
-                prompt = f"""请将以下英文段落翻译成中文。每个段落单独翻译，用换行分隔。只返回翻译结果，不要添加编号或解释。
+            # 分段策略：按字符长度组 batch，避免单次过长导致模型截断/输出不齐
+            i = 0
+            while i < len(paragraphs):
+                batch = []
+                total = 0
+                while i < len(paragraphs) and len(batch) < 10:
+                    p = paragraphs[i]
+                    # 单段过长就直接截断，避免超长段落影响整批
+                    if len(p) > 2000:
+                        p = p[:2000]
+                    if batch and (total + len(p) > 4000):
+                        break
+                    batch.append(p)
+                    total += len(p)
+                    i += 1
 
-{batch_text}"""
-                result = self.glm.send_message(prompt, max_tokens=2000)
+                prompt = (
+                    "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
+                    "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
+                    f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
+                )
+                result = self.glm.send_message(prompt, max_tokens=2400, thinking_type="disabled")
+                translated_list = None
                 if result:
-                    translated = [t.strip() for t in result.split('\n') if t.strip()]
-                    for j, orig in enumerate(batch):
-                        trans = translated[j] if j < len(translated) else ''
-                        translated_pairs.append({
-                            'original': orig,
-                            'translated': trans
-                        })
-                else:
-                    for orig in batch:
-                        translated_pairs.append({
-                            'original': orig,
-                            'translated': ''
-                        })
-                time.sleep(0.5)
+                    try:
+                        translated_list = json.loads(result)
+                    except Exception:
+                        translated_list = None
+                if not isinstance(translated_list, list):
+                    # 兜底：按行对齐（不可靠，但保证不中断）
+                    translated_list = [t.strip() for t in (result or '').splitlines() if t.strip()]
+
+                for j, orig in enumerate(batch):
+                    trans = ''
+                    if j < len(translated_list) and isinstance(translated_list[j], str):
+                        trans = translated_list[j].strip()
+                    translated_pairs.append({'original': orig, 'translated': trans})
+
+                time.sleep(0.6)
 
             return json.dumps(translated_pairs, ensure_ascii=False)
         except Exception as e:
-            logger.error(f"[PortalArticleTranslateMonitor] translate content error: {str(e)}")
+            logger.error(f"[PortalArticleTranslateMonitor] translate content error: {str(e)}; glm_error={getattr(self.glm, 'last_error', '')}")
             return None

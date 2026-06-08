@@ -1,32 +1,73 @@
-# 定义全局终止标志  
-$script:stopRequested = $false  
+# NOTE:
+# This file must be readable by Windows PowerShell 5.x.
+# Avoid non-ASCII characters here to prevent encoding-related parse errors.
 
-# 定义全局终止标志  
-$global:stopRequested = $false  
+$global:stopRequested = $false
 
-Register-EngineEvent -SourceIdentifier Console.CancelKeyPress -Action {  
-    Write-Output "Ctrl+C. stop task"  
-    $global:stopRequested = $true  
-    # 取消默认行为，防止立即终止 PowerShell 进程  
-    $_.EventArgs.Cancel = $true  
-} | Out-Null  
+Register-EngineEvent -SourceIdentifier Console.CancelKeyPress -Action {
+    Write-Output "Ctrl+C detected. Stop requested."
+    $global:stopRequested = $true
+    $_.EventArgs.Cancel = $true
+} | Out-Null
 
-while (-not $script:stopRequested) {  
-    # 启动 python 脚本，并保存返回的进程对象  
-    $process = Start-Process python -ArgumentList ".\manage.py LMonitorCoreBackend" -PassThru  
+function Resolve-PythonExe {
+    # 1) Prefer project venv
+    $candidates = @(
+        (Join-Path $PSScriptRoot ".venv\\Scripts\\python.exe"),
+        (Join-Path $PSScriptRoot "venv\\Scripts\\python.exe"),
+        (Join-Path $PSScriptRoot "env\\Scripts\\python.exe")
+    )
 
-    # 用循环分段等待 1 小时，每秒检查一次是否有终止请求  
-    $secondsWaited = 0  
-    while ($secondsWaited -lt 3600 -and -not $script:stopRequested) {  
-        Start-Sleep -Seconds 1  
-        $secondsWaited++  
-    }  
+    # 2) Then system python (exclude WindowsApps store alias)
+    try {
+        $cmd = Get-Command python -ErrorAction SilentlyContinue
+        if ($cmd -and $cmd.Source -and ($cmd.Source -notmatch "WindowsApps")) {
+            $candidates += $cmd.Source
+        }
+    } catch {}
 
-    # 如果未收到终止请求，则停止当前进程并重新循环  
-    if (-not $script:stopRequested) {  
-        Stop-Process -Id $process.Id -Force  
-        Write-Output "stop. ready to restart"  
-    }  
-}  
+    # 3) Common install locations
+    $candidates += @(
+        (Join-Path $env:LOCALAPPDATA "Programs\\Python\\Python311\\python.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\\Python\\Python312\\python.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\\Python\\Python313\\python.exe"),
+        "C:\\Python311\\python.exe",
+        "C:\\Python312\\python.exe",
+        "C:\\Python313\\python.exe"
+    )
 
-Write-Output "stop"
+    foreach ($p in $candidates) {
+        if ($p -and (Test-Path $p)) { return $p }
+    }
+    return $null
+}
+
+$pythonExe = Resolve-PythonExe
+if (-not $pythonExe) {
+    Write-Output "No usable python.exe found. Your PATH python may be the WindowsApps store alias. Install Python or create a venv and retry."
+    exit 1
+}
+
+while (-not $global:stopRequested) {
+    # Start backend in a new console window
+    $process = Start-Process `
+        -FilePath $pythonExe `
+        -WorkingDirectory $PSScriptRoot `
+        -ArgumentList @(".\\manage.py", "LMonitorCoreBackend") `
+        -PassThru `
+        -WindowStyle Normal
+
+    # Wait up to 1 hour, check stop flag every second
+    $secondsWaited = 0
+    while ($secondsWaited -lt 3600 -and -not $global:stopRequested) {
+        Start-Sleep -Seconds 1
+        $secondsWaited++
+    }
+
+    if (-not $global:stopRequested) {
+        try { Stop-Process -Id $process.Id -Force } catch {}
+        Write-Output "Stopped. Ready to restart..."
+    }
+}
+
+Write-Output "Stopped."

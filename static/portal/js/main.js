@@ -52,6 +52,101 @@ function sanitizeHref(raw) {
   return "";
 }
 
+// --- NGA hover preview (Portal) ---
+const NGA_PREVIEW_CACHE = new Map(); // articleId -> preview text
+let NGA_TOOLTIP_EL = null;
+let NGA_TOOLTIP_HIDE_TIMER = null;
+
+function ensureNgaTooltip() {
+  if (NGA_TOOLTIP_EL) return NGA_TOOLTIP_EL;
+  const el = document.createElement("div");
+  el.id = "nga-hover-tooltip";
+  el.style.position = "fixed";
+  el.style.zIndex = "9999";
+  el.style.maxWidth = "520px";
+  el.style.display = "none";
+  el.className = "rounded-xl border border-slate-200 bg-white shadow-lg p-3 text-xs text-slate-700";
+  el.style.whiteSpace = "pre-wrap";
+  el.style.pointerEvents = "none";
+  document.body.appendChild(el);
+  NGA_TOOLTIP_EL = el;
+  return el;
+}
+
+function showNgaTooltipAt(x, y, html) {
+  const el = ensureNgaTooltip();
+  if (NGA_TOOLTIP_HIDE_TIMER) {
+    clearTimeout(NGA_TOOLTIP_HIDE_TIMER);
+    NGA_TOOLTIP_HIDE_TIMER = null;
+  }
+  const pad = 12;
+  const vw = window.innerWidth || 1200;
+  const vh = window.innerHeight || 800;
+  el.innerHTML = html || "";
+  el.style.display = "block";
+  // 先给一个默认位置，再根据尺寸修正
+  el.style.left = Math.min(vw - 40, x + pad) + "px";
+  el.style.top = Math.min(vh - 40, y + pad) + "px";
+  const rect = el.getBoundingClientRect();
+  let left = x + pad;
+  let top = y + pad;
+  if (left + rect.width > vw - 12) left = Math.max(12, vw - rect.width - 12);
+  if (top + rect.height > vh - 12) top = Math.max(12, vh - rect.height - 12);
+  el.style.left = left + "px";
+  el.style.top = top + "px";
+}
+
+function hideNgaTooltipSoon() {
+  const el = ensureNgaTooltip();
+  if (NGA_TOOLTIP_HIDE_TIMER) clearTimeout(NGA_TOOLTIP_HIDE_TIMER);
+  NGA_TOOLTIP_HIDE_TIMER = setTimeout(() => {
+    el.style.display = "none";
+  }, 120);
+}
+
+async function fetchNgaPreviewText(articleId) {
+  const id = Number(articleId || 0);
+  if (!id) return "";
+  if (NGA_PREVIEW_CACHE.has(id)) return NGA_PREVIEW_CACHE.get(id) || "";
+  try {
+    const resp = await fetch(`/portal/api/article/${id}/`);
+    if (!resp.ok) return "";
+    const data = await resp.json();
+    const item = data?.data || {};
+    const raw = String(item.content || "").trim();
+    const preview = raw.length > 900 ? raw.slice(0, 900).trim() + "..." : raw;
+    NGA_PREVIEW_CACHE.set(id, preview);
+    return preview;
+  } catch (e) {
+    return "";
+  }
+}
+
+function bindNgaHoverTooltips(containerEl) {
+  if (!containerEl) return;
+  const items = containerEl.querySelectorAll("[data-nga-article-id]");
+  items.forEach((el) => {
+    if (el.dataset?.ngaTooltipBound === "1") return;
+    el.dataset.ngaTooltipBound = "1";
+    el.addEventListener("mouseenter", async (ev) => {
+      const id = el.getAttribute("data-nga-article-id");
+      const preview = await fetchNgaPreviewText(id);
+      const safe = preview || "暂无预览内容（可能需要配置 NGA Cookie 才能抓取主楼）";
+      const html = `<div class="font-semibold text-slate-900 mb-1">主楼预览</div><div class="text-slate-700">${escapeHtml(safe)}</div>`;
+      showNgaTooltipAt(ev.clientX, ev.clientY, html);
+    });
+    el.addEventListener("mousemove", (ev) => {
+      const tip = ensureNgaTooltip();
+      if (tip.style.display !== "block") return;
+      // 不重写内容，仅更新位置
+      showNgaTooltipAt(ev.clientX, ev.clientY, tip.innerHTML);
+    });
+    el.addEventListener("mouseleave", () => {
+      hideNgaTooltipSoon();
+    });
+  });
+}
+
 function getFaviconSrc(it) {
   const p = String(it?.icon_path || "").trim();
   if (p) return p;
@@ -168,7 +263,11 @@ function renderSimpleList(containerId, items, opts) {
         titleHtml = `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`;
       }
 
-      return `<div class="py-2 ${divider}">
+      const ngaHoverAttrs =
+        containerId === "nga-list" && articleId
+          ? ` data-nga-article-id="${escapeHtml(articleId)}"`
+          : "";
+      return `<div class="py-2 ${divider}"${ngaHoverAttrs}>
         ${titleHtml}
         ${meta ? `<div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">${meta}</div>` : ""}
       </div>`;
@@ -176,6 +275,7 @@ function renderSimpleList(containerId, items, opts) {
     .join("");
 
   el.innerHTML = asGrid ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-x-6">${html}</div>` : html;
+  if (containerId === "nga-list") bindNgaHoverTooltips(el);
 }
 
 function renderSkeleton(containerId, lines = 8) {

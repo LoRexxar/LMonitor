@@ -9,10 +9,33 @@ class Migration(migrations.Migration):
         ('botend', '0074_remove_wowwagomonitorstate_hotfix_build_region'),
     ]
 
+    def _drop_hotfix_4f52f6_idx(apps, schema_editor):
+        """
+        兼容 SQLite：如果前置迁移在 SQLite 下已提前处理/不存在该索引，默认的 RemoveIndex 会直接报错。
+        这里用“尽力而为”的 SQL 删除，保证迁移可重入。
+        """
+        vendor = getattr(schema_editor.connection, "vendor", "")
+        table = "wow_wago_monitor_state"
+        try:
+            if vendor == "mysql":
+                schema_editor.execute(f"DROP INDEX wow_wago_mo_hotfix_4f52f6_idx ON {table};")
+            else:
+                schema_editor.execute("DROP INDEX IF EXISTS wow_wago_mo_hotfix_4f52f6_idx;")
+        except Exception:
+            # 兜底：忽略不存在/已删除等情况
+            pass
+
     operations = [
-        migrations.RemoveIndex(
-            model_name='wowwagomonitorstate',
-            name='wow_wago_mo_hotfix_4f52f6_idx',
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(_drop_hotfix_4f52f6_idx, migrations.RunPython.noop),
+            ],
+            state_operations=[
+                migrations.RemoveIndex(
+                    model_name='wowwagomonitorstate',
+                    name='wow_wago_mo_hotfix_4f52f6_idx',
+                ),
+            ],
         ),
         migrations.RenameIndex(
             model_name='wowdailyreport',

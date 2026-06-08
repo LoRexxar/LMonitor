@@ -79,8 +79,13 @@ class LMonitorCore:
 
     def scan(self):
         os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', '1')
-        Lreq = LReq(is_chrome=True, is_cloak=True)
         req_cfg = getattr(django_settings, 'REQUEST_CONFIG', {}) or {}
+        # 默认启用 cloak（需要时会自动 fallback 到 playwright 官方 chromium）
+        disable_cloak = str(req_cfg.get('disable_cloak', '')).strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+        if not disable_cloak:
+            disable_cloak = str(os.getenv('LMONITOR_DISABLE_CLOAK', '')).strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+
+        Lreq = LReq(is_chrome=True, is_cloak=(not disable_cloak))
         recycle_every = int(req_cfg.get('chrome_recycle_every', 0) or 0)
         finished = 0
 
