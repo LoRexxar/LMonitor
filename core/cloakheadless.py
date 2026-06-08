@@ -30,20 +30,16 @@ def _cleanup_stale_playwright_temp():
 
 
 class CloakDriver:
-    _init_failed = False
-
     def __init__(self, is_proxy=False):
         self.is_proxy = bool(is_proxy)
         self.browser = None
         self.context = None
         self.page = None
-        if CloakDriver._init_failed:
-            raise RuntimeError("[Cloak Headless] previously failed, skip")
+        # playwright 实例（需要手动 stop）
+        self._pw = None
         try:
             self.init_object(is_proxy)
         except Exception:
-            CloakDriver._init_failed = True
-            logger.warning("[Cloak Headless] init failed, will not retry")
             raise
         self.origin_url = ""
 
@@ -54,7 +50,35 @@ class CloakDriver:
         return proxy or None
 
     def init_object(self, is_proxy=False):
-        from cloakbrowser import launch, launch_persistent_context
+        """
+        使用官方 Playwright Chromium 进行 headless 渲染（稳定优先）。
+
+        说明：
+        - 之前的 cloakbrowser(stealth chromium) 在部分 Windows 环境可能无法启动（spawn UNKNOWN）。
+        - 监控/采集场景更需要“稳定可跑”，因此这里默认使用 Playwright 官方浏览器。
+        - 如确实需要 cloakbrowser，可在配置中开启（WCL_FETCH_CONFIG.use_cloakbrowser=true）。
+        """
+        def _proxy_to_playwright(proxy_val):
+            if not proxy_val:
+                return None
+            if isinstance(proxy_val, dict):
+                return proxy_val
+            return {"server": str(proxy_val)}
+
+        def _launch_playwright(user_data_dir, headless, proxy_val, args):
+            from playwright.sync_api import sync_playwright
+            self._pw = sync_playwright().start()
+            pw_proxy = _proxy_to_playwright(proxy_val)
+            if user_data_dir:
+                self.context = self._pw.chromium.launch_persistent_context(
+                    user_data_dir, headless=headless, proxy=pw_proxy, args=args
+                )
+                self.page = self.context.new_page()
+                self.browser = None
+            else:
+                self.browser = self._pw.chromium.launch(headless=headless, proxy=pw_proxy, args=args)
+                self.context = self.browser.new_context()
+                self.page = self.context.new_page()
 
         wcl_cfg = getattr(django_settings, "WCL_FETCH_CONFIG", {}) if django_settings else {}
         wcl_cfg = wcl_cfg or {}
@@ -76,20 +100,26 @@ class CloakDriver:
         _cleanup_stale_playwright_temp()
 
         user_data_dir = (wcl_cfg.get("chrome_user_data_dir") or "").strip()
+        use_cloakbrowser = bool(wcl_cfg.get("use_cloakbrowser", False))
         last_exc = None
         for attempt in range(3):
             try:
                 if attempt > 0:
                     time.sleep(2 * attempt)
                     _cleanup_stale_playwright_temp()
-                if user_data_dir:
-                    self.context = launch_persistent_context(user_data_dir, headless=headless, proxy=proxy, args=args)
-                    self.page = self.context.new_page()
-                    self.browser = None
-                    return
-                self.browser = launch(headless=headless, proxy=proxy, args=args)
-                self.context = self.browser.new_context()
-                self.page = self.context.new_page()
+                if use_cloakbrowser:
+                    # 可选：使用 cloakbrowser（如果你确认本机能启动其 stealth chromium）
+                    from cloakbrowser import launch, launch_persistent_context
+                    if user_data_dir:
+                        self.context = launch_persistent_context(user_data_dir, headless=headless, proxy=proxy, args=args)
+                        self.page = self.context.new_page()
+                        self.browser = None
+                    else:
+                        self.browser = launch(headless=headless, proxy=proxy, args=args)
+                        self.context = self.browser.new_context()
+                        self.page = self.context.new_page()
+                else:
+                    _launch_playwright(user_data_dir, headless, proxy, args)
                 return
             except Exception as e:
                 last_exc = e
@@ -190,6 +220,12 @@ class CloakDriver:
         self.page = None
         self.context = None
         self.browser = None
+        try:
+            if self._pw:
+                self._pw.stop()
+        except Exception:
+            pass
+        self._pw = None
         try:
             time.sleep(1)
         except Exception:

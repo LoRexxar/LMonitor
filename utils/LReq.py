@@ -38,9 +38,19 @@ class LReq:
     """
     def __init__(self, is_chrome=False, is_cloak=False):
 
-        self.ua = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/538",
-                   "Mozilla/5.0 (iPad; U; CPU OS 3_2_1 like Mac OS X; en-us) AppleWebKit/531.21.10 (KHTML, like Gecko) Mobile/7B405",
-                   "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:59.0) Gecko/20100101 Firefox/59.0"]
+        # NOTE:
+        # UA 中曾包含无效/过旧的字符串（如 Safari/538），会导致部分站点（例如 wowhead）
+        # 直接返回 403。这里改为更现代且格式正确的 UA 列表。
+        self.ua = [
+            # Chrome (Windows)
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            # Edge (Windows)
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+            # Firefox (Windows)
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+        ]
+        # wowhead 对部分 Chrome/Edge UA 会返回 403，这里固定使用 Firefox UA
+        self.ua_wowhead = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
         self.s = requests.Session()
         self.is_chrome = bool(is_chrome and ChromeDriver)
@@ -138,10 +148,21 @@ class LReq:
         if cookies:
             cookies = cookies.replace('\r', ';').replace('\n', ';')
             cookies = '; '.join([p.strip() for p in cookies.split(';') if p.strip()])
+        ua = random.choice(self.ua)
+        try:
+            u = str(url or "").lower()
+            if "wowhead.com" in u:
+                ua = getattr(self, "ua_wowhead", ua) or ua
+        except Exception:
+            pass
+
         header = {
-            "User-Agent": random.choice(self.ua),
+            "User-Agent": ua,
             "Referer": url,
-            "Cookie": cookies
+            "Cookie": cookies,
+            # 一些站点（如 wowhead）对缺少基础 Accept 头会更严格，补齐常见浏览器默认值
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
         }
         header.update(ext)
         for k, v in list(header.items()):

@@ -9,6 +9,7 @@
 
 '''
 
+import json
 import time
 import re
 import html
@@ -16,6 +17,7 @@ import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
+from core.glm import GLMClient
 
 from botend.models import WowArticle
 from datetime import datetime
@@ -32,6 +34,9 @@ class wowheadMonitor(BaseScan):
         self.post_desp = ""
         self.target_url = "https://www.wowhead.com/wow/retail"
         self.task = task
+        self.glm = GLMClient()
+        # 单次 scan 最多翻译多少篇（避免一次性跑太久/触发限流）
+        self._translate_budget = 3
 
     def scan(self, url):
         """
@@ -84,6 +89,7 @@ class wowheadMonitor(BaseScan):
                 return 0, 0
 
             new_count = 0
+            translated_count = 0
             for post in posts_data[:int(limit or 10)]:
                 try:
                     post_type = (post.get("type") or "").strip()
@@ -140,7 +146,23 @@ class wowheadMonitor(BaseScan):
                             body = self._fetch_article_body(post_link, cookies="")
                             if body:
                                 wa.description = body
-                                wa.save(update_fields=["description"])
+                                # 同步写入 content，供 Portal 详情页与翻译监控使用
+                                if not (getattr(wa, "content", "") or "").strip():
+                                    wa.content = body
+                                    wa.save(update_fields=["description", "content"])
+                                else:
+                                    wa.save(update_fields=["description"])
+                        # 若 content 缺失，补抓正文
+                        if not (getattr(wa, "content", "") or "").strip() or len((getattr(wa, "content", "") or "")) < 800:
+                            body = self._fetch_article_body(post_link, cookies="")
+                            if body:
+                                wa.content = body
+                                wa.save(update_fields=["content"])
+                        # 若译文缺失，补翻译（标题/内容）
+                        if translated_count < self._translate_budget:
+                            translated = self._ensure_translated(wa)
+                            if translated:
+                                translated_count += 1
                         continue
 
                     body = self._fetch_article_body(post_link, cookies="")
@@ -149,13 +171,19 @@ class wowheadMonitor(BaseScan):
                         url=post_link,
                         publish_time=django_date_time,
                         author="wowhead",
-                        description=body or post_preview,
+                        description=post_preview or body,
+                        content=body or "",
                         source="wowhead",
                         category="news",
                     )
                     obj.save()
                     new_count += 1
                     logger.info("[wowhead Monitor] Found new wowhead article.{}".format(post_title))
+
+                    if translated_count < self._translate_budget:
+                        translated = self._ensure_translated(obj)
+                        if translated:
+                            translated_count += 1
 
                     self.task.flag = post_link
                     self.task.save()
@@ -184,6 +212,94 @@ class wowheadMonitor(BaseScan):
             raise
 
         return 0, 0
+
+    def _ensure_translated(self, article: WowArticle) -> bool:
+        """
+        端到端链路要求：
+        1) 先抓取并落库原文（title/content）
+        2) 标题与正文分段走 GLM 翻译
+        3) 保存 title_cn/content_cn
+        4) 若本次抓取/翻译失败，下一次 scan 会继续补齐
+        """
+        try:
+            if not getattr(self.glm, "api_key", ""):
+                return False
+
+            updated = []
+            if (article.title or "").strip() and not (article.title_cn or "").strip():
+                title_cn = self._translate_title(article.title)
+                if title_cn:
+                    article.title_cn = title_cn
+                    updated.append("title_cn")
+
+            if (article.content or "").strip() and not (article.content_cn or "").strip():
+                content_cn = self._translate_content(article.content)
+                if content_cn:
+                    article.content_cn = content_cn
+                    updated.append("content_cn")
+
+            if updated:
+                article.save(update_fields=updated)
+                return True
+            return False
+        except Exception:
+            return False
+
+    def _translate_title(self, title: str) -> str:
+        title = (title or "").strip()
+        if not title:
+            return ""
+        prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
+        result = self.glm.send_message(prompt, max_tokens=200, thinking_type="disabled")
+        return (result or "").strip().strip('"').strip("'")
+
+    def _translate_content(self, content: str) -> str:
+        content = (content or "").strip()
+        if not content:
+            return ""
+        paragraphs = [p.strip() for p in content.split("\n") if p and p.strip()]
+        if not paragraphs:
+            return ""
+
+        translated_pairs = []
+        i = 0
+        while i < len(paragraphs):
+            batch = []
+            total = 0
+            while i < len(paragraphs) and len(batch) < 10:
+                p = paragraphs[i]
+                if len(p) > 2000:
+                    p = p[:2000]
+                if batch and (total + len(p) > 4000):
+                    break
+                batch.append(p)
+                total += len(p)
+                i += 1
+
+            prompt = (
+                "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
+                "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
+                f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
+            )
+            result = self.glm.send_message(prompt, max_tokens=2400, thinking_type="disabled")
+            translated_list = None
+            if result:
+                try:
+                    translated_list = json.loads(result)
+                except Exception:
+                    translated_list = None
+            if not isinstance(translated_list, list):
+                translated_list = [t.strip() for t in (result or "").splitlines() if t.strip()]
+
+            for j, orig in enumerate(batch):
+                trans = ""
+                if j < len(translated_list) and isinstance(translated_list[j], str):
+                    trans = translated_list[j].strip()
+                translated_pairs.append({"original": orig, "translated": trans})
+
+            time.sleep(0.6)
+
+        return json.dumps(translated_pairs, ensure_ascii=False)
 
     def _parse_posts_from_page_html(self, page_html, limit=10):
         t = page_html or ""
@@ -241,13 +357,23 @@ class wowheadMonitor(BaseScan):
 
     def _fetch_article_body(self, url, cookies=""):
         try:
-            resp = self.req.getResponse(url, cookies)
-            if not resp:
-                return ""
-            status_code = getattr(resp, 'status_code', 200)
-            if int(status_code or 0) >= 400:
-                return ""
-            html_text = getattr(resp, 'text', '') or ''
+            html_text = ""
+            # Wowhead 部分页面正文可能需要前端渲染，优先尝试 Chrome 渲染版本
+            try:
+                if self.req and getattr(self.req, 'is_chrome', False):
+                    driver = self.req.get(url, 'RespByChrome', 0, cookies, is_origin=1)
+                    if driver and hasattr(driver, 'html'):
+                        html_text = (getattr(driver, 'html', '') or '').strip()
+            except Exception:
+                html_text = html_text or ""
+            if not html_text:
+                resp = self.req.getResponse(url, cookies)
+                if not resp:
+                    return ""
+                status_code = getattr(resp, 'status_code', 200)
+                if int(status_code or 0) >= 400:
+                    return ""
+                html_text = getattr(resp, 'text', '') or ''
             if not html_text:
                 return ""
             return self._extract_body_from_html(html_text)
@@ -287,7 +413,65 @@ class wowheadMonitor(BaseScan):
             blank = 0
             out.append(ln)
         text = "\n".join(out).strip()
-        return text
+        # 兜底：正则没抓到/抓到的太短时，用 BS4 再试一轮
+        if len(text) >= 400:
+            return text
+        try:
+            from bs4 import BeautifulSoup
+        except Exception:
+            return text
+        try:
+            soup = BeautifulSoup(t, 'html.parser')
+            for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe']):
+                tag.decompose()
+            # JSON-LD articleBody（如果有）
+            try:
+                for sc in soup.find_all('script', attrs={'type': 'application/ld+json'}):
+                    raw = (sc.string or sc.get_text() or '').strip()
+                    if not raw:
+                        continue
+                    try:
+                        obj = json.loads(raw)
+                    except Exception:
+                        continue
+                    candidates = []
+                    if isinstance(obj, dict):
+                        candidates.append(obj)
+                    elif isinstance(obj, list):
+                        candidates.extend([x for x in obj if isinstance(x, dict)])
+                    for it in candidates:
+                        body = (it.get('articleBody') or it.get('text') or '').strip()
+                        if body and len(body) > 200:
+                            return body
+            except Exception:
+                pass
+
+            selectors = [
+                '#blog-post .text',
+                '#news-post .text',
+                '.news-post .text',
+                '.blog-post .text',
+                '.article-content',
+                '.post-content',
+                '.news-post-content',
+                '.news-post-text',
+                '.content-body',
+                '.text',
+                'article',
+                'main',
+            ]
+            best = ""
+            for sel in selectors:
+                el = soup.select_one(sel)
+                if not el:
+                    continue
+                cand = el.get_text(separator='\n', strip=True)
+                if cand and len(cand) > len(best):
+                    best = cand
+            best = (best or "").strip()
+            return best if len(best) > len(text) else text
+        except Exception:
+            return text
 
     def trigger_webhook(self):
         """
