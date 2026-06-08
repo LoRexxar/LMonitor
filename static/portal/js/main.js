@@ -246,21 +246,22 @@ function renderSimpleList(containerId, items, opts) {
       const articleId = it.id;
       const articleLink = isArticleList && articleId ? `/portal/article/${articleId}/` : "";
       const externalLinkIcon = href ? `<a href="${url}" target="_blank" rel="noreferrer" class="inline-flex items-center text-slate-400 hover:text-indigo-600 ml-1" title="查看原文">${svgIcon("icon-globe", "w-3.5 h-3.5")}</a>` : "";
+      const titleClampCls = isArticleList ? "portal-line-clamp-1" : "portal-line-clamp-2";
 
       let titleHtml;
       if (articleLink) {
         if (titleCn && title) {
           titleHtml = `<a class="block hover:text-indigo-700" href="${escapeHtml(articleLink)}">
-            <div class="font-medium text-slate-900 portal-line-clamp-2">${titleCn}${externalLinkIcon}</div>
+            <div class="font-medium text-slate-900 ${titleClampCls}">${titleCn}${externalLinkIcon}</div>
             <div class="text-xs text-slate-500 mt-0.5 portal-line-clamp-1">${title}</div>
           </a>`;
         } else {
-          titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${escapeHtml(articleLink)}">${title}${externalLinkIcon}</a>`;
+          titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium ${titleClampCls}" href="${escapeHtml(articleLink)}">${title}${externalLinkIcon}</a>`;
         }
       } else if (url) {
-        titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`;
+        titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium ${titleClampCls}" href="${url}" target="_blank" rel="noreferrer">${title}</a>`;
       } else {
-        titleHtml = `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`;
+        titleHtml = `<span class="block text-slate-900 font-medium ${titleClampCls}">${title}</span>`;
       }
 
       const ngaHoverAttrs =
