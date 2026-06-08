@@ -35,8 +35,8 @@ class wowheadMonitor(BaseScan):
         self.target_url = "https://www.wowhead.com/wow/retail"
         self.task = task
         self.glm = GLMClient()
-        # 单次 scan 最多翻译多少篇（避免一次性跑太久/触发限流）
-        self._translate_budget = 3
+        # 单次 scan 最多翻译多少篇（包括补翻译历史记录）
+        self._translate_budget = 10
 
     def scan(self, url):
         """
@@ -197,6 +197,24 @@ class wowheadMonitor(BaseScan):
                     logger.warning("[wowheadMonitor] Parse post failed: {}".format(str(e)))
                     continue
 
+            # 补翻译：避免只翻译“最新列表里出现的文章”，导致历史文章长期 title_cn/content_cn 为空
+            try:
+                if translated_count < self._translate_budget and getattr(self.glm, "api_key", ""):
+                    from django.db.models import Q
+                    missing = (
+                        WowArticle.objects.filter(source="wowhead")
+                        .filter(Q(title_cn__isnull=True) | Q(content_cn__isnull=True))
+                        .exclude(content="")
+                        .order_by("-publish_time")[: max(0, self._translate_budget - translated_count)]
+                    )
+                    for wa2 in missing:
+                        if translated_count >= self._translate_budget:
+                            break
+                        if self._ensure_translated(wa2):
+                            translated_count += 1
+            except Exception:
+                pass
+
             return len(posts_data), new_count
 
         except DrissionPage.errors.ElementNotFoundError:
@@ -251,6 +269,11 @@ class wowheadMonitor(BaseScan):
             return ""
         prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
         result = self.glm.send_message(prompt, max_tokens=200, thinking_type="disabled")
+        if not result:
+            try:
+                logger.warning(f"[wowheadMonitor] title translate failed: {getattr(self.glm, 'last_error', '')}")
+            except Exception:
+                pass
         return (result or "").strip().strip('"').strip("'")
 
     def _translate_content(self, content: str) -> str:
@@ -282,6 +305,11 @@ class wowheadMonitor(BaseScan):
                 f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
             )
             result = self.glm.send_message(prompt, max_tokens=2400, thinking_type="disabled")
+            if not result:
+                try:
+                    logger.warning(f"[wowheadMonitor] content translate failed: {getattr(self.glm, 'last_error', '')}")
+                except Exception:
+                    pass
             translated_list = None
             if result:
                 try:
