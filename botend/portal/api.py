@@ -62,6 +62,26 @@ def _article_to_dict(a):
     }
 
 
+def _nga_article_to_dict(a):
+    content_preview = ''
+    if a.content:
+        content_preview = a.content[:200] + ('...' if len(a.content) > 200 else '')
+    return {
+        'id': a.id,
+        'title': a.title or '',
+        'title_cn': a.title_cn or '',
+        'url': _normalize_url(a.url),
+        'author': _normalize_display_text(a.author),
+        'source': a.source or '',
+        'category': a.category or '',
+        'publish_time': _fmt_dt(a.publish_time),
+        'reply_count': int(getattr(a, 'reply_count', 0) or 0),
+        'content_preview': content_preview,
+        'has_content': bool(a.content),
+        'has_translation': bool(a.content_cn),
+    }
+
+
 def _event_to_dict(e):
     status = (e.status or '').strip()
     if not status:
@@ -338,7 +358,7 @@ class PortalNgaHotAPIView(View):
         if not qs.exists():
             qs = WowArticle.objects.filter(source='nga', is_active=True, reply_count__gt=20)
         rows = list(qs.order_by('-publish_time', '-id')[:40])
-        return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
+        return JsonResponse({'status': 'success', 'data': [_nga_article_to_dict(x) for x in rows]})
 
 
 class PortalExwindLatestAPIView(View):
