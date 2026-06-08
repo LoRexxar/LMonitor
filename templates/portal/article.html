@@ -12,9 +12,8 @@
         .article-content { line-height: 1.8; }
         .article-content p { margin-bottom: 1rem; }
         .translation-pair { margin-bottom: 1.5rem; }
-        .original-text { color: #334155; }
-        .translated-text { color: #4f46e5; font-style: italic; }
-        .translated-text::before { content: "译："; font-weight: 600; font-style: normal; }
+        .translated-text { color: #0f172a; font-size: 0.95rem; }
+        .original-text { margin-top: 0.35rem; color: #64748b; font-size: 0.8125rem; }
     </style>
 </head>
 <body class="portal-bg font-sans">
@@ -88,8 +87,11 @@
                 if (article.content_cn && Array.isArray(article.content_cn)) {
                     contentHtml = article.content_cn.map(pair => `
                         <div class="translation-pair">
-                            <div class="original-text">${escapeHtml(pair.original)}</div>
-                            ${pair.translated ? `<div class="translated-text">${escapeHtml(pair.translated)}</div>` : ''}
+                            ${pair.translated
+                                ? `<div class="translated-text">${escapeHtml(pair.translated)}</div>
+                                   <div class="original-text">${escapeHtml(pair.original)}</div>`
+                                : `<div class="translated-text">${escapeHtml(pair.original)}</div>`
+                            }
                         </div>
                     `).join('');
                 } else if (article.content) {

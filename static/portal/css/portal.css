@@ -407,6 +407,15 @@ html, body {
     overflow: hidden;
 }
 
+.portal-line-clamp-1 {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    min-width: 0;
+}
+
 .mythicstats-spec-link {
     text-shadow:
         0 0 0.8px rgba(255, 255, 255, 0.28),
