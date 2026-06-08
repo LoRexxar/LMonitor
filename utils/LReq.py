@@ -53,22 +53,9 @@ class LReq:
         self.ua_wowhead = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
         self.s = requests.Session()
-        # 是否忽略环境变量代理（HTTP_PROXY/HTTPS_PROXY 等）。
-        # 默认不忽略：因为部分站点（如 wowhead）可能需要走系统代理/网络环境才能访问。
-        # 如需强制只使用任务 proxy_enabled + PROXY_CONFIG，可在 REQUEST_CONFIG 中设置
-        # ignore_env_proxy=true 或设置环境变量 LMONITOR_IGNORE_ENV_PROXY=1。
-        ignore_env_proxy = False
-        try:
-            ignore_env_proxy = bool(self._cfg.get("ignore_env_proxy", False))
-        except Exception:
-            ignore_env_proxy = False
-        if not ignore_env_proxy:
-            try:
-                import os
-                ignore_env_proxy = str(os.getenv("LMONITOR_IGNORE_ENV_PROXY", "")).strip().lower() in {"1", "true", "yes", "y", "on"}
-            except Exception:
-                ignore_env_proxy = False
-        self.s.trust_env = (not ignore_env_proxy)
+        # 允许 requests 使用系统/环境代理（HTTP_PROXY/HTTPS_PROXY 等），
+        # 否则在部分网络环境下（例如 wowhead）会出现 403/握手失败导致抓不到正文。
+        self.s.trust_env = True
         self.is_chrome = bool(is_chrome and ChromeDriver)
         self.is_cloak = bool(is_cloak and CloakDriver)
         self.csp = False
