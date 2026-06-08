@@ -176,6 +176,45 @@ class WowSkillDiffReport(models.Model):
         ]
 
 
+class WowHotfixReport(models.Model):
+    """
+    Wago Hotfix 全量更新报告（面向 Dashboard 列表展示，Portal 暂不接入）。
+    """
+    id = models.BigAutoField(primary_key=True)
+    branch = models.CharField(max_length=32, default="wow")
+    locale = models.CharField(max_length=8, default="enUS")
+
+    # 当前 build（Wago hotfix 列表返回的是 build number，例如 68016）
+    build_num = models.CharField(max_length=32, default="", blank=True)
+    build_str = models.CharField(max_length=64, default="", blank=True)
+
+    from_push = models.BigIntegerField(default=0)
+    to_push = models.BigIntegerField(default=0)
+
+    summary_title = models.CharField(max_length=255, default="", blank=True)
+    content_md = models.TextField(default="", blank=True)
+    content_html_path = models.CharField(max_length=500, default="", blank=True)
+
+    report_url = models.CharField(max_length=500, default="", blank=True)
+    wago_url = models.CharField(max_length=500, default="", blank=True)
+
+    changed_tables_json = models.TextField(default="", blank=True)
+    table_count = models.IntegerField(default=0)
+    entry_count = models.IntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_hotfix_report'
+        unique_together = (('branch', 'locale', 'to_push'),)
+        indexes = [
+            models.Index(fields=['branch', 'locale'], name='wow_hot__branch__8ad3c7_idx'),
+            models.Index(fields=['to_push'], name='wow_hot__to_pus_9a4f12_idx'),
+            models.Index(fields=['created_at'], name='wow_hot__created_7c3a19_idx'),
+        ]
+
+
 class WowDailyReport(models.Model):
     report_date = models.DateField(unique=True)
     md_path = models.CharField(max_length=500, default="")

@@ -12,7 +12,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from botend.controller.BaseScan import BaseScan
-from botend.models import WowSkillDiffReport, WowSpellEffectSnapshot, WowSpellSnapshot, WowSpellSnapshotState, WowSpecSpellMapSnapshot, WowWagoMonitorState
+from botend.models import WowSkillDiffReport, WowHotfixReport, WowSpellEffectSnapshot, WowSpellSnapshot, WowSpellSnapshotState, WowSpecSpellMapSnapshot, WowWagoMonitorState
 from utils.log import logger
 from botend.controller.plugins.wow.wago_regions import wago_region_id, wago_region_name
 
@@ -223,9 +223,8 @@ class WagoSkillDiffMonitor(BaseScan):
             prev_push = self._fetch_prev_hotfix_push_id(latest_push, locale=hotfix_locale)
             from_push = prev_push if prev_push > 0 else max(0, latest_push - 1)
         try:
-            report = self._generate_hotfix_report(branch, current_build, from_push, latest_push, locale=hotfix_locale)
+            report = self._generate_hotfix_full_report(branch, current_build, from_push, latest_push, locale=hotfix_locale)
         except Exception as e:
-            st.hotfix_push_id = latest_push
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
             st.hotfix_report_url = ''
@@ -235,7 +234,6 @@ class WagoSkillDiffMonitor(BaseScan):
             st.hotfix_summary_title = ''
             st.save(
                 update_fields=[
-                    'hotfix_push_id',
                     'hotfix_last_event_at',
                     'hotfix_last_event_status',
                     'hotfix_report_url',
@@ -247,18 +245,17 @@ class WagoSkillDiffMonitor(BaseScan):
             )
             return False
 
-        if not report or int(report.get('spell_count') or 0) <= 0:
-            st.hotfix_push_id = latest_push
+        if not report or int(report.get('entry_count') or 0) <= 0:
+            # 没拿到数据时不要推进 push_id，保证下次会重试
             st.hotfix_last_event_at = now
-            st.hotfix_last_event_status = 'init_no_class_change' if is_init else 'no_class_change'
+            st.hotfix_last_event_status = 'no_data'
             st.hotfix_report_url = ''
             st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
-            st.hotfix_spell_count = int((report or {}).get('spell_count') or 0)
-            st.hotfix_class_count = int((report or {}).get('class_count') or 0)
-            st.hotfix_summary_title = ((report or {}).get('summary_title') or '')[:255]
+            st.hotfix_spell_count = 0
+            st.hotfix_class_count = 0
+            st.hotfix_summary_title = ''
             st.save(
                 update_fields=[
-                    'hotfix_push_id',
                     'hotfix_last_event_at',
                     'hotfix_last_event_status',
                     'hotfix_report_url',
@@ -268,37 +265,38 @@ class WagoSkillDiffMonitor(BaseScan):
                     'hotfix_summary_title',
                 ]
             )
-            return True
+            return False
 
         row = None
         try:
-            row, _ = WowSkillDiffReport.objects.update_or_create(
+            row, _ = WowHotfixReport.objects.update_or_create(
                 branch=branch,
                 locale=hotfix_locale,
-                to_build=report.get('to_build') or '',
+                to_push=int(report.get('to_push') or latest_push),
                 defaults={
-                    'from_build': report.get('from_build') or '',
+                    'from_push': int(report.get('from_push') or from_push),
+                    'build_num': report.get('build_num') or '',
+                    'build_str': report.get('build_str') or '',
+                    'summary_title': (report.get('summary_title') or '')[:255],
                     'content_md': report.get('content_md') or '',
                     'content_html_path': report.get('content_html_path') or '',
+                    'report_url': report.get('report_url') or '',
+                    'wago_url': report.get('wago_url') or '',
                     'changed_tables_json': report.get('changed_tables_json') or '',
-                    'spell_count': int(report.get('spell_count') or 0),
-                    'class_count': int(report.get('class_count') or 0),
-                    'display_from_build': report.get('display_from_build') or '',
-                    'display_to_build': report.get('display_to_build') or '',
+                    'table_count': int(report.get('table_count') or 0),
+                    'entry_count': int(report.get('entry_count') or 0),
                 }
             )
         except Exception as e:
-            st.hotfix_push_id = latest_push
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
             st.hotfix_report_url = ''
             st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
-            st.hotfix_spell_count = int(report.get('spell_count') or 0) if report else 0
-            st.hotfix_class_count = int(report.get('class_count') or 0) if report else 0
+            st.hotfix_spell_count = 0
+            st.hotfix_class_count = 0
             st.hotfix_summary_title = ''
             st.save(
                 update_fields=[
-                    'hotfix_push_id',
                     'hotfix_last_event_at',
                     'hotfix_last_event_status',
                     'hotfix_report_url',
@@ -310,13 +308,15 @@ class WagoSkillDiffMonitor(BaseScan):
             )
             return False
 
+        # 仅在成功生成/落库报告后推进 push_id
         st.hotfix_push_id = latest_push
         st.hotfix_last_event_at = now
-        st.hotfix_last_event_status = 'init_has_class_change' if is_init else 'has_class_change'
-        st.hotfix_report_url = f"/portal/wow-skill-diff/{row.id}/" if row else ''
+        st.hotfix_last_event_status = 'init_has_update' if is_init else 'has_update'
+        st.hotfix_report_url = (report.get('report_url') or '') if report else ''
         st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
-        st.hotfix_spell_count = int(report.get('spell_count') or 0)
-        st.hotfix_class_count = int(report.get('class_count') or 0)
+        # 兼容旧字段：保留 0，避免误导（全量信息请看 WowHotfixReport 表）
+        st.hotfix_spell_count = 0
+        st.hotfix_class_count = 0
         st.hotfix_summary_title = (report.get('summary_title') or '')[:255]
         st.save(
             update_fields=[
@@ -1732,6 +1732,321 @@ class WagoSkillDiffMonitor(BaseScan):
             'spell_count': len(spell_changes),
             'class_count': class_count,
         }
+
+    def _generate_hotfix_full_report(self, branch, current_build, from_push, to_push, *, locale=''):
+        """
+        Hotfix 全量更新报告：覆盖所有表的变更（不仅职业/技能）。
+
+        报告产物：
+        - content_md：用于存档/检索
+        - content_html_path：静态 html（Dashboard 直接打开）
+        - report_url：/static/... 形式的可点击链接（Dashboard 会自动识别）
+        """
+        max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
+        max_entries = int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 4000) or 4000)
+        max_sample_per_table = int(getattr(settings, 'WAGO_HOTFIX_REPORT_SAMPLE_PER_TABLE', 20) or 20)
+        max_enrich = int(getattr(settings, 'WAGO_HOTFIX_REPORT_ENRICH_MAX', 50) or 50)
+
+        locale = (locale or '').strip() or self.locale
+        search = locale
+
+        hotfix_rows = []
+        page = 1
+        while page <= max_pages and len(hotfix_rows) < max_entries:
+            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
+            if not raw:
+                break
+            min_pid = 0
+            for r in raw:
+                pid = self._to_int((r or {}).get('push_id') or 0)
+                if pid <= 0:
+                    continue
+                if min_pid <= 0 or pid < min_pid:
+                    min_pid = pid
+                if locale and (str((r or {}).get('locale') or '').strip() or '') != locale:
+                    continue
+                # (from_push, to_push]
+                if pid <= int(from_push or 0):
+                    continue
+                if int(to_push or 0) > 0 and pid > int(to_push or 0):
+                    continue
+                hotfix_rows.append(r)
+                if len(hotfix_rows) >= max_entries:
+                    break
+            if min_pid > 0 and min_pid <= int(from_push or 0):
+                break
+            page += 1
+
+        if not hotfix_rows:
+            return None
+
+        # build number 取众数（理论上同一次 hotfix 推送应在同一个 build）
+        build_counts = {}
+        for r in hotfix_rows:
+            b = str((r or {}).get('build') or '').strip()
+            if not b:
+                continue
+            build_counts[b] = int(build_counts.get(b) or 0) + 1
+        build_num = ''
+        if build_counts:
+            build_num = sorted(build_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
+
+        # group by table
+        by_table = {}
+        for r in hotfix_rows:
+            t = (str((r or {}).get('table_name') or '').strip() or '')
+            rid = self._to_int((r or {}).get('record_id') or 0)
+            if not t or rid <= 0:
+                continue
+            by_table.setdefault(t, []).append(r)
+
+        table_stats = [(t, len(rows)) for t, rows in by_table.items()]
+        table_stats.sort(key=lambda x: (-x[1], x[0].lower()))
+
+        entry_count = sum(c for _, c in table_stats)
+        table_count = len(table_stats)
+        wago_url = self._hotfix_url(push_id=int(to_push or 0), locale=locale)
+        summary_title = f"Hotfix 全量更新：{table_count} 张表 / {entry_count} 项（push {from_push}→{to_push}）"
+
+        # 生成 markdown（用于存档）
+        md_lines = [
+            f"# {summary_title}",
+            "",
+            f"- 分支：{branch}",
+            f"- 区域/语言：{locale}",
+            f"- Build：{build_num or current_build}",
+            f"- Push：{from_push} → {to_push}",
+            f"- Wago：{wago_url}",
+            "",
+            "## 变更概览（按表汇总）",
+            "",
+            "| DB2表 | 变更数 |",
+            "| --- | ---: |",
+        ]
+        for t, c in table_stats[:200]:
+            md_lines.append(f"| {t} | {c} |")
+        if len(table_stats) > 200:
+            md_lines.append(f"\n> 仅展示前 200 张表，其余 {len(table_stats) - 200} 张表请查看 HTML 报告。")
+
+        md_lines.append("\n## 变更详情（抽样）\n")
+
+        # enrich：尽量把 record_id 显示成可读信息（有 Name/Description 的优先）
+        enrich_left = max_enrich
+
+        def _pretty_row_brief(db2_row: dict) -> str:
+            if not isinstance(db2_row, dict):
+                return ""
+            keys = [
+                "Name_lang", "Name", "DisplayName_lang", "Title_lang",
+                "Description_lang", "Text_lang", "SpellName", "ID",
+            ]
+            for k in keys:
+                v = db2_row.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            return ""
+
+        detail_blocks = []
+        for t, _ in table_stats:
+            rows = by_table.get(t) or []
+            # 去重 record_id
+            ids = []
+            seen = set()
+            for r in rows:
+                rid = self._to_int((r or {}).get("record_id") or 0)
+                if rid <= 0 or rid in seen:
+                    continue
+                seen.add(rid)
+                ids.append(rid)
+                if len(ids) >= max_sample_per_table:
+                    break
+
+            if not ids:
+                continue
+
+            md_lines.append(f"### {t}（{len(rows)}）")
+            md_lines.append("")
+            for rid in ids:
+                brief = ""
+                if enrich_left > 0 and build_num:
+                    try:
+                        db2_row = self._fetch_db2_row_by_id(t, build_num, rid)
+                        brief = _pretty_row_brief(db2_row)
+                        enrich_left -= 1
+                    except Exception:
+                        brief = ""
+                if brief:
+                    md_lines.append(f"- `{rid}`：{brief}")
+                else:
+                    md_lines.append(f"- `{rid}`")
+            md_lines.append("")
+
+        content_md = "\n".join(md_lines).strip() + "\n"
+
+        # 输出静态 HTML（Dashboard 打开）
+        html_path, html_rel_path = self._write_hotfix_full_html(
+            branch=branch,
+            locale=locale,
+            to_push=int(to_push or 0),
+            summary_title=summary_title,
+            wago_url=wago_url,
+            build_num=build_num or current_build,
+            from_push=int(from_push or 0),
+            table_stats=table_stats,
+            by_table=by_table,
+            sample_per_table=max_sample_per_table,
+            enrich_max=max_enrich,
+        )
+        report_url = f"/static/{html_rel_path}" if html_rel_path else ""
+
+        return {
+            "branch": branch,
+            "locale": locale,
+            "build_num": build_num or "",
+            "build_str": str(current_build or ""),
+            "from_push": int(from_push or 0),
+            "to_push": int(to_push or 0),
+            "summary_title": summary_title,
+            "content_md": content_md,
+            "content_html_path": html_rel_path or "",
+            "report_url": report_url,
+            "wago_url": wago_url,
+            "changed_tables_json": json.dumps([t for t, _ in table_stats], ensure_ascii=False),
+            "table_count": table_count,
+            "entry_count": entry_count,
+        }
+
+    def _write_hotfix_full_html(
+        self,
+        *,
+        branch: str,
+        locale: str,
+        to_push: int,
+        summary_title: str,
+        wago_url: str,
+        build_num: str,
+        from_push: int,
+        table_stats: list,
+        by_table: dict,
+        sample_per_table: int,
+        enrich_max: int,
+    ):
+        """
+        生成可读性更强的静态 HTML 报告（不依赖前端/Portal）。
+        返回：(full_path, rel_path)
+        """
+        rel_path = f"portal/reports/wow_hotfix_full_{branch}_{locale}_{to_push}.html"
+        base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
+        static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
+        full_path = os.path.join(static_dir, rel_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+        def esc(s):
+            return html.escape(str(s or ""))
+
+        # 概览表格
+        rows_html = []
+        for t, c in table_stats:
+            rows_html.append(f"<tr><td class='tbl'>{esc(t)}</td><td class='num'>{c}</td></tr>")
+
+        # 详情：每表抽样 record_id
+        detail_sections = []
+        enrich_left = int(enrich_max or 0)
+
+        def _pretty_row_brief(db2_row: dict) -> str:
+            if not isinstance(db2_row, dict):
+                return ""
+            keys = [
+                "Name_lang", "Name", "DisplayName_lang", "Title_lang",
+                "Description_lang", "Text_lang",
+            ]
+            for k in keys:
+                v = db2_row.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            return ""
+
+        for t, c in table_stats:
+            raw_rows = by_table.get(t) or []
+            ids = []
+            seen = set()
+            for r in raw_rows:
+                rid = self._to_int((r or {}).get("record_id") or 0)
+                if rid <= 0 or rid in seen:
+                    continue
+                seen.add(rid)
+                ids.append(rid)
+                if len(ids) >= int(sample_per_table or 20):
+                    break
+            if not ids:
+                continue
+
+            li_parts = []
+            for rid in ids:
+                brief = ""
+                if enrich_left > 0 and build_num:
+                    try:
+                        db2_row = self._fetch_db2_row_by_id(t, build_num, rid)
+                        brief = _pretty_row_brief(db2_row)
+                    except Exception:
+                        brief = ""
+                    enrich_left -= 1
+                if brief:
+                    li_parts.append(f"<li><code>{rid}</code> — {esc(brief)}</li>")
+                else:
+                    li_parts.append(f"<li><code>{rid}</code></li>")
+
+            li = "".join(li_parts)
+            detail_sections.append(
+                f"<details><summary><b>{esc(t)}</b>（{c}）</summary><ul>{li}</ul></details>"
+            )
+
+        html_text = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{esc(summary_title)}</title>
+  <style>
+    body {{ font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,'Noto Sans',sans-serif; margin: 24px; color:#0f172a; }}
+    a {{ color:#2563eb; }}
+    .meta {{ color:#475569; margin: 8px 0 18px; }}
+    table {{ border-collapse: collapse; width: 100%; margin: 12px 0 22px; }}
+    th, td {{ border: 1px solid #e2e8f0; padding: 8px 10px; }}
+    th {{ background:#f8fafc; text-align:left; }}
+    td.num {{ text-align:right; width: 120px; }}
+    td.tbl {{ font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace; }}
+    details {{ border:1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; margin: 10px 0; }}
+    summary {{ cursor:pointer; }}
+    code {{ background:#f1f5f9; padding: 1px 6px; border-radius: 4px; }}
+  </style>
+</head>
+<body>
+  <h1>{esc(summary_title)}</h1>
+  <div class="meta">
+    <div>分支：{esc(branch)} ｜ 区域/语言：{esc(locale)} ｜ Build：{esc(build_num)} ｜ Push：{esc(from_push)} → {esc(to_push)}</div>
+    <div>Wago 链接：<a href="{esc(wago_url)}" target="_blank" rel="noreferrer">{esc(wago_url)}</a></div>
+  </div>
+
+  <h2>变更概览（按表汇总）</h2>
+  <table>
+    <thead><tr><th>DB2表</th><th class="num">变更数</th></tr></thead>
+    <tbody>
+      {''.join(rows_html)}
+    </tbody>
+  </table>
+
+  <h2>变更详情（每表抽样 {int(sample_per_table or 20)} 条 record_id）</h2>
+  {''.join(detail_sections)}
+</body>
+</html>
+"""
+        try:
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(html_text)
+        except Exception:
+            return "", ""
+        return full_path, rel_path
 
     def _generate_hotfix_report(self, branch, current_build, from_push, to_push, *, locale=''):
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
