@@ -72,10 +72,20 @@ class GLMClient:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=self.request_timeout_seconds)
-        except Exception as e:
-            raise Exception(f"GLM HTTP 请求失败: {e}")
+        last_exc = None
+        # 某些网络环境下 open.bigmodel.cn 会出现间歇性 SSLEOF / 握手中断，
+        # 这里做有限重试，避免翻译/摘要链路频繁返回 None。
+        for retry in range(3):
+            try:
+                resp = requests.post(url, headers=headers, json=payload, timeout=self.request_timeout_seconds)
+                last_exc = None
+                break
+            except Exception as e:
+                last_exc = e
+                time.sleep(1.5 * (retry + 1))
+                resp = None
+        if last_exc:
+            raise Exception(f"GLM HTTP 请求失败: {last_exc}")
         if resp.status_code >= 400:
             txt = (resp.text or "").strip()
             raise Exception(f"GLM HTTP bad status={resp.status_code}: {txt[:800]}")

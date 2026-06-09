@@ -53,6 +53,9 @@ class LReq:
         self.ua_wowhead = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
         self.s = requests.Session()
+        # 允许 requests 使用系统/环境代理（HTTP_PROXY/HTTPS_PROXY 等），
+        # 否则在部分网络环境下（例如 wowhead）会出现 403/握手失败导致抓不到正文。
+        self.s.trust_env = True
         self.is_chrome = bool(is_chrome and ChromeDriver)
         self.is_cloak = bool(is_cloak and CloakDriver)
         self.csp = False
@@ -135,6 +138,35 @@ class LReq:
     @staticmethod
     def get_timeout():
         return random.randint(1, 5) * 0.5
+
+    def _get_timeout_for_url(self, url, default_timeout):
+        """
+        某些站点（如 wowhead）TLS 握手/响应更慢，使用过低 timeout 会导致频繁超时，
+        从而出现“监控没抓到内容”的假象。这里提供域名级别的 timeout 覆盖。
+        """
+        try:
+            u = str(url or "")
+            host = (urlparse(u).netloc or "").lower()
+        except Exception:
+            host = ""
+
+        overrides = self._cfg.get("timeout_overrides") if isinstance(self._cfg, dict) else None
+        if isinstance(overrides, dict) and host:
+            # 支持精确 host 或后缀匹配（如 ".wowhead.com"）
+            for k, v in overrides.items():
+                try:
+                    k2 = str(k or "").strip().lower()
+                    if not k2:
+                        continue
+                    if host == k2 or host.endswith(k2.lstrip(".")):
+                        return float(v)
+                except Exception:
+                    continue
+
+        # 内置兜底：wowhead/暴雪论坛等站点用更大 timeout
+        if host.endswith("wowhead.com") or host.endswith("forums.blizzard.com") or host.endswith("us.forums.blizzard.com"):
+            return max(float(default_timeout or 0), 20.0)
+        return float(default_timeout or 0)
 
     def get_header(self, url="", cookies="", ext=None):
         ext = ext or {}
@@ -319,7 +351,7 @@ class LReq:
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
         cookies = cookies if cookies else ""
-        timeout = self._cfg.get('timeout', 3)
+        timeout = self._get_timeout_for_url(url, self._cfg.get('timeout', 3))
         r = self.s.get(url, headers=self.get_header(url, cookies), timeout=timeout)
         if getattr(r, 'status_code', 200) >= 400:
             logger.warning("[LReq] Request {} bad status: {}".format(url, r.status_code))
@@ -330,7 +362,7 @@ class LReq:
         url = self.check_url(url)
         logger.info("[LReq] New request {}".format(url))
         cookies = cookies if cookies else ""
-        timeout = self._cfg.get('timeout', 3)
+        timeout = self._get_timeout_for_url(url, self._cfg.get('timeout', 3))
         r = self.s.get(url, headers=self.get_header(url, cookies, headers), timeout=timeout)
         if getattr(r, 'status_code', 200) >= 400:
             logger.warning("[LReq] Request {} bad status: {}".format(url, r.status_code))

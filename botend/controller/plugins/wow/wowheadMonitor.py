@@ -35,8 +35,8 @@ class wowheadMonitor(BaseScan):
         self.target_url = "https://www.wowhead.com/wow/retail"
         self.task = task
         self.glm = GLMClient()
-        # 单次 scan 最多翻译多少篇（避免一次性跑太久/触发限流）
-        self._translate_budget = 3
+        # 单次 scan 最多翻译多少篇（包括补翻译历史记录）
+        self._translate_budget = 10
 
     def scan(self, url):
         """
@@ -197,6 +197,24 @@ class wowheadMonitor(BaseScan):
                     logger.warning("[wowheadMonitor] Parse post failed: {}".format(str(e)))
                     continue
 
+            # 补翻译：避免只翻译“最新列表里出现的文章”，导致历史文章长期 title_cn/content_cn 为空
+            try:
+                if translated_count < self._translate_budget and getattr(self.glm, "api_key", ""):
+                    from django.db.models import Q
+                    missing = (
+                        WowArticle.objects.filter(source="wowhead")
+                        .filter(Q(title_cn__isnull=True) | Q(content_cn__isnull=True))
+                        .exclude(content="")
+                        .order_by("-publish_time")[: max(0, self._translate_budget - translated_count)]
+                    )
+                    for wa2 in missing:
+                        if translated_count >= self._translate_budget:
+                            break
+                        if self._ensure_translated(wa2):
+                            translated_count += 1
+            except Exception:
+                pass
+
             return len(posts_data), new_count
 
         except DrissionPage.errors.ElementNotFoundError:
@@ -251,6 +269,11 @@ class wowheadMonitor(BaseScan):
             return ""
         prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
         result = self.glm.send_message(prompt, max_tokens=200, thinking_type="disabled")
+        if not result:
+            try:
+                logger.warning(f"[wowheadMonitor] title translate failed: {getattr(self.glm, 'last_error', '')}")
+            except Exception:
+                pass
         return (result or "").strip().strip('"').strip("'")
 
     def _translate_content(self, content: str) -> str:
@@ -282,6 +305,11 @@ class wowheadMonitor(BaseScan):
                 f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
             )
             result = self.glm.send_message(prompt, max_tokens=2400, thinking_type="disabled")
+            if not result:
+                try:
+                    logger.warning(f"[wowheadMonitor] content translate failed: {getattr(self.glm, 'last_error', '')}")
+                except Exception:
+                    pass
             translated_list = None
             if result:
                 try:
@@ -363,11 +391,31 @@ class wowheadMonitor(BaseScan):
                 if self.req and getattr(self.req, 'is_chrome', False):
                     driver = self.req.get(url, 'RespByChrome', 0, cookies, is_origin=1)
                     if driver and hasattr(driver, 'html'):
-                        html_text = (getattr(driver, 'html', '') or '').strip()
+                        # 等待正文相关 DOM 出现（否则 html 可能只有骨架）
+                        for _ in range(8):
+                            html_text = (getattr(driver, 'html', '') or '').strip()
+                            if ('news-post-content' in html_text) or ('article-content' in html_text) or ('application/ld+json' in html_text):
+                                break
+                            time.sleep(0.8)
             except Exception:
                 html_text = html_text or ""
+
+            # Chrome 不可用时，尝试 Cloak(Playwright) 渲染（比 requests 更稳，且能绕过部分 403）
+            try:
+                if not html_text and self.req and getattr(self.req, 'is_cloak', False):
+                    driver = self.req.get(url, 'RespByCloak', 0, cookies, is_origin=1)
+                    if driver and hasattr(driver, 'html'):
+                        for _ in range(8):
+                            html_text = (getattr(driver, 'html', '') or '').strip()
+                            if ('news-post-content' in html_text) or ('article-content' in html_text) or ('application/ld+json' in html_text):
+                                break
+                            time.sleep(0.8)
+            except Exception:
+                html_text = html_text or ""
+
             if not html_text:
-                resp = self.req.getResponse(url, cookies)
+                # 使用带重试的封装（避免偶发超时导致正文长期为空）
+                resp = self.req.get(url, "Response", 0, cookies)
                 if not resp:
                     return ""
                 status_code = getattr(resp, 'status_code', 200)
@@ -382,44 +430,16 @@ class wowheadMonitor(BaseScan):
 
     def _extract_body_from_html(self, html_text):
         t = html_text or ""
-        blocks = []
-        for pat in (
-            r'<div[^>]+class="[^"]*(?:news-post-content|news-post-text|content-body)[^"]*"[^>]*>([\s\S]*?)</div>',
-            r'<article[^>]*>([\s\S]*?)</article>',
-        ):
-            m = re.search(pat, t, flags=re.I)
-            if m:
-                blocks.append(m.group(1) or "")
-        if not blocks:
-            return ""
-        raw = max(blocks, key=lambda x: len(x or ""))
-        raw = re.sub(r'<(script|style|noscript)[^>]*>[\s\S]*?</\1>', '', raw, flags=re.I)
-        raw = re.sub(r'(?i)<br\s*/?>', '\n', raw)
-        raw = re.sub(r'(?i)</p\s*>', '\n\n', raw)
-        raw = re.sub(r'(?i)</div\s*>', '\n\n', raw)
-        raw = re.sub(r'(?i)</li\s*>', '\n', raw)
-        raw = re.sub(r'<[^>]+>', '', raw)
-        raw = html.unescape(raw)
-        raw = raw.replace('\r\n', '\n').replace('\r', '\n')
-        lines = [ln.strip() for ln in raw.split('\n')]
-        out = []
-        blank = 0
-        for ln in lines:
-            if not ln:
-                blank += 1
-                if blank <= 1:
-                    out.append("")
-                continue
-            blank = 0
-            out.append(ln)
-        text = "\n".join(out).strip()
-        # 兜底：正则没抓到/抓到的太短时，用 BS4 再试一轮
-        if len(text) >= 400:
-            return text
         try:
             from bs4 import BeautifulSoup
         except Exception:
-            return text
+            # 没有 bs4 的话只能做非常粗糙的兜底
+            m = re.search(r'<article[^>]*>([\s\S]*?)</article>', t, flags=re.I)
+            if not m:
+                return ""
+            raw = re.sub(r'<[^>]+>', '', m.group(1) or '')
+            return html.unescape(raw).strip()
+
         try:
             soup = BeautifulSoup(t, 'html.parser')
             for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe']):
@@ -451,11 +471,11 @@ class wowheadMonitor(BaseScan):
                 '#news-post .text',
                 '.news-post .text',
                 '.blog-post .text',
+                'div.news-post-content',
+                'div.news-post-text',
+                'div.content-body',
                 '.article-content',
                 '.post-content',
-                '.news-post-content',
-                '.news-post-text',
-                '.content-body',
                 '.text',
                 'article',
                 'main',
@@ -465,13 +485,14 @@ class wowheadMonitor(BaseScan):
                 el = soup.select_one(sel)
                 if not el:
                     continue
+                # wowhead 的正文 div 是嵌套结构，用 BS4 取 text 才不会被 </div> 截断
                 cand = el.get_text(separator='\n', strip=True)
                 if cand and len(cand) > len(best):
                     best = cand
             best = (best or "").strip()
-            return best if len(best) > len(text) else text
+            return best
         except Exception:
-            return text
+            return ""
 
     def trigger_webhook(self):
         """

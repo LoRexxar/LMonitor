@@ -555,7 +555,7 @@ const PEAK_SPEC_CN = {
   "brewmaster": "酒仙",
   "mistweaver": "织雾",
   "windwalker": "踏风",
-  "holy": "奶骑",
+  "holy": "神圣",
   "protection": "防护",
   "retribution": "惩戒",
   "discipline": "戒律",

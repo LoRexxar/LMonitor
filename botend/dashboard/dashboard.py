@@ -71,6 +71,7 @@ MODEL_DESCRIPTIONS = {
     'SystemAlert': '系统报警',
     'WowWagoMonitorState': 'Wago监控状态',
     'WowSkillDiffReport': '职业技能变更报告',
+    'WowHotfixReport': 'Wago Hotfix 全量更新报告',
 
 }
 
