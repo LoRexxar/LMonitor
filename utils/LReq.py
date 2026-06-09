@@ -139,6 +139,25 @@ class LReq:
     def get_timeout():
         return random.randint(1, 5) * 0.5
 
+    def _normalize_timeout_value(self, timeout_value):
+        """
+        兼容 requests 的 timeout 写法：
+        - 3 / "3" -> 3.0
+        - (3, 10) / [3, 10] -> (3.0, 10.0)
+        同时对异常值做兜底，避免因为配置格式问题直接抛 TypeError。
+        """
+        try:
+            if isinstance(timeout_value, (list, tuple)):
+                vals = list(timeout_value)
+                if not vals:
+                    return 3.0
+                if len(vals) == 1:
+                    return float(vals[0] or 0)
+                return (float(vals[0] or 0), float(vals[1] or 0))
+            return float(timeout_value or 0)
+        except Exception:
+            return 3.0
+
     def _get_timeout_for_url(self, url, default_timeout):
         """
         某些站点（如 wowhead）TLS 握手/响应更慢，使用过低 timeout 会导致频繁超时，
@@ -159,14 +178,20 @@ class LReq:
                     if not k2:
                         continue
                     if host == k2 or host.endswith(k2.lstrip(".")):
-                        return float(v)
+                        return self._normalize_timeout_value(v)
                 except Exception:
                     continue
 
+        normalized = self._normalize_timeout_value(default_timeout)
+
         # 内置兜底：wowhead/暴雪论坛等站点用更大 timeout
         if host.endswith("wowhead.com") or host.endswith("forums.blizzard.com") or host.endswith("us.forums.blizzard.com"):
-            return max(float(default_timeout or 0), 20.0)
-        return float(default_timeout or 0)
+            if isinstance(normalized, tuple):
+                connect_t = max(float(normalized[0] or 0), 20.0)
+                read_t = max(float(normalized[1] or 0), 20.0)
+                return (connect_t, read_t)
+            return max(float(normalized or 0), 20.0)
+        return normalized
 
     def get_header(self, url="", cookies="", ext=None):
         ext = ext or {}
