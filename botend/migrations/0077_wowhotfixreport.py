@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('botend', '0076_merge_20260607_1755'),
+        ('botend', '0075_remove_wowwagomonitorstate_wow_wago_mo_hotfix_4f52f6_idx_and_more'),
     ]
 
     operations = [
