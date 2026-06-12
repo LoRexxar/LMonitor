@@ -1580,14 +1580,18 @@ const SNAP_SECTION_LABELS = {
   "section-tools": "工具导航",
 };
 
+let snapSections = [];
+let snapDots = [];
+let snapAnimating = false;
+
 function initSnapDots() {
   const container = document.getElementById("snap-dots");
   if (!container) return;
-  const sections = document.querySelectorAll(".snap-section");
-  if (!sections.length) return;
+  snapSections = Array.from(document.querySelectorAll(".snap-section"));
+  if (!snapSections.length) return;
 
-  const dots = [];
-  sections.forEach((sec, i) => {
+  /* build dot elements */
+  snapSections.forEach((sec, i) => {
     const dot = document.createElement("div");
     dot.className = "snap-dot";
     const label = document.createElement("span");
@@ -1596,23 +1600,72 @@ function initSnapDots() {
     label.textContent = SNAP_SECTION_LABELS[key] || "板块 " + (i + 1);
     dot.appendChild(label);
     dot.addEventListener("click", () => {
-      sec.scrollIntoView({ behavior: "smooth", block: "start" });
+      snapToSection(i);
     });
     container.appendChild(dot);
-    dots.push(dot);
+    snapDots.push(dot);
   });
 
-  /* Intersection Observer to track active section */
+  /* Intersection Observer to highlight active dot */
   const observer = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
-          const idx = Array.from(sections).indexOf(entry.target);
-          dots.forEach((d, j) => d.classList.toggle("active", j === idx));
+          const idx = snapSections.indexOf(entry.target);
+          if (idx >= 0) snapDots.forEach((d, j) => d.classList.toggle("active", j === idx));
         }
       });
     },
     { rootMargin: "-30% 0px -60% 0px", threshold: 0 }
   );
-  sections.forEach((sec) => observer.observe(sec));
+  snapSections.forEach((sec) => observer.observe(sec));
+
+  /* wheel snap: jump to next/prev section when at boundary */
+  document.addEventListener("wheel", onWheelSnap, { passive: false });
+}
+
+function onWheelSnap(e) {
+  if (snapAnimating) { e.preventDefault(); return; }
+
+  const delta = e.deltaY;
+  if (Math.abs(delta) < 30) return; /* ignore tiny trackpad jitter */
+
+  const headerH = document.querySelector(".portal-header")?.offsetHeight || 56;
+  const scrollY = window.scrollY;
+  const viewH = window.innerHeight;
+  const docH = document.documentElement.scrollHeight;
+  const dir = delta > 0 ? 1 : -1; /* 1=down, -1=up */
+
+  /* find the section whose top is closest to current scroll */
+  let currentIdx = 0;
+  for (let i = snapSections.length - 1; i >= 0; i--) {
+    const top = snapSections[i].offsetTop - headerH;
+    if (scrollY >= top - 10) { currentIdx = i; break; }
+  }
+
+  const sec = snapSections[currentIdx];
+  const secTop = sec.offsetTop - headerH;
+  const secBottom = secTop + sec.offsetHeight;
+  const atTop = scrollY <= secTop + 4;
+  const atBottom = scrollY + viewH >= secBottom - 4;
+
+  /* only snap when user is at the boundary of the current section */
+  if ((dir === 1 && atBottom && currentIdx < snapSections.length - 1) ||
+      (dir === -1 && atTop && currentIdx > 0)) {
+    e.preventDefault();
+    const targetIdx = currentIdx + dir;
+    snapToSection(targetIdx);
+  }
+}
+
+function snapToSection(idx) {
+  if (idx < 0 || idx >= snapSections.length || snapAnimating) return;
+  snapAnimating = true;
+  const headerH = document.querySelector(".portal-header")?.offsetHeight || 56;
+  const targetY = snapSections[idx].offsetTop - headerH;
+  window.scrollTo({ top: targetY, behavior: "smooth" });
+  /* unlock after animation (~400ms) */
+  setTimeout(() => { snapAnimating = false; }, 500);
+  /* update dots immediately */
+  snapDots.forEach((d, j) => d.classList.toggle("active", j === idx));
 }
