@@ -7,7 +7,7 @@
 from collections import Counter
 from django.db.models import Avg, Max, Min, StdDev
 
-from botend.spec_detail_models import (
+from botend.models import (
     SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking
 )
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE
