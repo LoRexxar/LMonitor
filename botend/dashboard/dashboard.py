@@ -72,6 +72,13 @@ MODEL_DESCRIPTIONS = {
     'WowWagoMonitorState': 'Wago监控状态',
     'WowSkillDiffReport': '职业技能变更报告',
     'WowHotfixReport': '热修全量报告',
+    'WowDailyReport': '魔兽日报',
+    'WowSpellSnapshot': '法术快照',
+    'WowSpellEffectSnapshot': '法术效果快照',
+    'WowSpellSnapshotState': '法术快照状态',
+    'WowSpecSpellMapSnapshot': '专精法术映射快照',
+    'PortalMplusSeasonCutoff': '大秘境分数线',
+    'PortalMythicstatsDpsRow': 'DPS统计数据',
 
 }
 
