@@ -40,6 +40,10 @@ from botend.controller.plugins.wow.WowDailyReportMonitor import WowDailyReportMo
 class PortalEventMonitor(PortalPostMonitor):
     pass
 
+from botend.controller.plugins.portal.SpecDetailSeasonMonitor import SpecDetailSeasonMonitor
+from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
+from botend.controller.plugins.portal.SpecDetailRankingMonitor import SpecDetailRankingMonitor
+
 Monitor_Type_BaseObject_List = [
     BaseScan,
     BiliMonitor,
@@ -69,4 +73,7 @@ Monitor_Type_BaseObject_List = [
     PortalMplusCutoffMonitor,
     PortalArticleTranslateMonitor,
     WowDailyReportMonitor,
+    SpecDetailSeasonMonitor,
+    SpecDetailPlayerMonitor,
+    SpecDetailRankingMonitor,
 ]

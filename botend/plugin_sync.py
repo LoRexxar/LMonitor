@@ -56,6 +56,10 @@ def sync_monitortasks_from_plugin_list(
             wait_time = 600
             if name in {"PortalPeakSpecRankMonitor", "PortalMplusCutoffMonitor"}:
                 wait_time = 3600
+            elif name == "SpecDetailSeasonMonitor":
+                wait_time = 86400  # 24h
+            elif name in {"SpecDetailPlayerMonitor", "SpecDetailRankingMonitor"}:
+                wait_time = 43200  # 12h
             MonitorTask.objects.create(
                 name=name,
                 target=default_target,
