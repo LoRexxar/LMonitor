@@ -51,8 +51,8 @@
         <div class="stat-row-inline">
             <div class="stat-chip">
                 <span class="chip-label">击杀时间</span>
-                <span class="chip-value">{{ b.kill_time.median|floatformat:0 }}s 中位数</span>
-                <span class="chip-avg">均值 {{ b.kill_time.avg|floatformat:0 }}s</span>
+                <span class="chip-value">{{ b.kill_time.median_fmt }}</span>
+                <span class="chip-avg">均值 {{ b.kill_time.avg_fmt }}</span>
             </div>
         </div>
         {% endif %}

@@ -123,6 +123,7 @@ class SpecDetailBase(BaseScan):
                         metric: {metric}
                         {diff_param}
                         page: {page}
+                        includeCombatantInfo: true
                     )
                 }}
             }}

@@ -184,9 +184,13 @@ class SpecStatsService:
         # 通关时间
         ct_list = sorted([v for v in qs.values_list('clear_time', flat=True) if v])
         if ct_list:
+            ct_median = _percentile(ct_list, 50)
+            ct_avg = sum(ct_list) // len(ct_list)
             stats['clear_time'] = {
-                'avg': sum(ct_list) // len(ct_list),
-                'median': _percentile(ct_list, 50),
+                'avg': ct_avg,
+                'median': ct_median,
+                'avg_fmt': _ms_to_time(ct_avg),
+                'median_fmt': _ms_to_time(ct_median),
             }
 
         # 天赋/装备热门度（概览也展示）
@@ -284,9 +288,13 @@ class SpecStatsService:
 
         kt_list = sorted([v for v in qs.values_list('kill_time', flat=True) if v])
         if kt_list:
+            kt_median = _percentile(kt_list, 50)
+            kt_avg = sum(kt_list) // len(kt_list)
             stats['kill_time'] = {
-                'avg': sum(kt_list) // len(kt_list),
-                'median': _percentile(kt_list, 50),
+                'avg': kt_avg,
+                'median': kt_median,
+                'avg_fmt': _ms_to_time(kt_avg),
+                'median_fmt': _ms_to_time(kt_median),
             }
 
         # 天赋/装备热门度（概览也展示）
@@ -316,6 +324,16 @@ def _percentile(sorted_list, pct):
     if c >= len(sorted_list):
         return sorted_list[-1]
     return sorted_list[f] + (k - f) * (sorted_list[c] - sorted_list[f])
+
+
+def _ms_to_time(ms):
+    """毫秒转 M:SS 格式"""
+    if not ms:
+        return None
+    total_seconds = int(ms / 1000)
+    minutes = total_seconds // 60
+    seconds = total_seconds % 60
+    return f"{minutes}:{seconds:02d}"
 
 
 def _compute_talent_popularity(records, top_n=20):

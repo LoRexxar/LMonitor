@@ -58,7 +58,8 @@
             {% if d.clear_time %}
             <div class="stat-chip">
                 <span class="chip-label">通关</span>
-                <span class="chip-value">{{ d.clear_time.median|floatformat:0 }}s 中位数</span>
+                <span class="chip-value">{{ d.clear_time.median_fmt }}</span>
+                <span class="chip-avg">均值 {{ d.clear_time.avg_fmt }}</span>
             </div>
             {% endif %}
         </div>
