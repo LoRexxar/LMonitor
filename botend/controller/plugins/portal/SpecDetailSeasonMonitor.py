@@ -50,12 +50,15 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         rio_season = self._fetch_rio_season()
 
         # 6. 确定 season_key
-        # 从 M+ zone name 推断，如 "Mythic+ Season 3" → "tww-s3"
+        # 从 rio_season 推断，如 "season-mn-1" → "mn-s1"；fallback 到旧逻辑
         mplus_name = mplus_zone.get('name', '') if mplus_zone else ''
         season_num = self._extract_season_number(mplus_name)
-        season_key = f"tww-s{season_num}" if season_num else f"wcl-zone-{mplus_zone['id']}"
+        season_key = self._derive_season_key(rio_season, season_num, mplus_zone)
 
-        # 7. 更新 SeasonMeta
+        # 7. 获取最新 wcl_partition
+        wcl_partition = self._fetch_wcl_partition(mplus_zone['id']) if mplus_zone else 1
+
+        # 8. 更新 SeasonMeta
         SeasonMeta.objects.filter(is_active=True).update(is_active=False)
 
         obj, created = SeasonMeta.objects.update_or_create(
@@ -64,7 +67,7 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
                 'season_name': mplus_name,
                 'is_active': True,
                 'rio_season': rio_season,
-                'wcl_partition': 3,
+                'wcl_partition': wcl_partition,
                 'mplus_zone_id': mplus_zone['id'] if mplus_zone else 0,
                 'mplus_zone_name': mplus_name,
                 'raid_zone_id': raid_zone['id'] if raid_zone else 0,
@@ -142,3 +145,34 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         import re
         m = re.search(r'Season\s+(\d+)', name)
         return int(m.group(1)) if m else None
+
+    def _derive_season_key(self, rio_season, season_num, mplus_zone):
+        """从 rio_season slug 推断 season_key。
+
+        rio_season 格式: 'season-{expansion}-{num}'，如 'season-mn-1'
+        → 解析为 'mn-s1'。解析失败则 fallback 到旧逻辑。
+        """
+        import re
+        if rio_season:
+            m = re.match(r'^season-([a-z]+)-(\d+)$', rio_season)
+            if m:
+                expansion = m.group(1)
+                num = m.group(2)
+                return f"{expansion}-s{num}"
+        # fallback
+        if season_num:
+            return f"tww-s{season_num}"
+        return f"wcl-zone-{mplus_zone['id']}" if mplus_zone else "unknown"
+
+    def _fetch_wcl_partition(self, zone_id):
+        """从 WCL API 动态获取指定 zone 的最新 partition id"""
+        query = f'{{ worldData {{ zone(id: {zone_id}) {{ partitions {{ id name }} }} }} }}'
+        data = self._wcl_graphql(query, {})
+        if not data:
+            return 1
+        zone = data.get('worldData', {}).get('zone', {})
+        partitions = zone.get('partitions', [])
+        if not partitions:
+            return 1
+        # 取最大 id（最新 partition）
+        return max(p.get('id', 1) for p in partitions)
