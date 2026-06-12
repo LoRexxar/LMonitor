@@ -70,13 +70,13 @@
             <div class="stat-label">热门天赋 <span class="text-muted">（选取率）</span></div>
             <div class="talent-grid">
                 {% for tid, info in d.talent_popularity.items %}
-                <div class="talent-item" data-wowhead="spell={{ tid }}">
-                    <span class="talent-icon" data-wowhead="spell={{ tid }}"></span>
+                <a href="https://www.wowhead.com/spell={{ tid }}" target="_blank" class="talent-item" data-wowhead="spell={{ tid }}">
+                    <span class="talent-id">#{{ tid }}</span>
                     <div class="talent-bar-bg">
                         <div class="talent-bar-fill" style="width: {{ info.pct }}%"></div>
                     </div>
                     <span class="talent-pct">{{ info.pct }}%</span>
-                </div>
+                </a>
                 {% endfor %}
             </div>
         </div>
@@ -141,13 +141,13 @@
         <h4>天赋选取率（完整）</h4>
         <div class="talent-grid">
             {% for tid, info in dungeon_detail.talent_popularity.items %}
-            <div class="talent-item" data-wowhead="spell={{ tid }}">
-                <span class="talent-icon" data-wowhead="spell={{ tid }}"></span>
+            <a href="https://www.wowhead.com/spell={{ tid }}" target="_blank" class="talent-item" data-wowhead="spell={{ tid }}">
+                <span class="talent-id">#{{ tid }}</span>
                 <div class="talent-bar-bg">
                     <div class="talent-bar-fill" style="width: {{ info.pct }}%"></div>
                 </div>
                 <span class="talent-pct">{{ info.pct }}%</span>
-            </div>
+            </a>
             {% endfor %}
         </div>
         {% endif %}
@@ -192,8 +192,9 @@
 
 /* Talent Grid */
 .talent-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.talent-item { display: flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px 8px; min-width: 140px; }
-.talent-icon { width: 18px; height: 18px; flex-shrink: 0; }
+.talent-item { display: flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px 8px; min-width: 140px; text-decoration: none; color: inherit; }
+.talent-item:hover { border-color: #3b82f6; background: #eff6ff; }
+.talent-id { font-size: 0.75em; color: #6b7280; font-family: monospace; min-width: 48px; }
 .talent-bar-bg { flex: 1; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; min-width: 40px; }
 .talent-bar-fill { height: 100%; background: #3b82f6; border-radius: 3px; }
 .talent-pct { font-size: 0.8em; font-weight: 600; color: #2563eb; min-width: 36px; text-align: right; }
