@@ -131,6 +131,7 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
                 "https://raider.io/api/v1/mythic-plus/static-data?expansion_id=11",
                 timeout=25,
                 headers={"User-Agent": "Mozilla/5.0"},
+                proxies=self._proxies,
             )
             if resp.status_code == 200:
                 seasons = (resp.json() or {}).get("seasons", [])

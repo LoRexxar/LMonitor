@@ -23,6 +23,9 @@ class SpecDetailBase(BaseScan):
         self.task = task
         self._wcl_token = None
         self._wcl_token_expire = 0
+        # 代理配置
+        req_cfg = getattr(settings, 'REQUEST_CONFIG', {})
+        self._proxies = req_cfg.get('proxies') if req_cfg.get('enable_proxy', False) else None
 
     # ========== WCL v2 GraphQL ==========
 
@@ -43,7 +46,8 @@ class SpecDetailBase(BaseScan):
                 "https://www.warcraftlogs.com/oauth/token",
                 data={"grant_type": "client_credentials"},
                 auth=(client_id, client_secret),
-                timeout=20
+                timeout=20,
+                proxies=self._proxies
             )
             if resp.status_code != 200:
                 logger.error(f"[SpecDetail] WCL OAuth 失败: HTTP {resp.status_code}")
@@ -74,7 +78,8 @@ class SpecDetailBase(BaseScan):
                     url,
                     json={"query": query, "variables": variables},
                     headers=headers,
-                    timeout=30
+                    timeout=30,
+                    proxies=self._proxies
                 )
                 if resp.status_code == 429:
                     wait = min(2 ** attempt * 2, 30)
@@ -156,7 +161,7 @@ class SpecDetailBase(BaseScan):
 
         for attempt in range(3):
             try:
-                resp = requests.get(url, params=params, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
+                resp = requests.get(url, params=params, timeout=25, headers={"User-Agent": "Mozilla/5.0"}, proxies=self._proxies)
                 if resp.status_code != 200:
                     logger.warning(f"[SpecDetail] Raider.IO HTTP {resp.status_code} for {class_name}/{spec_name}")
                     time.sleep(0.5 + attempt * 0.5)
@@ -177,7 +182,7 @@ class SpecDetailBase(BaseScan):
             "fields": "gear,talents,mythic_plus_scores_by_season:current"
         }
         try:
-            resp = requests.get(url, params=params, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
+            resp = requests.get(url, params=params, timeout=25, headers={"User-Agent": "Mozilla/5.0"}, proxies=self._proxies)
             if resp.status_code == 200:
                 return resp.json()
         except Exception as e:
@@ -201,7 +206,8 @@ class SpecDetailBase(BaseScan):
                 token_url,
                 data={"grant_type": "client_credentials"},
                 auth=(client_id, client_secret),
-                timeout=20
+                timeout=20,
+                proxies=self._proxies
             )
             if resp.status_code == 200:
                 return resp.json().get('access_token')
@@ -237,7 +243,7 @@ class SpecDetailBase(BaseScan):
         headers = {"Authorization": f"Bearer {token}"}
 
         try:
-            resp = requests.get(url, params=params, headers=headers, timeout=25)
+            resp = requests.get(url, params=params, headers=headers, timeout=25, proxies=self._proxies)
             if resp.status_code == 200:
                 return resp.json()
             else:
