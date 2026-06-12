@@ -25,7 +25,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         season = SeasonMeta.objects.filter(is_active=True).first()
         if not season:
-            logger.error("[SpecDetailPlayer] 无活跃赛季，请先运行 SpecDetailSeasonMonitor")
+            logger.warning("[SpecDetailPlayer] 无活跃赛季，先触发 SeasonMonitor")
+            from botend.controller.plugins.portal.SpecDetailSeasonMonitor import SpecDetailSeasonMonitor
+            sm = SpecDetailSeasonMonitor(self.req, self.task)
+            sm.scan('')
+            season = SeasonMeta.objects.filter(is_active=True).first()
+        if not season:
+            logger.error("[SpecDetailPlayer] SeasonMonitor 执行后仍无活跃赛季，跳过")
             return False
 
         rio_season = season.rio_season
