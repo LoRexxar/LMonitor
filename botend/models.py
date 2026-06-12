@@ -14,6 +14,7 @@ class MonitorTask(models.Model):
     flag = models.CharField(max_length=2000, null=True, default=None)
     is_active = models.BooleanField(default=True)
     proxy_enabled = models.BooleanField(default=False)
+    modified_at = models.DateTimeField(null=True, default=None, verbose_name='后台修改时间')
 
 
 class TargetAuth(models.Model):
