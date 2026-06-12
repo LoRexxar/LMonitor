@@ -135,7 +135,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
                 for class_name, specs in CLASS_SPEC_MAP.items():
                     for spec_name in specs:
-                        rankings = self.fetch_wcl_rankings(enc_id, class_name, spec_name, 'dps', difficulty='mythic')
+                        rankings = self.fetch_wcl_rankings(enc_id, class_name, spec_name, 'dps', difficulty=5)
                         if not rankings:
                             time.sleep(0.3)
                             continue

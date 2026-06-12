@@ -111,7 +111,7 @@ class SpecDetailBase(BaseScan):
         """
         diff_param = ""
         if difficulty:
-            diff_param = f'difficulty: "{difficulty}",'
+            diff_param = f'difficulty: {difficulty},'
 
         query = f"""
         query {{
