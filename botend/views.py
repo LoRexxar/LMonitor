@@ -110,7 +110,7 @@ class LMonitorCore:
                     continue
 
                 try:
-                    tasks = filter_runnable_tasks(MonitorTask.objects.filter(is_active=1)).order_by('-last_scan_time')
+                    tasks = filter_runnable_tasks(MonitorTask.objects.filter(is_active=1)).order_by('last_scan_time')
 
                     for task in tasks:
                         if (timezone.now() - task.last_scan_time).total_seconds() < task.wait_time:
