@@ -1563,4 +1563,56 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   bindLogoBackgroundRemoval();
   loadAll();
+  initSnapDots();
 });
+
+/* ── scroll-snap dot navigation ── */
+const SNAP_SECTION_LABELS = {
+  "portal-topbar": "搜索",
+  "section-news": "新闻速递",
+  "section-wow-skill-diff": "数据挖掘",
+  "section-nga": "NGA热议",
+  "section-events-videos": "活动 / 视频",
+  "section-mplus-cutoffs": "大秘境分数",
+  "section-rank": "Top Runs",
+  "section-peak-spec": "巅峰榜",
+  "section-mythicstats": "DPS榜单",
+  "section-tools": "工具导航",
+};
+
+function initSnapDots() {
+  const container = document.getElementById("snap-dots");
+  if (!container) return;
+  const sections = document.querySelectorAll(".snap-section");
+  if (!sections.length) return;
+
+  const dots = [];
+  sections.forEach((sec, i) => {
+    const dot = document.createElement("div");
+    dot.className = "snap-dot";
+    const label = document.createElement("span");
+    label.className = "snap-dot-label";
+    const key = sec.id || (sec.classList.contains("portal-topbar") ? "portal-topbar" : "");
+    label.textContent = SNAP_SECTION_LABELS[key] || "板块 " + (i + 1);
+    dot.appendChild(label);
+    dot.addEventListener("click", () => {
+      sec.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    container.appendChild(dot);
+    dots.push(dot);
+  });
+
+  /* Intersection Observer to track active section */
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const idx = Array.from(sections).indexOf(entry.target);
+          dots.forEach((d, j) => d.classList.toggle("active", j === idx));
+        }
+      });
+    },
+    { rootMargin: "-30% 0px -60% 0px", threshold: 0 }
+  );
+  sections.forEach((sec) => observer.observe(sec));
+}
