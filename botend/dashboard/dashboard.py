@@ -79,6 +79,10 @@ MODEL_DESCRIPTIONS = {
     'WowSpecSpellMapSnapshot': '专精法术映射快照',
     'PortalMplusSeasonCutoff': '大秘境分数线',
     'PortalMythicstatsDpsRow': 'DPS统计数据',
+    'SeasonMeta': '赛季元数据',
+    'PlayerSpecTopPlayer': '专精人物榜',
+    'SpecDungeonRanking': 'M+副本排名数据',
+    'SpecRaidRanking': '团本排名数据',
 
 }
 
