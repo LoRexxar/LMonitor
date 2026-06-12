@@ -5,7 +5,7 @@ echo "=== 1. Git pull ==="
 GIT_MERGE_AUTOEDIT=no git pull origin master
 
 echo "=== 2. Collectstatic ==="
-yes | python3 manage.py collectstatic
+python3 manage.py collectstatic --no-input
 
 echo "=== 3. 重启 lmweb ==="
 screen -S lmweb -X stuff $'\cc'
