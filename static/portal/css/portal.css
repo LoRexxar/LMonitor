@@ -2,6 +2,16 @@ html, body {
     height: 100%;
 }
 
+body {
+    scroll-snap-type: y proximity;
+    overflow-y: scroll;
+}
+
+.snap-section {
+    scroll-snap-align: start;
+    scroll-margin-top: 4rem;
+}
+
 .portal-header {
     position: sticky;
     top: 0;
