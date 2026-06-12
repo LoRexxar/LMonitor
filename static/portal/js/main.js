@@ -1492,6 +1492,72 @@ function bindSearch() {
   }
 }
 
+/* ── 专精详情入口网格 ── */
+function renderSpecDetailGrid() {
+  const grid = document.getElementById("spec-detail-grid");
+  if (!grid) return;
+
+  const SPEC_ICON_BASE = "https://render.worldofwarcraft.com/us/icons/56/";
+  const specs = [
+    {c:"DeathKnight",s:"Blood",cn:"鲜血",icon:"spell_deathknight_bloodpresence.jpg",role:"tank"},
+    {c:"DeathKnight",s:"Frost",cn:"冰霜",icon:"spell_deathknight_frostpresence.jpg",role:"dps"},
+    {c:"DeathKnight",s:"Unholy",cn:"邪恶",icon:"spell_deathknight_unholypresence.jpg",role:"dps"},
+    {c:"DemonHunter",s:"Havoc",cn:"浩劫",icon:"ability_demonhunter_specdps.jpg",role:"dps"},
+    {c:"DemonHunter",s:"Vengeance",cn:"复仇",icon:"ability_demonhunter_spectank.jpg",role:"tank"},
+    {c:"Druid",s:"Balance",cn:"平衡",icon:"spell_nature_starfall.jpg",role:"dps"},
+    {c:"Druid",s:"Feral",cn:"野性",icon:"ability_druid_catform.jpg",role:"dps"},
+    {c:"Druid",s:"Guardian",cn:"守护",icon:"ability_racial_bearform.jpg",role:"tank"},
+    {c:"Druid",s:"Restoration",cn:"恢复",icon:"spell_nature_healingtouch.jpg",role:"healer"},
+    {c:"Hunter",s:"BeastMastery",cn:"野兽控制",icon:"ability_hunter_bestialdiscipline.jpg",role:"dps"},
+    {c:"Hunter",s:"Marksmanship",cn:"射击",icon:"ability_hunter_focusedaim.jpg",role:"dps"},
+    {c:"Hunter",s:"Survival",cn:"生存",icon:"ability_hunter_camouflage.jpg",role:"dps"},
+    {c:"Mage",s:"Arcane",cn:"奥术",icon:"spell_holy_magicalsentry.jpg",role:"dps"},
+    {c:"Mage",s:"Fire",cn:"火焰",icon:"spell_fire_firebolt02.jpg",role:"dps"},
+    {c:"Mage",s:"Frost",cn:"冰霜",icon:"spell_frost_frostbolt02.jpg",role:"dps"},
+    {c:"Monk",s:"Brewmaster",cn:"酒仙",icon:"monk_stance_drunkenox.jpg",role:"tank"},
+    {c:"Monk",s:"Mistweaver",cn:"织雾",icon:"monk_stance_wiseserpent.jpg",role:"healer"},
+    {c:"Monk",s:"Windwalker",cn:"踏风",icon:"monk_stance_whitetiger.jpg",role:"dps"},
+    {c:"Paladin",s:"Holy",cn:"神圣",icon:"spell_holy_holybolt.jpg",role:"healer"},
+    {c:"Paladin",s:"Protection",cn:"防护",icon:"ability_paladin_shieldofthetemplar.jpg",role:"tank"},
+    {c:"Paladin",s:"Retribution",cn:"惩戒",icon:"spell_holy_auraoflight.jpg",role:"dps"},
+    {c:"Priest",s:"Discipline",cn:"戒律",icon:"spell_holy_powerwordshield.jpg",role:"healer"},
+    {c:"Priest",s:"Holy",cn:"神圣",icon:"spell_holy_guardianspirit.jpg",role:"healer"},
+    {c:"Priest",s:"Shadow",cn:"暗影",icon:"spell_shadow_shadowwordpain.jpg",role:"dps"},
+    {c:"Rogue",s:"Assassination",cn:"奇袭",icon:"ability_rogue_eviscerate.jpg",role:"dps"},
+    {c:"Rogue",s:"Outlaw",cn:"狂徒",icon:"ability_rogue_waylay.jpg",role:"dps"},
+    {c:"Rogue",s:"Subtlety",cn:"敏锐",icon:"ability_stealth.jpg",role:"dps"},
+    {c:"Shaman",s:"Elemental",cn:"元素",icon:"spell_nature_lightning.jpg",role:"dps"},
+    {c:"Shaman",s:"Enhancement",cn:"增强",icon:"spell_shaman_improvedstormstrike.jpg",role:"dps"},
+    {c:"Shaman",s:"Restoration",cn:"恢复",icon:"spell_nature_magicimmunity.jpg",role:"healer"},
+    {c:"Warlock",s:"Affliction",cn:"痛苦",icon:"spell_shadow_deathcoil.jpg",role:"dps"},
+    {c:"Warlock",s:"Demonology",cn:"恶魔学识",icon:"spell_shadow_metamorphosis.jpg",role:"dps"},
+    {c:"Warlock",s:"Destruction",cn:"毁灭",icon:"spell_shadow_rainoffire.jpg",role:"dps"},
+    {c:"Warrior",s:"Arms",cn:"武器",icon:"ability_warrior_savageblow.jpg",role:"dps"},
+    {c:"Warrior",s:"Fury",cn:"狂怒",icon:"ability_warrior_innerrage.jpg",role:"dps"},
+    {c:"Warrior",s:"Protection",cn:"防护",icon:"ability_warrior_defensivestance.jpg",role:"tank"},
+    {c:"Evoker",s:"Augmentation",cn:"增辉",icon:"classicon_evoker_augmentation.jpg",role:"dps"},
+    {c:"Evoker",s:"Devastation",cn:"湮灭",icon:"classicon_evoker_devastation.jpg",role:"dps"},
+    {c:"Evoker",s:"Preservation",cn:"恩护",icon:"classicon_evoker_preservation.jpg",role:"healer"},
+  ];
+
+  const CLASS_CN = {DeathKnight:"死亡骑士",DemonHunter:"恶魔猎手",Druid:"德鲁伊",Hunter:"猎人",Mage:"法师",Monk:"武僧",Paladin:"圣骑士",Priest:"牧师",Rogue:"潜行者",Shaman:"萨满祭司",Warlock:"术士",Warrior:"战士",Evoker:"唤魔师"};
+  const roleColor = {tank:"#3b82f6",healer:"#22c55e",dps:"#ef4444"};
+
+  let html = '<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-3">';
+  specs.forEach(sp => {
+    const url = `/portal/spec/${sp.c}/${sp.s}/`;
+    const cls = CLASS_CN[sp.c] || sp.c;
+    const color = roleColor[sp.role] || "#6b7280";
+    html += `<a href="${url}" class="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/80 transition-colors group" title="${cls} · ${sp.cn}">
+      <img src="${SPEC_ICON_BASE}${sp.icon}" alt="${sp.cn}" width="40" height="40" class="rounded-md ring-2 ring-transparent group-hover:ring-indigo-300 transition-shadow" loading="lazy">
+      <span class="text-xs text-slate-600 group-hover:text-slate-900 text-center leading-tight">${sp.cn}</span>
+      <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style="background:${color}20;color:${color}">${sp.role}</span>
+    </a>`;
+  });
+  html += '</div>';
+  grid.innerHTML = html;
+}
+
 async function loadAll() {
   await loadTools();
 
@@ -1508,6 +1574,7 @@ async function loadAll() {
   await loadSection("mplus_rankings");
   await loadSection("peak_spec_rankings");
   await loadSection("mythicstats_dps");
+  renderSpecDetailGrid();
   updateSearchMeta();
 }
 
@@ -1577,6 +1644,7 @@ const SNAP_SECTION_LABELS = {
   "section-rank": "Top Runs",
   "section-peak-spec": "巅峰榜",
   "section-mythicstats": "DPS榜单",
+  "section-spec-detail": "专精详情",
   "section-tools": "工具导航",
 };
 
