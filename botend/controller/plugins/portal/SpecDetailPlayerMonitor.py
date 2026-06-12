@@ -102,28 +102,37 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         if not data:
             return []
 
-        rankings = data.get('rankings', [])
+        rankings = data.get('rankings', {}) or {}
+        ranked_characters = rankings.get('rankedCharacters', []) if isinstance(rankings, dict) else []
         players = []
 
-        for r in rankings:
+        for r in ranked_characters:
             char = r.get('character', {}) or {}
-            # Raider.IO rankings API 返回的数据结构
+            realm = char.get('realm', {}) or {}
+            region = char.get('region', {}) or {}
+            race = char.get('race', {}) or {}
+            guild = r.get('guild', {}) or {}
+
+            # 拼接 profile_url
+            path = char.get('path', '')
+            profile_url = ('https://raider.io' + path) if path else None
+
             player = {
                 'name': char.get('name', ''),
-                'realm': char.get('realm', {}).get('name', '') if isinstance(char.get('realm'), dict) else char.get('realm', ''),
-                'region': r.get('region', ''),
-                'score': r.get('score', {}).get('score') if isinstance(r.get('score'), dict) else r.get('score'),
+                'realm': realm.get('name', ''),
+                'region': region.get('short_name', '') or region.get('slug', ''),
+                'score': r.get('score'),
                 'faction': char.get('faction', ''),
-                'race': char.get('race', ''),
-                'gender': char.get('gender', ''),
-                'guild_name': char.get('guild', {}).get('name', '') if isinstance(char.get('guild'), dict) else '',
-                'realm_rank': r.get('realm_rank'),
-                'avatar_url': char.get('thumbnail_url', ''),
-                'profile_url': char.get('profile_url', ''),
-                'achievement_points': char.get('achievement_points'),
-                'item_level': char.get('gear', {}).get('item_level_equipped') if isinstance(char.get('gear'), dict) else None,
-                'gear': self._parse_rio_gear(char.get('gear')),
-                'talents': self._parse_rio_talents(char.get('talents')),
+                'race': race.get('name', ''),
+                'gender': None,
+                'guild_name': guild.get('name', ''),
+                'realm_rank': None,
+                'avatar_url': None,
+                'profile_url': profile_url,
+                'achievement_points': None,
+                'item_level': None,
+                'gear': [],
+                'talents': self._parse_rio_talents(char.get('talentLoadoutText')),
             }
             players.append(player)
 
@@ -150,18 +159,11 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             })
         return result
 
-    def _parse_rio_talents(self, talent_data):
-        """解析 Raider.IO talent 数据"""
-        if not talent_data:
+    def _parse_rio_talents(self, talent_loadout_text):
+        """解析 Raider.IO talentLoadoutText — 直接返回 Blizz talent code 字符串"""
+        if not talent_loadout_text:
             return []
-        # Raider.IO 的 talents 可能是不同的格式
-        if isinstance(talent_data, list):
-            return [{'talentID': t.get('id') or t.get('spell_id'), 'points': t.get('rank', 1)} for t in talent_data]
-        if isinstance(talent_data, dict):
-            # character_talent 格式
-            loadout = talent_data.get('loadout', []) or []
-            return [{'talentID': t.get('id'), 'points': t.get('rank', 1)} for t in loadout]
-        return []
+        return [talent_loadout_text]
 
     def _crawl_battlenet_stats(self, season_id):
         """补充 Battle.net 属性面板"""
