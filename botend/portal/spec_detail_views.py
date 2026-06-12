@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 专精详情页视图
-3 个独立页面：人物榜、M+ 副本统计、团本统计
+4 个页面：人物榜、玩家详情、M+ 副本统计、团本统计
 """
 
 from django.views import View
@@ -24,7 +24,6 @@ def _base_context(class_name, spec_name):
     season = SpecStatsService.get_active_season()
     nav = SpecStatsService.get_spec_nav(class_name, spec_name)
 
-    # 所有专精列表（用于侧栏导航）
     all_specs = []
     for cls, specs in CLASS_SPEC_MAP.items():
         for sp in specs:
@@ -53,17 +52,25 @@ class SpecDetailPlayerView(View):
         _validate_spec(class_name, spec_name)
 
         ctx = _base_context(class_name, spec_name)
-        page = int(request.GET.get('page', 1))
-
-        player_data = SpecStatsService.get_player_list(class_name, spec_name, page=page)
+        player_data = SpecStatsService.get_player_list(class_name, spec_name)
         ctx.update(player_data)
 
-        # 如果有 player_id 参数，加载详情
-        player_id = request.GET.get('player_id')
-        if player_id:
-            ctx['player_detail'] = SpecStatsService.get_player_detail(int(player_id))
-
         return render(request, 'portal/spec_detail/player_list.html', ctx)
+
+
+class SpecDetailPlayerDetailView(View):
+    """单个玩家详情页"""
+
+    def get(self, request, class_name, spec_name, player_id):
+        _validate_spec(class_name, spec_name)
+
+        ctx = _base_context(class_name, spec_name)
+        ctx['player_detail'] = SpecStatsService.get_player_detail(player_id)
+
+        if not ctx['player_detail']:
+            raise Http404
+
+        return render(request, 'portal/spec_detail/player_detail.html', ctx)
 
 
 class SpecDetailDungeonView(View):
@@ -74,7 +81,6 @@ class SpecDetailDungeonView(View):
 
         ctx = _base_context(class_name, spec_name)
 
-        # 获取某个副本的详情
         dungeon_id = request.GET.get('dungeon_id')
         if dungeon_id:
             ctx['dungeon_detail'] = SpecStatsService.get_dungeon_detail(
@@ -94,7 +100,6 @@ class SpecDetailRaidView(View):
 
         ctx = _base_context(class_name, spec_name)
 
-        # 获取某个 Boss 的详情
         boss_id = request.GET.get('boss_id')
         if boss_id:
             ctx['boss_detail'] = SpecStatsService.get_raid_detail(

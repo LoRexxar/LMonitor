@@ -50,83 +50,16 @@
                     </div>
                 </div>
                 <div class="player-actions">
-                    <a href="?player_id={{ p.id }}" class="btn-detail-link">详情 →</a>
+                    <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/player/{{ p.id }}/" class="btn-detail-link">详情 →</a>
                 </div>
             </div>
         {% empty %}
             <div class="empty-state">暂无数据，请等待采集完成</div>
         {% endfor %}
         </div>
-
-        <!-- 分页 -->
-        {% if pages > 1 %}
-        <div class="pagination">
-            {% if page > 1 %}<a href="?page={{ page|add:-1 }}">← 上一页</a>{% endif %}
-            <span class="page-info">第 {{ page }} / {{ pages }} 页</span>
-            {% if page < pages %}<a href="?page={{ page|add:1 }}">下一页 →</a>{% endif %}
-        </div>
-        {% endif %}
     </div>
-
-    <!-- 玩家详情弹出 -->
-    {% if player_detail %}
-    <div class="player-detail-panel">
-        <div class="detail-header">
-            <h3>{{ player_detail.character_name }} - {{ player_detail.realm }}-{{ player_detail.region|upper }}</h3>
-            <span class="detail-score">M+ {{ player_detail.score|floatformat:0 }}</span>
-        </div>
-
-        {% if player_detail.guild_name %}
-        <div class="detail-guild">公会: &lt;{{ player_detail.guild_name }}&gt;</div>
-        {% endif %}
-
-        {% if player_detail.stats %}
-        <div class="stats-panel">
-            <h4>属性面板</h4>
-            <div class="stats-grid">
-                {% if player_detail.stats.strength %}<div class="stat-item"><span class="stat-name">力量</span><span class="stat-val">{{ player_detail.stats.strength }}</span></div>{% endif %}
-                {% if player_detail.stats.agility %}<div class="stat-item"><span class="stat-name">敏捷</span><span class="stat-val">{{ player_detail.stats.agility }}</span></div>{% endif %}
-                {% if player_detail.stats.intellect %}<div class="stat-item"><span class="stat-name">智力</span><span class="stat-val">{{ player_detail.stats.intellect }}</span></div>{% endif %}
-                {% if player_detail.stats.stamina %}<div class="stat-item"><span class="stat-name">耐力</span><span class="stat-val">{{ player_detail.stats.stamina }}</span></div>{% endif %}
-                {% if player_detail.stats.crit %}<div class="stat-item"><span class="stat-name">暴击</span><span class="stat-val">{{ player_detail.stats.crit.pct|floatformat:1 }}%</span></div>{% endif %}
-                {% if player_detail.stats.haste %}<div class="stat-item"><span class="stat-name">急速</span><span class="stat-val">{{ player_detail.stats.haste.pct|floatformat:1 }}%</span></div>{% endif %}
-                {% if player_detail.stats.mastery %}<div class="stat-item"><span class="stat-name">精通</span><span class="stat-val">{{ player_detail.stats.mastery.pct|floatformat:1 }}%</span></div>{% endif %}
-                {% if player_detail.stats.versatility %}<div class="stat-item"><span class="stat-name">全能</span><span class="stat-val">{{ player_detail.stats.versatility.pct|floatformat:1 }}%</span></div>{% endif %}
-            </div>
-        </div>
-        {% endif %}
-
-        {% if player_detail.gear %}
-        <div class="gear-panel">
-            <h4>装备</h4>
-            <div class="gear-grid">
-                {% for item in player_detail.gear %}
-                <div class="gear-item-detail">
-                    {% if item.icon %}
-                    <img src="https://wow.zamimg.com/images/wow/icons/small/{{ item.icon }}.jpg"
-                         data-wowhead="item={{ item.id }}&ilvl={{ item.itemLevel }}" width="28" height="28" class="gear-icon">
-                    {% endif %}
-                    <div class="gear-info">
-                        <span class="gear-name">{{ item.name }}</span>
-                        <span class="gear-ilvl">{{ item.itemLevel }}</span>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
-        {% if player_detail.talents %}
-        <div class="talent-panel">
-            <h4>天赋</h4>
-            <div class="talent-code">{{ player_detail.talents.0 }}</div>
-        </div>
-        {% endif %}
-    </div>
-    {% endif %}
 </div>
 
-<script src="https://wow.zamimg.com/js/power.js"></script>
 <style>
 .spec-detail-page { max-width: 1000px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
 .spec-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
@@ -135,7 +68,6 @@
 .spec-nav a { text-decoration: none; color: #666; font-weight: 500; }
 .spec-nav a.active { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: -12px; }
 
-/* Player Grid */
 .player-grid { display: flex; flex-direction: column; gap: 8px; }
 .player-card { display: flex; align-items: center; gap: 16px; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 18px; background: #fff; transition: box-shadow 0.15s; }
 .player-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
@@ -156,37 +88,8 @@
 .player-guild { color: #059669; }
 .player-ilvl { color: #10b981; font-weight: 500; }
 .player-actions { white-space: nowrap; }
-.btn-detail-link { color: #2563eb; text-decoration: none; font-size: 0.85em; font-weight: 500; }
-.btn-detail-link:hover { text-decoration: underline; }
-
-/* Pagination */
-.pagination { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 24px; }
-.pagination a { padding: 6px 16px; border: 1px solid #e5e7eb; border-radius: 6px; text-decoration: none; color: #2563eb; font-size: 0.9em; }
-.pagination a:hover { background: #f8fafc; }
-.page-info { color: #94a3b8; font-size: 0.9em; }
-
-/* Player Detail Panel */
-.player-detail-panel { border: 2px solid #2563eb; border-radius: 12px; padding: 24px; margin-top: 24px; background: #f8fafc; }
-.detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.detail-header h3 { margin: 0; }
-.detail-score { color: #f59e0b; font-weight: 700; font-size: 1.2em; }
-.detail-guild { color: #059669; margin-bottom: 16px; }
-
-.stats-panel h4, .gear-panel h4, .talent-panel h4 { margin: 16px 0 8px; font-size: 0.95em; color: #374151; }
-.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.stat-item { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 12px; display: flex; justify-content: space-between; }
-.stat-name { color: #6b7280; font-size: 0.85em; }
-.stat-val { font-weight: 600; }
-
-.gear-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.gear-item-detail { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 10px; }
-.gear-icon { border-radius: 4px; }
-.gear-info { display: flex; flex-direction: column; }
-.gear-info .gear-name { font-size: 0.85em; font-weight: 500; }
-.gear-info .gear-ilvl { font-size: 0.8em; color: #059669; }
-
-.talent-code { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.85em; word-break: break-all; color: #6b7280; }
-
+.btn-detail-link { display: inline-block; padding: 6px 14px; background: #2563eb; color: white; border-radius: 6px; text-decoration: none; font-size: 0.85em; font-weight: 500; }
+.btn-detail-link:hover { background: #1d4ed8; }
 .badge { padding: 2px 8px; border-radius: 4px; font-size: 0.75em; color: white; }
 .badge-tank { background: #3b82f6; } .badge-dps { background: #ef4444; } .badge-healer { background: #10b981; }
 .empty-state { text-align: center; color: #999; padding: 40px; }

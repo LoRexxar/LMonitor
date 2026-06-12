@@ -9,7 +9,6 @@
         <img src="{{ nav.spec_icon }}" alt="{{ nav.spec_name }}" class="spec-icon" width="48" height="48">
         <div class="spec-title">
             <h1>{{ nav.class_cn }} {{ nav.spec_cn }}</h1>
-            <span class="spec-role badge badge-{{ nav.role }}">{{ nav.role }}</span>
         </div>
     </div>
 
@@ -19,134 +18,150 @@
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/" class="active">团本统计</a>
     </nav>
 
-    <h2>团本统计 · {{ nav.spec_cn }} {{ nav.class_cn }}</h2>
-    <p class="text-muted">数据来源: WCL · Mythic 难度 · 每 Boss Top 100 样本 · 赛季: {{ season.season_name }}</p>
-
-    {% for b in bosses %}
-    <div class="boss-card">
-        <div class="boss-header">
-            <h3>{{ b.boss_name }}</h3>
-            <span class="sample-badge">{{ b.sample_size }} 条样本</span>
-        </div>
-
-        <!-- DPS 分布 -->
-        {% if b.dps %}
-        <div class="stat-section">
-            <div class="stat-label">DPS 分布</div>
-            <div class="dps-bar-container">
-                <div class="dps-bar">
-                    <span class="dps-min">{{ b.dps.min|floatformat:0 }}</span>
-                    <span class="dps-p25">{{ b.dps.p25|floatformat:0 }}</span>
-                    <span class="dps-median">▼ {{ b.dps.median|floatformat:0 }}</span>
-                    <span class="dps-p75">{{ b.dps.p75|floatformat:0 }}</span>
-                    <span class="dps-max">{{ b.dps.max|floatformat:0 }}</span>
-                </div>
-                <div class="dps-avg">均值 {{ b.dps.avg|floatformat:0 }}</div>
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- 击杀时间 -->
-        {% if b.kill_time %}
-        <div class="stat-row-inline">
-            <div class="stat-chip">
-                <span class="chip-label">击杀时间</span>
-                <span class="chip-value">{{ b.kill_time.median_fmt }}</span>
-                <span class="chip-avg">均值 {{ b.kill_time.avg_fmt }}</span>
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- 热门天赋 -->
-        {% if b.talent_popularity %}
-        <div class="stat-section">
-            <div class="stat-label">热门天赋 <span class="text-muted">（选取率）</span></div>
-            <div class="talent-grid">
-                {% for tid, info in b.talent_popularity.items %}
-                <a href="https://www.wowhead.com/spell={{ tid }}" target="_blank" class="talent-item" data-wowhead="spell={{ tid }}">
-                    <span class="talent-id">#{{ tid }}</span>
-                    <div class="talent-bar-bg">
-                        <div class="talent-bar-fill" style="width: {{ info.pct }}%"></div>
-                    </div>
-                    <span class="talent-pct">{{ info.pct }}%</span>
-                </a>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- 热门装备 -->
-        {% if b.gear_popularity %}
-        <div class="stat-section">
-            <div class="stat-label">热门装备 <span class="text-muted">（选取率）</span></div>
-            <div class="gear-section">
-                {% for slot, items in b.gear_popularity.items %}
-                <div class="gear-slot">
-                    <div class="slot-name">{{ slot }}</div>
-                    {% for item in items %}
-                    <div class="gear-item">
-                        {% if item.icon %}
-                        <img src="https://wow.zamimg.com/images/wow/icons/small/{{ item.icon }}.jpg"
-                             data-wowhead="item={{ item.itemID }}" width="20" height="20" class="gear-icon">
-                        {% endif %}
-                        <span class="gear-name">{{ item.name }}</span>
-                        {% if item.itemLevel %}<span class="gear-ilvl">{{ item.itemLevel }}</span>{% endif %}
-                        <span class="gear-pct">{{ item.pct }}%</span>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
-        <a href="?boss_id={{ b.boss_id }}" class="btn btn-detail">查看详情 →</a>
-    </div>
-    {% empty %}
-    <div class="empty-state">暂无数据，请等待采集完成</div>
-    {% endfor %}
-
     {% if boss_detail %}
-    <div class="detail-panel">
-        <h3>{{ boss_detail.boss_name }} - 详细数据</h3>
+    <!-- Boss 详情 -->
+    <div class="detail-section">
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/" class="back-link">← 返回 Boss 列表</a>
+        <h2>{{ boss_detail.boss_name }}</h2>
+        <p class="text-muted">样本量: {{ boss_detail.sample_size }} · 仅限史诗难度</p>
 
-        {% if boss_detail.top5 %}
-        <h4>Top 5 DPS</h4>
-        <table class="data-table">
-            <thead><tr><th>#</th><th>角色</th><th>服务器</th><th>DPS</th><th>击杀时间</th></tr></thead>
-            <tbody>
-            {% for p in boss_detail.top5 %}
-            <tr>
-                <td>{{ forloop.counter }}</td>
-                <td>{{ p.character_name }}</td>
-                <td>{{ p.realm }}-{{ p.region }}</td>
-                <td>{{ p.dps|floatformat:0 }}</td>
-                <td>{{ p.kill_time }}ms</td>
-            </tr>
-            {% endfor %}
-            </tbody>
-        </table>
+        {% if boss_detail.dps %}
+        <div class="stat-cards">
+            <div class="stat-card">
+                <div class="stat-label">平均 DPS</div>
+                <div class="stat-value">{{ boss_detail.dps.avg|floatformat:0 }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">中位数</div>
+                <div class="stat-value">{{ boss_detail.dps.median|floatformat:0 }}</div>
+            </div>
+            <div class="stat-card highlight">
+                <div class="stat-label">最高 DPS</div>
+                <div class="stat-value">{{ boss_detail.dps.max|floatformat:0 }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">最低</div>
+                <div class="stat-value">{{ boss_detail.dps.min|floatformat:0 }}</div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if boss_detail.kill_time %}
+        <div class="stat-cards" style="margin-top:12px;">
+            <div class="stat-card">
+                <div class="stat-label">平均击杀时间</div>
+                <div class="stat-value">{{ boss_detail.kill_time.avg_fmt }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">中位击杀时间</div>
+                <div class="stat-value">{{ boss_detail.kill_time.median_fmt }}</div>
+            </div>
+        </div>
         {% endif %}
 
         {% if boss_detail.talent_popularity %}
-        <h4>天赋选取率（完整）</h4>
-        <div class="talent-grid">
-            {% for tid, info in boss_detail.talent_popularity.items %}
-            <a href="https://www.wowhead.com/spell={{ tid }}" target="_blank" class="talent-item" data-wowhead="spell={{ tid }}">
-                <span class="talent-id">#{{ tid }}</span>
-                <div class="talent-bar-bg">
-                    <div class="talent-bar-fill" style="width: {{ info.pct }}%"></div>
+        <div class="section-block">
+            <h4>天赋选取率</h4>
+            <div class="talent-list">
+                {% for tid, info in boss_detail.talent_popularity.items %}
+                <div class="talent-row">
+                    <span class="talent-id">#{{ tid }}</span>
+                    <div class="popularity-bar">
+                        <div class="popularity-fill" style="width:{{ info.pct }}%"></div>
+                    </div>
+                    <span class="popularity-pct">{{ info.pct }}%</span>
+                    <span class="popularity-count">({{ info.count }})</span>
                 </div>
-                <span class="talent-pct">{{ info.pct }}%</span>
-            </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if boss_detail.gear_popularity %}
+        <div class="section-block">
+            <h4>装备热门度</h4>
+            {% for slot, items in boss_detail.gear_popularity.items %}
+            <div class="gear-slot-section">
+                <div class="slot-name">{{ slot }}</div>
+                {% for item in items %}
+                <div class="gear-pop-row">
+                    {% if item.icon %}
+                    <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank">
+                        <img src="https://wow.zamimg.com/images/wow/icons/small/{{ item.icon }}.jpg" width="20" height="20" class="gear-icon">
+                    </a>
+                    {% endif %}
+                    <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank" class="gear-name-link">{{ item.name|default:item.itemID }}</a>
+                    {% if item.itemLevel %}<span class="gear-ilvl">{{ item.itemLevel }}</span>{% endif %}
+                    <div class="popularity-bar small">
+                        <div class="popularity-fill" style="width:{{ item.pct }}%"></div>
+                    </div>
+                    <span class="popularity-pct">{{ item.pct }}%</span>
+                </div>
+                {% endfor %}
+            </div>
             {% endfor %}
         </div>
         {% endif %}
+
+        {% if boss_detail.top5 %}
+        <div class="section-block">
+            <h4>Top 5 DPS</h4>
+            <table class="data-table">
+                <thead>
+                    <tr><th>#</th><th>角色</th><th>服务器</th><th>DPS</th><th>击杀时间</th></tr>
+                </thead>
+                <tbody>
+                {% for r in boss_detail.top5 %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ r.character_name }}</td>
+                        <td>{{ r.realm }}-{{ r.region|upper }}</td>
+                        <td class="dps-val">{{ r.dps|floatformat:0 }}</td>
+                        <td>{{ r.kill_time|default:"-" }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
     </div>
+
+    {% elif bosses %}
+    <!-- Boss 列表 -->
+    <div class="dungeon-grid">
+    {% for b in bosses %}
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/?boss_id={{ b.boss_id }}" class="dungeon-card-link">
+            <div class="dungeon-card">
+                <h3 class="dungeon-name">{{ b.boss_name }}</h3>
+                <div class="dungeon-meta">
+                    <span>样本: {{ b.sample_size }}</span>
+                    {% if b.dps %}
+                    <span>平均 DPS: <strong>{{ b.dps.avg|floatformat:0 }}</strong></span>
+                    <span>最高: <strong>{{ b.dps.max|floatformat:0 }}</strong></span>
+                    {% endif %}
+                    {% if b.kill_time %}
+                    <span>平均击杀: <strong>{{ b.kill_time.avg_fmt }}</strong></span>
+                    {% endif %}
+                </div>
+
+                {% if b.talent_popularity %}
+                <div class="talent-preview">
+                    {% for tid, info in b.talent_popularity.items %}
+                    <span class="talent-chip">#{{ tid }} {{ info.pct }}%</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </a>
+    {% empty %}
+        <div class="empty-state">暂无团本数据，请等待采集完成</div>
+    {% endfor %}
+    </div>
+    {% else %}
+        <div class="empty-state">暂无数据，请等待采集完成</div>
     {% endif %}
 </div>
 
-<script src="https://wow.zamimg.com/js/power.js"></script>
 <style>
 .spec-detail-page { max-width: 1000px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
 .spec-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
@@ -154,57 +169,52 @@
 .spec-nav { display: flex; gap: 20px; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
 .spec-nav a { text-decoration: none; color: #666; font-weight: 500; }
 .spec-nav a.active { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: -12px; }
+.back-link { color: #2563eb; text-decoration: none; font-size: 0.9em; display: inline-block; margin-bottom: 12px; }
+.back-link:hover { text-decoration: underline; }
 
-.boss-card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 20px; background: #fff; }
-.boss-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.boss-header h3 { margin: 0; font-size: 1.15em; }
-.sample-badge { font-size: 0.8em; color: #888; background: #f3f4f6; padding: 2px 10px; border-radius: 12px; }
+.dungeon-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.dungeon-card-link { text-decoration: none; color: inherit; }
+.dungeon-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; transition: box-shadow 0.15s, border-color 0.15s; cursor: pointer; }
+.dungeon-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-color: #2563eb; }
+.dungeon-name { margin: 0 0 10px; font-size: 1.1em; color: #1e293b; }
+.dungeon-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.85em; color: #64748b; margin-bottom: 10px; }
+.dungeon-meta strong { color: #1e293b; }
+.talent-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.talent-chip { font-size: 0.75em; background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 4px; }
 
-.stat-section { margin-bottom: 16px; }
-.stat-label { font-weight: 600; color: #555; margin-bottom: 8px; font-size: 0.9em; }
-.dps-bar-container { display: flex; align-items: center; gap: 12px; }
-.dps-bar { display: flex; align-items: center; gap: 0; flex: 1; background: #f3f4f6; border-radius: 6px; padding: 8px 12px; }
-.dps-bar span { font-size: 0.85em; font-family: monospace; }
-.dps-min { color: #9ca3af; }
-.dps-p25 { color: #6b7280; margin-left: 12px; }
-.dps-median { color: #2563eb; font-weight: bold; font-size: 1em !important; margin-left: 12px; }
-.dps-p75 { color: #6b7280; margin-left: 12px; }
-.dps-max { color: #059669; margin-left: 12px; }
-.dps-avg { font-size: 0.8em; color: #888; white-space: nowrap; }
+.detail-section { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; }
+.detail-section h2 { margin: 0 0 8px; }
+.stat-cards { display: flex; gap: 12px; flex-wrap: wrap; }
+.stat-card { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 18px; min-width: 120px; }
+.stat-card.highlight { background: #fef3c7; border-color: #f59e0b; }
+.stat-label { font-size: 0.8em; color: #6b7280; margin-bottom: 4px; }
+.stat-value { font-size: 1.3em; font-weight: 700; color: #1e293b; }
 
-.stat-row-inline { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-.stat-chip { display: flex; align-items: center; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 14px; }
-.chip-label { font-size: 0.8em; color: #94a3b8; font-weight: 500; }
-.chip-value { font-weight: 600; font-size: 0.95em; }
-.chip-avg { font-size: 0.8em; color: #888; }
-
-.talent-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.talent-item { display: flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px 8px; min-width: 140px; text-decoration: none; color: inherit; }
-.talent-item:hover { border-color: #3b82f6; background: #eff6ff; }
-.talent-id { font-size: 0.75em; color: #6b7280; font-family: monospace; min-width: 48px; }
-.talent-bar-bg { flex: 1; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; min-width: 40px; }
-.talent-bar-fill { height: 100%; background: #3b82f6; border-radius: 3px; }
-.talent-pct { font-size: 0.8em; font-weight: 600; color: #2563eb; min-width: 36px; text-align: right; }
-
-.gear-section { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.gear-slot { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; }
-.slot-name { font-size: 0.75em; color: #94a3b8; text-transform: uppercase; font-weight: 600; margin-bottom: 6px; letter-spacing: 0.5px; }
-.gear-item { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 0.85em; }
-.gear-icon { border-radius: 4px; }
-.gear-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.section-block { margin-top: 24px; }
+.section-block h4 { font-size: 1em; color: #374151; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+.talent-list { display: flex; flex-direction: column; gap: 6px; }
+.talent-row { display: flex; align-items: center; gap: 8px; font-size: 0.85em; }
+.talent-id { min-width: 50px; color: #2563eb; font-weight: 500; }
+.popularity-bar { flex: 1; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; max-width: 200px; }
+.popularity-bar.small { max-width: 120px; height: 6px; }
+.popularity-fill { height: 100%; background: #2563eb; border-radius: 4px; }
+.popularity-pct { min-width: 40px; text-align: right; font-weight: 600; color: #1e293b; }
+.popularity-count { color: #94a3b8; font-size: 0.85em; }
+.gear-slot-section { margin-bottom: 12px; }
+.slot-name { font-size: 0.8em; color: #6b7280; font-weight: 600; text-transform: uppercase; margin-bottom: 4px; }
+.gear-pop-row { display: flex; align-items: center; gap: 8px; font-size: 0.85em; padding: 3px 0; }
+.gear-icon { border-radius: 3px; }
+.gear-name-link { color: #2563eb; text-decoration: none; font-size: 0.85em; }
+.gear-name-link:hover { text-decoration: underline; }
 .gear-ilvl { color: #059669; font-size: 0.8em; font-weight: 500; }
-.gear-pct { color: #2563eb; font-weight: 600; font-size: 0.8em; min-width: 36px; text-align: right; }
 
-.detail-panel { border: 2px solid #2563eb; border-radius: 12px; padding: 24px; margin-top: 24px; background: #f8fafc; }
-.data-table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-.data-table th, .data-table td { padding: 8px 12px; border: 1px solid #e5e7eb; text-align: left; }
-.data-table th { background: #f1f5f9; font-size: 0.85em; color: #64748b; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+.data-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e5e7eb; color: #6b7280; font-weight: 600; }
+.data-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+.data-table tr:hover { background: #f8fafc; }
+.dps-val { font-weight: 700; color: #ef4444; }
 
-.badge { padding: 2px 8px; border-radius: 4px; font-size: 0.75em; color: white; }
-.badge-tank { background: #3b82f6; } .badge-dps { background: #ef4444; } .badge-healer { background: #10b981; }
-.empty-state { text-align: center; color: #999; padding: 40px; }
-.btn-detail { display: inline-block; margin-top: 12px; color: #2563eb; text-decoration: none; font-size: 0.9em; font-weight: 500; }
-.btn-detail:hover { text-decoration: underline; }
+.empty-state { text-align: center; color: #999; padding: 60px; font-size: 1em; }
 .text-muted { color: #9ca3af; font-size: 0.85em; }
 </style>
 {% endblock %}

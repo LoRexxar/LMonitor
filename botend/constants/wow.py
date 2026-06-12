@@ -161,3 +161,35 @@ SPEC_ICON = {
     ("Evoker", "Devastation"):        "https://wow.zamimg.com/images/wow/icons/medium/ability_evoker_devastation.jpg",
     ("Evoker", "Preservation"):       "https://wow.zamimg.com/images/wow/icons/medium/ability_evoker_preservation.jpg",
 }
+
+# ========== 副本/团本 中文名 ==========
+
+DUNGEON_CN = {
+    "Ara-Kara, City of Echoes": "阿拉卡拉，回声之城",
+    "City of Threads": "千丝之城",
+    "Grim Batol": "格瑞姆巴托",
+    "Mists of Tirna Scithe": "塞兹仙林的迷雾",
+    "Necrotic Wake": "通灵战潮",
+    "Siege of Boralus": "围攻伯拉勒斯",
+    "Stonevault": "矶石宝库",
+    "The Dawnbreaker": "破晨号",
+}
+
+RAID_BOSS_CN = {
+    "Ulgrax the Devourer": "吞噬者乌格拉克斯",
+    "The Bloodbound Horror": "血缚恐惧",
+    "Sikran, Captain of the Sureki": "苏雷吉队长席克拉",
+    "Rasha'nan": "拉夏南",
+    "Broodtwister Ovi'nax": "虫巢扭曲者欧维纳克斯",
+    "Nexus-Princess Ky'veza": "节点女亲王凯威扎",
+    "The Silken Court": "蛛丝议会",
+    "Queen Ansurek": "安苏雷克女王",
+    "Vexie and the Geargrinders": "维克茜和磨轮",
+    "Cauldron of Carnage": "残杀战炉",
+    "Rik Reverb": "里克·混响",
+    "Stix Bunkjunker": "斯提克斯·堆渣",
+    "Sprocketmonger Lockenstock": "链齿狂人洛肯斯托克",
+    "The One-Armed Bandit": "独臂盗匪",
+    "Mug'Zee, Heads of Security": "穆格·兹奇，安保头子",
+    "Chrome King Gallywix": "铬金大王加里维克斯",
+}

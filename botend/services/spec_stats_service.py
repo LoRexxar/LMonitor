@@ -10,7 +10,7 @@ from django.db.models import Avg, Max, Min, StdDev
 from botend.models import (
     SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking
 )
-from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE
+from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN
 
 
 class SpecStatsService:
@@ -37,7 +37,7 @@ class SpecStatsService:
     # ========== 人物榜 ==========
 
     @staticmethod
-    def get_player_list(class_name, spec_name, season_id=None, page=1, page_size=5):
+    def get_player_list(class_name, spec_name, season_id=None, page=1, page_size=100):
         """Top 20 玩家列表（分页）"""
         if not season_id:
             season = SeasonMeta.objects.filter(is_active=True).first()
@@ -109,8 +109,9 @@ class SpecStatsService:
             return []
 
         for enc in season.mplus_encounters:
+            cn_name = DUNGEON_CN.get(enc['name'], enc['name'])
             stats = SpecStatsService._compute_dungeon_stats(
-                season_id, enc['id'], enc['name'], class_name, spec_name
+                season_id, enc['id'], cn_name, class_name, spec_name
             )
             encounters.append(stats)
 
@@ -227,8 +228,9 @@ class SpecStatsService:
 
         bosses = []
         for enc in season.raid_encounters:
+            cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
             stats = SpecStatsService._compute_raid_stats(
-                season_id, enc['id'], enc['name'], class_name, spec_name
+                season_id, enc['id'], cn_name, class_name, spec_name
             )
             bosses.append(stats)
 
