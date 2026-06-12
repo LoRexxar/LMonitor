@@ -114,7 +114,6 @@ COMMON_FIELD_LABELS = {
     'updated_at': '更新时间',
     'create_time': '创建时间',
     'last_scan_time': '上次扫描时间',
-    'modified_at': '后台修改时间',
     'last_spider_time': '上次抓取时间',
     'last_publish_time': '上次发布时间',
     'wait_time': '等待时间',
@@ -499,10 +498,6 @@ class DashboardView(View):
                     
                     setattr(instance, field_name, field_value)
             
-            # 设置后台修改时间
-            if table_name == 'MonitorTask':
-                instance.modified_at = timezone.now()
-
             # 保存更改
             instance.save()
             
