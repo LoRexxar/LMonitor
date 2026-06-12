@@ -1,8 +1,6 @@
 #!/bin/bash
 set -e
 
-cd /home/lighthouse
-
 echo "=== 1. Git pull ==="
 git pull
 
