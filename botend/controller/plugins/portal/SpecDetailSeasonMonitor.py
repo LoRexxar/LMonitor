@@ -8,7 +8,7 @@ import time
 import logging
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
-from botend.models.spec_detail import SeasonMeta
+from botend.spec_detail_models import SeasonMeta
 
 logger = logging.getLogger(__name__)
 

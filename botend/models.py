@@ -745,3 +745,6 @@ class SystemAlert(models.Model):
             models.Index(fields=['category']),
             models.Index(fields=['last_seen_at']),
         ]
+
+# Spec Detail models (imported here so Django can discover them)
+from botend.spec_detail_models import SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking  # noqa: F401

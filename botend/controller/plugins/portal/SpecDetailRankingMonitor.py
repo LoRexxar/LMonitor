@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
-from botend.models.spec_detail import SeasonMeta, SpecDungeonRanking, SpecRaidRanking
+from botend.spec_detail_models import SeasonMeta, SpecDungeonRanking, SpecRaidRanking
 from botend.constants.wow import CLASS_SPEC_MAP
 
 logger = logging.getLogger(__name__)
