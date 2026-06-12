@@ -10,7 +10,7 @@ python3 manage.py collectstatic --no-input
 echo "=== 3. 重启 lmweb ==="
 screen -S lmweb -X stuff $'\cc'
 sleep 2
-screen -S lmweb -X stuff $'python3 manage.py runserver 0.0.0.0:1800\n'
+screen -S lmweb -X stuff $'python3 manage.py runserver 0.0.0.0:18000\n'
 
 echo "=== 4. 重启 lmback ==="
 screen -S lmback -X stuff $'\cc'
