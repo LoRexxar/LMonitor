@@ -189,15 +189,20 @@ class SpecStatsService:
                 'median': _percentile(ct_list, 50),
             }
 
+        # 天赋/装备热门度（概览也展示）
+        records = list(qs.values('talents_json', 'gear_json', 'faction'))
+        talent_limit = 20 if full else 10
+        gear_limit = 5 if full else 3
+        stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
+        stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
+
         if full:
-            # 详细模式：天赋/装备选取率 + 种族分布 + Top 5
-            records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
+            # 详细模式：额外计算种族分布 + Top 5
+            full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
                                       'character_name', 'realm', 'region', 'dps',
                                       'keystone_level', 'clear_time', 'score'))
-            stats['talent_popularity'] = _compute_talent_popularity(records)
-            stats['gear_popularity'] = _compute_gear_popularity(records)
-            stats['race_distribution'] = dict(Counter(r.get('faction') for r in records))
-            stats['top5'] = sorted(records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
+            stats['race_distribution'] = dict(Counter(r.get('faction') for r in full_records))
+            stats['top5'] = sorted(full_records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
 
         return stats
 
@@ -284,12 +289,17 @@ class SpecStatsService:
                 'median': _percentile(kt_list, 50),
             }
 
+        # 天赋/装备热门度（概览也展示）
+        records = list(qs.values('talents_json', 'gear_json', 'faction'))
+        talent_limit = 20 if full else 10
+        gear_limit = 5 if full else 3
+        stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
+        stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
+
         if full:
-            records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
+            full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
                                       'character_name', 'realm', 'region', 'dps', 'kill_time'))
-            stats['talent_popularity'] = _compute_talent_popularity(records)
-            stats['gear_popularity'] = _compute_gear_popularity(records)
-            stats['top5'] = sorted(records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
+            stats['top5'] = sorted(full_records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
 
         return stats
 
@@ -308,7 +318,7 @@ def _percentile(sorted_list, pct):
     return sorted_list[f] + (k - f) * (sorted_list[c] - sorted_list[f])
 
 
-def _compute_talent_popularity(records):
+def _compute_talent_popularity(records, top_n=20):
     """计算天赋选取率"""
     talent_counts = Counter()
     total = len(records)
@@ -320,19 +330,20 @@ def _compute_talent_popularity(records):
             if tid:
                 talent_counts[tid] += 1
 
-    # 按选取率降序，取 Top 20
+    # 按选取率降序
     result = {}
-    for tid, count in talent_counts.most_common(20):
+    for tid, count in talent_counts.most_common(top_n):
         result[str(tid)] = {
             'count': count,
-            'pct': round(count / total, 2) if total else 0,
+            'pct': round(count / total * 100, 1) if total else 0,
         }
     return result
 
 
-def _compute_gear_popularity(records):
-    """计算装备选取率（每个槽位 Top 5）"""
+def _compute_gear_popularity(records, top_n=5):
+    """计算装备选取率（每个槽位 Top N）"""
     slot_items = {}  # slot → Counter(itemID)
+    slot_item_info = {}  # (slot, itemID) → {name, icon}
 
     for r in records:
         gear = r.get('gear_json') or []
@@ -344,16 +355,28 @@ def _compute_gear_popularity(records):
             if slot not in slot_items:
                 slot_items[slot] = Counter()
             slot_items[slot][item_id] += 1
+            # 记录装备信息（第一次出现即可）
+            key = (slot, item_id)
+            if key not in slot_item_info:
+                slot_item_info[key] = {
+                    'name': g.get('name', ''),
+                    'icon': g.get('icon', ''),
+                    'itemLevel': g.get('itemLevel'),
+                }
 
     total = len(records)
     result = {}
     for slot, counter in slot_items.items():
         items = []
-        for item_id, count in counter.most_common(5):
+        for item_id, count in counter.most_common(top_n):
+            info = slot_item_info.get((slot, item_id), {})
             items.append({
                 'itemID': item_id,
+                'name': info.get('name', ''),
+                'icon': info.get('icon', ''),
+                'itemLevel': info.get('itemLevel'),
                 'count': count,
-                'pct': round(count / total, 2) if total else 0,
+                'pct': round(count / total * 100, 1) if total else 0,
             })
         result[slot] = items
 
