@@ -5,14 +5,14 @@ SpecDetail 采集器基类
 """
 
 import time
-import logging
+
 
 import requests
 from django.conf import settings
 
 from botend.controller.BaseScan import BaseScan
 
-logger = logging.getLogger(__name__)
+from utils.log import logger
 
 
 class SpecDetailBase(BaseScan):

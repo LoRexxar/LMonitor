@@ -5,14 +5,14 @@ Top 20 人物榜采集器
 """
 
 import time
-import logging
+
 from datetime import datetime
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, PlayerSpecTopPlayer
 from botend.constants.wow import CLASS_SPEC_MAP
 
-logger = logging.getLogger(__name__)
+from utils.log import logger
 
 
 class SpecDetailPlayerMonitor(SpecDetailBase):

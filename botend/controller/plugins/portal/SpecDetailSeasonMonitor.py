@@ -5,12 +5,12 @@
 """
 
 import time
-import logging
+
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta
 
-logger = logging.getLogger(__name__)
+from utils.log import logger
 
 
 class SpecDetailSeasonMonitor(SpecDetailBase):
