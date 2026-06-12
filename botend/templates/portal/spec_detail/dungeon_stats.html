@@ -1,0 +1,125 @@
+{% extends "portal/base.html" %}
+{% load static %}
+
+{% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - M+ 副本统计{% endblock %}
+
+{% block content %}
+<div class="spec-detail-page">
+    <div class="spec-header">
+        <img src="{{ nav.spec_icon }}" alt="{{ nav.spec_name }}" class="spec-icon" width="48" height="48">
+        <div class="spec-title">
+            <h1>{{ nav.class_cn }} {{ nav.spec_cn }}</h1>
+            <span class="spec-role badge badge-{{ nav.role }}">{{ nav.role }}</span>
+        </div>
+    </div>
+
+    <nav class="spec-nav">
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/">人物榜</a>
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/" class="active">M+ 副本统计</a>
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/">团本统计</a>
+    </nav>
+
+    <h2>M+ 副本统计 · {{ nav.spec_cn }} {{ nav.class_cn }}</h2>
+    <p class="text-muted">数据来源: WCL · 每副本 Top 100 样本</p>
+
+    {% for d in dungeons %}
+    <div class="dungeon-card">
+        <h3>{{ d.dungeon_name }}</h3>
+        
+        {% if d.dps %}
+        <div class="stat-row">
+            <span class="stat-label">DPS 分布:</span>
+            <span class="stat-bar">
+                <span class="stat-min">{{ d.dps.min|floatformat:0 }}</span>
+                <span class="stat-p25">|{{ d.dps.p25|floatformat:0 }}</span>
+                <span class="stat-median">[{{ d.dps.median|floatformat:0 }}]</span>
+                <span class="stat-p75">{{ d.dps.p75|floatformat:0 }}|</span>
+                <span class="stat-max">{{ d.dps.max|floatformat:0 }}</span>
+            </span>
+        </div>
+        {% endif %}
+
+        {% if d.keystone %}
+        <div class="stat-row">
+            <span class="stat-label">钥石等级:</span>
+            <span>{{ d.keystone.min }} ~ {{ d.keystone.max }} (均值 {{ d.keystone.avg|floatformat:1 }})</span>
+        </div>
+        {% endif %}
+
+        {% if d.clear_time %}
+        <div class="stat-row">
+            <span class="stat-label">通关时间:</span>
+            <span>{{ d.clear_time.median }}ms 中位数</span>
+        </div>
+        {% endif %}
+
+        <div class="stat-row">
+            <span class="stat-label">样本量:</span>
+            <span>{{ d.sample_size }}</span>
+        </div>
+
+        <a href="?dungeon_id={{ d.dungeon_id }}" class="btn btn-sm">查看详情</a>
+    </div>
+    {% empty %}
+    <div class="empty-state">暂无数据，请等待采集完成</div>
+    {% endfor %}
+
+    <!-- 副本详情 -->
+    {% if dungeon_detail %}
+    <div class="detail-panel">
+        <h3>{{ dungeon_detail.dungeon_name }} - 详细数据</h3>
+        
+        {% if dungeon_detail.top5 %}
+        <h4>Top 5</h4>
+        <table class="data-table">
+            <thead><tr><th>#</th><th>角色</th><th>服务器</th><th>DPS</th><th>钥石</th><th>时间</th></tr></thead>
+            <tbody>
+            {% for p in dungeon_detail.top5 %}
+            <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ p.character_name }}</td>
+                <td>{{ p.realm }}-{{ p.region }}</td>
+                <td>{{ p.dps|floatformat:0 }}</td>
+                <td>{{ p.keystone_level }}</td>
+                <td>{{ p.clear_time }}ms</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if dungeon_detail.talent_popularity %}
+        <h4>热门天赋</h4>
+        <div class="talent-pop-list">
+            {% for tid, info in dungeon_detail.talent_popularity.items %}
+            <span class="talent-pop" data-wowhead="spell={{ tid }}">{{ tid }}: {{ info.pct|floatformat:0 }}%</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<script src="https://wow.zamimg.com/js/power.js"></script>
+<style>
+.spec-detail-page { max-width: 960px; margin: 0 auto; padding: 20px; }
+.spec-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.spec-icon { border-radius: 8px; }
+.spec-nav { display: flex; gap: 20px; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+.spec-nav a { text-decoration: none; color: #666; font-weight: 500; }
+.spec-nav a.active { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: -12px; }
+.dungeon-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.stat-row { margin: 8px 0; }
+.stat-label { font-weight: 600; color: #555; margin-right: 8px; }
+.stat-bar { font-family: monospace; }
+.stat-median { font-weight: bold; color: #2563eb; }
+.detail-panel { border: 2px solid #2563eb; border-radius: 12px; padding: 24px; margin-top: 24px; background: #f8fafc; }
+.data-table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.data-table th, .data-table td { padding: 8px 12px; border: 1px solid #e5e7eb; text-align: left; }
+.data-table th { background: #f1f5f9; }
+.talent-pop { display: inline-block; padding: 2px 8px; margin: 2px; background: #e5e7eb; border-radius: 4px; font-size: 0.85em; }
+.badge { padding: 2px 8px; border-radius: 4px; font-size: 0.75em; color: white; }
+.badge-tank { background: #3b82f6; } .badge-dps { background: #ef4444; } .badge-healer { background: #10b981; }
+.empty-state { text-align: center; color: #999; padding: 40px; }
+</style>
+{% endblock %}

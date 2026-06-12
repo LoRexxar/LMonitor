@@ -27,6 +27,7 @@ from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, Cha
 from botend.portal.views import PortalHomeView
 from botend.portal.views import PortalArticleView
 from botend.portal.views import PortalWowSkillDiffReportView
+from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailDungeonView, SpecDetailRaidView
 from botend.portal.api import (
     PortalBluepostsAPIView,
     PortalNgaHotAPIView,
@@ -119,4 +120,9 @@ urlpatterns = [
     path('simc-compare/', SimcRegularCompareView.as_view(), name="simc_regular_compare_view"),
     path('wcl-analysis/', WclAnalysisPageView.as_view(), name="wcl_analysis"),
     path('wcl-analysis/report/<int:task_id>/', WclAnalysisReportView.as_view(), name="wcl_analysis_report"),
+
+    # 专精详情页
+    path('portal/spec/<str:class_name>/<str:spec_name>/', SpecDetailPlayerView.as_view(), name="spec_detail_player"),
+    path('portal/spec/<str:class_name>/<str:spec_name>/dungeons/', SpecDetailDungeonView.as_view(), name="spec_detail_dungeon"),
+    path('portal/spec/<str:class_name>/<str:spec_name>/raid/', SpecDetailRaidView.as_view(), name="spec_detail_raid"),
 ]
