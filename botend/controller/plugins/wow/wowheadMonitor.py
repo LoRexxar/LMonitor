@@ -52,9 +52,20 @@ class wowheadMonitor(BaseScan):
         except Exception as e:
             logger.warning("[wowheadMonitor] Chrome request init failed: {}".format(str(e)))
 
+        # Chrome 不可用时，尝试 Cloak/Playwright 渲染
+        if not driver or not hasattr(driver, 'html'):
+            try:
+                driver = self.req.get(self.target_url, 'RespByCloak', 0, cookies, is_origin=1)
+            except Exception as e:
+                logger.warning("[wowheadMonitor] Cloak request init failed: {}".format(str(e)))
+
         if not driver or not hasattr(driver, 'eles'):
-            logger.error("[wowheadMonitor] Chrome request failed.")
-            resp = self.req.getResponse(self.target_url, cookies)
+            logger.error("[wowheadMonitor] Browser request failed.")
+            # 最后再尝试 requests 直连 HTML，哪怕不稳定，也至少保留退路
+            try:
+                resp = self.req.get(self.target_url, 'Response', 0, cookies)
+            except Exception:
+                resp = None
             if resp is False or resp is None:
                 logger.error("[wowheadMonitor] Request failed.")
                 return False
@@ -62,7 +73,9 @@ class wowheadMonitor(BaseScan):
             if int(status_code or 0) >= 400:
                 logger.error("[wowheadMonitor] Request bad status: {}".format(status_code))
                 return False
-            return False
+            fake_driver = type("RespWrapper", (), {"html": getattr(resp, "text", "") or "", "eles": True})()
+            post_count, _ = self.resolve_data(fake_driver, "wowhead", 10)
+            return int(post_count or 0) > 0
 
         post_count, _ = self.resolve_data(driver, "wowhead", 10)
         if int(post_count or 0) <= 0:
@@ -334,9 +347,93 @@ class wowheadMonitor(BaseScan):
         if not t:
             return []
 
+        try:
+            from bs4 import BeautifulSoup
+        except Exception:
+            BeautifulSoup = None
+
         cards = []
+        seen = set()
+
+        if BeautifulSoup:
+            try:
+                soup = BeautifulSoup(t, "html.parser")
+                anchors = soup.select(
+                    "a.recent-news-post-list-topic, "
+                    ".news-card-simple-text-title a, "
+                    "a[href*='/news/']"
+                )
+                for a in anchors:
+                    href = (a.get("href") or "").strip()
+                    if not href or "/news/" not in href:
+                        continue
+                    if href.startswith("/"):
+                        href = "https://www.wowhead.com{}".format(href)
+                    # wowheadMonitor 只处理 wowhead news，不处理 blue-tracker
+                    if "/blue-tracker/" in href:
+                        continue
+                    if href in seen:
+                        continue
+
+                    title_text = " ".join((a.get_text(" ", strip=True) or "").split())
+                    if not title_text or len(title_text) < 8:
+                        continue
+
+                    container = a
+                    for _ in range(4):
+                        if not getattr(container, "parent", None):
+                            break
+                        container = container.parent
+                    window_text = " ".join((container.get_text(" ", strip=True) or "").split())
+
+                    type_text = ""
+                    if "ptr" in title_text.lower() or " ptr " in window_text.lower():
+                        type_text = "PTR"
+                    elif "live" in str(" ".join(a.get("class") or [])).lower() or re.search(r"\b\d+[hd]\s+ago\b", window_text.lower()):
+                        type_text = "Live"
+
+                    preview_text = ""
+                    preview_node = None
+                    for sel in [
+                        ".news-card-simple-text-preview",
+                        ".recent-news-post-list-preview",
+                        ".listview-row-abstract",
+                        "p",
+                        "span",
+                    ]:
+                        preview_node = container.select_one(sel) if hasattr(container, "select_one") else None
+                        if preview_node:
+                            preview_text = " ".join((preview_node.get_text(" ", strip=True) or "").split())
+                            if preview_text and preview_text != title_text:
+                                break
+                    if preview_text == title_text:
+                        preview_text = ""
+
+                    date_text = ""
+                    m_ago = re.search(r"(\d+\s*[hd]\s+ago)", window_text.lower())
+                    if m_ago:
+                        date_text = m_ago.group(1)
+
+                    cards.append(
+                        {
+                            "type": type_text,
+                            "title": html.unescape(title_text),
+                            "link": href,
+                            "preview": html.unescape(preview_text),
+                            "date": html.unescape(date_text),
+                        }
+                    )
+                    seen.add(href)
+                    if len(cards) >= int(limit or 10):
+                        break
+                if cards:
+                    return cards
+            except Exception:
+                pass
+
+        # 正则兜底，兼容旧结构
         title_pat = re.compile(
-            r'news-card-simple-text-title"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>',
+            r'(?:recent-news-post-list-topic|news-card-simple-text-title"[^>]*>\s*<a|<a[^>]*class="[^"]*recent-news-post-list-topic[^"]*"[^>]*href=")([^"]+)"[^>]*>([\s\S]*?)</a>',
             flags=re.I,
         )
         for m in title_pat.finditer(t):
@@ -345,42 +442,12 @@ class wowheadMonitor(BaseScan):
             title_text = html.unescape(title_text)
             if link.startswith('/'):
                 link = "https://www.wowhead.com{}".format(link)
-            if not (title_text and link):
+            if not (title_text and link) or '/news/' not in link or '/blue-tracker/' in link or link in seen:
                 continue
-
-            start = max(0, int(m.start()) - 800)
-            end = min(len(t), int(m.end()) + 1200)
-            window = t[start:end]
-
-            type_text = ""
-            type_matches = re.findall(r'class="meta-text"[^>]*>([^<]+)</span>', window, flags=re.I)
-            if type_matches:
-                type_text = html.unescape((type_matches[-1] or "").strip())
-
-            preview_text = ""
-            mp = re.search(r'class="[^"]*\bnews-card-simple-text-preview\b[^"]*"[^>]*>([\s\S]*?)</span>', window, flags=re.I)
-            if mp:
-                preview_text = re.sub(r'<[^>]+>', '', (mp.group(1) or ''), flags=re.I).strip()
-                preview_text = html.unescape(preview_text)
-
-            date_text = ""
-            md = re.search(r'class="[^"]*\bnews-card-simple-text-byline-posted\b[^"]*"[^>]*title="([^"]+)"', window, flags=re.I)
-            if md:
-                date_text = html.unescape((md.group(1) or "").strip())
-
-            cards.append(
-                {
-                    "type": type_text,
-                    "title": title_text,
-                    "link": link,
-                    "preview": preview_text,
-                    "date": date_text,
-                }
-            )
-
+            cards.append({"type": "", "title": title_text, "link": link, "preview": "", "date": ""})
+            seen.add(link)
             if len(cards) >= int(limit or 10):
                 break
-
         return cards
 
     def _fetch_article_body(self, url, cookies=""):
