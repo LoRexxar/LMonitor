@@ -7,6 +7,7 @@ Top 20 人物榜采集器
 import time
 
 from datetime import datetime
+from django.db import transaction
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, PlayerSpecTopPlayer
@@ -44,46 +45,47 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         # 遍历所有专精
         for class_name, specs in CLASS_SPEC_MAP.items():
             for spec_name in specs:
-                # 全量覆盖：删除该专精旧数据
-                PlayerSpecTopPlayer.objects.filter(
-                    season_id=season.id, class_name=class_name, spec_name=spec_name
-                ).delete()
-
                 # 从 Raider.IO 获取 Top 20
                 players = self._fetch_top_players(class_name, spec_name, rio_season)
                 if not players:
                     continue
 
-                # 存入数据库
-                for i, player in enumerate(players):
-                    try:
-                        PlayerSpecTopPlayer.objects.create(
-                            season_id=season.id,
-                            region=player.get('region', ''),
-                            realm=player.get('realm', ''),
-                            character_name=player.get('name', ''),
-                            class_name=class_name,
-                            spec_name=spec_name,
-                            rank=i + 1,
-                            score=player.get('score'),
-                            faction=player.get('faction'),
-                            race=player.get('race'),
-                            gender=player.get('gender'),
-                            guild_name=player.get('guild_name'),
-                            realm_rank=player.get('realm_rank'),
-                            avatar_url=player.get('avatar_url'),
-                            profile_url=player.get('profile_url'),
-                            achievement_points=player.get('achievement_points'),
-                            item_level=player.get('item_level'),
-                            gear_json=player.get('gear', []),
-                            talents_json=player.get('talents', []),
-                            stats_json={},
-                            stats_crawl_status=0,
-                            last_updated=datetime.now(),
-                        )
-                        total_inserted += 1
-                    except Exception as e:
-                        logger.warning(f"[SpecDetailPlayer] 插入失败 {player.get('name')}: {e}")
+                with transaction.atomic():
+                    # 全量覆盖：删除该专精旧数据
+                    PlayerSpecTopPlayer.objects.filter(
+                        season_id=season.id, class_name=class_name, spec_name=spec_name
+                    ).delete()
+
+                    # 存入数据库
+                    for i, player in enumerate(players):
+                        try:
+                            PlayerSpecTopPlayer.objects.create(
+                                season_id=season.id,
+                                region=player.get('region', ''),
+                                realm=player.get('realm', ''),
+                                character_name=player.get('name', ''),
+                                class_name=class_name,
+                                spec_name=spec_name,
+                                rank=i + 1,
+                                score=player.get('score'),
+                                faction=player.get('faction'),
+                                race=player.get('race'),
+                                gender=player.get('gender'),
+                                guild_name=player.get('guild_name'),
+                                realm_rank=player.get('realm_rank'),
+                                avatar_url=player.get('avatar_url'),
+                                profile_url=player.get('profile_url'),
+                                achievement_points=player.get('achievement_points'),
+                                item_level=player.get('item_level'),
+                                gear_json=player.get('gear', []),
+                                talents_json=player.get('talents', []),
+                                stats_json={},
+                                stats_crawl_status=0,
+                                last_updated=datetime.now(),
+                            )
+                            total_inserted += 1
+                        except Exception as e:
+                            logger.warning(f"[SpecDetailPlayer] 插入失败 {player.get('name')}: {e}")
 
                 time.sleep(0.2)
 
