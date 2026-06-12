@@ -9,7 +9,7 @@ class MonitorTask(models.Model):
     target = models.CharField(max_length=2000)
     type = models.IntegerField(default=0)
     env_limit = models.IntegerField(default=0)
-    last_scan_time = models.DateTimeField(auto_now=True)
+    last_scan_time = models.DateTimeField(default=timezone.now)
     wait_time = models.IntegerField(default=600)
     flag = models.CharField(max_length=2000, null=True, default=None)
     is_active = models.BooleanField(default=True)

@@ -2083,8 +2083,18 @@ function enterEditMode(row, rowId) {
         const field = cell.getAttribute('data-field');
         const currentValue = cell.textContent.trim();
         
-        // 跳过时间字段，保持只读状态
+        // 时间字段使用 datetime-local 输入框
         if (isTimeField(field)) {
+            inputElement = document.createElement('input');
+            inputElement.type = 'datetime-local';
+            // 尝试将已有值转为 datetime-local 格式
+            const parsed = parseDateTimeForInput(currentValue);
+            if (parsed) {
+                inputElement.value = parsed;
+            }
+            inputElement.className = 'w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent';
+            cell.innerHTML = '';
+            cell.appendChild(inputElement);
             return;
         }
         
@@ -2847,6 +2857,21 @@ function truncateText(text, maxLength) {
 }
 
 /**
+ * 将显示用的日期字符串转为 datetime-local 输入框格式 (YYYY-MM-DDTHH:MM)
+ */
+function parseDateTimeForInput(displayStr) {
+    if (!displayStr || displayStr === '-' || displayStr === 'null') return '';
+    const raw = String(displayStr).trim();
+    // "2026-06-12 18:30:00" -> "2026-06-12T18:30"
+    const m = raw.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})(:\d{2})?$/);
+    if (m) return m[1] + 'T' + m[2];
+    // 已经是 ISO 格式
+    const m2 = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+    if (m2) return m2[1] + 'T' + m2[2];
+    return '';
+}
+
+/**
  * 格式化日期时间
  */
 function formatDateTime(dateString) {
@@ -3404,7 +3429,7 @@ function generateEditFormFields(container, rowData) {
     }
     
     currentTableColumns.forEach(column => {
-        if (column.toLowerCase() === 'id' || isTimeField(column)) {
+        if (column.toLowerCase() === 'id') {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -3450,12 +3475,20 @@ function generateEditFormFields(container, rowData) {
             inputElement.className = 'w-5 h-5 text-emerald-600 border-gray-300 rounded focus:ring-2 focus:ring-emerald-500 transition-all duration-200';
             const v = rowData ? rowData[column] : false;
             inputElement.checked = v === true || v === 'true' || v === 1 || v === '1';
+        } else if (isTimeField(column)) {
+            inputElement = document.createElement('input');
+            inputElement.type = 'datetime-local';
+            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200';
+            const raw = rowData && rowData[column] !== null && rowData[column] !== undefined ? rowData[column] : '';
+            const parsed = parseDateTimeForInput(String(raw));
+            if (parsed) {
+                inputElement.value = parsed;
+            }
         } else {
             inputElement = document.createElement('input');
             inputElement.type = inputType;
             inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
             inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200';
-            
             if (inputType === 'number') {
                 if (currentFieldTypes && currentFieldTypes[column]) {
                     const fieldType = currentFieldTypes[column].type;
@@ -3515,7 +3548,7 @@ function submitEditRecord() {
     
     const updateData = {};
     currentTableColumns.forEach(column => {
-        if (column === 'id' || isTimeField(column)) {
+        if (column === 'id') {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -3531,6 +3564,12 @@ function submitEditRecord() {
         } else if (inputType === 'number') {
             const value = element.value.trim();
             updateData[column] = value !== '' ? parseFloat(value) : null;
+        } else if (isTimeField(column)) {
+            // datetime-local 值格式: "2026-06-12T18:30" -> "2026-06-12 18:30:00"
+            const val = element.value;
+            if (val) {
+                updateData[column] = val.replace('T', ' ') + ':00';
+            }
         } else {
             updateData[column] = element.value;
         }
@@ -3585,8 +3624,8 @@ function generateFormFields(container) {
     }
     
     currentTableColumns.forEach(column => {
-        // 跳过ID字段和时间字段（通常由系统自动生成）
-        if (column.toLowerCase() === 'id' || isTimeField(column)) {
+        // 跳过ID字段
+        if (column.toLowerCase() === 'id') {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -3619,13 +3658,16 @@ function generateFormFields(container) {
             if (currentFieldTypes && currentFieldTypes[column] && currentFieldTypes[column].default !== null) {
                 inputElement.checked = currentFieldTypes[column].default;
             }
+        } else if (isTimeField(column)) {
+            inputElement = document.createElement('input');
+            inputElement.type = 'datetime-local';
+            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200';
         } else {
             // 创建普通input元素
             inputElement = document.createElement('input');
             inputElement.type = inputType;
             inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
             inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200';
-            
             // 为数字类型设置step属性
             if (inputType === 'number') {
                 if (currentFieldTypes && currentFieldTypes[column]) {
@@ -3927,7 +3969,7 @@ function submitAddRecord() {
     // 遍历所有表单字段，正确处理不同类型的输入
     currentTableColumns.forEach(column => {
         // 跳过自动生成的字段
-        if (column === 'id' || isTimeField(column)) {
+        if (column === 'id') {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -3941,6 +3983,12 @@ function submitAddRecord() {
             if (inputType === 'checkbox') {
                 // 对于checkbox，获取checked状态
                 data[column] = element.checked;
+            } else if (isTimeField(column)) {
+                // datetime-local 值格式: "2026-06-12T18:30" -> "2026-06-12 18:30:00"
+                const val = element.value;
+                if (val) {
+                    data[column] = val.replace('T', ' ') + ':00';
+                }
             } else if (inputType === 'number') {
                 // 对于数字类型，转换为数字或保持空值
                 const value = element.value.trim();
