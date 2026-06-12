@@ -6,7 +6,7 @@ Top 20 人物榜采集器
 
 import time
 
-from datetime import datetime
+from django.utils import timezone
 from django.db import transaction
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
@@ -81,7 +81,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                                 talents_json=player.get('talents', []),
                                 stats_json={},
                                 stats_crawl_status=0,
-                                last_updated=datetime.now(),
+                                last_updated=timezone.now(),
                             )
                             total_inserted += 1
                         except Exception as e:

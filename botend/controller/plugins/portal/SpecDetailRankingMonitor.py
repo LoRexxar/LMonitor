@@ -6,7 +6,7 @@ M+ 副本 + 团本排名采集器
 
 import time
 
-from datetime import datetime
+from django.utils import timezone
 from django.db import transaction
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
@@ -62,7 +62,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         logger.info(f"[SpecDetailRanking] 采集 M+ 排名: {len(season.mplus_encounters)} 副本 x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
         total = 0
-        now = datetime.now()
+        now = timezone.now()
 
         with transaction.atomic():
             # 全量覆盖：删除该赛季旧数据
@@ -123,7 +123,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         logger.info(f"[SpecDetailRanking] 采集团本排名: {len(season.raid_encounters)} Boss x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
         total = 0
-        now = datetime.now()
+        now = timezone.now()
 
         with transaction.atomic():
             # 全量覆盖：删除该赛季旧数据
