@@ -5,6 +5,7 @@ import re
 
 import requests
 from django.core.management.base import BaseCommand, CommandError
+from django.db import OperationalError, close_old_connections
 from django.db.models import Q
 from django.utils import timezone
 
@@ -79,7 +80,8 @@ class Command(BaseCommand):
             snapshot_spell_ids[int(spell_id)] = name_zh
 
         for spell_id, name_zh in snapshot_spell_ids.items():
-            WowSpellSnapshot.objects.update_or_create(
+            self._retry_db_write(
+                WowSpellSnapshot.objects.update_or_create,
                 branch=branch,
                 locale=monitor.locale,
                 spell_id=int(spell_id),
@@ -106,7 +108,10 @@ class Command(BaseCommand):
                 changed = True
             if changed:
                 row.last_updated = now
-                row.save(update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'row', 'column', 'max_points', 'last_updated'])
+                self._retry_db_write(
+                    row.save,
+                    update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'row', 'column', 'max_points', 'last_updated'],
+                )
                 updated += 1
 
         self.stdout.write(self.style.SUCCESS(
@@ -289,6 +294,15 @@ class Command(BaseCommand):
             return self._icon_cache[file_data_id]
         self._icon_cache[file_data_id] = ''
         return ''
+
+    @staticmethod
+    def _retry_db_write(func, *args, **kwargs):
+        close_old_connections()
+        try:
+            return func(*args, **kwargs)
+        except OperationalError:
+            close_old_connections()
+            return func(*args, **kwargs)
 
     @staticmethod
     def _guess_build(branch):
