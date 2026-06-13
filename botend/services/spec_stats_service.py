@@ -441,6 +441,16 @@ def _lookup_dungeon_cn(name):
     return name
 
 
+def _talent_tree_label(tree_type):
+    mapping = {
+        'class': '职业天赋',
+        'spec': '专精天赋',
+        'hero': '英雄天赋',
+        'build_code': '导入代码',
+    }
+    return mapping.get(tree_type or 'spec', tree_type or '天赋')
+
+
 def _compute_talent_popularity(records, top_n=20):
     """计算天赋选取率（以 spellID 为 key）"""
     talent_counts = Counter()

@@ -46,6 +46,7 @@ class Command(BaseCommand):
             Q(name='') |
             Q(name='未命名天赋') |
             Q(name__startswith='技能ID ') |
+            Q(icon='') |
             Q(row__isnull=True) |
             Q(column__isnull=True)
         ).exclude(spell_id__isnull=True)

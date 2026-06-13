@@ -11,7 +11,7 @@ WoW 天赋元数据提供层
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
 
@@ -19,29 +19,29 @@ from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
 @dataclass
 class TalentMetadataProvider:
     locale: str = 'zhCN'
+    _spec_cache: dict = field(default_factory=dict)
+    _snapshot_cache: dict = field(default_factory=dict)
 
     def get_node_metadata(self, class_name, spec_name, tree_type, spell_id=None, talent_id=None, node_id=None):
         """读取单个天赋节点元数据。"""
-        query = WowTalentNodeMetadata.objects.filter(
-            class_name=class_name,
-            spec_name=spec_name,
-            tree_type=tree_type,
-        )
+        indexes = self._get_spec_indexes(class_name, spec_name)
+        tree_key = tree_type or 'spec'
+        tree_indexes = indexes.get(tree_key, {})
 
         if node_id:
-            row = query.filter(node_id=node_id).first()
+            row = tree_indexes.get(('node_id', int(node_id)))
             if row:
-                return self._as_dict(row)
+                return row
 
         if spell_id:
-            row = query.filter(spell_id=spell_id).first()
+            row = tree_indexes.get(('spell_id', int(spell_id)))
             if row:
-                return self._as_dict(row)
+                return row
 
         if talent_id:
-            row = query.filter(talent_id=talent_id).first()
+            row = tree_indexes.get(('talent_id', int(talent_id)))
             if row:
-                return self._as_dict(row)
+                return row
 
         fallback = self._lookup_spell_snapshot(spell_id)
         if fallback:
@@ -73,6 +73,33 @@ class TalentMetadataProvider:
             merged['spell_id'] = metadata.get('display_spell_id')
         return merged
 
+    def _get_spec_indexes(self, class_name, spec_name):
+        cache_key = (class_name or '', spec_name or '')
+        if cache_key in self._spec_cache:
+            return self._spec_cache[cache_key]
+
+        indexes = {}
+        rows = WowTalentNodeMetadata.objects.filter(
+            class_name=cache_key[0],
+            spec_name=cache_key[1],
+        )
+        for row in rows.iterator():
+            row_data = self._as_dict(row)
+            tree_key = row.tree_type or 'spec'
+            tree_indexes = indexes.setdefault(tree_key, {})
+            for field_name in ('node_id', 'spell_id', 'talent_id'):
+                value = getattr(row, field_name)
+                if not value:
+                    continue
+                try:
+                    normalized = int(value)
+                except Exception:
+                    continue
+                tree_indexes[(field_name, normalized)] = row_data
+
+        self._spec_cache[cache_key] = indexes
+        return indexes
+
     @staticmethod
     def _as_dict(row):
         return {
@@ -92,16 +119,21 @@ class TalentMetadataProvider:
     def _lookup_spell_snapshot(self, spell_id):
         if not spell_id:
             return {}
+        spell_id = int(spell_id)
+        if spell_id in self._snapshot_cache:
+            return self._snapshot_cache[spell_id]
 
         snapshot = WowSpellSnapshot.objects.filter(spell_id=spell_id).order_by('-updated_at').first()
         if not snapshot:
+            self._snapshot_cache[spell_id] = {}
             return {}
-        return {
+        self._snapshot_cache[spell_id] = {
             'spell_id': spell_id,
             'name': snapshot.name_zh or snapshot.name,
             'icon': '',
             'parents': [],
         }
+        return self._snapshot_cache[spell_id]
 
     @staticmethod
     def _should_override(node, key):
