@@ -80,11 +80,18 @@
 
         {% for group in player_detail.talent_groups %}
         <div class="talent-group">
-            <div class="talent-group-title">{{ group.title }}</div>
-            <div class="talent-grid">
+            <div class="talent-group-head">
+                <div class="talent-group-title">{{ group.title }}</div>
+                <div class="talent-group-subtitle">
+                    {% if group.synthetic_layout %}合成网格布局{% else %}真实节点坐标{% endif %}
+                    <span class="dot"></span>{{ group.grid_columns }} 列
+                </div>
+            </div>
+            <div class="talent-tree-grid" style="--talent-columns: {{ group.grid_columns }}; --talent-rows: {{ group.grid_rows }};">
                 {% for node in group.nodes %}
                 <a
-                    class="talent-node-card"
+                    class="talent-node-card talent-node-card--tree"
+                    style="grid-column: {{ node.layout_column }}; grid-row: {{ node.layout_row }};"
                     href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
                     target="_blank"
                 >
@@ -98,7 +105,7 @@
                     <div class="talent-node-info">
                         <span class="talent-node-name">{{ node.name }}</span>
                         <span class="talent-node-meta">
-                            {% if node.row or node.column %}第 {{ node.row|default:"?" }} 行 / {{ node.column|default:"?" }} 列{% else %}已选节点{% endif %}
+                            第 {{ node.layout_row }} 行 / {{ node.layout_column }} 列
                             {% if node.points %}<span class="dot"></span>{{ node.points }} 点{% endif %}
                         </span>
                     </div>
@@ -187,9 +194,17 @@
 .talent-code-box { max-width: 380px; background: rgba(30,41,59,.84); border: 1px solid rgba(148,163,184,.12); border-radius: 14px; padding: 10px 12px; }
 .talent-code-box span { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
 .talent-code-box code { display: block; color: #f8fafc; white-space: pre-wrap; word-break: break-all; }
-.talent-group + .talent-group { margin-top: 18px; }
+.talent-group + .talent-group { margin-top: 22px; }
+.talent-group-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
 .talent-group-title { font-size: 14px; font-weight: 700; color: #bfdbfe; margin-bottom: 10px; }
-.talent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.talent-group-subtitle { color: #64748b; font-size: 12px; display: inline-flex; align-items: center; gap: 8px; }
+.talent-tree-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--talent-columns), minmax(0, 1fr));
+    grid-auto-rows: 118px;
+    gap: 12px;
+    align-items: stretch;
+}
 .talent-node-card {
     display: flex;
     gap: 12px;
@@ -203,10 +218,24 @@
     transition: transform .15s ease, border-color .15s ease;
 }
 .talent-node-card:hover { transform: translateY(-2px); border-color: rgba(96,165,250,.45); }
+.talent-node-card--tree {
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 10px;
+    padding: 14px 10px;
+    border-radius: 20px;
+    background: radial-gradient(circle at top, rgba(59,130,246,.16), rgba(15,23,42,.96) 65%);
+}
 .talent-node-icon { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(51,65,85,.9); display: flex; align-items: center; justify-content: center; color: #cbd5e1; flex-shrink: 0; }
 .talent-node-icon img { border-radius: 50%; display: block; }
+.talent-node-card--tree .talent-node-icon { width: 52px; height: 52px; box-shadow: 0 8px 20px rgba(2,6,23,.28); }
 .talent-node-info { min-width: 0; }
 .talent-node-name { display: block; color: #f8fafc; font-weight: 700; margin-bottom: 4px; }
+.talent-node-card--tree .talent-node-name { max-width: 100%; font-size: 13px; line-height: 1.25; }
+.talent-node-card--tree .talent-node-meta { justify-content: center; }
 .talent-node-meta { color: #94a3b8; font-size: 12px; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .gear-grid-detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .gear-item-detail {
@@ -233,7 +262,8 @@
 }
 @media (max-width: 640px) {
     .spec-detail-page--player { padding: 16px; }
-    .overview-grid, .stats-grid, .talent-grid { grid-template-columns: 1fr; }
+    .overview-grid, .stats-grid { grid-template-columns: 1fr; }
+    .talent-tree-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>
 {% endblock %}

@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import os
+import re
+
+import requests
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
 from django.utils import timezone
@@ -89,9 +93,13 @@ class Command(BaseCommand):
                 if getattr(row, field) != value:
                     setattr(row, field, value)
                     changed = True
+            icon_value = (resolved.get('icon') or '').strip()
+            if icon_value and row.icon != icon_value:
+                row.icon = icon_value
+                changed = True
             if changed:
                 row.last_updated = now
-                row.save(update_fields=['display_spell_id', 'name', 'name_zh', 'max_points', 'last_updated'])
+                row.save(update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'max_points', 'last_updated'])
                 updated += 1
 
         self.stdout.write(self.style.SUCCESS(
@@ -121,6 +129,7 @@ class Command(BaseCommand):
                         'display_spell_id': display_spell_id,
                         'name': name_zh,
                         'name_zh': name_zh,
+                        'icon': self._resolve_spell_icon(monitor, build, display_spell_id, definition),
                         'max_points': max_ranks,
                     }
 
@@ -132,6 +141,7 @@ class Command(BaseCommand):
                     'display_spell_id': direct_spell_id,
                     'name': name_zh,
                     'name_zh': name_zh,
+                    'icon': self._resolve_spell_icon(monitor, build, direct_spell_id, {}),
                     'max_points': row.max_points or 1,
                 }
         return {}
@@ -143,6 +153,41 @@ class Command(BaseCommand):
         if name:
             return name
         return (monitor._fetch_spell_name_wowhead_cn(spell_id) or '').strip()
+
+    def _resolve_spell_icon(self, monitor, build, spell_id, definition):
+        override_icon = int((definition or {}).get('OverrideIcon') or 0)
+        if override_icon > 0:
+            icon_name = self._resolve_icon_name_by_filedata(override_icon)
+            if icon_name:
+                return icon_name
+
+        misc = monitor._fetch_spellmisc_by_spellid(build, spell_id)
+        icon_file_data_id = int((misc or {}).get('SpellIconFileDataID') or 0)
+        if icon_file_data_id <= 0:
+            icon_file_data_id = int((misc or {}).get('ActiveIconFileDataID') or 0)
+        if icon_file_data_id <= 0:
+            return ''
+        return self._resolve_icon_name_by_filedata(icon_file_data_id)
+
+    @staticmethod
+    def _resolve_icon_name_by_filedata(file_data_id):
+        if not file_data_id:
+            return ''
+        url = f'https://wago.tools/files?search={int(file_data_id)}'
+        try:
+            html = requests.get(url, timeout=20, headers={'User-Agent': 'Mozilla/5.0'}).text
+        except Exception:
+            return ''
+        matches = re.findall(r'filename&quot;:&quot;([^&]+\.blp)&quot;', html, re.I)
+        for raw in matches:
+            path = raw.replace('\\/', '/').lower()
+            if '/icons/' not in path:
+                continue
+            base = os.path.basename(path)
+            if not base.endswith('.blp'):
+                continue
+            return base[:-4]
+        return ''
 
     @staticmethod
     def _guess_build(branch):
