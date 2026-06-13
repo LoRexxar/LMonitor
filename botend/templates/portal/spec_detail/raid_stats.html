@@ -62,20 +62,24 @@
         {% if boss_detail.talent_popularity %}
         <div class="section-block">
             <h4>天赋选取率</h4>
-            <div class="talent-list">
+            <div class="talent-grid">
                 {% for tid, info in boss_detail.talent_popularity.items %}
-                <div class="talent-row">
+                <div class="talent-card">
                     {% if info.icon %}
-                    <a href="https://www.wowhead.com/spell={{ tid }}" target="_blank" class="talent-icon-link">
-                        <img src="https://wow.zamimg.com/images/wow/icons/small/{{ info.icon }}.jpg" width="20" height="20" class="talent-icon" title="{{ info.name }}">
+                    <a href="https://www.wowhead.com/spell={{ tid }}" target="_blank">
+                        <img src="https://wow.zamimg.com/images/wow/icons/small/{{ info.icon }}.jpg" width="28" height="28" class="talent-card-icon" title="{{ info.name }}">
                     </a>
+                    {% else %}
+                    <span class="talent-card-icon placeholder" title="spellID: {{ tid }}">#{{ tid }}</span>
                     {% endif %}
-                    <span class="talent-id" title="spellID: {{ tid }}">{% if info.name %}{{ info.name }}{% else %}#{{ tid }}{% endif %}</span>
-                    <div class="popularity-bar">
-                        <div class="popularity-fill" style="width:{{ info.pct }}%"></div>
+                    <div class="talent-card-info">
+                        <span class="talent-card-name">{% if info.name %}{{ info.name }}{% else %}#{{ tid }}{% endif %}</span>
+                        <div class="talent-card-bar">
+                            <div class="talent-card-fill" style="width:{{ info.pct }}%"></div>
+                        </div>
                     </div>
-                    <span class="popularity-pct">{{ info.pct }}%</span>
-                    <span class="popularity-count">({{ info.count }})</span>
+                    <span class="talent-card-pct">{{ info.pct }}%</span>
+                    <span class="talent-card-count">({{ info.count }})</span>
                 </div>
                 {% endfor %}
             </div>
@@ -87,7 +91,7 @@
             <h4>装备热门度</h4>
             {% for slot, items in boss_detail.gear_popularity.items %}
             <div class="gear-slot-section">
-                <div class="slot-name">{{ slot }}</div>
+                <div class="slot-name">{{ slot|default:"未知部位" }}</div>
                 {% for item in items %}
                 <div class="gear-pop-row">
                     {% if item.icon %}
@@ -152,7 +156,14 @@
                 {% if b.talent_popularity %}
                 <div class="talent-preview">
                     {% for tid, info in b.talent_popularity.items %}
-                    <span class="talent-chip">{% if info.icon %}<img src="https://wow.zamimg.com/images/wow/icons/tiny/{{ info.icon }}.jpg" width="14" height="14">{% endif %} {% if info.name %}{{ info.name }}{% else %}#{{ tid }}{% endif %} {{ info.pct }}%</span>
+                    <span class="talent-chip{% if info.pct > 90 %} gold{% elif info.pct > 70 %} purple{% endif %}">
+                        {% if info.icon %}
+                        <img src="https://wow.zamimg.com/images/wow/icons/tiny/{{ info.icon }}.jpg" width="20" height="20" style="border-radius:50%">
+                        {% else %}
+                        <span class="chip-placeholder">#{{ tid }}</span>
+                        {% endif %}
+                        <span class="chip-pct">{{ info.pct }}%</span>
+                    </span>
                     {% endfor %}
                 </div>
                 {% endif %}
@@ -168,6 +179,7 @@
 </div>
 
 <style>
+/* ===== Base ===== */
 .spec-detail-page { max-width: 1000px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
 .spec-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .spec-icon { border-radius: 8px; }
@@ -177,42 +189,139 @@
 .back-link { color: #2563eb; text-decoration: none; font-size: 0.9em; display: inline-block; margin-bottom: 12px; }
 .back-link:hover { text-decoration: underline; }
 
+/* ===== Dungeon/Boss Grid ===== */
 .dungeon-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .dungeon-card-link { text-decoration: none; color: inherit; }
-.dungeon-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; transition: box-shadow 0.15s, border-color 0.15s; cursor: pointer; }
-.dungeon-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-color: #2563eb; }
+.dungeon-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 20px;
+    transition: box-shadow 0.2s, border-color 0.2s, transform 0.2s, background 0.2s;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+.dungeon-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(37,99,235,0.03), rgba(37,99,235,0.0));
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+.dungeon-card:hover {
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    border-color: #2563eb;
+    transform: translateY(-2px);
+}
+.dungeon-card:hover::before { opacity: 1; }
 .dungeon-name { margin: 0 0 10px; font-size: 1.1em; color: #1e293b; }
 .dungeon-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.85em; color: #64748b; margin-bottom: 10px; }
 .dungeon-meta strong { color: #1e293b; }
-.talent-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.talent-chip { font-size: 0.75em; background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 4px; }
 
-.detail-section { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; }
+/* ===== Talent Chips (overview cards) ===== */
+.talent-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.talent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75em;
+    background: #f8fafc;
+    color: #475569;
+    padding: 3px 8px 3px 3px;
+    border-radius: 20px;
+    border: 1.5px solid #d1d5db;
+    transition: border-color 0.15s;
+}
+.talent-chip.gold { border-color: #f59e0b; background: #fffbeb; }
+.talent-chip.purple { border-color: #8b5cf6; background: #f5f3ff; }
+.talent-chip img { display: block; flex-shrink: 0; }
+.chip-placeholder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #e5e7eb;
+    font-size: 0.5em;
+    color: #6b7280;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+.chip-pct { font-weight: 600; color: #1e293b; }
+
+/* ===== Talent Grid (detail page) ===== */
+.talent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+}
+.talent-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 0.85em;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.talent-card:hover { border-color: #2563eb; box-shadow: 0 2px 8px rgba(37,99,235,0.08); }
+.talent-card-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    object-fit: cover;
+}
+.talent-card-icon.placeholder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #e5e7eb;
+    color: #6b7280;
+    font-size: 0.5em;
+    text-decoration: none;
+}
+.talent-card-info { flex: 1; min-width: 0; }
+.talent-card-name { display: block; font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.85em; }
+.talent-card-bar { height: 4px; background: #e5e7eb; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.talent-card-fill { height: 100%; background: #2563eb; border-radius: 2px; }
+.talent-card-pct { font-weight: 700; color: #1e293b; font-size: 0.85em; white-space: nowrap; }
+.talent-card-count { color: #94a3b8; font-size: 0.75em; white-space: nowrap; }
+
+/* ===== Detail Section ===== */
+.detail-section { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
 .detail-section h2 { margin: 0 0 8px; }
 .stat-cards { display: flex; gap: 12px; flex-wrap: wrap; }
-.stat-card { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 18px; min-width: 120px; }
+.stat-card { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 18px; min-width: 120px; transition: box-shadow 0.15s; }
+.stat-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
 .stat-card.highlight { background: #fef3c7; border-color: #f59e0b; }
 .stat-label { font-size: 0.8em; color: #6b7280; margin-bottom: 4px; }
 .stat-value { font-size: 1.3em; font-weight: 700; color: #1e293b; }
 
 .section-block { margin-top: 24px; }
 .section-block h4 { font-size: 1em; color: #374151; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
-.talent-list { display: flex; flex-direction: column; gap: 6px; }
-.talent-row { display: flex; align-items: center; gap: 8px; font-size: 0.85em; }
-.talent-id { min-width: 50px; color: #2563eb; font-weight: 500; }
-.popularity-bar { flex: 1; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; max-width: 200px; }
-.popularity-bar.small { max-width: 120px; height: 6px; }
-.popularity-fill { height: 100%; background: #2563eb; border-radius: 4px; }
-.popularity-pct { min-width: 40px; text-align: right; font-weight: 600; color: #1e293b; }
-.popularity-count { color: #94a3b8; font-size: 0.85em; }
+
+/* ===== Gear ===== */
 .gear-slot-section { margin-bottom: 12px; }
-.slot-name { font-size: 0.8em; color: #6b7280; font-weight: 600; text-transform: uppercase; margin-bottom: 4px; }
+.slot-name { font-size: 0.8em; color: #6b7280; font-weight: 600; margin-bottom: 4px; }
 .gear-pop-row { display: flex; align-items: center; gap: 8px; font-size: 0.85em; padding: 3px 0; }
 .gear-icon { border-radius: 3px; }
 .gear-name-link { color: #2563eb; text-decoration: none; font-size: 0.85em; }
 .gear-name-link:hover { text-decoration: underline; }
 .gear-ilvl { color: #059669; font-size: 0.8em; font-weight: 500; }
+.popularity-bar { flex: 1; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; max-width: 200px; }
+.popularity-bar.small { max-width: 120px; height: 6px; }
+.popularity-fill { height: 100%; background: #2563eb; border-radius: 4px; }
+.popularity-pct { min-width: 40px; text-align: right; font-weight: 600; color: #1e293b; }
+.popularity-count { color: #94a3b8; font-size: 0.85em; }
 
+/* ===== Table ===== */
 .data-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
 .data-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e5e7eb; color: #6b7280; font-weight: 600; }
 .data-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }

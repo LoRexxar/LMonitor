@@ -165,6 +165,7 @@ SPEC_ICON = {
 # ========== 副本/团本 中文名 ==========
 
 DUNGEON_CN = {
+    # TWW Season 1
     "Ara-Kara, City of Echoes": "阿拉卡拉，回声之城",
     "City of Threads": "千丝之城",
     "Grim Batol": "格瑞姆巴托",
@@ -173,9 +174,28 @@ DUNGEON_CN = {
     "Siege of Boralus": "围攻伯拉勒斯",
     "Stonevault": "矶石宝库",
     "The Dawnbreaker": "破晨号",
+    # TWW Season 2/3
+    "Algeth'ar Academy": "阿尔盖塔学院",
+    "Magisters' Terrace": "魔导师平台",
+    "Maisara Caverns": "迈萨拉洞穴",
+    "Nexus-Point Xenas": "节点泽纳斯",
+    "Pit of Saron": "萨隆矿坑",
+    "Seat of the Triumvirate": "执政团之座",
+    "Skyreach": "通天峰",
+    "Windrunner Spire": "风行者尖塔",
+    # 其他可能复用的副本
+    "Mechagon Workshop": "麦卡贡车间",
+    "Tazavesh, Veiled Market": "塔扎维什·帷纱集市",
+    "Tazavesh: So'leah's Gambit": "塔扎维什·索莉亚的豪赌",
+    "Tazavesh: Streets of Wonder": "塔扎维什·奇街巷",
+    "The Rookery": "育婴堂",
+    "Darkflame Cleft": "暗焰裂口",
+    "Cinderbrew Meadery": "余烬酿酒厂",
+    "The Stonevault": "矶石宝库",
 }
 
 RAID_BOSS_CN = {
+    # Nerub-ar Palace (尼鲁巴尔王宫)
     "Ulgrax the Devourer": "吞噬者乌格拉克斯",
     "The Bloodbound Horror": "血缚恐惧",
     "Sikran, Captain of the Sureki": "苏雷吉队长席克拉",
@@ -184,6 +204,7 @@ RAID_BOSS_CN = {
     "Nexus-Princess Ky'veza": "节点女亲王凯威扎",
     "The Silken Court": "蛛丝议会",
     "Queen Ansurek": "安苏雷克女王",
+    # Liberation of Undermine (安德麦解放战)
     "Vexie and the Geargrinders": "维克茜和磨轮",
     "Cauldron of Carnage": "残杀战炉",
     "Rik Reverb": "里克·混响",
@@ -192,4 +213,31 @@ RAID_BOSS_CN = {
     "The One-Armed Bandit": "独臂盗匪",
     "Mug'Zee, Heads of Security": "穆格·兹奇，安保头子",
     "Chrome King Gallywix": "铬金大王加里维克斯",
+    # Manaforge Omega (法力熔炉：欧米伽)
+    "Plexus Sentinel": "丛网哨兵",
+    "Loom'ithar": "织缕者伊萨尔",
+    "Soulbinder Naazindhri": "缚魂者纳兹因德丽",
+    "Forgeweaver Araz": "锻织者阿拉兹",
+    "The Soul Hunters": "猎魂者",
+    "Fractillus": "碎裂者",
+    "Nexus-King Salhadaar": "节点之王萨哈达尔",
+    "Dimensius, the All-Devouring": "万噬者迪曼修斯",
+}
+
+# 装备槽位英文 → 中文
+SLOT_CN = {
+    "head": "头盔", "neck": "项链", "shoulder": "肩甲", "back": "披风",
+    "chest": "胸甲", "shirt": "衬衫", "tabard": "战袍", "wrist": "护腕",
+    "hands": "手套", "waist": "腰带", "legs": "腿甲", "feet": "靴子",
+    "finger1": "戒指1", "finger2": "戒指2",
+    "trinket1": "饰品1", "trinket2": "饰品2",
+    "mainHand": "主手", "offHand": "副手",
+    "UNKNOWN": "未知", "unknown": "未知",
+    # 大写格式
+    "HEAD": "头盔", "NECK": "项链", "SHOULDER": "肩甲", "BACK": "披风",
+    "CHEST": "胸甲", "SHIRT": "衬衫", "TABARD": "战袍", "WRIST": "护腕",
+    "HANDS": "手套", "WAIST": "腰带", "LEGS": "腿甲", "FEET": "靴子",
+    "FINGER_1": "戒指1", "FINGER_2": "戒指2",
+    "TRINKET_1": "饰品1", "TRINKET_2": "饰品2",
+    "MAIN_HAND": "主手", "OFF_HAND": "副手",
 }

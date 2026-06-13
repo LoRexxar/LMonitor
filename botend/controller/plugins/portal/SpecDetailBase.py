@@ -341,6 +341,7 @@ class SpecDetailBase(BaseScan):
                 'icon': g.get('icon', ''),
                 'itemLevel': g.get('itemLevel'),
                 'quality': g.get('quality', ''),
+                'slot': g.get('slot', 'unknown'),
                 'bonusIDs': g.get('bonusIDs', []),
             }
             gems = g.get('gems', [])

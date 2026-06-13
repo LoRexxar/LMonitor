@@ -137,7 +137,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     'profile_url': profile_url,
                     'achievement_points': None,
                     'item_level': None,
-                    'gear': [],
+                    'gear': self._parse_rio_gear(char.get('gear')),
                     'talents': self._parse_rio_talents(char.get('talentLoadoutText')),
                 }
                 all_players.append(player)

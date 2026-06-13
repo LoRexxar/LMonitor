@@ -10,7 +10,7 @@ from django.db.models import Avg, Max, Min, StdDev
 from botend.models import (
     SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking
 )
-from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN
+from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, SLOT_CN
 
 
 class SpecStatsService:
@@ -109,7 +109,7 @@ class SpecStatsService:
             return []
 
         for enc in season.mplus_encounters:
-            cn_name = DUNGEON_CN.get(enc['name'], enc['name'])
+            cn_name = _lookup_dungeon_cn(enc['name'])
             stats = SpecStatsService._compute_dungeon_stats(
                 season_id, enc['id'], cn_name, class_name, spec_name
             )
@@ -134,8 +134,9 @@ class SpecStatsService:
             return None
 
         dungeon_name = qs.first().dungeon_name
+        cn_name = _lookup_dungeon_cn(dungeon_name)
         return SpecStatsService._compute_dungeon_stats(
-            season_id, dungeon_id, dungeon_name, class_name, spec_name, full=True
+            season_id, dungeon_id, cn_name, class_name, spec_name, full=True
         )
 
     @staticmethod
@@ -163,14 +164,25 @@ class SpecStatsService:
         n = len(dps_list)
 
         stats['sample_size'] = n
+        p25 = _percentile(dps_list, 25)
+        p75 = _percentile(dps_list, 75)
+        median = _percentile(dps_list, 50)
+        dps_min = dps_agg['min']
+        dps_max = dps_agg['max']
+        dps_range = dps_max - dps_min if dps_max and dps_min else 1
+
         stats['dps'] = {
             'avg': dps_agg['avg'],
-            'median': _percentile(dps_list, 50),
-            'max': dps_agg['max'],
-            'min': dps_agg['min'],
-            'p25': _percentile(dps_list, 25),
-            'p75': _percentile(dps_list, 75),
+            'median': median,
+            'max': dps_max,
+            'min': dps_min,
+            'p25': p25,
+            'p75': p75,
             'stddev': dps_agg['stddev'],
+            # 百分比字段（给前端 DPS 分布条用）
+            'p25_pct': round((p25 - dps_min) / dps_range * 100, 1) if p25 and dps_range else 0,
+            'iqr_pct': round((p75 - p25) / dps_range * 100, 1) if p75 and p25 and dps_range else 0,
+            'median_pct': round((median - dps_min) / dps_range * 100, 1) if median and dps_range else 50,
         }
 
         # 钥石等级
@@ -208,6 +220,10 @@ class SpecStatsService:
                                       'keystone_level', 'clear_time', 'score'))
             stats['race_distribution'] = dict(Counter(r.get('faction') for r in full_records))
             stats['top5'] = sorted(full_records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
+            # 格式化 top5 通关时间
+            for r in stats['top5']:
+                if r.get('clear_time'):
+                    r['clear_time_fmt'] = _ms_to_time(r['clear_time'])
 
         return stats
 
@@ -253,8 +269,9 @@ class SpecStatsService:
             return None
 
         boss_name = qs.first().boss_name
+        cn_name = RAID_BOSS_CN.get(boss_name, boss_name)
         return SpecStatsService._compute_raid_stats(
-            season_id, boss_id, boss_name, class_name, spec_name, full=True
+            season_id, boss_id, cn_name, class_name, spec_name, full=True
         )
 
     @staticmethod
@@ -279,13 +296,23 @@ class SpecStatsService:
         n = len(dps_list)
 
         stats['sample_size'] = n
+        p25 = _percentile(dps_list, 25)
+        p75 = _percentile(dps_list, 75)
+        median = _percentile(dps_list, 50)
+        dps_min = dps_agg['min']
+        dps_max = dps_agg['max']
+        dps_range = dps_max - dps_min if dps_max and dps_min else 1
+
         stats['dps'] = {
             'avg': dps_agg['avg'],
-            'median': _percentile(dps_list, 50),
-            'max': dps_agg['max'],
-            'min': dps_agg['min'],
-            'p25': _percentile(dps_list, 25),
-            'p75': _percentile(dps_list, 75),
+            'median': median,
+            'max': dps_max,
+            'min': dps_min,
+            'p25': p25,
+            'p75': p75,
+            'p25_pct': round((p25 - dps_min) / dps_range * 100, 1) if p25 and dps_range else 0,
+            'iqr_pct': round((p75 - p25) / dps_range * 100, 1) if p75 and p25 and dps_range else 0,
+            'median_pct': round((median - dps_min) / dps_range * 100, 1) if median and dps_range else 50,
         }
 
         kt_list = sorted([v for v in qs.values_list('kill_time', flat=True) if v])
@@ -338,6 +365,37 @@ def _ms_to_time(ms):
     return f"{minutes}:{seconds:02d}"
 
 
+def _lookup_dungeon_cn(name):
+    """Robust dungeon name → Chinese translation lookup.
+
+    Tries direct match, case-insensitive match, and slug-to-name match
+    (e.g. 'algeth-ar-academy' → "Algeth'ar Academy").
+    """
+    if not name:
+        return name
+
+    # 1. Direct match
+    if name in DUNGEON_CN:
+        return DUNGEON_CN[name]
+
+    # 2. Case-insensitive match
+    name_lower = name.lower()
+    for key, val in DUNGEON_CN.items():
+        if key.lower() == name_lower:
+            return val
+
+    # 3. Slug-to-name match (normalise away hyphens, apostrophes, spaces, commas)
+    def _norm(s):
+        return s.lower().replace("'", "").replace("-", "").replace(" ", "").replace(",", "")
+
+    name_norm = _norm(name)
+    for key, val in DUNGEON_CN.items():
+        if _norm(key) == name_norm:
+            return val
+
+    return name
+
+
 def _compute_talent_popularity(records, top_n=20):
     """计算天赋选取率（以 spellID 为 key）"""
     talent_counts = Counter()
@@ -379,14 +437,15 @@ def _compute_gear_popularity(records, top_n=5):
         gear = r.get('gear_json') or []
         for g in gear:
             slot = g.get('slot', 'unknown')
+            cn_slot = SLOT_CN.get(slot, slot)
             item_id = g.get('id')
             if not item_id:
                 continue
-            if slot not in slot_items:
-                slot_items[slot] = Counter()
-            slot_items[slot][item_id] += 1
+            if cn_slot not in slot_items:
+                slot_items[cn_slot] = Counter()
+            slot_items[cn_slot][item_id] += 1
             # 记录装备信息（第一次出现即可）
-            key = (slot, item_id)
+            key = (cn_slot, item_id)
             if key not in slot_item_info:
                 slot_item_info[key] = {
                     'name': g.get('name', ''),

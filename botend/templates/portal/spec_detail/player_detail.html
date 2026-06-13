@@ -22,35 +22,57 @@
     </nav>
 
     <!-- 玩家详情 -->
-    <div class="player-detail-panel" style="margin-top:0;">
-        <div class="detail-header">
-            <div style="display:flex;align-items:center;gap:16px;">
+    <div class="player-detail-panel">
+        <!-- Player Info Card -->
+        <div class="player-info-card">
+            <div class="player-info-left">
                 <div class="detail-rank">#{{ player_detail.rank }}</div>
-                <div>
-                    <h2 style="margin:0;">{{ player_detail.character_name }}</h2>
-                    <div class="player-meta-row" style="margin-top:4px;">
-                        <span>{{ player_detail.realm }}-{{ player_detail.region|upper }}</span>
-                        {% if player_detail.race %}<span style="color:#8b5cf6;">{{ player_detail.race }}</span>{% endif %}
-                        {% if player_detail.faction %}<span class="player-faction faction-{{ player_detail.faction|lower }}">{{ player_detail.faction }}</span>{% endif %}
-                        {% if player_detail.guild_name %}<span style="color:#059669;">&lt;{{ player_detail.guild_name }}&gt;</span>{% endif %}
+                <div class="player-identity">
+                    <h2 class="player-name">{{ player_detail.character_name }}</h2>
+                    <div class="player-tags">
+                        {% if player_detail.faction %}
+                        <span class="faction-badge faction-{{ player_detail.faction|lower }}">
+                            {% if player_detail.faction|lower == "alliance" %}⚔ 联盟{% elif player_detail.faction|lower == "horde" %}⚔ 部落{% else %}{{ player_detail.faction }}{% endif %}
+                        </span>
+                        {% endif %}
+                        {% if player_detail.race %}<span class="tag tag-race">{{ player_detail.race }}</span>{% endif %}
+                        {% if player_detail.guild_name %}<span class="tag tag-guild">&lt;{{ player_detail.guild_name }}&gt;</span>{% endif %}
+                    </div>
+                    <div class="player-location">
+                        {{ player_detail.realm }}-{{ player_detail.region|upper }}
                     </div>
                 </div>
             </div>
-            <div style="text-align:right;">
-                <div style="color:#f59e0b;font-weight:700;font-size:1.5em;">M+ {{ player_detail.score|floatformat:0 }}</div>
-                {% if player_detail.item_level %}<div style="color:#10b981;">装等 {{ player_detail.item_level|floatformat:1 }}</div>{% endif %}
-                {% if player_detail.achievement_points %}<div style="color:#94a3b8;font-size:0.85em;">成就 {{ player_detail.achievement_points }}</div>{% endif %}
+            <div class="player-info-right">
+                <div class="score-badge">
+                    <span class="score-label">M+ 评分</span>
+                    <span class="score-value">{{ player_detail.score|floatformat:0 }}</span>
+                </div>
+                {% if player_detail.item_level %}
+                <div class="meta-pill pill-ilvl">
+                    <span class="pill-label">装等</span>
+                    <span class="pill-value">{{ player_detail.item_level|floatformat:1 }}</span>
+                </div>
+                {% endif %}
+                {% if player_detail.achievement_points %}
+                <div class="meta-pill pill-achieve">
+                    <span class="pill-label">成就</span>
+                    <span class="pill-value">{{ player_detail.achievement_points }}</span>
+                </div>
+                {% endif %}
             </div>
         </div>
 
         {% if player_detail.profile_url %}
-        <a href="{{ player_detail.profile_url }}" target="_blank" class="btn-rio">在 Raider.IO 查看 →</a>
+        <div style="margin-top:16px;">
+            <a href="{{ player_detail.profile_url }}" target="_blank" class="btn-rio">在 Raider.IO 查看 →</a>
+        </div>
         {% endif %}
 
         <!-- 属性面板 -->
         {% if player_detail.stats %}
-        <div class="stats-panel">
-            <h4>属性面板</h4>
+        <div class="section-card">
+            <h4 class="section-title">属性面板</h4>
             <div class="stats-grid">
                 {% if player_detail.stats.strength %}<div class="stat-item"><span class="stat-name">力量</span><span class="stat-val">{{ player_detail.stats.strength }}</span></div>{% endif %}
                 {% if player_detail.stats.agility %}<div class="stat-item"><span class="stat-name">敏捷</span><span class="stat-val">{{ player_detail.stats.agility }}</span></div>{% endif %}
@@ -64,18 +86,29 @@
         </div>
         {% endif %}
 
-        <!-- 天赋 -->
+        <!-- 天赋配置 -->
         {% if player_detail.talents %}
-        <div class="talent-panel">
-            <h4>天赋</h4>
+        <div class="section-card">
+            <h4 class="section-title">天赋配置</h4>
             <div class="talent-grid">
                 {% for t in player_detail.talents %}
-                <div class="talent-item">
-                    {% if t.spellID %}
-                    <a href="https://www.wowhead.com/spell={{ t.spellID }}" target="_blank" class="talent-link" data-wh-icon-size="medium">
-                        {% if t.icon %}<img src="https://wow.zamimg.com/images/wow/icons/small/{{ t.icon }}.jpg" width="24" height="24" class="talent-icon">{% endif %}
-                        <span class="talent-name">{{ t.name|default:t.spellID }}</span>
+                <div class="talent-card">
+                    <a href="{% if t.spellID %}https://www.wowhead.com/spell={{ t.spellID }}{% elif t.talentID %}https://www.wowhead.com/talent={{ t.talentID }}{% else %}#{% endif %}" target="_blank" class="talent-link-new">
+                        {% if t.icon %}
+                        <div class="talent-icon-wrap {% if t.points and t.maxPoints and t.points >= t.maxPoints %}talent-gold{% else %}talent-blue{% endif %}">
+                            <img src="https://wow.zamimg.com/images/wow/icons/small/{{ t.icon }}.jpg" width="40" height="40" class="talent-icon-new" alt="">
+                        </div>
+                        {% else %}
+                        <div class="talent-icon-wrap talent-blue talent-icon-placeholder">
+                            <span>?</span>
+                        </div>
+                        {% endif %}
+                        <span class="talent-name-new">{{ t.name|default:t.spellID|default:t.talentID|default:"未知" }}</span>
                     </a>
+                    {% if t.points != None and t.maxPoints != None %}
+                    <span class="talent-points-badge {% if t.points >= t.maxPoints %}points-max{% else %}points-partial{% endif %}">{{ t.points }}/{{ t.maxPoints }}</span>
+                    {% elif t.points != None %}
+                    <span class="talent-points-badge points-partial">{{ t.points }}</span>
                     {% endif %}
                 </div>
                 {% endfor %}
@@ -85,20 +118,42 @@
 
         <!-- 装备 -->
         {% if player_detail.gear %}
-        <div class="gear-panel">
-            <h4>装备</h4>
+        <div class="section-card">
+            <h4 class="section-title">装备</h4>
             <div class="gear-grid-detail">
                 {% for item in player_detail.gear %}
                 <div class="gear-item-detail">
-                    {% if item.icon %}
-                    <a href="https://www.wowhead.com/item={{ item.id }}" target="_blank">
-                        <img src="https://wow.zamimg.com/images/wow/icons/small/{{ item.icon }}.jpg"
-                             width="32" height="32" class="gear-icon">
-                    </a>
-                    {% endif %}
-                    <div class="gear-info">
-                        <a href="https://www.wowhead.com/item={{ item.id }}" target="_blank" class="gear-name-link">{{ item.name }}</a>
-                        {% if item.itemLevel %}<span class="gear-ilvl">物品等级 {{ item.itemLevel }}</span>{% endif %}
+                    <span class="gear-slot-name">
+                        {% if item.slot == "head" %}头盔
+                        {% elif item.slot == "neck" %}项链
+                        {% elif item.slot == "shoulder" %}肩甲
+                        {% elif item.slot == "back" %}披风
+                        {% elif item.slot == "chest" %}胸甲
+                        {% elif item.slot == "wrist" %}护腕
+                        {% elif item.slot == "hands" %}手套
+                        {% elif item.slot == "waist" %}腰带
+                        {% elif item.slot == "legs" %}腿甲
+                        {% elif item.slot == "feet" %}靴子
+                        {% elif item.slot == "finger1" %}戒指1
+                        {% elif item.slot == "finger2" %}戒指2
+                        {% elif item.slot == "trinket1" %}饰品1
+                        {% elif item.slot == "trinket2" %}饰品2
+                        {% elif item.slot == "mainHand" %}主手
+                        {% elif item.slot == "offHand" %}副手
+                        {% else %}{{ item.slot|default:"" }}
+                        {% endif %}
+                    </span>
+                    <div class="gear-item-right">
+                        {% if item.icon %}
+                        <a href="https://www.wowhead.com/item={{ item.id }}" target="_blank" class="gear-icon-link">
+                            <img src="https://wow.zamimg.com/images/wow/icons/small/{{ item.icon }}.jpg"
+                                 width="32" height="32" class="gear-icon">
+                        </a>
+                        {% endif %}
+                        <div class="gear-info">
+                            <a href="https://www.wowhead.com/item={{ item.id }}" target="_blank" class="gear-name-link">{{ item.name }}</a>
+                            {% if item.itemLevel %}<span class="gear-ilvl">物品等级 {{ item.itemLevel }}</span>{% endif %}
+                        </div>
                     </div>
                 </div>
                 {% endfor %}
@@ -116,36 +171,267 @@
 .spec-nav a { color: #2563eb; text-decoration: none; }
 .spec-nav a:hover { text-decoration: underline; }
 
-.detail-rank { font-size: 2em; font-weight: 800; color: #f59e0b; }
-.btn-rio { display: inline-block; margin: 12px 0; padding: 8px 20px; background: #2563eb; color: white; border-radius: 8px; text-decoration: none; font-weight: 500; font-size: 0.9em; }
+/* Player Detail Panel */
+.player-detail-panel {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+}
+
+/* Player Info Card */
+.player-info-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #f1f5f9;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+.player-info-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+.detail-rank {
+    font-size: 2.2em;
+    font-weight: 800;
+    color: #f59e0b;
+    line-height: 1;
+}
+.player-identity { display: flex; flex-direction: column; gap: 6px; }
+.player-name { margin: 0; font-size: 1.4em; color: #1e293b; font-weight: 700; }
+.player-tags { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.player-location { font-size: 0.8em; color: #94a3b8; margin-top: 2px; }
+
+.faction-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-size: 0.8em;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.faction-alliance { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+.faction-horde { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
+
+.tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-size: 0.78em;
+    font-weight: 500;
+}
+.tag-race { background: #f3e8ff; color: #7c3aed; }
+.tag-guild { background: #d1fae5; color: #059669; font-weight: 600; }
+
+.player-info-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.score-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border: 1px solid #f59e0b;
+    border-radius: 12px;
+    padding: 8px 20px;
+    min-width: 80px;
+}
+.score-label { font-size: 0.65em; color: #92400e; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.score-value { font-size: 1.6em; font-weight: 800; color: #92400e; line-height: 1.1; }
+
+.meta-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 10px;
+    font-size: 0.85em;
+}
+.pill-ilvl { background: #d1fae5; border: 1px solid #6ee7b7; }
+.pill-ilvl .pill-value { color: #047857; font-weight: 700; }
+.pill-ilvl .pill-label { color: #065f46; font-size: 0.75em; }
+.pill-achieve { background: #f1f5f9; border: 1px solid #cbd5e1; }
+.pill-achieve .pill-value { color: #475569; font-weight: 700; }
+.pill-achieve .pill-label { color: #64748b; font-size: 0.75em; }
+
+.btn-rio {
+    display: inline-block;
+    padding: 8px 20px;
+    background: #2563eb;
+    color: white;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.9em;
+    transition: background 0.15s;
+}
 .btn-rio:hover { background: #1d4ed8; }
 
-.player-detail-panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 28px; }
-.detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #f1f5f9; }
-.player-meta-row { display: flex; gap: 10px; font-size: 0.85em; color: #64748b; }
-.player-faction { padding: 1px 6px; border-radius: 4px; font-size: 0.8em; font-weight: 500; }
-.faction-alliance { background: #dbeafe; color: #2563eb; }
-.faction-horde { background: #fee2e2; color: #ef4444; }
+/* Section Cards */
+.section-card {
+    margin-top: 24px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.section-title {
+    margin: 0 0 16px;
+    font-size: 1em;
+    font-weight: 700;
+    color: #1e293b;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #f1f5f9;
+    letter-spacing: 0.02em;
+}
 
-.stats-panel, .talent-panel, .gear-panel { margin-top: 24px; }
-.stats-panel h4, .talent-panel h4, .gear-panel h4 { margin: 0 0 12px; font-size: 1em; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+/* Stats */
 .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.stat-item { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; }
+.stat-item {
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: box-shadow 0.15s;
+}
+.stat-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
 .stat-name { color: #6b7280; font-size: 0.85em; }
 .stat-val { font-weight: 700; font-size: 1.05em; color: #1e293b; }
 
-.talent-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-.talent-item { display: inline-flex; }
-.talent-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; text-decoration: none; color: #374151; font-size: 0.85em; }
-.talent-link:hover { background: #e0e7ff; border-color: #818cf8; }
-.talent-icon { border-radius: 4px; }
+/* Talent Grid - Murlok Style */
+.talent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 12px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 16px;
+}
+.talent-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+.talent-link-new {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-decoration: none;
+    color: #374151;
+}
+.talent-link-new:hover .talent-icon-wrap { transform: scale(1.08); }
+.talent-icon-wrap {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    padding: 2px;
+    transition: transform 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.talent-gold { border: 2.5px solid #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.3); }
+.talent-blue { border: 2.5px solid #2563eb; }
+.talent-icon-new {
+    border-radius: 50%;
+    display: block;
+}
+.talent-icon-placeholder {
+    background: #e5e7eb;
+    font-size: 1.2em;
+    color: #94a3b8;
+}
+.talent-name-new {
+    font-size: 0.68em;
+    color: #475569;
+    text-align: center;
+    line-height: 1.2;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.talent-points-badge {
+    display: inline-block;
+    font-size: 0.6em;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 8px;
+}
+.points-max { background: #fef3c7; color: #92400e; }
+.points-partial { background: #dbeafe; color: #1d4ed8; }
 
-.gear-grid-detail { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-.gear-item-detail { display: flex; align-items: center; gap: 10px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 14px; }
-.gear-item-detail img { border-radius: 4px; }
-.gear-info { display: flex; flex-direction: column; }
-.gear-name-link { color: #2563eb; text-decoration: none; font-size: 0.9em; font-weight: 500; }
+/* Gear Grid */
+.gear-grid-detail {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+.gear-item-detail {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 10px 14px;
+    transition: box-shadow 0.15s;
+}
+.gear-item-detail:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.gear-slot-name {
+    min-width: 44px;
+    font-size: 0.75em;
+    color: #64748b;
+    font-weight: 600;
+    text-align: right;
+    padding-right: 8px;
+    border-right: 1px solid #e5e7eb;
+}
+.gear-item-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+.gear-icon-link { flex-shrink: 0; }
+.gear-icon { border-radius: 6px; display: block; }
+.gear-info { display: flex; flex-direction: column; min-width: 0; }
+.gear-name-link {
+    color: #2563eb;
+    text-decoration: none;
+    font-size: 0.85em;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .gear-name-link:hover { text-decoration: underline; }
-.gear-ilvl { color: #059669; font-size: 0.8em; font-weight: 500; }
+.gear-ilvl { color: #059669; font-size: 0.78em; font-weight: 600; }
+
+/* Responsive */
+@media (max-width: 700px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .gear-grid-detail { grid-template-columns: 1fr; }
+    .player-info-card { flex-direction: column; }
+    .player-info-right { justify-content: flex-start; }
+}
 </style>
 {% endblock %}
