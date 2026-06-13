@@ -107,29 +107,23 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         return max(mplus_zones, key=lambda z: z['id'])
 
     def _find_all_raid_zones(self, zones):
-        """根据手动配置的赛季 → 团本 ID 映射查找团本区域"""
-        # 手动维护：M+ zone ID → 对应的 raid zone ID 列表
-        # 新赛季时只需在这里加一行
-        MPLUS_TO_RAIDS = {
-            37: [35],       # DF S4: Amirdrassil
-            39: [38],       # TWW S1: Nerub-ar Palace
-            43: [42],       # TWW S2: Liberation of Undermine
-            45: [44],       # TWW S3: Manaforge Omega
-            47: [46],       # MN S1: VS / DR / MQD
-        }
-        
-        # 找最新 M+ zone
-        mplus_zones = [z for z in zones if 'Mythic+' in (z.get('name') or '')]
-        if not mplus_zones:
-            return []
-        latest_mplus = max(mplus_zones, key=lambda z: z['id'])
-        
-        raid_ids = MPLUS_TO_RAIDS.get(latest_mplus['id'])
-        if not raid_ids:
+        """从数据库读取已配置的团本区域 ID，从 WCL zones 中匹配详情"""
+        # 读取当前赛季已配置的团本区域
+        season = SeasonMeta.objects.filter(is_active=True).first()
+        if not season:
             return []
         
+        # 如果 raid_zones 已经有数据，直接返回
+        if season.raid_zones:
+            return season.raid_zones
+        
+        # 兜底：用 raid_zone_id 从 WCL zones 中匹配
+        if not season.raid_zone_id:
+            return []
         zone_map = {z['id']: z for z in zones}
-        return [zone_map[rid] for rid in raid_ids if rid in zone_map]
+        if season.raid_zone_id in zone_map:
+            return [zone_map[season.raid_zone_id]]
+        return []
 
     def _fetch_encounters(self, zone_id):
         """获取 zone 下的所有 encounters"""
