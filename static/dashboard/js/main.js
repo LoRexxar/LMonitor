@@ -1801,7 +1801,18 @@ function displayTableData(data, fields) {
             
             // 处理字段值
             const cellValue = row[field] !== null ? row[field] : '';
-            let cellText = String(cellValue);
+            let cellText = '';
+            
+            // JSON 对象/数组用 JSON.stringify，不用 String()（否则变成 [object Object]）
+            if (cellValue !== null && cellValue !== '' && typeof cellValue === 'object') {
+                try {
+                    cellText = JSON.stringify(cellValue);
+                } catch(e) {
+                    cellText = String(cellValue);
+                }
+            } else {
+                cellText = String(cellValue);
+            }
             
             // 处理undefined值
             if (cellValue === undefined || cellText === 'undefined') {
