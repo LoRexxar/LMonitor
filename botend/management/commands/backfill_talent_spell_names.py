@@ -15,6 +15,11 @@ from botend.models import WowSpellSnapshot, WowTalentNodeMetadata, WowWagoMonito
 class Command(BaseCommand):
     help = '使用 wago.tools DB2 回填天赋相关 spell 中文名，并同步到天赋元数据缓存'
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._db2_filter_cache = {}
+        self._icon_cache = {}
+
     def add_arguments(self, parser):
         parser.add_argument('--class-name', default='', help='仅处理指定职业')
         parser.add_argument('--spec-name', default='', help='仅处理指定专精')
@@ -39,7 +44,9 @@ class Command(BaseCommand):
             Q(display_spell_id__isnull=True) |
             Q(name='') |
             Q(name='未命名天赋') |
-            Q(name__startswith='技能ID ')
+            Q(name__startswith='技能ID ') |
+            Q(row__isnull=True) |
+            Q(column__isnull=True)
         ).exclude(spell_id__isnull=True)
         if class_name:
             queryset = queryset.filter(class_name=class_name)
@@ -86,7 +93,7 @@ class Command(BaseCommand):
         updated = 0
         for row, resolved in resolved_rows:
             changed = False
-            for field in ['display_spell_id', 'name', 'name_zh', 'max_points']:
+            for field in ['display_spell_id', 'name', 'name_zh', 'row', 'column', 'max_points']:
                 value = resolved.get(field)
                 if value in (None, '', []):
                     continue
@@ -99,7 +106,7 @@ class Command(BaseCommand):
                 changed = True
             if changed:
                 row.last_updated = now
-                row.save(update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'max_points', 'last_updated'])
+                row.save(update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'row', 'column', 'max_points', 'last_updated'])
                 updated += 1
 
         self.stdout.write(self.style.SUCCESS(
@@ -111,11 +118,20 @@ class Command(BaseCommand):
         if not raw_id:
             return {}
 
+        existing_display_spell_id = int(row.display_spell_id or 0)
+        layout = self._resolve_trait_layout(monitor, build, raw_id)
+        resolved = {
+            'row': layout.get('row', row.row),
+            'column': layout.get('column', row.column),
+            'max_points': row.max_points or 1,
+        }
+
         entry = monitor._fetch_db2_row_by_id_requests('TraitNodeEntry', build, raw_id)
         if entry:
             definition_id = int(entry.get('TraitDefinitionID') or 0)
             max_ranks = int(entry.get('MaxRanks') or 1)
             definition = monitor._fetch_db2_row_by_id_requests('TraitDefinition', build, definition_id) if definition_id else {}
+            resolved['max_points'] = max_ranks
             display_spell_id = int(
                 definition.get('VisibleSpellID')
                 or definition.get('SpellID')
@@ -123,28 +139,34 @@ class Command(BaseCommand):
                 or 0
             )
             if display_spell_id > 0:
-                name_zh = self._resolve_spell_name(monitor, build, display_spell_id)
+                resolved['display_spell_id'] = display_spell_id
+            elif existing_display_spell_id > 0:
+                resolved['display_spell_id'] = existing_display_spell_id
+
+            if row.name_zh and row.icon and row.display_spell_id and layout:
+                resolved['name'] = row.name_zh or row.name
+                resolved['name_zh'] = row.name_zh
+                resolved['icon'] = row.icon
+                return resolved
+
+            if display_spell_id > 0:
+                name_zh = (row.name_zh or '').strip() or self._resolve_spell_name(monitor, build, display_spell_id)
                 if name_zh:
-                    return {
-                        'display_spell_id': display_spell_id,
-                        'name': name_zh,
-                        'name_zh': name_zh,
-                        'icon': self._resolve_spell_icon(monitor, build, display_spell_id, definition),
-                        'max_points': max_ranks,
-                    }
+                    resolved['name'] = name_zh
+                    resolved['name_zh'] = name_zh
+                    resolved['icon'] = (row.icon or '').strip() or self._resolve_spell_icon(monitor, build, display_spell_id, definition)
+                    return resolved
 
         direct_spell_id = int(row.spell_id or 0)
         if direct_spell_id > 0:
-            name_zh = self._resolve_spell_name(monitor, build, direct_spell_id)
+            resolved['display_spell_id'] = existing_display_spell_id or direct_spell_id
+            name_zh = (row.name_zh or '').strip() or self._resolve_spell_name(monitor, build, direct_spell_id)
             if name_zh:
-                return {
-                    'display_spell_id': direct_spell_id,
-                    'name': name_zh,
-                    'name_zh': name_zh,
-                    'icon': self._resolve_spell_icon(monitor, build, direct_spell_id, {}),
-                    'max_points': row.max_points or 1,
-                }
-        return {}
+                resolved['name'] = name_zh
+                resolved['name_zh'] = name_zh
+                resolved['icon'] = (row.icon or '').strip() or self._resolve_spell_icon(monitor, build, direct_spell_id, {})
+            return resolved
+        return resolved if layout else {}
 
     @staticmethod
     def _resolve_spell_name(monitor, build, spell_id):
@@ -170,13 +192,90 @@ class Command(BaseCommand):
         return self._resolve_icon_name_by_filedata(icon_file_data_id)
 
     @staticmethod
-    def _resolve_icon_name_by_filedata(file_data_id):
+    def _coerce_int(value, default=None):
+        try:
+            return int(str(value).strip())
+        except Exception:
+            return default
+
+    def _resolve_trait_layout(self, monitor, build, trait_node_entry_id):
+        links = self._fetch_db2_rows_by_filter(
+            monitor,
+            'TraitNodeXTraitNodeEntry',
+            build,
+            {'TraitNodeEntryID': trait_node_entry_id},
+        )
+        if not links:
+            return {}
+
+        link = links[0] if isinstance(links[0], dict) else {}
+        trait_node_id = self._coerce_int(link.get('TraitNodeID') or link.get('TraitNode') or link.get('TraitNodeId'))
+        if not trait_node_id:
+            return {}
+
+        node = monitor._fetch_db2_row_by_id_requests('TraitNode', build, trait_node_id)
+        if not node:
+            return {}
+
+        pos_x = self._coerce_int(node.get('PosX'))
+        pos_y = self._coerce_int(node.get('PosY'))
+        if pos_x is None and pos_y is None:
+            return {}
+        return {
+            'row': pos_y,
+            'column': pos_x,
+        }
+
+    def _fetch_db2_rows_by_filter(self, monitor, table, build, filters, locale_override=None):
+        normalized_filters = tuple(sorted(
+            (str(key), str(value).strip())
+            for key, value in (filters or {}).items()
+            if str(value).strip()
+        ))
+        cache_key = (table, build, locale_override or '', normalized_filters)
+        if cache_key in self._db2_filter_cache:
+            return self._db2_filter_cache[cache_key]
+
+        use_locale = (locale_override or monitor.locale or '').strip() or 'enUS'
+        url = f'https://wago.tools/db2/{table}?build={build}&locale={use_locale}'
+        for key, value in normalized_filters:
+            url += f'&filter[{key}]=exact:{value}'
+        try:
+            response = requests.get(url, timeout=max(30, monitor.http_timeout), headers={'User-Agent': 'Mozilla/5.0'})
+        except Exception:
+            self._db2_filter_cache[cache_key] = []
+            return []
+        if response.status_code != 200:
+            self._db2_filter_cache[cache_key] = []
+            return []
+        try:
+            text = response.content.decode('utf-8', 'replace')
+        except Exception:
+            text = response.text or ''
+
+        props = monitor._extract_inertia_props(text or '')
+        data = []
+        if 'entries' in props:
+            entries = props.get('entries') or {}
+            data = entries.get('data') if isinstance(entries, dict) else (entries if isinstance(entries, list) else [])
+        elif 'data' in props:
+            payload = props.get('data')
+            data = payload.get('data') if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+        rows = data if isinstance(data, list) else []
+        self._db2_filter_cache[cache_key] = rows
+        return rows
+
+    def _resolve_icon_name_by_filedata(self, file_data_id):
         if not file_data_id:
             return ''
+        file_data_id = int(file_data_id)
+        if file_data_id in self._icon_cache:
+            return self._icon_cache[file_data_id]
         url = f'https://wago.tools/files?search={int(file_data_id)}'
         try:
             html = requests.get(url, timeout=20, headers={'User-Agent': 'Mozilla/5.0'}).text
         except Exception:
+            self._icon_cache[file_data_id] = ''
             return ''
         matches = re.findall(r'filename&quot;:&quot;([^&]+\.blp)&quot;', html, re.I)
         for raw in matches:
@@ -186,7 +285,9 @@ class Command(BaseCommand):
             base = os.path.basename(path)
             if not base.endswith('.blp'):
                 continue
-            return base[:-4]
+            self._icon_cache[file_data_id] = base[:-4]
+            return self._icon_cache[file_data_id]
+        self._icon_cache[file_data_id] = ''
         return ''
 
     @staticmethod

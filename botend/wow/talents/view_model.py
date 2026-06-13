@@ -82,32 +82,61 @@ def build_talent_view_model(talents, class_name='', spec_name=''):
 
 
 def _apply_tree_layout(nodes, tree_type):
-    grid_columns = TREE_COLUMNS.get(tree_type, 8)
+    default_grid_columns = TREE_COLUMNS.get(tree_type, 8)
     prepared = [dict(node) for node in nodes]
 
     has_real_layout = any(node.get('row') is not None or node.get('column') is not None for node in prepared)
     if has_real_layout:
+        row_values = _sorted_unique_ints(node.get('row') for node in prepared)
+        column_values = _sorted_unique_ints(node.get('column') for node in prepared)
+        row_map = {value: idx + 1 for idx, value in enumerate(row_values)}
+        column_map = {value: idx + 1 for idx, value in enumerate(column_values)}
         max_row = 1
+        max_col = 1
         for idx, node in enumerate(prepared):
-            layout_row = int(node.get('row') or 0) + 1 if node.get('row') is not None else (idx // grid_columns) + 1
-            layout_col = int(node.get('column') or 0) + 1 if node.get('column') is not None else (idx % grid_columns) + 1
+            raw_row = _to_int(node.get('row'))
+            raw_col = _to_int(node.get('column'))
+            layout_row = row_map.get(raw_row) if raw_row is not None else None
+            layout_col = column_map.get(raw_col) if raw_col is not None else None
+            if layout_row is None:
+                layout_row = (idx // max(1, len(column_values) or default_grid_columns)) + 1
+            if layout_col is None:
+                layout_col = (idx % max(1, len(column_values) or default_grid_columns)) + 1
             node['layout_row'] = max(1, layout_row)
             node['layout_column'] = max(1, layout_col)
             max_row = max(max_row, node['layout_row'])
+            max_col = max(max_col, node['layout_column'])
         return {
             'nodes': prepared,
-            'grid_columns': grid_columns,
+            'grid_columns': max(1, max_col),
             'grid_rows': max_row,
             'synthetic_layout': False,
         }
 
     for idx, node in enumerate(prepared):
-        node['layout_row'] = (idx // grid_columns) + 1
-        node['layout_column'] = (idx % grid_columns) + 1
+        node['layout_row'] = (idx // default_grid_columns) + 1
+        node['layout_column'] = (idx % default_grid_columns) + 1
 
     return {
         'nodes': prepared,
-        'grid_columns': grid_columns,
-        'grid_rows': max(1, (len(prepared) + grid_columns - 1) // grid_columns),
+        'grid_columns': default_grid_columns,
+        'grid_rows': max(1, (len(prepared) + default_grid_columns - 1) // default_grid_columns),
         'synthetic_layout': True,
     }
+
+
+def _to_int(value):
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return None
+
+
+def _sorted_unique_ints(values):
+    normalized = []
+    for value in values:
+        parsed = _to_int(value)
+        if parsed is None:
+            continue
+        normalized.append(parsed)
+    return sorted(set(normalized))
