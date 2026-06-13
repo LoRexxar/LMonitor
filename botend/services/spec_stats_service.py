@@ -339,23 +339,33 @@ def _ms_to_time(ms):
 
 
 def _compute_talent_popularity(records, top_n=20):
-    """计算天赋选取率"""
+    """计算天赋选取率（以 spellID 为 key）"""
     talent_counts = Counter()
+    talent_info = {}  # spellID → {name, icon}
     total = len(records)
 
     for r in records:
         talents = r.get('talents_json') or []
         for t in talents:
-            tid = t.get('talentID')
-            if tid:
-                talent_counts[tid] += 1
+            # 优先用 spellID（Wowhead 用），fallback 到 talentID
+            sid = t.get('spellID') or t.get('talentID')
+            if sid:
+                talent_counts[sid] += 1
+                if sid not in talent_info:
+                    talent_info[sid] = {
+                        'name': t.get('name', ''),
+                        'icon': t.get('icon', ''),
+                    }
 
     # 按选取率降序
     result = {}
-    for tid, count in talent_counts.most_common(top_n):
-        result[str(tid)] = {
+    for sid, count in talent_counts.most_common(top_n):
+        info = talent_info.get(sid, {})
+        result[str(sid)] = {
             'count': count,
             'pct': round(count / total * 100, 1) if total else 0,
+            'name': info.get('name', ''),
+            'icon': info.get('icon', ''),
         }
     return result
 

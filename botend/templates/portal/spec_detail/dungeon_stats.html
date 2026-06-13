@@ -79,7 +79,12 @@
             <div class="talent-list">
                 {% for tid, info in dungeon_detail.talent_popularity.items %}
                 <div class="talent-row">
-                    <span class="talent-id">#{{ tid }}</span>
+                    {% if info.icon %}
+                    <a href="https://www.wowhead.com/spell={{ tid }}" target="_blank" class="talent-icon-link">
+                        <img src="https://wow.zamimg.com/images/wow/icons/small/{{ info.icon }}.jpg" width="20" height="20" class="talent-icon" title="{{ info.name }}">
+                    </a>
+                    {% endif %}
+                    <span class="talent-id" title="spellID: {{ tid }}">{% if info.name %}{{ info.name }}{% else %}#{{ tid }}{% endif %}</span>
                     <div class="popularity-bar">
                         <div class="popularity-fill" style="width:{{ info.pct }}%"></div>
                     </div>
@@ -175,7 +180,7 @@
                 {% if d.talent_popularity %}
                 <div class="talent-preview">
                     {% for tid, info in d.talent_popularity.items %}
-                    <span class="talent-chip">#{{ tid }} {{ info.pct }}%</span>
+                    <span class="talent-chip">{% if info.icon %}<img src="https://wow.zamimg.com/images/wow/icons/tiny/{{ info.icon }}.jpg" width="14" height="14">{% endif %} {% if info.name %}{{ info.name }}{% else %}#{{ tid }}{% endif %} {{ info.pct }}%</span>
                     {% endfor %}
                 </div>
                 {% endif %}
@@ -227,7 +232,11 @@
 .section-block h4 { font-size: 1em; color: #374151; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
 .talent-list { display: flex; flex-direction: column; gap: 6px; }
 .talent-row { display: flex; align-items: center; gap: 8px; font-size: 0.85em; }
-.talent-id { min-width: 50px; color: #2563eb; font-weight: 500; }
+.talent-id { min-width: 80px; color: #2563eb; font-weight: 500; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.talent-icon-link { display: inline-flex; flex-shrink: 0; }
+.talent-icon { border-radius: 4px; }
+.talent-chip { display: inline-flex; align-items: center; gap: 3px; }
+.talent-chip img { border-radius: 3px; }
 .popularity-bar { flex: 1; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; max-width: 200px; }
 .popularity-bar.small { max-width: 120px; height: 6px; }
 .popularity-fill { height: 100%; background: #2563eb; border-radius: 4px; }

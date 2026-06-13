@@ -354,4 +354,13 @@ class SpecDetailBase(BaseScan):
         """解析 WCL talent 数据为标准化格式"""
         if not talent_list:
             return []
-        return [{'talentID': t.get('talentID'), 'points': t.get('points', 0)} for t in talent_list]
+        result = []
+        for t in talent_list:
+            result.append({
+                'talentID': t.get('talentID'),
+                'spellID': t.get('spellID') or t.get('talentID'),
+                'name': t.get('name', ''),
+                'icon': t.get('icon', ''),
+                'points': t.get('points', 0),
+            })
+        return result
