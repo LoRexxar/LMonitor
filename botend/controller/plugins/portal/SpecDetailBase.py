@@ -141,7 +141,7 @@ class SpecDetailBase(BaseScan):
 
     # ========== Raider.IO ==========
 
-    def fetch_raiderio_top(self, class_name, spec_name, season, region='us', limit=20, page=1):
+    def fetch_raiderio_top(self, class_name, spec_name, season, region='us', limit=20, page=0):
         """
         获取 Raider.IO 专精 Top N 玩家
         返回 list of character dicts

@@ -102,11 +102,46 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
     REGIONS = ['us', 'eu', 'tw', 'kr', 'cn']
 
     def _fetch_top_players(self, class_name, spec_name, season):
-        """从 Raider.IO 获取全球 Top 20 玩家（合并所有地区）"""
+        """从 Raider.IO 获取全球 Top 20 玩家，优先使用世界榜。"""
+        top20 = self._fetch_world_top_players(class_name, spec_name, season)
+
+        if len(top20) < 20:
+            logger.warning(
+                f"[SpecDetailPlayer] world 榜单不足 20 条，回退到多地区聚合: {class_name}/{spec_name}"
+            )
+            top20 = self._fetch_top_players_from_regions(class_name, spec_name, season)
+
+        # 为 Top 20 玩家补充结构化天赋数据
+        self._enrich_talents(top20)
+
+        return top20
+
+    def _fetch_world_top_players(self, class_name, spec_name, season):
+        """直接抓取 Raider.IO 世界榜前 20。"""
+        data = self.fetch_raiderio_top(
+            class_name, spec_name, season, region='world', limit=20, page=0
+        )
+        if not data:
+            return []
+
+        rankings = data.get('rankings', {}) or {}
+        ranked_characters = rankings.get('rankedCharacters', []) if isinstance(rankings, dict) else []
+
+        result = []
+        for r in ranked_characters[:20]:
+            player = self._build_player_from_ranking(class_name, spec_name, r)
+            if player:
+                result.append(player)
+        return result
+
+    def _fetch_top_players_from_regions(self, class_name, spec_name, season):
+        """兜底策略：按地区抓取第一页，再按分数聚合。"""
         all_players = []
 
         for region in self.REGIONS:
-            data = self.fetch_raiderio_top(class_name, spec_name, season, region=region, limit=20)
+            data = self.fetch_raiderio_top(
+                class_name, spec_name, season, region=region, limit=20, page=0
+            )
             if not data:
                 continue
 
@@ -114,46 +149,48 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             ranked_characters = rankings.get('rankedCharacters', []) if isinstance(rankings, dict) else []
 
             for r in ranked_characters:
-                char = r.get('character', {}) or {}
-                realm = char.get('realm', {}) or {}
-                region_info = char.get('region', {}) or {}
-                race = char.get('race', {}) or {}
-                guild = r.get('guild', {}) or {}
-
-                path = char.get('path', '')
-                profile_url = ('https://raider.io' + path) if path else None
-
-                player = {
-                    '_class_name': class_name,
-                    '_spec_name': spec_name,
-                    'name': char.get('name', ''),
-                    'realm': realm.get('name', ''),
-                    'region': region_info.get('short_name', '') or region_info.get('slug', ''),
-                    'score': r.get('score', 0),
-                    'faction': char.get('faction', ''),
-                    'race': race.get('name', ''),
-                    'gender': None,
-                    'guild_name': guild.get('name', ''),
-                    'realm_rank': None,
-                    'avatar_url': None,
-                    'profile_url': profile_url,
-                    'achievement_points': None,
-                    'item_level': None,
-                    'gear': self._parse_rio_gear(char.get('gear')),
-                    'talents': self._parse_rio_talents(char.get('talentLoadoutText')),
-                }
-                all_players.append(player)
+                player = self._build_player_from_ranking(class_name, spec_name, r)
+                if player:
+                    all_players.append(player)
 
             time.sleep(0.3)  # 限速
 
-        # 按 score 降序排列，取全球 Top 20
         all_players.sort(key=lambda p: p.get('score', 0) or 0, reverse=True)
-        top20 = all_players[:20]
+        return all_players[:20]
 
-        # 为 Top 20 玩家补充结构化天赋数据
-        self._enrich_talents(top20)
+    def _build_player_from_ranking(self, class_name, spec_name, ranking):
+        """将 Raider.IO 排名响应中的单个角色转换为统一结构。"""
+        char = ranking.get('character', {}) or {}
+        if not char:
+            return None
 
-        return top20
+        realm = char.get('realm', {}) or {}
+        region_info = char.get('region', {}) or {}
+        race = char.get('race', {}) or {}
+        guild = ranking.get('guild', {}) or {}
+
+        path = char.get('path', '')
+        profile_url = ('https://raider.io' + path) if path else None
+
+        return {
+            '_class_name': class_name,
+            '_spec_name': spec_name,
+            'name': char.get('name', ''),
+            'realm': realm.get('name', ''),
+            'region': region_info.get('short_name', '') or region_info.get('slug', ''),
+            'score': ranking.get('score', 0),
+            'faction': char.get('faction', ''),
+            'race': race.get('name', ''),
+            'gender': None,
+            'guild_name': guild.get('name', ''),
+            'realm_rank': None,
+            'avatar_url': None,
+            'profile_url': profile_url,
+            'achievement_points': None,
+            'item_level': None,
+            'gear': self._parse_rio_gear(char.get('gear')),
+            'talents': self._parse_rio_talents(char.get('talentLoadoutText')),
+        }
 
     def _parse_rio_gear(self, gear_data):
         """解析 Raider.IO gear 数据"""

@@ -58,7 +58,7 @@ DATABASES = {
         'HOST': '121.4.104.77',
         'PORT': '3306',
         'OPTIONS': {
-            'init_command': 'SET default_storage_engine=INNODB;SET NAMES utf8mb4',
+            'init_command': "SET SESSION sql_mode='STRICT_TRANS_TABLES'",
             'charset': 'utf8mb4',
         },
     }
