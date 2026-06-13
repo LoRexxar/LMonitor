@@ -1768,7 +1768,8 @@ function displayTableData(data, fields) {
     // 添加操作列（WechatArticle和RssArticle表不显示操作列）
     if (currentTableName !== 'WechatArticle' && currentTableName !== 'RssArticle') {
         const actionTh = document.createElement('th');
-        actionTh.className = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32';
+        actionTh.className = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32 action-col-header';
+        actionTh.id = 'action-col-header';
         actionTh.textContent = '操作';
         headerRow.appendChild(actionTh);
     }
@@ -1940,7 +1941,7 @@ function displayTableData(data, fields) {
         // 添加操作列（WechatArticle和RssArticle表不显示操作列）
         if (currentTableName !== 'WechatArticle' && currentTableName !== 'RssArticle') {
             const actionTd = document.createElement('td');
-            actionTd.className = 'px-4 py-4 whitespace-nowrap text-sm font-medium w-32';
+            actionTd.className = 'px-4 py-4 whitespace-nowrap text-sm font-medium w-32 action-col';
             
             // SimcProfile表使用特殊的操作按钮
             if (currentTableName === 'SimcProfile') {
@@ -2005,6 +2006,76 @@ function displayTableData(data, fields) {
     
     // 绑定编辑和删除事件
     bindTableActions();
+    
+    // 固定操作列到可视区域右侧
+    initStickyActionColumn();
+}
+
+/**
+ * 固定操作列到可视区域右侧（滚动时动态定位）
+ */
+function initStickyActionColumn() {
+    const scrollContainer = document.querySelector('.overflow-x-auto');
+    const actionHeader = document.getElementById('action-col-header');
+    const actionCells = document.querySelectorAll('.action-col');
+    if (!scrollContainer || !actionHeader || actionCells.length === 0) return;
+
+    function updateSticky() {
+        const scrollLeft = scrollContainer.scrollLeft;
+        const containerWidth = scrollContainer.clientWidth;
+        const table = document.getElementById('data-table');
+        if (!table) return;
+        const tableWidth = table.scrollWidth;
+
+        // 需要固定的阈值：当表格比容器宽 100px 以上时才启用
+        if (tableWidth - containerWidth < 80) {
+            // 表格够窄，不需要固定
+            actionHeader.style.position = '';
+            actionHeader.style.right = '';
+            actionHeader.style.zIndex = '';
+            actionHeader.style.background = '';
+            actionHeader.style.boxShadow = '';
+            actionCells.forEach(td => {
+                td.style.position = '';
+                td.style.right = '';
+                td.style.zIndex = '';
+                td.style.background = '';
+                td.style.boxShadow = '';
+            });
+            return;
+        }
+
+        const colWidth = actionHeader.offsetWidth || 128;
+        // right offset = 表格右边超出容器的部分
+        const rightOffset = tableWidth - containerWidth - scrollLeft;
+
+        const headerBg = '#f9fafb';
+        const cellBg = '#ffffff';
+        const evenBg = '#f9fafb';
+        const shadow = '-4px 0 8px rgba(0,0,0,0.08)';
+
+        // 固定表头操作列
+        actionHeader.style.position = 'sticky';
+        actionHeader.style.right = '0px';
+        actionHeader.style.zIndex = '20';
+        actionHeader.style.background = headerBg;
+        actionHeader.style.boxShadow = shadow;
+
+        // 固定每行操作列
+        actionCells.forEach(td => {
+            const row = td.parentElement;
+            const isEven = row && row.classList.contains('bg-gray-50') || (row && row.sectionRowIndex % 2 === 1);
+            td.style.position = 'sticky';
+            td.style.right = '0px';
+            td.style.zIndex = '10';
+            td.style.background = isEven ? evenBg : cellBg;
+            td.style.boxShadow = shadow;
+        });
+    }
+
+    scrollContainer.addEventListener('scroll', updateSticky);
+    // 初始化时也执行一次
+    updateSticky();
 }
 
 /**
