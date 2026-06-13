@@ -124,6 +124,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 profile_url = ('https://raider.io' + path) if path else None
 
                 player = {
+                    '_class_name': class_name,
+                    '_spec_name': spec_name,
                     'name': char.get('name', ''),
                     'realm': realm.get('name', ''),
                     'region': region_info.get('short_name', '') or region_info.get('slug', ''),
@@ -182,15 +184,27 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         return [talent_loadout_text]
 
     def _enrich_talents(self, players):
-        """为 Top 20 玩家调用 Raider.IO 角色 API 获取结构化天赋数据"""
+        """为 Top 20 玩家补充结构化天赋+装备数据。
+        
+        优先从本地 dungeon_ranking / raid_ranking 表匹配（WCL 数据，最完整）。
+        仅对本地没有的玩家调用 Raider.IO 角色 API。
+        """
+        # 先从本地 ranking 表批量匹配
+        self._enrich_from_local_rankings(players)
+
+        # 对仍然没有结构化数据的玩家，调用 Raider.IO 角色 API
         for player in players:
+            # 已有结构化数据，跳过
+            if player.get('talents') and isinstance(player['talents'], list) and player['talents']:
+                if isinstance(player['talents'][0], dict) and 'talentID' in player['talents'][0]:
+                    continue
+
             region = player.get('region', '')
             realm = player.get('realm', '')
             name = player.get('name', '')
             if not all([region, realm, name]):
                 continue
 
-            # 跳过国服（RIO 角色 API 可能不支持）
             if region.lower() == 'cn':
                 continue
 
@@ -207,6 +221,39 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
 
             time.sleep(0.5)  # Raider.IO rate limit
+
+    def _enrich_from_local_rankings(self, players):
+        """从本地 dungeon_ranking / raid_ranking 表匹配天赋+装备"""
+        from botend.models import SpecDungeonRanking, SpecRaidRanking
+
+        for player in players:
+            name = player.get('name', '')
+            class_name = player.get('_class_name', '')
+            spec_name = player.get('_spec_name', '')
+            if not name or not class_name or not spec_name:
+                continue
+
+            # 从 dungeon_ranking 匹配（优先，数据最全）
+            ranking = SpecDungeonRanking.objects.filter(
+                character_name=name,
+                class_name=class_name,
+                spec_name=spec_name,
+            ).exclude(talents_json='[]').first()
+
+            if not ranking:
+                # 从 raid_ranking 匹配
+                ranking = SpecRaidRanking.objects.filter(
+                    character_name=name,
+                    class_name=class_name,
+                    spec_name=spec_name,
+                ).exclude(talents_json='[]').first()
+
+            if ranking:
+                if ranking.talents_json and isinstance(ranking.talents_json, list):
+                    if ranking.talents_json and isinstance(ranking.talents_json[0], dict):
+                        player['talents'] = ranking.talents_json
+                if ranking.gear_json and isinstance(ranking.gear_json, list) and ranking.gear_json:
+                    player['gear'] = ranking.gear_json
 
     def _parse_rio_talents_from_profile(self, char_data):
         """从 Raider.IO 角色 profile 响应中解析结构化天赋数据"""
