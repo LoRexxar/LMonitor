@@ -66,8 +66,11 @@ class TalentMetadataProvider:
             value = metadata.get(key)
             if value in (None, '', []):
                 continue
-            if merged.get(key) in (None, '', []):
+            if self._should_override(merged, key):
                 merged[key] = value
+        if metadata.get('display_spell_id'):
+            merged['display_spell_id'] = metadata.get('display_spell_id')
+            merged['spell_id'] = metadata.get('display_spell_id')
         return merged
 
     @staticmethod
@@ -75,6 +78,7 @@ class TalentMetadataProvider:
         return {
             'node_id': row.node_id,
             'spell_id': row.spell_id,
+            'display_spell_id': row.display_spell_id,
             'talent_id': row.talent_id,
             'name': row.name_zh or row.name,
             'icon': row.icon,
@@ -98,3 +102,12 @@ class TalentMetadataProvider:
             'icon': '',
             'parents': [],
         }
+
+    @staticmethod
+    def _should_override(node, key):
+        current = node.get(key)
+        if current in (None, '', []):
+            return True
+        if key == 'name' and isinstance(current, str):
+            return current == '未命名天赋' or current.startswith('技能ID ')
+        return False

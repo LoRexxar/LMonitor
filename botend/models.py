@@ -917,6 +917,7 @@ class WowTalentNodeMetadata(models.Model):
     tree_type = models.CharField(max_length=16, default="spec", blank=True)
     node_id = models.BigIntegerField(null=True, blank=True)
     spell_id = models.BigIntegerField(null=True, blank=True)
+    display_spell_id = models.BigIntegerField(null=True, blank=True)
     talent_id = models.BigIntegerField(null=True, blank=True)
     name = models.CharField(max_length=255, default="", blank=True)
     name_zh = models.CharField(max_length=255, default="", blank=True)
