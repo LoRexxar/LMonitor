@@ -17,6 +17,11 @@ from utils.log import logger
 
 
 class SpecDetailPlayerMonitor(SpecDetailBase):
+    DEFAULT_GEAR_SLOTS = [
+        'head', 'neck', 'shoulder', 'shirt', 'chest', 'waist', 'legs', 'feet',
+        'wrist', 'hands', 'finger1', 'finger2', 'trinket1', 'trinket2',
+        'back', 'main_hand', 'off_hand', 'tabard',
+    ]
 
     def __init__(self, req, task):
         super().__init__(req, task)
@@ -77,7 +82,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                                 profile_url=player.get('profile_url'),
                                 achievement_points=player.get('achievement_points'),
                                 item_level=player.get('item_level'),
-                                gear_json=player.get('gear', []),
+                                gear_json=self._normalize_gear_list(player.get('gear', [])),
                                 talents_json=player.get('talents', []),
                                 stats_json={},
                                 stats_crawl_status=0,
@@ -205,7 +210,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 'slot': slot,
                 'name': item.get('name', ''),
                 'id': item.get('item_id'),
-                'icon': item.get('icon', ''),
+                'icon': self._normalize_icon_name(item.get('icon', '')),
                 'itemLevel': item.get('item_level'),
                 'quality': item.get('quality', ''),
                 'bonusIDs': [],
@@ -320,7 +325,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     if ranking.talents_json and isinstance(ranking.talents_json[0], dict):
                         player['talents'] = ranking.talents_json
                 if ranking.gear_json and isinstance(ranking.gear_json, list) and ranking.gear_json:
-                    player['gear'] = ranking.gear_json
+                    player['gear'] = self._normalize_gear_list(ranking.gear_json)
 
     def _parse_rio_talents_from_profile(self, char_data):
         """从 Raider.IO 角色 profile 响应中解析结构化天赋数据"""
@@ -354,17 +359,24 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         return result if result else None
 
-    def _crawl_battlenet_stats(self, season_id):
+    def _crawl_battlenet_stats(self, season_id, class_name=None, spec_name=None, retry_failed=False, limit=None):
         """补充 Battle.net 属性面板"""
-        pending = PlayerSpecTopPlayer.objects.filter(
-            season_id=season_id,
-            stats_crawl_status=0
-        ).exclude(region='cn')
+        pending = PlayerSpecTopPlayer.objects.filter(season_id=season_id).exclude(region='cn')
+        if class_name:
+            pending = pending.filter(class_name=class_name)
+        if spec_name:
+            pending = pending.filter(spec_name=spec_name)
+        if retry_failed:
+            pending = pending.filter(stats_crawl_status__in=[0, -1])
+        else:
+            pending = pending.filter(stats_crawl_status=0)
+        if limit:
+            pending = pending[:limit]
 
         success = 0
         fail = 0
 
-        for player in pending[:200]:  # 限制单次处理量
+        for player in pending.iterator(chunk_size=50) if hasattr(pending, 'iterator') else pending:
             data = self.fetch_battlenet_stats(player.realm, player.character_name, player.region)
             if data:
                 stats = self.parse_battlenet_stats(data)
@@ -385,3 +397,27 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             time.sleep(0.1)
 
         logger.info(f"[SpecDetailPlayer] Battle.net 属性补充: 成功 {success}, 失败 {fail}")
+
+    @staticmethod
+    def _normalize_icon_name(icon_name):
+        icon_name = str(icon_name or '').strip()
+        if not icon_name:
+            return ''
+        if '.' in icon_name:
+            icon_name = icon_name.rsplit('/', 1)[-1].rsplit('.', 1)[0]
+        return icon_name
+
+    def _normalize_gear_list(self, gear_list):
+        result = []
+        for item in gear_list or []:
+            if not isinstance(item, dict):
+                continue
+            normalized = dict(item)
+            normalized['icon'] = self._normalize_icon_name(item.get('icon', ''))
+            result.append(normalized)
+        if result and all((item.get('slot') or 'unknown') == 'unknown' for item in result):
+            for idx, item in enumerate(result):
+                if idx >= len(self.DEFAULT_GEAR_SLOTS):
+                    break
+                item['slot'] = self.DEFAULT_GEAR_SLOTS[idx]
+        return result

@@ -64,12 +64,19 @@ class Command(BaseCommand):
                     profile_url=player.get('profile_url'),
                     achievement_points=player.get('achievement_points'),
                     item_level=player.get('item_level'),
-                    gear_json=player.get('gear', []),
+                    gear_json=monitor._normalize_gear_list(player.get('gear', [])),
                     talents_json=player.get('talents', []),
                     stats_json={},
                     stats_crawl_status=0,
                     last_updated=timezone.now(),
                 )
+
+        monitor._crawl_battlenet_stats(
+            season.id,
+            class_name=class_name,
+            spec_name=spec_name,
+            retry_failed=True,
+        )
 
         self.stdout.write(self.style.SUCCESS(
             f'已刷新 {class_name}/{spec_name} 人物榜，共 {min(len(players), 20)} 条'

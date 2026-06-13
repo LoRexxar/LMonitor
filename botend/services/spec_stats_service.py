@@ -84,7 +84,7 @@ class SpecStatsService:
             spec_name=player.spec_name,
         )
         normalized_gear = _resolve_player_gear(player)
-        player_stats = _ensure_player_stats(player)
+        player_stats = player.stats_json or {}
 
         return {
             'id': player.id,
@@ -583,38 +583,6 @@ def _resolve_player_gear(player):
             spec_name=player.spec_name,
         ).exclude(gear_json='[]').first()
     return _normalize_gear_items(getattr(ranking, 'gear_json', []) or [])
-
-
-def _ensure_player_stats(player):
-    stats = player.stats_json or {}
-    if stats:
-        return stats
-    if (player.region or '').lower() == 'cn':
-        return {}
-    if not player.realm or not player.character_name or not player.region:
-        return {}
-
-    try:
-        from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
-
-        helper = SpecDetailBase(None, None)
-        data = helper.fetch_battlenet_stats(player.realm, player.character_name, player.region)
-        stats = helper.parse_battlenet_stats(data) or {}
-    except Exception:
-        stats = {}
-
-    if stats:
-        player.stats_json = stats
-        player.stats_crawl_status = 1
-        player.save(update_fields=['stats_json', 'stats_crawl_status'])
-        return stats
-
-    if player.stats_crawl_status == 0:
-        player.stats_crawl_status = -1
-        player.save(update_fields=['stats_crawl_status'])
-    return {}
-
-
 def _compute_gear_popularity(records, top_n=5):
     """计算装备选取率（每个槽位 Top N）"""
     slot_items = {}  # slot → Counter(itemID)
