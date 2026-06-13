@@ -10,7 +10,7 @@ from django.db.models import Avg, Max, Min, StdDev
 from botend.models import (
     SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking
 )
-from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, SLOT_CN
+from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN
 
 
 class SpecStatsService:
@@ -237,20 +237,39 @@ class SpecStatsService:
             if not season:
                 return []
             season_id = season.id
-
         season = SeasonMeta.objects.filter(id=season_id).first()
         if not season or not season.raid_encounters:
             return []
-
-        bosses = []
-        for enc in season.raid_encounters:
-            cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
-            stats = SpecStatsService._compute_raid_stats(
-                season_id, enc['id'], cn_name, class_name, spec_name
-            )
-            bosses.append(stats)
-
-        return bosses
+        # Group by zone if raid_zones data is available
+        if season.raid_zones:
+            zones = []
+            for rz in season.raid_zones:
+                zone_cn = RAID_ZONE_CN.get(rz.get('name', ''), rz.get('name', ''))
+                zone_bosses = []
+                for enc in rz.get('encounters', []):
+                    cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
+                    stats = SpecStatsService._compute_raid_stats(
+                        season_id, enc['id'], cn_name, class_name, spec_name
+                    )
+                    zone_bosses.append(stats)
+                if zone_bosses:
+                    zones.append({
+                        'zone_id': rz.get('id'),
+                        'zone_name': rz.get('name', ''),
+                        'zone_cn': zone_cn,
+                        'bosses': zone_bosses,
+                    })
+            return zones
+        else:
+            # Fallback: flat list (backward compat)
+            bosses = []
+            for enc in season.raid_encounters:
+                cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
+                stats = SpecStatsService._compute_raid_stats(
+                    season_id, enc['id'], cn_name, class_name, spec_name
+                )
+                bosses.append(stats)
+            return [{'zone_id': 0, 'zone_name': '', 'zone_cn': '', 'bosses': bosses}]
 
     @staticmethod
     def get_raid_detail(boss_id, class_name, spec_name, season_id=None):
@@ -270,9 +289,16 @@ class SpecStatsService:
 
         boss_name = qs.first().boss_name
         cn_name = RAID_BOSS_CN.get(boss_name, boss_name)
-        return SpecStatsService._compute_raid_stats(
+        stats = SpecStatsService._compute_raid_stats(
             season_id, boss_id, cn_name, class_name, spec_name, full=True
         )
+        # Add zone info if available
+        zone_rec = qs.first()
+        if zone_rec and zone_rec.raid_zone_name:
+            stats['raid_zone_id'] = zone_rec.raid_zone_id
+            stats['raid_zone_name'] = zone_rec.raid_zone_name
+            stats['raid_zone_cn'] = RAID_ZONE_CN.get(zone_rec.raid_zone_name, zone_rec.raid_zone_name)
+        return stats
 
     @staticmethod
     def _compute_raid_stats(season_id, boss_id, boss_name, class_name, spec_name, full=False):

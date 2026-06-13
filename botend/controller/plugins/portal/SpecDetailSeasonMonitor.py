@@ -34,16 +34,20 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
             return False
 
         # 3. 找到最新的 Raid zone
-        raid_zone = self._find_latest_raid_zone(zones)
-        if not raid_zone:
+        # 3. 找到所有 Raid zones
+        raid_zones = self._find_all_raid_zones(zones)
+        if not raid_zones:
             logger.warning("[SpecDetailSeason] 未找到 Raid zone")
-
         # 4. 获取副本/Boss 列表
         mplus_encounters = self._fetch_encounters(mplus_zone['id']) if mplus_zone else []
-        raid_encounters = self._fetch_encounters(raid_zone['id']) if raid_zone else []
+        all_raid_encounters = []
+        for rz in raid_zones:
+            encs = self._fetch_encounters(rz['id'])
+            rz['encounters'] = encs
+            all_raid_encounters.extend(encs)
 
-        # 添加 index 到 raid encounters
-        for i, enc in enumerate(raid_encounters):
+        # 添加 index 到所有 raid encounters
+        for i, enc in enumerate(all_raid_encounters):
             enc['index'] = i + 1
 
         # 5. 获取 Raider.IO 赛季 slug
@@ -70,16 +74,17 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
                 'wcl_partition': wcl_partition,
                 'mplus_zone_id': mplus_zone['id'] if mplus_zone else 0,
                 'mplus_zone_name': mplus_name,
-                'raid_zone_id': raid_zone['id'] if raid_zone else 0,
-                'raid_zone_name': raid_zone.get('name', '') if raid_zone else '',
+                'raid_zone_id': raid_zones[-1]['id'] if raid_zones else 0,
+                'raid_zone_name': raid_zones[-1].get('name', '') if raid_zones else '',
+                'raid_zones': raid_zones,
                 'mplus_encounters': mplus_encounters,
-                'raid_encounters': raid_encounters,
+                'raid_encounters': all_raid_encounters,
             }
         )
 
         action = "创建" if created else "更新"
         logger.info(f"[SpecDetailSeason] {action} SeasonMeta: {season_key}, "
-                     f"M+ {len(mplus_encounters)} 副本, Raid {len(raid_encounters)} Boss")
+                     f"M+ {len(mplus_encounters)} 副本, Raid {len(raid_zones)} 区域 {len(all_raid_encounters)} Boss")
 
         self.task.flag = f"{season_key}@{int(time.time())}"
         self.task.save()
@@ -101,8 +106,8 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         # 取 ID 最大的
         return max(mplus_zones, key=lambda z: z['id'])
 
-    def _find_latest_raid_zone(self, zones):
-        """找到最新的 Raid zone（排除 M+、Delves、Challenge 等）"""
+    def _find_all_raid_zones(self, zones):
+        """找到所有 Raid zones（排除 M+、Delves、Challenge 等），按 ID 升序排列"""
         exclude_keywords = ['Mythic+', 'Delves', 'Challenge', 'Torghast', 'VS / DR']
         raid_zones = [
             z for z in zones
@@ -110,8 +115,9 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
             and z.get('id', 0) > 30  # 排除旧副本
         ]
         if not raid_zones:
-            return None
-        return max(raid_zones, key=lambda z: z['id'])
+            return []
+        # 按 ID 升序，便于顺序展示
+        return sorted(raid_zones, key=lambda z: z['id'])
 
     def _fetch_encounters(self, zone_id):
         """获取 zone 下的所有 encounters"""

@@ -1,5 +1,6 @@
 {% extends "portal/base.html" %}
 {% load static %}
+{% load wow_tags %}
 
 {% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - M+ 副本统计{% endblock %}
 
@@ -81,7 +82,7 @@
                 <div class="talent-card">
                     {% if info.icon %}
                     <a href="https://www.wowhead.com/spell={{ tid }}" target="_blank">
-                        <img src="https://wow.zamimg.com/images/wow/icons/small/{{ info.icon }}.jpg" width="28" height="28" class="talent-card-icon" title="{{ info.name }}">
+                        <img src="{% wow_icon info.icon "small" %}" width="28" height="28" class="talent-card-icon" title="{{ info.name }}">
                     </a>
                     {% else %}
                     <span class="talent-card-icon placeholder" title="spellID: {{ tid }}">#{{ tid }}</span>
@@ -111,7 +112,7 @@
                 <div class="gear-pop-row">
                     {% if item.icon %}
                     <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank">
-                        <img src="https://wow.zamimg.com/images/wow/icons/small/{{ item.icon }}.jpg" width="20" height="20" class="gear-icon">
+                        <img src="{% wow_icon item.icon "small" %}" width="20" height="20" class="gear-icon">
                     </a>
                     {% endif %}
                     <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank" class="gear-name-link">{{ item.name|default:item.itemID }}</a>
@@ -192,7 +193,7 @@
                     {% for tid, info in d.talent_popularity.items %}
                     <span class="talent-chip{% if info.pct > 90 %} gold{% elif info.pct > 70 %} purple{% endif %}">
                         {% if info.icon %}
-                        <img src="https://wow.zamimg.com/images/wow/icons/tiny/{{ info.icon }}.jpg" width="20" height="20" style="border-radius:50%">
+                        <img src="{% wow_icon info.icon "tiny" %}" width="20" height="20" style="border-radius:50%">
                         {% else %}
                         <span class="chip-placeholder">#{{ tid }}</span>
                         {% endif %}

@@ -194,6 +194,13 @@ DUNGEON_CN = {
     "The Stonevault": "矶石宝库",
 }
 
+# 团本区域英文 → 中文
+RAID_ZONE_CN = {
+    "Nerub-ar Palace": "尼鲁巴尔王宫",
+    "Liberation of Undermine": "安德麦解放战",
+    "Manaforge Omega": "法力熔炉：欧米伽",
+}
+
 RAID_BOSS_CN = {
     # Nerub-ar Palace (尼鲁巴尔王宫)
     "Ulgrax the Devourer": "吞噬者乌格拉克斯",

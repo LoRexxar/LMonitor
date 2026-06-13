@@ -759,6 +759,8 @@ class SeasonMeta(models.Model):
     mplus_zone_name = models.CharField("M+区域名称", max_length=100, null=True, blank=True, help_text="M+ 区域名称")
     raid_zone_id = models.IntegerField("团本区域ID", help_text="团本区域 ID")
     raid_zone_name = models.CharField("团本区域名称", max_length=100, null=True, blank=True, help_text="团本区域名称")
+    raid_zones = models.JSONField("团本区域列表", default=list, blank=True,
+        help_text='[{"zone_id": 123, "zone_name": "Raid Name", "encounters": [{"id": 1, "name": "Boss"}]}]')
     mplus_encounters = models.JSONField("M+副本列表", default=list, blank=True, help_text="M+ 副本列表 [{id, name, short}, ...]")
     raid_encounters = models.JSONField("团本Boss列表", default=list, blank=True, help_text="团本 Boss 列表 [{id, name, index}, ...]")
     updated_at = models.DateTimeField(auto_now=True)
@@ -867,6 +869,8 @@ class SpecRaidRanking(models.Model):
     season_id = models.IntegerField("赛季ID", help_text="赛季 ID（SeasonMeta.id）")
     boss_id = models.IntegerField("BossID", help_text="WCL encounter ID")
     boss_name = models.CharField("Boss名称", max_length=100, help_text="Boss 名称")
+    raid_zone_id = models.IntegerField("团本区域ID", null=True, blank=True)
+    raid_zone_name = models.CharField("团本区域名称", max_length=100, default='', blank=True)
     class_name = models.CharField("职业", max_length=30, help_text="职业名")
     spec_name = models.CharField("专精", max_length=30, help_text="专精名")
 

@@ -1,5 +1,6 @@
 {% extends "portal/base.html" %}
 {% load static %}
+{% load wow_tags %}
 
 {% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - 团本统计{% endblock %}
 
@@ -23,6 +24,7 @@
     <div class="detail-section">
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/" class="back-link">← 返回 Boss 列表</a>
         <h2>{{ boss_detail.boss_name }}</h2>
+        {% if boss_detail.raid_zone_cn %}<p class="text-muted" style="margin-bottom:4px;">{{ boss_detail.raid_zone_cn }} ({{ boss_detail.raid_zone_name }})</p>{% endif %}
         <p class="text-muted">样本量: {{ boss_detail.sample_size }} · 仅限史诗难度</p>
 
         {% if boss_detail.dps %}
@@ -67,7 +69,7 @@
                 <div class="talent-card">
                     {% if info.icon %}
                     <a href="https://www.wowhead.com/spell={{ tid }}" target="_blank">
-                        <img src="https://wow.zamimg.com/images/wow/icons/small/{{ info.icon }}.jpg" width="28" height="28" class="talent-card-icon" title="{{ info.name }}">
+                        <img src="{% wow_icon info.icon "small" %}" width="28" height="28" class="talent-card-icon" title="{{ info.name }}">
                     </a>
                     {% else %}
                     <span class="talent-card-icon placeholder" title="spellID: {{ tid }}">#{{ tid }}</span>
@@ -96,7 +98,7 @@
                 <div class="gear-pop-row">
                     {% if item.icon %}
                     <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank">
-                        <img src="https://wow.zamimg.com/images/wow/icons/small/{{ item.icon }}.jpg" width="20" height="20" class="gear-icon">
+                        <img src="{% wow_icon item.icon "small" %}" width="20" height="20" class="gear-icon">
                     </a>
                     {% endif %}
                     <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank" class="gear-name-link">{{ item.name|default:item.itemID }}</a>
@@ -135,10 +137,17 @@
         {% endif %}
     </div>
 
-    {% elif bosses %}
-    <!-- Boss 列表 -->
+    {% elif zone_groups %}
+    <!-- Zone groups -->
+    {% for zone in zone_groups %}
+    {% if zone.zone_cn %}
+    <div class="zone-header">
+        <h2>{{ zone.zone_cn }}</h2>
+        <span class="zone-name-en">{{ zone.zone_name }}</span>
+    </div>
+    {% endif %}
     <div class="dungeon-grid">
-    {% for b in bosses %}
+    {% for b in zone.bosses %}
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/?boss_id={{ b.boss_id }}" class="dungeon-card-link">
             <div class="dungeon-card">
                 <h3 class="dungeon-name">{{ b.boss_name }}</h3>
@@ -158,7 +167,7 @@
                     {% for tid, info in b.talent_popularity.items %}
                     <span class="talent-chip{% if info.pct > 90 %} gold{% elif info.pct > 70 %} purple{% endif %}">
                         {% if info.icon %}
-                        <img src="https://wow.zamimg.com/images/wow/icons/tiny/{{ info.icon }}.jpg" width="20" height="20" style="border-radius:50%">
+                        <img src="{% wow_icon info.icon "tiny" %}" width="20" height="20" style="border-radius:50%">
                         {% else %}
                         <span class="chip-placeholder">#{{ tid }}</span>
                         {% endif %}
@@ -170,9 +179,10 @@
             </div>
         </a>
     {% empty %}
-        <div class="empty-state">暂无团本数据，请等待采集完成</div>
+        <div class="empty-state">暂无该团本数据</div>
     {% endfor %}
     </div>
+    {% endfor %}
     {% else %}
         <div class="empty-state">暂无数据，请等待采集完成</div>
     {% endif %}
@@ -330,5 +340,11 @@
 
 .empty-state { text-align: center; color: #999; padding: 60px; font-size: 1em; }
 .text-muted { color: #9ca3af; font-size: 0.85em; }
+
+/* ===== Zone Header ===== */
+.zone-header { margin: 28px 0 14px; }
+.zone-header:first-child { margin-top: 0; }
+.zone-header h2 { margin: 0; font-size: 1.2em; color: #1e293b; display: inline; }
+.zone-name-en { font-size: 0.85em; color: #94a3b8; margin-left: 8px; }
 </style>
 {% endblock %}

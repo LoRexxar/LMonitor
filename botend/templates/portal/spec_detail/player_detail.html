@@ -1,5 +1,6 @@
 {% extends "portal/base.html" %}
 {% load static %}
+{% load wow_tags %}
 
 {% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - {{ player_detail.character_name }}{% endblock %}
 
@@ -96,7 +97,7 @@
                     <a href="{% if t.spellID %}https://www.wowhead.com/spell={{ t.spellID }}{% elif t.talentID %}https://www.wowhead.com/talent={{ t.talentID }}{% else %}#{% endif %}" target="_blank" class="talent-link-new">
                         {% if t.icon %}
                         <div class="talent-icon-wrap {% if t.points and t.maxPoints and t.points >= t.maxPoints %}talent-gold{% else %}talent-blue{% endif %}">
-                            <img src="https://wow.zamimg.com/images/wow/icons/small/{{ t.icon }}.jpg" width="40" height="40" class="talent-icon-new" alt="">
+                            <img src="{% wow_icon t.icon "small" %}" width="40" height="40" class="talent-icon-new" alt="">
                         </div>
                         {% else %}
                         <div class="talent-icon-wrap talent-blue talent-icon-placeholder">
@@ -146,7 +147,7 @@
                     <div class="gear-item-right">
                         {% if item.icon %}
                         <a href="https://www.wowhead.com/item={{ item.id }}" target="_blank" class="gear-icon-link">
-                            <img src="https://wow.zamimg.com/images/wow/icons/small/{{ item.icon }}.jpg"
+                            <img src="{% wow_icon item.icon "small" %}"
                                  width="32" height="32" class="gear-icon">
                         </a>
                         {% endif %}

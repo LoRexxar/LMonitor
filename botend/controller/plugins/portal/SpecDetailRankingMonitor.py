@@ -125,6 +125,16 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         total = 0
         now = timezone.now()
 
+        # Build encounter→zone mapping from raid_zones (if available)
+        enc_zone_map = {}
+        if season.raid_zones:
+            for rz in season.raid_zones:
+                for enc in rz.get('encounters', []):
+                    enc_zone_map[enc['id']] = {
+                        'zone_id': rz.get('id'),
+                        'zone_name': rz.get('name', ''),
+                    }
+
         with transaction.atomic():
             # 全量覆盖：删除该赛季旧数据
             SpecRaidRanking.objects.filter(season_id=season.id).delete()
@@ -132,6 +142,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             for encounter in season.raid_encounters:
                 enc_id = encounter['id']
                 enc_name = encounter['name']
+                zone_info = enc_zone_map.get(enc_id, {})
 
                 for class_name, specs in CLASS_SPEC_MAP.items():
                     for spec_name in specs:
@@ -151,6 +162,8 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                     season_id=season.id,
                                     boss_id=enc_id,
                                     boss_name=enc_name,
+                                    raid_zone_id=zone_info.get('zone_id'),
+                                    raid_zone_name=zone_info.get('zone_name', ''),
                                     class_name=class_name,
                                     spec_name=spec_name,
                                     character_name=r.get('name', ''),

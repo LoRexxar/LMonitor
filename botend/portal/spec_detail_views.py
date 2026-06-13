@@ -106,6 +106,7 @@ class SpecDetailRaidView(View):
                 int(boss_id), class_name, spec_name
             )
         else:
-            ctx['bosses'] = SpecStatsService.get_raid_overview(class_name, spec_name)
+            zone_groups = SpecStatsService.get_raid_overview(class_name, spec_name)
+            ctx['zone_groups'] = zone_groups
 
         return render(request, 'portal/spec_detail/raid_stats.html', ctx)

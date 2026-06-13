@@ -146,7 +146,12 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         # 按 score 降序排列，取全球 Top 20
         all_players.sort(key=lambda p: p.get('score', 0) or 0, reverse=True)
-        return all_players[:20]
+        top20 = all_players[:20]
+
+        # 为 Top 20 玩家补充结构化天赋数据
+        self._enrich_talents(top20)
+
+        return top20
 
     def _parse_rio_gear(self, gear_data):
         """解析 Raider.IO gear 数据"""
@@ -170,10 +175,66 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         return result
 
     def _parse_rio_talents(self, talent_loadout_text):
-        """解析 Raider.IO talentLoadoutText — 直接返回 Blizz talent code 字符串"""
+        """解析 Raider.IO talentLoadoutText — 直接返回 Blizz talent code 字符串
+        作为 fallback，当结构化数据获取失败时使用"""
         if not talent_loadout_text:
             return []
         return [talent_loadout_text]
+
+    def _enrich_talents(self, players):
+        """为 Top 20 玩家调用 Raider.IO 角色 API 获取结构化天赋数据"""
+        for player in players:
+            region = player.get('region', '')
+            realm = player.get('realm', '')
+            name = player.get('name', '')
+            if not all([region, realm, name]):
+                continue
+
+            # 跳过国服（RIO 角色 API 可能不支持）
+            if region.lower() == 'cn':
+                continue
+
+            try:
+                char_data = self.fetch_raiderio_character(region, realm, name)
+                if not char_data:
+                    continue
+
+                structured = self._parse_rio_talents_from_profile(char_data)
+                if structured:
+                    player['talents'] = structured
+
+            except Exception as e:
+                logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
+
+            time.sleep(0.5)  # Raider.IO rate limit
+
+    def _parse_rio_talents_from_profile(self, char_data):
+        """从 Raider.IO 角色 profile 响应中解析结构化天赋数据"""
+        talents_obj = char_data.get('talents')
+        if not talents_obj or not isinstance(talents_obj, dict):
+            return None
+
+        selected = talents_obj.get('selected')
+        if not selected or not isinstance(selected, list):
+            return None
+
+        result = []
+        for entry in selected:
+            talent = entry.get('talent') or entry
+            if not isinstance(talent, dict):
+                continue
+            spell = talent.get('spell') or {}
+            result.append({
+                'talentID': talent.get('id'),
+                'spellID': spell.get('id'),
+                'name': spell.get('name', ''),
+                'icon': spell.get('icon', ''),
+                'points': 1,
+                'tier': talent.get('tier'),
+                'column': talent.get('column'),
+            })
+
+        return result if result else None
 
     def _crawl_battlenet_stats(self, season_id):
         """补充 Battle.net 属性面板"""
