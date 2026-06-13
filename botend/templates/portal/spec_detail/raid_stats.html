@@ -61,27 +61,32 @@
         </div>
         {% endif %}
 
-        {% if boss_detail.talent_popularity %}
+        {% if boss_detail.talent_usage %}
         <div class="section-block">
-            <h4>天赋选取率</h4>
-            <div class="talent-grid">
-                {% for tid, info in boss_detail.talent_popularity.items %}
-                <div class="talent-card">
-                    {% if info.icon %}
-                    <a href="https://www.wowhead.com/spell={{ tid }}" target="_blank">
-                        <img src="{% wow_icon info.icon "small" %}" width="28" height="28" class="talent-card-icon" title="{{ info.name }}">
-                    </a>
-                    {% else %}
-                    <span class="talent-card-icon placeholder" title="spellID: {{ tid }}">#{{ tid }}</span>
-                    {% endif %}
-                    <div class="talent-card-info">
-                        <span class="talent-card-name">{% if info.name %}{{ info.name }}{% else %}#{{ tid }}{% endif %}</span>
-                        <div class="talent-card-bar">
-                            <div class="talent-card-fill" style="width:{{ info.pct }}%"></div>
+            <h4>热门天赋</h4>
+            <div class="talent-usage-grid">
+                {% for node in boss_detail.talent_usage %}
+                <div class="talent-usage-card">
+                    <div class="talent-usage-left">
+                        <div class="talent-card-icon-wrap">
+                            {% if node.icon %}
+                            <img src="{% wow_icon node.icon "small" %}" width="32" height="32" class="talent-card-icon" title="{{ node.name }}">
+                            {% else %}
+                            <span class="talent-card-icon placeholder">?</span>
+                            {% endif %}
+                        </div>
+                        <div class="talent-card-info">
+                            <span class="talent-card-name">{{ node.name }}</span>
+                            <span class="talent-card-tree">{{ node.tree_label }}</span>
+                            <div class="talent-card-bar">
+                                <div class="talent-card-fill" style="width:{{ node.usage_pct }}%"></div>
+                            </div>
                         </div>
                     </div>
-                    <span class="talent-card-pct">{{ info.pct }}%</span>
-                    <span class="talent-card-count">({{ info.count }})</span>
+                    <div class="talent-usage-right">
+                        <span class="talent-card-pct">{{ node.usage_pct }}%</span>
+                        <span class="talent-card-count">{{ node.count }} 人</span>
+                    </div>
                 </div>
                 {% endfor %}
             </div>
@@ -162,16 +167,16 @@
                     {% endif %}
                 </div>
 
-                {% if b.talent_popularity %}
+                {% if b.talent_usage %}
                 <div class="talent-preview">
-                    {% for tid, info in b.talent_popularity.items %}
-                    <span class="talent-chip{% if info.pct > 90 %} gold{% elif info.pct > 70 %} purple{% endif %}">
-                        {% if info.icon %}
-                        <img src="{% wow_icon info.icon "tiny" %}" width="20" height="20" style="border-radius:50%">
+                    {% for node in b.talent_usage|slice:":6" %}
+                    <span class="talent-chip{% if node.usage_pct > 90 %} gold{% elif node.usage_pct > 70 %} purple{% endif %}">
+                        {% if node.icon %}
+                        <img src="{% wow_icon node.icon "tiny" %}" width="20" height="20" style="border-radius:50%">
                         {% else %}
-                        <span class="chip-placeholder">#{{ tid }}</span>
+                        <span class="chip-placeholder">?</span>
                         {% endif %}
-                        <span class="chip-pct">{{ info.pct }}%</span>
+                        <span class="chip-pct">{{ node.usage_pct }}%</span>
                     </span>
                     {% endfor %}
                 </div>
@@ -264,28 +269,41 @@
 .chip-pct { font-weight: 600; color: #1e293b; }
 
 /* ===== Talent Grid (detail page) ===== */
-.talent-grid {
+.talent-usage-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
 }
-.talent-card {
+.talent-usage-card {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
     background: #f8fafc;
     border: 1px solid #e5e7eb;
-    border-radius: 8px;
+    border-radius: 12px;
     font-size: 0.85em;
     transition: border-color 0.15s, box-shadow 0.15s;
 }
-.talent-card:hover { border-color: #2563eb; box-shadow: 0 2px 8px rgba(37,99,235,0.08); }
-.talent-card-icon {
-    width: 28px;
-    height: 28px;
+.talent-usage-card:hover { border-color: #2563eb; box-shadow: 0 2px 8px rgba(37,99,235,0.08); }
+.talent-usage-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.talent-usage-right { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
+.talent-card-icon-wrap {
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
+    overflow: hidden;
     flex-shrink: 0;
+    background: #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.talent-card-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
     object-fit: cover;
 }
 .talent-card-icon.placeholder {
@@ -299,6 +317,7 @@
 }
 .talent-card-info { flex: 1; min-width: 0; }
 .talent-card-name { display: block; font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.85em; }
+.talent-card-tree { display: block; font-size: 0.72em; color: #64748b; margin-top: 2px; }
 .talent-card-bar { height: 4px; background: #e5e7eb; border-radius: 2px; margin-top: 4px; overflow: hidden; }
 .talent-card-fill { height: 100%; background: #2563eb; border-radius: 2px; }
 .talent-card-pct { font-weight: 700; color: #1e293b; font-size: 0.85em; white-space: nowrap; }

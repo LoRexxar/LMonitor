@@ -4,7 +4,7 @@
 从原始数据表计算统计值（avg/median/p25/p75/选取率/分布）
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from django.db.models import Avg, Max, Min, StdDev
 
 from botend.models import (
@@ -54,14 +54,19 @@ class SpecStatsService:
         start = (page - 1) * page_size
         players = list(qs[start:start + page_size].values(
             'id', 'rank', 'character_name', 'realm', 'region', 'score',
-            'faction', 'race', 'guild_name', 'item_level', 'avatar_url', 'profile_url'
+            'faction', 'race', 'guild_name', 'item_level', 'avatar_url', 'profile_url', 'last_updated'
         ))
+
+        updated_at = None
+        if players:
+            updated_at = players[0].get('last_updated')
 
         return {
             'players': players,
             'total': total,
             'page': page,
             'pages': pages,
+            'updated_at': updated_at,
         }
 
     @staticmethod
@@ -70,6 +75,10 @@ class SpecStatsService:
         player = PlayerSpecTopPlayer.objects.filter(id=player_id).first()
         if not player:
             return None
+
+        normalized_talents = _normalize_talent_nodes(player.talents_json or [])
+        talent_groups = _group_talent_nodes(normalized_talents)
+        normalized_gear = _normalize_gear_items(player.gear_json or [])
 
         return {
             'id': player.id,
@@ -87,9 +96,12 @@ class SpecStatsService:
             'profile_url': player.profile_url,
             'achievement_points': player.achievement_points,
             'item_level': player.item_level,
-            'gear': player.gear_json or [],
-            'talents': player.talents_json or [],
+            'gear': normalized_gear,
+            'talents': normalized_talents,
+            'talent_groups': talent_groups,
+            'talent_code': next((t.get('talent_code') for t in normalized_talents if t.get('talent_code')), ''),
             'stats': player.stats_json or {},
+            'last_updated': player.last_updated,
         }
 
     # ========== M+ 副本统计 ==========
@@ -211,6 +223,7 @@ class SpecStatsService:
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
+        stats['talent_usage'] = _compute_talent_usage(records, top_n=talent_limit)
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
         if full:
@@ -357,6 +370,7 @@ class SpecStatsService:
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
+        stats['talent_usage'] = _compute_talent_usage(records, top_n=talent_limit)
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
         if full:
@@ -422,6 +436,85 @@ def _lookup_dungeon_cn(name):
     return name
 
 
+def _normalize_talent_nodes(talents):
+    """兼容多种旧格式的天赋节点，统一成可展示结构。"""
+    result = []
+    for raw in talents or []:
+        if isinstance(raw, str):
+            result.append({
+                'tree_type': 'build_code',
+                'talent_code': raw,
+                'talent_id': None,
+                'spell_id': None,
+                'name': 'Talent Loadout',
+                'icon': '',
+                'points': 0,
+                'row': None,
+                'column': None,
+            })
+            continue
+
+        if not isinstance(raw, dict):
+            continue
+
+        talent_id = raw.get('talent_id') or raw.get('talentID')
+        spell_id = raw.get('spell_id') or raw.get('spellID') or talent_id
+        name = raw.get('name') or (f'Spell #{spell_id}' if spell_id else '未命名天赋')
+        icon = raw.get('icon', '')
+        result.append({
+            'tree_type': raw.get('tree_type') or raw.get('treeType') or 'spec',
+            'talent_code': raw.get('talent_code', ''),
+            'talent_id': talent_id,
+            'spell_id': spell_id,
+            'name': name,
+            'icon': icon,
+            'points': raw.get('points', 0) or 0,
+            'row': raw.get('row') if raw.get('row') is not None else raw.get('tier'),
+            'column': raw.get('column'),
+        })
+    return result
+
+
+def _group_talent_nodes(nodes):
+    """按树类型分组，便于模板展示。"""
+    groups = defaultdict(list)
+    for node in nodes:
+        tree_type = node.get('tree_type') or 'spec'
+        groups[tree_type].append(node)
+
+    ordered = []
+    for key in ['class', 'spec', 'hero', 'build_code']:
+        if groups.get(key):
+            ordered.append({
+                'key': key,
+                'label': _talent_tree_label(key),
+                'nodes': sorted(groups[key], key=lambda item: (
+                    item.get('row') if item.get('row') is not None else 999,
+                    item.get('column') if item.get('column') is not None else 999,
+                    item.get('name') or '',
+                )),
+            })
+    for key, nodes_in_group in groups.items():
+        if key in {'class', 'spec', 'hero', 'build_code'}:
+            continue
+        ordered.append({
+            'key': key,
+            'label': _talent_tree_label(key),
+            'nodes': sorted(nodes_in_group, key=lambda item: item.get('name') or ''),
+        })
+    return ordered
+
+
+def _talent_tree_label(tree_type):
+    mapping = {
+        'class': '职业天赋',
+        'spec': '专精天赋',
+        'hero': '英雄天赋',
+        'build_code': '导入代码',
+    }
+    return mapping.get(tree_type, tree_type or '天赋')
+
+
 def _compute_talent_popularity(records, top_n=20):
     """计算天赋选取率（以 spellID 为 key）"""
     talent_counts = Counter()
@@ -429,10 +522,12 @@ def _compute_talent_popularity(records, top_n=20):
     total = len(records)
 
     for r in records:
-        talents = r.get('talents_json') or []
+        talents = _normalize_talent_nodes(r.get('talents_json') or [])
         for t in talents:
+            if t.get('tree_type') == 'build_code':
+                continue
             # 优先用 spellID（Wowhead 用），fallback 到 talentID
-            sid = t.get('spellID') or t.get('talentID')
+            sid = t.get('spell_id') or t.get('talent_id')
             if sid:
                 talent_counts[sid] += 1
                 if sid not in talent_info:
@@ -451,6 +546,66 @@ def _compute_talent_popularity(records, top_n=20):
             'name': info.get('name', ''),
             'icon': info.get('icon', ''),
         }
+    return result
+
+
+def _compute_talent_usage(records, top_n=20):
+    """返回更适合页面展示的天赋使用率列表。"""
+    total = len(records)
+    usage = {}
+
+    for record in records:
+        seen = set()
+        for node in _normalize_talent_nodes(record.get('talents_json') or []):
+            if node.get('tree_type') == 'build_code':
+                continue
+            key = (
+                node.get('tree_type') or 'spec',
+                node.get('spell_id') or node.get('talent_id'),
+            )
+            if not key[1] or key in seen:
+                continue
+            seen.add(key)
+            if key not in usage:
+                usage[key] = {
+                    'tree_type': key[0],
+                    'tree_label': _talent_tree_label(key[0]),
+                    'spell_id': node.get('spell_id'),
+                    'talent_id': node.get('talent_id'),
+                    'name': node.get('name') or (f"Spell #{key[1]}"),
+                    'icon': node.get('icon', ''),
+                    'count': 0,
+                }
+            usage[key]['count'] += 1
+
+    result = []
+    for item in usage.values():
+        pct = round(item['count'] / total * 100, 1) if total else 0
+        item['usage_pct'] = pct
+        item['pct'] = pct
+        result.append(item)
+
+    result.sort(key=lambda item: (-item['usage_pct'], item['name']))
+    return result[:top_n]
+
+
+def _normalize_gear_items(items):
+    """统一装备展示字段并过滤明显无效项。"""
+    result = []
+    for raw in items or []:
+        if not isinstance(raw, dict):
+            continue
+        slot = raw.get('slot', 'unknown')
+        result.append({
+            'slot': SLOT_CN.get(slot, slot),
+            'name': raw.get('name') or '未知物品',
+            'id': raw.get('id') or raw.get('itemID') or raw.get('item_id'),
+            'icon': raw.get('icon', ''),
+            'itemLevel': raw.get('itemLevel') or raw.get('item_level'),
+            'quality': raw.get('quality', ''),
+            'bonusIDs': raw.get('bonusIDs', []),
+            'gems': raw.get('gems', []),
+        })
     return result
 
 

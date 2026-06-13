@@ -218,7 +218,19 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         作为 fallback，当结构化数据获取失败时使用"""
         if not talent_loadout_text:
             return []
-        return [talent_loadout_text]
+        return [{
+            'tree_type': 'build_code',
+            'talent_code': talent_loadout_text,
+            'talentID': None,
+            'spellID': None,
+            'talent_id': None,
+            'spell_id': None,
+            'name': 'Talent Loadout',
+            'icon': '',
+            'points': 0,
+            'row': None,
+            'column': None,
+        }]
 
     def _enrich_talents(self, players):
         """为 Top 20 玩家补充结构化天赋+装备数据。
@@ -231,10 +243,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         # 对仍然没有结构化数据的玩家，调用 Raider.IO 角色 API
         for player in players:
-            # 已有结构化数据，跳过
-            if player.get('talents') and isinstance(player['talents'], list) and player['talents']:
-                if isinstance(player['talents'][0], dict) and 'talentID' in player['talents'][0]:
-                    continue
+            # 已有完整结构化数据，跳过
+            if self._has_display_ready_talents(player.get('talents')):
+                continue
 
             region = player.get('region', '')
             realm = player.get('realm', '')
@@ -258,6 +269,25 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
 
             time.sleep(0.5)  # Raider.IO rate limit
+
+    @staticmethod
+    def _has_display_ready_talents(talents):
+        """判断当前天赋是否已具备展示所需信息。"""
+        if not talents or not isinstance(talents, list):
+            return False
+
+        dict_nodes = [
+            talent for talent in talents
+            if isinstance(talent, dict) and (talent.get('talentID') or talent.get('talent_id'))
+        ]
+        if not dict_nodes:
+            return False
+
+        named_nodes = [
+            talent for talent in dict_nodes
+            if talent.get('name') and talent.get('icon')
+        ]
+        return len(named_nodes) >= max(5, len(dict_nodes) // 3)
 
     def _enrich_from_local_rankings(self, players):
         """从本地 dungeon_ranking / raid_ranking 表匹配天赋+装备"""
@@ -309,12 +339,16 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 continue
             spell = talent.get('spell') or {}
             result.append({
+                'tree_type': talent.get('treeType') or talent.get('tree_type') or 'spec',
                 'talentID': talent.get('id'),
                 'spellID': spell.get('id'),
+                'talent_id': talent.get('id'),
+                'spell_id': spell.get('id'),
                 'name': spell.get('name', ''),
                 'icon': spell.get('icon', ''),
                 'points': 1,
                 'tier': talent.get('tier'),
+                'row': talent.get('row') or talent.get('tier'),
                 'column': talent.get('column'),
             })
 

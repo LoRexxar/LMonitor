@@ -358,10 +358,15 @@ class SpecDetailBase(BaseScan):
         result = []
         for t in talent_list:
             result.append({
+                'tree_type': t.get('treeType') or t.get('tree_type') or 'spec',
                 'talentID': t.get('talentID'),
                 'spellID': t.get('spellID') or t.get('talentID'),
+                'talent_id': t.get('talentID'),
+                'spell_id': t.get('spellID') or t.get('talentID'),
                 'name': t.get('name', ''),
                 'icon': t.get('icon', ''),
                 'points': t.get('points', 0),
+                'row': t.get('row'),
+                'column': t.get('column'),
             })
         return result
