@@ -12,7 +12,7 @@ import requests
 import json
 import traceback
 
-from LMonitor.settings import XXXBOT_CONFIG
+from django.conf import settings as django_settings
 from utils.log import logger
 
 
@@ -21,10 +21,10 @@ class xxxbotInterface:
     xxxbot的推送实现
     """
     def __init__(self):
-        self.config = XXXBOT_CONFIG
-        self.base_url = self.config["base_url"]
-        self.active_roomlist = self.config["active_roomlist"]
-        self.wxid = self.config["wxid"]
+        self.config = getattr(django_settings, 'XXXBOT_CONFIG', {}) or {}
+        self.base_url = self.config.get("base_url", "")
+        self.active_roomlist = self.config.get("active_roomlist", [])
+        self.wxid = self.config.get("wxid", "")
         self.s = requests.Session()
 
     def send_msg(self, content="", at_str=""):

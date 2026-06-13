@@ -124,7 +124,7 @@
                     {% endif %}
                 </div>
                 <div class="gear-item-info">
-                    <span class="gear-slot-name">{{ item.slot }}</span>
+                    {% if item.slot %}<span class="gear-slot-name">{{ item.slot }}</span>{% endif %}
                     <span class="gear-name-link">{{ item.name }}</span>
                     {% if item.itemLevel %}<span class="gear-ilvl">物品等级 {{ item.itemLevel }}</span>{% endif %}
                 </div>

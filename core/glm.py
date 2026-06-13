@@ -5,7 +5,9 @@ import time
 from urllib.parse import urljoin
 
 import requests
-from LMonitor.settings import ZHIYU_API_CONFIG
+from django.conf import settings as django_settings
+
+ZHIYU_API_CONFIG = getattr(django_settings, 'ZHIYU_API_CONFIG', {}) or {}
 
 try:
     from zai import ZhipuAiClient

@@ -13,7 +13,10 @@ import requests
 import json
 
 from utils.log import logger
-from LMonitor.settings import DIFY_API, DIFY_API_SECRET
+from django.conf import settings as django_settings
+
+DIFY_API = getattr(django_settings, 'DIFY_API', '')
+DIFY_API_SECRET = getattr(django_settings, 'DIFY_API_SECRET', '')
 
 
 class difyAiWebhook:

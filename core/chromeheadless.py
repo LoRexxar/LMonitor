@@ -24,9 +24,11 @@ import DrissionPage
 from urllib.parse import urlparse
 from django.conf import settings as django_settings
 
-from LMonitor.settings import CHROME_WEBDRIVER_PATH, PROXY_CONFIG
 from utils.base import random_string
 from utils.log import logger
+
+CHROME_WEBDRIVER_PATH = getattr(django_settings, 'CHROME_WEBDRIVER_PATH', '')
+PROXY_CONFIG = getattr(django_settings, 'PROXY_CONFIG', {}) or {}
 
 
 class ChromeDriver:

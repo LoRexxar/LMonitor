@@ -12,7 +12,7 @@ import requests
 import json
 import traceback
 
-from LMonitor.settings import GEWECHAT_CONFIG
+from django.conf import settings as django_settings
 from utils.log import logger
 from botend.models import GeWechatAuth, GeWechatRoomList
 
@@ -22,14 +22,15 @@ class GeWechatInterface:
     GeWechat的推送实现
     """
     def __init__(self):
-        self.config = GEWECHAT_CONFIG
-        self.callback_url = self.config['callback_url']
+        self.config = getattr(django_settings, 'GEWECHAT_CONFIG', {}) or {}
+        self.callback_url = self.config.get('callback_url', '')
         self.access_token = None
         self.appId = ""
         self.is_login = False
 
         self.s = requests.Session()
-        self.get_access_token()
+        if self.config.get('base_url'):
+            self.get_access_token()
 
         self.auth = GeWechatAuth.objects.filter(is_active=True).first()
         if self.auth:

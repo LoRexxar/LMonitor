@@ -13,7 +13,10 @@ import requests
 import json
 
 from utils.log import logger
-from LMonitor.settings import AIBOTK_WECHAT_SECRET, ACTIVE_WECHAT_GROUP
+from django.conf import settings as django_settings
+
+AIBOTK_WECHAT_SECRET = getattr(django_settings, 'AIBOTK_WECHAT_SECRET', {}) or {}
+ACTIVE_WECHAT_GROUP = getattr(django_settings, 'ACTIVE_WECHAT_GROUP', []) or []
 
 
 class AibotkWechatWebhook:

@@ -1,7 +1,9 @@
 import alibabacloud_oss_v2 as oss
 import os
-from LMonitor.settings import OSS_CONFIG
+from django.conf import settings as django_settings
 from utils.log import logger
+
+OSS_CONFIG = getattr(django_settings, 'OSS_CONFIG', {}) or {}
 
 def ossUpload(file_path: str):
 

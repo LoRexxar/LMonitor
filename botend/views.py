@@ -18,7 +18,8 @@ from botend.models import MonitorTask, MonitorWebhook
 from botend.monitor_env import filter_runnable_tasks
 from botend.plugin_sync import sync_monitortasks_from_plugin_list
 from LMonitor.config import Monitor_Type_BaseObject_List
-from LMonitor.settings import THREAD_LIMIT_NUM
+
+THREAD_LIMIT_NUM = int(getattr(django_settings, 'THREAD_LIMIT_NUM', 10))
 
 is_Block = False
 lock = threading.Lock()

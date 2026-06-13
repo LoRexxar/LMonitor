@@ -459,7 +459,11 @@ def _normalize_talent_nodes(talents):
 
         talent_id = raw.get('talent_id') or raw.get('talentID')
         spell_id = raw.get('spell_id') or raw.get('spellID') or talent_id
-        name = raw.get('name') or (f'Spell #{spell_id}' if spell_id else '未命名天赋')
+        raw_name = raw.get('name')
+        if raw_name and raw_name != 'Unknown Item':
+            name = raw_name
+        else:
+            name = f'技能ID {spell_id}' if spell_id else '未命名天赋'
         icon = raw.get('icon', '')
         result.append({
             'tree_type': raw.get('tree_type') or raw.get('treeType') or 'spec',
@@ -572,7 +576,7 @@ def _compute_talent_usage(records, top_n=20):
                     'tree_label': _talent_tree_label(key[0]),
                     'spell_id': node.get('spell_id'),
                     'talent_id': node.get('talent_id'),
-                    'name': node.get('name') or (f"Spell #{key[1]}"),
+                    'name': node.get('name') or (f"技能ID {key[1]}"),
                     'icon': node.get('icon', ''),
                     'count': 0,
                 }
@@ -596,9 +600,12 @@ def _normalize_gear_items(items):
         if not isinstance(raw, dict):
             continue
         slot = raw.get('slot', 'unknown')
+        item_name = raw.get('name') or '未知物品'
+        if item_name == 'Unknown Item':
+            item_name = '未知物品'
         result.append({
-            'slot': SLOT_CN.get(slot, slot),
-            'name': raw.get('name') or '未知物品',
+            'slot': SLOT_CN.get(slot, '' if slot == 'unknown' else slot),
+            'name': item_name,
             'id': raw.get('id') or raw.get('itemID') or raw.get('item_id'),
             'icon': raw.get('icon', ''),
             'itemLevel': raw.get('itemLevel') or raw.get('item_level'),

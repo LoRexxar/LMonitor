@@ -13,8 +13,10 @@ import time
 import threading
 import traceback
 
-from LMonitor.settings import THREADPOOL_MAX_THREAD_NUM
+from django.conf import settings as django_settings
 from utils.log import logger
+
+THREADPOOL_MAX_THREAD_NUM = int(getattr(django_settings, 'THREADPOOL_MAX_THREAD_NUM', 8))
 
 
 class ThreadPool:

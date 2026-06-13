@@ -12,7 +12,9 @@
 import requests
 import json
 
-from LMonitor.settings import QIYE_WECHAT_SECRET_LIST
+from django.conf import settings as django_settings
+
+QIYE_WECHAT_SECRET_LIST = getattr(django_settings, 'QIYE_WECHAT_SECRET_LIST', []) or []
 
 
 class QiyeWechatWebhook:
@@ -20,7 +22,7 @@ class QiyeWechatWebhook:
     企业微信的推送
     """
     def __init__(self):
-        self.secret = QIYE_WECHAT_SECRET_LIST[0]
+        self.secret = QIYE_WECHAT_SECRET_LIST[0] if QIYE_WECHAT_SECRET_LIST else {}
         self.access = {
         }
 

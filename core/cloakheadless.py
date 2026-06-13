@@ -11,10 +11,7 @@ try:
 except Exception:
     django_settings = None
 
-try:
-    from LMonitor.settings import PROXY_CONFIG
-except Exception:
-    PROXY_CONFIG = None
+PROXY_CONFIG = (getattr(django_settings, 'PROXY_CONFIG', {}) or {}) if django_settings else {}
 
 
 def _cleanup_stale_playwright_temp():
