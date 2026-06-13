@@ -1,4 +1,5 @@
 import os
+import gc
 import time
 import requests
 from django.core.management.base import BaseCommand
@@ -10,9 +11,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--size', type=str, default='all',
+            '--size', type=str, default='small',
             choices=['all', 'small', 'medium', 'tiny'],
-            help='要下载的图标尺寸 (默认: all 下载所有尺寸)'
+            help='要下载的图标尺寸 (默认: small)'
         )
 
     def handle(self, *args, **options):
@@ -20,42 +21,50 @@ class Command(BaseCommand):
 
         icons = set()
 
-        # Collect icon names from all relevant models
-        for model in [SpecDungeonRanking, SpecRaidRanking, PlayerSpecTopPlayer]:
-            for talents, gear in model.objects.values_list('talents_json', 'gear_json'):
-                if talents:
-                    for t in talents:
-                        if isinstance(t, dict) and t.get('icon'):
-                            icons.add(t['icon'])
-                if gear:
-                    for g in gear:
-                        if isinstance(g, dict) and g.get('icon'):
-                            icons.add(g['icon'])
+        # 分批收集 icon 名，避免一次性加载全部数据
+        models = [SpecDungeonRanking, SpecRaidRanking, PlayerSpecTopPlayer]
+        for model in models:
+            self.stdout.write(f'扫描 {model.__name__}...')
+            count = 0
+            # 用 iterator 逐条读取，不缓存到内存
+            for row in model.objects.values_list('talents_json', 'gear_json').iterator(chunk_size=200):
+                for json_data in row:
+                    if not json_data or not isinstance(json_data, list):
+                        continue
+                    for item in json_data:
+                        if isinstance(item, dict) and item.get('icon'):
+                            icons.add(item['icon'])
+                count += 1
+                if count % 1000 == 0:
+                    gc.collect()  # 主动回收内存
+
+            self.stdout.write(f'  {model.__name__}: {count} 条记录, {len(icons)} 个图标')
 
         icons.discard(None)
         icons.discard('')
-        self.stdout.write(f'Found {len(icons)} unique icons')
+        self.stdout.write(f'共发现 {len(icons)} 个唯一图标')
 
-        # Determine sizes to download
+        # 确定下载尺寸
         size = options['size']
         if size == 'all':
             sizes = ['small', 'medium', 'tiny']
         else:
             sizes = [size]
 
-        # BASE_DIR points to LMonitor/ (parent of LMonitor/settings.py)
         static_dir = os.path.join(settings.BASE_DIR, 'static', 'wow_icons')
         os.makedirs(static_dir, exist_ok=True)
 
         downloaded = 0
         skipped = 0
         failed = 0
+        total = len(icons) * len(sizes)
 
-        for icon_name in sorted(icons):
+        for i, icon_name in enumerate(sorted(icons)):
             for sz in sizes:
                 filename = f'{icon_name}.jpg'
-                filepath = os.path.join(static_dir, sz, filename)
-                os.makedirs(os.path.join(static_dir, sz), exist_ok=True)
+                sz_dir = os.path.join(static_dir, sz)
+                filepath = os.path.join(sz_dir, filename)
+                os.makedirs(sz_dir, exist_ok=True)
 
                 if os.path.exists(filepath):
                     skipped += 1
@@ -70,14 +79,17 @@ class Command(BaseCommand):
                         with open(filepath, 'wb') as f:
                             f.write(resp.content)
                         downloaded += 1
-                        self.stdout.write(f'  ✓ {sz}/{icon_name}.jpg')
                     else:
                         failed += 1
-                        self.stderr.write(f'  ✗ {sz}/{icon_name}.jpg (HTTP {resp.status_code})')
-                    time.sleep(0.1)  # rate limit
+                    time.sleep(0.05)  # rate limit
                 except Exception as e:
                     failed += 1
-                    self.stderr.write(f'  ✗ {sz}/{icon_name}.jpg ({e})')
+                    self.stderr.write(f'  ✗ {sz}/{icon_name}: {e}')
+
+            # 进度
+            done = (i + 1) * len(sizes)
+            if (i + 1) % 50 == 0 or i == len(icons) - 1:
+                self.stdout.write(f'  进度: {done}/{total} (下载 {downloaded}, 跳过 {skipped}, 失败 {failed})')
 
         self.stdout.write(self.style.SUCCESS(
             f'完成: {downloaded} 已下载, {skipped} 已跳过, {failed} 失败'
