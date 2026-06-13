@@ -33,7 +33,9 @@ class Command(BaseCommand):
                         continue
                     for item in json_data:
                         if isinstance(item, dict) and item.get('icon'):
-                            icons.add(item['icon'])
+                            normalized = self._normalize_icon_name(item['icon'])
+                            if normalized:
+                                icons.add(normalized)
                 count += 1
                 if count % 1000 == 0:
                     gc.collect()  # 主动回收内存
@@ -94,3 +96,14 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'完成: {downloaded} 已下载, {skipped} 已跳过, {failed} 失败'
         ))
+
+    @staticmethod
+    def _normalize_icon_name(icon_name):
+        icon_name = str(icon_name or '').strip()
+        if not icon_name:
+            return ''
+        icon_name = icon_name.split('?', 1)[0].strip()
+        icon_name = icon_name.rsplit('/', 1)[-1]
+        if '.' in icon_name:
+            icon_name = icon_name.rsplit('.', 1)[0]
+        return icon_name.strip()

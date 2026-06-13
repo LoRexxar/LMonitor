@@ -83,7 +83,7 @@ class SpecStatsService:
             class_name=player.class_name,
             spec_name=player.spec_name,
         )
-        normalized_gear = _resolve_player_gear(player)
+        gear_payload = _resolve_player_gear(player)
         player_stats = player.stats_json or {}
 
         return {
@@ -102,11 +102,13 @@ class SpecStatsService:
             'profile_url': player.profile_url,
             'achievement_points': player.achievement_points,
             'item_level': player.item_level,
-            'gear': normalized_gear,
+            'gear': gear_payload['items'],
+            'gear_source': gear_payload['source'],
             'talents': talent_vm['nodes'],
             'talent_groups': talent_vm['trees'],
             'talent_code': talent_vm['build_code'],
             'stats': player_stats,
+            'stats_source': _describe_player_stats_source(player),
             'last_updated': player.last_updated,
         }
 
@@ -569,7 +571,10 @@ def _normalize_gear_items(items):
 def _resolve_player_gear(player):
     gear_items = player.gear_json or []
     if gear_items:
-        return _normalize_gear_items(gear_items)
+        return {
+            'items': _normalize_gear_items(gear_items),
+            'source': '人物榜 Monitor 落库',
+        }
 
     ranking = SpecDungeonRanking.objects.filter(
         character_name=player.character_name,
@@ -582,7 +587,27 @@ def _resolve_player_gear(player):
             class_name=player.class_name,
             spec_name=player.spec_name,
         ).exclude(gear_json='[]').first()
-    return _normalize_gear_items(getattr(ranking, 'gear_json', []) or [])
+    if ranking:
+        return {
+            'items': _normalize_gear_items(getattr(ranking, 'gear_json', []) or []),
+            'source': '本地 WCL 榜单回填',
+        }
+    return {
+        'items': [],
+        'source': '暂无稳定装备来源',
+    }
+
+
+def _describe_player_stats_source(player):
+    if player.stats_json:
+        return 'Battle.net 属性 Monitor 已采集'
+    if (player.region or '').lower() == 'cn':
+        return '国服未接 Battle.net 属性源'
+    if player.stats_crawl_status == -1:
+        return 'Battle.net 属性 Monitor 采集失败'
+    if player.stats_crawl_status == 0:
+        return 'Battle.net 属性 Monitor 待采集'
+    return '暂无稳定属性来源'
 def _compute_gear_popularity(records, top_n=5):
     """计算装备选取率（每个槽位 Top N）"""
     slot_items = {}  # slot → Counter(itemID)

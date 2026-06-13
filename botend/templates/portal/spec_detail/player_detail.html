@@ -48,6 +48,7 @@
 
         <section class="detail-card">
             <h3>属性面板</h3>
+            <p class="source-note">{{ player_detail.stats_source }}</p>
             {% if player_detail.stats %}
             <div class="stats-grid">
                 {% if player_detail.stats.strength %}<div class="stat-item"><span class="stat-name">力量</span><span class="stat-val">{{ player_detail.stats.strength }}</span></div>{% endif %}
@@ -122,6 +123,7 @@
     {% if player_detail.gear %}
     <section class="detail-card detail-card--full">
         <h3>装备</h3>
+        <p class="source-note">{{ player_detail.gear_source }}</p>
         <div class="gear-grid-detail">
             {% for item in player_detail.gear %}
             <a href="{% if item.id %}https://www.wowhead.com/item={{ item.id }}{% else %}#{% endif %}" target="_blank" class="gear-item-detail">
@@ -198,6 +200,7 @@
 .overview-item strong, .stat-val { color: #f8fafc; font-size: 18px; font-weight: 700; }
 .stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .empty-note { color: #94a3b8; font-size: 13px; line-height: 1.6; margin: 0; }
+.source-note { color: #64748b; font-size: 12px; margin: 6px 0 14px; }
 .section-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
 .section-head p { margin: 6px 0 0; color: #94a3b8; }
 .talent-code-box { max-width: 380px; background: rgba(30,41,59,.84); border: 1px solid rgba(148,163,184,.12); border-radius: 14px; padding: 10px 12px; }
