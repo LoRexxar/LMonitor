@@ -46,9 +46,9 @@
             </div>
         </section>
 
-        {% if player_detail.stats %}
         <section class="detail-card">
             <h3>属性面板</h3>
+            {% if player_detail.stats %}
             <div class="stats-grid">
                 {% if player_detail.stats.strength %}<div class="stat-item"><span class="stat-name">力量</span><span class="stat-val">{{ player_detail.stats.strength }}</span></div>{% endif %}
                 {% if player_detail.stats.agility %}<div class="stat-item"><span class="stat-name">敏捷</span><span class="stat-val">{{ player_detail.stats.agility }}</span></div>{% endif %}
@@ -59,8 +59,10 @@
                 {% if player_detail.stats.mastery %}<div class="stat-item"><span class="stat-name">精通</span><span class="stat-val">{{ player_detail.stats.mastery.pct|floatformat:1 }}%</span></div>{% endif %}
                 {% if player_detail.stats.versatility %}<div class="stat-item"><span class="stat-name">全能</span><span class="stat-val">{{ player_detail.stats.versatility.pct|floatformat:1 }}%</span></div>{% endif %}
             </div>
+            {% else %}
+            <p class="empty-note">当前角色暂未抓到 Battle.net 属性面板，已先展示可用的装备与天赋数据。</p>
+            {% endif %}
         </section>
-        {% endif %}
     </div>
 
     {% if player_detail.talent_groups %}
@@ -134,6 +136,12 @@
                     {% if item.slot %}<span class="gear-slot-name">{{ item.slot }}</span>{% endif %}
                     <span class="gear-name-link">{{ item.name }}</span>
                     {% if item.itemLevel %}<span class="gear-ilvl">物品等级 {{ item.itemLevel }}</span>{% endif %}
+                    {% if item.gems %}
+                    <span class="gear-extra-meta">宝石 {{ item.gems|length }} 个</span>
+                    {% endif %}
+                    {% if item.bonusIDs %}
+                    <span class="gear-extra-meta">BonusIDs: {{ item.bonusIDs|join:", " }}</span>
+                    {% endif %}
                 </div>
             </a>
             {% endfor %}
@@ -189,6 +197,7 @@
 .overview-item span, .stat-name { display: block; color: #94a3b8; font-size: 12px; margin-bottom: 6px; }
 .overview-item strong, .stat-val { color: #f8fafc; font-size: 18px; font-weight: 700; }
 .stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.empty-note { color: #94a3b8; font-size: 13px; line-height: 1.6; margin: 0; }
 .section-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
 .section-head p { margin: 6px 0 0; color: #94a3b8; }
 .talent-code-box { max-width: 380px; background: rgba(30,41,59,.84); border: 1px solid rgba(148,163,184,.12); border-radius: 14px; padding: 10px 12px; }
@@ -254,6 +263,7 @@
 .gear-slot-name { color: #94a3b8; font-size: 12px; margin-bottom: 2px; text-transform: capitalize; }
 .gear-name-link { color: #f8fafc; font-weight: 700; margin-bottom: 2px; }
 .gear-ilvl { color: #86efac; font-size: 12px; }
+.gear-extra-meta { display: block; color: #94a3b8; font-size: 11px; margin-top: 3px; word-break: break-word; }
 .dot { width: 4px; height: 4px; border-radius: 50%; background: #475569; display: inline-block; }
 @media (max-width: 900px) {
     .player-hero-card, .section-head { flex-direction: column; }

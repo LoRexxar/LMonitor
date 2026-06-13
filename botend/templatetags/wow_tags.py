@@ -14,6 +14,12 @@ def wow_icon(icon_name, size='small'):
     """
     if not icon_name:
         return ''
+    icon_name = str(icon_name).strip()
+    if not icon_name:
+        return ''
+    if '.' in icon_name:
+        icon_name = icon_name.rsplit('/', 1)[-1]
+        icon_name = icon_name.rsplit('.', 1)[0]
 
     local_rel = os.path.join('wow_icons', size, f'{icon_name}.jpg')
     full_path = os.path.join(settings.BASE_DIR, 'static', local_rel)

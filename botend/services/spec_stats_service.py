@@ -83,7 +83,8 @@ class SpecStatsService:
             class_name=player.class_name,
             spec_name=player.spec_name,
         )
-        normalized_gear = _normalize_gear_items(player.gear_json or [])
+        normalized_gear = _resolve_player_gear(player)
+        player_stats = _ensure_player_stats(player)
 
         return {
             'id': player.id,
@@ -105,7 +106,7 @@ class SpecStatsService:
             'talents': talent_vm['nodes'],
             'talent_groups': talent_vm['trees'],
             'talent_code': talent_vm['build_code'],
-            'stats': player.stats_json or {},
+            'stats': player_stats,
             'last_updated': player.last_updated,
         }
 
@@ -531,6 +532,11 @@ def _compute_talent_usage(records, class_name, spec_name, top_n=20):
 
 def _normalize_gear_items(items):
     """统一装备展示字段并过滤明显无效项。"""
+    default_slots = [
+        'head', 'neck', 'shoulder', 'shirt', 'chest', 'waist', 'legs', 'feet',
+        'wrist', 'hands', 'finger1', 'finger2', 'trinket1', 'trinket2',
+        'back', 'main_hand', 'off_hand', 'tabard',
+    ]
     result = []
     for raw in items or []:
         if not isinstance(raw, dict):
@@ -539,17 +545,74 @@ def _normalize_gear_items(items):
         item_name = raw.get('name') or '未知物品'
         if item_name == 'Unknown Item':
             item_name = '未知物品'
+        icon = raw.get('icon', '')
+        if isinstance(icon, str) and '.' in icon:
+            icon = icon.rsplit('/', 1)[-1].rsplit('.', 1)[0]
         result.append({
             'slot': SLOT_CN.get(slot, '' if slot == 'unknown' else slot),
             'name': item_name,
             'id': raw.get('id') or raw.get('itemID') or raw.get('item_id'),
-            'icon': raw.get('icon', ''),
+            'icon': icon,
             'itemLevel': raw.get('itemLevel') or raw.get('item_level'),
             'quality': raw.get('quality', ''),
             'bonusIDs': raw.get('bonusIDs', []),
             'gems': raw.get('gems', []),
         })
+    if result and all(item.get('slot') in ('', '未知') for item in result):
+        for idx, item in enumerate(result):
+            if idx >= len(default_slots):
+                break
+            item['slot'] = SLOT_CN.get(default_slots[idx], default_slots[idx])
     return result
+
+
+def _resolve_player_gear(player):
+    gear_items = player.gear_json or []
+    if gear_items:
+        return _normalize_gear_items(gear_items)
+
+    ranking = SpecDungeonRanking.objects.filter(
+        character_name=player.character_name,
+        class_name=player.class_name,
+        spec_name=player.spec_name,
+    ).exclude(gear_json='[]').first()
+    if not ranking:
+        ranking = SpecRaidRanking.objects.filter(
+            character_name=player.character_name,
+            class_name=player.class_name,
+            spec_name=player.spec_name,
+        ).exclude(gear_json='[]').first()
+    return _normalize_gear_items(getattr(ranking, 'gear_json', []) or [])
+
+
+def _ensure_player_stats(player):
+    stats = player.stats_json or {}
+    if stats:
+        return stats
+    if (player.region or '').lower() == 'cn':
+        return {}
+    if not player.realm or not player.character_name or not player.region:
+        return {}
+
+    try:
+        from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
+
+        helper = SpecDetailBase(None, None)
+        data = helper.fetch_battlenet_stats(player.realm, player.character_name, player.region)
+        stats = helper.parse_battlenet_stats(data) or {}
+    except Exception:
+        stats = {}
+
+    if stats:
+        player.stats_json = stats
+        player.stats_crawl_status = 1
+        player.save(update_fields=['stats_json', 'stats_crawl_status'])
+        return stats
+
+    if player.stats_crawl_status == 0:
+        player.stats_crawl_status = -1
+        player.save(update_fields=['stats_crawl_status'])
+    return {}
 
 
 def _compute_gear_popularity(records, top_n=5):
