@@ -107,22 +107,21 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         return max(mplus_zones, key=lambda z: z['id'])
 
     def _find_all_raid_zones(self, zones):
-        """从数据库读取已配置的团本区域 ID，从 WCL zones 中匹配详情"""
-        # 读取当前赛季已配置的团本区域
+        """从数据库读取已配置的团本区域 ID，从 WCL zones 中匹配详情。
+        
+        注意：始终从 WCL zones 匹配，不读 raid_zones 缓存。
+        因为旧赛季的 raid_zones 可能存了错误的 zone 数据（如 TWW zone），
+        必须用 raid_zone_id 从最新的 WCL zones 中重新匹配。
+        """
         season = SeasonMeta.objects.filter(is_active=True).first()
-        if not season:
+        if not season or not season.raid_zone_id:
             return []
         
-        # 如果 raid_zones 已经有数据，直接返回
-        if season.raid_zones:
-            return season.raid_zones
-        
-        # 兜底：用 raid_zone_id 从 WCL zones 中匹配
-        if not season.raid_zone_id:
-            return []
         zone_map = {z['id']: z for z in zones}
         if season.raid_zone_id in zone_map:
             return [zone_map[season.raid_zone_id]]
+        
+        logger.warning(f"[SpecDetailSeason] raid_zone_id={season.raid_zone_id} 在 WCL zones 中未找到")
         return []
 
     def _fetch_encounters(self, zone_id):
