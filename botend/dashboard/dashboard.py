@@ -229,6 +229,17 @@ class DashboardView(View):
                 return self.delete_table_row(data)
             elif action == 'create_table_row':
                 return self.create_table_row(data)
+            elif action == 'force_run_task':
+                task_id = data.get('task_id')
+                if not task_id:
+                    return JsonResponse({'success': False, 'error': '缺少 task_id'})
+                try:
+                    task = MonitorTask.objects.get(id=task_id)
+                    task.last_scan_time = datetime.datetime(2000, 1, 1)  # force scheduler to pick it up
+                    task.save(update_fields=['last_scan_time'])
+                    return JsonResponse({'success': True, 'message': f'任务 {task.name} 已标记重跑，将在下个调度周期执行'})
+                except MonitorTask.DoesNotExist:
+                    return JsonResponse({'success': False, 'error': '任务不存在'})
             else:
                 return JsonResponse({"status": "error", "message": f"未知操作: {action}"})
             

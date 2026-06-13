@@ -1971,6 +1971,20 @@ function displayTableData(data, fields) {
                         </button>
                     </div>
                 `;
+            } else if (currentTableName === 'MonitorTask') {
+                actionTd.innerHTML = `
+                    <div class="flex space-x-2">
+                        <button class="edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-row-id="${rowId}">
+                            <i class="fas fa-edit mr-1"></i>编辑
+                        </button>
+                        <button class="rerun-btn text-orange-600 hover:text-orange-900 transition-colors duration-200" data-row-id="${rowId}">
+                            <i class="fas fa-play mr-1"></i>重跑
+                        </button>
+                        <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
+                            <i class="fas fa-trash mr-1"></i>删除
+                        </button>
+                    </div>
+                `;
             } else {
                 actionTd.innerHTML = `
                     <div class="flex space-x-2">
@@ -2014,6 +2028,34 @@ function bindTableActions() {
             if (confirm('确定要删除这条记录吗？')) {
                 deleteTableRow(rowId);
             }
+        });
+    });
+
+    // 绑定MonitorTask重跑按钮事件
+    document.querySelectorAll('.rerun-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const rowId = this.getAttribute('data-row-id');
+            if (!confirm('确认重跑此任务？')) return;
+            const csrfToken = getCSRFToken();
+            if (!csrfToken) {
+                alert('无法获取CSRF令牌，请刷新页面');
+                return;
+            }
+            fetch('/dashboard/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({ action: 'force_run_task', task_id: parseInt(rowId) })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            })
+            .catch(err => showMessage('请求失败', 'error'));
         });
     });
     
