@@ -107,34 +107,29 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         return max(mplus_zones, key=lambda z: z['id'])
 
     def _find_all_raid_zones(self, zones):
-        """找到当前赛季的 Raid zones（排除 M+、Delves 等），取最新 M+ zone ID 附近的团本"""
-        exclude_keywords = ['Mythic+', 'Delves', 'Challenge', 'Torghast']
+        """根据手动配置的赛季 → 团本 ID 映射查找团本区域"""
+        # 手动维护：M+ zone ID → 对应的 raid zone ID 列表
+        # 新赛季时只需在这里加一行
+        MPLUS_TO_RAIDS = {
+            37: [35],       # DF S4: Amirdrassil
+            39: [38],       # TWW S1: Nerub-ar Palace
+            43: [42],       # TWW S2: Liberation of Undermine
+            45: [44],       # TWW S3: Manaforge Omega
+            47: [46],       # MN S1: VS / DR / MQD
+        }
         
-        # 找最新的 M+ zone
-        mplus_zones = sorted(
-            [z for z in zones if 'Mythic+' in (z.get('name') or '')],
-            key=lambda z: z['id']
-        )
+        # 找最新 M+ zone
+        mplus_zones = [z for z in zones if 'Mythic+' in (z.get('name') or '')]
         if not mplus_zones:
             return []
+        latest_mplus = max(mplus_zones, key=lambda z: z['id'])
         
-        latest_mplus_id = mplus_zones[-1]['id']
-        
-        # 策略：当前 expansion 的 raid zone ID 紧邻 M+ zone ID
-        # 例如 MN: raid=46, M+=47; TWW S3: raid=44, M+=45
-        # 取 ID >= latest_mplus_id - 2 且非 M+/Delves 的 zone
-        # 这样能同时拿到当前 expansion 的所有 raid zone（通常 1-3 个）
-        min_raid_id = latest_mplus_id - 2
-        
-        raid_zones = [
-            z for z in zones
-            if not any(kw in (z.get('name') or '') for kw in exclude_keywords)
-            and z.get('id', 0) >= min_raid_id
-            and z.get('id', 0) < latest_mplus_id  # 排除 M+ zone 本身
-        ]
-        if not raid_zones:
+        raid_ids = MPLUS_TO_RAIDS.get(latest_mplus['id'])
+        if not raid_ids:
             return []
-        return sorted(raid_zones, key=lambda z: z['id'])
+        
+        zone_map = {z['id']: z for z in zones}
+        return [zone_map[rid] for rid in raid_ids if rid in zone_map]
 
     def _fetch_encounters(self, zone_id):
         """获取 zone 下的所有 encounters"""
