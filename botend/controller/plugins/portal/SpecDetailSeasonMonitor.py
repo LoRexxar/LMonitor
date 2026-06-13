@@ -107,27 +107,34 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         return max(mplus_zones, key=lambda z: z['id'])
 
     def _find_all_raid_zones(self, zones):
-        """找到当前赛季的 Raid zones（排除 M+、Delves 等），取最近 3 个正式团本"""
-        exclude_keywords = ['Mythic+', 'Delves', 'Challenge', 'Torghast', 'VS / DR']
+        """找到当前赛季的 Raid zones（排除 M+、Delves 等），取最新 M+ zone ID 附近的团本"""
+        exclude_keywords = ['Mythic+', 'Delves', 'Challenge', 'Torghast']
         
-        # 所有候选 raid zones（排除非团本）
-        candidate_zones = [
-            z for z in zones
-            if not any(kw in (z.get('name') or '') for kw in exclude_keywords)
-            and z.get('id', 0) > 30
-        ]
-        
-        # 按 ID 降序，取最近的 3 个正式团本
-        # 排除 Blackrock Depths (ID=40) 等特殊团本（非正式赛季团本）
-        SPECIAL_RAIDS = {'Blackrock Depths'}
-        formal_zones = [z for z in candidate_zones if z['name'] not in SPECIAL_RAIDS]
-        
-        if not formal_zones:
+        # 找最新的 M+ zone
+        mplus_zones = sorted(
+            [z for z in zones if 'Mythic+' in (z.get('name') or '')],
+            key=lambda z: z['id']
+        )
+        if not mplus_zones:
             return []
         
-        # 取最近 3 个
-        result = sorted(formal_zones, key=lambda z: z['id'], reverse=True)[:3]
-        return sorted(result, key=lambda z: z['id'])
+        latest_mplus_id = mplus_zones[-1]['id']
+        
+        # 策略：当前 expansion 的 raid zone ID 紧邻 M+ zone ID
+        # 例如 MN: raid=46, M+=47; TWW S3: raid=44, M+=45
+        # 取 ID >= latest_mplus_id - 2 且非 M+/Delves 的 zone
+        # 这样能同时拿到当前 expansion 的所有 raid zone（通常 1-3 个）
+        min_raid_id = latest_mplus_id - 2
+        
+        raid_zones = [
+            z for z in zones
+            if not any(kw in (z.get('name') or '') for kw in exclude_keywords)
+            and z.get('id', 0) >= min_raid_id
+            and z.get('id', 0) < latest_mplus_id  # 排除 M+ zone 本身
+        ]
+        if not raid_zones:
+            return []
+        return sorted(raid_zones, key=lambda z: z['id'])
 
     def _fetch_encounters(self, zone_id):
         """获取 zone 下的所有 encounters"""

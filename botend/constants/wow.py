@@ -196,9 +196,12 @@ DUNGEON_CN = {
 
 # 团本区域英文 → 中文
 RAID_ZONE_CN = {
+    # TWW
     "Nerub-ar Palace": "尼鲁巴尔王宫",
     "Liberation of Undermine": "安德麦解放战",
     "Manaforge Omega": "法力熔炉：欧米伽",
+    # MN S1
+    "VS / DR / MQD": "午夜之殿",
 }
 
 RAID_BOSS_CN = {
@@ -229,6 +232,16 @@ RAID_BOSS_CN = {
     "Fractillus": "碎裂者",
     "Nexus-King Salhadaar": "节点之王萨哈达尔",
     "Dimensius, the All-Devouring": "万噬者迪曼修斯",
+    # MN S1 (午夜之殿)
+    "Imperator Averzian": "帝王艾弗齐安",
+    "Vorasius": "沃拉修斯",
+    "Fallen-King Salhadaar": "堕落之王萨哈达尔",
+    "Vaelgor & Ezzorak": "瓦尔戈与艾佐拉克",
+    "Lightblinded Vanguard": "炫光先锋",
+    "Crown of the Cosmos": "宇宙之冠",
+    "Chimaerus, the Undreamt God": "奇美罗斯，未梦之神",
+    "Belo'ren, Child of Al'ar": "贝洛伦，奥之子",
+    "Midnight Falls": "午夜陨落",
 }
 
 # 装备槽位英文 → 中文
