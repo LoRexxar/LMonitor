@@ -28,33 +28,66 @@ class Command(BaseCommand):
             self.stdout.write(f"top_player 总数: {total}, 已有结构化天赋: {already_structured}")
 
             # 2. 从 dungeon_ranking 匹配更新（优先，数据最全）
+            #    用子查询避免 MySQL UPDATE JOIN 限制
             cur.execute("""
                 UPDATE wow_spec_top_player tp
-                JOIN wow_spec_dungeon_ranking dr ON (
-                    dr.character_name = tp.character_name
-                    AND dr.class_name = tp.class_name
-                    AND dr.spec_name = tp.spec_name
+                SET tp.talents_json = (
+                    SELECT dr.talents_json FROM wow_spec_dungeon_ranking dr
+                    WHERE dr.character_name = tp.character_name
+                      AND dr.class_name = tp.class_name
+                      AND dr.spec_name = tp.spec_name
+                      AND dr.talents_json IS NOT NULL
+                      AND dr.talents_json != '[]'
+                    LIMIT 1
+                ),
+                tp.gear_json = (
+                    SELECT dr.gear_json FROM wow_spec_dungeon_ranking dr
+                    WHERE dr.character_name = tp.character_name
+                      AND dr.class_name = tp.class_name
+                      AND dr.spec_name = tp.spec_name
+                      AND dr.gear_json IS NOT NULL
+                      AND dr.gear_json != '[]'
+                    LIMIT 1
                 )
-                SET tp.talents_json = dr.talents_json,
-                    tp.gear_json = dr.gear_json
-                WHERE tp.talents_json NOT LIKE '%%"talentID"%%'
-                   OR tp.gear_json = '[]'
+                WHERE (tp.talents_json NOT LIKE '%%"talentID"%%' OR tp.gear_json = '[]')
+                  AND EXISTS (
+                    SELECT 1 FROM wow_spec_dungeon_ranking dr2
+                    WHERE dr2.character_name = tp.character_name
+                      AND dr2.class_name = tp.class_name
+                      AND dr2.spec_name = tp.spec_name
+                  )
             """)
             dungeon_updated = cur.rowcount
             self.stdout.write(f"  从 dungeon_ranking 更新: {dungeon_updated} 条")
 
-            # 3. 从 raid_ranking 匹配更新（补充 dungeon 没覆盖的）
+            # 3. 从 raid_ranking 补充（dungeon 没覆盖的）
             cur.execute("""
                 UPDATE wow_spec_top_player tp
-                JOIN wow_spec_raid_ranking rr ON (
-                    rr.character_name = tp.character_name
-                    AND rr.class_name = tp.class_name
-                    AND rr.spec_name = tp.spec_name
+                SET tp.talents_json = (
+                    SELECT rr.talents_json FROM wow_spec_raid_ranking rr
+                    WHERE rr.character_name = tp.character_name
+                      AND rr.class_name = tp.class_name
+                      AND rr.spec_name = tp.spec_name
+                      AND rr.talents_json IS NOT NULL
+                      AND rr.talents_json != '[]'
+                    LIMIT 1
+                ),
+                tp.gear_json = (
+                    SELECT rr.gear_json FROM wow_spec_raid_ranking rr
+                    WHERE rr.character_name = tp.character_name
+                      AND rr.class_name = tp.class_name
+                      AND rr.spec_name = tp.spec_name
+                      AND rr.gear_json IS NOT NULL
+                      AND rr.gear_json != '[]'
+                    LIMIT 1
                 )
-                SET tp.talents_json = rr.talents_json,
-                    tp.gear_json = rr.gear_json
-                WHERE tp.talents_json NOT LIKE '%%"talentID"%%'
-                   OR tp.gear_json = '[]'
+                WHERE (tp.talents_json NOT LIKE '%%"talentID"%%' OR tp.gear_json = '[]')
+                  AND EXISTS (
+                    SELECT 1 FROM wow_spec_raid_ranking rr2
+                    WHERE rr2.character_name = tp.character_name
+                      AND rr2.class_name = tp.class_name
+                      AND rr2.spec_name = tp.spec_name
+                  )
             """)
             raid_updated = cur.rowcount
             self.stdout.write(f"  从 raid_ranking 补充: {raid_updated} 条")
@@ -68,7 +101,7 @@ class Command(BaseCommand):
 
             cur.execute("""
                 SELECT COUNT(*) FROM wow_spec_top_player
-                WHERE gear_json != '[]' AND gear_json IS NOT NULL AND gear_json != ''
+                WHERE gear_json IS NOT NULL AND gear_json != '[]'
             """)
             has_gear = cur.fetchone()[0]
 
