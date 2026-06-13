@@ -13,6 +13,12 @@ from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMoni
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata, WowWagoMonitorState
 
 
+HERO_SUBTREE_NAME_ZH = {
+    'Shado-Pan': '影踪派',
+    'Conduit of the Celestials': '天神御师',
+}
+
+
 class Command(BaseCommand):
     help = '使用 wago.tools DB2 回填天赋相关 spell 中文名，并同步到天赋元数据缓存'
 
@@ -136,6 +142,7 @@ class Command(BaseCommand):
         if entry:
             definition_id = int(entry.get('TraitDefinitionID') or 0)
             max_ranks = int(entry.get('MaxRanks') or 1)
+            subtree_id = int(entry.get('TraitSubTreeID') or 0)
             definition = monitor._fetch_db2_row_by_id_requests('TraitDefinition', build, definition_id) if definition_id else {}
             resolved['max_points'] = max_ranks
             display_spell_id = int(
@@ -162,6 +169,12 @@ class Command(BaseCommand):
                     resolved['name_zh'] = name_zh
                     resolved['icon'] = (row.icon or '').strip() or self._resolve_spell_icon(monitor, build, display_spell_id, definition)
                     return resolved
+
+            subtree_name = self._resolve_subtree_name(monitor, build, subtree_id)
+            if subtree_name:
+                resolved['name'] = subtree_name
+                resolved['name_zh'] = subtree_name
+                return resolved
 
         direct_spell_id = int(row.spell_id or 0)
         if direct_spell_id > 0:
@@ -270,6 +283,16 @@ class Command(BaseCommand):
         rows = data if isinstance(data, list) else []
         self._db2_filter_cache[cache_key] = rows
         return rows
+
+    def _resolve_subtree_name(self, monitor, build, subtree_id):
+        subtree_id = self._coerce_int(subtree_id, 0) or 0
+        if subtree_id <= 0:
+            return ''
+        row = monitor._fetch_db2_row_by_id_requests('TraitSubTree', build, subtree_id)
+        raw_name = (row.get('Name_lang') or '').strip()
+        if not raw_name:
+            return ''
+        return HERO_SUBTREE_NAME_ZH.get(raw_name, raw_name)
 
     def _resolve_icon_name_by_filedata(self, file_data_id):
         if not file_data_id:
