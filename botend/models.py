@@ -908,3 +908,37 @@ class SpecRaidRanking(models.Model):
 
     def __str__(self):
         return f"{self.character_name} - {self.boss_name} ({self.spec_name}) {self.dps}"
+
+
+class WowTalentNodeMetadata(models.Model):
+    """WoW 天赋节点元数据缓存，用于树形展示和名称/图标补全。"""
+    class_name = models.CharField(max_length=30, default="", blank=True)
+    spec_name = models.CharField(max_length=30, default="", blank=True)
+    tree_type = models.CharField(max_length=16, default="spec", blank=True)
+    node_id = models.BigIntegerField(null=True, blank=True)
+    spell_id = models.BigIntegerField(null=True, blank=True)
+    talent_id = models.BigIntegerField(null=True, blank=True)
+    name = models.CharField(max_length=255, default="", blank=True)
+    name_zh = models.CharField(max_length=255, default="", blank=True)
+    icon = models.CharField(max_length=255, default="", blank=True)
+    row = models.IntegerField(null=True, blank=True)
+    column = models.IntegerField(null=True, blank=True)
+    max_points = models.IntegerField(default=1)
+    parents_json = models.JSONField(default=list, blank=True)
+    source = models.CharField(max_length=32, default="derived", blank=True)
+    last_updated = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'wow_talent_node_metadata'
+        app_label = 'botend'
+        verbose_name = 'WoW天赋节点元数据'
+        verbose_name_plural = 'WoW天赋节点元数据'
+        unique_together = (('class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id'),)
+        indexes = [
+            models.Index(fields=['class_name', 'spec_name', 'tree_type'], name='idx_talent_meta_spec'),
+            models.Index(fields=['spell_id'], name='idx_talent_meta_spell'),
+            models.Index(fields=['talent_id'], name='idx_talent_meta_talent'),
+        ]
+
+    def __str__(self):
+        return f"{self.class_name}/{self.spec_name}/{self.tree_type}/{self.node_id or self.spell_id}"

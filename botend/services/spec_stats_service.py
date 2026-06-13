@@ -4,13 +4,15 @@
 从原始数据表计算统计值（avg/median/p25/p75/选取率/分布）
 """
 
-from collections import Counter, defaultdict
+from collections import Counter
 from django.db.models import Avg, Max, Min, StdDev
 
 from botend.models import (
     SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking
 )
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN
+from botend.wow.talents.parser import normalize_talent_payload
+from botend.wow.talents.view_model import build_talent_view_model
 
 
 class SpecStatsService:
@@ -76,8 +78,11 @@ class SpecStatsService:
         if not player:
             return None
 
-        normalized_talents = _normalize_talent_nodes(player.talents_json or [])
-        talent_groups = _group_talent_nodes(normalized_talents)
+        talent_vm = build_talent_view_model(
+            player.talents_json or [],
+            class_name=player.class_name,
+            spec_name=player.spec_name,
+        )
         normalized_gear = _normalize_gear_items(player.gear_json or [])
 
         return {
@@ -97,9 +102,9 @@ class SpecStatsService:
             'achievement_points': player.achievement_points,
             'item_level': player.item_level,
             'gear': normalized_gear,
-            'talents': normalized_talents,
-            'talent_groups': talent_groups,
-            'talent_code': next((t.get('talent_code') for t in normalized_talents if t.get('talent_code')), ''),
+            'talents': talent_vm['nodes'],
+            'talent_groups': talent_vm['trees'],
+            'talent_code': talent_vm['build_code'],
             'stats': player.stats_json or {},
             'last_updated': player.last_updated,
         }
@@ -223,7 +228,7 @@ class SpecStatsService:
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
-        stats['talent_usage'] = _compute_talent_usage(records, top_n=talent_limit)
+        stats['talent_usage'] = _compute_talent_usage(records, class_name, spec_name, top_n=talent_limit)
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
         if full:
@@ -370,7 +375,7 @@ class SpecStatsService:
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
-        stats['talent_usage'] = _compute_talent_usage(records, top_n=talent_limit)
+        stats['talent_usage'] = _compute_talent_usage(records, class_name, spec_name, top_n=talent_limit)
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
         if full:
@@ -436,89 +441,6 @@ def _lookup_dungeon_cn(name):
     return name
 
 
-def _normalize_talent_nodes(talents):
-    """兼容多种旧格式的天赋节点，统一成可展示结构。"""
-    result = []
-    for raw in talents or []:
-        if isinstance(raw, str):
-            result.append({
-                'tree_type': 'build_code',
-                'talent_code': raw,
-                'talent_id': None,
-                'spell_id': None,
-                'name': 'Talent Loadout',
-                'icon': '',
-                'points': 0,
-                'row': None,
-                'column': None,
-            })
-            continue
-
-        if not isinstance(raw, dict):
-            continue
-
-        talent_id = raw.get('talent_id') or raw.get('talentID')
-        spell_id = raw.get('spell_id') or raw.get('spellID') or talent_id
-        raw_name = raw.get('name')
-        if raw_name and raw_name != 'Unknown Item':
-            name = raw_name
-        else:
-            name = f'技能ID {spell_id}' if spell_id else '未命名天赋'
-        icon = raw.get('icon', '')
-        result.append({
-            'tree_type': raw.get('tree_type') or raw.get('treeType') or 'spec',
-            'talent_code': raw.get('talent_code', ''),
-            'talent_id': talent_id,
-            'spell_id': spell_id,
-            'name': name,
-            'icon': icon,
-            'points': raw.get('points', 0) or 0,
-            'row': raw.get('row') if raw.get('row') is not None else raw.get('tier'),
-            'column': raw.get('column'),
-        })
-    return result
-
-
-def _group_talent_nodes(nodes):
-    """按树类型分组，便于模板展示。"""
-    groups = defaultdict(list)
-    for node in nodes:
-        tree_type = node.get('tree_type') or 'spec'
-        groups[tree_type].append(node)
-
-    ordered = []
-    for key in ['class', 'spec', 'hero', 'build_code']:
-        if groups.get(key):
-            ordered.append({
-                'key': key,
-                'label': _talent_tree_label(key),
-                'nodes': sorted(groups[key], key=lambda item: (
-                    item.get('row') if item.get('row') is not None else 999,
-                    item.get('column') if item.get('column') is not None else 999,
-                    item.get('name') or '',
-                )),
-            })
-    for key, nodes_in_group in groups.items():
-        if key in {'class', 'spec', 'hero', 'build_code'}:
-            continue
-        ordered.append({
-            'key': key,
-            'label': _talent_tree_label(key),
-            'nodes': sorted(nodes_in_group, key=lambda item: item.get('name') or ''),
-        })
-    return ordered
-
-
-def _talent_tree_label(tree_type):
-    mapping = {
-        'class': '职业天赋',
-        'spec': '专精天赋',
-        'hero': '英雄天赋',
-        'build_code': '导入代码',
-    }
-    return mapping.get(tree_type, tree_type or '天赋')
-
-
 def _compute_talent_popularity(records, top_n=20):
     """计算天赋选取率（以 spellID 为 key）"""
     talent_counts = Counter()
@@ -526,7 +448,7 @@ def _compute_talent_popularity(records, top_n=20):
     total = len(records)
 
     for r in records:
-        talents = _normalize_talent_nodes(r.get('talents_json') or [])
+        talents = normalize_talent_payload(r.get('talents_json') or []).get('nodes', [])
         for t in talents:
             if t.get('tree_type') == 'build_code':
                 continue
@@ -553,16 +475,20 @@ def _compute_talent_popularity(records, top_n=20):
     return result
 
 
-def _compute_talent_usage(records, top_n=20):
+def _compute_talent_usage(records, class_name, spec_name, top_n=20):
     """返回更适合页面展示的天赋使用率列表。"""
+    from botend.wow.talents.metadata import TalentMetadataProvider
+
     total = len(records)
     usage = {}
+    provider = TalentMetadataProvider()
 
     for record in records:
         seen = set()
-        for node in _normalize_talent_nodes(record.get('talents_json') or []):
+        for node in normalize_talent_payload(record.get('talents_json') or []).get('nodes', []):
             if node.get('tree_type') == 'build_code':
                 continue
+            node = provider.merge_into_node(node, class_name=class_name, spec_name=spec_name)
             key = (
                 node.get('tree_type') or 'spec',
                 node.get('spell_id') or node.get('talent_id'),

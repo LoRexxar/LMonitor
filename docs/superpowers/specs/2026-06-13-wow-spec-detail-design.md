@@ -96,6 +96,11 @@
 
 1. 统一 `talents_json` 的输出结构，不再允许混合字符串和结构化数组。
 2. 对人物榜、WCL 明细、后续聚合统一使用同一种节点字段模型。
+3. 单独拆出天赋解析与元数据模块，不再把天赋处理塞进页面服务层：
+   - `botend/wow/talents/parser.py`
+   - `botend/wow/talents/metadata.py`
+   - `botend/wow/talents/view_model.py`
+   - `botend/management/commands/sync_talent_metadata.py`
 3. 为 UI 提供天赋聚合所需字段：
    - `tree_type`
    - `spell_id`
@@ -105,8 +110,9 @@
    - `points`
    - `row`
    - `column`
-4. 增加“天赋节点元数据”来源，补齐至少一套可渲染的静态树定义能力。
+4. 增加“天赋节点元数据”缓存表，先从现有人物榜 / WCL 排名 / spell snapshot 自动积累第一版缓存，再扩展到独立抓取源。
 5. 服务层增加节点使用率聚合输出，而不是只返回原始点法列表。
+6. 页面只消费 view model，不再直接消费原始 `talents_json`。
 
 #### 验证方式
 
@@ -204,4 +210,3 @@
 2. 修正本地开发配置与 monitor 执行入口
 3. 统一天赋数据结构与服务层聚合
 4. 重做 Portal 页面与天赋图展示
-
