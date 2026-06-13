@@ -107,17 +107,27 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         return max(mplus_zones, key=lambda z: z['id'])
 
     def _find_all_raid_zones(self, zones):
-        """找到所有 Raid zones（排除 M+、Delves、Challenge 等），按 ID 升序排列"""
+        """找到当前赛季的 Raid zones（排除 M+、Delves 等），取最近 3 个正式团本"""
         exclude_keywords = ['Mythic+', 'Delves', 'Challenge', 'Torghast', 'VS / DR']
-        raid_zones = [
+        
+        # 所有候选 raid zones（排除非团本）
+        candidate_zones = [
             z for z in zones
             if not any(kw in (z.get('name') or '') for kw in exclude_keywords)
-            and z.get('id', 0) > 30  # 排除旧副本
+            and z.get('id', 0) > 30
         ]
-        if not raid_zones:
+        
+        # 按 ID 降序，取最近的 3 个正式团本
+        # 排除 Blackrock Depths (ID=40) 等特殊团本（非正式赛季团本）
+        SPECIAL_RAIDS = {'Blackrock Depths'}
+        formal_zones = [z for z in candidate_zones if z['name'] not in SPECIAL_RAIDS]
+        
+        if not formal_zones:
             return []
-        # 按 ID 升序，便于顺序展示
-        return sorted(raid_zones, key=lambda z: z['id'])
+        
+        # 取最近 3 个
+        result = sorted(formal_zones, key=lambda z: z['id'], reverse=True)[:3]
+        return sorted(result, key=lambda z: z['id'])
 
     def _fetch_encounters(self, zone_id):
         """获取 zone 下的所有 encounters"""
