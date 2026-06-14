@@ -74,12 +74,20 @@
                 <h3>天赋配置</h3>
                 <p>基于天赋树引擎的 render_model 输出，用 DOM + SVG 还原当前角色的实际点法与连线。</p>
             </div>
-            {% if render_model.build_code or player_detail.talent_code %}
             <div class="talent-code-box">
                 <span>导入代码</span>
-                <code>{{ render_model.build_code|default:player_detail.talent_code }}</code>
+                {% if player_detail.talent_build_code or render_model.build_code or player_detail.talent_code %}
+                <div class="talent-code-row">
+                    <code id="talent-build-code">{{ player_detail.talent_build_code|default:render_model.build_code|default:player_detail.talent_code }}</code>
+                    <button type="button" class="talent-copy-btn" data-copy-target="talent-build-code" aria-label="复制导入代码" title="复制导入代码">
+                        <span class="talent-copy-btn__icon">⧉</span>
+                        <span class="talent-copy-btn__label">复制</span>
+                    </button>
+                </div>
+                {% else %}
+                <code class="talent-code-empty">暂无导入代码</code>
+                {% endif %}
             </div>
-            {% endif %}
         </div>
         {% if render_model and render_model.layout.width and render_model.layout.height %}
         <div class="talent-stage-scroll">
@@ -310,9 +318,28 @@
 .source-note { color: #64748b; font-size: 12px; margin: 6px 0 14px; }
 .section-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
 .section-head p { margin: 6px 0 0; color: #94a3b8; }
-.talent-code-box { max-width: 380px; background: rgba(30,41,59,.84); border: 1px solid rgba(148,163,184,.12); border-radius: 14px; padding: 10px 12px; }
+.talent-code-box { max-width: 420px; background: rgba(30,41,59,.84); border: 1px solid rgba(148,163,184,.12); border-radius: 14px; padding: 10px 12px; }
 .talent-code-box span { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
-.talent-code-box code { display: block; color: #f8fafc; white-space: pre-wrap; word-break: break-all; }
+.talent-code-row { display: flex; gap: 10px; align-items: flex-start; }
+.talent-code-box code { display: block; color: #f8fafc; white-space: pre-wrap; word-break: break-all; flex: 1; }
+.talent-code-empty { color: #94a3b8 !important; }
+.talent-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    border: 1px solid rgba(148,163,184,.18);
+    background: rgba(15,23,42,.92);
+    color: #e2e8f0;
+    border-radius: 10px;
+    padding: 7px 10px;
+    cursor: pointer;
+    transition: border-color .15s ease, transform .15s ease, background .15s ease;
+}
+.talent-copy-btn:hover { transform: translateY(-1px); border-color: rgba(96,165,250,.45); }
+.talent-copy-btn.is-copied { background: rgba(22,101,52,.9); border-color: rgba(134,239,172,.35); color: #dcfce7; }
+.talent-copy-btn__icon { font-size: 13px; line-height: 1; }
+.talent-copy-btn__label { font-size: 12px; font-weight: 700; }
 .talent-stage-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; }
 .talent-render-stage { position: relative; min-width: 100%; border-radius: 20px; }
 .talent-stage-svg {
@@ -505,4 +532,34 @@
     .talent-tree-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>
+<script>
+(function() {
+    const copyButton = document.querySelector('.talent-copy-btn');
+    if (!copyButton) return;
+    copyButton.addEventListener('click', async function () {
+        const targetId = copyButton.getAttribute('data-copy-target');
+        const codeEl = targetId ? document.getElementById(targetId) : null;
+        const text = (codeEl && codeEl.textContent || '').trim();
+        if (!text) return;
+        const label = copyButton.querySelector('.talent-copy-btn__label');
+        const icon = copyButton.querySelector('.talent-copy-btn__icon');
+        try {
+            await navigator.clipboard.writeText(text);
+            copyButton.classList.add('is-copied');
+            if (label) label.textContent = '已复制';
+            if (icon) icon.textContent = '✓';
+            window.setTimeout(function () {
+                copyButton.classList.remove('is-copied');
+                if (label) label.textContent = '复制';
+                if (icon) icon.textContent = '⧉';
+            }, 1600);
+        } catch (error) {
+            if (label) label.textContent = '复制失败';
+            window.setTimeout(function () {
+                if (label) label.textContent = '复制';
+            }, 1600);
+        }
+    });
+})();
+</script>
 {% endblock %}

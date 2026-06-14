@@ -16,6 +16,7 @@ from botend.wow.talents.metadata import TalentMetadataProvider
 from botend.wow.talents.models import TREE_COLUMNS, TalentBuildStateModel, TalentNodeModel, TalentTreeModel, TalentTreeSetModel
 from botend.wow.talents.render import build_talent_render_model
 from botend.wow.talents.view_model import build_talent_view_model
+from botend.wow.talents.service import TalentBuildCodeService
 
 
 def _normalize_icon_name(icon):
@@ -96,11 +97,13 @@ class SpecStatsService:
         if not player:
             return None
 
-        talent_vm = build_talent_view_model(
-            player.talents_json or [],
+        talent_view = TalentBuildCodeService.build_api_view(
+            talent_build_code=getattr(player, 'talent_build_code', ''),
+            talents_json=player.talents_json or [],
             class_name=player.class_name,
             spec_name=player.spec_name,
         )
+        talent_vm = talent_view.get('talent_view_model') or {}
         gear_payload = _resolve_player_gear(player)
         player_stats = player.stats_json or {}
 
@@ -124,8 +127,11 @@ class SpecStatsService:
             'gear_source': gear_payload['source'],
             'talents': talent_vm['nodes'],
             'talent_groups': talent_vm['trees'],
-            'talent_code': talent_vm['build_code'],
-            'talent_render_model': talent_vm['render_model'],
+            'talent_code': talent_view.get('talent_build_code', ''),
+            'talent_build_code': talent_view.get('talent_build_code', ''),
+            'has_talent_build_code': talent_view.get('has_talent_build_code', False),
+            'talent_parse_status': talent_view.get('talent_parse_status', 'missing'),
+            'talent_render_model': talent_view.get('talent_render_model') or {},
             'stats': player_stats,
             'stats_source': _describe_player_stats_source(player),
             'last_updated': player.last_updated,

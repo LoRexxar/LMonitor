@@ -666,8 +666,8 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
                 'icon': 'inv_helmet_01',
                 'itemLevel': 684,
             }],
+            talent_build_code='BwQAAAAAAAAAAAAAAAAAAAAA',
             talents_json=[
-                'BwQAAAAAAAAAAAAAAAAAAAAA',
                 {
                     'spell_id': 101,
                     'talent_id': 101,
@@ -709,6 +709,9 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertEqual(detail['talent_render_model']['nodes'], detail['talents'])
         self.assertEqual(detail['talent_render_model']['trees'], detail['talent_groups'])
         self.assertEqual(detail['talent_code'], detail['talent_render_model']['build_code'])
+        self.assertEqual(detail['talent_build_code'], 'BwQAAAAAAAAAAAAAAAAAAAAA')
+        self.assertTrue(detail['has_talent_build_code'])
+        self.assertEqual(detail['talent_parse_status'], 'success')
         self.assertEqual(detail['talent_render_model']['layout']['panels'][1]['tree_type'], 'spec')
         self.assertEqual(detail['talent_render_model']['trees'][1]['nodes'][0]['node_key'], 'spec:201')
 
@@ -775,6 +778,9 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             'talents': render_model['nodes'],
             'talent_groups': render_model['trees'],
             'talent_code': render_model['build_code'],
+            'talent_build_code': render_model['build_code'],
+            'has_talent_build_code': True,
+            'talent_parse_status': 'success',
             'talent_render_model': render_model,
             'stats': {},
             'stats_source': 'Battle.net 属性 Monitor 已采集',
@@ -806,6 +812,8 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertIn('M 168 164 L 168 284', html)
         self.assertIn('https://www.wowhead.com/spell=2020', html)
         self.assertIn('BwQAAAAAAAAAAAAAAAAAAAAA', html)
+        self.assertIn('talent-copy-btn', html)
+        self.assertIn('已复制', html)
 
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
     @patch('botend.services.spec_stats_service.SpecDungeonRanking.objects.filter')

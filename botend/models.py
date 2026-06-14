@@ -795,7 +795,8 @@ class PlayerSpecTopPlayer(models.Model):
     achievement_points = models.IntegerField("成就点数", null=True, blank=True, help_text="成就点数")
     item_level = models.FloatField("装等", null=True, blank=True, help_text="装等")
     gear_json = models.JSONField("装备", default=list, blank=True, help_text="装备列表")
-    talents_json = models.JSONField("天赋", default=list, blank=True, help_text="天赋数据")
+    talents_json = models.JSONField("天赋", default=list, blank=True, help_text="天赋数据缓存")
+    talent_build_code = models.TextField("天赋字符串", blank=True, default="", help_text="原始天赋导入字符串")
     stats_json = models.JSONField("属性面板", default=dict, blank=True, help_text="属性面板")
     stats_crawl_status = models.IntegerField("采集状态", default=0, help_text="0=待采集 1=已采集 -1=失败")
     last_updated = models.DateTimeField("更新时间", null=True, blank=True, help_text="数据更新时间")
@@ -838,7 +839,8 @@ class SpecDungeonRanking(models.Model):
     affixes = models.JSONField("词缀", default=list, blank=True, help_text="词缀列表")
 
     # 天赋（原始数据，来自 WCL）
-    talents_json = models.JSONField("天赋", default=list, blank=True, help_text="天赋数据")
+    talents_json = models.JSONField("天赋", default=list, blank=True, help_text="天赋数据缓存")
+    talent_build_code = models.TextField("天赋字符串", blank=True, default="", help_text="原始天赋导入字符串")
 
     # 装备（原始数据，来自 WCL）
     gear_json = models.JSONField("装备", default=list, blank=True, help_text="装备数据")
@@ -884,7 +886,8 @@ class SpecRaidRanking(models.Model):
     kill_time = models.IntegerField("击杀时间(ms)", null=True, blank=True, help_text="击杀时间(ms)")
 
     # 天赋
-    talents_json = models.JSONField("天赋", default=list, blank=True, help_text="天赋数据")
+    talents_json = models.JSONField("天赋", default=list, blank=True, help_text="天赋数据缓存")
+    talent_build_code = models.TextField("天赋字符串", blank=True, default="", help_text="原始天赋导入字符串")
 
     # 装备
     gear_json = models.JSONField("装备", default=list, blank=True, help_text="装备数据")

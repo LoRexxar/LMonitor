@@ -12,6 +12,7 @@ from django.db import transaction
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, SpecDungeonRanking, SpecRaidRanking
 from botend.constants.wow import CLASS_SPEC_MAP
+from botend.wow.talents.service import TalentBuildCodeService
 
 from utils.log import logger
 
@@ -86,6 +87,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 report = r.get('report', {}) or {}
                                 guild = r.get('guild', {}) or {}
 
+                                talents_payload = self.parse_wcl_talents(r.get('talents', []))
                                 SpecDungeonRanking.objects.create(
                                     season_id=season.id,
                                     dungeon_id=enc_id,
@@ -101,7 +103,10 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                     score=r.get('score'),
                                     medal=r.get('medal', ''),
                                     affixes=r.get('affixes', []),
-                                    talents_json=self.parse_wcl_talents(r.get('talents', [])),
+                                    talents_json=talents_payload,
+                                    talent_build_code=TalentBuildCodeService.extract_build_code(
+                                        talents_json=talents_payload
+                                    ),
                                     gear_json=self.parse_wcl_gear(r.get('gear', [])),
                                     faction=r.get('faction'),
                                     guild_name=guild.get('name', ''),
@@ -158,6 +163,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 report = r.get('report', {}) or {}
                                 guild = r.get('guild', {}) or {}
 
+                                talents_payload = self.parse_wcl_talents(r.get('talents', []))
                                 SpecRaidRanking.objects.create(
                                     season_id=season.id,
                                     boss_id=enc_id,
@@ -171,7 +177,10 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                     region=server.get('region', ''),
                                     dps=r.get('amount', 0),
                                     kill_time=r.get('duration'),
-                                    talents_json=self.parse_wcl_talents(r.get('talents', [])),
+                                    talents_json=talents_payload,
+                                    talent_build_code=TalentBuildCodeService.extract_build_code(
+                                        talents_json=talents_payload
+                                    ),
                                     gear_json=self.parse_wcl_gear(r.get('gear', [])),
                                     faction=r.get('faction'),
                                     guild_name=guild.get('name', ''),

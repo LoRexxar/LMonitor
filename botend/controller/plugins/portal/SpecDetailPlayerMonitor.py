@@ -13,6 +13,7 @@ from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, PlayerSpecTopPlayer
 from botend.constants.wow import CLASS_SPEC_MAP
 from botend.wow.talents.view_model import build_talent_view_model
+from botend.wow.talents.service import TalentBuildCodeService
 
 from utils.log import logger
 
@@ -97,6 +98,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                                     'achievement_points': player.get('achievement_points'),
                                     'item_level': player.get('item_level'),
                                     'gear_json': self._normalize_gear_list(player.get('gear', [])),
+                                    'talent_build_code': TalentBuildCodeService.extract_build_code(
+                                        talents_json=player.get('talents', [])
+                                    ),
                                     'talents_json': self._normalize_talent_nodes(
                                         player.get('talents', []),
                                         class_name,
@@ -370,6 +374,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 ).exclude(talents_json='[]').first()
 
             if ranking:
+                if getattr(ranking, 'talent_build_code', '') and not player.get('talent_build_code'):
+                    player['talent_build_code'] = ranking.talent_build_code
                 if ranking.talents_json and isinstance(ranking.talents_json, list):
                     if ranking.talents_json and isinstance(ranking.talents_json[0], dict):
                         player['talents'] = self._normalize_talent_nodes(
@@ -512,9 +518,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         for node in vm.get('nodes') or []:
             if not isinstance(node, dict):
                 continue
+            if (node.get('tree_type') or '') == 'build_code':
+                continue
             normalized.append({
                 'tree_type': node.get('tree_type') or 'spec',
-                'talent_code': node.get('talent_code', ''),
                 'node_id': node.get('node_id'),
                 'talent_id': node.get('talent_id'),
                 'spell_id': node.get('spell_id'),

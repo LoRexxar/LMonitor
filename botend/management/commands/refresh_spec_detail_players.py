@@ -7,6 +7,7 @@ from django.utils import timezone
 from botend.constants.wow import CLASS_SPEC_MAP
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
 from botend.models import PlayerSpecTopPlayer, SeasonMeta
+from botend.wow.talents.service import TalentBuildCodeService
 
 
 class Command(BaseCommand):
@@ -80,6 +81,9 @@ class Command(BaseCommand):
                         'achievement_points': player.get('achievement_points'),
                         'item_level': player.get('item_level'),
                         'gear_json': monitor._normalize_gear_list(player.get('gear', [])),
+                        'talent_build_code': TalentBuildCodeService.extract_build_code(
+                            talents_json=player.get('talents', [])
+                        ),
                         'talents_json': monitor._normalize_talent_nodes(
                             player.get('talents', []),
                             class_name,
