@@ -162,7 +162,7 @@ class Command(BaseCommand):
             'row': node.get('row'),
             'column': node.get('column'),
             'max_points': node.get('max_points') or 1,
-            'parents_json': [],
+            'parents_json': list(node.get('parents') or node.get('parents_json') or []),
             'source': source,
             'last_updated': timezone.now(),
         }

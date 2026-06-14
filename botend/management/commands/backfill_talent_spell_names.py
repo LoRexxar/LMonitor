@@ -59,7 +59,8 @@ class Command(BaseCommand):
                 Q(name__startswith='技能ID ') |
                 Q(icon='') |
                 Q(row__isnull=True) |
-                Q(column__isnull=True)
+                Q(column__isnull=True) |
+                Q(parents_json=[])
             ).exclude(spell_id__isnull=True)
         if class_name:
             queryset = queryset.filter(class_name=class_name)
@@ -114,6 +115,10 @@ class Command(BaseCommand):
                 if getattr(row, field) != value:
                     setattr(row, field, value)
                     changed = True
+            parents_value = resolved.get('parents_json')
+            if parents_value is not None and list(row.parents_json or []) != list(parents_value or []):
+                row.parents_json = list(parents_value or [])
+                changed = True
             tree_type_value = (resolved.get('tree_type') or '').strip()
             if tree_type_value and row.tree_type != tree_type_value:
                 row.tree_type = tree_type_value
@@ -126,7 +131,7 @@ class Command(BaseCommand):
                 row.last_updated = now
                 self._retry_db_write(
                     row.save,
-                    update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'row', 'column', 'max_points', 'tree_type', 'last_updated'],
+                    update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'row', 'column', 'max_points', 'parents_json', 'tree_type', 'last_updated'],
                 )
                 updated += 1
 
@@ -146,6 +151,7 @@ class Command(BaseCommand):
             'column': layout.get('column', row.column),
             'max_points': row.max_points or 1,
             'tree_type': layout.get('tree_type') or row.tree_type or 'spec',
+            'parents_json': self._resolve_trait_parents(monitor, build, raw_id),
         }
 
         entry = monitor._fetch_db2_row_by_id_requests('TraitNodeEntry', build, raw_id)
@@ -196,6 +202,79 @@ class Command(BaseCommand):
                 resolved['icon'] = (row.icon or '').strip() or self._resolve_spell_icon(monitor, build, direct_spell_id, {})
             return resolved
         return resolved if layout else {}
+
+    def _resolve_trait_parents(self, monitor, build, trait_node_entry_id):
+        trait_node_id = self._resolve_trait_node_id(monitor, build, trait_node_entry_id)
+        if not trait_node_id:
+            return []
+
+        current_node = monitor._fetch_db2_row_by_id_requests('TraitNode', build, trait_node_id) or {}
+        current_y = self._coerce_int(current_node.get('PosY'))
+        current_x = self._coerce_int(current_node.get('PosX'))
+
+        parent_entry_ids = []
+        seen = set()
+        for field_name, other_field in (
+            ('LeftTraitNodeID', 'RightTraitNodeID'),
+            ('RightTraitNodeID', 'LeftTraitNodeID'),
+        ):
+            edges = self._fetch_db2_rows_by_filter(
+                monitor,
+                'TraitEdge',
+                build,
+                {field_name: trait_node_id},
+            )
+            for edge in edges:
+                other_trait_node_id = self._coerce_int(edge.get(other_field))
+                if not other_trait_node_id or other_trait_node_id == trait_node_id:
+                    continue
+                other_node = monitor._fetch_db2_row_by_id_requests('TraitNode', build, other_trait_node_id) or {}
+                other_y = self._coerce_int(other_node.get('PosY'))
+                other_x = self._coerce_int(other_node.get('PosX'))
+                if other_y is None or current_y is None:
+                    continue
+                if other_y > current_y:
+                    continue
+                if other_y == current_y and other_x is not None and current_x is not None and other_x >= current_x:
+                    continue
+                parent_entry_id = self._resolve_primary_entry_id_for_trait_node(monitor, build, other_trait_node_id)
+                if not parent_entry_id or parent_entry_id in seen:
+                    continue
+                seen.add(parent_entry_id)
+                parent_entry_ids.append(parent_entry_id)
+        return parent_entry_ids
+
+    def _resolve_trait_node_id(self, monitor, build, trait_node_entry_id):
+        links = self._fetch_db2_rows_by_filter(
+            monitor,
+            'TraitNodeXTraitNodeEntry',
+            build,
+            {'TraitNodeEntryID': trait_node_entry_id},
+        )
+        if not links:
+            return 0
+        link = links[0] if isinstance(links[0], dict) else {}
+        return self._coerce_int(link.get('TraitNodeID') or link.get('TraitNode') or link.get('TraitNodeId'), 0) or 0
+
+    def _resolve_primary_entry_id_for_trait_node(self, monitor, build, trait_node_id):
+        links = self._fetch_db2_rows_by_filter(
+            monitor,
+            'TraitNodeXTraitNodeEntry',
+            build,
+            {'TraitNodeID': trait_node_id},
+        )
+        if not links:
+            return 0
+        entry_ids = sorted(
+            {
+                self._coerce_int(link.get('TraitNodeEntryID') or link.get('TraitNodeEntry') or link.get('TraitNodeEntryId'), 0) or 0
+                for link in links
+            }
+        )
+        for entry_id in entry_ids:
+            if entry_id > 0:
+                return entry_id
+        return 0
 
     @staticmethod
     def _resolve_spell_name(monitor, build, spell_id):

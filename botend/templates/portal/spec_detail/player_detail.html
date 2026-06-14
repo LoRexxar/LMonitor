@@ -14,7 +14,7 @@
 
     <section class="player-hero-card">
         <div class="player-hero-main">
-            <img src="{{ nav.spec_icon }}" alt="{{ nav.spec_name }}" class="spec-icon" width="56" height="56">
+            <img src="{% wow_icon nav.spec_icon "small" %}" alt="{{ nav.spec_name }}" class="spec-icon" width="56" height="56">
             <div>
                 <div class="player-eyebrow">Top {{ player_detail.rank }} · {{ nav.class_cn }} {{ nav.spec_cn }}</div>
                 <h1>{{ player_detail.character_name }}</h1>
@@ -66,61 +66,148 @@
         </section>
     </div>
 
-    {% if player_detail.talent_groups %}
+    {% if player_detail.talent_render_model or player_detail.talent_groups %}
     <section class="detail-card detail-card--full">
+        {% with render_model=player_detail.talent_render_model %}
         <div class="section-head">
             <div>
                 <h3>天赋配置</h3>
-                <p>以图标和节点信息展示当前角色的实际点法，优先使用结构化天赋数据。</p>
+                <p>基于天赋树引擎的 render_model 输出，用 DOM + SVG 还原当前角色的实际点法与连线。</p>
             </div>
-            {% if player_detail.talent_code %}
+            {% if render_model.build_code or player_detail.talent_code %}
             <div class="talent-code-box">
                 <span>导入代码</span>
-                <code>{{ player_detail.talent_code }}</code>
+                <code>{{ render_model.build_code|default:player_detail.talent_code }}</code>
             </div>
             {% endif %}
         </div>
-
-        {% for group in player_detail.talent_groups %}
-        <div class="talent-group">
-            <div class="talent-group-head">
-                <div class="talent-group-title">{{ group.title }}</div>
-                <div class="talent-group-subtitle">
-                    {% if group.synthetic_layout %}合成网格布局{% else %}真实节点坐标{% endif %}
-                    <span class="dot"></span>{{ group.grid_columns }} 列
-                </div>
-            </div>
-            <div class="talent-tree-grid" style="--talent-columns: {{ group.grid_columns }}; --talent-rows: {{ group.grid_rows }};">
-                {% for node in group.nodes %}
-                <a
-                    class="talent-node-card talent-node-card--tree"
-                    style="grid-column: {{ node.layout_column }}; grid-row: {{ node.layout_row }};"
-                    href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
-                    target="_blank"
-                    title="{{ node.name }}{% if node.points %} · {{ node.points }} 点{% endif %}"
+        {% if render_model and render_model.layout.width and render_model.layout.height %}
+        <div class="talent-stage-scroll">
+            <div
+                class="talent-render-stage"
+                style="width: {{ render_model.layout.width }}px; height: {{ render_model.layout.height }}px;"
+                data-layout-mode="{{ render_model.layout_mode }}"
+            >
+                <svg
+                    class="talent-stage-svg"
+                    viewBox="0 0 {{ render_model.layout.width }} {{ render_model.layout.height }}"
+                    preserveAspectRatio="xMinYMin meet"
+                    aria-hidden="true"
                 >
-                    <div class="talent-node-icon">
-                        {% if node.icon %}
-                        <img src="{% wow_icon node.icon "small" %}" width="42" height="42" alt="{{ node.name }}">
-                        {% else %}
-                        <span>ID</span>
+                    {% for tree in render_model.trees %}
+                        {% if tree.panel %}
+                            <g class="talent-path-group talent-path-group--{{ tree.tree_type }}" data-tree-type="{{ tree.tree_type }}">
+                                {% for path in tree.paths %}
+                                <path
+                                    d="{{ path.svg_path }}"
+                                    class="talent-path"
+                                    data-parent-key="{{ path.parent_key }}"
+                                    data-child-key="{{ path.child_key }}"
+                                ></path>
+                                {% endfor %}
+                            </g>
                         {% endif %}
-                        {% if node.points %}
-                        <span class="talent-node-points">{{ node.points }}</span>
-                        {% endif %}
-                    </div>
-                    <div class="talent-node-info talent-node-info--hover">
-                        <span class="talent-node-name">{{ node.name }}</span>
-                        <span class="talent-node-meta">
-                            第 {{ node.layout_row }} 行 / {{ node.layout_column }} 列
-                            {% if node.points %}<span class="dot"></span>{{ node.points }} 点{% endif %}
-                        </span>
-                    </div>
-                </a>
+                    {% endfor %}
+                </svg>
+
+                {% for tree in render_model.trees %}
+                    {% if tree.panel %}
+                    <section
+                        class="talent-panel talent-panel--{{ tree.tree_type }}"
+                        style="left: {{ tree.panel.x }}px; top: {{ tree.panel.y }}px; width: {{ tree.panel.width }}px; height: {{ tree.panel.height }}px;"
+                        data-tree-type="{{ tree.tree_type }}"
+                    >
+                        <div class="talent-panel-head">
+                            <div class="talent-panel-title">{{ tree.title }}</div>
+                            <div class="talent-panel-subtitle">
+                                {% if tree.synthetic_layout %}合成网格布局{% else %}真实节点坐标{% endif %}
+                                <span class="dot"></span>{{ tree.panel.grid_columns }} 列
+                                <span class="dot"></span>{{ tree.panel.grid_rows }} 行
+                            </div>
+                        </div>
+                    </section>
+                    {% endif %}
+                {% endfor %}
+
+                {% for tree in render_model.trees %}
+                    {% if tree.panel %}
+                        {% for node in tree.nodes %}
+                        <a
+                            class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% endif %}"
+                            style="left: {{ node.x }}px; top: {{ node.y }}px; width: {{ node.width }}px; height: {{ node.height }}px;"
+                            href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
+                            target="_blank"
+                            title="{{ node.name }}{% if node.points %} · {{ node.points }} 点{% endif %}"
+                            data-node-key="{{ node.node_key }}"
+                            data-tree-type="{{ node.tree_type }}"
+                        >
+                            <div class="talent-node-icon">
+                                {% if node.icon %}
+                                <img src="{% wow_icon node.icon "small" %}" width="42" height="42" alt="{{ node.name }}">
+                                {% else %}
+                                <span>ID</span>
+                                {% endif %}
+                                {% if node.points %}
+                                <span class="talent-node-points">{{ node.points }}</span>
+                                {% endif %}
+                            </div>
+                            <div class="talent-node-info talent-node-info--hover">
+                                <span class="talent-node-name">{{ node.name }}</span>
+                                <span class="talent-node-meta">
+                                    {{ tree.title }}
+                                    <span class="dot"></span>第 {{ node.layout_row }} 行 / {{ node.layout_column }} 列
+                                    {% if node.points %}<span class="dot"></span>{{ node.points }} 点{% endif %}
+                                </span>
+                            </div>
+                        </a>
+                        {% endfor %}
+                    {% endif %}
                 {% endfor %}
             </div>
         </div>
-        {% endfor %}
+        {% elif player_detail.talent_groups %}
+            {% for group in player_detail.talent_groups %}
+            <div class="talent-group">
+                <div class="talent-group-head">
+                    <div class="talent-group-title">{{ group.title }}</div>
+                    <div class="talent-group-subtitle">
+                        {% if group.synthetic_layout %}合成网格布局{% else %}真实节点坐标{% endif %}
+                        <span class="dot"></span>{{ group.grid_columns }} 列
+                    </div>
+                </div>
+                <div class="talent-tree-grid" style="--talent-columns: {{ group.grid_columns }}; --talent-rows: {{ group.grid_rows }};">
+                    {% for node in group.nodes %}
+                    <a
+                        class="talent-node-card talent-node-card--tree"
+                        style="grid-column: {{ node.layout_column }}; grid-row: {{ node.layout_row }};"
+                        href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
+                        target="_blank"
+                        title="{{ node.name }}{% if node.points %} · {{ node.points }} 点{% endif %}"
+                    >
+                        <div class="talent-node-icon">
+                            {% if node.icon %}
+                            <img src="{% wow_icon node.icon "small" %}" width="42" height="42" alt="{{ node.name }}">
+                            {% else %}
+                            <span>ID</span>
+                            {% endif %}
+                            {% if node.points %}
+                            <span class="talent-node-points">{{ node.points }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="talent-node-info talent-node-info--hover">
+                            <span class="talent-node-name">{{ node.name }}</span>
+                            <span class="talent-node-meta">
+                                第 {{ node.layout_row }} 行 / {{ node.layout_column }} 列
+                                {% if node.points %}<span class="dot"></span>{{ node.points }} 点{% endif %}
+                            </span>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
     </section>
     {% endif %}
 
@@ -226,6 +313,43 @@
 .talent-code-box { max-width: 380px; background: rgba(30,41,59,.84); border: 1px solid rgba(148,163,184,.12); border-radius: 14px; padding: 10px 12px; }
 .talent-code-box span { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
 .talent-code-box code { display: block; color: #f8fafc; white-space: pre-wrap; word-break: break-all; }
+.talent-stage-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; }
+.talent-render-stage { position: relative; min-width: 100%; border-radius: 20px; }
+.talent-stage-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    pointer-events: none;
+}
+.talent-path {
+    fill: none;
+    stroke: rgba(96,165,250,.38);
+    stroke-width: 5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 6px rgba(37,99,235,.18));
+}
+.talent-panel {
+    position: absolute;
+    z-index: 1;
+    border-radius: 24px;
+    background:
+        linear-gradient(180deg, rgba(30,41,59,.82) 0, rgba(15,23,42,.96) 64px),
+        radial-gradient(circle at top, rgba(59,130,246,.12), rgba(15,23,42,.96) 55%);
+    border: 1px solid rgba(148,163,184,.16);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 20px 44px rgba(2,6,23,.28);
+}
+.talent-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 20px 0;
+}
+.talent-panel-title { font-size: 14px; font-weight: 700; color: #bfdbfe; }
+.talent-panel-subtitle { color: #64748b; font-size: 12px; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .talent-group + .talent-group { margin-top: 22px; }
 .talent-group-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
 .talent-group-title { font-size: 14px; font-weight: 700; color: #bfdbfe; margin-bottom: 10px; }
@@ -263,9 +387,33 @@
     background: radial-gradient(circle at top, rgba(59,130,246,.16), rgba(15,23,42,.96) 65%);
     overflow: visible;
 }
+.talent-render-stage .talent-node-card--tree {
+    position: absolute;
+    z-index: 3;
+    padding: 8px;
+    border-radius: 999px;
+    background: radial-gradient(circle at top, rgba(30,41,59,.92), rgba(15,23,42,.98) 72%);
+    border: 1px solid rgba(148,163,184,.18);
+    box-shadow: 0 14px 32px rgba(2,6,23,.32);
+}
+.talent-render-stage .talent-node-card--tree.is-selected {
+    border-color: rgba(96,165,250,.65);
+    box-shadow: 0 0 0 3px rgba(37,99,235,.16), 0 16px 34px rgba(2,6,23,.38);
+}
 .talent-node-icon { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(51,65,85,.9); display: flex; align-items: center; justify-content: center; color: #cbd5e1; flex-shrink: 0; }
 .talent-node-icon img { border-radius: 50%; display: block; }
-.talent-node-card--tree .talent-node-icon { position: relative; width: 48px; height: 48px; box-shadow: 0 8px 20px rgba(2,6,23,.28); }
+.talent-node-card--tree .talent-node-icon {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    box-shadow: 0 8px 20px rgba(2,6,23,.28);
+}
+.talent-render-stage .talent-node-card--tree .talent-node-icon {
+    width: 56px;
+    height: 56px;
+    box-shadow: 0 10px 24px rgba(2,6,23,.3);
+    border: 2px solid rgba(255,255,255,.08);
+}
 .talent-node-info { min-width: 0; }
 .talent-node-name { display: block; color: #f8fafc; font-weight: 700; margin-bottom: 4px; }
 .talent-node-card--tree .talent-node-name { max-width: 100%; font-size: 13px; line-height: 1.25; }
@@ -285,6 +433,13 @@
     line-height: 18px;
     font-weight: 700;
     box-shadow: 0 4px 12px rgba(37,99,235,.35);
+}
+.talent-render-stage .talent-node-points {
+    right: -3px;
+    bottom: -3px;
+    min-width: 20px;
+    height: 20px;
+    line-height: 20px;
 }
 .talent-node-info--hover {
     position: absolute;
@@ -342,6 +497,7 @@
     .player-hero-card, .section-head { flex-direction: column; }
     .player-hero-aside { align-items: flex-start; }
     .detail-grid, .gear-grid-detail { grid-template-columns: 1fr; }
+    .talent-stage-scroll { margin: 0 -4px; }
 }
 @media (max-width: 640px) {
     .spec-detail-page--player { padding: 16px; }

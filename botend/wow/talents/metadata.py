@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
 
+STRUCTURAL_FIELDS = {'tree_type', 'row', 'column', 'max_points', 'parents'}
+
 
 @dataclass
 class TalentMetadataProvider:
@@ -70,16 +72,13 @@ class TalentMetadataProvider:
 
         merged = dict(node)
         metadata_tree_type = metadata.get('tree_type')
-        if metadata_tree_type and (
-            not merged.get('tree_type')
-            or merged.get('tree_type') in {'spec', 'unknown'}
-        ):
+        if metadata_tree_type:
             merged['tree_type'] = metadata_tree_type
         for key in ['name', 'icon', 'row', 'column', 'max_points', 'parents']:
             value = metadata.get(key)
             if value in (None, '', []):
                 continue
-            if self._should_override(merged, key):
+            if key in STRUCTURAL_FIELDS or self._should_override(merged, key):
                 merged[key] = value
         if metadata.get('display_spell_id'):
             merged['display_spell_id'] = metadata.get('display_spell_id')

@@ -4,7 +4,7 @@
 从原始数据表计算统计值（avg/median/p25/p75/选取率/分布）
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from django.db.models import Avg, Max, Min, StdDev
 
 from botend.models import (
@@ -12,7 +12,25 @@ from botend.models import (
 )
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN
 from botend.wow.talents.parser import normalize_talent_payload
+from botend.wow.talents.metadata import TalentMetadataProvider
+from botend.wow.talents.models import TREE_COLUMNS, TalentBuildStateModel, TalentNodeModel, TalentTreeModel, TalentTreeSetModel
+from botend.wow.talents.render import build_talent_render_model
 from botend.wow.talents.view_model import build_talent_view_model
+
+
+def _normalize_icon_name(icon):
+    icon = str(icon or '').strip()
+    if not icon:
+        return ''
+    icon = icon.split('?', 1)[0].strip()
+    icon = icon.rsplit('/', 1)[-1].strip()
+    while '.' in icon:
+        base, ext = icon.rsplit('.', 1)
+        if ext.lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
+            icon = base
+            continue
+        break
+    return icon.strip()
 
 
 class SpecStatsService:
@@ -107,6 +125,7 @@ class SpecStatsService:
             'talents': talent_vm['nodes'],
             'talent_groups': talent_vm['trees'],
             'talent_code': talent_vm['build_code'],
+            'talent_render_model': talent_vm['render_model'],
             'stats': player_stats,
             'stats_source': _describe_player_stats_source(player),
             'last_updated': player.last_updated,
@@ -230,8 +249,22 @@ class SpecStatsService:
         records = list(qs.values('talents_json', 'gear_json', 'faction'))
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
+        usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
         stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
-        stats['talent_usage'] = _compute_talent_usage(records, class_name, spec_name, top_n=talent_limit)
+        stats['talent_usage'] = _compute_talent_usage(
+            records,
+            class_name,
+            spec_name,
+            top_n=talent_limit,
+            snapshot=usage_snapshot,
+        )
+        stats['talent_popularity_tree'] = _compute_talent_popularity_tree(
+            records,
+            class_name,
+            spec_name,
+            top_n=talent_limit,
+            snapshot=usage_snapshot,
+        )
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
         if full:
@@ -377,8 +410,22 @@ class SpecStatsService:
         records = list(qs.values('talents_json', 'gear_json', 'faction'))
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
+        usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
         stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
-        stats['talent_usage'] = _compute_talent_usage(records, class_name, spec_name, top_n=talent_limit)
+        stats['talent_usage'] = _compute_talent_usage(
+            records,
+            class_name,
+            spec_name,
+            top_n=talent_limit,
+            snapshot=usage_snapshot,
+        )
+        stats['talent_popularity_tree'] = _compute_talent_popularity_tree(
+            records,
+            class_name,
+            spec_name,
+            top_n=talent_limit,
+            snapshot=usage_snapshot,
+        )
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
         if full:
@@ -454,6 +501,79 @@ def _talent_tree_label(tree_type):
     return mapping.get(tree_type or 'spec', tree_type or '天赋')
 
 
+def _build_talent_usage_snapshot(records, class_name, spec_name):
+    """聚合统计页热门天赋所需的节点、使用率与父子连线。"""
+    total = len(records)
+    provider = TalentMetadataProvider()
+    usage = {}
+    canonical_nodes = {}
+    parent_edges = defaultdict(Counter)
+
+    for record in records:
+        record_nodes = {}
+        identity_lookup = {}
+        for raw in record.get('talents_json') or []:
+            node = _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+            if not node or node.tree_type == 'build_code':
+                continue
+            node_key = _build_talent_node_key(node)
+            if not node_key:
+                continue
+            existing = record_nodes.get(node_key)
+            if existing is None or _score_talent_node(node) >= _score_talent_node(existing):
+                record_nodes[node_key] = node
+
+        for node_key, node in record_nodes.items():
+            usage_item = usage.setdefault(node_key, {
+                'node_key': node_key,
+                'tree_type': node.tree_type or 'spec',
+                'tree_label': _talent_tree_label(node.tree_type),
+                'spell_id': node.spell_id,
+                'talent_id': node.talent_id,
+                'node_id': node.node_id,
+                'name': node.name or (f"技能ID {node.spell_id or node.talent_id or node.node_id}"),
+                'icon': node.icon or '',
+                'count': 0,
+            })
+            usage_item['count'] += 1
+            if node_key not in canonical_nodes or _score_talent_node(node) >= _score_talent_node(canonical_nodes[node_key]):
+                canonical_nodes[node_key] = node
+                usage_item.update({
+                    'spell_id': node.spell_id,
+                    'talent_id': node.talent_id,
+                    'node_id': node.node_id,
+                    'name': node.name or usage_item['name'],
+                    'icon': node.icon or usage_item['icon'],
+                })
+            _register_talent_identity(identity_lookup, node, node_key)
+
+        for node_key, node in record_nodes.items():
+            for raw_parent in node.parents or []:
+                parent_id = _coerce_positive_int(raw_parent)
+                parent_key = identity_lookup.get(parent_id) if parent_id is not None else None
+                if not parent_key or parent_key == node_key:
+                    continue
+                parent_edges[node_key][parent_key] += 1
+
+    usage_list = []
+    for node_key, item in usage.items():
+        pct = round(item['count'] / total * 100, 1) if total else 0
+        usage_list.append({
+            **item,
+            'usage_pct': pct,
+            'pct': pct,
+        })
+
+    usage_list.sort(key=lambda item: (-item['usage_pct'], item['name']))
+    return {
+        'total': total,
+        'usage_list': usage_list,
+        'usage_map': {item['node_key']: item for item in usage_list},
+        'canonical_nodes': canonical_nodes,
+        'parent_edges': parent_edges,
+    }
+
+
 def _compute_talent_popularity(records, top_n=20):
     """计算天赋选取率（以 spellID 为 key）"""
     talent_counts = Counter()
@@ -488,49 +608,215 @@ def _compute_talent_popularity(records, top_n=20):
     return result
 
 
-def _compute_talent_usage(records, class_name, spec_name, top_n=20):
+def _compute_talent_usage(records, class_name, spec_name, top_n=20, snapshot=None):
     """返回更适合页面展示的天赋使用率列表。"""
-    from botend.wow.talents.metadata import TalentMetadataProvider
+    snapshot = snapshot or _build_talent_usage_snapshot(records, class_name, spec_name)
+    return [dict(item) for item in snapshot['usage_list'][:top_n]]
 
-    total = len(records)
-    usage = {}
-    provider = TalentMetadataProvider()
 
-    for record in records:
-        seen = set()
-        for node in normalize_talent_payload(record.get('talents_json') or []).get('nodes', []):
-            if node.get('tree_type') == 'build_code':
+def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, snapshot=None):
+    """把热门天赋聚合成可直接给模板消费的 render_model。"""
+    snapshot = snapshot or _build_talent_usage_snapshot(records, class_name, spec_name)
+    usage_list = snapshot.get('usage_list') or []
+    if not usage_list:
+        return {}
+
+    canonical_nodes = snapshot.get('canonical_nodes') or {}
+    parent_edges = snapshot.get('parent_edges') or {}
+    usage_map = snapshot.get('usage_map') or {}
+    highlighted_keys = [item['node_key'] for item in usage_list[:top_n] if item.get('node_key')]
+    if not highlighted_keys:
+        return {}
+
+    included_keys = set()
+    pending = list(highlighted_keys)
+    while pending:
+        node_key = pending.pop()
+        if node_key in included_keys:
+            continue
+        included_keys.add(node_key)
+        for parent_key, _count in parent_edges.get(node_key, Counter()).most_common():
+            if parent_key in canonical_nodes and parent_key not in included_keys:
+                pending.append(parent_key)
+
+    grouped_nodes = defaultdict(list)
+    preserved_parent_edges = 0
+    missing_parent_edges = 0
+
+    for node_key in included_keys:
+        base_node = canonical_nodes.get(node_key)
+        if not base_node:
+            continue
+        usage_item = usage_map.get(node_key, {})
+        parent_ids = []
+        seen_parent_ids = set()
+        for parent_key, _count in parent_edges.get(node_key, Counter()).most_common():
+            parent_node = canonical_nodes.get(parent_key)
+            parent_id = parent_node.key if parent_node else None
+            if (
+                not parent_node
+                or parent_key not in included_keys
+                or parent_node.tree_type != base_node.tree_type
+                or not parent_id
+            ):
+                missing_parent_edges += 1
                 continue
-            node = provider.merge_into_node(node, class_name=class_name, spec_name=spec_name)
-            key = (
-                node.get('tree_type') or 'spec',
-                node.get('spell_id') or node.get('talent_id'),
-            )
-            if not key[1] or key in seen:
+            if parent_id in seen_parent_ids:
                 continue
-            seen.add(key)
-            if key not in usage:
-                usage[key] = {
-                    'tree_type': key[0],
-                    'tree_label': _talent_tree_label(key[0]),
-                    'spell_id': node.get('spell_id'),
-                    'talent_id': node.get('talent_id'),
-                    'name': node.get('name') or (f"技能ID {key[1]}"),
-                    'icon': node.get('icon', ''),
-                    'count': 0,
-                }
-            usage[key]['count'] += 1
+            seen_parent_ids.add(parent_id)
+            parent_ids.append(parent_id)
+            preserved_parent_edges += 1
 
-    result = []
-    for item in usage.values():
-        pct = round(item['count'] / total * 100, 1) if total else 0
-        item['usage_pct'] = pct
-        item['pct'] = pct
-        result.append(item)
+        grouped_nodes[base_node.tree_type or 'spec'].append(TalentNodeModel.from_raw({
+            **base_node.to_dict(),
+            'parents': parent_ids,
+            'points': 1 if node_key in highlighted_keys else 0,
+            'selected': node_key in highlighted_keys,
+        }))
 
-    result.sort(key=lambda item: (-item['usage_pct'], item['name']))
-    return result[:top_n]
+    trees = []
+    for tree_type in _iter_render_tree_types(grouped_nodes):
+        nodes = sorted(
+            grouped_nodes[tree_type],
+            key=lambda item: (
+                item.row if item.row is not None else 999,
+                item.column if item.column is not None else 999,
+                item.node_id or item.talent_id or item.spell_id or 0,
+                item.name or '',
+            ),
+        )
+        default_columns = TREE_COLUMNS.get(tree_type, 8)
+        rows = [node.row for node in nodes if node.row is not None]
+        columns = [node.column for node in nodes if node.column is not None]
+        trees.append(TalentTreeModel(
+            tree_type=tree_type,
+            nodes=nodes,
+            grid_columns=max([default_columns, *columns]) if columns else default_columns,
+            grid_rows=max(rows) if rows else max(1, (len(nodes) + default_columns - 1) // default_columns),
+            synthetic_layout=not any(rows or columns),
+        ))
 
+    build_state = TalentBuildStateModel(
+        source_type='stats',
+        source_id=':'.join(part for part in [class_name, spec_name, 'popularity'] if part),
+        selected_nodes={key for key in highlighted_keys if key in included_keys},
+        node_ranks={key: 1 for key in highlighted_keys if key in included_keys},
+    )
+    render_model = build_talent_render_model(
+        tree_set=TalentTreeSetModel(
+            set_key=':'.join(part for part in [class_name, spec_name] if part),
+            class_name=class_name,
+            spec_name=spec_name,
+            trees=trees,
+            layout_mode='three-column',
+            meta={},
+        ),
+        build_state=build_state,
+    ).to_dict()
+    _attach_usage_to_render_model(render_model, usage_map, highlighted_keys)
+
+    return {
+        'sample_size': snapshot.get('total', 0),
+        'highlighted_node_count': len(highlighted_keys),
+        'rendered_node_count': len(included_keys),
+        'preserved_parent_edges': preserved_parent_edges,
+        'missing_parent_edges': missing_parent_edges,
+        'render_model': render_model,
+        'usage': [dict(item) for item in usage_list[:top_n]],
+    }
+
+
+def _normalize_stats_talent_node(raw, provider, class_name, spec_name):
+    if isinstance(raw, str) or not isinstance(raw, dict):
+        return None
+    node_data = {
+        'tree_type': raw.get('tree_type') or raw.get('treeType') or 'spec',
+        'talent_code': raw.get('talent_code', ''),
+        'node_id': raw.get('node_id') or raw.get('nodeID') or raw.get('talent_id') or raw.get('talentID') or raw.get('spell_id') or raw.get('spellID'),
+        'talent_id': raw.get('talent_id') or raw.get('talentID'),
+        'spell_id': raw.get('spell_id') or raw.get('spellID') or raw.get('talent_id') or raw.get('talentID'),
+        'name': raw.get('name') or '',
+        'icon': raw.get('icon', ''),
+        'points': raw.get('points', 0) or 0,
+        'max_points': raw.get('max_points') or raw.get('maxPoints'),
+        'row': raw.get('row') if raw.get('row') is not None else raw.get('tier'),
+        'column': raw.get('column'),
+        'selected': raw.get('selected', False),
+        'source': raw.get('source', 'stats'),
+        'parents': list(raw.get('parents') or raw.get('parents_json') or []),
+    }
+    node_data = provider.merge_into_node(node_data, class_name=class_name, spec_name=spec_name)
+    node = TalentNodeModel.from_raw(node_data)
+    if node.key is None:
+        return None
+    return node
+
+
+def _build_talent_node_key(node):
+    node_identity = node.key
+    if node_identity is None:
+        return ''
+    return f'{node.tree_type or "spec"}:{node_identity}'
+
+
+def _register_talent_identity(identity_lookup, node, node_key):
+    for value in {node.node_id, node.talent_id, node.spell_id, node.key}:
+        parsed = _coerce_positive_int(value)
+        if parsed is not None:
+            identity_lookup[parsed] = node_key
+
+
+def _score_talent_node(node):
+    score = 0
+    if node.tree_type and node.tree_type != 'unknown':
+        score += 1
+    if node.row is not None and node.column is not None:
+        score += 4
+    if node.parents:
+        score += 3
+    if node.icon:
+        score += 1
+    if node.name and not str(node.name).startswith('技能ID '):
+        score += 1
+    return score
+
+
+def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
+    highlighted_set = set(highlighted_keys or [])
+
+    def _merge(node_payload):
+        usage_item = usage_map.get(node_payload.get('node_key'), {})
+        node_payload['count'] = usage_item.get('count', 0)
+        node_payload['usage_pct'] = usage_item.get('usage_pct', 0)
+        node_payload['pct'] = usage_item.get('usage_pct', 0)
+        node_payload['is_highlighted'] = node_payload.get('node_key') in highlighted_set
+        return node_payload
+
+    for node in render_model.get('nodes', []):
+        _merge(node)
+    for tree in render_model.get('trees', []):
+        for node in tree.get('nodes', []):
+            _merge(node)
+
+
+def _iter_render_tree_types(grouped_nodes):
+    ordered = ['class', 'spec', 'hero']
+    yielded = set()
+    for tree_type in ordered:
+        if tree_type in grouped_nodes:
+            yielded.add(tree_type)
+            yield tree_type
+    for tree_type in sorted(grouped_nodes.keys()):
+        if tree_type not in yielded:
+            yield tree_type
+
+
+def _coerce_positive_int(value):
+    try:
+        parsed = int(str(value).strip())
+    except Exception:
+        return None
+    return parsed if parsed > 0 else None
 
 def _normalize_gear_items(items):
     """统一装备展示字段并过滤明显无效项。"""
@@ -547,9 +833,7 @@ def _normalize_gear_items(items):
         item_name = raw.get('name') or '未知物品'
         if item_name == 'Unknown Item':
             item_name = '未知物品'
-        icon = raw.get('icon', '')
-        if isinstance(icon, str) and '.' in icon:
-            icon = icon.rsplit('/', 1)[-1].rsplit('.', 1)[0]
+        icon = _normalize_icon_name(raw.get('icon', ''))
         result.append({
             'slot': SLOT_CN.get(slot, '' if slot == 'unknown' else slot),
             'name': item_name,
@@ -635,7 +919,7 @@ def _compute_gear_popularity(records, top_n=5):
             if key not in slot_item_info:
                 slot_item_info[key] = {
                     'name': g.get('name', ''),
-                    'icon': g.get('icon', ''),
+                    'icon': _normalize_icon_name(g.get('icon', '')),
                     'itemLevel': g.get('itemLevel'),
                 }
 
