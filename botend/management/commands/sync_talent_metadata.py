@@ -5,6 +5,7 @@ from collections import OrderedDict
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from botend.constants.wow import CLASS_SPEC_MAP
 from botend.models import (
     PlayerSpecTopPlayer,
     SpecDungeonRanking,
@@ -32,6 +33,7 @@ class Command(BaseCommand):
         total += self._sync_queryset(PlayerSpecTopPlayer.objects.all(), 'top_player', class_name, spec_name, limit)
         total += self._sync_queryset(SpecDungeonRanking.objects.all(), 'dungeon_ranking', class_name, spec_name, limit)
         total += self._sync_queryset(SpecRaidRanking.objects.all(), 'raid_ranking', class_name, spec_name, limit)
+        self._reclassify_tree_types(class_name)
 
         self.stdout.write(self.style.SUCCESS(f'已同步/更新 {total} 条天赋元数据'))
 
@@ -96,6 +98,50 @@ class Command(BaseCommand):
                     meta.save()
             updated += 1
         return updated
+
+    def _reclassify_tree_types(self, class_name=''):
+        class_names = [class_name] if class_name else list(CLASS_SPEC_MAP.keys())
+        for current_class in class_names:
+            expected_specs = set(CLASS_SPEC_MAP.get(current_class, []))
+            if not expected_specs:
+                continue
+
+            rows = list(
+                WowTalentNodeMetadata.objects.filter(class_name=current_class)
+                .exclude(tree_type='hero')
+                .values('id', 'spec_name', 'node_id', 'spell_id', 'talent_id', 'tree_type')
+            )
+            actual_specs = {row['spec_name'] for row in rows}
+            if not expected_specs.issubset(actual_specs):
+                continue
+
+            shared_map = {}
+            for row in rows:
+                key = row['node_id'] or row['talent_id'] or row['spell_id']
+                if not key:
+                    continue
+                shared_map.setdefault(key, set()).add(row['spec_name'])
+
+            class_keys = {
+                key for key, spec_names in shared_map.items()
+                if expected_specs.issubset(spec_names)
+            }
+            if not class_keys:
+                continue
+
+            updated = 0
+            for row in rows:
+                key = row['node_id'] or row['talent_id'] or row['spell_id']
+                target_tree_type = 'class' if key in class_keys else 'spec'
+                if row['tree_type'] == target_tree_type:
+                    continue
+                WowTalentNodeMetadata.objects.filter(id=row['id']).update(
+                    tree_type=target_tree_type,
+                    last_updated=timezone.now(),
+                )
+                updated += 1
+            if updated:
+                self.stdout.write(f'[{current_class}] 重分类 {updated} 条天赋树归属')
 
     @staticmethod
     def _build_defaults(node, source):
