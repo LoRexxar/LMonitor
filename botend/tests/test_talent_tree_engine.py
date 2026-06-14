@@ -499,8 +499,8 @@ class TalentTreeRenderTests(SimpleTestCase):
                 'node_key': spec_tree['nodes'][0]['node_key'],
             },
             {
-                'layout_row': 2,
-                'layout_column': 4,
+                'layout_row': 1,
+                'layout_column': 1,
                 'selected': True,
                 'node_key': 'spec:202',
             },
