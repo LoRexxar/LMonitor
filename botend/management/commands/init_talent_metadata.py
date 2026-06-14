@@ -40,6 +40,11 @@ class Command(BaseCommand):
 
         failures = []
         for index, (target_class, target_spec) in enumerate(targets, start=1):
+            call_command(
+                'normalize_talent_metadata',
+                class_name=target_class,
+                spec_name=target_spec,
+            )
             before = self._collect_coverage(target_class, target_spec)
             self.stdout.write(
                 f'[{index}/{len(targets)}] {target_class}/{target_spec} '
