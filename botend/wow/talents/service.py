@@ -4,6 +4,7 @@ import copy
 import json
 from functools import lru_cache
 
+from botend.wow.talents.build_code import TalentBuildCodeDecoder
 from botend.wow.talents.metadata import TalentMetadataProvider
 from botend.wow.talents.parser import normalize_talent_payload
 from botend.wow.talents.view_model import build_talent_view_model
@@ -91,7 +92,8 @@ class TalentBuildCodeService:
 
         provider = TalentMetadataProvider()
         full_nodes = provider.get_full_tree_nodes(class_name, spec_name)
-        merged_nodes = cls._merge_full_tree_nodes(full_nodes, selected_nodes) if full_nodes else selected_nodes
+        decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, full_nodes) if build_code and full_nodes else {}
+        merged_nodes = cls._merge_full_tree_nodes(full_nodes, selected_nodes, decoded_states=decoded_states) if full_nodes else selected_nodes
         if build_code:
             merged_nodes.insert(0, {
                 'tree_type': 'build_code',
@@ -120,10 +122,11 @@ class TalentBuildCodeService:
         ).strip()
 
     @staticmethod
-    def _merge_full_tree_nodes(full_nodes, selected_nodes):
+    def _merge_full_tree_nodes(full_nodes, selected_nodes, decoded_states=None):
         if not full_nodes:
             return [dict(item) for item in selected_nodes]
 
+        decoded_states = decoded_states or {}
         selected_lookup = {}
         for node in selected_nodes:
             key = TalentBuildCodeService._build_node_key(node)
@@ -135,6 +138,7 @@ class TalentBuildCodeService:
             payload = dict(base_node)
             key = TalentBuildCodeService._build_node_key(payload)
             selected_node = selected_lookup.get(key)
+            decoded_state = decoded_states.get(key) or {}
             if selected_node:
                 payload['points'] = selected_node.get('points', payload.get('points', 0))
                 payload['selected'] = bool(selected_node.get('selected', payload.get('points', 0) > 0))
@@ -145,8 +149,21 @@ class TalentBuildCodeService:
                     if selected_node.get(field_name) not in (None, '', []):
                         payload[field_name] = selected_node.get(field_name)
             else:
-                payload['points'] = payload.get('points', 0) or 0
-                payload['selected'] = False
+                payload['points'] = decoded_state.get('points', payload.get('points', 0) or 0)
+                payload['selected'] = bool(decoded_state.get('selected', False))
+                if decoded_state.get('is_choice_node'):
+                    payload['is_choice_node'] = True
+                if payload.get('choice_options') and decoded_state.get('choice_selection') is not None:
+                    selected_index = int(decoded_state.get('choice_selection') or 0)
+                    options = payload.get('choice_options') or []
+                    if 0 <= selected_index < len(options):
+                        selected_option = options[selected_index]
+                        if selected_option.get('display_spell_id'):
+                            payload['display_spell_id'] = selected_option.get('display_spell_id')
+                        if selected_option.get('spell_id'):
+                            payload['spell_id'] = selected_option.get('spell_id')
+                        if selected_option.get('talent_id'):
+                            payload['talent_id'] = selected_option.get('talent_id')
             merged.append(payload)
 
         existing_keys = {TalentBuildCodeService._build_node_key(node) for node in merged}
