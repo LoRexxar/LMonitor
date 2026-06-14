@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 
 from botend.services.spec_stats_service import SpecStatsService, _compute_talent_popularity_tree
 from botend.management.commands.backfill_talent_spell_names import Command as BackfillTalentSpellNamesCommand
+from botend.management.commands.init_talent_metadata import Command as InitTalentMetadataCommand
 from botend.wow.talents.adapters import build_tree_set_from_talents
 from botend.wow.talents.layout import build_talent_tree_layout
 from botend.wow.talents.metadata import TalentMetadataProvider
@@ -351,6 +352,19 @@ class TalentMetadataBackfillTests(SimpleTestCase):
         )
 
         self.assertEqual(merged, [124865, 124866, 124867])
+
+
+class TalentMetadataInitCommandTests(SimpleTestCase):
+    def test_build_targets_supports_class_and_spec_filters(self):
+        command = InitTalentMetadataCommand()
+
+        monk_targets = command._build_targets('Monk', '')
+        self.assertIn(('Monk', 'Brewmaster'), monk_targets)
+        self.assertIn(('Monk', 'Mistweaver'), monk_targets)
+        self.assertIn(('Monk', 'Windwalker'), monk_targets)
+
+        single_target = command._build_targets('Monk', 'Windwalker')
+        self.assertEqual(single_target, [('Monk', 'Windwalker')])
 
 
 class TalentTreeLayoutTests(SimpleTestCase):
