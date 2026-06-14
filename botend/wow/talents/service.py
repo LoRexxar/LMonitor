@@ -4,6 +4,8 @@ import copy
 import json
 from functools import lru_cache
 
+from botend.wow.talents.metadata import TalentMetadataProvider
+from botend.wow.talents.parser import normalize_talent_payload
 from botend.wow.talents.view_model import build_talent_view_model
 
 
@@ -32,7 +34,12 @@ class TalentBuildCodeService:
     @classmethod
     def build_api_view(cls, talent_build_code='', talents_json=None, class_name='', spec_name=''):
         build_code = cls.extract_build_code(talent_build_code, talents_json)
-        payload = cls._build_payload(build_code, talents_json)
+        payload = cls.build_full_payload(
+            class_name=class_name,
+            spec_name=spec_name,
+            talent_build_code=build_code,
+            talents_json=talents_json,
+        )
         if not payload:
             return {
                 'talent_build_code': '',
@@ -71,28 +78,29 @@ class TalentBuildCodeService:
         }
 
     @classmethod
-    def _build_payload(cls, build_code, talents_json):
-        payload = []
+    def build_full_payload(cls, class_name='', spec_name='', talent_build_code='', talents_json=None):
+        build_code = cls.extract_build_code(talent_build_code, talents_json)
+        payload_model = normalize_talent_payload(talents_json or [], class_name=class_name, spec_name=spec_name)
+        selected_nodes = []
+        for item in payload_model.get('nodes') or []:
+            if not isinstance(item, dict):
+                continue
+            if cls._extract_build_code_from_node(item):
+                continue
+            selected_nodes.append(dict(item))
 
-        if isinstance(talents_json, list):
-            for item in talents_json:
-                if not isinstance(item, dict):
-                    continue
-                normalized = dict(item)
-                item_build_code = cls._extract_build_code_from_node(normalized)
-                if item_build_code:
-                    continue
-                payload.append(normalized)
-
+        provider = TalentMetadataProvider()
+        full_nodes = provider.get_full_tree_nodes(class_name, spec_name)
+        merged_nodes = cls._merge_full_tree_nodes(full_nodes, selected_nodes) if full_nodes else selected_nodes
         if build_code:
-            payload.insert(0, {
+            merged_nodes.insert(0, {
                 'tree_type': 'build_code',
                 'talent_code': build_code,
                 'talent_id': None,
                 'spell_id': None,
                 'points': 0,
             })
-        return payload
+        return merged_nodes
 
     @staticmethod
     @lru_cache(maxsize=256)
@@ -110,3 +118,49 @@ class TalentBuildCodeService:
             or node.get('talentBuildCode')
             or ''
         ).strip()
+
+    @staticmethod
+    def _merge_full_tree_nodes(full_nodes, selected_nodes):
+        if not full_nodes:
+            return [dict(item) for item in selected_nodes]
+
+        selected_lookup = {}
+        for node in selected_nodes:
+            key = TalentBuildCodeService._build_node_key(node)
+            if key:
+                selected_lookup[key] = dict(node)
+
+        merged = []
+        for base_node in full_nodes:
+            payload = dict(base_node)
+            key = TalentBuildCodeService._build_node_key(payload)
+            selected_node = selected_lookup.get(key)
+            if selected_node:
+                payload['points'] = selected_node.get('points', payload.get('points', 0))
+                payload['selected'] = bool(selected_node.get('selected', payload.get('points', 0) > 0))
+                if selected_node.get('display_spell_id'):
+                    payload['display_spell_id'] = selected_node.get('display_spell_id')
+                    payload['spell_id'] = selected_node.get('display_spell_id')
+                for field_name in ('name', 'icon', 'max_points', 'parents', 'choice_options', 'is_choice_node'):
+                    if selected_node.get(field_name) not in (None, '', []):
+                        payload[field_name] = selected_node.get(field_name)
+            else:
+                payload['points'] = payload.get('points', 0) or 0
+                payload['selected'] = False
+            merged.append(payload)
+
+        existing_keys = {TalentBuildCodeService._build_node_key(node) for node in merged}
+        for node in selected_nodes:
+            key = TalentBuildCodeService._build_node_key(node)
+            if key and key in existing_keys:
+                continue
+            merged.append(dict(node))
+        return merged
+
+    @staticmethod
+    def _build_node_key(node):
+        if not isinstance(node, dict):
+            return ''
+        tree_type = node.get('tree_type') or 'spec'
+        node_identity = node.get('node_id') or node.get('talent_id') or node.get('spell_id') or node.get('display_spell_id')
+        return f'{tree_type}:{node_identity}' if node_identity else ''

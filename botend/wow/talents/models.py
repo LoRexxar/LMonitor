@@ -51,6 +51,8 @@ class TalentNodeModel:
     row: int | None = None
     column: int | None = None
     selected: bool = False
+    is_choice_node: bool = False
+    choice_options: list[dict] = field(default_factory=list)
     source: str = 'unknown'
     parents: list[int] = field(default_factory=list)
     layout_row: int | None = None
@@ -97,7 +99,9 @@ class TalentNodeModel:
             max_points=_to_optional_int(raw.get('max_points') or raw.get('maxPoints')),
             row=_to_optional_int(raw.get('row') if raw.get('row') is not None else raw.get('tier')),
             column=_to_optional_int(raw.get('column')),
-            selected=raw.get('selected', points > 0 or bool(spell_id or talent_id)),
+            selected=bool(raw.get('selected', points > 0)),
+            is_choice_node=bool(raw.get('is_choice_node') or raw.get('isChoiceNode')),
+            choice_options=[dict(option) for option in (raw.get('choice_options') or raw.get('choiceOptions') or []) if isinstance(option, dict)],
             source=raw.get('source', 'unknown'),
             parents=list(raw.get('parents') or raw.get('parents_json') or []),
             layout_row=_to_optional_int(raw.get('layout_row')),

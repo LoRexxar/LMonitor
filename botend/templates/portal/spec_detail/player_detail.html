@@ -141,7 +141,7 @@
                     {% if tree.panel %}
                         {% for node in tree.nodes %}
                         <a
-                            class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% endif %}"
+                            class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% else %} is-unselected{% endif %}"
                             style="left: {{ node.x }}px; top: {{ node.y }}px; width: {{ node.width }}px; height: {{ node.height }}px;"
                             href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
                             target="_blank"
@@ -166,6 +166,18 @@
                                     <span class="dot"></span>第 {{ node.layout_row }} 行 / {{ node.layout_column }} 列
                                     {% if node.points %}<span class="dot"></span>{{ node.points }} 点{% endif %}
                                 </span>
+                                {% if node.choice_options %}
+                                <div class="talent-choice-options">
+                                    {% for option in node.choice_options %}
+                                    <div class="talent-choice-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}">
+                                        {% if option.icon %}
+                                        <img src="{% wow_icon option.icon "small" %}" width="24" height="24" alt="{{ option.name }}">
+                                        {% endif %}
+                                        <span>{{ option.name|default:"未命名选项" }}</span>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
                             </div>
                         </a>
                         {% endfor %}
@@ -186,7 +198,7 @@
                 <div class="talent-tree-grid" style="--talent-columns: {{ group.grid_columns }}; --talent-rows: {{ group.grid_rows }};">
                     {% for node in group.nodes %}
                     <a
-                        class="talent-node-card talent-node-card--tree"
+                        class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% else %} is-unselected{% endif %}"
                         style="grid-column: {{ node.layout_column }}; grid-row: {{ node.layout_row }};"
                         href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
                         target="_blank"
@@ -208,6 +220,18 @@
                                 第 {{ node.layout_row }} 行 / {{ node.layout_column }} 列
                                 {% if node.points %}<span class="dot"></span>{{ node.points }} 点{% endif %}
                             </span>
+                            {% if node.choice_options %}
+                            <div class="talent-choice-options">
+                                {% for option in node.choice_options %}
+                                <div class="talent-choice-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}">
+                                    {% if option.icon %}
+                                    <img src="{% wow_icon option.icon "small" %}" width="24" height="24" alt="{{ option.name }}">
+                                    {% endif %}
+                                    <span>{{ option.name|default:"未命名选项" }}</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
                         </div>
                     </a>
                     {% endfor %}
@@ -427,8 +451,14 @@
     border-color: rgba(96,165,250,.65);
     box-shadow: 0 0 0 3px rgba(37,99,235,.16), 0 16px 34px rgba(2,6,23,.38);
 }
+.talent-render-stage .talent-node-card--tree.is-unselected {
+    background: radial-gradient(circle at top, rgba(55,65,81,.86), rgba(17,24,39,.96) 72%);
+    border-color: rgba(100,116,139,.18);
+    opacity: .9;
+}
 .talent-node-icon { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(51,65,85,.9); display: flex; align-items: center; justify-content: center; color: #cbd5e1; flex-shrink: 0; }
 .talent-node-icon img { border-radius: 50%; display: block; }
+.talent-node-card--tree.is-unselected .talent-node-icon img { filter: grayscale(1) saturate(.4) brightness(.82); opacity: .92; }
 .talent-node-card--tree .talent-node-icon {
     position: relative;
     width: 48px;
@@ -500,6 +530,29 @@
 .talent-node-card--tree:hover .talent-node-info--hover {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
+}
+.talent-choice-options {
+    margin-top: 10px;
+    display: grid;
+    gap: 8px;
+}
+.talent-choice-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(30,41,59,.76);
+    color: #cbd5e1;
+}
+.talent-choice-option img {
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+.talent-choice-option.is-active {
+    background: rgba(30,64,175,.34);
+    color: #eff6ff;
+    box-shadow: inset 0 0 0 1px rgba(96,165,250,.32);
 }
 .gear-grid-detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .gear-item-detail {

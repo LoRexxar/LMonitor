@@ -85,6 +85,45 @@ class TalentMetadataProvider:
             merged['spell_id'] = metadata.get('display_spell_id')
         return merged
 
+    def get_full_tree_nodes(self, class_name, spec_name):
+        cache_key = (class_name or '', spec_name or '', 'full_nodes')
+        if cache_key in self._spec_cache:
+            return [dict(node) for node in self._spec_cache[cache_key]]
+
+        rows = WowTalentNodeMetadata.objects.filter(
+            class_name=class_name or '',
+            spec_name=spec_name or '',
+        ).order_by('tree_type', 'row', 'column', 'node_id', 'spell_id', 'talent_id')
+
+        grouped_by_node = {}
+        for row in rows.iterator():
+            row_data = self._as_dict(row)
+            node_key = (
+                row_data.get('tree_type') or 'spec',
+                row_data.get('node_id') or row_data.get('talent_id') or row_data.get('spell_id'),
+            )
+            current = grouped_by_node.get(node_key)
+            if not current:
+                grouped_by_node[node_key] = row_data
+                continue
+
+            current_options = current.setdefault('choice_options', [])
+            current['is_choice_node'] = True
+            option_payload = self._build_choice_option(row_data)
+            if option_payload and option_payload not in current_options:
+                current_options.append(option_payload)
+
+        nodes = []
+        for node in grouped_by_node.values():
+            if node.get('choice_options'):
+                base_option = self._build_choice_option(node)
+                if base_option and base_option not in node['choice_options']:
+                    node['choice_options'].insert(0, base_option)
+            nodes.append(node)
+
+        self._spec_cache[cache_key] = [dict(node) for node in nodes]
+        return [dict(node) for node in nodes]
+
     def _get_spec_indexes(self, class_name, spec_name):
         cache_key = (class_name or '', spec_name or '')
         if cache_key in self._spec_cache:
@@ -126,6 +165,23 @@ class TalentMetadataProvider:
             'column': row.column,
             'max_points': row.max_points,
             'parents': row.parents_json or [],
+            'selected': False,
+            'points': 0,
+        }
+
+    @staticmethod
+    def _build_choice_option(node):
+        spell_id = node.get('display_spell_id') or node.get('spell_id')
+        option_key = node.get('talent_id') or spell_id
+        if not option_key:
+            return {}
+        return {
+            'option_key': option_key,
+            'talent_id': node.get('talent_id'),
+            'spell_id': spell_id,
+            'display_spell_id': node.get('display_spell_id'),
+            'name': node.get('name') or '',
+            'icon': node.get('icon') or '',
         }
 
     def _lookup_spell_snapshot(self, spell_id):

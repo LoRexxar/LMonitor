@@ -637,12 +637,46 @@ class TalentTreeRenderTests(SimpleTestCase):
 
 
 class SpecStatsTalentRenderTests(SimpleTestCase):
+    @patch('botend.wow.talents.metadata.TalentMetadataProvider.get_full_tree_nodes')
     @patch('botend.wow.talents.adapters.TalentMetadataProvider')
     @patch('botend.services.spec_stats_service.PlayerSpecTopPlayer.objects.filter')
-    def test_get_player_detail_returns_render_model_and_keeps_legacy_fields(self, mock_filter, mock_provider_cls):
+    def test_get_player_detail_returns_render_model_and_keeps_legacy_fields(self, mock_filter, mock_provider_cls, mock_full_tree_nodes):
         mock_provider_cls.return_value.merge_into_node.side_effect = (
             lambda node, class_name='', spec_name='': node
         )
+        mock_full_tree_nodes.return_value = [
+            {
+                'spell_id': 101,
+                'talent_id': 101,
+                'name': '职业节点',
+                'tree_type': 'class',
+                'row': 1,
+                'column': 1,
+                'points': 0,
+                'selected': False,
+            },
+            {
+                'spell_id': 201,
+                'talent_id': 201,
+                'name': '专精前置节点',
+                'tree_type': 'spec',
+                'row': 1,
+                'column': 4,
+                'points': 0,
+                'selected': False,
+            },
+            {
+                'spell_id': 202,
+                'talent_id': 202,
+                'name': '专精节点',
+                'tree_type': 'spec',
+                'row': 2,
+                'column': 4,
+                'points': 0,
+                'selected': False,
+                'parents': [201],
+            },
+        ]
         player = SimpleNamespace(
             id=7,
             rank=1,
@@ -714,6 +748,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertEqual(detail['talent_parse_status'], 'success')
         self.assertEqual(detail['talent_render_model']['layout']['panels'][1]['tree_type'], 'spec')
         self.assertEqual(detail['talent_render_model']['trees'][1]['nodes'][0]['node_key'], 'spec:201')
+        self.assertTrue(any(not node['selected'] for tree in detail['talent_render_model']['trees'] for node in tree['nodes']))
 
     def test_player_detail_template_renders_dom_svg_talent_tree_from_render_model(self):
         render_model = build_talent_render_model(
