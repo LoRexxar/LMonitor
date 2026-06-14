@@ -7,6 +7,7 @@ from django.template.loader import render_to_string
 from django.test import SimpleTestCase
 
 from botend.services.spec_stats_service import SpecStatsService, _compute_talent_popularity_tree
+from botend.management.commands.backfill_talent_spell_names import Command as BackfillTalentSpellNamesCommand
 from botend.wow.talents.adapters import build_tree_set_from_talents
 from botend.wow.talents.layout import build_talent_tree_layout
 from botend.wow.talents.metadata import TalentMetadataProvider
@@ -292,6 +293,64 @@ class TalentMetadataProviderTests(SimpleTestCase):
         self.assertEqual(merged['max_points'], 2)
         self.assertEqual(merged['parents'], [9001, 9002])
         self.assertEqual(merged['name'], '运行态名称')
+
+
+class TalentMetadataBackfillTests(SimpleTestCase):
+    def test_resolve_metadata_row_keeps_layout_coordinates_when_spell_name_resolves(self):
+        command = BackfillTalentSpellNamesCommand()
+        command._resolve_trait_layout = lambda monitor, build, raw_id: {
+            'row': 2100,
+            'column': 12000,
+            'tree_type': 'spec',
+        }
+        command._resolve_trait_parents = lambda monitor, build, raw_id: [124865]
+        command._resolve_spell_name = lambda monitor, build, spell_id: '活血酒'
+        command._resolve_spell_icon = lambda monitor, build, spell_id, definition: 'inv_misc_beer_06'
+
+        class Monitor:
+            def _fetch_db2_row_by_id_requests(self, table, build, raw_id, locale_override=None):
+                if table == 'TraitNodeEntry':
+                    return {'TraitDefinitionID': 1, 'MaxRanks': 1, 'TraitSubTreeID': 0}
+                if table == 'TraitDefinition':
+                    return {'VisibleSpellID': 119582}
+                return {}
+
+        row = SimpleNamespace(
+            node_id=124838,
+            talent_id=124838,
+            spell_id=124838,
+            display_spell_id=None,
+            row=None,
+            column=None,
+            max_points=1,
+            tree_type='spec',
+            name='',
+            name_zh='',
+            icon='',
+        )
+
+        resolved = command._resolve_metadata_row(Monitor(), '12.0.5.67823', row)
+
+        self.assertEqual(resolved['row'], 2100)
+        self.assertEqual(resolved['column'], 12000)
+        self.assertEqual(resolved['parents_json'], [124865])
+        self.assertEqual(resolved['name_zh'], '活血酒')
+        self.assertEqual(resolved['icon'], 'inv_misc_beer_06')
+
+    def test_backfill_parents_should_merge_with_existing_parents_instead_of_overwriting(self):
+        command = BackfillTalentSpellNamesCommand()
+        existing = [124865, 124866]
+        resolved = [124866, 124867]
+
+        merged = sorted(
+            {
+                command._coerce_int(parent_id, 0) or 0
+                for parent_id in list(existing or []) + list(resolved or [])
+                if command._coerce_int(parent_id, 0)
+            }
+        )
+
+        self.assertEqual(merged, [124865, 124866, 124867])
 
 
 class TalentTreeLayoutTests(SimpleTestCase):

@@ -40,7 +40,7 @@ class Command(BaseCommand):
         class_name = options['class_name']
         spec_name = options['spec_name']
         branch = options['branch']
-        limit = max(1, int(options['limit']))
+        limit = max(0, int(options['limit']))
         chunk_size = max(1, min(int(options['chunk_size']), 200))
         refresh_tree_type = bool(options.get('refresh_tree_type'))
         build = (options['build'] or '').strip() or self._guess_build(branch)
@@ -67,46 +67,68 @@ class Command(BaseCommand):
         if spec_name:
             queryset = queryset.filter(spec_name=spec_name)
 
-        rows = list(queryset.order_by('id')[:limit])
+        if limit:
+            queryset = queryset.order_by('id')[:limit]
+        else:
+            queryset = queryset.order_by('id')
+        rows = list(queryset)
         if not rows:
             self.stdout.write(self.style.WARNING('没有找到需要处理的天赋节点'))
             return
 
         self.stdout.write(f'使用 build {build} 解析 {len(rows)} 条天赋节点')
 
-        resolved_rows = []
-        for row in rows:
-            resolved = self._resolve_metadata_row(monitor, build, row)
-            if resolved:
-                resolved_rows.append((row, resolved))
-
-        if not resolved_rows:
-            raise CommandError('未回填到任何 spell 名称，可能是网络不可达或 build 不匹配')
-
-        now = timezone.now()
         snapshot_spell_ids = {}
-        for _, resolved in resolved_rows:
+        updated = 0
+        for index, row in enumerate(rows, start=1):
+            resolved = self._resolve_metadata_row(monitor, build, row)
+            if not resolved:
+                continue
             spell_id = resolved.get('display_spell_id')
             name_zh = (resolved.get('name_zh') or '').strip()
             if not spell_id or not name_zh:
+                pass
+            else:
+                snapshot_spell_ids[int(spell_id)] = name_zh
+
+            now = timezone.now()
+            target_tree_type = (resolved.get('tree_type') or row.tree_type or 'spec').strip() or 'spec'
+            conflict_row = WowTalentNodeMetadata.objects.filter(
+                class_name=row.class_name,
+                spec_name=row.spec_name,
+                tree_type=target_tree_type,
+                node_id=row.node_id,
+                spell_id=row.spell_id,
+            ).exclude(id=row.id).first()
+            if conflict_row:
+                merged = self._merge_metadata_values(conflict_row, row, resolved)
+                conflict_changed = False
+                for field, value in merged.items():
+                    if field == 'parents_json':
+                        if list(conflict_row.parents_json or []) != list(value or []):
+                            conflict_row.parents_json = list(value or [])
+                            conflict_changed = True
+                        continue
+                    if value in (None, '', []):
+                        continue
+                    if getattr(conflict_row, field) != value:
+                        setattr(conflict_row, field, value)
+                        conflict_changed = True
+                if conflict_changed:
+                    conflict_row.last_updated = now
+                    self._retry_db_write(
+                        conflict_row.save,
+                        update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'row', 'column', 'max_points', 'parents_json', 'tree_type', 'last_updated'],
+                    )
+                    updated += 1
+                self._retry_db_write(row.delete)
+                if index <= 10 or index % 25 == 0 or index == len(rows):
+                    self.stdout.write(
+                        f'[{index}/{len(rows)}] dedup merged id={row.id} -> {conflict_row.id} '
+                        f'node_id={row.node_id} spell_id={row.spell_id} tree_type={target_tree_type}'
+                    )
                 continue
-            snapshot_spell_ids[int(spell_id)] = name_zh
 
-        for spell_id, name_zh in snapshot_spell_ids.items():
-            self._retry_db_write(
-                WowSpellSnapshot.objects.update_or_create,
-                branch=branch,
-                locale=monitor.locale,
-                spell_id=int(spell_id),
-                defaults={
-                    'name_zh': (name_zh or '')[:255],
-                    'snapshot_build': build,
-                    'updated_at': now,
-                }
-            )
-
-        updated = 0
-        for row, resolved in resolved_rows:
             changed = False
             for field in ['display_spell_id', 'name', 'name_zh', 'row', 'column', 'max_points']:
                 value = resolved.get(field)
@@ -116,9 +138,17 @@ class Command(BaseCommand):
                     setattr(row, field, value)
                     changed = True
             parents_value = resolved.get('parents_json')
-            if parents_value is not None and list(row.parents_json or []) != list(parents_value or []):
-                row.parents_json = list(parents_value or [])
-                changed = True
+            if parents_value is not None:
+                merged_parents = sorted(
+                    {
+                        self._coerce_int(parent_id, 0) or 0
+                        for parent_id in list(row.parents_json or []) + list(parents_value or [])
+                        if self._coerce_int(parent_id, 0)
+                    }
+                )
+                if list(row.parents_json or []) != merged_parents:
+                    row.parents_json = merged_parents
+                    changed = True
             tree_type_value = (resolved.get('tree_type') or '').strip()
             if tree_type_value and row.tree_type != tree_type_value:
                 row.tree_type = tree_type_value
@@ -135,6 +165,27 @@ class Command(BaseCommand):
                 )
                 updated += 1
 
+            if index <= 10 or index % 25 == 0 or index == len(rows):
+                self.stdout.write(
+                    f'[{index}/{len(rows)}] updated={updated} '
+                    f'node_id={row.node_id} spell_id={row.spell_id} '
+                    f'row={resolved.get("row")} col={resolved.get("column")} '
+                    f'parents={len(resolved.get("parents_json") or [])}'
+                )
+
+        for spell_id, name_zh in snapshot_spell_ids.items():
+            self._retry_db_write(
+                WowSpellSnapshot.objects.update_or_create,
+                branch=branch,
+                locale=monitor.locale,
+                spell_id=int(spell_id),
+                defaults={
+                    'name_zh': (name_zh or '')[:255],
+                    'snapshot_build': build,
+                    'updated_at': now,
+                }
+            )
+
         self.stdout.write(self.style.SUCCESS(
             f'已通过 trait 映射回填 {len(snapshot_spell_ids)} 个真实 spell 名称，更新 {updated} 条天赋元数据'
         ))
@@ -146,9 +197,11 @@ class Command(BaseCommand):
 
         existing_display_spell_id = int(row.display_spell_id or 0)
         layout = self._resolve_trait_layout(monitor, build, raw_id)
+        layout_row = layout.get('row')
+        layout_column = layout.get('column')
         resolved = {
-            'row': layout.get('row', row.row),
-            'column': layout.get('column', row.column),
+            'row': layout_row if layout_row is not None else row.row,
+            'column': layout_column if layout_column is not None else row.column,
             'max_points': row.max_points or 1,
             'tree_type': layout.get('tree_type') or row.tree_type or 'spec',
             'parents_json': self._resolve_trait_parents(monitor, build, raw_id),
@@ -173,6 +226,8 @@ class Command(BaseCommand):
                 resolved['display_spell_id'] = existing_display_spell_id
 
             if row.name_zh and row.icon and row.display_spell_id and layout:
+                resolved['row'] = layout_row if layout_row is not None else resolved.get('row')
+                resolved['column'] = layout_column if layout_column is not None else resolved.get('column')
                 resolved['name'] = row.name_zh or row.name
                 resolved['name_zh'] = row.name_zh
                 resolved['icon'] = row.icon
@@ -181,6 +236,8 @@ class Command(BaseCommand):
             if display_spell_id > 0:
                 name_zh = (row.name_zh or '').strip() or self._resolve_spell_name(monitor, build, display_spell_id)
                 if name_zh:
+                    resolved['row'] = layout_row if layout_row is not None else resolved.get('row')
+                    resolved['column'] = layout_column if layout_column is not None else resolved.get('column')
                     resolved['name'] = name_zh
                     resolved['name_zh'] = name_zh
                     resolved['icon'] = (row.icon or '').strip() or self._resolve_spell_icon(monitor, build, display_spell_id, definition)
@@ -188,6 +245,8 @@ class Command(BaseCommand):
 
             subtree_name = self._resolve_subtree_name(monitor, build, subtree_id)
             if subtree_name:
+                resolved['row'] = layout_row if layout_row is not None else resolved.get('row')
+                resolved['column'] = layout_column if layout_column is not None else resolved.get('column')
                 resolved['name'] = subtree_name
                 resolved['name_zh'] = subtree_name
                 return resolved
@@ -197,6 +256,8 @@ class Command(BaseCommand):
             resolved['display_spell_id'] = existing_display_spell_id or direct_spell_id
             name_zh = (row.name_zh or '').strip() or self._resolve_spell_name(monitor, build, direct_spell_id)
             if name_zh:
+                resolved['row'] = layout_row if layout_row is not None else resolved.get('row')
+                resolved['column'] = layout_column if layout_column is not None else resolved.get('column')
                 resolved['name'] = name_zh
                 resolved['name_zh'] = name_zh
                 resolved['icon'] = (row.icon or '').strip() or self._resolve_spell_icon(monitor, build, direct_spell_id, {})
@@ -275,6 +336,26 @@ class Command(BaseCommand):
             if entry_id > 0:
                 return entry_id
         return 0
+
+    def _merge_metadata_values(self, target_row, source_row, resolved):
+        merged_parents = sorted(
+            {
+                self._coerce_int(parent_id, 0) or 0
+                for parent_id in list(target_row.parents_json or []) + list(source_row.parents_json or []) + list(resolved.get('parents_json') or [])
+                if self._coerce_int(parent_id, 0)
+            }
+        )
+        return {
+            'display_spell_id': resolved.get('display_spell_id') or target_row.display_spell_id or source_row.display_spell_id,
+            'name': resolved.get('name') or target_row.name or source_row.name,
+            'name_zh': resolved.get('name_zh') or target_row.name_zh or source_row.name_zh,
+            'icon': resolved.get('icon') or target_row.icon or source_row.icon,
+            'row': resolved.get('row') if resolved.get('row') is not None else (target_row.row if target_row.row is not None else source_row.row),
+            'column': resolved.get('column') if resolved.get('column') is not None else (target_row.column if target_row.column is not None else source_row.column),
+            'max_points': resolved.get('max_points') or target_row.max_points or source_row.max_points,
+            'parents_json': merged_parents,
+            'tree_type': (resolved.get('tree_type') or target_row.tree_type or source_row.tree_type or 'spec').strip() or 'spec',
+        }
 
     @staticmethod
     def _resolve_spell_name(monitor, build, spell_id):
