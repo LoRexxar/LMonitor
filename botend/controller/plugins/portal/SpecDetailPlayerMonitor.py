@@ -420,7 +420,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         if spec_name:
             pending = pending.filter(spec_name=spec_name)
         if retry_failed:
-            pending = pending.filter(stats_crawl_status__in=[0, -1])
+            pending = pending.filter(stats_crawl_status__in=[0, -1, -2])
         else:
             pending = pending.filter(stats_crawl_status=0)
         if limit:

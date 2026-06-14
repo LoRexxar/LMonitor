@@ -5,6 +5,7 @@ SpecDetail 采集器基类
 """
 
 import time
+from urllib.parse import quote
 
 
 import requests
@@ -23,6 +24,8 @@ class SpecDetailBase(BaseScan):
         self.task = task
         self._wcl_token = None
         self._wcl_token_expire = 0
+        self._battlenet_token = None
+        self._battlenet_token_expire = 0
         # 代理配置
         req_cfg = getattr(settings, 'REQUEST_CONFIG', {})
         self._proxies = req_cfg.get('proxies') if req_cfg.get('enable_proxy', False) else None
@@ -194,6 +197,9 @@ class SpecDetailBase(BaseScan):
 
     def _get_battlenet_token(self):
         """获取 Battle.net OAuth token"""
+        if self._battlenet_token and time.time() < self._battlenet_token_expire:
+            return self._battlenet_token
+
         cfg = getattr(settings, 'BATTLENET_CONFIG', {})
         client_id = cfg.get('client_id')
         client_secret = cfg.get('client_secret')
@@ -211,7 +217,13 @@ class SpecDetailBase(BaseScan):
                 proxies=self._proxies
             )
             if resp.status_code == 200:
-                return resp.json().get('access_token')
+                payload = resp.json()
+                access_token = payload.get('access_token')
+                expires_in = int(payload.get('expires_in') or 0)
+                if access_token:
+                    self._battlenet_token = access_token
+                    self._battlenet_token_expire = time.time() + max(60, expires_in - 60)
+                    return access_token
         except Exception as e:
             logger.error(f"[SpecDetail] Battle.net OAuth 异常: {e}")
         return None
@@ -219,22 +231,22 @@ class SpecDetailBase(BaseScan):
     def fetch_battlenet_stats(self, realm, character_name, region='us'):
         """获取 Battle.net 角色属性面板"""
         cfg = getattr(settings, 'BATTLENET_CONFIG', {})
-
-        if region.lower() == 'cn':
-            host = cfg.get('api_host_cn', 'https://gateway.battlenet.com.cn')
-            namespace = 'profile-cn'
-            locale = 'zh_CN'
-        else:
-            host = cfg.get('api_host_us', 'https://us.api.blizzard.com')
-            namespace = 'profile-us'
-            locale = 'en_US'
+        region = (region or 'us').lower()
+        region_config = {
+            'us': (cfg.get('api_host_us', 'https://us.api.blizzard.com'), 'profile-us', 'en_US'),
+            'eu': (cfg.get('api_host_eu', 'https://eu.api.blizzard.com'), 'profile-eu', 'en_GB'),
+            'kr': (cfg.get('api_host_kr', 'https://kr.api.blizzard.com'), 'profile-kr', 'ko_KR'),
+            'tw': (cfg.get('api_host_tw', 'https://tw.api.blizzard.com'), 'profile-tw', 'zh_TW'),
+            'cn': (cfg.get('api_host_cn', 'https://gateway.battlenet.com.cn'), 'profile-cn', 'zh_CN'),
+        }
+        host, namespace, locale = region_config.get(region, region_config['us'])
 
         token = self._get_battlenet_token()
         if not token:
             return None
 
-        realm_slug = realm.lower().replace("'", "").replace(" ", "-")
-        name_lower = character_name.lower()
+        realm_slug = quote(realm.lower().replace("'", "").replace(" ", "-"), safe='-')
+        name_lower = quote(character_name.lower(), safe='-')
 
         url = f"{host}/profile/wow/character/{realm_slug}/{name_lower}/statistics"
         params = {
@@ -260,42 +272,65 @@ class SpecDetailBase(BaseScan):
 
         result = {}
 
-        # 基础属性
-        health = data.get('health') or {}
+        def _effective_value(value):
+            if isinstance(value, dict):
+                return value.get('effective') or value.get('base') or value.get('value')
+            return value
+
+        def _rating_pct(value, pct_key='value', rating_key='rating_normalized'):
+            if isinstance(value, dict):
+                return {
+                    'rating': value.get(rating_key) or value.get('rating'),
+                    'pct': value.get(pct_key),
+                }
+            if isinstance(value, (int, float)):
+                return {'rating': None, 'pct': value}
+            return None
+
+        # 基础属性：兼容旧版 power 嵌套和新版顶层字段
         power = data.get('power') or {}
-        if power:
-            result['strength'] = power.get('strength', {}).get('effective')
-            result['agility'] = power.get('agility', {}).get('effective')
-            result['intellect'] = power.get('intellect', {}).get('effective')
-            result['stamina'] = power.get('stamina', {}).get('effective')
+        result['strength'] = _effective_value(data.get('strength')) or _effective_value(power.get('strength'))
+        result['agility'] = _effective_value(data.get('agility')) or _effective_value(power.get('agility'))
+        result['intellect'] = _effective_value(data.get('intellect')) or _effective_value(power.get('intellect'))
+        result['stamina'] = _effective_value(data.get('stamina')) or _effective_value(power.get('stamina'))
 
-        # 防御
+        # 防御/生命
+        health = data.get('health')
+        if isinstance(health, (int, float)):
+            result['health'] = health
+        elif isinstance(health, dict):
+            result['health'] = health.get('max') or health.get('effective') or health.get('value')
+
         armor = data.get('armor') or {}
-        if armor:
-            result['armor'] = armor.get('effective')
+        if isinstance(armor, dict):
+            result['armor'] = armor.get('effective') or armor.get('base')
 
-        # 二级属性
-        speed = data.get('speed', {}) or {}
-        crit = data.get('crit', {}) or {}
-        haste = data.get('haste', {}) or {}
-        mastery = data.get('mastery', {}) or {}
-        versatility = data.get('versatility', {}) or {}
-        leech = data.get('leech', {}) or {}
-        dodge = data.get('dodge', {}) or {}
-        parry = data.get('parry', {}) or {}
-
-        if crit:
-            result['crit'] = {'rating': crit.get('rating'), 'pct': crit.get('value')}
-        if haste:
-            result['haste'] = {'rating': haste.get('rating'), 'pct': haste.get('value')}
-        if mastery:
-            result['mastery'] = {'rating': mastery.get('rating'), 'pct': mastery.get('value')}
+        # 二级属性：兼容旧版 crit/haste 和新版 melee_crit/melee_haste
+        crit = _rating_pct(data.get('melee_crit') or data.get('crit'))
+        haste = _rating_pct(data.get('melee_haste') or data.get('haste'))
+        mastery = _rating_pct(data.get('mastery'))
+        versatility = _rating_pct(data.get('versatility'), pct_key='damageDoneBonus')
         if versatility:
-            result['versatility'] = {'rating': versatility.get('rating'), 'pct': versatility.get('damageDoneBonus')}
-        if dodge:
-            result['dodge'] = {'pct': dodge.get('value')}
-        if parry:
-            result['parry'] = {'pct': parry.get('value')}
+            if versatility.get('rating') is None and isinstance(data.get('versatility'), (int, float)):
+                versatility['rating'] = data.get('versatility')
+            versatility_pct = data.get('versatility_damage_done_bonus')
+            if versatility_pct is not None:
+                versatility['pct'] = versatility_pct
+        dodge = _rating_pct(data.get('dodge'))
+        parry = _rating_pct(data.get('parry'))
+
+        if crit and crit.get('pct') is not None:
+            result['crit'] = crit
+        if haste and haste.get('pct') is not None:
+            result['haste'] = haste
+        if mastery and mastery.get('pct') is not None:
+            result['mastery'] = mastery
+        if versatility and versatility.get('pct') is not None:
+            result['versatility'] = versatility
+        if dodge and dodge.get('pct') is not None:
+            result['dodge'] = dodge
+        if parry and parry.get('pct') is not None:
+            result['parry'] = parry
 
         return result
 
