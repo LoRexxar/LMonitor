@@ -34,6 +34,7 @@ class Command(BaseCommand):
         parser.add_argument('--branch', default='wow', help='Wago branch，默认 wow')
         parser.add_argument('--limit', type=int, default=200, help='最多处理多少个 spell_id')
         parser.add_argument('--chunk-size', type=int, default=50, help='每批处理的 spell_id 数量')
+        parser.add_argument('--refresh-tree-type', action='store_true', help='强制重算 tree_type/row/column')
 
     def handle(self, *args, **options):
         class_name = options['class_name']
@@ -41,21 +42,25 @@ class Command(BaseCommand):
         branch = options['branch']
         limit = max(1, int(options['limit']))
         chunk_size = max(1, min(int(options['chunk_size']), 200))
+        refresh_tree_type = bool(options.get('refresh_tree_type'))
         build = (options['build'] or '').strip() or self._guess_build(branch)
 
         if not build:
             raise CommandError('无法推断可用 build，请使用 --build 显式指定')
 
         monitor = WagoSkillDiffMonitor(None, None)
-        queryset = WowTalentNodeMetadata.objects.filter(
-            Q(display_spell_id__isnull=True) |
-            Q(name='') |
-            Q(name='未命名天赋') |
-            Q(name__startswith='技能ID ') |
-            Q(icon='') |
-            Q(row__isnull=True) |
-            Q(column__isnull=True)
-        ).exclude(spell_id__isnull=True)
+        if refresh_tree_type:
+            queryset = WowTalentNodeMetadata.objects.exclude(spell_id__isnull=True)
+        else:
+            queryset = WowTalentNodeMetadata.objects.filter(
+                Q(display_spell_id__isnull=True) |
+                Q(name='') |
+                Q(name='未命名天赋') |
+                Q(name__startswith='技能ID ') |
+                Q(icon='') |
+                Q(row__isnull=True) |
+                Q(column__isnull=True)
+            ).exclude(spell_id__isnull=True)
         if class_name:
             queryset = queryset.filter(class_name=class_name)
         if spec_name:
@@ -63,7 +68,7 @@ class Command(BaseCommand):
 
         rows = list(queryset.order_by('id')[:limit])
         if not rows:
-            self.stdout.write(self.style.WARNING('没有找到需要回填名称的 spell_id'))
+            self.stdout.write(self.style.WARNING('没有找到需要处理的天赋节点'))
             return
 
         self.stdout.write(f'使用 build {build} 解析 {len(rows)} 条天赋节点')
@@ -109,6 +114,10 @@ class Command(BaseCommand):
                 if getattr(row, field) != value:
                     setattr(row, field, value)
                     changed = True
+            tree_type_value = (resolved.get('tree_type') or '').strip()
+            if tree_type_value and row.tree_type != tree_type_value:
+                row.tree_type = tree_type_value
+                changed = True
             icon_value = (resolved.get('icon') or '').strip()
             if icon_value and row.icon != icon_value:
                 row.icon = icon_value
@@ -117,7 +126,7 @@ class Command(BaseCommand):
                 row.last_updated = now
                 self._retry_db_write(
                     row.save,
-                    update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'row', 'column', 'max_points', 'last_updated'],
+                    update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'row', 'column', 'max_points', 'tree_type', 'last_updated'],
                 )
                 updated += 1
 
@@ -136,6 +145,7 @@ class Command(BaseCommand):
             'row': layout.get('row', row.row),
             'column': layout.get('column', row.column),
             'max_points': row.max_points or 1,
+            'tree_type': layout.get('tree_type') or row.tree_type or 'spec',
         }
 
         entry = monitor._fetch_db2_row_by_id_requests('TraitNodeEntry', build, raw_id)
@@ -240,9 +250,11 @@ class Command(BaseCommand):
         pos_y = self._coerce_int(node.get('PosY'))
         if pos_x is None and pos_y is None:
             return {}
+        node_subtree_id = self._coerce_int(node.get('TraitSubTreeID'), 0) or 0
         return {
             'row': pos_y,
             'column': pos_x,
+            'tree_type': 'hero' if node_subtree_id > 0 else 'spec',
         }
 
     def _fetch_db2_rows_by_filter(self, monitor, table, build, filters, locale_override=None):

@@ -559,6 +559,10 @@ def _normalize_gear_items(items):
             'quality': raw.get('quality', ''),
             'bonusIDs': raw.get('bonusIDs', []),
             'gems': raw.get('gems', []),
+            'gems_detail': raw.get('gems_detail', []),
+            'enchants': raw.get('enchants', []),
+            'enchants_detail': raw.get('enchants_detail', []),
+            'source': raw.get('source', ''),
         })
     if result and all(item.get('slot') in ('', '未知') for item in result):
         for idx, item in enumerate(result):
@@ -601,6 +605,8 @@ def _resolve_player_gear(player):
 def _describe_player_stats_source(player):
     if player.stats_json:
         return 'Battle.net 属性 Monitor 已采集'
+    if player.stats_crawl_status == -2:
+        return 'Battle.net 属性 Monitor 未配置'
     if (player.region or '').lower() == 'cn':
         return '国服未接 Battle.net 属性源'
     if player.stats_crawl_status == -1:

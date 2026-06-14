@@ -27,19 +27,26 @@ class TalentMetadataProvider:
         indexes = self._get_spec_indexes(class_name, spec_name)
         tree_key = tree_type or 'spec'
         tree_indexes = indexes.get(tree_key, {})
+        all_tree_indexes = list(indexes.values())
 
         if node_id:
             row = tree_indexes.get(('node_id', int(node_id)))
+            if not row:
+                row = self._find_across_trees(all_tree_indexes, 'node_id', node_id)
             if row:
                 return row
 
         if spell_id:
             row = tree_indexes.get(('spell_id', int(spell_id)))
+            if not row:
+                row = self._find_across_trees(all_tree_indexes, 'spell_id', spell_id)
             if row:
                 return row
 
         if talent_id:
             row = tree_indexes.get(('talent_id', int(talent_id)))
+            if not row:
+                row = self._find_across_trees(all_tree_indexes, 'talent_id', talent_id)
             if row:
                 return row
 
@@ -62,6 +69,12 @@ class TalentMetadataProvider:
             return node
 
         merged = dict(node)
+        metadata_tree_type = metadata.get('tree_type')
+        if metadata_tree_type and (
+            not merged.get('tree_type')
+            or merged.get('tree_type') in {'spec', 'unknown'}
+        ):
+            merged['tree_type'] = metadata_tree_type
         for key in ['name', 'icon', 'row', 'column', 'max_points', 'parents']:
             value = metadata.get(key)
             if value in (None, '', []):
@@ -134,6 +147,19 @@ class TalentMetadataProvider:
             'parents': [],
         }
         return self._snapshot_cache[spell_id]
+
+    @staticmethod
+    def _find_across_trees(tree_indexes_list, field_name, value):
+        try:
+            normalized = int(value)
+        except Exception:
+            return None
+        key = (field_name, normalized)
+        for tree_indexes in tree_indexes_list:
+            row = tree_indexes.get(key)
+            if row:
+                return row
+        return None
 
     @staticmethod
     def _should_override(node, key):

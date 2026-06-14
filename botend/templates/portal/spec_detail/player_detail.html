@@ -97,6 +97,7 @@
                     style="grid-column: {{ node.layout_column }}; grid-row: {{ node.layout_row }};"
                     href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
                     target="_blank"
+                    title="{{ node.name }}{% if node.points %} · {{ node.points }} 点{% endif %}"
                 >
                     <div class="talent-node-icon">
                         {% if node.icon %}
@@ -104,8 +105,11 @@
                         {% else %}
                         <span>ID</span>
                         {% endif %}
+                        {% if node.points %}
+                        <span class="talent-node-points">{{ node.points }}</span>
+                        {% endif %}
                     </div>
-                    <div class="talent-node-info">
+                    <div class="talent-node-info talent-node-info--hover">
                         <span class="talent-node-name">{{ node.name }}</span>
                         <span class="talent-node-meta">
                             第 {{ node.layout_row }} 行 / {{ node.layout_column }} 列
@@ -140,6 +144,22 @@
                     {% if item.itemLevel %}<span class="gear-ilvl">物品等级 {{ item.itemLevel }}</span>{% endif %}
                     {% if item.gems %}
                     <span class="gear-extra-meta">宝石 {{ item.gems|length }} 个</span>
+                    {% endif %}
+                    {% if item.gems_detail %}
+                    <span class="gear-extra-meta">
+                        宝石明细:
+                        {% for gem in item.gems_detail %}
+                            {% if gem.name %}{{ gem.name }}{% else %}#{{ gem.id }}{% endif %}{% if not forloop.last %} / {% endif %}
+                        {% endfor %}
+                    </span>
+                    {% endif %}
+                    {% if item.enchants_detail %}
+                    <span class="gear-extra-meta">
+                        附魔:
+                        {% for enchant in item.enchants_detail %}
+                            {% if enchant.name %}{{ enchant.name }}{% else %}#{{ enchant.id }}{% endif %}{% if not forloop.last %} / {% endif %}
+                        {% endfor %}
+                    </span>
                     {% endif %}
                     {% if item.bonusIDs %}
                     <span class="gear-extra-meta">BonusIDs: {{ item.bonusIDs|join:", " }}</span>
@@ -213,8 +233,8 @@
 .talent-tree-grid {
     display: grid;
     grid-template-columns: repeat(var(--talent-columns), minmax(0, 1fr));
-    grid-auto-rows: 118px;
-    gap: 12px;
+    grid-auto-rows: 82px;
+    gap: 10px;
     align-items: stretch;
 }
 .talent-node-card {
@@ -232,23 +252,73 @@
 .talent-node-card:hover { transform: translateY(-2px); border-color: rgba(96,165,250,.45); }
 .talent-node-card--tree {
     min-width: 0;
+    position: relative;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
-    gap: 10px;
-    padding: 14px 10px;
-    border-radius: 20px;
+    gap: 0;
+    padding: 10px 8px;
+    border-radius: 16px;
     background: radial-gradient(circle at top, rgba(59,130,246,.16), rgba(15,23,42,.96) 65%);
+    overflow: visible;
 }
 .talent-node-icon { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(51,65,85,.9); display: flex; align-items: center; justify-content: center; color: #cbd5e1; flex-shrink: 0; }
 .talent-node-icon img { border-radius: 50%; display: block; }
-.talent-node-card--tree .talent-node-icon { width: 52px; height: 52px; box-shadow: 0 8px 20px rgba(2,6,23,.28); }
+.talent-node-card--tree .talent-node-icon { position: relative; width: 48px; height: 48px; box-shadow: 0 8px 20px rgba(2,6,23,.28); }
 .talent-node-info { min-width: 0; }
 .talent-node-name { display: block; color: #f8fafc; font-weight: 700; margin-bottom: 4px; }
 .talent-node-card--tree .talent-node-name { max-width: 100%; font-size: 13px; line-height: 1.25; }
 .talent-node-card--tree .talent-node-meta { justify-content: center; }
 .talent-node-meta { color: #94a3b8; font-size: 12px; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.talent-node-points {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: #2563eb;
+    color: #eff6ff;
+    font-size: 11px;
+    line-height: 18px;
+    font-weight: 700;
+    box-shadow: 0 4px 12px rgba(37,99,235,.35);
+}
+.talent-node-info--hover {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%) translateY(6px);
+    min-width: 140px;
+    max-width: 220px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(15,23,42,.96);
+    border: 1px solid rgba(96,165,250,.32);
+    box-shadow: 0 14px 30px rgba(2,6,23,.36);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .15s ease, transform .15s ease;
+    z-index: 10;
+}
+.talent-node-info--hover::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    width: 10px;
+    height: 10px;
+    background: rgba(15,23,42,.96);
+    border-right: 1px solid rgba(96,165,250,.32);
+    border-bottom: 1px solid rgba(96,165,250,.32);
+    transform: translateX(-50%) rotate(45deg);
+}
+.talent-node-card--tree:hover .talent-node-info--hover {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
 .gear-grid-detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .gear-item-detail {
     display: flex;

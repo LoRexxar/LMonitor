@@ -12,6 +12,7 @@ from django.db import transaction
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, PlayerSpecTopPlayer
 from botend.constants.wow import CLASS_SPEC_MAP
+from botend.wow.talents.view_model import build_talent_view_model
 
 from utils.log import logger
 
@@ -56,41 +57,66 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     continue
 
                 with transaction.atomic():
-                    # 全量覆盖：删除该专精旧数据
-                    PlayerSpecTopPlayer.objects.filter(
+                    existing_qs = PlayerSpecTopPlayer.objects.filter(
                         season_id=season.id, class_name=class_name, spec_name=spec_name
-                    ).delete()
+                    )
+                    existing_map = {
+                        ((row.region or '').lower(), row.realm or '', row.character_name or ''): row
+                        for row in existing_qs
+                    }
+                    seen_keys = set()
 
-                    # 存入数据库
                     for i, player in enumerate(players):
                         try:
-                            PlayerSpecTopPlayer.objects.create(
+                            region = player.get('region', '')
+                            realm = player.get('realm', '')
+                            character_name = player.get('name', '')
+                            row_key = ((region or '').lower(), realm, character_name)
+                            seen_keys.add(row_key)
+                            existing = existing_map.get(row_key)
+                            stats_json = existing.stats_json if existing and existing.stats_json else {}
+                            stats_status = existing.stats_crawl_status if existing else 0
+
+                            PlayerSpecTopPlayer.objects.update_or_create(
                                 season_id=season.id,
-                                region=player.get('region', ''),
-                                realm=player.get('realm', ''),
-                                character_name=player.get('name', ''),
                                 class_name=class_name,
                                 spec_name=spec_name,
-                                rank=i + 1,
-                                score=player.get('score'),
-                                faction=player.get('faction'),
-                                race=player.get('race'),
-                                gender=player.get('gender'),
-                                guild_name=player.get('guild_name'),
-                                realm_rank=player.get('realm_rank'),
-                                avatar_url=player.get('avatar_url'),
-                                profile_url=player.get('profile_url'),
-                                achievement_points=player.get('achievement_points'),
-                                item_level=player.get('item_level'),
-                                gear_json=self._normalize_gear_list(player.get('gear', [])),
-                                talents_json=player.get('talents', []),
-                                stats_json={},
-                                stats_crawl_status=0,
-                                last_updated=timezone.now(),
+                                region=region,
+                                realm=realm,
+                                character_name=character_name,
+                                defaults={
+                                    'rank': i + 1,
+                                    'score': player.get('score'),
+                                    'faction': player.get('faction'),
+                                    'race': player.get('race'),
+                                    'gender': player.get('gender'),
+                                    'guild_name': player.get('guild_name'),
+                                    'realm_rank': player.get('realm_rank'),
+                                    'avatar_url': player.get('avatar_url'),
+                                    'profile_url': player.get('profile_url'),
+                                    'achievement_points': player.get('achievement_points'),
+                                    'item_level': player.get('item_level'),
+                                    'gear_json': self._normalize_gear_list(player.get('gear', [])),
+                                    'talents_json': self._normalize_talent_nodes(
+                                        player.get('talents', []),
+                                        class_name,
+                                        spec_name,
+                                    ),
+                                    'stats_json': stats_json,
+                                    'stats_crawl_status': stats_status,
+                                    'last_updated': timezone.now(),
+                                },
                             )
                             total_inserted += 1
                         except Exception as e:
                             logger.warning(f"[SpecDetailPlayer] 插入失败 {player.get('name')}: {e}")
+
+                    stale_ids = [
+                        row.id for key, row in existing_map.items()
+                        if key not in seen_keys
+                    ]
+                    if stale_ids:
+                        PlayerSpecTopPlayer.objects.filter(id__in=stale_ids).delete()
 
                 time.sleep(0.2)
 
@@ -192,7 +218,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             'avatar_url': None,
             'profile_url': profile_url,
             'achievement_points': None,
-            'item_level': None,
+            'item_level': self._coerce_item_level(char.get('gear')),
             'gear': self._parse_rio_gear(char.get('gear')),
             'talents': self._parse_rio_talents(char.get('talentLoadoutText')),
         }
@@ -206,15 +232,20 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         for slot, item in items.items():
             if not item:
                 continue
+            normalized_slot = self._normalize_rio_slot(slot)
             result.append({
-                'slot': slot,
+                'slot': normalized_slot,
                 'name': item.get('name', ''),
                 'id': item.get('item_id'),
                 'icon': self._normalize_icon_name(item.get('icon', '')),
                 'itemLevel': item.get('item_level'),
-                'quality': item.get('quality', ''),
-                'bonusIDs': [],
-                'gems': [],
+                'quality': item.get('quality', '') or item.get('item_quality', ''),
+                'bonusIDs': item.get('bonuses', []) or [],
+                'gems': item.get('gems', []) or [],
+                'gems_detail': item.get('gems_detail', []) or [],
+                'enchants': item.get('enchants', []) or [],
+                'enchants_detail': item.get('enchants_detail', []) or [],
+                'source': 'raiderio_profile',
             })
         return result
 
@@ -240,18 +271,14 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
     def _enrich_talents(self, players):
         """为 Top 20 玩家补充结构化天赋+装备数据。
         
-        优先从本地 dungeon_ranking / raid_ranking 表匹配（WCL 数据，最完整）。
-        仅对本地没有的玩家调用 Raider.IO 角色 API。
+        天赋优先从本地 dungeon_ranking / raid_ranking 表匹配（WCL 数据，最完整）。
+        装备与角色资料优先使用 Raider.IO profile（字段更完整）。
         """
         # 先从本地 ranking 表批量匹配
         self._enrich_from_local_rankings(players)
 
-        # 对仍然没有结构化数据的玩家，调用 Raider.IO 角色 API
+        # 再为所有玩家调用 Raider.IO profile，补角色资料与更完整的装备字段
         for player in players:
-            # 已有完整结构化数据，跳过
-            if self._has_display_ready_talents(player.get('talents')):
-                continue
-
             region = player.get('region', '')
             realm = player.get('realm', '')
             name = player.get('name', '')
@@ -266,14 +293,36 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 if not char_data:
                     continue
 
+                gear_items = self._parse_rio_gear(char_data.get('gear'))
+                if gear_items:
+                    player['gear'] = self._normalize_gear_list(gear_items)
+
+                profile_ilvl = self._coerce_item_level(char_data.get('gear'))
+                if profile_ilvl:
+                    player['item_level'] = profile_ilvl
+
+                player['achievement_points'] = char_data.get('achievement_points') or player.get('achievement_points')
+                player['profile_url'] = char_data.get('profile_url') or player.get('profile_url')
+                player['avatar_url'] = char_data.get('thumbnail_url') or player.get('avatar_url')
+                player['race'] = char_data.get('race') or player.get('race')
+                player['faction'] = char_data.get('faction') or player.get('faction')
+
+                if self._has_display_ready_talents(player.get('talents')):
+                    time.sleep(0.2)
+                    continue
+
                 structured = self._parse_rio_talents_from_profile(char_data)
                 if structured:
-                    player['talents'] = structured
+                    player['talents'] = self._normalize_talent_nodes(
+                        structured,
+                        player.get('_class_name', ''),
+                        player.get('_spec_name', ''),
+                    )
 
             except Exception as e:
                 logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
 
-            time.sleep(0.5)  # Raider.IO rate limit
+            time.sleep(0.2)  # Raider.IO rate limit
 
     @staticmethod
     def _has_display_ready_talents(talents):
@@ -295,7 +344,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         return len(named_nodes) >= max(5, len(dict_nodes) // 3)
 
     def _enrich_from_local_rankings(self, players):
-        """从本地 dungeon_ranking / raid_ranking 表匹配天赋+装备"""
+        """从本地 dungeon_ranking / raid_ranking 表匹配天赋，必要时回填基础装备。"""
         from botend.models import SpecDungeonRanking, SpecRaidRanking
 
         for player in players:
@@ -323,8 +372,12 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             if ranking:
                 if ranking.talents_json and isinstance(ranking.talents_json, list):
                     if ranking.talents_json and isinstance(ranking.talents_json[0], dict):
-                        player['talents'] = ranking.talents_json
-                if ranking.gear_json and isinstance(ranking.gear_json, list) and ranking.gear_json:
+                        player['talents'] = self._normalize_talent_nodes(
+                            ranking.talents_json,
+                            class_name,
+                            spec_name,
+                        )
+                if (not player.get('gear')) and ranking.gear_json and isinstance(ranking.gear_json, list) and ranking.gear_json:
                     player['gear'] = self._normalize_gear_list(ranking.gear_json)
 
     def _parse_rio_talents_from_profile(self, char_data):
@@ -372,6 +425,16 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             pending = pending.filter(stats_crawl_status=0)
         if limit:
             pending = pending[:limit]
+
+        if not self._get_battlenet_token():
+            updated = 0
+            for player in pending.iterator(chunk_size=50) if hasattr(pending, 'iterator') else pending:
+                if player.stats_crawl_status != -2:
+                    player.stats_crawl_status = -2
+                    player.save(update_fields=['stats_crawl_status'])
+                    updated += 1
+            logger.warning(f"[SpecDetailPlayer] Battle.net 未配置，跳过属性采集 {updated} 条")
+            return
 
         success = 0
         fail = 0
@@ -421,3 +484,48 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     break
                 item['slot'] = self.DEFAULT_GEAR_SLOTS[idx]
         return result
+
+    @staticmethod
+    def _normalize_rio_slot(slot):
+        mapping = {
+            'mainhand': 'main_hand',
+            'offhand': 'off_hand',
+        }
+        return mapping.get((slot or '').strip().lower(), slot)
+
+    @staticmethod
+    def _coerce_item_level(gear_data):
+        if not isinstance(gear_data, dict):
+            return None
+        value = gear_data.get('item_level_equipped') or gear_data.get('item_level_total')
+        try:
+            return int(value) if value is not None else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _normalize_talent_nodes(talents, class_name, spec_name):
+        if not talents:
+            return []
+        vm = build_talent_view_model(talents, class_name=class_name, spec_name=spec_name)
+        normalized = []
+        for node in vm.get('nodes') or []:
+            if not isinstance(node, dict):
+                continue
+            normalized.append({
+                'tree_type': node.get('tree_type') or 'spec',
+                'talent_code': node.get('talent_code', ''),
+                'node_id': node.get('node_id'),
+                'talent_id': node.get('talent_id'),
+                'spell_id': node.get('spell_id'),
+                'display_spell_id': node.get('display_spell_id'),
+                'name': node.get('name', ''),
+                'icon': node.get('icon', ''),
+                'points': node.get('points', 0),
+                'max_points': node.get('max_points'),
+                'row': node.get('row'),
+                'column': node.get('column'),
+                'selected': node.get('selected', True),
+                'source': node.get('source', 'monitor'),
+            })
+        return normalized
