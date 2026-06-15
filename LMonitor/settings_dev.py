@@ -91,3 +91,11 @@ WCL_V2_CONFIG = {
     "client_id": "a1720ed2-2ca1-4363-97cc-6897b18229ed",
     "client_secret": "I0XFgS9X0b8r8aMWZZv4rqIH9NuCtG1U88bJd5Zl",
 }
+# Battle.net API (WoW Character Statistics)
+BATTLENET_CONFIG = {
+    "client_id": "c37aaac5d0de4e8d8d9b03c958363222",
+    "client_secret": "cqglr1sd7x8FxqEbFQs0ama59pJLQJU8",
+    "token_url": "https://oauth.battle.net/token",
+    "api_host_us": "https://us.api.blizzard.com",
+    "api_host_cn": "https://gateway.battlenet.com.cn",
+}

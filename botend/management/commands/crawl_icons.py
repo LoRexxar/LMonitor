@@ -104,6 +104,10 @@ class Command(BaseCommand):
             return ''
         icon_name = icon_name.split('?', 1)[0].strip()
         icon_name = icon_name.rsplit('/', 1)[-1]
-        if '.' in icon_name:
-            icon_name = icon_name.rsplit('.', 1)[0]
+        while '.' in icon_name:
+            base, ext = icon_name.rsplit('.', 1)
+            if ext.lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
+                icon_name = base
+                continue
+            break
         return icon_name.strip()
