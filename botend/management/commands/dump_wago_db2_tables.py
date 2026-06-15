@@ -24,6 +24,9 @@ class Command(BaseCommand):
         parser.add_argument('--output-dir', default='.cache/wago_db2_dumps', help='输出目录（会按 build 分目录）')
         parser.add_argument('--sleep', type=float, default=0.05, help='每页请求间隔秒数，防止限流')
         parser.add_argument('--max-pages', type=int, default=0, help='最多抓取页数（0 不限制）')
+        parser.add_argument('--overwrite', action='store_true', help='覆盖已有 jsonl/meta（重新从第 1 页抓取）')
+        parser.add_argument('--retry', type=int, default=6, help='单页网络重试次数')
+        parser.add_argument('--retry-sleep', type=float, default=2.0, help='重试基础等待秒数（指数退避）')
 
     def handle(self, *args, **options):
         build = (options.get('build') or '').strip() or 'latest'
@@ -32,18 +35,34 @@ class Command(BaseCommand):
         out_root = (options.get('output_dir') or '.cache/wago_db2_dumps').strip() or '.cache/wago_db2_dumps'
         sleep = float(options.get('sleep') or 0)
         max_pages = int(options.get('max_pages') or 0)
+        overwrite = bool(options.get('overwrite'))
+        retry = max(0, int(options.get('retry') or 0))
+        retry_sleep = max(0.1, float(options.get('retry_sleep') or 2.0))
 
         out_dir = os.path.join(out_root, build)
         os.makedirs(out_dir, exist_ok=True)
 
         session = requests.Session()
         session.headers.update({'User-Agent': 'Mozilla/5.0'})
+        # 避免环境代理导致 ProxyError / RemoteDisconnected
+        session.trust_env = False
 
         self.stdout.write(f'输出目录: {out_dir}')
         for table in tables:
-            self._dump_table(session, out_dir, table, build, locale, sleep=sleep, max_pages=max_pages)
+            self._dump_table(
+                session,
+                out_dir,
+                table,
+                build,
+                locale,
+                sleep=sleep,
+                max_pages=max_pages,
+                overwrite=overwrite,
+                retry=retry,
+                retry_sleep=retry_sleep,
+            )
 
-    def _dump_table(self, session, out_dir, table, build, locale, sleep=0.0, max_pages=0):
+    def _dump_table(self, session, out_dir, table, build, locale, sleep=0.0, max_pages=0, overwrite=False, retry=6, retry_sleep=2.0):
         file_path = os.path.join(out_dir, f'{table}.jsonl')
         meta_path = os.path.join(out_dir, f'{table}.meta.json')
 
@@ -52,13 +71,32 @@ class Command(BaseCommand):
         page = 1
         last_page = None
 
-        with open(file_path, 'w', encoding='utf-8') as f:
+        if overwrite:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            if os.path.exists(meta_path):
+                os.remove(meta_path)
+
+        with open(file_path, 'a', encoding='utf-8') as f:
             while True:
                 url = f'https://wago.tools/db2/{table}?build={build}&locale={locale}&page={page}'
-                r = session.get(url, timeout=60)
-                if r.status_code != 200:
-                    self.stdout.write(self.style.ERROR(f'{table} page={page} status={r.status_code}'))
-                    break
+                r = None
+                for attempt in range(retry + 1):
+                    try:
+                        r = session.get(url, timeout=60)
+                    except Exception as exc:
+                        if attempt >= retry:
+                            self.stdout.write(self.style.ERROR(f'{table} page={page} 网络失败: {exc}'))
+                            raise
+                        time.sleep(retry_sleep * (2 ** attempt))
+                        continue
+                    if r.status_code == 200:
+                        break
+                    if attempt >= retry:
+                        self.stdout.write(self.style.ERROR(f'{table} page={page} status={r.status_code}'))
+                        raise RuntimeError(f'{table} page={page} status={r.status_code}')
+                    time.sleep(retry_sleep * (2 ** attempt))
+
                 props = self._extract_inertia_props(r.text or '')
                 payload = props.get('data') or {}
                 rows = payload.get('data') or []
