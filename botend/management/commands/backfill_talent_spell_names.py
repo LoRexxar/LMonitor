@@ -149,7 +149,11 @@ class Command(BaseCommand):
                 snapshot_cache[sid] = (name or '', name_zh or '')
         self._snapshot_cache = snapshot_cache
         # 预取没命中的 spell_id 直接加入 negative cache，避免逐条远程查询
-        self._spell_name_miss_cache = {sid for sid in all_spell_ids if sid not in snapshot_cache}
+        # 包括：不在 snapshot 中的 + 在 snapshot 中但 name 全为空的
+        self._spell_name_miss_cache = {
+            sid for sid in all_spell_ids
+            if sid not in snapshot_cache or not (snapshot_cache[sid][1] or snapshot_cache[sid][0])
+        }
         if all_spell_ids and not self._dump_dir:
             self.stdout.write(f'预取 SpellName ({len(all_spell_ids)} 个 spell_id)...')
             spell_name_map = monitor._fetch_db2_rows_by_ids_requests('SpellName', build, list(all_spell_ids), locale_override=monitor.name_locale)
