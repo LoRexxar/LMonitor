@@ -26,6 +26,7 @@ class Command(BaseCommand):
         super().__init__(*args, **kwargs)
         self._db2_filter_cache = {}
         self._icon_cache = {}
+        self._db2_row_cache = {}
 
     def add_arguments(self, parser):
         parser.add_argument('--class-name', default='', help='仅处理指定职业')
@@ -78,9 +79,29 @@ class Command(BaseCommand):
 
         self.stdout.write(f'使用 build {build} 解析 {len(rows)} 条天赋节点')
 
+        # 预取 TraitNodeEntry / TraitDefinition，减少每条记录的 DB2 请求次数
+        raw_ids = [
+            int(r.node_id or r.talent_id or r.spell_id or 0)
+            for r in rows
+            if int(r.node_id or r.talent_id or r.spell_id or 0) > 0
+        ]
+        entry_map = monitor._fetch_db2_rows_by_ids_requests('TraitNodeEntry', build, raw_ids)
+        definition_ids = []
+        for entry in entry_map.values():
+            try:
+                definition_ids.append(int(entry.get('TraitDefinitionID') or 0))
+            except Exception:
+                continue
+        definition_ids = [x for x in definition_ids if x > 0]
+        definition_map = monitor._fetch_db2_rows_by_ids_requests('TraitDefinition', build, definition_ids) if definition_ids else {}
+        self._db2_row_cache[(build, 'TraitNodeEntry')] = entry_map
+        self._db2_row_cache[(build, 'TraitDefinition')] = definition_map
+
         snapshot_spell_ids = {}
         updated = 0
         for index, row in enumerate(rows, start=1):
+            if index == 1 or index % 20 == 0:
+                close_old_connections()
             resolved = self._resolve_metadata_row(monitor, build, row)
             if not resolved:
                 continue
@@ -93,13 +114,7 @@ class Command(BaseCommand):
 
             now = timezone.now()
             target_tree_type = (resolved.get('tree_type') or row.tree_type or 'spec').strip() or 'spec'
-            conflict_row = WowTalentNodeMetadata.objects.filter(
-                class_name=row.class_name,
-                spec_name=row.spec_name,
-                tree_type=target_tree_type,
-                node_id=row.node_id,
-                spell_id=row.spell_id,
-            ).exclude(id=row.id).first()
+            conflict_row = self._find_conflict_row(row, target_tree_type)
             if conflict_row:
                 merged = self._merge_metadata_values(conflict_row, row, resolved)
                 conflict_changed = False
@@ -190,6 +205,24 @@ class Command(BaseCommand):
             f'已通过 trait 映射回填 {len(snapshot_spell_ids)} 个真实 spell 名称，更新 {updated} 条天赋元数据'
         ))
 
+    @staticmethod
+    def _find_conflict_row(row, target_tree_type):
+        def _query():
+            return WowTalentNodeMetadata.objects.filter(
+                class_name=row.class_name,
+                spec_name=row.spec_name,
+                tree_type=target_tree_type,
+                node_id=row.node_id,
+                spell_id=row.spell_id,
+            ).exclude(id=row.id).first()
+
+        close_old_connections()
+        try:
+            return _query()
+        except OperationalError:
+            close_old_connections()
+            return _query()
+
     def _resolve_metadata_row(self, monitor, build, row):
         raw_id = row.node_id or row.talent_id or row.spell_id
         if not raw_id:
@@ -207,12 +240,14 @@ class Command(BaseCommand):
             'parents_json': self._resolve_trait_parents(monitor, build, raw_id),
         }
 
-        entry = monitor._fetch_db2_row_by_id_requests('TraitNodeEntry', build, raw_id)
+        entry = (self._db2_row_cache.get((build, 'TraitNodeEntry')) or {}).get(int(raw_id)) or \
+            monitor._fetch_db2_row_by_id_requests('TraitNodeEntry', build, raw_id)
         if entry:
             definition_id = int(entry.get('TraitDefinitionID') or 0)
             max_ranks = int(entry.get('MaxRanks') or 1)
             subtree_id = int(entry.get('TraitSubTreeID') or 0)
-            definition = monitor._fetch_db2_row_by_id_requests('TraitDefinition', build, definition_id) if definition_id else {}
+            definition = (self._db2_row_cache.get((build, 'TraitDefinition')) or {}).get(int(definition_id)) or \
+                (monitor._fetch_db2_row_by_id_requests('TraitDefinition', build, definition_id) if definition_id else {})
             resolved['max_points'] = max_ranks
             display_spell_id = int(
                 definition.get('VisibleSpellID')

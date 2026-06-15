@@ -3114,6 +3114,62 @@ class WagoSkillDiffMonitor(BaseScan):
             return row if isinstance(row, dict) else {}
         return {}
 
+    def _fetch_db2_rows_by_ids_requests(self, table, build, record_ids, locale_override=None, chunk_size=80):
+        """批量拉取 DB2 行，显著减少 HTTP 次数。
+
+        wago.tools 支持 filter[ID]=in:1,2,3 这种写法。
+        """
+        table = (table or '').strip()
+        build = (build or '').strip()
+        if not table or not build:
+            return {}
+        use_locale = (locale_override or self.locale or '').strip() or 'enUS'
+        ids = []
+        for rid in record_ids or []:
+            try:
+                rid_int = int(rid)
+            except Exception:
+                continue
+            if rid_int > 0:
+                ids.append(rid_int)
+        if not ids:
+            return {}
+
+        chunk_size = max(10, min(int(chunk_size or 80), 200))
+        out = {}
+        for start in range(0, len(ids), chunk_size):
+            batch = ids[start:start + chunk_size]
+            joined = ','.join(str(x) for x in batch)
+            url = f"https://wago.tools/db2/{table}?build={build}&locale={use_locale}&filter[ID]=in:{joined}"
+            try:
+                r = requests.get(url, timeout=max(30, self.http_timeout), headers={'User-Agent': 'Mozilla/5.0'})
+            except Exception:
+                continue
+            if r.status_code != 200:
+                continue
+            try:
+                text = r.content.decode('utf-8', 'replace')
+            except Exception:
+                text = r.text or ''
+            props = self._extract_inertia_props(text or '')
+            data = []
+            if 'entries' in props:
+                entries = props.get('entries') or {}
+                data = entries.get('data') if isinstance(entries, dict) else (entries if isinstance(entries, list) else [])
+            elif 'data' in props:
+                payload = props.get('data')
+                data = payload.get('data') if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+            for row in data if isinstance(data, list) else []:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    rid = int(row.get('ID') or 0)
+                except Exception:
+                    continue
+                if rid > 0:
+                    out[rid] = row
+        return out
+
     def _fetch_spell_names_concurrent(self, build, spell_ids, locale_override=None):
         spell_ids = [int(x) for x in (spell_ids or []) if int(x) > 0]
         if not spell_ids:
