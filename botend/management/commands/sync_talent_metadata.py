@@ -98,28 +98,46 @@ class Command(BaseCommand):
                 if current.get(field) in (None, '', []):
                     current[field] = value
 
+        self.stdout.write(f'  [{source}] 解析完成: {len(raw_entries)} 条原始 → {len(merged_nodes)} 个唯一节点, {len(all_spell_ids)} 个 spell_id')
+
         updated = 0
-        for key, defaults in merged_nodes.items():
-            meta, created = WowTalentNodeMetadata.objects.get_or_create(
-                class_name=key[0],
-                spec_name=key[1],
-                tree_type=key[2],
-                node_id=key[3],
-                spell_id=key[4],
-                defaults=defaults,
-            )
-            if not created:
-                changed = False
-                for field, value in defaults.items():
-                    if value in (None, '', []):
-                        continue
-                    if getattr(meta, field) in (None, '', []):
-                        setattr(meta, field, value)
-                        changed = True
-                if changed:
-                    meta.last_updated = timezone.now()
-                    meta.save()
-            updated += 1
+        if merged_nodes:
+            existing_map = {}
+            existing_qs = WowTalentNodeMetadata.objects.filter(
+                class_name=class_name if class_name else '',
+            ).values_list('class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id', 'id')
+            if not class_name:
+                existing_qs = WowTalentNodeMetadata.objects.values_list(
+                    'class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id', 'id')
+            for cn, sn, tt, nid, sid, eid in existing_qs.iterator():
+                existing_map[(cn, sn, tt, nid, sid)] = eid
+
+            to_create = []
+            to_update = []
+            now = timezone.now()
+            for key, defaults in merged_nodes.items():
+                defaults['last_updated'] = now
+                defaults['class_name'] = key[0]
+                defaults['spec_name'] = key[1]
+                defaults['tree_type'] = key[2]
+                defaults['node_id'] = key[3]
+                defaults['spell_id'] = key[4]
+                if key in existing_map:
+                    defaults['id'] = existing_map[key]
+                    obj = WowTalentNodeMetadata(**defaults)
+                    to_update.append(obj)
+                else:
+                    obj = WowTalentNodeMetadata(**defaults)
+                    to_create.append(obj)
+
+            if to_create:
+                WowTalentNodeMetadata.objects.bulk_create(to_create, batch_size=500, ignore_conflicts=True)
+            if to_update:
+                update_fields = ['name', 'name_zh', 'icon', 'row', 'column', 'max_points',
+                                 'parents_json', 'source', 'talent_id', 'last_updated']
+                WowTalentNodeMetadata.objects.bulk_update(to_update, update_fields, batch_size=500)
+            updated = len(to_create) + len(to_update)
+
         return updated
 
     def _reclassify_tree_types(self, class_name=''):
