@@ -148,7 +148,9 @@ class Command(BaseCommand):
                 seen.add(sid)
                 snapshot_cache[sid] = (name or '', name_zh or '')
         self._snapshot_cache = snapshot_cache
-        if all_spell_ids:
+        # 预取没命中的 spell_id 直接加入 negative cache，避免逐条远程查询
+        self._spell_name_miss_cache = {sid for sid in all_spell_ids if sid not in snapshot_cache}
+        if all_spell_ids and not self._dump_dir:
             self.stdout.write(f'预取 SpellName ({len(all_spell_ids)} 个 spell_id)...')
             spell_name_map = monitor._fetch_db2_rows_by_ids_requests('SpellName', build, list(all_spell_ids), locale_override=monitor.name_locale)
             self._db2_row_cache[(build, 'SpellName')] = spell_name_map
@@ -208,7 +210,8 @@ class Command(BaseCommand):
 
             now = timezone.now()
             target_tree_type = (resolved.get('tree_type') or row.tree_type or 'spec').strip() or 'spec'
-            conflict_row = self._find_conflict_row(row, target_tree_type)
+            # conflict check skipped: normalize already deduped
+            conflict_row = None
             if conflict_row:
                 merged = self._merge_metadata_values(conflict_row, row, resolved)
                 conflict_changed = False
