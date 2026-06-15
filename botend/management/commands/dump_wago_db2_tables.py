@@ -18,7 +18,7 @@ class Command(BaseCommand):
         parser.add_argument('--locale', default='enUS', help='locale，例如 enUS')
         parser.add_argument(
             '--tables',
-            default='TraitNode,TraitNodeEntry,TraitDefinition,TraitNodeXTraitNodeEntry,TraitEdge',
+            default='TraitNode,TraitNodeEntry,TraitDefinition,TraitNodeXTraitNodeEntry,TraitEdge,SpellName,SpellMisc',
             help='逗号分隔表名',
         )
         parser.add_argument('--output-dir', default='.cache/wago_db2_dumps', help='输出目录（会按 build 分目录）')

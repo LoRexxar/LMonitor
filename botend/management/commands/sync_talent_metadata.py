@@ -46,6 +46,8 @@ class Command(BaseCommand):
             queryset = queryset[:limit]
 
         merged_nodes = OrderedDict()
+        all_spell_ids = set()
+        raw_entries = []
         for row in queryset.iterator() if hasattr(queryset, 'iterator') else queryset:
             payload = normalize_talent_payload(
                 getattr(row, 'talents_json', []) or [],
@@ -55,25 +57,46 @@ class Command(BaseCommand):
             for node in payload['nodes']:
                 if node.get('tree_type') == 'build_code':
                     continue
+                spell_id = node.get('spell_id')
+                if spell_id:
+                    all_spell_ids.add(int(spell_id))
+                raw_entries.append((row.class_name, row.spec_name, node))
 
-                key = (
-                    row.class_name,
-                    row.spec_name,
-                    node.get('tree_type') or 'spec',
-                    node.get('node_id'),
-                    node.get('spell_id'),
-                )
-                defaults = self._build_defaults(node, source)
-                if key not in merged_nodes:
-                    merged_nodes[key] = defaults
+        # 批量预取 WowSpellSnapshot，消除 N+1
+        snapshot_cache = {}
+        if all_spell_ids:
+            rows = (
+                WowSpellSnapshot.objects
+                .filter(spell_id__in=all_spell_ids)
+                .order_by('spell_id', '-updated_at')
+                .values_list('spell_id', 'name', 'name_zh')
+            )
+            seen = set()
+            for sid, name, name_zh in rows:
+                if sid in seen:
                     continue
+                seen.add(sid)
+                snapshot_cache[sid] = (name or '', name_zh or '')
 
-                current = merged_nodes[key]
-                for field, value in defaults.items():
-                    if value in (None, '', []):
-                        continue
-                    if current.get(field) in (None, '', []):
-                        current[field] = value
+        for class_name_val, spec_name_val, node in raw_entries:
+            key = (
+                class_name_val,
+                spec_name_val,
+                node.get('tree_type') or 'spec',
+                node.get('node_id'),
+                node.get('spell_id'),
+            )
+            defaults = self._build_defaults(node, source, snapshot_cache)
+            if key not in merged_nodes:
+                merged_nodes[key] = defaults
+                continue
+
+            current = merged_nodes[key]
+            for field, value in defaults.items():
+                if value in (None, '', []):
+                    continue
+                if current.get(field) in (None, '', []):
+                    current[field] = value
 
         updated = 0
         for key, defaults in merged_nodes.items():
@@ -144,10 +167,14 @@ class Command(BaseCommand):
                 self.stdout.write(f'[{current_class}] 重分类 {updated} 条天赋树归属')
 
     @staticmethod
-    def _build_defaults(node, source):
+    def _build_defaults(node, source, snapshot_cache=None):
         snapshot = None
         spell_id = node.get('spell_id')
-        if spell_id:
+        if spell_id and snapshot_cache:
+            cached = snapshot_cache.get(int(spell_id))
+            if cached:
+                snapshot = type('Snapshot', (), {'name': cached[0], 'name_zh': cached[1]})()
+        elif spell_id:
             snapshot = WowSpellSnapshot.objects.filter(spell_id=spell_id).order_by('-updated_at').first()
 
         name = node.get('name', '')

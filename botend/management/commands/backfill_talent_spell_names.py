@@ -438,6 +438,22 @@ class Command(BaseCommand):
         self._dump_reverse_indexes[(build, 'TraitEdge:LeftTraitNodeID')] = edges_by_left
         self._dump_reverse_indexes[(build, 'TraitEdge:RightTraitNodeID')] = edges_by_right
 
+        # SpellName: keyed by spell_id → row (ID field IS the spell_id)
+        self._dump_indexes[(build, 'SpellName')] = load_db2_dump_map(dump_dir, 'SpellName')
+
+        # SpellMisc: keyed by ID (SpellMisc ID), but we need SpellID → row reverse index
+        spell_misc_map = load_db2_dump_map(dump_dir, 'SpellMisc')
+        self._dump_indexes[(build, 'SpellMisc')] = spell_misc_map
+        spell_id_to_misc = {}
+        for misc_row in spell_misc_map.values():
+            try:
+                sid = int(misc_row.get('SpellID') or 0)
+            except Exception:
+                continue
+            if sid > 0:
+                spell_id_to_misc[sid] = misc_row
+        self._dump_reverse_indexes[(build, 'SpellMisc:SpellID')] = spell_id_to_misc
+
     def _fetch_db2_row_by_id(self, monitor, build, table, record_id):
         record_id = int(record_id or 0)
         if record_id <= 0:
@@ -496,6 +512,10 @@ class Command(BaseCommand):
         if snapshot and (snapshot.name_zh or snapshot.name):
             return (snapshot.name_zh or snapshot.name or '').strip()
         if self._dump_dir:
+            spell_name_row = (self._dump_indexes.get((build, 'SpellName')) or {}).get(int(spell_id) or 0) or {}
+            name = (spell_name_row.get('Name_lang') or '').strip()
+            if name:
+                return name
             return ''
         row = monitor._fetch_db2_row_by_id_requests('SpellName', build, spell_id, locale_override=monitor.name_locale)
         name = (row.get('Name_lang') or '').strip()
@@ -504,16 +524,16 @@ class Command(BaseCommand):
         return (monitor._fetch_spell_name_wowhead_cn(spell_id) or '').strip()
 
     def _resolve_spell_icon(self, monitor, build, spell_id, definition):
-        if self._dump_dir:
-            # dump 模式先只走本地/已有缓存，避免逐条外网补 icon 拖慢整批回填
-            return ''
         override_icon = int((definition or {}).get('OverrideIcon') or 0)
         if override_icon > 0:
             icon_name = self._resolve_icon_name_by_filedata(override_icon)
             if icon_name:
                 return icon_name
 
-        misc = monitor._fetch_spellmisc_by_spellid(build, spell_id)
+        if self._dump_dir:
+            misc = (self._dump_reverse_indexes.get((build, 'SpellMisc:SpellID')) or {}).get(int(spell_id) or 0) or {}
+        else:
+            misc = monitor._fetch_spellmisc_by_spellid(build, spell_id)
         icon_file_data_id = int((misc or {}).get('SpellIconFileDataID') or 0)
         if icon_file_data_id <= 0:
             icon_file_data_id = int((misc or {}).get('ActiveIconFileDataID') or 0)
