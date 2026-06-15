@@ -513,15 +513,26 @@ class Command(BaseCommand):
     def _flush_bulk(rows):
         if not rows:
             return
-        WowTalentNodeMetadata.objects.bulk_update(
-            rows,
-            fields=[
-                'display_spell_id', 'name', 'name_zh', 'icon',
-                'row', 'column', 'max_points', 'parents_json',
-                'tree_type', 'last_updated',
-            ],
-            batch_size=500,
-        )
+        try:
+            WowTalentNodeMetadata.objects.bulk_update(
+                rows,
+                fields=[
+                    'display_spell_id', 'name', 'name_zh', 'icon',
+                    'row', 'column', 'max_points', 'parents_json',
+                    'tree_type', 'last_updated',
+                ],
+                batch_size=500,
+            )
+        except Exception:
+            for obj in rows:
+                try:
+                    obj.save(update_fields=[
+                        'display_spell_id', 'name', 'name_zh', 'icon',
+                        'row', 'column', 'max_points', 'parents_json',
+                        'tree_type', 'last_updated',
+                    ])
+                except Exception:
+                    pass
 
     def _merge_metadata_values(self, target_row, source_row, resolved):
         merged_parents = sorted(
