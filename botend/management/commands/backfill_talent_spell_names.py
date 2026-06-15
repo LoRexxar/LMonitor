@@ -91,13 +91,17 @@ class Command(BaseCommand):
 
         self.stdout.write(f'使用 build {build} 解析 {len(rows)} 条天赋节点')
 
-        # 预取 TraitNodeEntry / TraitDefinition，减少每条记录的 DB2 请求次数
+        # 预取 TraitNodeEntry / TraitDefinition，优先用本地 dump
         raw_ids = [
             int(r.node_id or r.talent_id or r.spell_id or 0)
             for r in rows
             if int(r.node_id or r.talent_id or r.spell_id or 0) > 0
         ]
-        entry_map = monitor._fetch_db2_rows_by_ids_requests('TraitNodeEntry', build, raw_ids)
+        dump_entry_map = self._dump_indexes.get((build, 'TraitNodeEntry')) or {}
+        if dump_entry_map:
+            entry_map = {rid: dump_entry_map[rid] for rid in raw_ids if rid in dump_entry_map}
+        else:
+            entry_map = monitor._fetch_db2_rows_by_ids_requests('TraitNodeEntry', build, raw_ids)
         definition_ids = []
         for entry in entry_map.values():
             try:
@@ -105,7 +109,11 @@ class Command(BaseCommand):
             except Exception:
                 continue
         definition_ids = [x for x in definition_ids if x > 0]
-        definition_map = monitor._fetch_db2_rows_by_ids_requests('TraitDefinition', build, definition_ids) if definition_ids else {}
+        dump_defn_map = self._dump_indexes.get((build, 'TraitDefinition')) or {}
+        if dump_defn_map:
+            definition_map = {did: dump_defn_map[did] for did in definition_ids if did in dump_defn_map}
+        else:
+            definition_map = monitor._fetch_db2_rows_by_ids_requests('TraitDefinition', build, definition_ids) if definition_ids else {}
         self._db2_row_cache[(build, 'TraitNodeEntry')] = entry_map
         self._db2_row_cache[(build, 'TraitDefinition')] = definition_map
 
@@ -122,6 +130,24 @@ class Command(BaseCommand):
                 sid = int(defn.get(key) or 0)
                 if sid > 0:
                     all_spell_ids.add(sid)
+
+        # 批量预取 WowSpellSnapshot，消除 _resolve_spell_name 中的 N+1 查询
+        snapshot_cache = {}
+        if all_spell_ids:
+            from botend.models import WowSpellSnapshot
+            snapshot_rows = (
+                WowSpellSnapshot.objects
+                .filter(spell_id__in=all_spell_ids)
+                .order_by('spell_id', '-updated_at')
+                .values_list('spell_id', 'name', 'name_zh')
+            )
+            seen = set()
+            for sid, name, name_zh in snapshot_rows:
+                if sid in seen:
+                    continue
+                seen.add(sid)
+                snapshot_cache[sid] = (name or '', name_zh or '')
+        self._snapshot_cache = snapshot_cache
         if all_spell_ids:
             self.stdout.write(f'预取 SpellName ({len(all_spell_ids)} 个 spell_id)...')
             spell_name_map = monitor._fetch_db2_rows_by_ids_requests('SpellName', build, list(all_spell_ids), locale_override=monitor.name_locale)
@@ -555,17 +581,30 @@ class Command(BaseCommand):
         }
 
     def _resolve_spell_name(self, monitor, build, spell_id):
+        sid = int(spell_id or 0)
+        if not sid:
+            return ''
+        # negative cache: 查过没有的不再查
+        if not hasattr(self, '_spell_name_miss_cache'):
+            self._spell_name_miss_cache = set()
+        if sid in self._spell_name_miss_cache:
+            return ''
+        # 优先用批量预取的缓存
+        cached = getattr(self, '_snapshot_cache', {}).get(sid)
+        if cached and (cached[1] or cached[0]):
+            return (cached[1] or cached[0]).strip()
         try:
-            snapshot = WowSpellSnapshot.objects.filter(spell_id=spell_id).order_by('-updated_at').first()
+            snapshot = WowSpellSnapshot.objects.filter(spell_id=sid).order_by('-updated_at').first()
         except Exception:
             snapshot = None
         if snapshot and (snapshot.name_zh or snapshot.name):
             return (snapshot.name_zh or snapshot.name or '').strip()
         if self._dump_dir:
-            spell_name_row = (self._db2_row_cache.get((build, 'SpellName')) or {}).get(int(spell_id) or 0) or {}
+            spell_name_row = (self._db2_row_cache.get((build, 'SpellName')) or {}).get(sid) or {}
             name = (spell_name_row.get('Name_lang') or '').strip()
             if name:
                 return name
+            self._spell_name_miss_cache.add(sid)
             return ''
         row = monitor._fetch_db2_row_by_id_requests('SpellName', build, spell_id, locale_override=monitor.name_locale)
         name = (row.get('Name_lang') or '').strip()
