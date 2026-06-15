@@ -17,6 +17,8 @@ class Command(BaseCommand):
         parser.add_argument('--backfill-limit', type=int, default=0, help='静态回填阶段每个专精的限制，0 表示不限制')
         parser.add_argument('--skip-sync', action='store_true', help='跳过 sync_talent_metadata，仅执行静态回填')
         parser.add_argument('--stop-on-error', action='store_true', help='遇到单个专精失败时立即中止')
+        parser.add_argument('--db2-dump-dir', default='', help='使用 dump_wago_db2_tables 输出目录（提升回填速度）')
+        parser.add_argument('--bulk-size', type=int, default=800, help='回填 bulk_update 批大小')
 
     def handle(self, *args, **options):
         class_name = (options.get('class_name') or '').strip()
@@ -25,6 +27,8 @@ class Command(BaseCommand):
         backfill_limit = max(0, int(options.get('backfill_limit') or 0))
         skip_sync = bool(options.get('skip_sync'))
         stop_on_error = bool(options.get('stop_on_error'))
+        db2_dump_dir = (options.get('db2_dump_dir') or '').strip()
+        bulk_size = max(50, int(options.get('bulk_size') or 800))
 
         targets = self._build_targets(class_name, spec_name)
         self.stdout.write(f'准备初始化 {len(targets)} 个职业/专精目标')
@@ -59,6 +63,8 @@ class Command(BaseCommand):
                     spec_name=target_spec,
                     limit=backfill_limit,
                     refresh_tree_type=True,
+                    db2_dump_dir=db2_dump_dir,
+                    bulk_size=bulk_size,
                 )
             except Exception as exc:
                 failures.append((target_class, target_spec, str(exc)))
