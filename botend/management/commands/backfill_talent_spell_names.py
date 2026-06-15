@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata, WowWagoMonitorState
+from botend.wow.db2_dump import load_db2_dump_map, load_db2_dump_rows
 
 
 HERO_SUBTREE_NAME_ZH = {
@@ -27,6 +28,9 @@ class Command(BaseCommand):
         self._db2_filter_cache = {}
         self._icon_cache = {}
         self._db2_row_cache = {}
+        self._dump_dir = ''
+        self._dump_indexes = {}
+        self._dump_reverse_indexes = {}
 
     def add_arguments(self, parser):
         parser.add_argument('--class-name', default='', help='仅处理指定职业')
@@ -36,6 +40,8 @@ class Command(BaseCommand):
         parser.add_argument('--limit', type=int, default=200, help='最多处理多少个 spell_id')
         parser.add_argument('--chunk-size', type=int, default=50, help='每批处理的 spell_id 数量')
         parser.add_argument('--refresh-tree-type', action='store_true', help='强制重算 tree_type/row/column')
+        parser.add_argument('--db2-dump-dir', default='', help='使用 dump_wago_db2_tables 输出目录（第二步：本地解析 + 批量写入）')
+        parser.add_argument('--bulk-size', type=int, default=500, help='bulk_update 每批条数')
 
     def handle(self, *args, **options):
         class_name = options['class_name']
@@ -44,12 +50,18 @@ class Command(BaseCommand):
         limit = max(0, int(options['limit']))
         chunk_size = max(1, min(int(options['chunk_size']), 200))
         refresh_tree_type = bool(options.get('refresh_tree_type'))
+        self._dump_dir = (options.get('db2_dump_dir') or '').strip()
+        bulk_size = max(50, int(options.get('bulk_size') or 500))
         build = (options['build'] or '').strip() or self._guess_build(branch)
 
         if not build:
             raise CommandError('无法推断可用 build，请使用 --build 显式指定')
 
         monitor = WagoSkillDiffMonitor(None, None)
+
+        if self._dump_dir:
+            self.stdout.write(f'使用本地 DB2 dump: {self._dump_dir}')
+            self._load_db2_dumps(build)
         if refresh_tree_type:
             queryset = WowTalentNodeMetadata.objects.exclude(spell_id__isnull=True)
         else:
@@ -99,6 +111,7 @@ class Command(BaseCommand):
 
         snapshot_spell_ids = {}
         updated = 0
+        pending_bulk = []
         for index, row in enumerate(rows, start=1):
             if index == 1 or index % 20 == 0:
                 close_old_connections()
@@ -174,11 +187,11 @@ class Command(BaseCommand):
                 changed = True
             if changed:
                 row.last_updated = now
-                self._retry_db_write(
-                    row.save,
-                    update_fields=['display_spell_id', 'name', 'name_zh', 'icon', 'row', 'column', 'max_points', 'parents_json', 'tree_type', 'last_updated'],
-                )
+                pending_bulk.append(row)
                 updated += 1
+                if len(pending_bulk) >= bulk_size:
+                    self._flush_bulk(pending_bulk)
+                    pending_bulk = []
 
             if index <= 10 or index % 25 == 0 or index == len(rows):
                 self.stdout.write(
@@ -187,6 +200,9 @@ class Command(BaseCommand):
                     f'row={resolved.get("row")} col={resolved.get("column")} '
                     f'parents={len(resolved.get("parents_json") or [])}'
                 )
+
+        if pending_bulk:
+            self._flush_bulk(pending_bulk)
 
         for spell_id, name_zh in snapshot_spell_ids.items():
             self._retry_db_write(
@@ -304,7 +320,7 @@ class Command(BaseCommand):
         if not trait_node_id:
             return []
 
-        current_node = monitor._fetch_db2_row_by_id_requests('TraitNode', build, trait_node_id) or {}
+        current_node = self._fetch_db2_row_by_id(monitor, build, 'TraitNode', trait_node_id) or {}
         current_y = self._coerce_int(current_node.get('PosY'))
         current_x = self._coerce_int(current_node.get('PosX'))
 
@@ -314,17 +330,12 @@ class Command(BaseCommand):
             ('LeftTraitNodeID', 'RightTraitNodeID'),
             ('RightTraitNodeID', 'LeftTraitNodeID'),
         ):
-            edges = self._fetch_db2_rows_by_filter(
-                monitor,
-                'TraitEdge',
-                build,
-                {field_name: trait_node_id},
-            )
+            edges = self._fetch_db2_edges(build, field_name, trait_node_id)
             for edge in edges:
                 other_trait_node_id = self._coerce_int(edge.get(other_field))
                 if not other_trait_node_id or other_trait_node_id == trait_node_id:
                     continue
-                other_node = monitor._fetch_db2_row_by_id_requests('TraitNode', build, other_trait_node_id) or {}
+                other_node = self._fetch_db2_row_by_id(monitor, build, 'TraitNode', other_trait_node_id) or {}
                 other_y = self._coerce_int(other_node.get('PosY'))
                 other_x = self._coerce_int(other_node.get('PosX'))
                 if other_y is None or current_y is None:
@@ -341,6 +352,9 @@ class Command(BaseCommand):
         return parent_entry_ids
 
     def _resolve_trait_node_id(self, monitor, build, trait_node_entry_id):
+        entry_to_node = self._dump_reverse_indexes.get((build, 'TraitNodeEntryID->TraitNodeID')) or {}
+        if entry_to_node:
+            return int(entry_to_node.get(int(trait_node_entry_id) or 0) or 0)
         links = self._fetch_db2_rows_by_filter(
             monitor,
             'TraitNodeXTraitNodeEntry',
@@ -353,6 +367,12 @@ class Command(BaseCommand):
         return self._coerce_int(link.get('TraitNodeID') or link.get('TraitNode') or link.get('TraitNodeId'), 0) or 0
 
     def _resolve_primary_entry_id_for_trait_node(self, monitor, build, trait_node_id):
+        node_to_entries = self._dump_reverse_indexes.get((build, 'TraitNodeID->TraitNodeEntryIDs')) or {}
+        entry_ids = node_to_entries.get(int(trait_node_id) or 0) if node_to_entries else None
+        if entry_ids:
+            for entry_id in entry_ids:
+                if entry_id > 0:
+                    return entry_id
         links = self._fetch_db2_rows_by_filter(
             monitor,
             'TraitNodeXTraitNodeEntry',
@@ -371,6 +391,82 @@ class Command(BaseCommand):
             if entry_id > 0:
                 return entry_id
         return 0
+
+    def _load_db2_dumps(self, build):
+        dump_dir = self._dump_dir
+        if not dump_dir:
+            return
+        if os.path.isdir(os.path.join(dump_dir, build)):
+            dump_dir = os.path.join(dump_dir, build)
+        self._dump_dir = dump_dir
+
+        self._dump_indexes[(build, 'TraitNode')] = load_db2_dump_map(dump_dir, 'TraitNode')
+        self._dump_indexes[(build, 'TraitNodeEntry')] = load_db2_dump_map(dump_dir, 'TraitNodeEntry')
+        self._dump_indexes[(build, 'TraitDefinition')] = load_db2_dump_map(dump_dir, 'TraitDefinition')
+
+        links = load_db2_dump_rows(dump_dir, 'TraitNodeXTraitNodeEntry')
+        entry_to_node = {}
+        node_to_entries = {}
+        for link in links:
+            try:
+                node_id = int(link.get('TraitNodeID') or link.get('TraitNode') or 0)
+                entry_id = int(link.get('TraitNodeEntryID') or link.get('TraitNodeEntry') or 0)
+            except Exception:
+                continue
+            if node_id <= 0 or entry_id <= 0:
+                continue
+            entry_to_node[entry_id] = node_id
+            node_to_entries.setdefault(node_id, []).append(entry_id)
+        for node_id, entry_ids in node_to_entries.items():
+            node_to_entries[node_id] = sorted(set(entry_ids))
+        self._dump_reverse_indexes[(build, 'TraitNodeEntryID->TraitNodeID')] = entry_to_node
+        self._dump_reverse_indexes[(build, 'TraitNodeID->TraitNodeEntryIDs')] = node_to_entries
+
+        edges = load_db2_dump_rows(dump_dir, 'TraitEdge')
+        edges_by_left = {}
+        edges_by_right = {}
+        for edge in edges:
+            try:
+                left_id = int(edge.get('LeftTraitNodeID') or 0)
+                right_id = int(edge.get('RightTraitNodeID') or 0)
+            except Exception:
+                continue
+            if left_id > 0:
+                edges_by_left.setdefault(left_id, []).append(edge)
+            if right_id > 0:
+                edges_by_right.setdefault(right_id, []).append(edge)
+        self._dump_reverse_indexes[(build, 'TraitEdge:LeftTraitNodeID')] = edges_by_left
+        self._dump_reverse_indexes[(build, 'TraitEdge:RightTraitNodeID')] = edges_by_right
+
+    def _fetch_db2_row_by_id(self, monitor, build, table, record_id):
+        record_id = int(record_id or 0)
+        if record_id <= 0:
+            return {}
+        cached = (self._dump_indexes.get((build, table)) or {}).get(record_id)
+        if cached:
+            return cached
+        return monitor._fetch_db2_row_by_id_requests(table, build, record_id) or {}
+
+    def _fetch_db2_edges(self, build, field_name, node_id):
+        node_id = int(node_id or 0)
+        if node_id <= 0:
+            return []
+        cached = self._dump_reverse_indexes.get((build, f'TraitEdge:{field_name}')) or {}
+        return cached.get(node_id, []) if cached else []
+
+    @staticmethod
+    def _flush_bulk(rows):
+        if not rows:
+            return
+        WowTalentNodeMetadata.objects.bulk_update(
+            rows,
+            fields=[
+                'display_spell_id', 'name', 'name_zh', 'icon',
+                'row', 'column', 'max_points', 'parents_json',
+                'tree_type', 'last_updated',
+            ],
+            batch_size=500,
+        )
 
     def _merge_metadata_values(self, target_row, source_row, resolved):
         merged_parents = sorted(
@@ -423,21 +519,11 @@ class Command(BaseCommand):
             return default
 
     def _resolve_trait_layout(self, monitor, build, trait_node_entry_id):
-        links = self._fetch_db2_rows_by_filter(
-            monitor,
-            'TraitNodeXTraitNodeEntry',
-            build,
-            {'TraitNodeEntryID': trait_node_entry_id},
-        )
-        if not links:
-            return {}
-
-        link = links[0] if isinstance(links[0], dict) else {}
-        trait_node_id = self._coerce_int(link.get('TraitNodeID') or link.get('TraitNode') or link.get('TraitNodeId'))
+        trait_node_id = self._resolve_trait_node_id(monitor, build, trait_node_entry_id)
         if not trait_node_id:
             return {}
 
-        node = monitor._fetch_db2_row_by_id_requests('TraitNode', build, trait_node_id)
+        node = self._fetch_db2_row_by_id(monitor, build, 'TraitNode', trait_node_id)
         if not node:
             return {}
 
