@@ -27,6 +27,8 @@ class Command(BaseCommand):
         parser.add_argument('--overwrite', action='store_true', help='覆盖已有 jsonl/meta（重新从第 1 页抓取）')
         parser.add_argument('--retry', type=int, default=6, help='单页网络重试次数')
         parser.add_argument('--retry-sleep', type=float, default=2.0, help='重试基础等待秒数（指数退避）')
+        parser.add_argument('--no-proxy', action='store_true', help='不使用系统代理（默认使用环境代理）')
+        parser.add_argument('--resume', action='store_true', help='若存在 progress 文件则从上次页码继续')
 
     def handle(self, *args, **options):
         build = (options.get('build') or '').strip() or 'latest'
@@ -38,14 +40,16 @@ class Command(BaseCommand):
         overwrite = bool(options.get('overwrite'))
         retry = max(0, int(options.get('retry') or 0))
         retry_sleep = max(0.1, float(options.get('retry_sleep') or 2.0))
+        no_proxy = bool(options.get('no_proxy'))
+        resume = bool(options.get('resume'))
 
         out_dir = os.path.join(out_root, build)
         os.makedirs(out_dir, exist_ok=True)
 
         session = requests.Session()
         session.headers.update({'User-Agent': 'Mozilla/5.0'})
-        # 避免环境代理导致 ProxyError / RemoteDisconnected
-        session.trust_env = False
+        # 注意：该环境直连可能超时，默认启用环境代理；如需强制直连用 --no-proxy
+        session.trust_env = not no_proxy
 
         self.stdout.write(f'输出目录: {out_dir}')
         for table in tables:
@@ -60,11 +64,13 @@ class Command(BaseCommand):
                 overwrite=overwrite,
                 retry=retry,
                 retry_sleep=retry_sleep,
+                resume=resume,
             )
 
-    def _dump_table(self, session, out_dir, table, build, locale, sleep=0.0, max_pages=0, overwrite=False, retry=6, retry_sleep=2.0):
+    def _dump_table(self, session, out_dir, table, build, locale, sleep=0.0, max_pages=0, overwrite=False, retry=6, retry_sleep=2.0, resume=False):
         file_path = os.path.join(out_dir, f'{table}.jsonl')
         meta_path = os.path.join(out_dir, f'{table}.meta.json')
+        progress_path = os.path.join(out_dir, f'{table}.progress.json')
 
         self.stdout.write(f'开始抓取 {table} ...')
         total_rows = 0
@@ -76,6 +82,19 @@ class Command(BaseCommand):
                 os.remove(file_path)
             if os.path.exists(meta_path):
                 os.remove(meta_path)
+            if os.path.exists(progress_path):
+                os.remove(progress_path)
+
+        if resume and os.path.exists(progress_path) and not overwrite:
+            try:
+                with open(progress_path, 'r', encoding='utf-8') as f:
+                    progress = json.load(f) or {}
+                page = int(progress.get('page') or 1)
+                if page < 1:
+                    page = 1
+                self.stdout.write(f'{table} resume from page={page}')
+            except Exception:
+                page = 1
 
         with open(file_path, 'a', encoding='utf-8') as f:
             while True:
@@ -120,6 +139,11 @@ class Command(BaseCommand):
 
                 if page % 20 == 0:
                     self.stdout.write(f'{table} progress page={page}/{last_page} rows={total_rows}')
+                try:
+                    with open(progress_path, 'w', encoding='utf-8') as pf:
+                        pf.write(json.dumps({'table': table, 'page': page, 'rows': total_rows}, ensure_ascii=False) + '\n')
+                except Exception:
+                    pass
                 if max_pages and page >= max_pages:
                     break
                 if last_page and page >= last_page:
