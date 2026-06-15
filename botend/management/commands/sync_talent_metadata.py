@@ -153,15 +153,31 @@ class Command(BaseCommand):
                 continue
 
             updated = 0
+            deleted = 0
             for row in rows:
                 key = row['node_id'] or row['talent_id'] or row['spell_id']
                 target_tree_type = 'class' if key in class_keys else 'spec'
                 if row['tree_type'] == target_tree_type:
                     continue
-                WowTalentNodeMetadata.objects.filter(id=row['id']).update(
-                    tree_type=target_tree_type,
-                    last_updated=timezone.now(),
-                )
+                if target_tree_type == 'class':
+                    existing_class = WowTalentNodeMetadata.objects.filter(
+                        class_name=current_class, spec_name=row['spec_name'],
+                        tree_type='class',
+                        node_id=row['node_id'], spell_id=row['spell_id'],
+                    ).exclude(id=row['id']).first()
+                    if existing_class:
+                        WowTalentNodeMetadata.objects.filter(id=row['id']).delete()
+                        deleted += 1
+                        continue
+                try:
+                    WowTalentNodeMetadata.objects.filter(id=row['id']).update(
+                        tree_type=target_tree_type,
+                        last_updated=timezone.now(),
+                    )
+                except Exception:
+                    WowTalentNodeMetadata.objects.filter(id=row['id']).delete()
+                    deleted += 1
+                    continue
                 updated += 1
             if updated:
                 self.stdout.write(f'[{current_class}] 重分类 {updated} 条天赋树归属')
