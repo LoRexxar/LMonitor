@@ -109,6 +109,61 @@ class Command(BaseCommand):
         self._db2_row_cache[(build, 'TraitNodeEntry')] = entry_map
         self._db2_row_cache[(build, 'TraitDefinition')] = definition_map
 
+        # 预取 SpellName / SpellMisc（按需批量，不全量 dump）
+        all_spell_ids = set()
+        for r in rows:
+            sid = int(r.spell_id or 0)
+            if sid > 0:
+                all_spell_ids.add(sid)
+        for entry in entry_map.values():
+            defn_id = int(entry.get('TraitDefinitionID') or 0)
+            defn = definition_map.get(defn_id) or {}
+            for key in ('VisibleSpellID', 'SpellID', 'OverridesSpellID'):
+                sid = int(defn.get(key) or 0)
+                if sid > 0:
+                    all_spell_ids.add(sid)
+        if all_spell_ids:
+            self.stdout.write(f'预取 SpellName ({len(all_spell_ids)} 个 spell_id)...')
+            spell_name_map = monitor._fetch_db2_rows_by_ids_requests('SpellName', build, list(all_spell_ids), locale_override=monitor.name_locale)
+            self._db2_row_cache[(build, 'SpellName')] = spell_name_map
+            self.stdout.write(f'预取 SpellMisc ({len(all_spell_ids)} 个 spell_id)...')
+            # SpellMisc 按 SpellID 批量 in: 过滤
+            spell_misc_by_spell = {}
+            spell_id_list = sorted(all_spell_ids)
+            for chunk_start in range(0, len(spell_id_list), 80):
+                chunk = spell_id_list[chunk_start:chunk_start + 80]
+                joined = ','.join(str(x) for x in chunk)
+                url = f'https://wago.tools/db2/SpellMisc?build={build}&locale={monitor.locale}&filter[SpellID]=in:{joined}'
+                try:
+                    r = requests.get(url, timeout=max(30, monitor.http_timeout), headers={'User-Agent': 'Mozilla/5.0'})
+                except Exception:
+                    continue
+                if r.status_code != 200:
+                    continue
+                try:
+                    text = r.content.decode('utf-8', 'replace')
+                except Exception:
+                    text = r.text or ''
+                props = monitor._extract_inertia_props(text or '')
+                data = []
+                if 'entries' in props:
+                    entries = props.get('entries') or {}
+                    data = entries.get('data') if isinstance(entries, dict) else (entries if isinstance(entries, list) else [])
+                elif 'data' in props:
+                    payload = props.get('data')
+                    data = payload.get('data') if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+                for misc_row in (data if isinstance(data, list) else []):
+                    if not isinstance(misc_row, dict):
+                        continue
+                    try:
+                        sid = int(misc_row.get('SpellID') or 0)
+                    except Exception:
+                        continue
+                    if sid > 0 and sid not in spell_misc_by_spell:
+                        spell_misc_by_spell[sid] = misc_row
+            self._db2_row_cache[(build, 'SpellMisc:SpellID')] = spell_misc_by_spell
+            self.stdout.write(f'SpellName={len(spell_name_map)} 条, SpellMisc={len(spell_misc_by_spell)} 条')
+
         snapshot_spell_ids = {}
         updated = 0
         pending_bulk = []
@@ -438,22 +493,6 @@ class Command(BaseCommand):
         self._dump_reverse_indexes[(build, 'TraitEdge:LeftTraitNodeID')] = edges_by_left
         self._dump_reverse_indexes[(build, 'TraitEdge:RightTraitNodeID')] = edges_by_right
 
-        # SpellName: keyed by spell_id → row (ID field IS the spell_id)
-        self._dump_indexes[(build, 'SpellName')] = load_db2_dump_map(dump_dir, 'SpellName')
-
-        # SpellMisc: keyed by ID (SpellMisc ID), but we need SpellID → row reverse index
-        spell_misc_map = load_db2_dump_map(dump_dir, 'SpellMisc')
-        self._dump_indexes[(build, 'SpellMisc')] = spell_misc_map
-        spell_id_to_misc = {}
-        for misc_row in spell_misc_map.values():
-            try:
-                sid = int(misc_row.get('SpellID') or 0)
-            except Exception:
-                continue
-            if sid > 0:
-                spell_id_to_misc[sid] = misc_row
-        self._dump_reverse_indexes[(build, 'SpellMisc:SpellID')] = spell_id_to_misc
-
     def _fetch_db2_row_by_id(self, monitor, build, table, record_id):
         record_id = int(record_id or 0)
         if record_id <= 0:
@@ -512,7 +551,7 @@ class Command(BaseCommand):
         if snapshot and (snapshot.name_zh or snapshot.name):
             return (snapshot.name_zh or snapshot.name or '').strip()
         if self._dump_dir:
-            spell_name_row = (self._dump_indexes.get((build, 'SpellName')) or {}).get(int(spell_id) or 0) or {}
+            spell_name_row = (self._db2_row_cache.get((build, 'SpellName')) or {}).get(int(spell_id) or 0) or {}
             name = (spell_name_row.get('Name_lang') or '').strip()
             if name:
                 return name
@@ -531,7 +570,7 @@ class Command(BaseCommand):
                 return icon_name
 
         if self._dump_dir:
-            misc = (self._dump_reverse_indexes.get((build, 'SpellMisc:SpellID')) or {}).get(int(spell_id) or 0) or {}
+            misc = (self._db2_row_cache.get((build, 'SpellMisc:SpellID')) or {}).get(int(spell_id) or 0) or {}
         else:
             misc = monitor._fetch_spellmisc_by_spellid(build, spell_id)
         icon_file_data_id = int((misc or {}).get('SpellIconFileDataID') or 0)

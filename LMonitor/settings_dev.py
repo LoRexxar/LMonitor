@@ -3,6 +3,12 @@ LMonitor 开发环境配置 — 用于连接服务器数据库做验证
 """
 import os
 
+try:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+except ImportError:
+    pass
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SECRET_KEY = 'dev-key-not-for-production'
