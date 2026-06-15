@@ -488,8 +488,15 @@ class Command(BaseCommand):
             'tree_type': (resolved.get('tree_type') or target_row.tree_type or source_row.tree_type or 'spec').strip() or 'spec',
         }
 
-    @staticmethod
-    def _resolve_spell_name(monitor, build, spell_id):
+    def _resolve_spell_name(self, monitor, build, spell_id):
+        try:
+            snapshot = WowSpellSnapshot.objects.filter(spell_id=spell_id).order_by('-updated_at').first()
+        except Exception:
+            snapshot = None
+        if snapshot and (snapshot.name_zh or snapshot.name):
+            return (snapshot.name_zh or snapshot.name or '').strip()
+        if self._dump_dir:
+            return ''
         row = monitor._fetch_db2_row_by_id_requests('SpellName', build, spell_id, locale_override=monitor.name_locale)
         name = (row.get('Name_lang') or '').strip()
         if name:
@@ -497,6 +504,9 @@ class Command(BaseCommand):
         return (monitor._fetch_spell_name_wowhead_cn(spell_id) or '').strip()
 
     def _resolve_spell_icon(self, monitor, build, spell_id, definition):
+        if self._dump_dir:
+            # dump 模式先只走本地/已有缓存，避免逐条外网补 icon 拖慢整批回填
+            return ''
         override_icon = int((definition or {}).get('OverrideIcon') or 0)
         if override_icon > 0:
             icon_name = self._resolve_icon_name_by_filedata(override_icon)
