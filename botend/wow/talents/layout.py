@@ -137,6 +137,20 @@ def build_talent_tree_layout(
     trees = [tree if isinstance(tree, TalentTreeModel) else TalentTreeModel(**tree) for tree in tree_set_model.trees]
     panel_columns = max(1, config_model.panel_columns or LAYOUT_PANEL_COLUMNS.get(tree_set_model.layout_mode, 1))
 
+    # 当缺少 class 面板时，插入一个占位空白面板，模拟左中右三栏布局
+    tree_types = {t.tree_type for t in trees}
+    has_class = 'class' in tree_types
+    has_hero = 'hero' in tree_types
+    if has_hero and not has_class:
+        from botend.wow.talents.models import TREE_COLUMNS
+        class_cols = TREE_COLUMNS.get('class', 8)
+        class_rows = max(1, max((t.grid_rows for t in trees), default=1))
+        # 插入一个空的 class 占位面板
+        placeholder = TalentTreeModel(
+            tree_type='class', title='', grid_columns=class_cols, grid_rows=class_rows, nodes=[],
+        )
+        trees.insert(0, placeholder)
+
     panel_blueprints = []
     for tree in trees:
         grid_columns = max(1, tree.grid_columns)
@@ -330,6 +344,39 @@ def _build_minimal_svg_path(start_x, start_y, end_x, end_y):
         f'L {_fmt(end_x)} {_fmt(mid_y)} '
         f'L {_fmt(end_x)} {_fmt(end_y)}'
     )
+
+
+def _shift_panel(panel, offset_x=0, offset_y=0):
+    """平移面板及其所有节点/连线的坐标"""
+    panel.x += offset_x
+    panel.y += offset_y
+    for node in panel.nodes:
+        node.x += offset_x
+        node.y += offset_y
+        node.center_x += offset_x
+        node.center_y += offset_y
+        node.anchor_top_x += offset_x
+        node.anchor_top_y += offset_y
+        node.anchor_bottom_x += offset_x
+        node.anchor_bottom_y += offset_y
+    for path in panel.paths:
+        # SVG path 坐标也需要平移
+        path.svg_path = _translate_svg_path(path.svg_path, offset_x, offset_y)
+
+
+def _translate_svg_path(svg_path, dx, dy):
+    """给 SVG path 的所有坐标加偏移"""
+    import re
+    def _shift_coord(match):
+        cmd = match.group(1)
+        coords = match.group(2)
+        parts = coords.strip().split()
+        shifted = []
+        for i, p in enumerate(parts):
+            val = float(p) + (dx if i % 2 == 0 else dy)
+            shifted.append(f'{val:g}')
+        return f'{cmd} {" ".join(shifted)}'
+    return re.sub(r'([ML])\s+([\d.\s-]+)', _shift_coord, svg_path)
 
 
 def _coerce_positive_int(value):
