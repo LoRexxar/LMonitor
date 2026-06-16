@@ -128,7 +128,7 @@
                     >
                         <div class="talent-panel-head">
                             <div>
-                                {% if tree.tree_type == 'hero' %}
+                                {% if tree.tree_type == 'hero' or tree.tree_type == 'hero_left' or tree.tree_type == 'hero_right' %}
                                 <div class="talent-hero-badge">✦ 英雄天赋</div>
                                 {% endif %}
                                 <div class="talent-panel-title">{{ tree.title }}</div>
@@ -210,7 +210,7 @@
             <div class="talent-group">
                 <div class="talent-group-head">
                     <div>
-                        {% if group.tree_type == 'hero' %}
+                        {% if group.tree_type == 'hero' or group.tree_type == 'hero_left' or group.tree_type == 'hero_right' %}
                         <div class="talent-hero-badge">✦ 英雄天赋</div>
                         {% endif %}
                         <div class="talent-group-title">{{ group.title }}</div>
@@ -667,7 +667,9 @@
     font-weight: 700;
     letter-spacing: .04em;
 }
-.talent-panel--hero .talent-panel-title { color: #fbbf24; }
+.talent-panel--hero .talent-panel-title,
+.talent-panel--hero_left .talent-panel-title,
+.talent-panel--hero_right .talent-panel-title { color: #fbbf24; }
 
 /* ===== Choice Node Tooltip ===== */
 .talent-node-card--tree.is-choice-node {

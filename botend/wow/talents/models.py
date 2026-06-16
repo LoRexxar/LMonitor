@@ -16,6 +16,8 @@ TREE_LABELS = {
     'class': '职业天赋',
     'spec': '专精天赋',
     'hero': '英雄天赋',
+    'hero_left': '英雄天赋',
+    'hero_right': '英雄天赋',
     'build_code': '导入代码',
 }
 
@@ -23,6 +25,8 @@ TREE_COLUMNS = {
     'class': 8,
     'spec': 8,
     'hero': 4,
+    'hero_left': 4,
+    'hero_right': 4,
     'build_code': 1,
 }
 
