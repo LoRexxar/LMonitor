@@ -2,7 +2,7 @@
 {% load static %}
 {% load wow_tags %}
 
-{% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - M+ 副本统计{% endblock %}
+{% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - 大秘境{% endblock %}
 
 {% block content %}
 <div class="spec-detail-page">
@@ -15,14 +15,14 @@
 
     <nav class="spec-nav">
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/">人物榜</a>
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/" class="active">M+ 副本统计</a>
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/" class="active">大秘境</a>
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/">团本统计</a>
     </nav>
 
     {% if dungeon_detail %}
     <!-- 副本详情 -->
     <div class="detail-section">
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/" class="back-link">← 返回副本列表</a>
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/" class="back-link">← 返回大秘境列表</a>
         <h2>{{ dungeon_detail.dungeon_name }}</h2>
         <p class="text-muted">样本量: {{ dungeon_detail.sample_size }}</p>
 
@@ -328,7 +328,7 @@
             </div>
         </a>
     {% empty %}
-        <div class="empty-state">暂无副本数据，请等待采集完成</div>
+        <div class="empty-state">暂无大秘境数据，请等待采集完成</div>
     {% endfor %}
     </div>
     {% else %}
