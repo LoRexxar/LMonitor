@@ -64,30 +64,46 @@ def build_tree_set_from_talents(
             selected_nodes.add(node_key)
             node_ranks[node_key] = node.points
 
-    # 英雄天赋：只保留一棵子树（San'layn 左树 col<12000 / Deathbringer 右树 col>=12000）
+    # DB 已有正确的 class/hero/spec 分类，不再需要 hero 左右过滤
+
+    # Hero 子树过滤：按 column+row 范围分组，只保留有选中节点的子树
     if 'hero' in grouped_nodes:
-        hero_left = [n for n in grouped_nodes['hero'] if (n.column or 0) < 12000]
-        hero_right = [n for n in grouped_nodes['hero'] if (n.column or 0) >= 12000]
-        if hero_left and hero_right:
-            left_has_points = any(n.points > 0 for n in hero_left)
-            right_has_points = any(n.points > 0 for n in hero_right)
-            if right_has_points and not left_has_points:
-                grouped_nodes['hero'] = hero_right
+        hero_nodes = grouped_nodes['hero']
+        hero_subtrees = _group_hero_subtrees(hero_nodes)
+        if len(hero_subtrees) > 1:
+            # 找出有选中节点的子树
+            selected_subtrees = {
+                key: nodes for key, nodes in hero_subtrees.items()
+                if any(n.points > 0 for n in nodes)
+            }
+            if selected_subtrees:
+                # 保留有选中的子树
+                kept = []
+                for nodes in selected_subtrees.values():
+                    kept.extend(nodes)
+                grouped_nodes['hero'] = kept
             else:
-                grouped_nodes['hero'] = hero_left
+                # 无选中节点时保留节点数最多的子树
+                largest_key = max(hero_subtrees, key=lambda k: len(hero_subtrees[k]))
+                grouped_nodes['hero'] = hero_subtrees[largest_key]
+
+    # 全局坐标归一化：所有 tree_type 共享同一坐标空间
+    all_nodes_for_layout = []
+    for tree_type in _iter_tree_types(grouped_nodes):
+        all_nodes_for_layout.extend(grouped_nodes[tree_type])
+    _apply_global_dense_layout(all_nodes_for_layout)
 
     trees = []
     for tree_type in _iter_tree_types(grouped_nodes):
         nodes = sorted(
             grouped_nodes[tree_type],
             key=lambda item: (
-                item.row if item.row is not None else 999,
-                item.column if item.column is not None else 999,
+                item.layout_row if item.layout_row is not None else 999,
+                item.layout_column if item.layout_column is not None else 999,
                 item.node_id or item.talent_id or item.spell_id or 0,
                 item.name or '',
             ),
         )
-        _apply_dense_layout_coordinates(nodes)
         default_columns = TREE_COLUMNS.get(tree_type, 8)
         layout_rows = [node.layout_row for node in nodes if node.layout_row is not None]
         layout_columns = [node.layout_column for node in nodes if node.layout_column is not None]
@@ -178,7 +194,50 @@ def _needs_metadata_enrichment(node):
     return False
 
 
+def _group_hero_subtrees(hero_nodes):
+    """将 hero 节点按 DB2 坐标范围分组为不同子树。
+
+    同一棵 hero 子树的节点具有相近的 column 值。
+    用 column 值的间距 > 3000 来分割不同子树。
+    """
+    if not hero_nodes:
+        return {}
+
+    columns = sorted({(n.column or 0) for n in hero_nodes if (n.column or 0) > 0})
+    if not columns:
+        return {0: hero_nodes}
+
+    # 按 column 间距分组（间距 > 3000 视为不同子树）
+    groups = []
+    current_group = [columns[0]]
+    for i in range(1, len(columns)):
+        if columns[i] - columns[i - 1] > 3000:
+            groups.append(current_group)
+            current_group = [columns[i]]
+        else:
+            current_group.append(columns[i])
+    groups.append(current_group)
+
+    if len(groups) <= 1:
+        return {0: hero_nodes}
+
+    # 为每个节点分配子树 key
+    column_to_group = {}
+    for group_idx, group_cols in enumerate(groups):
+        for col in group_cols:
+            column_to_group[col] = group_idx
+
+    result = {}
+    for node in hero_nodes:
+        col = node.column or 0
+        group_key = column_to_group.get(col, 0)
+        result.setdefault(group_key, []).append(node)
+
+    return result
+
+
 def _apply_dense_layout_coordinates(nodes):
+    """旧版逐树坐标归一化（已弃用，改用 _apply_global_dense_layout）。"""
     raw_rows = sorted({node.row for node in nodes if node.row is not None})
     raw_columns = sorted({node.column for node in nodes if node.column is not None})
     row_index = {value: index + 1 for index, value in enumerate(raw_rows)}
@@ -189,3 +248,22 @@ def _apply_dense_layout_coordinates(nodes):
             node.layout_row = row_index.get(node.row, fallback_index + 1)
         if node.column is not None and node.layout_column is None:
             node.layout_column = column_index.get(node.column, ((fallback_index % TREE_COLUMNS.get(node.tree_type, 8)) + 1))
+
+
+def _apply_global_dense_layout(nodes):
+    """全局坐标归一化：所有 tree_type 共享同一坐标空间。
+
+    将原始 DB2 的 column/row 值（如 1200, 2400, 7200, 10800, 14400）
+    映射为紧凑的 layout_column/layout_row（1, 2, 3, ...），
+    保证 class/hero/spec 三棵树的相对位置关系。
+    """
+    raw_rows = sorted({node.row for node in nodes if node.row is not None})
+    raw_columns = sorted({node.column for node in nodes if node.column is not None})
+    row_index = {value: index + 1 for index, value in enumerate(raw_rows)}
+    column_index = {value: index + 1 for index, value in enumerate(raw_columns)}
+
+    for node in nodes:
+        if node.row is not None:
+            node.layout_row = row_index.get(node.row, 1)
+        if node.column is not None:
+            node.layout_column = column_index.get(node.column, 1)
