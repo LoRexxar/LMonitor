@@ -136,16 +136,16 @@ def build_talent_tree_layout(
 
     trees = [tree if isinstance(tree, TalentTreeModel) else TalentTreeModel(**tree) for tree in tree_set_model.trees]
     
-    # 确保英雄天赋树在正中间：class → hero → spec
-    def _hero_sort_key(tree):
+    # 排序：class → spec → hero（英雄天赋放最右，CSS居中容器时视觉上靠近中间）
+    def _tree_sort_key(tree):
         t = tree.tree_type or ''
-        if t.startswith('hero'):
-            return 1  # 中间
-        elif t == 'class':
-            return 0  # 左边
+        if t == 'class':
+            return 0
+        elif t.startswith('hero'):
+            return 2
         else:
-            return 2  # 右边（spec）
-    trees.sort(key=_hero_sort_key)
+            return 1
+    trees.sort(key=_tree_sort_key)
     
     panel_columns = max(1, config_model.panel_columns or LAYOUT_PANEL_COLUMNS.get(tree_set_model.layout_mode, 1))
 
