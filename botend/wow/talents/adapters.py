@@ -64,6 +64,18 @@ def build_tree_set_from_talents(
             selected_nodes.add(node_key)
             node_ranks[node_key] = node.points
 
+    # 英雄天赋：只保留已激活的子树（San'layn 左树 col<12000 / Deathbringer 右树 col>=12000）
+    if 'hero' in grouped_nodes:
+        hero_left = [n for n in grouped_nodes['hero'] if (n.column or 0) < 12000]
+        hero_right = [n for n in grouped_nodes['hero'] if (n.column or 0) >= 12000]
+        left_has_points = any(n.points > 0 for n in hero_left)
+        right_has_points = any(n.points > 0 for n in hero_right)
+        if left_has_points and not right_has_points:
+            grouped_nodes['hero'] = hero_left
+        elif right_has_points and not left_has_points:
+            grouped_nodes['hero'] = hero_right
+        # 两边都有选中或都没有，保留全部（极端情况）
+
     trees = []
     for tree_type in _iter_tree_types(grouped_nodes):
         nodes = sorted(
