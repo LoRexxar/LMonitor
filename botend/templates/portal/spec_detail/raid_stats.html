@@ -82,6 +82,7 @@
             </div>
             {% if render_model.layout.width and render_model.layout.height %}
             <div class="talent-stage-scroll">
+                <div class="talent-stage-scale-wrapper" data-stage-width="{{ render_model.layout.width }}" data-stage-height="{{ render_model.layout.height }}">
                 <div
                     class="talent-render-stage"
                     style="width: {{ render_model.layout.width }}px; height: {{ render_model.layout.height }}px;"
@@ -117,10 +118,14 @@
                             data-tree-type="{{ tree.tree_type }}"
                         >
                             <div class="talent-panel-head">
-                                <div class="talent-panel-title">{{ tree.title }}</div>
+                                <div>
+                                    {% if tree.tree_type == 'hero' %}
+                                    <div class="talent-hero-badge">✦ 英雄天赋</div>
+                                    {% endif %}
+                                    <div class="talent-panel-title">{{ tree.title }}</div>
+                                </div>
                                 <div class="talent-panel-subtitle">
-                                    {% if tree.synthetic_layout %}合成网格布局{% else %}真实节点坐标{% endif %}
-                                    <span class="dot"></span>{{ tree.panel.grid_columns }} 列
+                                    {{ tree.panel.grid_columns }} 列
                                     <span class="dot"></span>{{ tree.panel.grid_rows }} 行
                                 </div>
                             </div>
@@ -161,8 +166,8 @@
                         {% endif %}
                     {% endfor %}
                 </div>
+                </div>{# /talent-stage-scale-wrapper #}
             </div>
-            {% endif %}
             {% if talent_tree.usage %}
             <div class="talent-tree-summary">
                 {% for node in talent_tree.usage|slice:":8" %}
@@ -592,5 +597,53 @@
 .zone-header:first-child { margin-top: 0; }
 .zone-header h2 { margin: 0; font-size: 1.2em; color: #1e293b; display: inline; }
 .zone-name-en { font-size: 0.85em; color: #94a3b8; margin-left: 8px; }
+
+/* ===== Responsive Scaling ===== */
+.talent-stage-scale-wrapper {
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+}
+
+/* ===== Hero Tree Badge ===== */
+.talent-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgba(251,191,36,.18), rgba(168,85,247,.18));
+    border: 1px solid rgba(251,191,36,.32);
+    color: #d97706;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .04em;
+}
+.talent-panel--hero .talent-panel-title { color: #d97706; }
 </style>
+<script>
+(function() {
+    function scaleTalentStage() {
+        var wrappers = document.querySelectorAll('.talent-stage-scale-wrapper');
+        wrappers.forEach(function(wrapper) {
+            var stage = wrapper.querySelector('.talent-render-stage');
+            if (!stage) return;
+            var containerWidth = wrapper.parentElement.clientWidth;
+            var stageWidth = parseInt(wrapper.getAttribute('data-stage-width')) || parseInt(stage.style.width);
+            var stageHeight = parseInt(wrapper.getAttribute('data-stage-height')) || parseInt(stage.style.height);
+            if (stageWidth > containerWidth) {
+                var scale = containerWidth / stageWidth;
+                stage.style.transform = 'scale(' + scale + ')';
+                stage.style.transformOrigin = 'top left';
+                wrapper.style.height = (stageHeight * scale) + 'px';
+            } else {
+                stage.style.transform = 'none';
+                wrapper.style.height = stageHeight + 'px';
+            }
+        });
+    }
+    scaleTalentStage();
+    window.addEventListener('resize', scaleTalentStage);
+})();
+</script>
 {% endblock %}

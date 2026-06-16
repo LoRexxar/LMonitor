@@ -91,6 +91,7 @@
         </div>
         {% if render_model and render_model.layout.width and render_model.layout.height %}
         <div class="talent-stage-scroll">
+            <div class="talent-stage-scale-wrapper" data-stage-width="{{ render_model.layout.width }}" data-stage-height="{{ render_model.layout.height }}">
             <div
                 class="talent-render-stage"
                 style="width: {{ render_model.layout.width }}px; height: {{ render_model.layout.height }}px;"
@@ -126,10 +127,14 @@
                         data-tree-type="{{ tree.tree_type }}"
                     >
                         <div class="talent-panel-head">
-                            <div class="talent-panel-title">{{ tree.title }}</div>
+                            <div>
+                                {% if tree.tree_type == 'hero' %}
+                                <div class="talent-hero-badge">✦ 英雄天赋</div>
+                                {% endif %}
+                                <div class="talent-panel-title">{{ tree.title }}</div>
+                            </div>
                             <div class="talent-panel-subtitle">
-                                {% if tree.synthetic_layout %}合成网格布局{% else %}真实节点坐标{% endif %}
-                                <span class="dot"></span>{{ tree.panel.grid_columns }} 列
+                                {{ tree.panel.grid_columns }} 列
                                 <span class="dot"></span>{{ tree.panel.grid_rows }} 行
                             </div>
                         </div>
@@ -141,7 +146,7 @@
                     {% if tree.panel %}
                         {% for node in tree.nodes %}
                         <a
-                            class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% else %} is-unselected{% endif %}"
+                            class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% else %} is-unselected{% endif %}{% if node.is_choice_node %} is-choice-node{% endif %}"
                             style="left: {{ node.x }}px; top: {{ node.y }}px; width: {{ node.width }}px; height: {{ node.height }}px;"
                             href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
                             target="_blank"
@@ -159,6 +164,18 @@
                                 <span class="talent-node-points">{{ node.points }}</span>
                                 {% endif %}
                             </div>
+                            {% if node.is_choice_node and node.choice_options %}
+                            <div class="talent-choice-split">
+                                {% for option in node.choice_options %}
+                                <div class="talent-choice-half{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-selected{% endif %}">
+                                    {% if option.icon %}
+                                    <img src="{% wow_icon option.icon "small" %}" alt="{{ option.name|default:'选项' }}">
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <span class="talent-choice-label">二选一</span>
+                            {% endif %}
                             <div class="talent-node-info talent-node-info--hover">
                                 <span class="talent-node-name">{{ node.name }}</span>
                                 <span class="talent-node-meta">
@@ -184,21 +201,26 @@
                     {% endif %}
                 {% endfor %}
             </div>
+            </div>{# /talent-stage-scale-wrapper #}
         </div>
         {% elif player_detail.talent_groups %}
             {% for group in player_detail.talent_groups %}
             <div class="talent-group">
                 <div class="talent-group-head">
-                    <div class="talent-group-title">{{ group.title }}</div>
+                    <div>
+                        {% if group.tree_type == 'hero' %}
+                        <div class="talent-hero-badge">✦ 英雄天赋</div>
+                        {% endif %}
+                        <div class="talent-group-title">{{ group.title }}</div>
+                    </div>
                     <div class="talent-group-subtitle">
-                        {% if group.synthetic_layout %}合成网格布局{% else %}真实节点坐标{% endif %}
-                        <span class="dot"></span>{{ group.grid_columns }} 列
+                        {{ group.grid_columns }} 列
                     </div>
                 </div>
                 <div class="talent-tree-grid" style="--talent-columns: {{ group.grid_columns }}; --talent-rows: {{ group.grid_rows }};">
                     {% for node in group.nodes %}
                     <a
-                        class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% else %} is-unselected{% endif %}"
+                        class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% else %} is-unselected{% endif %}{% if node.is_choice_node %} is-choice-node{% endif %}"
                         style="grid-column: {{ node.layout_column }}; grid-row: {{ node.layout_row }};"
                         href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
                         target="_blank"
@@ -214,6 +236,18 @@
                             <span class="talent-node-points">{{ node.points }}</span>
                             {% endif %}
                         </div>
+                        {% if node.is_choice_node and node.choice_options %}
+                        <div class="talent-choice-split">
+                            {% for option in node.choice_options %}
+                            <div class="talent-choice-half{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-selected{% endif %}">
+                                {% if option.icon %}
+                                <img src="{% wow_icon option.icon "small" %}" alt="{{ option.name|default:'选项' }}">
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <span class="talent-choice-label">二选一</span>
+                        {% endif %}
                         <div class="talent-node-info talent-node-info--hover">
                             <span class="talent-node-name">{{ node.name }}</span>
                             <span class="talent-node-meta">
@@ -584,35 +618,127 @@
     .overview-grid, .stats-grid { grid-template-columns: 1fr; }
     .talent-tree-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ===== Responsive Scaling ===== */
+.talent-stage-scale-wrapper {
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+}
+
+/* ===== Choice Node Split ===== */
+.talent-choice-split {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    justify-content: center;
+    margin-top: 4px;
+}
+.talent-choice-half {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 2px solid rgba(148,163,184,.25);
+    transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+    flex-shrink: 0;
+}
+.talent-choice-half.is-selected {
+    border-color: #60a5fa;
+    box-shadow: 0 0 10px rgba(96,165,250,.45);
+    transform: scale(1.08);
+}
+.talent-choice-half img { width: 100%; height: 100%; display: block; }
+
+/* ===== Hero Tree Badge ===== */
+.talent-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgba(251,191,36,.18), rgba(168,85,247,.18));
+    border: 1px solid rgba(251,191,36,.32);
+    color: #fbbf24;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .04em;
+}
+.talent-panel--hero .talent-panel-title { color: #fbbf24; }
+
+/* ===== Choice Node Tooltip ===== */
+.talent-node-card--tree.is-choice-node {
+    border-style: dashed;
+    border-color: rgba(251,191,36,.35);
+}
+.talent-node-card--tree.is-choice-node.is-selected {
+    border-color: rgba(96,165,250,.55);
+    border-style: solid;
+}
+.talent-choice-label {
+    display: inline-block;
+    font-size: 10px;
+    color: #fbbf24;
+    background: rgba(251,191,36,.12);
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-top: 2px;
+}
 </style>
 <script>
 (function() {
+    /* ===== Copy Button ===== */
     const copyButton = document.querySelector('.talent-copy-btn');
-    if (!copyButton) return;
-    copyButton.addEventListener('click', async function () {
-        const targetId = copyButton.getAttribute('data-copy-target');
-        const codeEl = targetId ? document.getElementById(targetId) : null;
-        const text = (codeEl && codeEl.textContent || '').trim();
-        if (!text) return;
-        const label = copyButton.querySelector('.talent-copy-btn__label');
-        const icon = copyButton.querySelector('.talent-copy-btn__icon');
-        try {
-            await navigator.clipboard.writeText(text);
-            copyButton.classList.add('is-copied');
-            if (label) label.textContent = '已复制';
-            if (icon) icon.textContent = '✓';
-            window.setTimeout(function () {
-                copyButton.classList.remove('is-copied');
-                if (label) label.textContent = '复制';
-                if (icon) icon.textContent = '⧉';
-            }, 1600);
-        } catch (error) {
-            if (label) label.textContent = '复制失败';
-            window.setTimeout(function () {
-                if (label) label.textContent = '复制';
-            }, 1600);
-        }
-    });
+    if (copyButton) {
+        copyButton.addEventListener('click', async function () {
+            const targetId = copyButton.getAttribute('data-copy-target');
+            const codeEl = targetId ? document.getElementById(targetId) : null;
+            const text = (codeEl && codeEl.textContent || '').trim();
+            if (!text) return;
+            const label = copyButton.querySelector('.talent-copy-btn__label');
+            const icon = copyButton.querySelector('.talent-copy-btn__icon');
+            try {
+                await navigator.clipboard.writeText(text);
+                copyButton.classList.add('is-copied');
+                if (label) label.textContent = '已复制';
+                if (icon) icon.textContent = '✓';
+                window.setTimeout(function () {
+                    copyButton.classList.remove('is-copied');
+                    if (label) label.textContent = '复制';
+                    if (icon) icon.textContent = '⧉';
+                }, 1600);
+            } catch (error) {
+                if (label) label.textContent = '复制失败';
+                window.setTimeout(function () {
+                    if (label) label.textContent = '复制';
+                }, 1600);
+            }
+        });
+    }
+
+    /* ===== Responsive Scaling ===== */
+    function scaleTalentStage() {
+        var wrappers = document.querySelectorAll('.talent-stage-scale-wrapper');
+        wrappers.forEach(function(wrapper) {
+            var stage = wrapper.querySelector('.talent-render-stage');
+            if (!stage) return;
+            var containerWidth = wrapper.parentElement.clientWidth;
+            var stageWidth = parseInt(wrapper.getAttribute('data-stage-width')) || parseInt(stage.style.width);
+            var stageHeight = parseInt(wrapper.getAttribute('data-stage-height')) || parseInt(stage.style.height);
+            if (stageWidth > containerWidth) {
+                var scale = containerWidth / stageWidth;
+                stage.style.transform = 'scale(' + scale + ')';
+                stage.style.transformOrigin = 'top left';
+                wrapper.style.height = (stageHeight * scale) + 'px';
+            } else {
+                stage.style.transform = 'none';
+                wrapper.style.height = stageHeight + 'px';
+            }
+        });
+    }
+
+    scaleTalentStage();
+    window.addEventListener('resize', scaleTalentStage);
 })();
 </script>
 {% endblock %}
