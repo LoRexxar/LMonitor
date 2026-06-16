@@ -241,7 +241,7 @@ RAID_BOSS_CN = {
     "Crown of the Cosmos": "宇宙之冠",
     "Chimaerus, the Undreamt God": "奇美鲁斯",
     "Belo'ren, Child of Al'ar": "贝洛朗",
-    "Midnight Falls": "午夜陨落",
+    "Midnight Falls": "至暗之夜降临",
 }
 
 # 装备槽位英文 → 中文
