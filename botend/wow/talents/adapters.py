@@ -21,7 +21,7 @@ from botend.wow.talents.models import (
 from botend.wow.talents.parser import normalize_talent_payload
 
 
-TREE_ORDER = ('class', 'spec', 'hero')
+TREE_ORDER = ('class', 'hero', 'spec')
 
 
 def build_tree_set_from_talents(

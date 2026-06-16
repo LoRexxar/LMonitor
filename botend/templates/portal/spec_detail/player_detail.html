@@ -145,6 +145,7 @@
                 {% for tree in render_model.trees %}
                     {% if tree.panel %}
                         {% for node in tree.nodes %}
+                            {% if tree.tree_type != 'hero' or node.selected %}
                         <a
                             class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% else %} is-unselected{% endif %}{% if node.is_choice_node %} is-choice-node{% endif %}"
                             style="left: {{ node.x }}px; top: {{ node.y }}px; width: {{ node.width }}px; height: {{ node.height }}px;"
@@ -156,7 +157,7 @@
                         >
                             <div class="talent-node-icon">
                                 {% if node.icon %}
-                                <img src="{% wow_icon node.icon "small" %}" width="42" height="42" alt="{{ node.name }}">
+                                <img src="{% wow_icon node.icon "small" %}" alt="{{ node.name }}">
                                 {% else %}
                                 <span>ID</span>
                                 {% endif %}
@@ -188,7 +189,7 @@
                                     {% for option in node.choice_options %}
                                     <div class="talent-choice-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}">
                                         {% if option.icon %}
-                                        <img src="{% wow_icon option.icon "small" %}" width="24" height="24" alt="{{ option.name }}">
+                                        <img src="{% wow_icon option.icon "small" %}" alt="{{ option.name }}">
                                         {% endif %}
                                         <span>{{ option.name|default:"未命名选项" }}</span>
                                     </div>
@@ -197,6 +198,7 @@
                                 {% endif %}
                             </div>
                         </a>
+                            {% endif %}
                         {% endfor %}
                     {% endif %}
                 {% endfor %}
@@ -219,6 +221,7 @@
                 </div>
                 <div class="talent-tree-grid" style="--talent-columns: {{ group.grid_columns }}; --talent-rows: {{ group.grid_rows }};">
                     {% for node in group.nodes %}
+                        {% if group.tree_type != 'hero' or node.selected %}
                     <a
                         class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% else %} is-unselected{% endif %}{% if node.is_choice_node %} is-choice-node{% endif %}"
                         style="grid-column: {{ node.layout_column }}; grid-row: {{ node.layout_row }};"
@@ -228,7 +231,7 @@
                     >
                         <div class="talent-node-icon">
                             {% if node.icon %}
-                            <img src="{% wow_icon node.icon "small" %}" width="42" height="42" alt="{{ node.name }}">
+                            <img src="{% wow_icon node.icon "small" %}" alt="{{ node.name }}">
                             {% else %}
                             <span>ID</span>
                             {% endif %}
@@ -259,7 +262,7 @@
                                 {% for option in node.choice_options %}
                                 <div class="talent-choice-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}">
                                     {% if option.icon %}
-                                    <img src="{% wow_icon option.icon "small" %}" width="24" height="24" alt="{{ option.name }}">
+                                    <img src="{% wow_icon option.icon "small" %}" alt="{{ option.name }}">
                                     {% endif %}
                                     <span>{{ option.name|default:"未命名选项" }}</span>
                                 </div>
@@ -268,6 +271,7 @@
                             {% endif %}
                         </div>
                     </a>
+                        {% endif %}
                     {% endfor %}
                 </div>
             </div>
@@ -490,8 +494,8 @@
     border-color: rgba(100,116,139,.18);
     opacity: .9;
 }
-.talent-node-icon { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(51,65,85,.9); display: flex; align-items: center; justify-content: center; color: #cbd5e1; flex-shrink: 0; }
-.talent-node-icon img { border-radius: 50%; display: block; }
+.talent-node-icon { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(51,65,85,.9); display: flex; align-items: center; justify-content: center; color: #cbd5e1; flex-shrink: 0; position: relative; }
+.talent-node-icon img { border-radius: 50%; display: block; width: 100%; height: 100%; object-fit: cover; }
 .talent-node-card--tree.is-unselected .talent-node-icon img { filter: grayscale(1) saturate(.4) brightness(.82); opacity: .92; }
 .talent-node-card--tree .talent-node-icon {
     position: relative;
@@ -503,7 +507,6 @@
     width: 56px;
     height: 56px;
     box-shadow: 0 10px 24px rgba(2,6,23,.3);
-    border: 2px solid rgba(255,255,255,.08);
 }
 .talent-node-info { min-width: 0; }
 .talent-node-name { display: block; color: #f8fafc; font-weight: 700; margin-bottom: 4px; }
