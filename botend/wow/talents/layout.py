@@ -137,20 +137,6 @@ def build_talent_tree_layout(
     trees = [tree if isinstance(tree, TalentTreeModel) else TalentTreeModel(**tree) for tree in tree_set_model.trees]
     panel_columns = max(1, config_model.panel_columns or LAYOUT_PANEL_COLUMNS.get(tree_set_model.layout_mode, 1))
 
-    # 当缺少 class 面板时，插入一个占位空白面板，模拟左中右三栏布局
-    tree_types = {t.tree_type for t in trees}
-    has_class = 'class' in tree_types
-    has_hero = 'hero' in tree_types
-    if has_hero and not has_class:
-        from botend.wow.talents.models import TREE_COLUMNS
-        class_cols = TREE_COLUMNS.get('class', 8)
-        class_rows = max(1, max((t.grid_rows for t in trees), default=1))
-        # 插入一个空的 class 占位面板
-        placeholder = TalentTreeModel(
-            tree_type='class', title='', grid_columns=class_cols, grid_rows=class_rows, nodes=[],
-        )
-        trees.insert(0, placeholder)
-
     panel_blueprints = []
     for tree in trees:
         grid_columns = max(1, tree.grid_columns)
@@ -200,6 +186,19 @@ def build_talent_tree_layout(
         panels.append(panel)
         max_right = max(max_right, panel.x + panel.width)
         max_bottom = max(max_bottom, panel.y + panel.height)
+
+    # 无 class 面板时，将所有面板整体右移，空出左侧 class 位置（左中右三栏）
+    hero_panel = next((p for p in panels if p.tree_type == 'hero'), None)
+    class_panel = next((p for p in panels if p.tree_type == 'class'), None)
+    if hero_panel and not class_panel:
+        from botend.wow.talents.models import TREE_COLUMNS
+        class_cols = TREE_COLUMNS.get('class', 8)
+        class_width = (config_model.panel_padding_x * 2) + (class_cols * config_model.cell_width)
+        offset_x = class_width + config_model.panel_gap_x
+        for panel in panels:
+            if panel.tree_type != 'class':
+                _shift_panel(panel, offset_x=offset_x)
+        max_right = max(p.x + p.width for p in panels)
 
     return TalentTreeLayoutModel(
         set_key=tree_set_model.set_key,
