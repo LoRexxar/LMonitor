@@ -87,19 +87,21 @@ def build_tree_set_from_talents(
                 largest_key = max(hero_subtrees, key=lambda k: len(hero_subtrees[k]))
                 grouped_nodes['hero'] = hero_subtrees[largest_key]
 
-    # 全局坐标归一化：所有 tree_type 共享同一坐标空间
-    all_nodes_for_layout = []
+    # 直接使用 DB2 原始坐标作为 layout 值（不做密集压缩）
     for tree_type in _iter_tree_types(grouped_nodes):
-        all_nodes_for_layout.extend(grouped_nodes[tree_type])
-    _apply_global_dense_layout(all_nodes_for_layout)
+        for node in grouped_nodes[tree_type]:
+            if node.column is not None:
+                node.layout_column = node.column
+            if node.row is not None:
+                node.layout_row = node.row
 
     trees = []
     for tree_type in _iter_tree_types(grouped_nodes):
         nodes = sorted(
             grouped_nodes[tree_type],
             key=lambda item: (
-                item.layout_row if item.layout_row is not None else 999,
-                item.layout_column if item.layout_column is not None else 999,
+                item.layout_row if item.layout_row is not None else 99999,
+                item.layout_column if item.layout_column is not None else 99999,
                 item.node_id or item.talent_id or item.spell_id or 0,
                 item.name or '',
             ),
