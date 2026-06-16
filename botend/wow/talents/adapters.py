@@ -138,12 +138,14 @@ def _build_set_key(class_name, spec_name):
 
 def _iter_tree_types(grouped_nodes):
     yielded = set()
-    for tree_type in TREE_ORDER:
-        if tree_type in grouped_nodes:
-            yielded.add(tree_type)
-            yield tree_type
-    # 处理拆分后的英雄天赋树，只返回有选中节点的那棵
-    hero_trees = [t for t in grouped_nodes if t.startswith('hero_')]
+    
+    # 先处理职业天赋
+    if 'class' in grouped_nodes:
+        yielded.add('class')
+        yield 'class'
+    
+    # 处理英雄天赋树（始终放在中间）
+    hero_trees = [t for t in grouped_nodes if t.startswith('hero_') or t == 'hero']
     if hero_trees:
         # 找出有选中节点的英雄天赋树
         selected_hero = None
@@ -161,6 +163,13 @@ def _iter_tree_types(grouped_nodes):
         # 标记所有英雄天赋树为已处理
         for hero_type in hero_trees:
             yielded.add(hero_type)
+    
+    # 最后处理专精天赋
+    if 'spec' in grouped_nodes:
+        yielded.add('spec')
+        yield 'spec'
+    
+    # 处理其他未分类的树
     for tree_type in sorted(grouped_nodes.keys()):
         if tree_type not in yielded:
             yield tree_type

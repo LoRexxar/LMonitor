@@ -135,6 +135,18 @@ def build_talent_tree_layout(
     config_model = config if isinstance(config, TalentTreeLayoutConfigModel) else TalentTreeLayoutConfigModel(**(config or {}))
 
     trees = [tree if isinstance(tree, TalentTreeModel) else TalentTreeModel(**tree) for tree in tree_set_model.trees]
+    
+    # 确保英雄天赋树在正中间：class → hero → spec
+    def _hero_sort_key(tree):
+        t = tree.tree_type or ''
+        if t.startswith('hero'):
+            return 1  # 中间
+        elif t == 'class':
+            return 0  # 左边
+        else:
+            return 2  # 右边（spec）
+    trees.sort(key=_hero_sort_key)
+    
     panel_columns = max(1, config_model.panel_columns or LAYOUT_PANEL_COLUMNS.get(tree_set_model.layout_mode, 1))
 
     panel_blueprints = []
@@ -164,12 +176,27 @@ def build_talent_tree_layout(
     row_y_positions = _build_row_y_positions(row_heights, config_model.panel_gap_y)
     selected_nodes = set(build_state_model.selected_nodes or set())
 
+    # 计算每一行的总宽度，用于居中
+    row_total_widths = []
+    for offset in range(0, len(panel_blueprints), panel_columns):
+        row_blueprints = panel_blueprints[offset:offset + panel_columns]
+        total_width = sum(item['width'] for item in row_blueprints) + (len(row_blueprints) - 1) * config_model.panel_gap_x
+        row_total_widths.append(total_width)
+
+    # 使用最大行宽作为容器宽度
+    max_row_width = max(row_total_widths) if row_total_widths else 0
+
     for index, blueprint in enumerate(panel_blueprints):
         row_index = index // panel_columns
         column_index = index % panel_columns
         row_offset = row_index * panel_columns
         row_items = panel_blueprints[row_offset:row_offset + panel_columns]
-        x = sum(item['width'] for item in row_items[:column_index]) + (column_index * config_model.panel_gap_x)
+        
+        # 计算当前行的起始位置（居中）
+        row_total_width = row_total_widths[row_index]
+        start_x = max(0, (max_row_width - row_total_width) // 2)
+        
+        x = start_x + sum(item['width'] for item in row_items[:column_index]) + (column_index * config_model.panel_gap_x)
         y = row_y_positions[row_index]
 
         panel = _build_tree_panel_layout(
