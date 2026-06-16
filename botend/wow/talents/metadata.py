@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from django.db.models import Q
-
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
 
 STRUCTURAL_FIELDS = {'tree_type', 'row', 'column', 'max_points', 'parents'}
@@ -92,11 +90,9 @@ class TalentMetadataProvider:
         if cache_key in self._spec_cache:
             return [dict(node) for node in self._spec_cache[cache_key]]
 
-        # 查询专精节点和职业节点（spec_name 为空的）
         rows = WowTalentNodeMetadata.objects.filter(
             class_name=class_name or '',
-        ).filter(
-            Q(spec_name=spec_name or '') | Q(spec_name='', tree_type='class')
+            spec_name=spec_name or '',
         ).order_by('tree_type', 'row', 'column', 'node_id', 'spell_id', 'talent_id')
 
         grouped_by_node = {}

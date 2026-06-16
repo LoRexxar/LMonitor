@@ -57,14 +57,7 @@ def build_tree_set_from_talents(
 
         node = TalentNodeModel.from_raw(node_data)
         tree_type = node.tree_type or 'spec'
-        
-        # 英雄天赋树按 column 拆分为两棵独立的树
-        if tree_type == 'hero' and node.column is not None:
-            # column < 10000 为左树，>= 10000 为右树
-            hero_group = 'hero_left' if node.column < 10000 else 'hero_right'
-            grouped_nodes[hero_group].append(node)
-        else:
-            grouped_nodes[tree_type].append(node)
+        grouped_nodes[tree_type].append(node)
 
         node_key = _build_node_key(node)
         if node_key and node.points > 0:
@@ -138,38 +131,10 @@ def _build_set_key(class_name, spec_name):
 
 def _iter_tree_types(grouped_nodes):
     yielded = set()
-    
-    # 先处理职业天赋
-    if 'class' in grouped_nodes:
-        yielded.add('class')
-        yield 'class'
-    
-    # 处理英雄天赋树（始终放在中间）
-    hero_trees = [t for t in grouped_nodes if t.startswith('hero_') or t == 'hero']
-    if hero_trees:
-        # 找出有选中节点的英雄天赋树
-        selected_hero = None
-        for hero_type in hero_trees:
-            nodes = grouped_nodes[hero_type]
-            if any(node.points > 0 or node.selected for node in nodes):
-                selected_hero = hero_type
-                break
-        # 如果都没选中，显示第一棵
-        if selected_hero is None and hero_trees:
-            selected_hero = hero_trees[0]
-        if selected_hero:
-            yielded.add(selected_hero)
-            yield selected_hero
-        # 标记所有英雄天赋树为已处理
-        for hero_type in hero_trees:
-            yielded.add(hero_type)
-    
-    # 最后处理专精天赋
-    if 'spec' in grouped_nodes:
-        yielded.add('spec')
-        yield 'spec'
-    
-    # 处理其他未分类的树
+    for tree_type in TREE_ORDER:
+        if tree_type in grouped_nodes:
+            yielded.add(tree_type)
+            yield tree_type
     for tree_type in sorted(grouped_nodes.keys()):
         if tree_type not in yielded:
             yield tree_type

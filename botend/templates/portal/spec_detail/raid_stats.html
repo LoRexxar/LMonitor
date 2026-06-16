@@ -119,7 +119,7 @@
                         >
                             <div class="talent-panel-head">
                                 <div>
-                                    {% if tree.tree_type == 'hero' or tree.tree_type == 'hero_left' or tree.tree_type == 'hero_right' %}
+                                    {% if tree.tree_type == 'hero' %}
                                     <div class="talent-hero-badge">✦ 英雄天赋</div>
                                     {% endif %}
                                     <div class="talent-panel-title">{{ tree.title }}</div>
@@ -619,9 +619,7 @@
     font-weight: 700;
     letter-spacing: .04em;
 }
-.talent-panel--hero .talent-panel-title,
-.talent-panel--hero_left .talent-panel-title,
-.talent-panel--hero_right .talent-panel-title { color: #d97706; }
+.talent-panel--hero .talent-panel-title { color: #d97706; }
 </style>
 <script>
 (function() {
