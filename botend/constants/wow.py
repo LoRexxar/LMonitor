@@ -175,14 +175,14 @@ DUNGEON_CN = {
     "Stonevault": "矶石宝库",
     "The Dawnbreaker": "破晨号",
     # TWW Season 2/3
-    "Algeth'ar Academy": "阿尔盖塔学院",
+    "Algeth'ar Academy": "艾杰斯亚学院",
     "Magisters' Terrace": "魔导师平台",
-    "Maisara Caverns": "迈萨拉洞穴",
-    "Nexus-Point Xenas": "节点泽纳斯",
+    "Maisara Caverns": "迈萨拉洞窟",
+    "Nexus-Point Xenas": "节点希纳斯",
     "Pit of Saron": "萨隆矿坑",
     "Seat of the Triumvirate": "执政团之座",
     "Skyreach": "通天峰",
-    "Windrunner Spire": "风行者尖塔",
+    "Windrunner Spire": "风行者之塔",
     # 其他可能复用的副本
     "Mechagon Workshop": "麦卡贡车间",
     "Tazavesh, Veiled Market": "塔扎维什·帷纱集市",
@@ -201,7 +201,7 @@ RAID_ZONE_CN = {
     "Liberation of Undermine": "安德麦解放战",
     "Manaforge Omega": "法力熔炉：欧米伽",
     # MN S1
-    "VS / DR / MQD": "午夜之殿",
+    "VS / DR / MQD": "虚影尖塔 / 梦境裂隙 / 进攻奎尔丹纳斯",
 }
 
 RAID_BOSS_CN = {
@@ -233,14 +233,14 @@ RAID_BOSS_CN = {
     "Nexus-King Salhadaar": "节点之王萨哈达尔",
     "Dimensius, the All-Devouring": "万噬者迪曼修斯",
     # MN S1 (午夜之殿)
-    "Imperator Averzian": "帝王艾弗齐安",
-    "Vorasius": "沃拉修斯",
-    "Fallen-King Salhadaar": "堕落之王萨哈达尔",
-    "Vaelgor & Ezzorak": "瓦尔戈与艾佐拉克",
-    "Lightblinded Vanguard": "炫光先锋",
+    "Imperator Averzian": "元首阿福扎恩",
+    "Vorasius": "弗拉希乌斯",
+    "Fallen-King Salhadaar": "陨落之王萨哈达尔",
+    "Vaelgor & Ezzorak": "威厄高尔与艾佐拉克",
+    "Lightblinded Vanguard": "战争牧师瑟恩",
     "Crown of the Cosmos": "宇宙之冠",
-    "Chimaerus, the Undreamt God": "奇美罗斯，未梦之神",
-    "Belo'ren, Child of Al'ar": "贝洛伦，奥之子",
+    "Chimaerus, the Undreamt God": "奇美鲁斯",
+    "Belo'ren, Child of Al'ar": "贝洛朗",
     "Midnight Falls": "午夜陨落",
 }
 
