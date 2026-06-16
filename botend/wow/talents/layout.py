@@ -18,10 +18,10 @@ LAYOUT_PANEL_COLUMNS = {
 @dataclass
 class TalentTreeLayoutConfigModel:
     header_height: int = 56
-    panel_padding_x: int = 24
-    panel_padding_y: int = 24
-    panel_gap_x: int = 32
-    panel_gap_y: int = 24
+    panel_padding_x: int = 16
+    panel_padding_y: int = 16
+    panel_gap_x: int = 16
+    panel_gap_y: int = 16
     cell_width: int = 96
     cell_height: int = 96
     node_width: int = 72
@@ -150,14 +150,22 @@ def build_talent_tree_layout(
         if cols and rows:
             coord_w = max_col - min_col
             coord_h = max_row - min_row
-            scale = config_model.coord_scale
-            panel_w = int(coord_w * scale) + config_model.node_width + config_model.panel_padding_x * 2
-            panel_h = int(coord_h * scale) + config_model.node_height + config_model.panel_padding_y * 2 + config_model.header_height
+            # 动态计算 scale：目标面板宽度 280px，高度 550px
+            target_w = 280
+            target_h = 550
+            scale_x = target_w / max(coord_w, 1)
+            scale_y = target_h / max(coord_h, 1)
+            scale = min(scale_x, scale_y)  # 取较小值保持比例
+            node_size = max(32, min(56, int(scale * 600)))  # 节点尺寸随 scale 调整
+            panel_w = int(coord_w * scale) + node_size + config_model.panel_padding_x * 2
+            panel_h = int(coord_h * scale) + node_size + config_model.panel_padding_y * 2 + config_model.header_height
             grid_columns = max_col
             grid_rows = max_row
         else:
             grid_columns = max(1, tree.grid_columns)
             grid_rows = max(1, tree.grid_rows)
+            scale = config_model.coord_scale
+            node_size = config_model.node_width
             panel_w = (config_model.panel_padding_x * 2) + (grid_columns * config_model.cell_width)
             panel_h = config_model.header_height + (config_model.panel_padding_y * 2) + (grid_rows * config_model.cell_height)
 
@@ -169,6 +177,8 @@ def build_talent_tree_layout(
             'grid_rows': grid_rows,
             'min_col': min_col,
             'min_row': min_row,
+            'scale': scale,
+            'node_size': node_size,
         })
 
     row_heights = []
@@ -202,6 +212,8 @@ def build_talent_tree_layout(
             config=config_model,
             min_col=blueprint['min_col'],
             min_row=blueprint['min_row'],
+            scale=blueprint['scale'],
+            node_size=blueprint['node_size'],
         )
         panels.append(panel)
         max_right = max(max_right, panel.x + panel.width)
@@ -242,11 +254,14 @@ def _build_row_y_positions(row_heights, panel_gap_y):
     return positions
 
 
-def _build_tree_panel_layout(tree, panel_x, panel_y, width, height, grid_columns, grid_rows, selected_nodes, config, min_col=0, min_row=0):
+def _build_tree_panel_layout(tree, panel_x, panel_y, width, height, grid_columns, grid_rows, selected_nodes, config, min_col=0, min_row=0, scale=None, node_size=None):
     node_layouts = []
     identity_lookup = {}
-    scale = config.coord_scale
-    use_scale = min_col > 0 or min_row > 0  # 有原始坐标时用 scale
+    if scale is None:
+        scale = config.coord_scale
+    if node_size is None:
+        node_size = config.node_width
+    use_scale = min_col > 0 or min_row > 0
 
     for index, raw_node in enumerate(tree.nodes):
         node = raw_node if isinstance(raw_node, TalentNodeModel) else TalentNodeModel.from_raw(raw_node)
@@ -258,25 +273,13 @@ def _build_tree_panel_layout(tree, panel_x, panel_y, width, height, grid_columns
             layout_column = (index % grid_columns) + 1
 
         if use_scale:
-            # 使用原始坐标 + scale 定位
             node_x = panel_x + config.panel_padding_x + int((layout_column - min_col) * scale)
             node_y = panel_y + config.header_height + config.panel_padding_y + int((layout_row - min_row) * scale)
         else:
-            node_x = (
-                panel_x
-                + config.panel_padding_x
-                + ((layout_column - 1) * config.cell_width)
-                + max(0, (config.cell_width - config.node_width) // 2)
-            )
-            node_y = (
-                panel_y
-                + config.header_height
-                + config.panel_padding_y
-                + ((layout_row - 1) * config.cell_height)
-                + max(0, (config.cell_height - config.node_height) // 2)
-            )
-        center_x = node_x + (config.node_width // 2)
-        center_y = node_y + (config.node_height // 2)
+            node_x = panel_x + config.panel_padding_x + ((layout_column - 1) * config.cell_width) + max(0, (config.cell_width - node_size) // 2)
+            node_y = panel_y + config.header_height + config.panel_padding_y + ((layout_row - 1) * config.cell_height) + max(0, (config.cell_height - node_size) // 2)
+        center_x = node_x + (node_size // 2)
+        center_y = node_y + (node_size // 2)
         node_key = _build_node_key(node)
         node_layout = TalentNodeLayoutModel(
             node_key=node_key,
@@ -289,14 +292,14 @@ def _build_tree_panel_layout(tree, panel_x, panel_y, width, height, grid_columns
             layout_column=layout_column,
             x=node_x,
             y=node_y,
-            width=config.node_width,
-            height=config.node_height,
+            width=node_size,
+            height=node_size,
             center_x=center_x,
             center_y=center_y,
             anchor_top_x=center_x,
             anchor_top_y=node_y,
             anchor_bottom_x=center_x,
-            anchor_bottom_y=node_y + config.node_height,
+            anchor_bottom_y=node_y + node_size,
             selected=bool(node_key and node_key in selected_nodes) or node.selected or node.points > 0,
             parents=list(node.parents or []),
         )
