@@ -152,9 +152,9 @@ def build_talent_tree_layout(
             coord_h = max_row - min_row
             # 动态计算 scale：目标面板宽度根据树类型调整（2:1:2 比例）
             if tree.tree_type == 'hero':
-                target_w = 140  # hero 树窄一些
+                target_w = 260  # hero 树窄一些
             else:
-                target_w = 280  # class/spec 树正常宽度
+                target_w = 460  # class/spec 树正常宽度
             target_h = 550
             scale_x = target_w / max(coord_w, 1)
             scale_y = target_h / max(coord_h, 1)
