@@ -929,6 +929,8 @@ class WowTalentNodeMetadata(models.Model):
     column = models.IntegerField(null=True, blank=True)
     max_points = models.IntegerField(default=1)
     parents_json = models.JSONField(default=list, blank=True)
+    description = models.TextField(default="", blank=True)
+    description_zh = models.TextField(default="", blank=True)
     source = models.CharField(max_length=32, default="derived", blank=True)
     last_updated = models.DateTimeField(default=timezone.now)
 

@@ -74,7 +74,7 @@ class TalentMetadataProvider:
         metadata_tree_type = metadata.get('tree_type')
         if metadata_tree_type:
             merged['tree_type'] = metadata_tree_type
-        for key in ['name', 'icon', 'row', 'column', 'max_points', 'parents']:
+        for key in ['name', 'icon', 'row', 'column', 'max_points', 'parents', 'description', 'description_zh']:
             value = metadata.get(key)
             if value in (None, '', []):
                 continue
@@ -165,6 +165,8 @@ class TalentMetadataProvider:
             'column': row.column,
             'max_points': row.max_points,
             'parents': row.parents_json or [],
+            'description': getattr(row, 'description', '') or '',
+            'description_zh': getattr(row, 'description_zh', '') or '',
             'selected': False,
             'points': 0,
         }

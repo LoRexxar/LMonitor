@@ -125,6 +125,8 @@ class Command(BaseCommand):
                 'db_id': db_id,
                 'description': desc_en,
                 'description_zh': desc_zh,
+                'name_en': name_en,
+                'name_zh': name_zh,
             })
 
         self.stdout.write(f'匹配到描述: {len(updates)} / {len(db_rows)}')
@@ -145,17 +147,27 @@ class Command(BaseCommand):
             desc_zh_cases = ' '.join(
                 f"WHEN id={u['db_id']} THEN %s" for u in batch
             )
+            name_cases = ' '.join(
+                f"WHEN id={u['db_id']} THEN %s" for u in batch
+            )
+            name_zh_cases = ' '.join(
+                f"WHEN id={u['db_id']} THEN %s" for u in batch
+            )
 
             desc_params = [u['description'] for u in batch]
             desc_zh_params = [u['description_zh'] for u in batch]
+            name_params = [u['name_en'] for u in batch]
+            name_zh_params = [u['name_zh'] for u in batch]
 
             sql = f'''
                 UPDATE wow_talent_node_metadata
                 SET description = CASE {desc_cases} END,
-                    description_zh = CASE {desc_zh_cases} END
+                    description_zh = CASE {desc_zh_cases} END,
+                    name = CASE WHEN name IS NULL OR name = '' THEN CASE {name_cases} END ELSE name END,
+                    name_zh = CASE WHEN name_zh IS NULL OR name_zh = '' THEN CASE {name_zh_cases} END ELSE name_zh END
                 WHERE id IN ({ids_str})
             '''
-            cursor.execute(sql, desc_params + desc_zh_params)
+            cursor.execute(sql, desc_params + desc_zh_params + name_params + name_zh_params)
             written += len(batch)
 
             if (i // batch_size) % 10 == 0:
@@ -168,11 +180,17 @@ class Command(BaseCommand):
         zh_count = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM wow_talent_node_metadata")
         total_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM wow_talent_node_metadata WHERE name IS NOT NULL AND name != ''")
+        name_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM wow_talent_node_metadata WHERE name_zh IS NOT NULL AND name_zh != ''")
+        name_zh_count = cursor.fetchone()[0]
 
         self.stdout.write(self.style.SUCCESS(
             f'\n完成！已写入 {written} 条。'
             f'\n  description(EN): {en_count} / {total_count} ({en_count*100/total_count:.1f}%)'
             f'\n  description_zh(CN): {zh_count} / {total_count} ({zh_count*100/total_count:.1f}%)'
+            f'\n  name(EN): {name_count} / {total_count} ({name_count*100/total_count:.1f}%)'
+            f'\n  name_zh(CN): {name_zh_count} / {total_count} ({name_zh_count*100/total_count:.1f}%)'
         ))
 
     def _crawl_trait_definition(self, locale, csv_path, sleep):
