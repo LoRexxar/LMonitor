@@ -98,7 +98,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                                     'achievement_points': player.get('achievement_points'),
                                     'item_level': player.get('item_level'),
                                     'gear_json': self._normalize_gear_list(player.get('gear', [])),
-                                    'talent_build_code': TalentBuildCodeService.extract_build_code(
+                                    'talent_build_code': player.get('talent_build_code', '') or TalentBuildCodeService.extract_build_code(
                                         talents_json=player.get('talents', [])
                                     ),
                                     'talents_json': self._normalize_talent_nodes(
@@ -297,6 +297,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 if not char_data:
                     continue
 
+                self._pending_build_code = None  # 重置 build_code
+
                 gear_items = self._parse_rio_gear(char_data.get('gear'))
                 if gear_items:
                     player['gear'] = self._normalize_gear_list(gear_items)
@@ -322,6 +324,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                         player.get('_class_name', ''),
                         player.get('_spec_name', ''),
                     )
+                # 如果从 talentLoadout 提取到了 build_code，存储它
+                if hasattr(self, '_pending_build_code') and self._pending_build_code:
+                    player['talent_build_code'] = self._pending_build_code
+                    self._pending_build_code = None
 
             except Exception as e:
                 logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
@@ -388,6 +394,16 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
     def _parse_rio_talents_from_profile(self, char_data):
         """从 Raider.IO 角色 profile 响应中解析结构化天赋数据"""
+        # 优先使用 talentLoadout（包含 loadout_text 即天赋导入代码）
+        loadout_obj = char_data.get('talentLoadout')
+        if loadout_obj and isinstance(loadout_obj, dict):
+            loadout_text = loadout_obj.get('loadout_text', '')
+            if loadout_text:
+                # 存储 build_code 到 player 数据
+                self._pending_build_code = loadout_text
+                return []  # 返回空列表，让 build_api_view 用 build_code 解码
+
+        # 回退到旧的 talents 字段
         talents_obj = char_data.get('talents')
         if not talents_obj or not isinstance(talents_obj, dict):
             return None
