@@ -133,10 +133,7 @@
                                 {% endif %}
                                 <div class="talent-panel-title">{{ tree.title }}</div>
                             </div>
-                            <div class="talent-panel-subtitle">
-                                {{ tree.panel.grid_columns }} 列
-                                <span class="dot"></span>{{ tree.panel.grid_rows }} 行
-                            </div>
+
                         </div>
                     </section>
                     {% endif %}
@@ -213,9 +210,7 @@
                         {% endif %}
                         <div class="talent-group-title">{{ group.title }}</div>
                     </div>
-                    <div class="talent-group-subtitle">
-                        {{ group.grid_columns }} 列
-                    </div>
+
                 </div>
                 <div class="talent-tree-grid" style="--talent-columns: {{ group.grid_columns }}; --talent-rows: {{ group.grid_rows }};">
                     {% for node in group.nodes %}
