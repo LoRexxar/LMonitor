@@ -156,10 +156,10 @@
                                 {% else %}
                                 <span>ID</span>
                                 {% endif %}
-                                {% if node.points %}
-                                <span class="talent-node-points">{{ node.points }}</span>
-                                {% endif %}
                             </div>
+                            {% if node.points %}
+                            <span class="talent-node-points">{{ node.points }}</span>
+                            {% endif %}
                             {% if node.is_choice_node and node.choice_options %}
                             <div class="talent-choice-popup">
                                 {% for option in node.choice_options %}
@@ -224,10 +224,10 @@
                             {% else %}
                             <span>ID</span>
                             {% endif %}
-                            {% if node.points %}
-                            <span class="talent-node-points">{{ node.points }}</span>
-                            {% endif %}
                         </div>
+                        {% if node.points %}
+                        <span class="talent-node-points">{{ node.points }}</span>
+                        {% endif %}
                         {% if node.is_choice_node and node.choice_options %}
                         <div class="talent-choice-popup">
                             {% for option in node.choice_options %}
