@@ -150,13 +150,20 @@ def build_talent_tree_layout(
         if cols and rows:
             coord_w = max_col - min_col
             coord_h = max_row - min_row
-            # 动态计算 scale：目标面板宽度 280px，高度 550px
-            target_w = 280
+            # 动态计算 scale：目标面板宽度根据树类型调整（2:1:2 比例）
+            if tree.tree_type == 'hero':
+                target_w = 140  # hero 树窄一些
+            else:
+                target_w = 280  # class/spec 树正常宽度
             target_h = 550
             scale_x = target_w / max(coord_w, 1)
             scale_y = target_h / max(coord_h, 1)
             scale = min(scale_x, scale_y)  # 取较小值保持比例
-            node_size = max(32, min(56, int(scale * 600)))  # 节点尺寸随 scale 调整
+            # 节点尺寸随 scale 调整，hero 树节点略小
+            if tree.tree_type == 'hero':
+                node_size = max(28, min(44, int(scale * 500)))
+            else:
+                node_size = max(32, min(56, int(scale * 600)))
             panel_w = int(coord_w * scale) + node_size + config_model.panel_padding_x * 2
             panel_h = int(coord_h * scale) + node_size + config_model.panel_padding_y * 2 + config_model.header_height
             grid_columns = max_col
