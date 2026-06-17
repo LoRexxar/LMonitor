@@ -178,7 +178,6 @@ class Command(BaseCommand):
                     # 分类
                     subtree_id = node_info['subtree_id']
                     pos_x = node_info['pos_x']
-                    pos_y = node_info['pos_y']
                     if subtree_id > 0:
                         tree_type = 'hero'
                     elif pos_x < 7000:
@@ -203,8 +202,8 @@ class Command(BaseCommand):
                         if entry_id in entries_db2:
                             def_id = entries_db2[entry_id]['def_id']
                             max_points = entries_db2[entry_id]['max_ranks']
-                            # def_id=0 的节点是英雄天赋锚点，不是真实天赋
-                            if def_id == 0:
+                            # def_id=0 或 type=1+flags=264 的节点是英雄天赋锚点
+                            if def_id == 0 or (node_info['type'] == 1 and node_info['flags'] == 264):
                                 tree_type = 'hero_anchor'
                             if def_id in defs:
                                 d = defs[def_id]
@@ -271,24 +270,6 @@ class Command(BaseCommand):
 
             total_created += created
             total_skipped += skipped
-
-            # 后处理：spec 树中 row >= 7000 的节点是英雄天赋入口，标记为 hero_anchor
-            if not dry_run:
-                anchor_qs = WowTalentNodeMetadata.objects.filter(
-                    class_name=cls_name, tree_type='spec', row__gte=7000,
-                )
-                anchor_nids = list(anchor_qs.values_list('node_id', flat=True).distinct())
-                if anchor_nids:
-                    # 先删可能冲突的已有 hero_anchor 记录
-                    for spec_name in specs:
-                        WowTalentNodeMetadata.objects.filter(
-                            class_name=cls_name, spec_name=spec_name,
-                            tree_type='hero_anchor', node_id__in=anchor_nids,
-                        ).delete()
-                    # 再更新 spec → hero_anchor
-                    cnt = anchor_qs.update(tree_type='hero_anchor')
-                    if cnt:
-                        self.stdout.write(f'  → {cnt} 个英雄天赋入口节点标记为 hero_anchor')
 
             self.stdout.write(
                 f'  {cls_name}: 创建 {created} 个新节点, 跳过 {skipped} 个已存在'
