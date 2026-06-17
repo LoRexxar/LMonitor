@@ -93,7 +93,7 @@ class TalentMetadataProvider:
         rows = WowTalentNodeMetadata.objects.filter(
             class_name=class_name or '',
             spec_name=spec_name or '',
-        ).order_by('tree_type', 'row', 'column', 'node_id', 'spell_id', 'talent_id')
+        ).exclude(tree_type='hero_anchor').order_by('tree_type', 'row', 'column', 'node_id', 'spell_id', 'talent_id')
 
         grouped_by_node = {}
         for row in rows.iterator():

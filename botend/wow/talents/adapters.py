@@ -66,28 +66,19 @@ def build_tree_set_from_talents(
 
     # DB 已有正确的 class/hero/spec 分类，不再需要 hero 左右过滤
 
-    # 从 spec 树中移除英雄天赋锚点节点，并确定选中的英雄天赋名
+    # 从数据库查询英雄天赋锚点名字（tree_type='hero_anchor'，def_id=0 的节点）
     hero_anchor_name = ''
-    if 'spec' in grouped_nodes:
-        spec_nodes = grouped_nodes['spec']
-        anchor_ids = _find_hero_anchor_node_ids(spec_nodes)
-        if anchor_ids:
-            # 找到选中的锚点名字
-            for node in spec_nodes:
-                if node.node_id in anchor_ids and node.points > 0 and node.name:
-                    hero_anchor_name = node.name
-                    break
-            # 如果没找到选中的，看selected_nodes
-            if not hero_anchor_name:
-                for node in spec_nodes:
-                    node_key = _build_node_key(node)
-                    if node.node_id in anchor_ids and node_key in selected_nodes and node.name:
-                        hero_anchor_name = node.name
-                        break
-            # 从spec树中移除锚点
-            grouped_nodes['spec'] = [n for n in spec_nodes if n.node_id not in anchor_ids]
+    try:
+        from botend.models import WowTalentNodeMetadata
+        anchor = WowTalentNodeMetadata.objects.filter(
+            class_name=class_name, spec_name=spec_name, tree_type='hero_anchor'
+        ).exclude(name='').first()
+        if anchor:
+            hero_anchor_name = anchor.name
+    except Exception:
+        pass
 
-    # Hero 子树过滤：按 column+row 范围分组，只保留有选中节点的子树
+    # Hero 子树过滤：按 db2_subtree_id 分组，只保留有选中节点的子树
     if 'hero' in grouped_nodes:
         hero_nodes = grouped_nodes['hero']
         hero_subtrees = _group_hero_subtrees(hero_nodes)
@@ -265,44 +256,6 @@ def _group_hero_subtrees(hero_nodes):
         result.setdefault(group_key, []).append(node)
 
     return result
-
-
-def _apply_dense_layout_coordinates(nodes):
-    """旧版逐树坐标归一化（已弃用，改用 _apply_global_dense_layout）。"""
-    raw_rows = sorted({node.row for node in nodes if node.row is not None})
-    raw_columns = sorted({node.column for node in nodes if node.column is not None})
-    row_index = {value: index + 1 for index, value in enumerate(raw_rows)}
-    column_index = {value: index + 1 for index, value in enumerate(raw_columns)}
-
-    for fallback_index, node in enumerate(nodes):
-        if node.row is not None and node.layout_row is None:
-            node.layout_row = row_index.get(node.row, fallback_index + 1)
-        if node.column is not None and node.layout_column is None:
-            node.layout_column = column_index.get(node.column, ((fallback_index % TREE_COLUMNS.get(node.tree_type, 8)) + 1))
-
-
-def _find_hero_anchor_node_ids(spec_nodes):
-    """找出 spec 树中的英雄天赋锚点节点 ID。
-
-    锚点特征：在 spec 树中没有任何 parents，也没有被其他节点的 parents 引用，
-    且成对出现在同一位置（choice node 模式）。
-    这些节点是英雄天赋树的入口选择器。
-    """
-    referenced = set()
-    for n in spec_nodes:
-        for p in (n.parents or []):
-            if p is not None:
-                referenced.add(p)
-            if n.node_id is not None:
-                referenced.add(n.node_id)
-    orphans = [n for n in spec_nodes if n.node_id is not None and n.node_id not in referenced]
-    if not orphans:
-        return set()
-    # 按 (row, column) 分组，找出成对的孤立节点（英雄天赋锚点是 choice pairs）
-    from collections import Counter
-    position_counts = Counter((n.row or 0, n.column or 0) for n in orphans)
-    paired_positions = {pos for pos, count in position_counts.items() if count >= 2}
-    return {n.node_id for n in orphans if (n.row or 0, n.column or 0) in paired_positions}
 
 
 def _apply_global_dense_layout(nodes):

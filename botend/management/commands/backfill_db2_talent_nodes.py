@@ -202,6 +202,9 @@ class Command(BaseCommand):
                         if entry_id in entries_db2:
                             def_id = entries_db2[entry_id]['def_id']
                             max_points = entries_db2[entry_id]['max_ranks']
+                            # def_id=0 的节点是英雄天赋锚点，不是真实天赋
+                            if def_id == 0:
+                                tree_type = 'hero_anchor'
                             if def_id in defs:
                                 d = defs[def_id]
                                 display_spell_id = d['visible_spell_id'] or d['spell_id'] or d['override_spell_id'] or None
