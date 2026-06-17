@@ -623,13 +623,14 @@
     transform: translateX(-50%);
     flex-direction: column;
     gap: 6px;
-    z-index: 100;
+    z-index: 9999;
     pointer-events: auto;
     /* bridge the gap between card and popup so hover doesn't flicker */
     padding-top: 10px;
     margin-top: -10px;
 }
 .talent-node-card--tree.is-choice-node:hover .talent-choice-popup,
+.talent-node-card--tree.is-choice-node.popup-active .talent-choice-popup,
 .talent-node-card--tree.is-choice-node:focus-within .talent-choice-popup {
     display: flex;
 }
@@ -713,19 +714,20 @@
     transform: translateY(-50%);
     padding: 8px 12px;
     border-radius: 8px;
-    background: rgba(15,23,42,.96);
-    border: 1px solid rgba(96,165,250,.32);
+    background: rgba(15,23,42,.98);
+    border: 1px solid rgba(96,165,250,.45);
     color: #f1f5f9;
     font-size: 13px;
     white-space: normal;
     min-width: 180px;
-    max-width: 280px;
+    max-width: 300px;
     line-height: 1.5;
-    z-index: 110;
-    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    z-index: 10000;
+    box-shadow: 0 8px 24px rgba(0,0,0,.6);
     pointer-events: none;
 }
-.talent-choice-popup-option:hover .talent-choice-popup-tooltip {
+.talent-choice-popup-option:hover .talent-choice-popup-tooltip,
+.talent-node-card--tree.is-choice-node.popup-active .talent-choice-popup-tooltip {
     display: block;
 }
 
@@ -809,6 +811,29 @@
 
     scaleTalentStage();
     window.addEventListener('resize', scaleTalentStage);
+
+    /* ===== Choice Node Popup Hover ===== */
+    document.querySelectorAll('.talent-node-card--tree.is-choice-node').forEach(function(node) {
+        var popup = node.querySelector('.talent-choice-popup');
+        if (!popup) return;
+        var hoverTimeout = null;
+
+        function showPopup() {
+            if (hoverTimeout) clearTimeout(hoverTimeout);
+            node.classList.add('popup-active');
+        }
+
+        function hidePopup() {
+            hoverTimeout = setTimeout(function() {
+                node.classList.remove('popup-active');
+            }, 150);
+        }
+
+        node.addEventListener('mouseenter', showPopup);
+        node.addEventListener('mouseleave', hidePopup);
+        popup.addEventListener('mouseenter', showPopup);
+        popup.addEventListener('mouseleave', hidePopup);
+    });
 })();
 </script>
 {% endblock %}
