@@ -574,6 +574,9 @@
 .talent-node-card--tree.is-choice-node.popup-active .talent-node-tooltip {
     display: none;
 }
+.talent-node-card--tree.is-choice-node.popup-active {
+    z-index: 100;
+}
 .talent-node-tooltip-name {
     color: #f1f5f9;
     font-size: 14px;
@@ -835,11 +838,13 @@
         function showPopup() {
             if (hoverTimeout) clearTimeout(hoverTimeout);
             node.classList.add('popup-active');
+            node.style.zIndex = '100';
         }
 
         function hidePopup() {
             hoverTimeout = setTimeout(function() {
                 node.classList.remove('popup-active');
+                node.style.zIndex = '';
                 hideOptionTooltip();
             }, 150);
         }
