@@ -415,6 +415,7 @@ class PortalArticleDetailAPIView(View):
 class PortalEventsAPIView(View):
     def get(self, request):
         rows = list(PortalEvent.objects.filter(is_active=True).order_by('-start_at', '-id')[:30])
+        return JsonResponse({'status': 'success', 'data': [_event_to_dict(x) for x in rows]})
 
 
 class PortalVideosAPIView(View):
