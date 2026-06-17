@@ -167,6 +167,7 @@ function matchItem(item, q) {
   if (!q) return true;
   const parts = [
     item?.title,
+    item?.title_cn,
     item?.source,
     item?.author,
     item?.tag,
