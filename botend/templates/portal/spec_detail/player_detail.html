@@ -651,7 +651,7 @@
 .talent-choice-popup {
     display: none;
     position: absolute;
-    top: calc(100% + 8px);
+    bottom: calc(100% + 8px);
     left: 50%;
     transform: translateX(-50%);
     flex-direction: column;
@@ -659,8 +659,8 @@
     z-index: 9999;
     pointer-events: auto;
     /* bridge the gap between card and popup so hover doesn't flicker */
-    padding-top: 10px;
-    margin-top: -10px;
+    padding-bottom: 10px;
+    margin-bottom: -10px;
 }
 .talent-node-card--tree.is-choice-node:hover .talent-choice-popup,
 .talent-node-card--tree.is-choice-node.popup-active .talent-choice-popup,
@@ -673,17 +673,17 @@
     position: absolute;
     left: 0;
     right: 0;
-    top: 0;
+    bottom: 0;
     height: 14px;
 }
 .talent-choice-popup::after {
     content: '';
     position: absolute;
-    bottom: 100%;
+    top: 100%;
     left: 50%;
     transform: translateX(-50%);
     border: 6px solid transparent;
-    border-bottom-color: rgba(30,41,59,.95);
+    border-top-color: rgba(30,41,59,1);
 }
 .talent-choice-popup-option {
     display: flex;
@@ -691,14 +691,13 @@
     gap: 8px;
     padding: 8px 12px;
     border-radius: 10px;
-    background: rgba(30,41,59,.95);
+    background: rgba(30,41,59,1);
     border: 1px solid rgba(148,163,184,.18);
     text-decoration: none;
     color: #cbd5e1;
     white-space: nowrap;
     position: relative;
     transition: background .15s ease, border-color .15s ease;
-    backdrop-filter: blur(8px);
 }
 .talent-choice-popup-option:hover {
     background: rgba(51,65,85,.95);
@@ -706,7 +705,7 @@
 }
 .talent-choice-popup-option.is-active {
     border-color: rgba(96,165,250,.55);
-    background: rgba(30,64,175,.35);
+    background: rgba(30,64,175,.7);
     color: #eff6ff;
 }
 .talent-choice-popup-icon {
