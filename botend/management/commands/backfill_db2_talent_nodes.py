@@ -82,9 +82,30 @@ class Command(BaseCommand):
                     'visible_spell_id': int(row.get('VisibleSpellID', 0) or 0),
                     'override_spell_id': int(row.get('OverridesSpellID', 0) or 0),
                     'name': row.get('OverrideName_lang', '') or '',
-                    'icon': int(row.get('OverrideIcon', 0) or 0),
+                    'icon_fdid': int(row.get('OverrideIcon', 0) or 0),
                 }
         self.stdout.write(f'  TraitDefinition: {len(defs)}')
+
+        # 4.1 FileDataID → IconName 映射
+        fdid_to_icon = {}
+        icon_cache_path = os.path.join(dump_dir, 'file_data_icon_cache.csv')
+        if os.path.exists(icon_cache_path):
+            with open(icon_cache_path) as f:
+                for row in csv.DictReader(f):
+                    fdid = int(row['FileDataID'])
+                    name = row.get('IconName', '').strip()
+                    if name:
+                        fdid_to_icon[fdid] = name
+        self.stdout.write(f'  FileDataID→Icon: {len(fdid_to_icon)}')
+
+        # 4.2 SpellID → FileDataID 映射（图标兜底）
+        spell_to_fdid = {}
+        spell_icon_path = os.path.join(dump_dir, 'spell_icon_map.csv')
+        if os.path.exists(spell_icon_path):
+            with open(spell_icon_path) as f:
+                for row in csv.DictReader(f):
+                    spell_to_fdid[int(row['SpellID'])] = int(row['FileDataID'])
+        self.stdout.write(f'  SpellID→FileDataID: {len(spell_to_fdid)}')
 
         # 5. SpellName (enUS + zhCN)
         spell_names = {}
@@ -213,8 +234,17 @@ class Command(BaseCommand):
                                     name = spell_names[display_spell_id].get('enUS', '')
                                 if d['name'] and not name:
                                     name = d['name']
-                                if d['icon']:
-                                    icon = str(d['icon'])
+                                # 图标解析：OverrideIcon FileDataID → IconName，兜底 spell_icon_map
+                                icon_fdid = d['icon_fdid']
+                                if icon_fdid and icon_fdid in fdid_to_icon:
+                                    icon = fdid_to_icon[icon_fdid]
+                                elif not icon_fdid:
+                                    # 没有 OverrideIcon，用 spell 的图标兜底
+                                    sid = display_spell_id or d['spell_id'] or d['override_spell_id']
+                                    if sid and sid in spell_to_fdid:
+                                        fallback_fdid = spell_to_fdid[sid]
+                                        if fallback_fdid in fdid_to_icon:
+                                            icon = fdid_to_icon[fallback_fdid]
 
                         resolved_spell_id = display_spell_id or entry_id
 
