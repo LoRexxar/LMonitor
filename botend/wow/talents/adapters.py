@@ -66,18 +66,6 @@ def build_tree_set_from_talents(
 
     # DB 已有正确的 class/hero/spec 分类，不再需要 hero 左右过滤
 
-    # 从数据库查询英雄天赋锚点名字（tree_type='hero_anchor'，def_id=0 的节点）
-    hero_anchor_name = ''
-    try:
-        from botend.models import WowTalentNodeMetadata
-        anchor = WowTalentNodeMetadata.objects.filter(
-            class_name=class_name, spec_name=spec_name, tree_type='hero_anchor'
-        ).exclude(name='').first()
-        if anchor:
-            hero_anchor_name = anchor.name
-    except Exception:
-        pass
-
     # Hero 子树过滤：按 db2_subtree_id 分组，只保留有选中节点的子树
     if 'hero' in grouped_nodes:
         hero_nodes = grouped_nodes['hero']
@@ -148,7 +136,7 @@ def build_tree_set_from_talents(
         spec_name=spec_name,
         trees=trees,
         layout_mode='three-column',
-        meta={'build_code': build_code, 'hero_anchor_name': hero_anchor_name},
+        meta={'build_code': build_code},
     )
     build_state = TalentBuildStateModel(
         source_type=source_type,
