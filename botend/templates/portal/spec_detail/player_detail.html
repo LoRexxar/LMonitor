@@ -128,9 +128,6 @@
                     >
                         <div class="talent-panel-head">
                             <div>
-                                {% if tree.tree_type == 'hero' %}
-                                <div class="talent-hero-badge">✦ 英雄天赋</div>
-                                {% endif %}
                                 <div class="talent-panel-title">{{ tree.title }}</div>
                             </div>
 
@@ -203,9 +200,6 @@
             <div class="talent-group">
                 <div class="talent-group-head">
                     <div>
-                        {% if group.tree_type == 'hero' %}
-                        <div class="talent-hero-badge">✦ 英雄天赋</div>
-                        {% endif %}
                         <div class="talent-group-title">{{ group.title }}</div>
                     </div>
 
@@ -747,19 +741,6 @@
 }
 
 /* ===== Hero Tree Badge ===== */
-.talent-hero-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 14px;
-    border-radius: 999px;
-    background: linear-gradient(135deg, rgba(251,191,36,.18), rgba(168,85,247,.18));
-    border: 1px solid rgba(251,191,36,.32);
-    color: #fbbf24;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: .04em;
-}
 .talent-panel--hero .talent-panel-title { color: #fbbf24; }
 
 /* ===== Choice Node Tooltip ===== */
