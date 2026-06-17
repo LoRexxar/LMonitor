@@ -104,6 +104,7 @@ def _build_render_collections(tree_set, layout, build_state, build_code):
     panel_lookup = {panel.tree_type: panel for panel in layout.panels}
     render_nodes = []
     render_trees = []
+    hero_anchor_name = tree_set.meta.get('hero_anchor_name', '')
 
     for tree in tree_set.trees:
         panel = panel_lookup.get(tree.tree_type)
@@ -129,9 +130,14 @@ def _build_render_collections(tree_set, layout, build_state, build_code):
             tree_nodes.append(node_payload)
             render_nodes.append(node_payload)
 
+        # 英雄天赋树标题加上选中的锚点名字
+        title = tree.title
+        if tree.tree_type == 'hero' and hero_anchor_name:
+            title = f'{title} · {hero_anchor_name}'
+
         render_trees.append({
             'tree_type': tree.tree_type,
-            'title': tree.title,
+            'title': title,
             'nodes': tree_nodes,
             'grid_columns': tree.grid_columns,
             'grid_rows': tree.grid_rows,

@@ -66,6 +66,27 @@ def build_tree_set_from_talents(
 
     # DB 已有正确的 class/hero/spec 分类，不再需要 hero 左右过滤
 
+    # 从 spec 树中移除英雄天赋锚点节点，并确定选中的英雄天赋名
+    hero_anchor_name = ''
+    if 'spec' in grouped_nodes:
+        spec_nodes = grouped_nodes['spec']
+        anchor_ids = _find_hero_anchor_node_ids(spec_nodes)
+        if anchor_ids:
+            # 找到选中的锚点名字
+            for node in spec_nodes:
+                if node.node_id in anchor_ids and node.points > 0 and node.name:
+                    hero_anchor_name = node.name
+                    break
+            # 如果没找到选中的，看selected_nodes
+            if not hero_anchor_name:
+                for node in spec_nodes:
+                    node_key = _build_node_key(node)
+                    if node.node_id in anchor_ids and node_key in selected_nodes and node.name:
+                        hero_anchor_name = node.name
+                        break
+            # 从spec树中移除锚点
+            grouped_nodes['spec'] = [n for n in spec_nodes if n.node_id not in anchor_ids]
+
     # Hero 子树过滤：按 column+row 范围分组，只保留有选中节点的子树
     if 'hero' in grouped_nodes:
         hero_nodes = grouped_nodes['hero']
@@ -136,7 +157,7 @@ def build_tree_set_from_talents(
         spec_name=spec_name,
         trees=trees,
         layout_mode='three-column',
-        meta={'build_code': build_code},
+        meta={'build_code': build_code, 'hero_anchor_name': hero_anchor_name},
     )
     build_state = TalentBuildStateModel(
         source_type=source_type,
@@ -258,6 +279,30 @@ def _apply_dense_layout_coordinates(nodes):
             node.layout_row = row_index.get(node.row, fallback_index + 1)
         if node.column is not None and node.layout_column is None:
             node.layout_column = column_index.get(node.column, ((fallback_index % TREE_COLUMNS.get(node.tree_type, 8)) + 1))
+
+
+def _find_hero_anchor_node_ids(spec_nodes):
+    """找出 spec 树中的英雄天赋锚点节点 ID。
+
+    锚点特征：在 spec 树中没有任何 parents，也没有被其他节点的 parents 引用，
+    且成对出现在同一位置（choice node 模式）。
+    这些节点是英雄天赋树的入口选择器。
+    """
+    referenced = set()
+    for n in spec_nodes:
+        for p in (n.parents or []):
+            if p is not None:
+                referenced.add(p)
+            if n.node_id is not None:
+                referenced.add(n.node_id)
+    orphans = [n for n in spec_nodes if n.node_id is not None and n.node_id not in referenced]
+    if not orphans:
+        return set()
+    # 按 (row, column) 分组，找出成对的孤立节点（英雄天赋锚点是 choice pairs）
+    from collections import Counter
+    position_counts = Counter((n.row or 0, n.column or 0) for n in orphans)
+    paired_positions = {pos for pos, count in position_counts.items() if count >= 2}
+    return {n.node_id for n in orphans if (n.row or 0, n.column or 0) in paired_positions}
 
 
 def _apply_global_dense_layout(nodes):

@@ -139,12 +139,13 @@ class TalentTreeAdapterTests(SimpleTestCase):
 
         self.assertIsInstance(tree_set, TalentTreeSetModel)
         self.assertIsInstance(build_state, TalentBuildStateModel)
-        self.assertEqual([tree.tree_type for tree in tree_set.trees], ['class', 'spec', 'hero'])
+        self.assertEqual([tree.tree_type for tree in tree_set.trees], ['class', 'hero', 'spec'])
         self.assertEqual(tree_set.set_key, 'Monk:Windwalker')
         self.assertEqual(tree_set.layout_mode, 'three-column')
         self.assertEqual(tree_set.trees[0].title, '职业天赋')
-        self.assertFalse(tree_set.trees[1].synthetic_layout)
-        self.assertIsInstance(tree_set.trees[1].nodes[0], TalentNodeModel)
+        spec_tree = next(t for t in tree_set.trees if t.tree_type == 'spec')
+        self.assertFalse(spec_tree.synthetic_layout)
+        self.assertIsInstance(spec_tree.nodes[0], TalentNodeModel)
         self.assertIn('spec:202', build_state.selected_nodes)
         self.assertEqual(build_state.node_ranks['spec:202'], 1)
         self.assertEqual(build_state.source_id, 'Monk:Windwalker')
@@ -216,14 +217,15 @@ class TalentTreeAdapterTests(SimpleTestCase):
         )
 
         tree = tree_set.trees[0]
-        self.assertEqual(tree.grid_rows, 2)
-        self.assertEqual(tree.grid_columns, 8)
+        # Raw DB2 coords are now used directly as layout values
+        self.assertEqual(tree.grid_rows, 2400)
+        self.assertEqual(tree.grid_columns, 8700)
         self.assertEqual(
             [(node.row, node.column, node.layout_row, node.layout_column) for node in tree.nodes],
             [
-                (1500, 4200, 1, 1),
-                (2400, 6000, 2, 2),
-                (2400, 8700, 2, 3),
+                (1500, 4200, 1500, 4200),
+                (2400, 6000, 2400, 6000),
+                (2400, 8700, 2400, 8700),
             ],
         )
 
@@ -260,8 +262,9 @@ class TalentTreeAdapterTests(SimpleTestCase):
         self.assertEqual(node.row, 5100)
         self.assertEqual(node.column, 10800)
         self.assertEqual(node.parents, [9001])
-        self.assertEqual(node.layout_row, 1)
-        self.assertEqual(node.layout_column, 1)
+        # Raw DB2 coords are now used directly as layout values
+        self.assertEqual(node.layout_row, 5100)
+        self.assertEqual(node.layout_column, 10800)
 
 
 class TalentMetadataProviderTests(SimpleTestCase):
@@ -368,18 +371,6 @@ class TalentMetadataInitCommandTests(SimpleTestCase):
         self.assertEqual(single_target, [('Monk', 'Windwalker')])
 
 
-class TalentMetadataNormalizeCommandTests(SimpleTestCase):
-    def test_pick_tree_type_prefers_hero_then_class(self):
-        command = NormalizeTalentMetadataCommand()
-        rows = [
-            SimpleNamespace(tree_type='spec'),
-            SimpleNamespace(tree_type='class'),
-            SimpleNamespace(tree_type='hero'),
-        ]
-        self.assertEqual(command._pick_tree_type(rows), 'hero')
-        self.assertEqual(command._pick_tree_type(rows[:2]), 'class')
-        self.assertEqual(command._pick_tree_type(rows[:1]), 'spec')
-
 
 class TalentTreeLayoutTests(SimpleTestCase):
     def test_build_talent_tree_layout_positions_panels_and_nodes(self):
@@ -443,16 +434,16 @@ class TalentTreeLayoutTests(SimpleTestCase):
         layout = build_talent_tree_layout(tree_set, build_state)
 
         self.assertEqual(layout.layout_mode, 'three-column')
-        self.assertEqual(layout.width, 2128)
-        self.assertEqual(layout.height, 488)
+        self.assertEqual(layout.width, 2048)
+        self.assertEqual(layout.height, 472)
         self.assertEqual([(panel.tree_type, panel.x, panel.y) for panel in layout.panels], [
             ('class', 0, 0),
-            ('spec', 848, 0),
-            ('hero', 1696, 0),
+            ('spec', 816, 0),
+            ('hero', 1632, 0),
         ])
 
         spec_panel = layout.panels[1]
-        self.assertEqual((spec_panel.width, spec_panel.height), (816, 488))
+        self.assertEqual((spec_panel.width, spec_panel.height), (800, 472))
         self.assertEqual(len(spec_panel.nodes), 1)
         self.assertEqual(
             (
@@ -464,7 +455,7 @@ class TalentTreeLayoutTests(SimpleTestCase):
                 spec_panel.nodes[0].center_y,
                 spec_panel.nodes[0].selected,
             ),
-            (2, 3, 1076, 188, 1112, 224, True),
+            (2, 3, 1036, 180, 1072, 216, True),
         )
 
     def test_build_talent_tree_layout_generates_minimal_svg_paths_from_parents(self):
@@ -519,8 +510,8 @@ class TalentTreeLayoutTests(SimpleTestCase):
         self.assertEqual(
             [(path.parent_key, path.child_key, path.svg_path) for path in paths],
             [
-                ('spec:10', 'spec:20', 'M 168 164 L 168 284'),
-                ('spec:20', 'spec:30', 'M 168 356 L 168 368 L 360 368 L 360 380'),
+                ('spec:10', 'spec:20', 'M 160 156 L 160 276'),
+                ('spec:20', 'spec:30', 'M 160 348 L 160 360 L 352 360 L 352 372'),
             ],
         )
 
@@ -569,13 +560,13 @@ class TalentTreeRenderTests(SimpleTestCase):
         self.assertEqual(payload['set_key'], 'Monk:Windwalker')
         self.assertEqual(payload['layout_mode'], 'three-column')
         self.assertEqual(payload['build_code'], 'BwQAAAAAAAAAAAAAAAAAAAAA')
-        self.assertEqual([tree['tree_type'] for tree in payload['trees']], ['class', 'spec', 'hero', 'build_code'])
+        self.assertEqual([tree['tree_type'] for tree in payload['trees']], ['class', 'hero', 'spec', 'build_code'])
         self.assertEqual(
             [node['tree_type'] for node in payload['nodes']],
-            ['class', 'spec', 'hero', 'build_code'],
+            ['class', 'hero', 'spec', 'build_code'],
         )
 
-        spec_tree = payload['trees'][1]
+        spec_tree = next(t for t in payload['trees'] if t['tree_type'] == 'spec')
         self.assertEqual(spec_tree['panel']['tree_type'], 'spec')
         self.assertEqual(len(spec_tree['nodes']), 1)
         self.assertEqual(
@@ -586,16 +577,17 @@ class TalentTreeRenderTests(SimpleTestCase):
                 'node_key': spec_tree['nodes'][0]['node_key'],
             },
             {
-                'layout_row': 1,
-                'layout_column': 1,
+                'layout_row': 2,
+                'layout_column': 4,
                 'selected': True,
                 'node_key': 'spec:202',
             },
         )
         self.assertEqual(payload['build_state']['selected_nodes'], ['spec:202'])
         self.assertEqual(payload['tree_set']['trees'][0]['tree_type'], 'class')
-        self.assertEqual(payload['layout']['panels'][2]['tree_type'], 'hero')
-        self.assertEqual(payload['trees'][3]['nodes'][0]['talent_code'], 'BwQAAAAAAAAAAAAAAAAAAAAA')
+        self.assertEqual(payload['layout']['panels'][1]['tree_type'], 'hero')
+        build_code_tree = next(t for t in payload['trees'] if t['tree_type'] == 'build_code')
+        self.assertEqual(build_code_tree['nodes'][0]['talent_code'], 'BwQAAAAAAAAAAAAAAAAAAAAA')
 
     @patch('botend.wow.talents.adapters.TalentMetadataProvider')
     def test_build_talent_view_model_reuses_render_model_output(self, mock_provider_cls):
@@ -844,7 +836,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertIn('data-parent-key="spec:10"', html)
         self.assertIn('data-node-key="spec:20"', html)
         self.assertIn('data-child-key="spec:20"', html)
-        self.assertIn('M 168 164 L 168 284', html)
+        self.assertIn('M 160 156 L 160 276', html)
         self.assertIn('https://www.wowhead.com/spell=2020', html)
         self.assertIn('BwQAAAAAAAAAAAAAAAAAAAAA', html)
         self.assertIn('talent-copy-btn', html)
