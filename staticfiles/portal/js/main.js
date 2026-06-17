@@ -52,6 +52,101 @@ function sanitizeHref(raw) {
   return "";
 }
 
+// --- NGA hover preview (Portal) ---
+const NGA_PREVIEW_CACHE = new Map(); // articleId -> preview text
+let NGA_TOOLTIP_EL = null;
+let NGA_TOOLTIP_HIDE_TIMER = null;
+
+function ensureNgaTooltip() {
+  if (NGA_TOOLTIP_EL) return NGA_TOOLTIP_EL;
+  const el = document.createElement("div");
+  el.id = "nga-hover-tooltip";
+  el.style.position = "fixed";
+  el.style.zIndex = "9999";
+  el.style.maxWidth = "520px";
+  el.style.display = "none";
+  el.className = "rounded-xl border border-slate-200 bg-white shadow-lg p-3 text-xs text-slate-700";
+  el.style.whiteSpace = "pre-wrap";
+  el.style.pointerEvents = "none";
+  document.body.appendChild(el);
+  NGA_TOOLTIP_EL = el;
+  return el;
+}
+
+function showNgaTooltipAt(x, y, html) {
+  const el = ensureNgaTooltip();
+  if (NGA_TOOLTIP_HIDE_TIMER) {
+    clearTimeout(NGA_TOOLTIP_HIDE_TIMER);
+    NGA_TOOLTIP_HIDE_TIMER = null;
+  }
+  const pad = 12;
+  const vw = window.innerWidth || 1200;
+  const vh = window.innerHeight || 800;
+  el.innerHTML = html || "";
+  el.style.display = "block";
+  // 先给一个默认位置，再根据尺寸修正
+  el.style.left = Math.min(vw - 40, x + pad) + "px";
+  el.style.top = Math.min(vh - 40, y + pad) + "px";
+  const rect = el.getBoundingClientRect();
+  let left = x + pad;
+  let top = y + pad;
+  if (left + rect.width > vw - 12) left = Math.max(12, vw - rect.width - 12);
+  if (top + rect.height > vh - 12) top = Math.max(12, vh - rect.height - 12);
+  el.style.left = left + "px";
+  el.style.top = top + "px";
+}
+
+function hideNgaTooltipSoon() {
+  const el = ensureNgaTooltip();
+  if (NGA_TOOLTIP_HIDE_TIMER) clearTimeout(NGA_TOOLTIP_HIDE_TIMER);
+  NGA_TOOLTIP_HIDE_TIMER = setTimeout(() => {
+    el.style.display = "none";
+  }, 120);
+}
+
+async function fetchNgaPreviewText(articleId) {
+  const id = Number(articleId || 0);
+  if (!id) return "";
+  if (NGA_PREVIEW_CACHE.has(id)) return NGA_PREVIEW_CACHE.get(id) || "";
+  try {
+    const resp = await fetch(`/portal/api/article/${id}/`);
+    if (!resp.ok) return "";
+    const data = await resp.json();
+    const item = data?.data || {};
+    const raw = String(item.content || "").trim();
+    const preview = raw.length > 900 ? raw.slice(0, 900).trim() + "..." : raw;
+    NGA_PREVIEW_CACHE.set(id, preview);
+    return preview;
+  } catch (e) {
+    return "";
+  }
+}
+
+function bindNgaHoverTooltips(containerEl) {
+  if (!containerEl) return;
+  const items = containerEl.querySelectorAll("[data-nga-article-id]");
+  items.forEach((el) => {
+    if (el.dataset?.ngaTooltipBound === "1") return;
+    el.dataset.ngaTooltipBound = "1";
+    el.addEventListener("mouseenter", async (ev) => {
+      const id = el.getAttribute("data-nga-article-id");
+      const preview = await fetchNgaPreviewText(id);
+      const safe = preview || "暂无预览内容（可能需要配置 NGA Cookie 才能抓取主楼）";
+      const html = `<div class="font-semibold text-slate-900 mb-1">主楼预览</div><div class="text-slate-700">${escapeHtml(safe)}</div>`;
+      showNgaTooltipAt(ev.clientX, ev.clientY, html);
+    });
+    el.addEventListener("mousemove", (ev) => {
+      const tip = ensureNgaTooltip();
+      if (tip.style.display !== "block") return;
+      // 不重写内容，仅更新位置
+      showNgaTooltipAt(ev.clientX, ev.clientY, tip.innerHTML);
+    });
+    el.addEventListener("mouseleave", () => {
+      hideNgaTooltipSoon();
+    });
+  });
+}
+
 function getFaviconSrc(it) {
   const p = String(it?.icon_path || "").trim();
   if (p) return p;
@@ -72,6 +167,7 @@ function matchItem(item, q) {
   if (!q) return true;
   const parts = [
     item?.title,
+    item?.title_cn,
     item?.source,
     item?.author,
     item?.tag,
@@ -115,10 +211,13 @@ function renderSimpleList(containerId, items, opts) {
   const limit = typeof opts?.limit === "number" ? opts.limit : 12;
   const asGrid = containerId === "nga-list";
   const showReplyBadge = opts?.showReplyBadge === true || containerId === "nga-list";
+  const isArticleList = containerId === "blueposts-list" || containerId === "wowhead-list";
   const html = filtered
     .slice(0, limit)
     .map((it, idx) => {
       const title = escapeHtml(it.title || "");
+      const titleCn = escapeHtml(it.title_cn || "");
+      const displayTitle = titleCn || title;
       const rawUrl = it.url || it.source_url || "";
       const href = sanitizeHref(rawUrl);
       const url = escapeHtml(href);
@@ -144,18 +243,47 @@ function renderSimpleList(containerId, items, opts) {
       const meta = parts.join("");
 
       const divider = asGrid ? "border-b border-slate-100" : (idx === 0 ? "" : "border-t border-slate-100");
-      return `<div class="py-2 ${divider}">
-        ${
-          url
-            ? `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
-            : `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`
+
+      const articleId = it.id;
+      const articleLink = isArticleList && articleId ? `/portal/article/${articleId}/` : "";
+      const externalLinkIcon = href ? `<a href="${url}" target="_blank" rel="noreferrer" class="shrink-0 inline-flex items-center text-slate-400 hover:text-indigo-600" title="查看原文">${svgIcon("icon-globe", "w-3.5 h-3.5")}</a>` : "";
+      const titleClampCls = isArticleList ? "portal-line-clamp-1" : "portal-line-clamp-2";
+
+      let titleHtml;
+      if (articleLink) {
+        if (titleCn && title) {
+          titleHtml = `<div class="block">
+            <div class="flex items-start gap-1 min-w-0">
+              <a class="min-w-0 flex-1 font-medium text-slate-900 hover:text-indigo-700 ${titleClampCls}" href="${escapeHtml(articleLink)}">${titleCn}</a>
+              ${externalLinkIcon}
+            </div>
+            <a class="block hover:text-indigo-700 text-xs text-slate-500 mt-0.5 portal-line-clamp-1" href="${escapeHtml(articleLink)}">${title}</a>
+          </div>`;
+        } else {
+          titleHtml = `<div class="flex items-start gap-1 min-w-0">
+            <a class="min-w-0 flex-1 text-slate-900 hover:text-indigo-700 font-medium ${titleClampCls}" href="${escapeHtml(articleLink)}">${title}</a>
+            ${externalLinkIcon}
+          </div>`;
         }
+      } else if (url) {
+        titleHtml = `<a class="block text-slate-900 hover:text-indigo-700 font-medium ${titleClampCls}" href="${url}" target="_blank" rel="noreferrer">${title}</a>`;
+      } else {
+        titleHtml = `<span class="block text-slate-900 font-medium ${titleClampCls}">${title}</span>`;
+      }
+
+      const ngaHoverAttrs =
+        containerId === "nga-list" && articleId
+          ? ` data-nga-article-id="${escapeHtml(articleId)}"`
+          : "";
+      return `<div class="py-2 ${divider}"${ngaHoverAttrs}>
+        ${titleHtml}
         ${meta ? `<div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">${meta}</div>` : ""}
       </div>`;
     })
     .join("");
 
   el.innerHTML = asGrid ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-x-6">${html}</div>` : html;
+  if (containerId === "nga-list") bindNgaHoverTooltips(el);
 }
 
 function renderSkeleton(containerId, lines = 8) {
@@ -244,6 +372,7 @@ async function loadTools() {
 const SECTION_MAP = {
   blueposts: { url: "/portal/api/blueposts/", listId: "blueposts-list" },
   exwind: { url: "/portal/api/exwind/latest/", listId: "exwind-list" },
+  wowhead: { url: "/portal/api/wowhead/latest/", listId: "wowhead-list" },
   wow_skill_states: { url: "/portal/api/wow-skill-diff/states/", listId: "wow-skill-diff-states" },
   wow_skill_diffs: { url: "/portal/api/wow-skill-diffs/", listId: "wow-skill-diff-list" },
   nga: { url: "/portal/api/nga-hot/", listId: "nga-list" },
@@ -341,6 +470,17 @@ function renderMplusCutoffs(containerId, payload) {
     return Number.isFinite(n) ? n.toFixed(2) : "--";
   };
 
+  const fmtDiff = (cur, prev) => {
+    const c = Number(cur);
+    const p = Number(prev);
+    if (!Number.isFinite(c) || !Number.isFinite(p)) return { text: "--", cls: "text-slate-400" };
+    const d = c - p;
+    if (Math.abs(d) < 0.005) return { text: "0.00", cls: "text-slate-400" };
+    const sign = d > 0 ? "+" : "";
+    const cls = d > 0 ? "text-emerald-600" : "text-red-500";
+    return { text: `${sign}${d.toFixed(2)}`, cls };
+  };
+
   const rows = filtered
     .slice(0, 6)
     .map((it) => {
@@ -350,10 +490,14 @@ function renderMplusCutoffs(containerId, payload) {
       const rCell = url
         ? `<a class="font-medium text-slate-900 hover:text-indigo-700" href="${url}" target="_blank" rel="noreferrer">${region}</a>`
         : `<span class="font-medium text-slate-900">${region}</span>`;
+      const diff01 = fmtDiff(it.cutoff_0_1, it.cutoff_0_1_prev);
+      const diff1 = fmtDiff(it.cutoff_1, it.cutoff_1_prev);
       return `<tr class="border-t border-slate-100">
         <td class="px-3 py-2">${rCell}</td>
         <td class="px-3 py-2 text-right tabular-nums">${escapeHtml(fmt(it.cutoff_0_1))}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-xs ${diff01.cls}">${escapeHtml(diff01.text)}</td>
         <td class="px-3 py-2 text-right tabular-nums">${escapeHtml(fmt(it.cutoff_1))}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-xs ${diff1.cls}">${escapeHtml(diff1.text)}</td>
       </tr>`;
     })
     .join("");
@@ -364,7 +508,9 @@ function renderMplusCutoffs(containerId, payload) {
         <tr>
           <th class="px-3 py-2 text-left font-semibold text-slate-700">服务器</th>
           <th class="px-3 py-2 text-right font-semibold text-slate-700">0.1%</th>
+          <th class="px-3 py-2 text-right font-semibold text-slate-700">较前</th>
           <th class="px-3 py-2 text-right font-semibold text-slate-700">1%</th>
+          <th class="px-3 py-2 text-right font-semibold text-slate-700">较前</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -397,8 +543,8 @@ const PEAK_SPEC_CN = {
   "devourer": "噬灭",
   "balance": "平衡",
   "feral": "野性",
-  "guardian": "守护",
-  "restoration": "恢复",
+  "guardian": "熊德",
+  "restoration": "奶德",
   "devastation": "湮灭",
   "preservation": "恩护",
   "augmentation": "增辉",
@@ -548,63 +694,86 @@ function renderMplusRuns(containerId, items) {
   }
   const q = getSearchQuery();
   const filtered = filterItems(items, q);
-  const rows = filtered.slice(0, 10).map((it) => {
-    const rank = escapeHtml(it.rank);
+
+  const fmtTime = (sec) => {
+    if (!sec && sec !== 0) return "--";
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
+  const renderMember = (m) => {
+    const name = escapeHtml(m?.name || "-");
+    const color = classColor(m?.class_slug);
+    const border = m?.class_slug === "priest" ? "border-slate-400" : "border-transparent";
+    return `<span class="inline-flex items-center gap-1 rounded-md bg-white/70 border ${border} px-1.5 py-0.5">
+      <span class="w-2 h-2 rounded-full border border-slate-200" style="background:${color}"></span>
+      <span class="text-slate-800 text-xs font-medium">${name}</span>
+    </span>`;
+  };
+
+  const rows = filtered.map((it) => {
     const dungeon = escapeHtml(it.dungeon_cn || it.dungeon || "");
-    const level = escapeHtml(it.level);
-    const score = it.score ? escapeHtml(it.score) : "";
-    const time = it.time_seconds ? `${Math.floor(it.time_seconds / 60)}:${String(it.time_seconds % 60).padStart(2, "0")}` : "";
+    const level = it.level || 0;
+    const time = fmtTime(it.time_seconds);
+    const score = it.score ? Number(it.score).toFixed(1) : "--";
     const party = Array.isArray(it.party) ? it.party : [];
     const tank = party.find((p) => (p.role || "") === "tank") || {};
     const healer = party.find((p) => (p.role || "") === "healer") || {};
     const dpsList = party.filter((p) => (p.role || "") === "dps");
-    const renderMember = (m) => {
-      const name = escapeHtml(m?.name || "-");
-      const color = classColor(m?.class_slug);
-      const border = m?.class_slug === "priest" ? "border-slate-400" : "border-transparent";
-      return `<span class="inline-flex items-center gap-1.5 rounded-md bg-white/70 border ${border} px-1.5 py-0.5">
-        <span class="w-2 h-2 rounded-full border border-slate-200" style="background:${color}"></span>
-        <span class="text-slate-800 font-semibold">${name}</span>
-      </span>`;
-    };
     const tankHtml = renderMember(tank);
     const healerHtml = renderMember(healer);
-    const dpsHtml = dpsList.length ? dpsList.map(renderMember).join(" / ") : (Array.isArray(it.dps) ? it.dps.map((x) => escapeHtml(x)).join(" / ") : "-");
+    const dpsHtml = dpsList.length
+      ? dpsList.map(renderMember).join("")
+      : (Array.isArray(it.dps) ? it.dps.map((x) => `<span class="text-xs text-slate-600">${escapeHtml(x)}</span>`).join(" / ") : "-");
     const runHref = sanitizeHref(it.run_url || "");
-    const link = runHref ? `<a class="text-indigo-700 hover:text-indigo-900 text-xs" href="${escapeHtml(runHref)}" target="_blank" rel="noreferrer">详情</a>` : "";
-    return `<tr class="border-t border-slate-100">
-      <td class="py-2 pr-2 text-slate-500">${rank}</td>
-      <td class="py-2 pr-2">
+    const link = runHref
+      ? `<a class="text-indigo-600 hover:text-indigo-800 text-xs font-medium" href="${escapeHtml(runHref)}" target="_blank" rel="noreferrer">Raider.IO</a>`
+      : "";
+
+    return `<tr class="border-t border-slate-100 hover:bg-slate-50/50">
+      <td class="px-3 py-2.5">
         <div class="font-medium text-slate-900">${dungeon}</div>
-        <div class="text-xs text-slate-500 mt-0.5">T：${tankHtml} · N：${healerHtml} · DPS：${dpsHtml}</div>
       </td>
-      <td class="py-2 pr-2 text-slate-700">+${level}</td>
-      <td class="py-2 pr-2 text-slate-700">${time}</td>
-      <td class="py-2 pr-2 text-slate-700">${score}</td>
-      <td class="py-2 pr-2 text-right">${link}</td>
+      <td class="px-3 py-2.5 text-center">
+        <span class="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-semibold text-sm">+${level}</span>
+      </td>
+      <td class="px-3 py-2.5 text-center tabular-nums text-slate-700">${time}</td>
+      <td class="px-3 py-2.5 text-center tabular-nums text-slate-700">${score}</td>
+      <td class="px-3 py-2.5">
+        <div class="flex flex-wrap items-center gap-1">
+          <span class="text-slate-400 text-xs">T</span>${tankHtml}
+          <span class="text-slate-400 text-xs ml-1">N</span>${healerHtml}
+          <span class="text-slate-400 text-xs ml-1">D</span>${dpsHtml}
+        </div>
+      </td>
+      <td class="px-3 py-2.5 text-right">${link}</td>
     </tr>`;
   });
+
   el.innerHTML = `
-    <table class="w-full text-sm">
-      <thead class="text-xs text-slate-500">
-        <tr>
-          <th class="text-left py-2 pr-2 font-medium">排名</th>
-          <th class="text-left py-2 pr-2 font-medium">地下城</th>
-          <th class="text-left py-2 pr-2 font-medium">层数</th>
-          <th class="text-left py-2 pr-2 font-medium">时间</th>
-          <th class="text-left py-2 pr-2 font-medium">分数</th>
-          <th class="text-right py-2 pr-2 font-medium">链接</th>
-        </tr>
-      </thead>
-      <tbody>${rows.join("")}</tbody>
-    </table>
+    <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50">
+          <tr>
+            <th class="px-3 py-2 text-left font-semibold text-slate-700">副本</th>
+            <th class="px-3 py-2 text-center font-semibold text-slate-700">层数</th>
+            <th class="px-3 py-2 text-center font-semibold text-slate-700">时间</th>
+            <th class="px-3 py-2 text-center font-semibold text-slate-700">分数</th>
+            <th class="px-3 py-2 text-left font-semibold text-slate-700">队伍配置</th>
+            <th class="px-3 py-2 text-right font-semibold text-slate-700">链接</th>
+          </tr>
+        </thead>
+        <tbody>${rows.join("")}</tbody>
+      </table>
+    </div>
   `;
 }
 
 const MYTHICSTATS_DEFAULT_SEASON = "";
 const MYTHICSTATS_STORAGE_KEY = "portal_mythicstats_season";
 
-function renderMythicstatsControls(dungeons, periods) {
+function renderMythicstatsControls(dungeons, periods, seasonsFromApi) {
   const el = document.getElementById("mythicstats-controls");
   if (!el) return;
   let dList = Array.isArray(dungeons) ? dungeons : [];
@@ -622,10 +791,12 @@ function renderMythicstatsControls(dungeons, periods) {
   const srcHref = sanitizeHref(rawSrcUrl) || "https://mythicstats.com/dps";
   const noteHtml = note ? `<div class="text-xs text-slate-500 mt-2">` + escapeHtml(note) + `（<a class="text-indigo-700 hover:text-indigo-900" href="` + escapeHtml(srcHref) + `" target="_blank" rel="noreferrer">MythicStats</a>）</div>` : "";
   const tipHtml = `<div class="mt-2 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">提示：以下榜单随美服每周三更新，每周初期日志数量较少参考价值不大，请关注日志数量。</div>`;
-  const seasons = Array.isArray(payload.seasons) ? payload.seasons : [];
+  const seasons = Array.isArray(seasonsFromApi) ? seasonsFromApi : (Array.isArray(payload.seasons) ? payload.seasons : []);
+  const currentSeason = String(PORTAL_STATE.activeMythicstatsSeason || MYTHICSTATS_DEFAULT_SEASON);
+  const allSeasons = currentSeason && !seasons.includes(currentSeason) ? [currentSeason, ...seasons] : seasons;
   const seasonOptions =
     `<option value="">当前赛季</option>` +
-    seasons
+    allSeasons
       .map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`)
       .join("");
   const dungeonOptions = dList
@@ -696,18 +867,18 @@ const MYTHICSTATS_SPEC_CN = {
   "havoc-demon-hunter": "浩劫",
   "vengeance-demon-hunter": "复仇",
   "retribution-paladin": "惩戒",
-  "protection-paladin": "防护",
-  "holy-paladin": "神圣",
+  "protection-paladin": "防骑",
+  "holy-paladin": "奶骑",
   "arms-warrior": "武器",
   "fury-warrior": "狂怒",
-  "protection-warrior": "防护",
+  "protection-warrior": "防战",
   "outlaw-rogue": "狂徒",
   "subtlety-rogue": "敏锐",
   "assassination-rogue": "奇袭",
   "feral-druid": "野性",
   "balance-druid": "平衡",
-  "guardian-druid": "守护",
-  "restoration-druid": "恢复",
+  "guardian-druid": "熊德",
+  "restoration-druid": "奶德",
   "survival-hunter": "生存",
   "beast-mastery-hunter": "兽王",
   "marksmanship-hunter": "射击",
@@ -722,7 +893,7 @@ const MYTHICSTATS_SPEC_CN = {
   "mistweaver-monk": "织雾",
   "shadow-priest": "暗影",
   "discipline-priest": "戒律",
-  "holy-priest": "神圣",
+  "holy-priest": "神牧",
   "arcane-mage": "奥术",
   "fire-mage": "火焰",
   "frost-mage": "冰霜",
@@ -1078,6 +1249,59 @@ function renderWowSkillDiffStates(containerId, items) {
     el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
     return;
   }
+  let hotfixItem = filtered[0];
+  for (const it of filtered) {
+    if (Number(it.hotfix_push_id || 0) > Number(hotfixItem.hotfix_push_id || 0)) {
+      hotfixItem = it;
+    }
+  }
+  const hotfixPushId = Number(hotfixItem.hotfix_push_id || 0) || 0;
+  let hotfixRow = "";
+  if (hotfixPushId > 0) {
+    const hotfixRunAt = escapeHtml(hotfixItem.hotfix_last_run_at || "");
+    const hotfixRunStatus = escapeHtml(hotfixItem.hotfix_last_run_status || "");
+    const hotfixEventAt = escapeHtml(hotfixItem.hotfix_last_event_at || "");
+    const hotfixEventStatus = escapeHtml(hotfixItem.hotfix_last_event_status || "");
+    const rawHotfixEvent = String(hotfixItem.hotfix_last_event_status || "");
+    const hotfixSummaryTitle = escapeHtml(hotfixItem.hotfix_summary_title || "");
+    const hotfixReportUrl = sanitizeHref(hotfixItem.hotfix_report_url);
+    const hotfixWagoUrl = sanitizeHref(hotfixItem.hotfix_wago_url);
+    const hotfixRunBadge =
+      hotfixRunStatus === "异常"
+        ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-50 text-rose-700 border-rose-200">异常</span>`
+        : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">正常</span>`;
+    const hotfixHasUpdate = rawHotfixEvent.includes("有职业更新");
+    const hotfixBadge = hotfixHasUpdate
+      ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold border bg-violet-100 text-violet-900 border-violet-200">Hotfix 有更新</span>`
+      : (hotfixEventStatus ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-slate-50 text-slate-700 border-slate-200">${escapeHtml(hotfixEventStatus)}</span>` : "");
+    const hotfixReportBtn = hotfixReportUrl
+      ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(hotfixReportUrl)}">${svgIcon("icon-chart", "w-3.5 h-3.5")}<span>Hotfix</span></a>`
+      : "";
+    const hotfixWagoBtn = hotfixWagoUrl
+      ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(hotfixWagoUrl)}" target="_blank" rel="noreferrer">${svgIcon("icon-globe", "w-3.5 h-3.5")}<span>Hotfix Wago</span></a>`
+      : "";
+    hotfixRow = `<div class="py-2.5 border-b border-slate-200/70">
+      <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-start">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <div class="font-semibold text-slate-900">Hotfix</div>
+            <div class="text-slate-500 font-semibold">#${hotfixPushId}</div>
+            ${hotfixRunBadge}
+            ${hotfixBadge}
+          </div>
+          <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
+            ${hotfixSummaryTitle ? `<span class="text-slate-700 font-semibold">${hotfixSummaryTitle}</span>` : ""}
+            ${hotfixRunAt ? `<span>心跳：${hotfixRunAt}</span>` : ""}
+            ${hotfixEventAt ? `<span>事件时间：${hotfixEventAt}</span>` : ""}
+          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-0.5">
+          ${hotfixReportBtn}
+          ${hotfixWagoBtn}
+        </div>
+      </div>
+    </div>`;
+  }
   const rows = filtered
     .slice(0, 12)
     .map((it, idx) => {
@@ -1106,7 +1330,6 @@ function renderWowSkillDiffStates(containerId, items) {
       const eventBadge = hasUpdate
         ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold border bg-amber-100 text-amber-900 border-amber-200">有职业更新</span>`
         : (eventStatus ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-slate-50 text-slate-700 border-slate-200">${escapeHtml(eventStatus)}</span>` : "");
-
       return `<div class="py-2.5 ${divider}">
         <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-start">
           <div class="min-w-0">
@@ -1130,7 +1353,7 @@ function renderWowSkillDiffStates(containerId, items) {
       </div>`;
     })
     .join("");
-  el.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white overflow-hidden px-3 py-2">${rows}</div>`;
+  el.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white overflow-hidden px-3 py-2">${hotfixRow}${rows}</div>`;
 }
 
 async function loadSection(key) {
@@ -1190,7 +1413,7 @@ async function loadSection(key) {
       const ap = payload.active_period ? String(payload.active_period) : "";
       const hasAp = (payload.periods || []).some((p) => String(p.id) === String(PORTAL_STATE.activeMythicstatsPeriod || ""));
       if (!PORTAL_STATE.activeMythicstatsPeriod || !hasAp) PORTAL_STATE.activeMythicstatsPeriod = ap;
-      renderMythicstatsControls(payload.dungeons || [], payload.periods || []);
+      renderMythicstatsControls(payload.dungeons || [], payload.periods || [], payload.seasons || []);
       renderMythicstatsTables();
     } else if (key === "wow_skill_diffs") {
       PORTAL_STATE.dataBySection[key] = r.data || [];
@@ -1270,12 +1493,79 @@ function bindSearch() {
   }
 }
 
+/* ── 专精详情入口网格 ── */
+function renderSpecDetailGrid() {
+  const grid = document.getElementById("spec-detail-grid");
+  if (!grid) return;
+
+  const SPEC_ICON_BASE = "https://render.worldofwarcraft.com/us/icons/56/";
+  const specs = [
+    {c:"DeathKnight",s:"Blood",cn:"鲜血",icon:"spell_deathknight_bloodpresence.jpg",role:"tank"},
+    {c:"DeathKnight",s:"Frost",cn:"冰霜",icon:"spell_deathknight_frostpresence.jpg",role:"dps"},
+    {c:"DeathKnight",s:"Unholy",cn:"邪恶",icon:"spell_deathknight_unholypresence.jpg",role:"dps"},
+    {c:"DemonHunter",s:"Havoc",cn:"浩劫",icon:"ability_demonhunter_specdps.jpg",role:"dps"},
+    {c:"DemonHunter",s:"Vengeance",cn:"复仇",icon:"ability_demonhunter_spectank.jpg",role:"tank"},
+    {c:"Druid",s:"Balance",cn:"平衡",icon:"spell_nature_starfall.jpg",role:"dps"},
+    {c:"Druid",s:"Feral",cn:"野性",icon:"ability_druid_catform.jpg",role:"dps"},
+    {c:"Druid",s:"Guardian",cn:"守护",icon:"ability_racial_bearform.jpg",role:"tank"},
+    {c:"Druid",s:"Restoration",cn:"恢复",icon:"spell_nature_healingtouch.jpg",role:"healer"},
+    {c:"Hunter",s:"BeastMastery",cn:"野兽控制",icon:"ability_hunter_bestialdiscipline.jpg",role:"dps"},
+    {c:"Hunter",s:"Marksmanship",cn:"射击",icon:"ability_hunter_focusedaim.jpg",role:"dps"},
+    {c:"Hunter",s:"Survival",cn:"生存",icon:"ability_hunter_camouflage.jpg",role:"dps"},
+    {c:"Mage",s:"Arcane",cn:"奥术",icon:"spell_holy_magicalsentry.jpg",role:"dps"},
+    {c:"Mage",s:"Fire",cn:"火焰",icon:"spell_fire_firebolt02.jpg",role:"dps"},
+    {c:"Mage",s:"Frost",cn:"冰霜",icon:"spell_frost_frostbolt02.jpg",role:"dps"},
+    {c:"Monk",s:"Brewmaster",cn:"酒仙",icon:"monk_stance_drunkenox.jpg",role:"tank"},
+    {c:"Monk",s:"Mistweaver",cn:"织雾",icon:"monk_stance_wiseserpent.jpg",role:"healer"},
+    {c:"Monk",s:"Windwalker",cn:"踏风",icon:"monk_stance_whitetiger.jpg",role:"dps"},
+    {c:"Paladin",s:"Holy",cn:"神圣",icon:"spell_holy_holybolt.jpg",role:"healer"},
+    {c:"Paladin",s:"Protection",cn:"防护",icon:"ability_paladin_shieldofthetemplar.jpg",role:"tank"},
+    {c:"Paladin",s:"Retribution",cn:"惩戒",icon:"spell_holy_auraoflight.jpg",role:"dps"},
+    {c:"Priest",s:"Discipline",cn:"戒律",icon:"spell_holy_powerwordshield.jpg",role:"healer"},
+    {c:"Priest",s:"Holy",cn:"神圣",icon:"spell_holy_guardianspirit.jpg",role:"healer"},
+    {c:"Priest",s:"Shadow",cn:"暗影",icon:"spell_shadow_shadowwordpain.jpg",role:"dps"},
+    {c:"Rogue",s:"Assassination",cn:"奇袭",icon:"ability_rogue_eviscerate.jpg",role:"dps"},
+    {c:"Rogue",s:"Outlaw",cn:"狂徒",icon:"ability_rogue_waylay.jpg",role:"dps"},
+    {c:"Rogue",s:"Subtlety",cn:"敏锐",icon:"ability_stealth.jpg",role:"dps"},
+    {c:"Shaman",s:"Elemental",cn:"元素",icon:"spell_nature_lightning.jpg",role:"dps"},
+    {c:"Shaman",s:"Enhancement",cn:"增强",icon:"spell_shaman_improvedstormstrike.jpg",role:"dps"},
+    {c:"Shaman",s:"Restoration",cn:"恢复",icon:"spell_nature_magicimmunity.jpg",role:"healer"},
+    {c:"Warlock",s:"Affliction",cn:"痛苦",icon:"spell_shadow_deathcoil.jpg",role:"dps"},
+    {c:"Warlock",s:"Demonology",cn:"恶魔学识",icon:"spell_shadow_metamorphosis.jpg",role:"dps"},
+    {c:"Warlock",s:"Destruction",cn:"毁灭",icon:"spell_shadow_rainoffire.jpg",role:"dps"},
+    {c:"Warrior",s:"Arms",cn:"武器",icon:"ability_warrior_savageblow.jpg",role:"dps"},
+    {c:"Warrior",s:"Fury",cn:"狂怒",icon:"ability_warrior_innerrage.jpg",role:"dps"},
+    {c:"Warrior",s:"Protection",cn:"防护",icon:"ability_warrior_defensivestance.jpg",role:"tank"},
+    {c:"Evoker",s:"Augmentation",cn:"增辉",icon:"classicon_evoker_augmentation.jpg",role:"dps"},
+    {c:"Evoker",s:"Devastation",cn:"湮灭",icon:"classicon_evoker_devastation.jpg",role:"dps"},
+    {c:"Evoker",s:"Preservation",cn:"恩护",icon:"classicon_evoker_preservation.jpg",role:"healer"},
+  ];
+
+  const CLASS_CN = {DeathKnight:"死亡骑士",DemonHunter:"恶魔猎手",Druid:"德鲁伊",Hunter:"猎人",Mage:"法师",Monk:"武僧",Paladin:"圣骑士",Priest:"牧师",Rogue:"潜行者",Shaman:"萨满祭司",Warlock:"术士",Warrior:"战士",Evoker:"唤魔师"};
+  const roleColor = {tank:"#3b82f6",healer:"#22c55e",dps:"#ef4444"};
+
+  let html = '<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-3">';
+  specs.forEach(sp => {
+    const url = `/portal/spec/${sp.c}/${sp.s}/`;
+    const cls = CLASS_CN[sp.c] || sp.c;
+    const color = roleColor[sp.role] || "#6b7280";
+    html += `<a href="${url}" class="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/80 transition-colors group" title="${cls} · ${sp.cn}">
+      <img src="${SPEC_ICON_BASE}${sp.icon}" alt="${sp.cn}" width="40" height="40" class="rounded-md ring-2 ring-transparent group-hover:ring-indigo-300 transition-shadow" loading="lazy">
+      <span class="text-xs text-slate-600 group-hover:text-slate-900 text-center leading-tight">${sp.cn}</span>
+      <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style="background:${color}20;color:${color}">${sp.role}</span>
+    </a>`;
+  });
+  html += '</div>';
+  grid.innerHTML = html;
+}
+
 async function loadAll() {
   await loadTools();
 
   bindSearch();
   await loadSection("blueposts");
   await loadSection("exwind");
+  await loadSection("wowhead");
   await loadSection("wow_skill_states");
   await loadSection("wow_skill_diffs");
   await loadSection("nga");
@@ -1285,6 +1575,7 @@ async function loadAll() {
   await loadSection("mplus_rankings");
   await loadSection("peak_spec_rankings");
   await loadSection("mythicstats_dps");
+  renderSpecDetailGrid();
   updateSearchMeta();
 }
 
@@ -1340,4 +1631,110 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   bindLogoBackgroundRemoval();
   loadAll();
+  initSnapDots();
 });
+
+/* ── scroll-snap dot navigation ── */
+const SNAP_SECTION_LABELS = {
+  "portal-topbar": "搜索",
+  "section-news": "新闻速递",
+  "section-wow-skill-diff": "数据挖掘",
+  "section-nga": "NGA热议",
+  "section-events-videos": "活动 / 视频",
+  "section-mplus-cutoffs": "大秘境分数",
+  "section-rank": "Top Runs",
+  "section-peak-spec": "巅峰榜",
+  "section-mythicstats": "DPS榜单",
+  "section-spec-detail": "专精详情",
+  "section-tools": "工具导航",
+};
+
+let snapSections = [];
+let snapDots = [];
+let snapAnimating = false;
+
+function initSnapDots() {
+  const container = document.getElementById("snap-dots");
+  if (!container) return;
+  snapSections = Array.from(document.querySelectorAll(".snap-section"));
+  if (!snapSections.length) return;
+
+  /* build dot elements */
+  snapSections.forEach((sec, i) => {
+    const dot = document.createElement("div");
+    dot.className = "snap-dot";
+    const label = document.createElement("span");
+    label.className = "snap-dot-label";
+    const key = sec.id || (sec.classList.contains("portal-topbar") ? "portal-topbar" : "");
+    label.textContent = SNAP_SECTION_LABELS[key] || "板块 " + (i + 1);
+    dot.appendChild(label);
+    dot.addEventListener("click", () => {
+      snapToSection(i);
+    });
+    container.appendChild(dot);
+    snapDots.push(dot);
+  });
+
+  /* Intersection Observer to highlight active dot */
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const idx = snapSections.indexOf(entry.target);
+          if (idx >= 0) snapDots.forEach((d, j) => d.classList.toggle("active", j === idx));
+        }
+      });
+    },
+    { rootMargin: "-30% 0px -60% 0px", threshold: 0 }
+  );
+  snapSections.forEach((sec) => observer.observe(sec));
+
+  /* wheel snap: jump to next/prev section when at boundary */
+  document.addEventListener("wheel", onWheelSnap, { passive: false });
+}
+
+function onWheelSnap(e) {
+  if (snapAnimating) { e.preventDefault(); return; }
+
+  const delta = e.deltaY;
+  if (Math.abs(delta) < 30) return; /* ignore tiny trackpad jitter */
+
+  const headerH = document.querySelector(".portal-header")?.offsetHeight || 56;
+  const scrollY = window.scrollY;
+  const viewH = window.innerHeight;
+  const docH = document.documentElement.scrollHeight;
+  const dir = delta > 0 ? 1 : -1; /* 1=down, -1=up */
+
+  /* find the section whose top is closest to current scroll */
+  let currentIdx = 0;
+  for (let i = snapSections.length - 1; i >= 0; i--) {
+    const top = snapSections[i].offsetTop - headerH;
+    if (scrollY >= top - 10) { currentIdx = i; break; }
+  }
+
+  const sec = snapSections[currentIdx];
+  const secTop = sec.offsetTop - headerH;
+  const secBottom = secTop + sec.offsetHeight;
+  const atTop = scrollY <= secTop + 4;
+  const atBottom = scrollY + viewH >= secBottom - 4;
+
+  /* only snap when user is at the boundary of the current section */
+  if ((dir === 1 && atBottom && currentIdx < snapSections.length - 1) ||
+      (dir === -1 && atTop && currentIdx > 0)) {
+    e.preventDefault();
+    const targetIdx = currentIdx + dir;
+    snapToSection(targetIdx);
+  }
+}
+
+function snapToSection(idx) {
+  if (idx < 0 || idx >= snapSections.length || snapAnimating) return;
+  snapAnimating = true;
+  const headerH = document.querySelector(".portal-header")?.offsetHeight || 56;
+  const targetY = snapSections[idx].offsetTop - headerH;
+  window.scrollTo({ top: targetY, behavior: "smooth" });
+  /* unlock after animation (~400ms) */
+  setTimeout(() => { snapAnimating = false; }, 500);
+  /* update dots immediately */
+  snapDots.forEach((d, j) => d.classList.toggle("active", j === idx));
+}
