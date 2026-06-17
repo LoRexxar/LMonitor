@@ -118,3 +118,4 @@ static/portal/reports/*
 # Trae local workspace files
 .trae/
 LMonitor/settings_dev.py
+staticfiles/
