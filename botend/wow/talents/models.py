@@ -57,6 +57,7 @@ class TalentNodeModel:
     parents: list[int] = field(default_factory=list)
     layout_row: int | None = None
     layout_column: int | None = None
+    db2_subtree_id: int = 0
 
     @property
     def key(self):

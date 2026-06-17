@@ -167,6 +167,7 @@ class TalentMetadataProvider:
             'parents': row.parents_json or [],
             'description': getattr(row, 'description', '') or '',
             'description_zh': getattr(row, 'description_zh', '') or '',
+            'db2_subtree_id': getattr(row, 'db2_subtree_id', 0) or 0,
             'selected': False,
             'points': 0,
         }

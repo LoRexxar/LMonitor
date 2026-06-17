@@ -824,19 +824,28 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
 
 
 def _group_hero_subtrees_by_column(hero_nodes):
-    """将 hero 节点按 DB2 坐标范围分组为不同子树。
+    """将 hero 节点按 db2_subtree_id 分组为不同子树。
 
-    同一棵 hero 子树的节点具有相近的 column 值。
-    用 column 值的间距 > 3000 来分割不同子树。
+    优先使用 db2_subtree_id，如果都是 0 则回退到 column 分组。
     """
     if not hero_nodes:
         return {}
 
+    # 优先按 db2_subtree_id 分组
+    by_subtree_id = {}
+    for node in hero_nodes:
+        sid = getattr(node, 'db2_subtree_id', 0) or 0
+        if sid > 0:
+            by_subtree_id.setdefault(sid, []).append(node)
+
+    if by_subtree_id:
+        return by_subtree_id
+
+    # 回退到 column 分组
     columns = sorted({(n.column or 0) for n in hero_nodes if (n.column or 0) > 0})
     if not columns:
         return {0: hero_nodes}
 
-    # 按 column 间距分组（间距 > 3000 视为不同子树）
     groups = []
     current_group = [columns[0]]
     for i in range(1, len(columns)):
@@ -850,7 +859,6 @@ def _group_hero_subtrees_by_column(hero_nodes):
     if len(groups) <= 1:
         return {0: hero_nodes}
 
-    # 为每个节点分配子树 key
     column_to_group = {}
     for group_idx, group_cols in enumerate(groups):
         for col in group_cols:

@@ -252,6 +252,7 @@ class Command(BaseCommand):
                             max_points=max_points,
                             parents_json=sorted(parent_entry_ids),
                             source='db2_backfill',
+                            db2_subtree_id=subtree_id,
                             display_spell_id=display_spell_id,
                             last_updated=now,
                         )
