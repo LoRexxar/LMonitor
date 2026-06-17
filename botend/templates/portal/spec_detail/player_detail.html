@@ -622,7 +622,7 @@
 .talent-choice-popup {
     display: none;
     position: absolute;
-    bottom: calc(100% + 8px);
+    top: calc(100% + 8px);
     left: 50%;
     transform: translateX(-50%);
     flex-direction: column;
@@ -630,8 +630,8 @@
     z-index: 100;
     pointer-events: auto;
     /* bridge the gap between card and popup so hover doesn't flicker */
-    padding-bottom: 10px;
-    margin-bottom: -10px;
+    padding-top: 10px;
+    margin-top: -10px;
 }
 .talent-node-card--tree.is-choice-node:hover .talent-choice-popup,
 .talent-node-card--tree.is-choice-node:focus-within .talent-choice-popup {
@@ -643,17 +643,17 @@
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 0;
+    top: 0;
     height: 14px;
 }
 .talent-choice-popup::after {
     content: '';
     position: absolute;
-    top: 100%;
+    bottom: 100%;
     left: 50%;
     transform: translateX(-50%);
     border: 6px solid transparent;
-    border-top-color: rgba(30,41,59,.95);
+    border-bottom-color: rgba(30,41,59,.95);
 }
 .talent-choice-popup-option {
     display: flex;
