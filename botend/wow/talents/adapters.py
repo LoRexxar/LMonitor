@@ -64,6 +64,9 @@ def build_tree_set_from_talents(
             selected_nodes.add(node_key)
             node_ranks[node_key] = node.points
 
+    # 移除 hero_anchor 类型——这些是锚点节点，不应作为独立面板显示
+    grouped_nodes.pop('hero_anchor', None)
+
     # DB 已有正确的 class/hero/spec 分类，不再需要 hero 左右过滤
 
     # Hero 子树过滤：按 db2_subtree_id 分组，只保留有选中节点的子树

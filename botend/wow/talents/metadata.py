@@ -133,7 +133,7 @@ class TalentMetadataProvider:
         rows = WowTalentNodeMetadata.objects.filter(
             class_name=cache_key[0],
             spec_name=cache_key[1],
-        )
+        ).exclude(tree_type='hero_anchor')
         for row in rows.iterator():
             row_data = self._as_dict(row)
             tree_key = row.tree_type or 'spec'
