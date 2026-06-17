@@ -107,6 +107,7 @@ class TalentNodeModel:
             parents=list(raw.get('parents') or raw.get('parents_json') or []),
             layout_row=_to_optional_int(raw.get('layout_row')),
             layout_column=_to_optional_int(raw.get('layout_column')),
+            db2_subtree_id=int(raw.get('db2_subtree_id') or 0),
         )
 
     def to_dict(self):

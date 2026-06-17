@@ -74,7 +74,7 @@ class TalentMetadataProvider:
         metadata_tree_type = metadata.get('tree_type')
         if metadata_tree_type:
             merged['tree_type'] = metadata_tree_type
-        for key in ['name', 'icon', 'row', 'column', 'max_points', 'parents', 'description', 'description_zh']:
+        for key in ['name', 'icon', 'row', 'column', 'max_points', 'parents', 'description', 'description_zh', 'db2_subtree_id']:
             value = metadata.get(key)
             if value in (None, '', []):
                 continue
