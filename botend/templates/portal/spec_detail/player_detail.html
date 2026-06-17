@@ -147,7 +147,6 @@
                             style="left: {{ node.x }}px; top: {{ node.y }}px; width: {{ node.width }}px; height: {{ node.height }}px;"
                             href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
                             target="_blank"
-                            title="{{ node.name }}{% if node.points %} · {{ node.points }} 点{% endif %}"
                             data-node-key="{{ node.node_key }}"
                             data-tree-type="{{ node.tree_type }}"
                         >
@@ -167,6 +166,8 @@
                                 <span
                                     class="talent-choice-popup-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}"
                                     onclick="window.open('{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}', '_blank')"
+                                    data-option-name="{{ option.name|default:'未命名' }}"
+                                    data-option-desc="{{ option.description_zh|default:option.description|default:'' }}"
                                 >
                                     <div class="talent-choice-popup-icon">
                                         {% if option.icon %}
@@ -176,21 +177,20 @@
                                         {% endif %}
                                     </div>
                                     <div class="talent-choice-popup-name">{{ option.name|default:"未命名" }}</div>
-                                    {% if option.description_zh or option.description %}
-                                    <div class="talent-choice-popup-tooltip">{{ option.description_zh|default:option.description }}</div>
-                                    {% endif %}
                                 </span>
                                 {% endfor %}
                             </div>
                             {% endif %}
-                            <div class="talent-node-info talent-node-info--hover">
-                                <span class="talent-node-name">{{ node.name }}</span>
-                                <span class="talent-node-meta">
-                                    {{ tree.title }}
-                                    <span class="dot"></span>第 {{ node.layout_row }} 行 / {{ node.layout_column }} 列
-                                    {% if node.points %}<span class="dot"></span>{{ node.points }} 点{% endif %}
-                                </span>
+                            {% with node_desc=node.description_zh|default:node.description|default:'' %}
+                            <div class="talent-node-tooltip" data-tooltip-name="{{ node.name }}" data-tooltip-desc="{{ node_desc }}">
+                                <div class="talent-node-tooltip-name">{{ node.name }}</div>
+                                {% if node.description_zh %}
+                                <div class="talent-node-tooltip-desc">{{ node.description_zh }}</div>
+                                {% elif node.description %}
+                                <div class="talent-node-tooltip-desc">{{ node.description }}</div>
+                                {% endif %}
                             </div>
+                            {% endwith %}
                             </a>
                         {% endfor %}
                     {% endif %}
@@ -217,7 +217,6 @@
                         style="grid-column: {{ node.layout_column }}; grid-row: {{ node.layout_row }};"
                         href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
                         target="_blank"
-                        title="{{ node.name }}{% if node.points %} · {{ node.points }} 点{% endif %}"
                     >
                         <div class="talent-node-icon">
                             {% if node.icon %}
@@ -235,6 +234,8 @@
                             <span
                                 class="talent-choice-popup-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}"
                                 onclick="window.open('{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}', '_blank')"
+                                data-option-name="{{ option.name|default:'未命名' }}"
+                                data-option-desc="{{ option.description_zh|default:option.description|default:'' }}"
                             >
                                 <div class="talent-choice-popup-icon">
                                     {% if option.icon %}
@@ -244,20 +245,20 @@
                                     {% endif %}
                                 </div>
                                 <div class="talent-choice-popup-name">{{ option.name|default:"未命名" }}</div>
-                                {% if option.description_zh or option.description %}
-                                <div class="talent-choice-popup-tooltip">{{ option.description_zh|default:option.description }}</div>
-                                {% endif %}
                             </span>
                             {% endfor %}
                         </div>
                         {% endif %}
-                        <div class="talent-node-info talent-node-info--hover">
-                            <span class="talent-node-name">{{ node.name }}</span>
-                            <span class="talent-node-meta">
-                                第 {{ node.layout_row }} 行 / {{ node.layout_column }} 列
-                                {% if node.points %}<span class="dot"></span>{{ node.points }} 点{% endif %}
-                            </span>
+                        {% with node_desc=node.description_zh|default:node.description|default:'' %}
+                        <div class="talent-node-tooltip" data-tooltip-name="{{ node.name }}" data-tooltip-desc="{{ node_desc }}">
+                            <div class="talent-node-tooltip-name">{{ node.name }}</div>
+                            {% if node.description_zh %}
+                            <div class="talent-node-tooltip-desc">{{ node.description_zh }}</div>
+                            {% elif node.description %}
+                            <div class="talent-node-tooltip-desc">{{ node.description }}</div>
+                            {% endif %}
                         </div>
+                        {% endwith %}
                     </a>
                     {% endfor %}
                 </div>
@@ -537,43 +538,78 @@
     font-size: 7px;
     line-height: 11px;
 }
-.talent-node-info--hover {
+/* Talent Node Tooltip - shows on hover for all nodes */
+.talent-node-tooltip {
+    display: none;
     position: absolute;
     left: 50%;
-    bottom: calc(100% + 8px);
-    transform: translateX(-50%) translateY(6px);
-    min-width: 140px;
-    max-width: 220px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: rgba(15,23,42,.96);
-    border: 1px solid rgba(96,165,250,.32);
-    box-shadow: 0 14px 30px rgba(2,6,23,.36);
-    opacity: 0;
+    bottom: calc(100% + 12px);
+    transform: translateX(-50%);
+    min-width: 160px;
+    max-width: 280px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(15,23,42,.98);
+    border: 1px solid rgba(96,165,250,.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    z-index: 9998;
     pointer-events: none;
-    transition: opacity .15s ease, transform .15s ease;
-    z-index: 10;
 }
-.talent-node-info--hover::after {
+.talent-node-tooltip::after {
     content: "";
     position: absolute;
     left: 50%;
     top: 100%;
-    width: 10px;
-    height: 10px;
-    background: rgba(15,23,42,.96);
-    border-right: 1px solid rgba(96,165,250,.32);
-    border-bottom: 1px solid rgba(96,165,250,.32);
+    width: 8px;
+    height: 8px;
+    background: rgba(15,23,42,.98);
+    border-right: 1px solid rgba(96,165,250,.4);
+    border-bottom: 1px solid rgba(96,165,250,.4);
     transform: translateX(-50%) rotate(45deg);
 }
-.talent-node-card--tree:hover .talent-node-info--hover {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
+.talent-node-card--tree:hover .talent-node-tooltip {
+    display: block;
 }
-/* choice nodes use popup instead of hover tooltip */
-.talent-node-card--tree.is-choice-node:hover .talent-node-info--hover {
-    opacity: 0;
+/* Choice nodes: hide node tooltip when popup is active */
+.talent-node-card--tree.is-choice-node.popup-active .talent-node-tooltip {
+    display: none;
+}
+.talent-node-tooltip-name {
+    color: #f1f5f9;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+.talent-node-tooltip-desc {
+    color: #cbd5e1;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: normal;
+}
+/* Dynamic tooltip for popup options */
+.talent-option-tooltip {
+    position: fixed;
+    min-width: 180px;
+    max-width: 320px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: rgba(15,23,42,.98);
+    border: 1px solid rgba(96,165,250,.45);
+    box-shadow: 0 12px 32px rgba(0,0,0,.6);
+    z-index: 99999;
     pointer-events: none;
+}
+.talent-option-tooltip-name {
+    color: #f1f5f9;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+.talent-option-tooltip-desc {
+    color: #cbd5e1;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: normal;
 }
 
 .gear-grid-detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -706,29 +742,6 @@
 .talent-choice-popup-option.is-active .talent-choice-popup-name {
     color: #93c5fd;
 }
-.talent-choice-popup-tooltip {
-    display: none;
-    position: absolute;
-    left: calc(100% + 10px);
-    top: 50%;
-    transform: translateY(-50%);
-    padding: 8px 12px;
-    border-radius: 8px;
-    background: rgba(15,23,42,.98);
-    border: 1px solid rgba(96,165,250,.45);
-    color: #f1f5f9;
-    font-size: 13px;
-    white-space: normal;
-    min-width: 180px;
-    max-width: 300px;
-    line-height: 1.5;
-    z-index: 10000;
-    box-shadow: 0 8px 24px rgba(0,0,0,.6);
-    pointer-events: none;
-}
-.talent-choice-popup-option:hover .talent-choice-popup-tooltip {
-    display: block;
-}
 
 /* ===== Hero Tree Badge ===== */
 .talent-hero-badge {
@@ -812,6 +825,8 @@
     window.addEventListener('resize', scaleTalentStage);
 
     /* ===== Choice Node Popup Hover ===== */
+    var activeTooltip = null;
+
     document.querySelectorAll('.talent-node-card--tree.is-choice-node').forEach(function(node) {
         var popup = node.querySelector('.talent-choice-popup');
         if (!popup) return;
@@ -825,6 +840,7 @@
         function hidePopup() {
             hoverTimeout = setTimeout(function() {
                 node.classList.remove('popup-active');
+                hideOptionTooltip();
             }, 150);
         }
 
@@ -832,7 +848,53 @@
         node.addEventListener('mouseleave', hidePopup);
         popup.addEventListener('mouseenter', showPopup);
         popup.addEventListener('mouseleave', hidePopup);
+
+        /* Option tooltip on hover */
+        popup.querySelectorAll('.talent-choice-popup-option').forEach(function(option) {
+            option.addEventListener('mouseenter', function(e) {
+                var name = option.getAttribute('data-option-name');
+                var desc = option.getAttribute('data-option-desc');
+                if (!name) return;
+                showOptionTooltip(name, desc, option);
+            });
+            option.addEventListener('mouseleave', function() {
+                hideOptionTooltip();
+            });
+        });
     });
+
+    function showOptionTooltip(name, desc, anchor) {
+        hideOptionTooltip();
+        var tip = document.createElement('div');
+        tip.className = 'talent-option-tooltip';
+        tip.innerHTML = '<div class="talent-option-tooltip-name">' + name + '</div>' +
+            (desc ? '<div class="talent-option-tooltip-desc">' + desc + '</div>' : '');
+        document.body.appendChild(tip);
+
+        var rect = anchor.getBoundingClientRect();
+        tip.style.position = 'fixed';
+        tip.style.left = (rect.right + 10) + 'px';
+        tip.style.top = rect.top + 'px';
+        tip.style.zIndex = '99999';
+
+        /* Adjust if off-screen */
+        var tipRect = tip.getBoundingClientRect();
+        if (tipRect.right > window.innerWidth - 10) {
+            tip.style.left = (rect.left - tipRect.width - 10) + 'px';
+        }
+        if (tipRect.bottom > window.innerHeight - 10) {
+            tip.style.top = (window.innerHeight - tipRect.height - 10) + 'px';
+        }
+
+        activeTooltip = tip;
+    }
+
+    function hideOptionTooltip() {
+        if (activeTooltip) {
+            activeTooltip.remove();
+            activeTooltip = null;
+        }
+    }
 })();
 </script>
 {% endblock %}

@@ -58,6 +58,8 @@ class TalentNodeModel:
     layout_row: int | None = None
     layout_column: int | None = None
     db2_subtree_id: int = 0
+    description: str = ''
+    description_zh: str = ''
 
     @property
     def key(self):
@@ -108,6 +110,8 @@ class TalentNodeModel:
             layout_row=_to_optional_int(raw.get('layout_row')),
             layout_column=_to_optional_int(raw.get('layout_column')),
             db2_subtree_id=int(raw.get('db2_subtree_id') or 0),
+            description=raw.get('description') or '',
+            description_zh=raw.get('description_zh') or '',
         )
 
     def to_dict(self):
