@@ -673,7 +673,10 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
             parent_ids.append(parent_id)
             preserved_parent_edges += 1
 
-        grouped_nodes[base_node.tree_type or 'spec'].append(TalentNodeModel.from_raw({
+        tree_key = base_node.tree_type or 'spec'
+        if tree_key == 'hero_anchor':
+            continue
+        grouped_nodes[tree_key].append(TalentNodeModel.from_raw({
             **base_node.to_dict(),
             'parents': parent_ids,
             'points': 1 if node_key in highlighted_keys else 0,
@@ -771,6 +774,8 @@ def _normalize_stats_talent_node(raw, provider, class_name, spec_name):
     }
     node_data = provider.merge_into_node(node_data, class_name=class_name, spec_name=spec_name)
     node = TalentNodeModel.from_raw(node_data)
+    if (node.tree_type or '') == 'hero_anchor':
+        return None
     if node.key is None:
         return None
     return node
@@ -881,7 +886,7 @@ def _iter_render_tree_types(grouped_nodes):
             yielded.add(tree_type)
             yield tree_type
     for tree_type in sorted(grouped_nodes.keys()):
-        if tree_type not in yielded:
+        if tree_type not in yielded and tree_type != 'hero_anchor':
             yield tree_type
 
 
