@@ -185,6 +185,8 @@ class TalentMetadataProvider:
             'display_spell_id': node.get('display_spell_id'),
             'name': node.get('name') or '',
             'icon': node.get('icon') or '',
+            'description': node.get('description') or '',
+            'description_zh': node.get('description_zh') or '',
         }
 
     def _lookup_spell_snapshot(self, spell_id):

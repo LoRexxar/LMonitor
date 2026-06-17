@@ -164,11 +164,9 @@
                             {% if node.is_choice_node and node.choice_options %}
                             <div class="talent-choice-popup">
                                 {% for option in node.choice_options %}
-                                <a
+                                <span
                                     class="talent-choice-popup-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}"
-                                    href="{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}"
-                                    target="_blank"
-                                    onclick="event.stopPropagation()"
+                                    onclick="window.open('{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}', '_blank')"
                                 >
                                     <div class="talent-choice-popup-icon">
                                         {% if option.icon %}
@@ -178,10 +176,10 @@
                                         {% endif %}
                                     </div>
                                     <div class="talent-choice-popup-name">{{ option.name|default:"未命名" }}</div>
-                                    {% if option.name %}
-                                    <div class="talent-choice-popup-tooltip">{{ option.name }}</div>
+                                    {% if option.description_zh or option.description %}
+                                    <div class="talent-choice-popup-tooltip">{{ option.description_zh|default:option.description }}</div>
                                     {% endif %}
-                                </a>
+                                </span>
                                 {% endfor %}
                             </div>
                             {% endif %}
@@ -193,7 +191,7 @@
                                     {% if node.points %}<span class="dot"></span>{{ node.points }} 点{% endif %}
                                 </span>
                             </div>
-                        </a>
+                            </a>
                         {% endfor %}
                     {% endif %}
                 {% endfor %}
@@ -234,11 +232,9 @@
                         {% if node.is_choice_node and node.choice_options %}
                         <div class="talent-choice-popup">
                             {% for option in node.choice_options %}
-                            <a
+                            <span
                                 class="talent-choice-popup-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}"
-                                href="{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}"
-                                target="_blank"
-                                onclick="event.stopPropagation()"
+                                onclick="window.open('{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}', '_blank')"
                             >
                                 <div class="talent-choice-popup-icon">
                                     {% if option.icon %}
@@ -248,10 +244,10 @@
                                     {% endif %}
                                 </div>
                                 <div class="talent-choice-popup-name">{{ option.name|default:"未命名" }}</div>
-                                {% if option.name %}
-                                <div class="talent-choice-popup-tooltip">{{ option.name }}</div>
+                                {% if option.description_zh or option.description %}
+                                <div class="talent-choice-popup-tooltip">{{ option.description_zh|default:option.description }}</div>
                                 {% endif %}
-                            </a>
+                            </span>
                             {% endfor %}
                         </div>
                         {% endif %}
@@ -393,7 +389,7 @@
 .talent-copy-btn.is-copied { background: rgba(22,101,52,.9); border-color: rgba(134,239,172,.35); color: #dcfce7; }
 .talent-copy-btn__icon { font-size: 13px; line-height: 1; }
 .talent-copy-btn__label { font-size: 12px; font-weight: 700; }
-.talent-stage-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; }
+.talent-stage-scroll { overflow: visible; padding-bottom: 6px; }
 .talent-render-stage { position: relative; min-width: 100%; border-radius: 20px; }
 .talent-stage-svg {
     position: absolute;
@@ -721,7 +717,10 @@
     border: 1px solid rgba(96,165,250,.32);
     color: #f1f5f9;
     font-size: 13px;
-    white-space: nowrap;
+    white-space: normal;
+    min-width: 180px;
+    max-width: 280px;
+    line-height: 1.5;
     z-index: 110;
     box-shadow: 0 4px 16px rgba(0,0,0,.4);
     pointer-events: none;
