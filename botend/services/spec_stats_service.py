@@ -1158,12 +1158,13 @@ def _describe_player_stats_source(player):
     return '暂无稳定属性来源'
 def _compute_gem_popularity(records, top_n=20):
     """计算宝石选取率（从人物榜 gear_json 的 gems_detail 获取名字）"""
-    gem_counts = Counter()
+    gem_players = {}  # gem_id → set of player indices (使用该宝石的玩家集合)
     gem_info = {}  # gem_id → {name, icon}
     total = len(records)
 
-    for r in records:
+    for idx, r in enumerate(records):
         gear = r.get('gear_json') or []
+        player_gems = set()  # 该玩家使用的所有宝石ID
         for g in gear:
             gems_detail = g.get('gems_detail') or []
             for gem in gems_detail:
@@ -1171,33 +1172,41 @@ def _compute_gem_popularity(records, top_n=20):
                     continue
                 gem_id = gem.get('id')
                 if gem_id:
-                    gem_counts[gem_id] += 1
+                    player_gems.add(gem_id)
                     if gem_id not in gem_info:
                         gem_info[gem_id] = {
                             'id': gem_id,
                             'name': gem.get('name', ''),
                             'icon': _normalize_icon_name(gem.get('icon', '')),
                         }
+        # 将该玩家添加到所有使用的宝石的玩家集合中
+        for gem_id in player_gems:
+            if gem_id not in gem_players:
+                gem_players[gem_id] = set()
+            gem_players[gem_id].add(idx)
 
+    # 按使用人数排序
     result = []
-    for gem_id, count in gem_counts.most_common(top_n):
+    for gem_id, player_set in sorted(gem_players.items(), key=lambda x: len(x[1]), reverse=True)[:top_n]:
         info = gem_info.get(gem_id, {})
+        player_count = len(player_set)
         result.append({
             **info,
-            'count': count,
-            'pct': round(count / total * 100, 1) if total else 0,
+            'count': player_count,
+            'pct': round(player_count / total * 100, 1) if total else 0,
         })
     return result
 
 
 def _compute_enchant_popularity(enchant_records, top_n=20):
     """计算附魔选取率（从人物榜数据的 enchants_detail）"""
-    enchant_counts = Counter()
+    enchant_players = {}  # enchant_id → set of player indices
     enchant_info = {}  # enchant_id → {name, icon}
     total = len(enchant_records)
 
-    for r in enchant_records:
+    for idx, r in enumerate(enchant_records):
         gear = r.get('gear_json') or []
+        player_enchants = set()  # 该玩家使用的所有附魔ID
         for g in gear:
             enchants = g.get('enchants_detail') or []
             for e in enchants:
@@ -1205,21 +1214,28 @@ def _compute_enchant_popularity(enchant_records, top_n=20):
                     continue
                 eid = e.get('id')
                 if eid:
-                    enchant_counts[eid] += 1
+                    player_enchants.add(eid)
                     if eid not in enchant_info:
                         enchant_info[eid] = {
                             'id': eid,
                             'name': e.get('name', ''),
                             'icon': _normalize_icon_name(e.get('icon', '')),
                         }
+        # 将该玩家添加到所有使用的附魔的玩家集合中
+        for eid in player_enchants:
+            if eid not in enchant_players:
+                enchant_players[eid] = set()
+            enchant_players[eid].add(idx)
 
+    # 按使用人数排序
     result = []
-    for eid, count in enchant_counts.most_common(top_n):
+    for eid, player_set in sorted(enchant_players.items(), key=lambda x: len(x[1]), reverse=True)[:top_n]:
         info = enchant_info.get(eid, {})
+        player_count = len(player_set)
         result.append({
             **info,
-            'count': count,
-            'pct': round(count / total * 100, 1) if total else 0,
+            'count': player_count,
+            'pct': round(player_count / total * 100, 1) if total else 0,
         })
     return result
 
