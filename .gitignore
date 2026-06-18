@@ -119,3 +119,6 @@ static/portal/reports/*
 .trae/
 LMonitor/settings_dev.py
 staticfiles/
+
+# 聚合数据（由 aggregate_spec_stats 生成）
+media/aggregated/
