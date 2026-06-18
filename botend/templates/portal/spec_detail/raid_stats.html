@@ -301,6 +301,9 @@
                     {% if b.kill_time %}
                     <span>平均击杀: <strong>{{ b.kill_time.avg_fmt }}</strong></span>
                     {% endif %}
+                    {% if b.faction_distribution %}
+                    <span>联盟: <strong>{% for fid, info in b.faction_distribution.items %}{% if fid == "0" %}{{ info.pct }}%{% endif %}{% endfor %}</strong></span>
+                    {% endif %}
                 </div>
 
                 {% if b.talent_usage %}

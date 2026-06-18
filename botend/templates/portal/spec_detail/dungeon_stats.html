@@ -357,6 +357,12 @@
                     {% if d.clear_time %}
                     <span>平均时间: <strong>{{ d.clear_time.avg_fmt }}</strong></span>
                     {% endif %}
+                    {% if d.score %}
+                    <span>平均分数: <strong>{{ d.score.avg|floatformat:0 }}</strong></span>
+                    {% endif %}
+                    {% if d.medal_distribution %}
+                    <span>金牌: <strong>{% for medal, info in d.medal_distribution.items %}{% if medal == "gold" %}{{ info.pct }}%{% endif %}{% endfor %}</strong></span>
+                    {% endif %}
                 </div>
 
                 <!-- DPS 分布条 -->
