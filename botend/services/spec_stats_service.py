@@ -451,6 +451,7 @@ class SpecStatsService:
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
+        stats['talent_sample_size'] = usage_snapshot.get('total', 0)
         stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
         stats['talent_usage'] = _compute_talent_usage(
             records,
@@ -633,6 +634,7 @@ class SpecStatsService:
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
+        stats['talent_sample_size'] = usage_snapshot.get('total', 0)
         stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
         stats['talent_usage'] = _compute_talent_usage(
             records,
@@ -740,8 +742,27 @@ def _talent_tree_label(tree_type):
     return mapping.get(tree_type or 'spec', tree_type or '天赋')
 
 
+def _has_valid_talent_payload(record):
+    """Return True when a ranking record contains real talent nodes.
+
+    WCL M+ rankings occasionally return empty combatant talent data for an
+    otherwise valid DPS ranking. Those rows should remain in DPS/gear samples,
+    but must not dilute talent usage percentages.
+    """
+    for raw in record.get('talents_json') or []:
+        if isinstance(raw, dict) and raw.get('tree_type') != 'build_code':
+            return True
+    return False
+
+
+def _valid_talent_records(records):
+    """Filter ranking records to rows that can contribute to talent stats."""
+    return [record for record in (records or []) if _has_valid_talent_payload(record)]
+
+
 def _build_talent_usage_snapshot(records, class_name, spec_name):
     """聚合统计页热门天赋所需的节点、使用率与父子连线。"""
+    records = _valid_talent_records(records)
     total = len(records)
     provider = TalentMetadataProvider()
     usage = {}
@@ -815,6 +836,7 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
 
 def _compute_talent_popularity(records, top_n=20):
     """计算天赋选取率（以 spellID 为 key）"""
+    records = _valid_talent_records(records)
     talent_counts = Counter()
     talent_info = {}  # spellID → {name, icon}
     total = len(records)

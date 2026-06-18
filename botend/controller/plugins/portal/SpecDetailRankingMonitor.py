@@ -79,6 +79,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         logger.info(f"[SpecDetailRanking] 采集 M+ 排名: {len(season.mplus_encounters)} 副本 x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
         total = 0
+        empty_talent_total = 0
         now = timezone.now()
 
         with transaction.atomic():
@@ -97,6 +98,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                             continue
 
                         rank_list = rankings.get('rankings', [])
+                        empty_talent_count = 0
                         for r in rank_list:
                             try:
                                 server = r.get('server', {}) or {}
@@ -104,6 +106,9 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 guild = r.get('guild', {}) or {}
 
                                 talents_payload = self.parse_wcl_talents(r.get('talents', []))
+                                if not talents_payload:
+                                    empty_talent_count += 1
+                                    empty_talent_total += 1
                                 SpecDungeonRanking.objects.create(
                                     season_id=season.id,
                                     dungeon_id=enc_id,
@@ -134,9 +139,14 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                             except Exception as e:
                                 logger.warning(f"[SpecDetailRanking] M+ 插入失败: {e}")
 
+                        if empty_talent_count:
+                            logger.info(
+                                f"[SpecDetailRanking] M+ {enc_id}/{class_name}/{spec_name}: "
+                                f"{empty_talent_count}/{len(rank_list)} 条记录缺失天赋数据（保留 DPS/装备样本，天赋聚合会排除）"
+                            )
                         time.sleep(0.3)  # 限速
 
-        logger.info(f"[SpecDetailRanking] M+ 排名采集完成: {total} 条")
+        logger.info(f"[SpecDetailRanking] M+ 排名采集完成: {total} 条, 空天赋 {empty_talent_total} 条")
         return True
 
     def _collect_raid_rankings(self, season):
