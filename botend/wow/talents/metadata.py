@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
+from botend.wow.spell_text import get_spell_text_resolver
 
 STRUCTURAL_FIELDS = {'tree_type', 'row', 'column', 'max_points', 'parents'}
 
@@ -151,8 +152,11 @@ class TalentMetadataProvider:
         self._spec_cache[cache_key] = indexes
         return indexes
 
-    @staticmethod
-    def _as_dict(row):
+    def _as_dict(self, row):
+        spell_id = row.display_spell_id or row.spell_id
+        desc = getattr(row, 'description', '') or ''
+        desc_zh = getattr(row, 'description_zh', '') or ''
+        resolver = get_spell_text_resolver(self.locale)
         return {
             'node_id': row.node_id,
             'spell_id': row.spell_id,
@@ -165,19 +169,19 @@ class TalentMetadataProvider:
             'column': row.column,
             'max_points': row.max_points,
             'parents': row.parents_json or [],
-            'description': getattr(row, 'description', '') or '',
-            'description_zh': getattr(row, 'description_zh', '') or '',
+            'description': resolver.resolve(desc, spell_id),
+            'description_zh': resolver.resolve(desc_zh, spell_id),
             'db2_subtree_id': getattr(row, 'db2_subtree_id', 0) or 0,
             'selected': False,
             'points': 0,
         }
 
-    @staticmethod
-    def _build_choice_option(node):
+    def _build_choice_option(self, node):
         spell_id = node.get('display_spell_id') or node.get('spell_id')
         option_key = node.get('talent_id') or spell_id
         if not option_key:
             return {}
+        resolver = get_spell_text_resolver(self.locale)
         return {
             'option_key': option_key,
             'talent_id': node.get('talent_id'),
@@ -185,8 +189,8 @@ class TalentMetadataProvider:
             'display_spell_id': node.get('display_spell_id'),
             'name': node.get('name') or '',
             'icon': node.get('icon') or '',
-            'description': node.get('description') or '',
-            'description_zh': node.get('description_zh') or '',
+            'description': resolver.resolve(node.get('description') or '', spell_id),
+            'description_zh': resolver.resolve(node.get('description_zh') or '', spell_id),
         }
 
     def _lookup_spell_snapshot(self, spell_id):
