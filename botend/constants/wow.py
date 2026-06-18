@@ -202,6 +202,7 @@ RAID_ZONE_CN = {
     "Manaforge Omega": "法力熔炉：欧米伽",
     # MN S1
     "VS / DR / MQD": "虚影尖塔 / 梦境裂隙 / 进攻奎尔丹纳斯",
+    "Sporefall": "孢子坠落",
 }
 
 RAID_BOSS_CN = {
@@ -242,6 +243,8 @@ RAID_BOSS_CN = {
     "Chimaerus, the Undreamt God": "奇美鲁斯",
     "Belo'ren, Child of Al'ar": "贝洛朗",
     "Midnight Falls": "至暗之夜降临",
+    # Sporefall (孢子坠落)
+    "Rotmire": "烂泥沼泽",
 }
 
 # 装备槽位英文 → 中文
