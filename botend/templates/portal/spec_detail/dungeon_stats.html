@@ -317,18 +317,23 @@
                 {% for item in items %}
                 <div class="gear-pop-card">
                     {% if item.icon %}
-                    <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank" aria-label="{{ item.name|default:item.itemID }}">
-                        <img src="{% wow_icon item.icon "small" %}" class="gear-icon" alt="{{ item.name|default:item.itemID }}">
+                    <a href="{% if item.wowhead_url %}{{ item.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ item.itemID }}{% endif %}" target="_blank" aria-label="{{ item.display_name|default:item.name|default:item.itemID }}">
+                        <img src="{% wow_icon item.icon "small" %}" class="gear-icon" alt="{{ item.display_name|default:item.name|default:item.itemID }}">
                     </a>
                     {% endif %}
                     <div class="gear-pop-main">
-                        <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank" class="gear-name-link" title="{{ item.name|default:item.itemID }}">{{ item.name|default:item.itemID }}</a>
+                        <a href="{% if item.wowhead_url %}{{ item.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ item.itemID }}{% endif %}" target="_blank" class="gear-name-link" title="{{ item.display_name|default:item.name|default:item.itemID }}">{{ item.display_name|default:item.name|default:item.itemID }}</a>
                         <div class="gear-pop-meta">
                             {% if item.itemLevel %}<span class="gear-ilvl">装等 {{ item.itemLevel }}</span>{% endif %}
                             <div class="popularity-bar"><div class="popularity-fill" style="width:{{ item.pct }}%"></div></div>
                         </div>
                     </div>
                     <div class="popularity-stat">{{ item.pct }}%<small>{{ item.count|default:"" }}{% if item.count %}人{% endif %}</small></div>
+                    <div class="popularity-tooltip">
+                        <strong>{{ item.display_name|default:item.name|default:item.itemID }}</strong>
+                        {% if item.display_description %}<p>{{ item.display_description }}</p>{% else %}<p>暂无中文描述</p>{% endif %}
+                        <span>{{ item.count|default:0 }} 人使用 · {{ item.pct }}%</span>
+                    </div>
                 </div>
                 {% endfor %}
             </div>
@@ -345,17 +350,22 @@
             {% if dungeon_detail.gem_popularity %}
             <div class="popularity-card-grid">
             {% for gem in dungeon_detail.gem_popularity %}
-            <div class="popularity-mini-card">
+            <a class="popularity-mini-card popularity-mini-card--link" href="{% if gem.wowhead_url %}{{ gem.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ gem.id }}{% endif %}" target="_blank">
                 {% if gem.icon %}
-                <img src="{% wow_icon gem.icon 'tiny' %}" class="popularity-icon popularity-icon--round" alt="{{ gem.name|default:gem.id }}">
+                <img src="{% wow_icon gem.icon 'tiny' %}" class="popularity-icon popularity-icon--round" alt="{{ gem.display_name|default:gem.name|default:gem.id }}">
                 {% endif %}
                 <div class="popularity-mini-main">
                     <div class="popularity-rank">#{{ forloop.counter }}</div>
-                    <div class="popularity-name" title="{{ gem.name|default:gem.id }}">{{ gem.name|default:gem.id }}</div>
+                    <div class="popularity-name" title="{{ gem.display_name|default:gem.name|default:gem.id }}">{{ gem.display_name|default:gem.name|default:gem.id }}</div>
                     <div class="popularity-mini-meta"><div class="popularity-bar"><div class="popularity-fill" style="width:{{ gem.pct }}%"></div></div></div>
                 </div>
                 <div class="popularity-stat">{{ gem.pct }}%<small>{{ gem.count }}人</small></div>
-            </div>
+                <div class="popularity-tooltip">
+                    <strong>{{ gem.display_name|default:gem.name|default:gem.id }}</strong>
+                    {% if gem.display_description %}<p>{{ gem.display_description }}</p>{% else %}<p>暂无中文描述</p>{% endif %}
+                    <span>{{ gem.count }} 人使用 · {{ gem.pct }}%</span>
+                </div>
+            </a>
             {% endfor %}
             </div>
             {% else %}
@@ -369,17 +379,22 @@
             {% if dungeon_detail.enchant_popularity %}
             <div class="popularity-card-grid">
             {% for ench in dungeon_detail.enchant_popularity %}
-            <div class="popularity-mini-card">
+            <a class="popularity-mini-card popularity-mini-card--link" href="{% if ench.wowhead_url %}{{ ench.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ ench.id }}{% endif %}" target="_blank">
                 {% if ench.icon %}
-                <img src="{% wow_icon ench.icon 'tiny' %}" class="popularity-icon popularity-icon--round" alt="{{ ench.name|default:ench.id }}">
+                <img src="{% wow_icon ench.icon 'tiny' %}" class="popularity-icon popularity-icon--round" alt="{{ ench.display_name|default:ench.name|default:ench.id }}">
                 {% endif %}
                 <div class="popularity-mini-main">
                     <div class="popularity-rank">#{{ forloop.counter }}</div>
-                    <div class="popularity-name" title="{{ ench.name|default:ench.id }}">{{ ench.name|default:ench.id }}</div>
+                    <div class="popularity-name" title="{{ ench.display_name|default:ench.name|default:ench.id }}">{{ ench.display_name|default:ench.name|default:ench.id }}</div>
                     <div class="popularity-mini-meta"><div class="popularity-bar"><div class="popularity-fill" style="width:{{ ench.pct }}%"></div></div></div>
                 </div>
                 <div class="popularity-stat">{{ ench.pct }}%<small>{{ ench.count }}人</small></div>
-            </div>
+                <div class="popularity-tooltip">
+                    <strong>{{ ench.display_name|default:ench.name|default:ench.id }}</strong>
+                    {% if ench.display_description %}<p>{{ ench.display_description }}</p>{% else %}<p>暂无中文描述</p>{% endif %}
+                    <span>{{ ench.count }} 人使用 · {{ ench.pct }}%</span>
+                </div>
+            </a>
             {% endfor %}
             </div>
             {% else %}
@@ -1039,6 +1054,32 @@
 .aggregation-pending { color: #94a3b8; padding: 16px 0; font-size: 0.9em; }
 .empty-state { text-align: center; color: #999; padding: 60px; font-size: 1em; }
 .text-muted { color: #9ca3af; font-size: 0.85em; }
+
+.popularity-mini-card--link { color: inherit; text-decoration: none; }
+.gear-pop-card, .popularity-mini-card { position: relative; }
+.popularity-tooltip {
+    display: none;
+    position: absolute;
+    left: 12px;
+    top: calc(100% + 8px);
+    z-index: 80;
+    width: min(320px, 80vw);
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(15,23,42,.98);
+    border: 1px solid rgba(96,165,250,.35);
+    box-shadow: 0 12px 30px rgba(15,23,42,.28);
+    color: #e2e8f0;
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+}
+.popularity-tooltip strong { display:block; color:#fff; font-size:13px; margin-bottom:4px; }
+.popularity-tooltip p { margin:0 0 6px; color:#cbd5e1; }
+.popularity-tooltip span { color:#93c5fd; font-weight:700; }
+.gear-pop-card:hover .popularity-tooltip,
+.popularity-mini-card:hover .popularity-tooltip { display:block; }
+
 </style>
 <script>
 (function() {

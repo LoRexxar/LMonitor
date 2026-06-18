@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from django.db.models import Avg, Max, Min, StdDev
 
 from botend.models import (
-    SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking
+    SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking, WowItemSnapshot
 )
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN, RACE_CN, ENCHANT_CN, GEM_STAT_CN, QUALITY_CN
 from botend.wow.talents.parser import normalize_talent_payload
@@ -89,6 +89,86 @@ def _aggregate_enchants(gear_items):
                 'slot': item.get('slot', ''),
             })
     return result
+
+
+
+def _coerce_item_id(value):
+    try:
+        parsed = int(str(value).strip())
+    except Exception:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _wowhead_item_url(item_id):
+    item_id = _coerce_item_id(item_id)
+    return f'https://www.wowhead.com/cn/item={item_id}' if item_id else ''
+
+
+def _collect_item_ids_from_records(records, include_gear=True, include_gems=True, include_enchants=True):
+    ids = set()
+    for record in records or []:
+        gear = record.get('gear_json') or []
+        if not isinstance(gear, list):
+            continue
+        for item in gear:
+            if not isinstance(item, dict):
+                continue
+            if include_gear:
+                item_id = _coerce_item_id(item.get('id') or item.get('itemID') or item.get('item_id'))
+                if item_id:
+                    ids.add(item_id)
+            if include_gems:
+                for gem in item.get('gems_detail') or []:
+                    if isinstance(gem, dict):
+                        item_id = _coerce_item_id(gem.get('id'))
+                        if item_id:
+                            ids.add(item_id)
+            if include_enchants:
+                for ench in item.get('enchants_detail') or []:
+                    if isinstance(ench, dict):
+                        item_id = _coerce_item_id(ench.get('id'))
+                        if item_id:
+                            ids.add(item_id)
+    if not ids:
+        return {}
+    try:
+        return {
+            int(row.item_id): row
+            for row in WowItemSnapshot.objects.filter(item_id__in=ids)
+        }
+    except Exception:
+        # 兼容迁移尚未执行的环境：页面先用 gear_json 中的原始名称渲染，部署 migrate 后自动读中文元数据。
+        return {}
+
+
+def _item_snapshot_payload(item_id, fallback_name='', fallback_icon='', fallback_description='', fallback_quality=0, snapshots=None):
+    item_id = _coerce_item_id(item_id)
+    snapshot = (snapshots or {}).get(item_id) if item_id else None
+    name = fallback_name or ''
+    description = fallback_description or ''
+    icon = _normalize_icon_name(fallback_icon or '')
+    quality = fallback_quality or 0
+    if snapshot:
+        name = snapshot.name or name
+        description = snapshot.description or description
+        icon = snapshot.icon or icon
+        quality = snapshot.quality or quality
+    name_zh = snapshot.name_zh if snapshot else ''
+    description_zh = snapshot.description_zh if snapshot else ''
+    display_name = name_zh or name or (f'#{item_id}' if item_id else '')
+    return {
+        'id': item_id,
+        'name': name,
+        'name_zh': name_zh,
+        'display_name': display_name,
+        'description': description,
+        'description_zh': description_zh,
+        'display_description': description_zh or description,
+        'icon': icon,
+        'quality': quality,
+        'wowhead_url': _wowhead_item_url(item_id),
+    }
 
 
 def _normalize_icon_name(icon):
@@ -1320,35 +1400,36 @@ def _describe_player_stats_source(player):
         return 'Battle.net 属性 Monitor 待采集'
     return '暂无稳定属性来源'
 def _compute_gem_popularity(records, top_n=20):
-    """计算宝石选取率（从人物榜 gear_json 的 gems_detail 获取名字）"""
-    gem_players = {}  # gem_id → set of player indices (使用该宝石的玩家集合)
-    gem_info = {}  # gem_id → {name, icon}
+    """计算宝石选取率：按玩家去重，并从 WowItemSnapshot 读取中文名/描述。"""
+    snapshots = _collect_item_ids_from_records(records, include_gear=False, include_gems=True, include_enchants=False)
+    gem_players = {}  # gem_id → set of player indices
+    gem_info = {}
     total = len(records)
 
     for idx, r in enumerate(records):
         gear = r.get('gear_json') or []
-        player_gems = set()  # 该玩家使用的所有宝石ID
+        player_gems = set()
         for g in gear:
-            gems_detail = g.get('gems_detail') or []
-            for gem in gems_detail:
+            if not isinstance(g, dict):
+                continue
+            for gem in g.get('gems_detail') or []:
                 if not isinstance(gem, dict):
                     continue
-                gem_id = gem.get('id')
-                if gem_id:
-                    player_gems.add(gem_id)
-                    if gem_id not in gem_info:
-                        gem_info[gem_id] = {
-                            'id': gem_id,
-                            'name': gem.get('name', ''),
-                            'icon': _normalize_icon_name(gem.get('icon', '')),
-                        }
-        # 将该玩家添加到所有使用的宝石的玩家集合中
+                gem_id = _coerce_item_id(gem.get('id'))
+                if not gem_id:
+                    continue
+                player_gems.add(gem_id)
+                if gem_id not in gem_info:
+                    payload = _item_snapshot_payload(
+                        gem_id,
+                        fallback_name=_translate_gem_name(gem.get('name', '')),
+                        fallback_icon=gem.get('icon', ''),
+                        snapshots=snapshots,
+                    )
+                    gem_info[gem_id] = payload
         for gem_id in player_gems:
-            if gem_id not in gem_players:
-                gem_players[gem_id] = set()
-            gem_players[gem_id].add(idx)
+            gem_players.setdefault(gem_id, set()).add(idx)
 
-    # 按使用人数排序
     result = []
     for gem_id, player_set in sorted(gem_players.items(), key=lambda x: len(x[1]), reverse=True)[:top_n]:
         info = gem_info.get(gem_id, {})
@@ -1360,37 +1441,37 @@ def _compute_gem_popularity(records, top_n=20):
         })
     return result
 
-
 def _compute_enchant_popularity(enchant_records, top_n=20):
-    """计算附魔选取率（从人物榜数据的 enchants_detail）"""
-    enchant_players = {}  # enchant_id → set of player indices
-    enchant_info = {}  # enchant_id → {name, icon}
+    """计算附魔选取率：按玩家去重，并从 WowItemSnapshot 读取中文名/描述。"""
+    snapshots = _collect_item_ids_from_records(enchant_records, include_gear=False, include_gems=False, include_enchants=True)
+    enchant_players = {}
+    enchant_info = {}
     total = len(enchant_records)
 
     for idx, r in enumerate(enchant_records):
         gear = r.get('gear_json') or []
-        player_enchants = set()  # 该玩家使用的所有附魔ID
+        player_enchants = set()
         for g in gear:
-            enchants = g.get('enchants_detail') or []
-            for e in enchants:
+            if not isinstance(g, dict):
+                continue
+            for e in g.get('enchants_detail') or []:
                 if not isinstance(e, dict):
                     continue
-                eid = e.get('id')
-                if eid:
-                    player_enchants.add(eid)
-                    if eid not in enchant_info:
-                        enchant_info[eid] = {
-                            'id': eid,
-                            'name': e.get('name', ''),
-                            'icon': _normalize_icon_name(e.get('icon', '')),
-                        }
-        # 将该玩家添加到所有使用的附魔的玩家集合中
+                eid = _coerce_item_id(e.get('id'))
+                if not eid:
+                    continue
+                player_enchants.add(eid)
+                if eid not in enchant_info:
+                    payload = _item_snapshot_payload(
+                        eid,
+                        fallback_name=_translate_enchant_name(e.get('name', '')),
+                        fallback_icon=e.get('icon', ''),
+                        snapshots=snapshots,
+                    )
+                    enchant_info[eid] = payload
         for eid in player_enchants:
-            if eid not in enchant_players:
-                enchant_players[eid] = set()
-            enchant_players[eid].add(idx)
+            enchant_players.setdefault(eid, set()).add(idx)
 
-    # 按使用人数排序
     result = []
     for eid, player_set in sorted(enchant_players.items(), key=lambda x: len(x[1]), reverse=True)[:top_n]:
         info = enchant_info.get(eid, {})
@@ -1402,7 +1483,6 @@ def _compute_enchant_popularity(enchant_records, top_n=20):
         })
     return result
 
-
 _GEAR_DEFAULT_SLOTS = [
     'head', 'neck', 'shoulder', 'shirt', 'chest', 'waist', 'legs', 'feet',
     'wrist', 'hands', 'finger1', 'finger2', 'trinket1', 'trinket2',
@@ -1411,16 +1491,17 @@ _GEAR_DEFAULT_SLOTS = [
 
 
 def _compute_gear_popularity(records, top_n=5):
-    """计算装备选取率（每个槽位 Top N）"""
-    slot_items = {}  # cn_slot → Counter(itemID)
-    slot_item_info = {}  # (cn_slot, itemID) → {name, icon}
+    """计算装备选取率（每个槽位 Top N）：同一玩家同槽位同物品只计 1 人。"""
+    snapshots = _collect_item_ids_from_records(records, include_gear=True, include_gems=False, include_enchants=False)
+    slot_item_players = {}  # cn_slot → itemID → set(record_idx)
+    slot_item_info = {}
 
-    for r in records:
+    for record_idx, r in enumerate(records):
         gear = r.get('gear_json') or []
-        # 如果所有装备 slot 都是 unknown，按顺序分配栏位
         all_unknown = gear and all(
             (g.get('slot', 'unknown') in ('unknown', '')) for g in gear if isinstance(g, dict)
         )
+        player_slot_items = set()
         for idx, g in enumerate(gear):
             if not isinstance(g, dict):
                 continue
@@ -1428,31 +1509,34 @@ def _compute_gear_popularity(records, top_n=5):
             if all_unknown and slot in ('unknown', ''):
                 slot = _GEAR_DEFAULT_SLOTS[idx] if idx < len(_GEAR_DEFAULT_SLOTS) else f'slot_{idx}'
             cn_slot = SLOT_CN.get(slot, slot)
-            item_id = g.get('id')
+            item_id = _coerce_item_id(g.get('id') or g.get('itemID') or g.get('item_id'))
             if not item_id:
                 continue
-            if cn_slot not in slot_items:
-                slot_items[cn_slot] = Counter()
-            slot_items[cn_slot][item_id] += 1
-            # 记录装备信息（第一次出现即可）
+            player_slot_items.add((cn_slot, item_id))
             key = (cn_slot, item_id)
             if key not in slot_item_info:
-                slot_item_info[key] = {
-                    'name': g.get('name', ''),
-                    'icon': _normalize_icon_name(g.get('icon', '')),
-                    'itemLevel': g.get('itemLevel'),
-                }
+                slot_item_info[key] = _item_snapshot_payload(
+                    item_id,
+                    fallback_name=g.get('name', ''),
+                    fallback_icon=g.get('icon', ''),
+                    fallback_quality=g.get('quality') or 0,
+                    snapshots=snapshots,
+                )
+                slot_item_info[key]['itemLevel'] = g.get('itemLevel')
+        for cn_slot, item_id in player_slot_items:
+            slot_item_players.setdefault(cn_slot, {}).setdefault(item_id, set()).add(record_idx)
 
     total = len(records)
     result = {}
-    for slot, counter in slot_items.items():
+    for slot, item_players in slot_item_players.items():
         items = []
-        for item_id, count in counter.most_common(top_n):
+        sorted_items = sorted(item_players.items(), key=lambda x: len(x[1]), reverse=True)[:top_n]
+        for item_id, player_set in sorted_items:
             info = slot_item_info.get((slot, item_id), {})
+            count = len(player_set)
             items.append({
                 'itemID': item_id,
-                'name': info.get('name', ''),
-                'icon': info.get('icon', ''),
+                **info,
                 'itemLevel': info.get('itemLevel'),
                 'count': count,
                 'pct': round(count / total * 100, 1) if total else 0,

@@ -949,3 +949,31 @@ class WowTalentNodeMetadata(models.Model):
 
     def __str__(self):
         return f"{self.class_name}/{self.spec_name}/{self.tree_type}/{self.node_id or self.spell_id}"
+
+
+
+class WowItemSnapshot(models.Model):
+    """WoW 装备/宝石/附魔元数据快照，用于中文名称、描述和 tooltip 展示。"""
+    id = models.AutoField(primary_key=True)
+    item_id = models.BigIntegerField(unique=True, help_text="物品ID（装备/宝石/附魔通用）")
+    name = models.CharField(max_length=255, default="", blank=True, help_text="英文名称")
+    name_zh = models.CharField(max_length=255, default="", blank=True, help_text="中文名称")
+    description = models.TextField(default="", blank=True, help_text="英文描述")
+    description_zh = models.TextField(default="", blank=True, help_text="中文描述")
+    icon = models.CharField(max_length=255, default="", blank=True, help_text="图标名称")
+    quality = models.IntegerField(default=0, blank=True, help_text="品质等级")
+    source = models.CharField(max_length=32, default="wowhead", blank=True, help_text="数据源")
+    updated_at = models.DateTimeField(default=timezone.now, help_text="更新时间")
+
+    class Meta:
+        db_table = 'wow_item_snapshot'
+        app_label = 'botend'
+        verbose_name = 'WoW物品元数据快照'
+        verbose_name_plural = 'WoW物品元数据快照'
+        indexes = [
+            models.Index(fields=['item_id'], name='idx_item_snapshot_id'),
+            models.Index(fields=['updated_at'], name='idx_item_snapshot_updated'),
+        ]
+
+    def __str__(self):
+        return f"{self.item_id}: {self.name_zh or self.name}"
