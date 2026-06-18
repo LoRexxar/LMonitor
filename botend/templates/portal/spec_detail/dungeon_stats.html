@@ -117,19 +117,7 @@
             {% with talent_tree=dungeon_detail.talent_popularity_tree %}
             {% with render_model=talent_tree.render_model %}
             <div class="section-head">
-                <div>
-                    <h4>热门天赋树</h4>
-                    <p class="text-muted">
-                        基于统计页聚合结果复用统一 render_model 渲染，优先保留真实数据里的 parents 连线。
-                        {% if talent_tree.preserved_parent_edges %}
-                        已保留 {{ talent_tree.preserved_parent_edges }} 条连线。
-                        {% endif %}
-                    </p>
-                </div>
-                <div class="talent-tree-meta">
-                    <span>高亮节点 {{ talent_tree.highlighted_node_count }}</span>
-                    <span>展示节点 {{ talent_tree.rendered_node_count }}</span>
-                </div>
+                <h4>热门天赋树</h4>
             </div>
             {% if render_model.layout.width and render_model.layout.height %}
             <div class="talent-stage-scroll">
@@ -170,9 +158,6 @@
                         >
                             <div class="talent-panel-head">
                                 <div>
-                                    {% if tree.tree_type == 'hero' %}
-                                    <div class="talent-hero-badge">✦ 英雄天赋</div>
-                                    {% endif %}
                                     <div class="talent-panel-title">{{ tree.title }}</div>
                                 </div>
 
@@ -525,11 +510,11 @@
 .dot { width: 4px; height: 4px; border-radius: 50%; background: #94a3b8; display: inline-block; }
 
 /* ===== Popular Talent Tree ===== */
-.section-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 12px; }
-.section-head h4 { margin-bottom: 6px; border-bottom: 0; padding-bottom: 0; }
+.section-head { display: flex; justify-content: flex-start; gap: 16px; align-items: center; margin-bottom: 8px; }
+.section-head h4 { margin: 0; border-bottom: 0; padding-bottom: 0; }
 .talent-tree-meta { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; font-size: 0.78em; color: #64748b; }
 .talent-tree-meta span { padding: 6px 10px; border-radius: 999px; background: #f8fafc; border: 1px solid #e5e7eb; }
-.talent-stage-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 8px; }
+.talent-stage-scroll { overflow: visible; padding-bottom: 0; }
 .talent-render-stage { position: relative; min-width: 100%; border-radius: 20px; }
 .talent-stage-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
 .talent-path {
@@ -752,25 +737,11 @@
 /* ===== Responsive Scaling ===== */
 .talent-stage-scale-wrapper {
     width: 100%;
-    overflow: hidden;
+    overflow: visible;
     position: relative;
 }
 
-/* ===== Hero Tree Badge ===== */
-.talent-hero-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 14px;
-    border-radius: 999px;
-    background: linear-gradient(135deg, rgba(251,191,36,.18), rgba(168,85,247,.18));
-    border: 1px solid rgba(251,191,36,.32);
-    color: #d97706;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: .04em;
-}
-.talent-panel--hero .talent-panel-title { color: #d97706; }
+/* ===== Hero Tree Title ===== */
 
 /* ===== Talent Grid (detail page) ===== */
 .talent-usage-grid {
@@ -837,8 +808,8 @@
 .stat-label { font-size: 0.8em; color: #6b7280; margin-bottom: 4px; }
 .stat-value { font-size: 1.3em; font-weight: 700; color: #1e293b; }
 
-.section-block { margin-top: 24px; }
-.section-block h4 { font-size: 1em; color: #374151; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+.section-block { margin-top: 18px; }
+.section-block h4 { font-size: 1em; color: #374151; margin: 0 0 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
 
 /* ===== Gear ===== */
 .gear-slot-section { margin-bottom: 12px; }
@@ -879,7 +850,14 @@
             if (!stage) return;
             var containerWidth = wrapper.parentElement.clientWidth;
             var stageWidth = parseInt(wrapper.getAttribute('data-stage-width')) || parseInt(stage.style.width);
-            var stageHeight = parseInt(wrapper.getAttribute('data-stage-height')) || parseInt(stage.style.height);
+            var declaredStageHeight = parseInt(wrapper.getAttribute('data-stage-height')) || parseInt(stage.style.height);
+            var contentBottom = 0;
+            stage.querySelectorAll('.talent-panel, .talent-node-card--tree').forEach(function(el) {
+                var top = parseFloat(el.style.top) || 0;
+                var height = parseFloat(el.style.height) || el.offsetHeight || 0;
+                contentBottom = Math.max(contentBottom, top + height);
+            });
+            var stageHeight = Math.min(declaredStageHeight || contentBottom, (contentBottom || declaredStageHeight) + 12);
             if (stageWidth > containerWidth) {
                 var scale = containerWidth / stageWidth;
                 stage.style.transform = 'scale(' + scale + ')';
