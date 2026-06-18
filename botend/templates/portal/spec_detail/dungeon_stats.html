@@ -27,7 +27,7 @@
         <p class="text-muted">样本量: {{ dungeon_detail.sample_size }}</p>
 
         {% if dungeon_detail.dps %}
-        <div class="stat-cards">
+        <div class="stat-cards stat-strip">
             <div class="stat-card">
                 <div class="stat-label">平均 DPS</div>
                 <div class="stat-value">{{ dungeon_detail.dps.avg|floatformat:0 }}</div>
@@ -48,7 +48,7 @@
         {% endif %}
 
         {% if dungeon_detail.keystone %}
-        <div class="stat-cards" style="margin-top:12px;">
+        <div class="stat-cards stat-strip">
             <div class="stat-card">
                 <div class="stat-label">平均钥石</div>
                 <div class="stat-value">+{{ dungeon_detail.keystone.avg|floatformat:1 }}</div>
@@ -61,7 +61,7 @@
         {% endif %}
 
         {% if dungeon_detail.clear_time %}
-        <div class="stat-cards" style="margin-top:12px;">
+        <div class="stat-cards stat-strip">
             <div class="stat-card">
                 <div class="stat-label">平均通关</div>
                 <div class="stat-value">{{ dungeon_detail.clear_time.avg_fmt }}</div>
@@ -74,7 +74,7 @@
         {% endif %}
 
         {% if dungeon_detail.score %}
-        <div class="stat-cards" style="margin-top:12px;">
+        <div class="stat-cards stat-strip">
             <div class="stat-card">
                 <div class="stat-label">平均分数</div>
                 <div class="stat-value">{{ dungeon_detail.score.avg|floatformat:0 }}</div>
@@ -805,8 +805,31 @@
 .stat-card { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 18px; min-width: 120px; transition: box-shadow 0.15s; }
 .stat-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
 .stat-card.highlight { background: #fef3c7; border-color: #f59e0b; }
-.stat-label { font-size: 0.8em; color: #6b7280; margin-bottom: 4px; }
-.stat-value { font-size: 1.3em; font-weight: 700; color: #1e293b; }
+.stat-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0;
+    margin-top: 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+}
+.stat-strip:first-of-type { margin-top: 16px; }
+.stat-strip .stat-card {
+    min-width: 0;
+    border: 0;
+    border-right: 1px solid #e5e7eb;
+    border-radius: 0;
+    background: #fff;
+    padding: 11px 14px;
+    box-shadow: none;
+}
+.stat-strip .stat-card:last-child { border-right: 0; }
+.stat-strip .stat-card:hover { box-shadow: none; background: #f8fafc; }
+.stat-strip .stat-card.highlight { background: linear-gradient(180deg, #fffbeb 0%, #fff 100%); border-color: #e5e7eb; }
+.stat-label { font-size: 0.78em; color: #6b7280; margin-bottom: 3px; white-space: nowrap; }
+.stat-value { font-size: 1.18em; font-weight: 750; color: #1e293b; line-height: 1.15; }
 
 .section-block { margin-top: 18px; }
 .section-block h4 { font-size: 1em; color: #374151; margin: 0 0 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
