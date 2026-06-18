@@ -134,11 +134,10 @@
                         {% if tree.panel %}
                             {% for node in tree.nodes %}
                             <a
-                                class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% endif %}"
+                                class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% else %} is-unselected{% endif %}{% if node.is_choice_node %} is-choice-node{% endif %}"
                                 style="left: {{ node.x }}px; top: {{ node.y }}px; width: {{ node.width }}px; height: {{ node.height }}px;"
                                 href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
                                 target="_blank"
-                                title="{{ node.name }} · {{ node.usage_pct }}%"
                                 data-node-key="{{ node.node_key }}"
                                 data-tree-type="{{ node.tree_type }}"
                             >
@@ -149,7 +148,41 @@
                                     <span>ID</span>
                                     {% endif %}
                                 </div>
+                                {% if node.points %}
+                                <span class="talent-node-points">{{ node.points }}</span>
+                                {% endif %}
                                 <span class="talent-node-usage">{{ node.usage_pct }}%</span>
+                                {% if node.is_choice_node and node.choice_options %}
+                                <div class="talent-choice-popup">
+                                    {% for option in node.choice_options %}
+                                    <span
+                                        class="talent-choice-popup-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}"
+                                        onclick="window.open('{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}', '_blank')"
+                                        data-option-name="{{ option.name|default:'未命名' }}"
+                                        data-option-desc="{{ option.description_zh|default:option.description|default:'' }}"
+                                    >
+                                        <div class="talent-choice-popup-icon">
+                                            {% if option.icon %}
+                                            <img src="{% wow_icon option.icon \"small\" %}" alt="{{ option.name|default:'选项' }}">
+                                            {% else %}
+                                            <span>?</span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="talent-choice-popup-name">{{ option.name|default:"未命名" }}</div>
+                                    </span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                                {% with node_desc=node.description_zh|default:node.description|default:'' %}
+                                <div class="talent-node-tooltip" data-tooltip-name="{{ node.name }}" data-tooltip-desc="{{ node_desc }}">
+                                    <div class="talent-node-tooltip-name">{{ node.name }}</div>
+                                    {% if node.description_zh %}
+                                    <div class="talent-node-tooltip-desc">{{ node.description_zh }}</div>
+                                    {% elif node.description %}
+                                    <div class="talent-node-tooltip-desc">{{ node.description }}</div>
+                                    {% endif %}
+                                </div>
+                                {% endwith %}
                                 <div class="talent-node-info talent-node-info--hover">
                                     <span class="talent-node-name">{{ node.name }}</span>
                                     <span class="talent-node-meta">
