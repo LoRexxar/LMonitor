@@ -344,6 +344,50 @@ class SpecStatsService:
                 'median_fmt': _ms_to_time(ct_median),
             }
 
+        # 奖牌分布 (gold/silver/bronze)
+        medal_counter = Counter(r for r in qs.values_list('medal', flat=True) if r)
+        if medal_counter:
+            total_medals = sum(medal_counter.values())
+            stats['medal_distribution'] = {
+                medal: {'count': cnt, 'pct': round(cnt / total_medals * 100, 1)}
+                for medal, cnt in medal_counter.most_common()
+            }
+
+        # M+ 分数统计
+        score_list = sorted([v for v in qs.values_list('score', flat=True) if v])
+        if score_list:
+            score_agg = qs.aggregate(avg=Avg('score'), max=Max('score'), min=Min('score'))
+            stats['score'] = {
+                'avg': score_agg['avg'],
+                'median': _percentile(score_list, 50),
+                'max': score_agg['max'],
+                'min': score_agg['min'],
+                'p25': _percentile(score_list, 25),
+                'p75': _percentile(score_list, 75),
+            }
+
+        # 词缀分布
+        affixes_counter = Counter()
+        for affixes in qs.values_list('affixes', flat=True):
+            if affixes:
+                key = ','.join(str(a) for a in sorted(affixes)) if isinstance(affixes, list) else str(affixes)
+                affixes_counter[key] += 1
+        if affixes_counter:
+            total_affixes = sum(affixes_counter.values())
+            stats['affixes_distribution'] = {
+                combo: {'count': cnt, 'pct': round(cnt / total_affixes * 100, 1)}
+                for combo, cnt in affixes_counter.most_common(20)
+            }
+
+        # 阵营分布
+        faction_counter = Counter(r for r in qs.values_list('faction', flat=True) if r is not None and r != -1)
+        if faction_counter:
+            total_factions = sum(faction_counter.values())
+            stats['faction_distribution'] = {
+                str(f): {'count': cnt, 'pct': round(cnt / total_factions * 100, 1)}
+                for f, cnt in faction_counter.most_common()
+            }
+
         # 天赋/装备热门度（概览也展示）
         records = list(qs.values('talents_json', 'gear_json', 'faction'))
         talent_limit = 20 if full else 10
@@ -367,11 +411,10 @@ class SpecStatsService:
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
         if full:
-            # 详细模式：额外计算种族分布 + Top 5
+            # 详细模式：Top 5 玩家
             full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
                                       'character_name', 'realm', 'region', 'dps',
-                                      'keystone_level', 'clear_time', 'score'))
-            stats['race_distribution'] = dict(Counter(r.get('faction') for r in full_records))
+                                      'keystone_level', 'clear_time', 'score', 'medal'))
             stats['top5'] = sorted(full_records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
             # 格式化 top5 通关时间
             for r in stats['top5']:
@@ -503,6 +546,15 @@ class SpecStatsService:
                 'median': kt_median,
                 'avg_fmt': _ms_to_time(kt_avg),
                 'median_fmt': _ms_to_time(kt_median),
+            }
+
+        # 阵营分布
+        faction_counter = Counter(r for r in qs.values_list('faction', flat=True) if r is not None and r != -1)
+        if faction_counter:
+            total_factions = sum(faction_counter.values())
+            stats['faction_distribution'] = {
+                str(f): {'count': cnt, 'pct': round(cnt / total_factions * 100, 1)}
+                for f, cnt in faction_counter.most_common()
             }
 
         # 天赋/装备热门度（概览也展示）
