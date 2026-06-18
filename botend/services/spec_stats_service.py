@@ -1035,7 +1035,7 @@ def _group_hero_subtrees_by_column(hero_nodes):
 
 
 def _iter_render_tree_types(grouped_nodes):
-    ordered = ['class', 'spec', 'hero']
+    ordered = ['class', 'hero', 'spec']
     yielded = set()
     for tree_type in ordered:
         if tree_type in grouped_nodes:
