@@ -94,18 +94,6 @@
         </div>
         {% endif %}
 
-        {% if dungeon_detail.medal_distribution %}
-        <div class="stat-cards" style="margin-top:12px;">
-            {% for medal, info in dungeon_detail.medal_distribution.items %}
-            <div class="stat-card">
-                <div class="stat-label">{{ medal }}</div>
-                <div class="stat-value">{{ info.pct }}%</div>
-                <div class="text-muted" style="font-size:12px;">{{ info.count }} 人</div>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
         {% if dungeon_detail.faction_distribution %}
         <div class="stat-cards" style="margin-top:12px;">
             {% for fid, info in dungeon_detail.faction_distribution.items %}
@@ -299,6 +287,42 @@
         </div>
         {% endif %}
 
+        {% if dungeon_detail.gem_popularity %}
+        <div class="section-block">
+            <h4>宝石热门度</h4>
+            {% for gem in dungeon_detail.gem_popularity %}
+            <div class="gear-pop-row">
+                {% if gem.icon %}
+                <img src="{% wow_icon gem.icon 'tiny' %}" width="20" height="20" style="border-radius:50%">
+                {% endif %}
+                <span style="min-width:160px;">{{ gem.name|default:gem.id }}</span>
+                <div class="popularity-bar small">
+                    <div class="popularity-fill" style="width:{{ gem.pct }}%"></div>
+                </div>
+                <span class="popularity-pct">{{ gem.pct }}% ({{ gem.count }})</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if dungeon_detail.enchant_popularity %}
+        <div class="section-block">
+            <h4>附魔热门度</h4>
+            {% for ench in dungeon_detail.enchant_popularity %}
+            <div class="gear-pop-row">
+                {% if ench.icon %}
+                <img src="{% wow_icon ench.icon 'tiny' %}" width="20" height="20" style="border-radius:50%">
+                {% endif %}
+                <span style="min-width:280px;">{{ ench.name|default:ench.id }}</span>
+                <div class="popularity-bar small">
+                    <div class="popularity-fill" style="width:{{ ench.pct }}%"></div>
+                </div>
+                <span class="popularity-pct">{{ ench.pct }}% ({{ ench.count }})</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
         {% if dungeon_detail.affixes_distribution %}
         <div class="section-block">
             <h4>词缀分布</h4>
@@ -359,9 +383,6 @@
                     {% endif %}
                     {% if d.score %}
                     <span>平均分数: <strong>{{ d.score.avg|floatformat:0 }}</strong></span>
-                    {% endif %}
-                    {% if d.medal_distribution %}
-                    <span>奖牌: <strong>{% for medal, info in d.medal_distribution.items %}{% if forloop.counter0 > 0 %} / {% endif %}{{ medal }} {{ info.pct }}%{% endfor %}</strong></span>
                     {% endif %}
                 </div>
 

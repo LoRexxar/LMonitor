@@ -240,6 +240,42 @@
         </div>
         {% endif %}
 
+        {% if boss_detail.gem_popularity %}
+        <div class="section-block">
+            <h4>宝石热门度</h4>
+            {% for gem in boss_detail.gem_popularity %}
+            <div class="gear-pop-row">
+                {% if gem.icon %}
+                <img src="{% wow_icon gem.icon 'tiny' %}" width="20" height="20" style="border-radius:50%">
+                {% endif %}
+                <span style="min-width:160px;">{{ gem.name|default:gem.id }}</span>
+                <div class="popularity-bar small">
+                    <div class="popularity-fill" style="width:{{ gem.pct }}%"></div>
+                </div>
+                <span class="popularity-pct">{{ gem.pct }}% ({{ gem.count }})</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if boss_detail.enchant_popularity %}
+        <div class="section-block">
+            <h4>附魔热门度</h4>
+            {% for ench in boss_detail.enchant_popularity %}
+            <div class="gear-pop-row">
+                {% if ench.icon %}
+                <img src="{% wow_icon ench.icon 'tiny' %}" width="20" height="20" style="border-radius:50%">
+                {% endif %}
+                <span style="min-width:280px;">{{ ench.name|default:ench.id }}</span>
+                <div class="popularity-bar small">
+                    <div class="popularity-fill" style="width:{{ ench.pct }}%"></div>
+                </div>
+                <span class="popularity-pct">{{ ench.pct }}% ({{ ench.count }})</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
         {% if boss_detail.faction_distribution %}
         <div class="section-block">
             <h4>阵营分布</h4>

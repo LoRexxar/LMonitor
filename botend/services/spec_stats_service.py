@@ -344,15 +344,6 @@ class SpecStatsService:
                 'median_fmt': _ms_to_time(ct_median),
             }
 
-        # 奖牌分布 (gold/silver/bronze)
-        medal_counter = Counter(r for r in qs.values_list('medal', flat=True) if r)
-        if medal_counter:
-            total_medals = sum(medal_counter.values())
-            stats['medal_distribution'] = {
-                medal: {'count': cnt, 'pct': round(cnt / total_medals * 100, 1)}
-                for medal, cnt in medal_counter.most_common()
-            }
-
         # M+ 分数统计
         score_list = sorted([v for v in qs.values_list('score', flat=True) if v])
         if score_list:
@@ -410,11 +401,19 @@ class SpecStatsService:
         )
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
+        # 宝石和附魔统计（从人物榜数据获取，排行榜无详细信息）
+        from botend.models import PlayerSpecTopPlayer
+        player_records = list(PlayerSpecTopPlayer.objects.filter(
+            season_id=season_id, class_name=class_name, spec_name=spec_name
+        ).values('gear_json')[:200])
+        stats['gem_popularity'] = _compute_gem_popularity(player_records, top_n=20)
+        stats['enchant_popularity'] = _compute_enchant_popularity(player_records, top_n=20)
+
         if full:
             # 详细模式：Top 5 玩家
             full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
                                       'character_name', 'realm', 'region', 'dps',
-                                      'keystone_level', 'clear_time', 'score', 'medal'))
+                                      'keystone_level', 'clear_time', 'score'))
             stats['top5'] = sorted(full_records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
             # 格式化 top5 通关时间
             for r in stats['top5']:
@@ -578,6 +577,14 @@ class SpecStatsService:
             snapshot=usage_snapshot,
         )
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
+
+        # 宝石和附魔统计（从人物榜数据获取）
+        from botend.models import PlayerSpecTopPlayer
+        player_records = list(PlayerSpecTopPlayer.objects.filter(
+            season_id=season_id, class_name=class_name, spec_name=spec_name
+        ).values('gear_json')[:200])
+        stats['gem_popularity'] = _compute_gem_popularity(player_records, top_n=20)
+        stats['enchant_popularity'] = _compute_enchant_popularity(player_records, top_n=20)
 
         if full:
             full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
@@ -1149,6 +1156,74 @@ def _describe_player_stats_source(player):
     if player.stats_crawl_status == 0:
         return 'Battle.net 属性 Monitor 待采集'
     return '暂无稳定属性来源'
+def _compute_gem_popularity(records, top_n=20):
+    """计算宝石选取率（从人物榜 gear_json 的 gems_detail 获取名字）"""
+    gem_counts = Counter()
+    gem_info = {}  # gem_id → {name, icon}
+    total = len(records)
+
+    for r in records:
+        gear = r.get('gear_json') or []
+        for g in gear:
+            gems_detail = g.get('gems_detail') or []
+            for gem in gems_detail:
+                if not isinstance(gem, dict):
+                    continue
+                gem_id = gem.get('id')
+                if gem_id:
+                    gem_counts[gem_id] += 1
+                    if gem_id not in gem_info:
+                        gem_info[gem_id] = {
+                            'id': gem_id,
+                            'name': gem.get('name', ''),
+                            'icon': _normalize_icon_name(gem.get('icon', '')),
+                        }
+
+    result = []
+    for gem_id, count in gem_counts.most_common(top_n):
+        info = gem_info.get(gem_id, {})
+        result.append({
+            **info,
+            'count': count,
+            'pct': round(count / total * 100, 1) if total else 0,
+        })
+    return result
+
+
+def _compute_enchant_popularity(enchant_records, top_n=20):
+    """计算附魔选取率（从人物榜数据的 enchants_detail）"""
+    enchant_counts = Counter()
+    enchant_info = {}  # enchant_id → {name, icon}
+    total = len(enchant_records)
+
+    for r in enchant_records:
+        gear = r.get('gear_json') or []
+        for g in gear:
+            enchants = g.get('enchants_detail') or []
+            for e in enchants:
+                if not isinstance(e, dict):
+                    continue
+                eid = e.get('id')
+                if eid:
+                    enchant_counts[eid] += 1
+                    if eid not in enchant_info:
+                        enchant_info[eid] = {
+                            'id': eid,
+                            'name': e.get('name', ''),
+                            'icon': _normalize_icon_name(e.get('icon', '')),
+                        }
+
+    result = []
+    for eid, count in enchant_counts.most_common(top_n):
+        info = enchant_info.get(eid, {})
+        result.append({
+            **info,
+            'count': count,
+            'pct': round(count / total * 100, 1) if total else 0,
+        })
+    return result
+
+
 def _compute_gear_popularity(records, top_n=5):
     """计算装备选取率（每个槽位 Top N）"""
     slot_items = {}  # slot → Counter(itemID)
