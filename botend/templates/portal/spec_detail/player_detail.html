@@ -264,6 +264,47 @@
     </section>
     {% endif %}
 
+    {# 宝石与附魔独立板块（装备上方） #}
+    {% with gems=player_detail.aggregated_gems enchants=player_detail.aggregated_enchants %}
+    {% if gems or enchants %}
+    <section class="detail-card detail-card--full">
+        <h3>宝石与附魔</h3>
+        <div class="gem-enchant-grid">
+            {% if enchants %}
+            <div class="ge-col">
+                <h4>附魔</h4>
+                <div class="ge-list">
+                    {% for e in enchants %}
+                    <div class="ge-item">
+                        <div class="ge-info">
+                            <span class="ge-slot">{{ e.slot }}</span>
+                            <span class="ge-name">{{ e.name }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if gems %}
+            <div class="ge-col">
+                <h4>宝石</h4>
+                <div class="ge-list">
+                    {% for g in gems %}
+                    <div class="ge-item">
+                        <div class="ge-info">
+                            <span class="ge-name">{{ g.name }}</span>
+                            <span class="ge-count">×{{ g.count }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+    {% endif %}
+    {% endwith %}
+
     {% if player_detail.gear %}
     <section class="detail-card detail-card--full">
         <h3>装备</h3>
@@ -291,49 +332,6 @@
         </div>
     </section>
     {% endif %}
-
-    {# 宝石与附魔独立板块 #}
-    {% with gems=player_detail.aggregated_gems enchants=player_detail.aggregated_enchants %}
-    {% if gems or enchants %}
-    <section class="detail-card detail-card--full">
-        <h3>宝石与附魔</h3>
-        <div class="gem-enchant-grid">
-            {% if enchants %}
-            <div class="ge-col">
-                <h4>附魔</h4>
-                <div class="ge-list">
-                    {% for e in enchants %}
-                    <div class="ge-item">
-                        {% if e.icon %}<img src="{% wow_icon e.icon "small" %}" width="28" height="28" alt="{{ e.name }}">{% endif %}
-                        <div class="ge-info">
-                            <span class="ge-slot">{{ e.slot }}</span>
-                            <span class="ge-name">{{ e.name }}</span>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
-            {% if gems %}
-            <div class="ge-col">
-                <h4>宝石</h4>
-                <div class="ge-list">
-                    {% for g in gems %}
-                    <div class="ge-item">
-                        {% if g.icon %}<img src="{% wow_icon g.icon "small" %}" width="28" height="28" alt="{{ g.name }}">{% endif %}
-                        <div class="ge-info">
-                            <span class="ge-name">{{ g.name }}</span>
-                            <span class="ge-count">×{{ g.count }}</span>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
-        </div>
-    </section>
-    {% endif %}
-    {% endwith %}
 </div>
 
 <style>
