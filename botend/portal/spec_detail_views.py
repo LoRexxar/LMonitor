@@ -8,6 +8,7 @@
 
 import json
 import os
+from datetime import datetime
 
 from django.views import View
 from django.shortcuts import render
@@ -74,6 +75,12 @@ class SpecDetailPlayerView(View):
         if season_id:
             data = _load_json(season_id, class_name, spec_name, 'leaderboard.json')
             if data:
+                # JSON 反序列化后 updated_at 是字符串，转回 datetime
+                if isinstance(data.get('updated_at'), str):
+                    try:
+                        data['updated_at'] = datetime.fromisoformat(data['updated_at'])
+                    except (ValueError, TypeError):
+                        data['updated_at'] = None
                 ctx.update(data)
                 return render(request, 'portal/spec_detail/player_list.html', ctx)
 
