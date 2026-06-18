@@ -52,6 +52,45 @@ def _translate_race(race):
     return RACE_CN.get(race, race)
 
 
+def _aggregate_gems(gear_items):
+    """从装备列表聚合宝石，按名称去重计数"""
+    gem_counter = {}  # name -> {name, icon, id, count}
+    for item in gear_items:
+        gems = item.get('gems_detail') or []
+        for g in gems:
+            if not isinstance(g, dict):
+                continue
+            name = g.get('name') or f"#{g.get('id', '?')}"
+            if name not in gem_counter:
+                gem_counter[name] = {
+                    'name': name,
+                    'icon': _normalize_icon_name(g.get('icon', '')),
+                    'id': g.get('id'),
+                    'count': 0,
+                }
+            gem_counter[name]['count'] += 1
+    result = sorted(gem_counter.values(), key=lambda x: -x['count'])
+    return result
+
+
+def _aggregate_enchants(gear_items):
+    """从装备列表聚合附魔，按槽位展示"""
+    result = []
+    for item in gear_items:
+        enchants = item.get('enchants_detail') or []
+        for e in enchants:
+            if not isinstance(e, dict):
+                continue
+            name = e.get('name') or f"#{e.get('id', '?')}"
+            result.append({
+                'name': name,
+                'icon': _normalize_icon_name(e.get('icon', '')),
+                'id': e.get('id'),
+                'slot': item.get('slot', ''),
+            })
+    return result
+
+
 def _normalize_icon_name(icon):
     icon = str(icon or '').strip()
     if not icon:
@@ -187,6 +226,8 @@ class SpecStatsService:
             'stats': player_stats,
             'stats_source': _describe_player_stats_source(player),
             'last_updated': player.last_updated,
+            'aggregated_gems': _aggregate_gems(gear_items),
+            'aggregated_enchants': _aggregate_enchants(gear_items),
         }
 
     # ========== M+ 副本统计 ==========

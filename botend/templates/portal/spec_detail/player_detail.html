@@ -282,25 +282,6 @@
                     {% if item.slot %}<span class="gear-slot-name">{{ item.slot }}</span>{% endif %}
                     <span class="gear-name-link">{{ item.name }}</span>
                     {% if item.itemLevel %}<span class="gear-ilvl">物品等级 {{ item.itemLevel }}</span>{% endif %}
-                    {% if item.gems_detail %}
-                    <span class="gear-extra-meta">
-                        宝石:
-                        {% for gem in item.gems_detail %}{% if gem.name %}{{ gem.name }}{% else %}#{{ gem.id }}{% endif %}{% if not forloop.last %} / {% endif %}{% endfor %}
-                    </span>
-                    {% elif item.gems %}
-                    <span class="gear-extra-meta">
-                        宝石:
-                        {% for gem in item.gems %}#{{ gem.id }}{% if not forloop.last %} / {% endif %}{% endfor %}
-                    </span>
-                    {% endif %}
-                    {% if item.enchants_detail %}
-                    <span class="gear-extra-meta">
-                        附魔:
-                        {% for enchant in item.enchants_detail %}
-                            {% if enchant.name %}{{ enchant.name }}{% else %}#{{ enchant.id }}{% endif %}{% if not forloop.last %} / {% endif %}
-                        {% endfor %}
-                    </span>
-                    {% endif %}
                     {% if item.bonusIDs %}
                     <span class="gear-extra-meta">BonusIDs: {{ item.bonusIDs|join:", " }}</span>
                     {% endif %}
@@ -310,6 +291,49 @@
         </div>
     </section>
     {% endif %}
+
+    {# 宝石与附魔独立板块 #}
+    {% with gems=player_detail.aggregated_gems enchants=player_detail.aggregated_enchants %}
+    {% if gems or enchants %}
+    <section class="detail-card detail-card--full">
+        <h3>宝石与附魔</h3>
+        <div class="gem-enchant-grid">
+            {% if enchants %}
+            <div class="ge-col">
+                <h4>附魔</h4>
+                <div class="ge-list">
+                    {% for e in enchants %}
+                    <div class="ge-item">
+                        {% if e.icon %}<img src="{% wow_icon e.icon "small" %}" width="28" height="28" alt="{{ e.name }}">{% endif %}
+                        <div class="ge-info">
+                            <span class="ge-slot">{{ e.slot }}</span>
+                            <span class="ge-name">{{ e.name }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if gems %}
+            <div class="ge-col">
+                <h4>宝石</h4>
+                <div class="ge-list">
+                    {% for g in gems %}
+                    <div class="ge-item">
+                        {% if g.icon %}<img src="{% wow_icon g.icon "small" %}" width="28" height="28" alt="{{ g.name }}">{% endif %}
+                        <div class="ge-info">
+                            <span class="ge-name">{{ g.name }}</span>
+                            <span class="ge-count">×{{ g.count }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+    {% endif %}
+    {% endwith %}
 </div>
 
 <style>
@@ -628,11 +652,24 @@
 .gear-name-link { color: #f8fafc; font-weight: 700; margin-bottom: 2px; }
 .gear-ilvl { color: #86efac; font-size: 12px; }
 .gear-extra-meta { display: block; color: #94a3b8; font-size: 11px; margin-top: 3px; word-break: break-word; }
+
+/* 宝石与附魔板块 */
+.gem-enchant-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.ge-col h4 { margin: 0 0 10px; color: #93c5fd; font-size: 14px; }
+.ge-list { display: flex; flex-direction: column; gap: 8px; }
+.ge-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(30,41,59,.6); border-radius: 10px; border: 1px solid rgba(148,163,184,.1); }
+.ge-item img { border-radius: 6px; flex-shrink: 0; }
+.ge-info { display: flex; flex-direction: column; min-width: 0; }
+.ge-slot { color: #64748b; font-size: 11px; }
+.ge-name { color: #e2e8f0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ge-count { color: #94a3b8; font-size: 12px; }
+
 .dot { width: 4px; height: 4px; border-radius: 50%; background: #475569; display: inline-block; }
 @media (max-width: 900px) {
     .player-hero-card, .section-head { flex-direction: column; }
     .player-hero-aside { align-items: flex-start; }
     .detail-grid, .gear-grid-detail { grid-template-columns: 1fr; }
+    .gem-enchant-grid { grid-template-columns: 1fr; }
     .talent-stage-scroll { margin: 0 -4px; }
 }
 @media (max-width: 640px) {
