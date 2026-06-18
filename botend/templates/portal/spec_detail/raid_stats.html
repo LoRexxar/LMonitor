@@ -214,9 +214,9 @@
         </div>
         {% endif %}
 
-        {% if boss_detail.gear_popularity %}
         <div class="section-block">
             <h4>装备热门度</h4>
+            {% if boss_detail.gear_popularity %}
             {% for slot, items in boss_detail.gear_popularity.items %}
             <div class="gear-slot-section">
                 <div class="slot-name">{{ slot|default:"未知部位" }}</div>
@@ -237,12 +237,14 @@
                 {% endfor %}
             </div>
             {% endfor %}
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
 
-        {% if boss_detail.gem_popularity %}
         <div class="section-block">
             <h4>宝石热门度</h4>
+            {% if boss_detail.gem_popularity %}
             {% for gem in boss_detail.gem_popularity %}
             <div class="gear-pop-row">
                 {% if gem.icon %}
@@ -255,12 +257,14 @@
                 <span class="popularity-pct">{{ gem.pct }}% ({{ gem.count }})</span>
             </div>
             {% endfor %}
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
 
-        {% if boss_detail.enchant_popularity %}
         <div class="section-block">
             <h4>附魔热门度</h4>
+            {% if boss_detail.enchant_popularity %}
             {% for ench in boss_detail.enchant_popularity %}
             <div class="gear-pop-row">
                 {% if ench.icon %}
@@ -273,12 +277,14 @@
                 <span class="popularity-pct">{{ ench.pct }}% ({{ ench.count }})</span>
             </div>
             {% endfor %}
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
 
-        {% if boss_detail.faction_distribution %}
         <div class="section-block">
             <h4>阵营分布</h4>
+            {% if boss_detail.faction_distribution %}
             <div class="stat-cards">
                 {% for fid, info in boss_detail.faction_distribution.items %}
                 <div class="stat-card">
@@ -288,12 +294,14 @@
                 </div>
                 {% endfor %}
             </div>
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
 
-        {% if boss_detail.top5 %}
         <div class="section-block">
             <h4>Top 5 DPS</h4>
+            {% if boss_detail.top5 %}
             <table class="data-table">
                 <thead>
                     <tr><th>#</th><th>角色</th><th>服务器</th><th>DPS</th><th>击杀时间</th></tr>
@@ -310,8 +318,10 @@
                 {% endfor %}
                 </tbody>
             </table>
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
 
     {% elif zone_groups %}
@@ -641,6 +651,7 @@
 .data-table tr:hover { background: #f8fafc; }
 .dps-val { font-weight: 700; color: #ef4444; }
 
+.aggregation-pending { color: #94a3b8; padding: 16px 0; font-size: 0.9em; }
 .empty-state { text-align: center; color: #999; padding: 60px; font-size: 1em; }
 .text-muted { color: #9ca3af; font-size: 0.85em; }
 

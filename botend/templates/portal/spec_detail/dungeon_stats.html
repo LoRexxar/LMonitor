@@ -94,17 +94,22 @@
         </div>
         {% endif %}
 
-        {% if dungeon_detail.faction_distribution %}
-        <div class="stat-cards" style="margin-top:12px;">
-            {% for fid, info in dungeon_detail.faction_distribution.items %}
-            <div class="stat-card">
-                <div class="stat-label">{% if fid == "0" %}联盟{% elif fid == "1" %}部落{% else %}{{ fid }}{% endif %}</div>
-                <div class="stat-value">{{ info.pct }}%</div>
-                <div class="text-muted" style="font-size:12px;">{{ info.count }} 人</div>
+        <div class="section-block">
+            <h4>阵营分布</h4>
+            {% if dungeon_detail.faction_distribution %}
+            <div class="stat-cards">
+                {% for fid, info in dungeon_detail.faction_distribution.items %}
+                <div class="stat-card">
+                    <div class="stat-label">{% if fid == "0" %}联盟{% elif fid == "1" %}部落{% else %}{{ fid }}{% endif %}</div>
+                    <div class="stat-value">{{ info.pct }}%</div>
+                    <div class="text-muted" style="font-size:12px;">{{ info.count }} 人</div>
+                </div>
+                {% endfor %}
             </div>
-            {% endfor %}
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
 
         <!-- 天赋热门度 -->
         {% if dungeon_detail.talent_popularity_tree.render_model %}
@@ -261,9 +266,9 @@
         {% endif %}
 
         <!-- 装备热门度 -->
-        {% if dungeon_detail.gear_popularity %}
         <div class="section-block">
             <h4>装备热门度</h4>
+            {% if dungeon_detail.gear_popularity %}
             {% for slot, items in dungeon_detail.gear_popularity.items %}
             <div class="gear-slot-section">
                 <div class="slot-name">{{ slot|default:"未知部位" }}</div>
@@ -284,12 +289,14 @@
                 {% endfor %}
             </div>
             {% endfor %}
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
 
-        {% if dungeon_detail.gem_popularity %}
         <div class="section-block">
             <h4>宝石热门度</h4>
+            {% if dungeon_detail.gem_popularity %}
             {% for gem in dungeon_detail.gem_popularity %}
             <div class="gear-pop-row">
                 {% if gem.icon %}
@@ -302,12 +309,14 @@
                 <span class="popularity-pct">{{ gem.pct }}% ({{ gem.count }})</span>
             </div>
             {% endfor %}
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
 
-        {% if dungeon_detail.enchant_popularity %}
         <div class="section-block">
             <h4>附魔热门度</h4>
+            {% if dungeon_detail.enchant_popularity %}
             {% for ench in dungeon_detail.enchant_popularity %}
             <div class="gear-pop-row">
                 {% if ench.icon %}
@@ -320,12 +329,14 @@
                 <span class="popularity-pct">{{ ench.pct }}% ({{ ench.count }})</span>
             </div>
             {% endfor %}
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
 
-        {% if dungeon_detail.affixes_distribution %}
         <div class="section-block">
             <h4>词缀分布</h4>
+            {% if dungeon_detail.affixes_distribution %}
             {% for combo, info in dungeon_detail.affixes_distribution.items %}
             <div class="gear-pop-row">
                 <span style="font-family:monospace;min-width:120px;">{{ combo }}</span>
@@ -335,12 +346,14 @@
                 <span class="popularity-pct">{{ info.pct }}% ({{ info.count }})</span>
             </div>
             {% endfor %}
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
 
-        {% if dungeon_detail.top5 %}
         <div class="section-block">
             <h4>Top 5 DPS</h4>
+            {% if dungeon_detail.top5 %}
             <table class="data-table">
                 <thead>
                     <tr><th>#</th><th>角色</th><th>服务器</th><th>DPS</th><th>钥石</th><th>时间</th></tr>
@@ -358,8 +371,10 @@
                 {% endfor %}
                 </tbody>
             </table>
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
 
     {% elif dungeons %}
@@ -729,6 +744,7 @@
 .data-table tr:hover { background: #f8fafc; }
 .dps-val { font-weight: 700; color: #ef4444; }
 
+.aggregation-pending { color: #94a3b8; padding: 16px 0; font-size: 0.9em; }
 .empty-state { text-align: center; color: #999; padding: 60px; font-size: 1em; }
 .text-muted { color: #9ca3af; font-size: 0.85em; }
 </style>
