@@ -2,7 +2,12 @@
 """
 专精详情页视图
 4 个页面：人物榜、玩家详情、M+ 副本统计、团本统计
+
+数据来源：聚合 JSON 文件（由 aggregate_spec_stats 命令生成）
 """
+
+import json
+import os
 
 from django.views import View
 from django.shortcuts import render
@@ -10,6 +15,9 @@ from django.http import Http404
 
 from botend.services.spec_stats_service import SpecStatsService
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE
+
+
+AGGREGATED_DIR = os.path.join('media', 'aggregated')
 
 
 def _validate_spec(class_name, spec_name):
@@ -45,6 +53,15 @@ def _base_context(class_name, spec_name):
     }
 
 
+def _load_json(season_id, class_name, spec_name, filename):
+    """从聚合目录加载 JSON 文件"""
+    path = os.path.join(AGGREGATED_DIR, str(season_id), class_name, spec_name, filename)
+    if not os.path.exists(path):
+        return None
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
 class SpecDetailPlayerView(View):
     """人物榜页面"""
 
@@ -52,9 +69,17 @@ class SpecDetailPlayerView(View):
         _validate_spec(class_name, spec_name)
 
         ctx = _base_context(class_name, spec_name)
+        season_id = ctx['season'].id if ctx['season'] else None
+
+        if season_id:
+            data = _load_json(season_id, class_name, spec_name, 'leaderboard.json')
+            if data:
+                ctx.update(data)
+                return render(request, 'portal/spec_detail/player_list.html', ctx)
+
+        # fallback: 实时查询
         player_data = SpecStatsService.get_player_list(class_name, spec_name)
         ctx.update(player_data)
-
         return render(request, 'portal/spec_detail/player_list.html', ctx)
 
 
@@ -80,15 +105,32 @@ class SpecDetailDungeonView(View):
         _validate_spec(class_name, spec_name)
 
         ctx = _base_context(class_name, spec_name)
-
+        season_id = ctx['season'].id if ctx['season'] else None
         dungeon_id = request.GET.get('dungeon_id')
+
+        if season_id:
+            data = _load_json(season_id, class_name, spec_name, 'dungeon.json')
+            if data:
+                dungeons = data.get('dungeons', [])
+                if dungeon_id:
+                    # 详情页：从列表中提取指定副本
+                    did = int(dungeon_id)
+                    detail = next((d for d in dungeons if d.get('dungeon_id') == did), None)
+                    if detail:
+                        ctx['dungeon_detail'] = detail
+                    else:
+                        ctx['dungeons'] = dungeons
+                else:
+                    ctx['dungeons'] = dungeons
+                return render(request, 'portal/spec_detail/dungeon_stats.html', ctx)
+
+        # fallback: 实时查询
         if dungeon_id:
             ctx['dungeon_detail'] = SpecStatsService.get_dungeon_detail(
                 int(dungeon_id), class_name, spec_name
             )
         else:
             ctx['dungeons'] = SpecStatsService.get_dungeon_overview(class_name, spec_name)
-
         return render(request, 'portal/spec_detail/dungeon_stats.html', ctx)
 
 
@@ -99,14 +141,37 @@ class SpecDetailRaidView(View):
         _validate_spec(class_name, spec_name)
 
         ctx = _base_context(class_name, spec_name)
-
+        season_id = ctx['season'].id if ctx['season'] else None
         boss_id = request.GET.get('boss_id')
+
+        if season_id:
+            data = _load_json(season_id, class_name, spec_name, 'raid.json')
+            if data:
+                zone_groups = data.get('zone_groups', [])
+                if boss_id:
+                    # 详情页：从 zone_groups 中提取指定 boss
+                    bid = int(boss_id)
+                    detail = None
+                    for zg in zone_groups:
+                        for b in zg.get('bosses', []):
+                            if b.get('boss_id') == bid:
+                                detail = b
+                                break
+                        if detail:
+                            break
+                    if detail:
+                        ctx['boss_detail'] = detail
+                    else:
+                        ctx['zone_groups'] = zone_groups
+                else:
+                    ctx['zone_groups'] = zone_groups
+                return render(request, 'portal/spec_detail/raid_stats.html', ctx)
+
+        # fallback: 实时查询
         if boss_id:
             ctx['boss_detail'] = SpecStatsService.get_raid_detail(
                 int(boss_id), class_name, spec_name
             )
         else:
-            zone_groups = SpecStatsService.get_raid_overview(class_name, spec_name)
-            ctx['zone_groups'] = zone_groups
-
+            ctx['zone_groups'] = SpecStatsService.get_raid_overview(class_name, spec_name)
         return render(request, 'portal/spec_detail/raid_stats.html', ctx)
