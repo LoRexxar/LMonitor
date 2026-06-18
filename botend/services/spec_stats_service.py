@@ -1224,15 +1224,30 @@ def _compute_enchant_popularity(enchant_records, top_n=20):
     return result
 
 
+_GEAR_DEFAULT_SLOTS = [
+    'head', 'neck', 'shoulder', 'shirt', 'chest', 'waist', 'legs', 'feet',
+    'wrist', 'hands', 'finger1', 'finger2', 'trinket1', 'trinket2',
+    'back', 'main_hand', 'off_hand', 'tabard',
+]
+
+
 def _compute_gear_popularity(records, top_n=5):
     """计算装备选取率（每个槽位 Top N）"""
-    slot_items = {}  # slot → Counter(itemID)
-    slot_item_info = {}  # (slot, itemID) → {name, icon}
+    slot_items = {}  # cn_slot → Counter(itemID)
+    slot_item_info = {}  # (cn_slot, itemID) → {name, icon}
 
     for r in records:
         gear = r.get('gear_json') or []
-        for g in gear:
+        # 如果所有装备 slot 都是 unknown，按顺序分配栏位
+        all_unknown = gear and all(
+            (g.get('slot', 'unknown') in ('unknown', '')) for g in gear if isinstance(g, dict)
+        )
+        for idx, g in enumerate(gear):
+            if not isinstance(g, dict):
+                continue
             slot = g.get('slot', 'unknown')
+            if all_unknown and slot in ('unknown', ''):
+                slot = _GEAR_DEFAULT_SLOTS[idx] if idx < len(_GEAR_DEFAULT_SLOTS) else f'slot_{idx}'
             cn_slot = SLOT_CN.get(slot, slot)
             item_id = g.get('id')
             if not item_id:
