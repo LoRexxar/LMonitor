@@ -172,6 +172,8 @@ class TalentMetadataProvider:
             'description': resolver.resolve(desc, spell_id),
             'description_zh': resolver.resolve(desc_zh, spell_id),
             'db2_subtree_id': getattr(row, 'db2_subtree_id', 0) or 0,
+            'db2_tree_id': getattr(row, 'db2_tree_id', None),
+            'db2_component_id': getattr(row, 'db2_component_id', 0) or 0,
             'selected': False,
             'points': 0,
         }

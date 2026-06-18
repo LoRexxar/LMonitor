@@ -934,6 +934,8 @@ class WowTalentNodeMetadata(models.Model):
     source = models.CharField(max_length=32, default="derived", blank=True)
     last_updated = models.DateTimeField(default=timezone.now)
     db2_subtree_id = models.IntegerField(default=0, blank=True)
+    db2_tree_id = models.IntegerField(null=True, blank=True)
+    db2_component_id = models.IntegerField(default=0, blank=True)
 
     class Meta:
         db_table = 'wow_talent_node_metadata'

@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from botend.constants.wow import CLASS_SPEC_MAP
 from botend.models import WowTalentNodeMetadata
+from botend.wow.talents.db2_components import TalentDb2ComponentResolver
 
 
 class Command(BaseCommand):
@@ -130,6 +131,9 @@ class Command(BaseCommand):
                 edges_by_right[right].append(left)
         self.stdout.write(f'  TraitEdge: {sum(len(v) for v in edges_by_right.values())} entries')
 
+        component_resolver = TalentDb2ComponentResolver(dump_dir)
+        self.stdout.write(f'  Spec components: {sum(len(v) for v in component_resolver.tree_components.values())} components')
+
         # 7. TraitSubTree
         subtrees = {}
         subtree_path = os.path.join(dump_dir, 'TraitSubTree.csv')
@@ -205,6 +209,17 @@ class Command(BaseCommand):
                         tree_type = 'class'
                     else:
                         tree_type = 'spec'
+
+                    db2_tree_id = node_info['tree_id']
+                    db2_component_id = component_resolver.component_id_for_trait_node(trait_node_id)
+                    target_spec_component_ids = set()
+                    if tree_type == 'spec':
+                        target_spec_component_ids = component_resolver.get_spec_component_ids(
+                            cls_name, spec_name, db2_tree_id
+                        )
+                        if target_spec_component_ids and db2_component_id not in target_spec_component_ids:
+                            skipped += 1
+                            continue
 
                     # 获取所有 entry_ids for this trait_node
                     entry_ids = node_to_entries.get(trait_node_id, [])
@@ -286,6 +301,8 @@ class Command(BaseCommand):
                             parents_json=sorted(parent_entry_ids),
                             source='db2_backfill',
                             db2_subtree_id=subtree_id,
+                            db2_tree_id=db2_tree_id,
+                            db2_component_id=db2_component_id,
                             display_spell_id=display_spell_id,
                             last_updated=now,
                         )
