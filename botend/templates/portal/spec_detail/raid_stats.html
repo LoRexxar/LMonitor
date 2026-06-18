@@ -333,44 +333,39 @@
         <span class="zone-name-en">{{ zone.zone_name }}</span>
     </div>
     {% endif %}
-    <div class="dungeon-grid">
-    {% for b in zone.bosses %}
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/?boss_id={{ b.boss_id }}" class="dungeon-card-link">
-            <div class="dungeon-card">
-                <h3 class="dungeon-name">{{ b.boss_name }}</h3>
-                <div class="dungeon-meta">
-                    <span>样本: {{ b.sample_size }}</span>
-                    {% if b.dps %}
-                    <span>平均 DPS: <strong>{{ b.dps.avg|floatformat:0 }}</strong></span>
-                    <span>最高: <strong>{{ b.dps.max|floatformat:0 }}</strong></span>
-                    {% endif %}
-                    {% if b.kill_time %}
-                    <span>平均击杀: <strong>{{ b.kill_time.avg_fmt }}</strong></span>
-                    {% endif %}
-                    {% if b.faction_distribution %}
-                    <span>联盟: <strong>{% for fid, info in b.faction_distribution.items %}{% if fid == "0" %}{{ info.pct }}%{% endif %}{% endfor %}</strong></span>
-                    {% endif %}
-                </div>
-
-                {% if b.talent_usage %}
-                <div class="talent-preview">
-                    {% for node in b.talent_usage|slice:":6" %}
-                    <span class="talent-chip{% if node.usage_pct > 90 %} gold{% elif node.usage_pct > 70 %} purple{% endif %}">
-                        {% if node.icon %}
-                        <img src="{% wow_icon node.icon "tiny" %}" width="20" height="20" style="border-radius:50%">
-                        {% else %}
-                        <span class="chip-placeholder">?</span>
-                        {% endif %}
-                        <span class="chip-pct">{{ node.usage_pct }}%</span>
-                    </span>
-                    {% endfor %}
-                </div>
-                {% endif %}
-            </div>
-        </a>
-    {% empty %}
-        <div class="empty-state">暂时没有内容，聚合任务尚未完成</div>
-    {% endfor %}
+    <div class="boss-list-section">
+        <table class="data-table boss-list-table">
+            <thead>
+                <tr>
+                    <th>Boss 名称</th>
+                    <th>样本</th>
+                    <th>平均 DPS</th>
+                    <th>最高 DPS</th>
+                    <th>平均击杀</th>
+                    <th>阵营</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for b in zone.bosses %}
+                <tr class="boss-row" onclick="window.location='/portal/spec/{{ class_name }}/{{ spec_name }}/raid/?boss_id={{ b.boss_id }}'">
+                    <td><strong>{{ b.boss_name }}</strong></td>
+                    <td>{{ b.sample_size }}</td>
+                    <td>{{ b.dps.avg|floatformat:0|default:"-" }}</td>
+                    <td>{{ b.dps.max|floatformat:0|default:"-" }}</td>
+                    <td>{{ b.kill_time.avg_fmt|default:"-" }}</td>
+                    <td>
+                        {% if b.faction_distribution %}
+                            {% for fid, info in b.faction_distribution.items %}
+                                {% if fid == "0" %}联盟 {{ info.pct }}%{% elif fid == "1" %}部落 {{ info.pct }}%{% endif %}{% if not forloop.last %} / {% endif %}
+                            {% endfor %}
+                        {% else %}-{% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="6" class="empty-state">暂时没有内容，聚合任务尚未完成</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
     </div>
     {% endfor %}
     {% else %}
@@ -650,6 +645,11 @@
 .data-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
 .data-table tr:hover { background: #f8fafc; }
 .dps-val { font-weight: 700; color: #ef4444; }
+
+/* ===== List Tables ===== */
+.dungeon-list-section, .boss-list-section { margin-top: 20px; }
+.dungeon-row, .boss-row { cursor: pointer; transition: background 0.2s; }
+.dungeon-row:hover, .boss-row:hover { background: #f0f9ff !important; }
 
 .aggregation-pending { color: #94a3b8; padding: 16px 0; font-size: 0.9em; }
 .empty-state { text-align: center; color: #999; padding: 60px; font-size: 1em; }

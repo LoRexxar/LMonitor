@@ -379,62 +379,43 @@
 
     {% elif dungeons %}
     <!-- 副本列表 -->
-    <div class="dungeon-grid">
-    {% for d in dungeons %}
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/?dungeon_id={{ d.dungeon_id }}" class="dungeon-card-link">
-            <div class="dungeon-card">
-                <h3 class="dungeon-name">{{ d.dungeon_name }}</h3>
-                <div class="dungeon-meta">
-                    <span>样本: {{ d.sample_size }}</span>
-                    {% if d.dps %}
-                    <span>平均 DPS: <strong>{{ d.dps.avg|floatformat:0 }}</strong></span>
-                    <span>最高: <strong>{{ d.dps.max|floatformat:0 }}</strong></span>
-                    {% endif %}
-                    {% if d.keystone %}
-                    <span>平均钥石: <strong>+{{ d.keystone.avg|floatformat:1 }}</strong></span>
-                    {% endif %}
-                    {% if d.clear_time %}
-                    <span>平均时间: <strong>{{ d.clear_time.avg_fmt }}</strong></span>
-                    {% endif %}
-                    {% if d.score %}
-                    <span>平均分数: <strong>{{ d.score.avg|floatformat:0 }}</strong></span>
-                    {% endif %}
-                </div>
-
-                <!-- DPS 分布条 -->
-                {% if d.dps %}
-                <div class="dps-bar-wrap">
-                    <div class="dps-bar">
-                        <div class="dps-range" style="left:{{ d.dps.p25_pct }}%;width:{{ d.dps.iqr_pct }}%;"></div>
-                        <div class="dps-median" style="left:{{ d.dps.median_pct }}%;"></div>
-                    </div>
-                    <div class="dps-bar-labels">
-                        <span>{{ d.dps.min|floatformat:0 }}</span>
-                        <span>{{ d.dps.max|floatformat:0 }}</span>
-                    </div>
-                </div>
-                {% endif %}
-
-                <!-- 天赋预览 -->
-                {% if d.talent_usage %}
-                <div class="talent-preview">
-                    {% for node in d.talent_usage|slice:":6" %}
-                    <span class="talent-chip{% if node.usage_pct > 90 %} gold{% elif node.usage_pct > 70 %} purple{% endif %}">
-                        {% if node.icon %}
-                        <img src="{% wow_icon node.icon "tiny" %}" width="20" height="20" style="border-radius:50%">
-                        {% else %}
-                        <span class="chip-placeholder">?</span>
-                        {% endif %}
-                        <span class="chip-pct">{{ node.usage_pct }}%</span>
-                    </span>
-                    {% endfor %}
-                </div>
-                {% endif %}
-            </div>
-        </a>
-    {% empty %}
-        <div class="empty-state">暂时没有内容，聚合任务尚未完成</div>
-    {% endfor %}
+    <div class="dungeon-list-section">
+        <table class="data-table dungeon-list-table">
+            <thead>
+                <tr>
+                    <th>副本名称</th>
+                    <th>样本</th>
+                    <th>平均 DPS</th>
+                    <th>最高 DPS</th>
+                    <th>平均钥石</th>
+                    <th>平均时间</th>
+                    <th>平均分数</th>
+                    <th>阵营</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for d in dungeons %}
+                <tr class="dungeon-row" onclick="window.location='/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/?dungeon_id={{ d.dungeon_id }}'">
+                    <td><strong>{{ d.dungeon_name }}</strong></td>
+                    <td>{{ d.sample_size }}</td>
+                    <td>{{ d.dps.avg|floatformat:0|default:"-" }}</td>
+                    <td>{{ d.dps.max|floatformat:0|default:"-" }}</td>
+                    <td>{{ d.keystone.avg|floatformat:1|default:"-" }}{% if d.keystone.avg %}+{% endif %}</td>
+                    <td>{{ d.clear_time.avg_fmt|default:"-" }}</td>
+                    <td>{{ d.score.avg|floatformat:0|default:"-" }}</td>
+                    <td>
+                        {% if d.faction_distribution %}
+                            {% for fid, info in d.faction_distribution.items %}
+                                {% if fid == "0" %}联盟 {{ info.pct }}%{% elif fid == "1" %}部落 {{ info.pct }}%{% endif %}{% if not forloop.last %} / {% endif %}
+                            {% endfor %}
+                        {% else %}-{% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="8" class="empty-state">暂时没有内容，聚合任务尚未完成</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
     </div>
     {% else %}
         <div class="empty-state">暂时没有内容，聚合任务尚未完成</div>
@@ -743,6 +724,11 @@
 .data-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
 .data-table tr:hover { background: #f8fafc; }
 .dps-val { font-weight: 700; color: #ef4444; }
+
+/* ===== List Tables ===== */
+.dungeon-list-section, .boss-list-section { margin-top: 20px; }
+.dungeon-row, .boss-row { cursor: pointer; transition: background 0.2s; }
+.dungeon-row:hover, .boss-row:hover { background: #f0f9ff !important; }
 
 .aggregation-pending { color: #94a3b8; padding: 16px 0; font-size: 0.9em; }
 .empty-state { text-align: center; color: #999; padding: 60px; font-size: 1em; }
