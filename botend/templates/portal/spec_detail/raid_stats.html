@@ -240,6 +240,21 @@
         </div>
         {% endif %}
 
+        {% if boss_detail.faction_distribution %}
+        <div class="section-block">
+            <h4>阵营分布</h4>
+            <div class="stat-cards">
+                {% for fid, info in boss_detail.faction_distribution.items %}
+                <div class="stat-card">
+                    <div class="stat-label">{% if fid == "0" %}联盟{% elif fid == "1" %}部落{% else %}{{ fid }}{% endif %}</div>
+                    <div class="stat-value">{{ info.pct }}%</div>
+                    <div class="text-muted" style="font-size:12px;">{{ info.count }} 人</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if boss_detail.top5 %}
         <div class="section-block">
             <h4>Top 5 DPS</h4>
