@@ -275,13 +275,11 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
     def _enrich_talents(self, players):
         """为 Top 20 玩家补充结构化天赋+装备数据。
         
-        天赋优先从本地 dungeon_ranking / raid_ranking 表匹配（WCL 数据，最完整）。
-        装备与角色资料优先使用 Raider.IO profile（字段更完整）。
+        执行顺序：
+        1. 先调用 Raider.IO profile 获取装备+天赋（数据最完整，有 enchants_detail/gems_detail）
+        2. 再从本地 ranking 表补充缺失的天赋（WCL 的天赋数据更可靠）
         """
-        # 先从本地 ranking 表批量匹配
-        self._enrich_from_local_rankings(players)
-
-        # 再为所有玩家调用 Raider.IO profile，补角色资料与更完整的装备字段
+        # 先为所有玩家调用 Raider.IO profile，获取装备+天赋（优先级最高）
         for player in players:
             region = player.get('region', '')
             realm = player.get('realm', '')
@@ -301,6 +299,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
                 gear_items = self._parse_rio_gear(char_data.get('gear'))
                 if gear_items:
+                    # 始终用 Raider.IO profile 覆盖（数据更完整：有 enchants_detail/gems_detail/slot）
                     player['gear'] = self._normalize_gear_list(gear_items)
 
                 profile_ilvl = self._coerce_item_level(char_data.get('gear'))
@@ -333,6 +332,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
 
             time.sleep(0.2)  # Raider.IO rate limit
+
+        # 再从本地 ranking 表补充缺失的天赋（WCL 的 talents_json 更可靠）
+        self._enrich_from_local_rankings(players)
 
     @staticmethod
     def _has_display_ready_talents(talents):
