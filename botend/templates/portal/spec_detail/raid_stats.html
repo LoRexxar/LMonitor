@@ -254,7 +254,7 @@
                         <td>{{ r.character_name }}</td>
                         <td>{{ r.realm }}-{{ r.region|upper }}</td>
                         <td class="dps-val">{{ r.dps|floatformat:0 }}</td>
-                        <td>{{ r.kill_time|default:"-" }}</td>
+                        <td>{{ r.kill_time_fmt|default:"-" }}</td>
                     </tr>
                 {% endfor %}
                 </tbody>
@@ -305,12 +305,12 @@
             </div>
         </a>
     {% empty %}
-        <div class="empty-state">暂无该团本数据</div>
+        <div class="empty-state">暂时没有内容，聚合任务尚未完成</div>
     {% endfor %}
     </div>
     {% endfor %}
     {% else %}
-        <div class="empty-state">暂无数据，请等待采集完成</div>
+        <div class="empty-state">暂时没有内容，聚合任务尚未完成</div>
     {% endif %}
 </div>
 

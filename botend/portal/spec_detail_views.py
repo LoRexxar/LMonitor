@@ -3,7 +3,8 @@
 专精详情页视图
 4 个页面：人物榜、玩家详情、M+ 副本统计、团本统计
 
-数据来源：聚合 JSON 文件（由 aggregate_spec_stats 命令生成）
+数据来源：聚合 JSON 文件（由 SpecDetailAggregationMonitor 生成）
+无 JSON 时显示「暂时没有内容」，不做实时查询。
 """
 
 import json
@@ -55,7 +56,7 @@ def _base_context(class_name, spec_name):
 
 
 def _load_json(season_id, class_name, spec_name, filename):
-    """从聚合目录加载 JSON 文件"""
+    """从聚合目录加载 JSON 文件，不存在返回 None"""
     path = os.path.join(AGGREGATED_DIR, str(season_id), class_name, spec_name, filename)
     if not os.path.exists(path):
         return None
@@ -68,14 +69,12 @@ class SpecDetailPlayerView(View):
 
     def get(self, request, class_name, spec_name):
         _validate_spec(class_name, spec_name)
-
         ctx = _base_context(class_name, spec_name)
         season_id = ctx['season'].id if ctx['season'] else None
 
         if season_id:
             data = _load_json(season_id, class_name, spec_name, 'leaderboard.json')
             if data:
-                # JSON 反序列化后 updated_at 是字符串，转回 datetime
                 if isinstance(data.get('updated_at'), str):
                     try:
                         data['updated_at'] = datetime.fromisoformat(data['updated_at'])
@@ -84,9 +83,9 @@ class SpecDetailPlayerView(View):
                 ctx.update(data)
                 return render(request, 'portal/spec_detail/player_list.html', ctx)
 
-        # fallback: 实时查询
-        player_data = SpecStatsService.get_player_list(class_name, spec_name)
-        ctx.update(player_data)
+        # 无 JSON → 空数据，模板显示「暂时没有内容」
+        ctx['players'] = []
+        ctx['total'] = 0
         return render(request, 'portal/spec_detail/player_list.html', ctx)
 
 
@@ -95,7 +94,6 @@ class SpecDetailPlayerDetailView(View):
 
     def get(self, request, class_name, spec_name, player_id):
         _validate_spec(class_name, spec_name)
-
         ctx = _base_context(class_name, spec_name)
         ctx['player_detail'] = SpecStatsService.get_player_detail(player_id)
 
@@ -110,7 +108,6 @@ class SpecDetailDungeonView(View):
 
     def get(self, request, class_name, spec_name):
         _validate_spec(class_name, spec_name)
-
         ctx = _base_context(class_name, spec_name)
         season_id = ctx['season'].id if ctx['season'] else None
         dungeon_id = request.GET.get('dungeon_id')
@@ -120,7 +117,6 @@ class SpecDetailDungeonView(View):
             if data:
                 dungeons = data.get('dungeons', [])
                 if dungeon_id:
-                    # 详情页：从列表中提取指定副本
                     did = int(dungeon_id)
                     detail = next((d for d in dungeons if d.get('dungeon_id') == did), None)
                     if detail:
@@ -131,13 +127,7 @@ class SpecDetailDungeonView(View):
                     ctx['dungeons'] = dungeons
                 return render(request, 'portal/spec_detail/dungeon_stats.html', ctx)
 
-        # fallback: 实时查询
-        if dungeon_id:
-            ctx['dungeon_detail'] = SpecStatsService.get_dungeon_detail(
-                int(dungeon_id), class_name, spec_name
-            )
-        else:
-            ctx['dungeons'] = SpecStatsService.get_dungeon_overview(class_name, spec_name)
+        # 无 JSON → 空数据
         return render(request, 'portal/spec_detail/dungeon_stats.html', ctx)
 
 
@@ -146,7 +136,6 @@ class SpecDetailRaidView(View):
 
     def get(self, request, class_name, spec_name):
         _validate_spec(class_name, spec_name)
-
         ctx = _base_context(class_name, spec_name)
         season_id = ctx['season'].id if ctx['season'] else None
         boss_id = request.GET.get('boss_id')
@@ -156,7 +145,6 @@ class SpecDetailRaidView(View):
             if data:
                 zone_groups = data.get('zone_groups', [])
                 if boss_id:
-                    # 详情页：从 zone_groups 中提取指定 boss
                     bid = int(boss_id)
                     detail = None
                     for zg in zone_groups:
@@ -174,11 +162,5 @@ class SpecDetailRaidView(View):
                     ctx['zone_groups'] = zone_groups
                 return render(request, 'portal/spec_detail/raid_stats.html', ctx)
 
-        # fallback: 实时查询
-        if boss_id:
-            ctx['boss_detail'] = SpecStatsService.get_raid_detail(
-                int(boss_id), class_name, spec_name
-            )
-        else:
-            ctx['zone_groups'] = SpecStatsService.get_raid_overview(class_name, spec_name)
+        # 无 JSON → 空数据
         return render(request, 'portal/spec_detail/raid_stats.html', ctx)

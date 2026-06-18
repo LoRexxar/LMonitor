@@ -531,6 +531,10 @@ class SpecStatsService:
             full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
                                       'character_name', 'realm', 'region', 'dps', 'kill_time'))
             stats['top5'] = sorted(full_records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
+            # 格式化 top5 击杀时间
+            for r in stats['top5']:
+                if r.get('kill_time'):
+                    r['kill_time_fmt'] = _ms_to_time(r['kill_time'])
 
         return stats
 

@@ -269,7 +269,7 @@
                         <td>{{ r.realm }}-{{ r.region|upper }}</td>
                         <td class="dps-val">{{ r.dps|floatformat:0 }}</td>
                         <td>+{{ r.keystone_level|default:"-" }}</td>
-                        <td>{{ r.clear_time|default:"-" }}</td>
+                        <td>{{ r.clear_time_fmt|default:"-" }}</td>
                     </tr>
                 {% endfor %}
                 </tbody>
@@ -331,11 +331,11 @@
             </div>
         </a>
     {% empty %}
-        <div class="empty-state">暂无大秘境数据，请等待采集完成</div>
+        <div class="empty-state">暂时没有内容，聚合任务尚未完成</div>
     {% endfor %}
     </div>
     {% else %}
-        <div class="empty-state">暂无数据，请等待采集完成</div>
+        <div class="empty-state">暂时没有内容，聚合任务尚未完成</div>
     {% endif %}
 </div>
 
