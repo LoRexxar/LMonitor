@@ -58,6 +58,22 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
         return ok
 
+    def _fetch_rankings_with_retry(self, enc_id, class_name, spec_name, metric='dps', difficulty=None, max_retries=5):
+        """带加强重试的排名获取，处理限流和临时错误"""
+        for attempt in range(max_retries):
+            rankings = self.fetch_wcl_rankings(enc_id, class_name, spec_name, metric, difficulty=difficulty)
+            if rankings is not None:
+                return rankings
+
+            # fetch_wcl_rankings 返回 None 可能是限流或临时错误
+            wait = min(2 ** attempt * 3, 60)
+            logger.warning(f"[SpecDetailRanking] 获取失败 {enc_id}/{class_name}/{spec_name}, "
+                          f"重试 {attempt+1}/{max_retries}, 等待 {wait}s")
+            time.sleep(wait)
+
+        logger.error(f"[SpecDetailRanking] 获取失败（已耗尽重试）: {enc_id}/{class_name}/{spec_name}")
+        return None
+
     def _collect_dungeon_rankings(self, season):
         """采集 M+ 副本排名"""
         logger.info(f"[SpecDetailRanking] 采集 M+ 排名: {len(season.mplus_encounters)} 副本 x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
@@ -124,7 +140,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         return True
 
     def _collect_raid_rankings(self, season):
-        """采集团本排名（Mythic only）"""
+        """采集团本排名（Mythic only），每个 boss 独立事务 + bulk_create"""
         logger.info(f"[SpecDetailRanking] 采集团本排名: {len(season.raid_encounters)} Boss x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
         total = 0
@@ -140,59 +156,73 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                         'zone_name': rz.get('name', ''),
                     }
 
-        with transaction.atomic():
-            # 全量覆盖：删除该赛季旧数据
-            SpecRaidRanking.objects.filter(season_id=season.id).delete()
+        for idx, encounter in enumerate(season.raid_encounters):
+            enc_id = encounter['id']
+            enc_name = encounter['name']
+            zone_info = enc_zone_map.get(enc_id, {})
 
-            for encounter in season.raid_encounters:
-                enc_id = encounter['id']
-                enc_name = encounter['name']
-                zone_info = enc_zone_map.get(enc_id, {})
+            # Phase 1: 先收集该 boss 所有数据（无事务）
+            records = []
+            for class_name, specs in CLASS_SPEC_MAP.items():
+                for spec_name in specs:
+                    rankings = self._fetch_rankings_with_retry(
+                        enc_id, class_name, spec_name, 'dps', difficulty=5
+                    )
+                    if not rankings:
+                        time.sleep(0.3)
+                        continue
 
-                for class_name, specs in CLASS_SPEC_MAP.items():
-                    for spec_name in specs:
-                        rankings = self.fetch_wcl_rankings(enc_id, class_name, spec_name, 'dps', difficulty=5)
-                        if not rankings:
-                            time.sleep(0.3)
-                            continue
+                    rank_list = rankings.get('rankings', [])
+                    for r in rank_list:
+                        try:
+                            server = r.get('server', {}) or {}
+                            report = r.get('report', {}) or {}
+                            guild = r.get('guild', {}) or {}
 
-                        rank_list = rankings.get('rankings', [])
-                        for r in rank_list:
-                            try:
-                                server = r.get('server', {}) or {}
-                                report = r.get('report', {}) or {}
-                                guild = r.get('guild', {}) or {}
+                            talents_payload = self.parse_wcl_talents(r.get('talents', []))
+                            records.append(SpecRaidRanking(
+                                season_id=season.id,
+                                boss_id=enc_id,
+                                boss_name=enc_name,
+                                raid_zone_id=zone_info.get('zone_id'),
+                                raid_zone_name=zone_info.get('zone_name', ''),
+                                class_name=class_name,
+                                spec_name=spec_name,
+                                character_name=r.get('name', ''),
+                                realm=server.get('name', ''),
+                                region=server.get('region', ''),
+                                dps=r.get('amount', 0),
+                                kill_time=r.get('duration'),
+                                talents_json=talents_payload,
+                                talent_build_code=TalentBuildCodeService.extract_build_code(
+                                    talents_json=talents_payload
+                                ),
+                                gear_json=self.parse_wcl_gear(r.get('gear', [])),
+                                faction=r.get('faction'),
+                                guild_name=guild.get('name', ''),
+                                report_code=report.get('code', ''),
+                                fight_id=r.get('fightID'),
+                                last_updated=now,
+                            ))
+                        except Exception as e:
+                            logger.warning(f"[SpecDetailRanking] 构建记录失败: {enc_id}/{class_name}/{spec_name}: {e}")
 
-                                talents_payload = self.parse_wcl_talents(r.get('talents', []))
-                                SpecRaidRanking.objects.create(
-                                    season_id=season.id,
-                                    boss_id=enc_id,
-                                    boss_name=enc_name,
-                                    raid_zone_id=zone_info.get('zone_id'),
-                                    raid_zone_name=zone_info.get('zone_name', ''),
-                                    class_name=class_name,
-                                    spec_name=spec_name,
-                                    character_name=r.get('name', ''),
-                                    realm=server.get('name', ''),
-                                    region=server.get('region', ''),
-                                    dps=r.get('amount', 0),
-                                    kill_time=r.get('duration'),
-                                    talents_json=talents_payload,
-                                    talent_build_code=TalentBuildCodeService.extract_build_code(
-                                        talents_json=talents_payload
-                                    ),
-                                    gear_json=self.parse_wcl_gear(r.get('gear', [])),
-                                    faction=r.get('faction'),
-                                    guild_name=guild.get('name', ''),
-                                    report_code=report.get('code', ''),
-                                    fight_id=report.get('fightID'),
-                                    last_updated=now,
-                                )
-                                total += 1
-                            except Exception as e:
-                                logger.warning(f"[SpecDetailRanking] Raid 插入失败: {e}")
+                    time.sleep(0.3)  # 限速
 
-                        time.sleep(0.3)  # 限速
+            # Phase 2: 独立事务写入该 boss 的数据
+            if records:
+                try:
+                    with transaction.atomic():
+                        SpecRaidRanking.objects.filter(
+                            season_id=season.id, boss_id=enc_id
+                        ).delete()
+                        SpecRaidRanking.objects.bulk_create(records, batch_size=500)
+                    total += len(records)
+                    logger.info(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}): {len(records)} 条")
+                except Exception as e:
+                    logger.error(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}) 写入失败: {e}")
+            else:
+                logger.warning(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}): 0 条数据")
 
         logger.info(f"[SpecDetailRanking] 团本排名采集完成: {total} 条")
         return True
