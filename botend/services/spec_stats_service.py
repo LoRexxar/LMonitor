@@ -119,7 +119,7 @@ def _collect_item_ids_from_records(records, include_gear=True, include_gems=True
                 if item_id:
                     ids.add(item_id)
             if include_gems:
-                for gem in item.get('gems_detail') or []:
+                for gem in (item.get('gems_detail') or []) + (item.get('gems') or []):
                     if isinstance(gem, dict):
                         item_id = _coerce_item_id(gem.get('id'))
                         if item_id:
@@ -447,7 +447,7 @@ class SpecStatsService:
             }
 
         # 天赋/装备热门度（概览也展示）
-        records = list(qs.values('talents_json', 'gear_json', 'faction'))
+        records = list(qs.values('talents_json', 'gear_json', 'faction', 'character_name', 'realm', 'region'))
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -468,13 +468,16 @@ class SpecStatsService:
         )
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
-        # 宝石和附魔统计（从人物榜数据获取，排行榜无详细信息）
+        # 宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用），不要用人物榜 20 人作分母。
+        gear_detail_records = _merge_player_profile_gear(records, season_id, class_name, spec_name)
+        stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
+        stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
+
+        # 人物属性/种族仍来自人物榜（ranking 数据没有 stats_json/race 详情）。
         from botend.models import PlayerSpecTopPlayer
         player_records = list(PlayerSpecTopPlayer.objects.filter(
             season_id=season_id, class_name=class_name, spec_name=spec_name
         ).values('gear_json', 'stats_json', 'race')[:200])
-        stats['gem_popularity'] = _compute_gem_popularity(player_records, top_n=20)
-        stats['enchant_popularity'] = _compute_enchant_popularity(player_records, top_n=20)
         stats['secondary_stats'] = _compute_secondary_stats_distribution(player_records)
         stats['race_distribution'] = _compute_race_distribution(player_records)
 
@@ -626,7 +629,7 @@ class SpecStatsService:
             }
 
         # 天赋/装备热门度（概览也展示）
-        records = list(qs.values('talents_json', 'gear_json', 'faction'))
+        records = list(qs.values('talents_json', 'gear_json', 'faction', 'character_name', 'realm', 'region'))
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -647,13 +650,16 @@ class SpecStatsService:
         )
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
-        # 宝石和附魔统计（从人物榜数据获取）
+        # 宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用），不要用人物榜 20 人作分母。
+        gear_detail_records = _merge_player_profile_gear(records, season_id, class_name, spec_name)
+        stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
+        stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
+
+        # 人物属性/种族仍来自人物榜（ranking 数据没有 stats_json/race 详情）。
         from botend.models import PlayerSpecTopPlayer
         player_records = list(PlayerSpecTopPlayer.objects.filter(
             season_id=season_id, class_name=class_name, spec_name=spec_name
         ).values('gear_json', 'stats_json', 'race')[:200])
-        stats['gem_popularity'] = _compute_gem_popularity(player_records, top_n=20)
-        stats['enchant_popularity'] = _compute_enchant_popularity(player_records, top_n=20)
         stats['secondary_stats'] = _compute_secondary_stats_distribution(player_records)
         stats['race_distribution'] = _compute_race_distribution(player_records)
 
@@ -1399,6 +1405,56 @@ def _describe_player_stats_source(player):
     if player.stats_crawl_status == 0:
         return 'Battle.net 属性 Monitor 待采集'
     return '暂无稳定属性来源'
+def _merge_player_profile_gear(records, season_id, class_name, spec_name):
+    """把人物榜 gear_json 的 gems_detail/enchants_detail 按角色匹配回填到 ranking 样本。
+
+    ranking 表通常只有装备和 gems id，没有 enchants_detail；人物榜有完整 gear_json。
+    返回长度不变的 records，分母仍是当前详情页的 100 个 ranking 样本。
+    """
+    try:
+        from botend.models import PlayerSpecTopPlayer
+        keys = set()
+        for r in records or []:
+            key = (
+                (r.get('region') or '').lower(),
+                (r.get('realm') or '').lower(),
+                (r.get('character_name') or '').lower(),
+            )
+            if all(key):
+                keys.add(key)
+        if not keys:
+            return records
+        profiles = {}
+        for p in PlayerSpecTopPlayer.objects.filter(
+            season_id=season_id, class_name=class_name, spec_name=spec_name
+        ).values('region', 'realm', 'character_name', 'gear_json'):
+            key = (
+                (p.get('region') or '').lower(),
+                (p.get('realm') or '').lower(),
+                (p.get('character_name') or '').lower(),
+            )
+            if key in keys:
+                profiles[key] = p.get('gear_json') or []
+        if not profiles:
+            return records
+        merged = []
+        for r in records or []:
+            row = dict(r)
+            key = (
+                (row.get('region') or '').lower(),
+                (row.get('realm') or '').lower(),
+                (row.get('character_name') or '').lower(),
+            )
+            profile_gear = profiles.get(key)
+            if profile_gear:
+                # 人物榜装备包含 gems_detail/enchants_detail，优先用于宝石/附魔聚合。
+                row['gear_json'] = profile_gear
+            merged.append(row)
+        return merged
+    except Exception:
+        return records
+
+
 def _compute_gem_popularity(records, top_n=20):
     """计算宝石选取率：按玩家去重，并从 WowItemSnapshot 读取中文名/描述。"""
     snapshots = _collect_item_ids_from_records(records, include_gear=False, include_gems=True, include_enchants=False)
@@ -1412,7 +1468,7 @@ def _compute_gem_popularity(records, top_n=20):
         for g in gear:
             if not isinstance(g, dict):
                 continue
-            for gem in g.get('gems_detail') or []:
+            for gem in (g.get('gems_detail') or []) + (g.get('gems') or []):
                 if not isinstance(gem, dict):
                     continue
                 gem_id = _coerce_item_id(gem.get('id'))
@@ -1422,7 +1478,7 @@ def _compute_gem_popularity(records, top_n=20):
                 if gem_id not in gem_info:
                     payload = _item_snapshot_payload(
                         gem_id,
-                        fallback_name=_translate_gem_name(gem.get('name', '')),
+                        fallback_name=_translate_gem_name(gem.get('name', '') or f'#{gem_id}'),
                         fallback_icon=gem.get('icon', ''),
                         snapshots=snapshots,
                     )
