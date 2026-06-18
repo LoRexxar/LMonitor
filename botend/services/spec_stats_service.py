@@ -780,83 +780,74 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
     """把热门天赋聚合成可直接给模板消费的 render_model。"""
     snapshot = snapshot or _build_talent_usage_snapshot(records, class_name, spec_name)
     usage_list = snapshot.get('usage_list') or []
-    if not usage_list:
-        return {}
-
-    canonical_nodes = snapshot.get('canonical_nodes') or {}
-    parent_edges = snapshot.get('parent_edges') or {}
     usage_map = snapshot.get('usage_map') or {}
     highlighted_keys = [item['node_key'] for item in usage_list[:top_n] if item.get('node_key')]
-    if not highlighted_keys:
+
+    # 使用全量节点作为底板
+    provider = TalentMetadataProvider()
+    full_tree_nodes = provider.get_full_tree_nodes(class_name, spec_name)
+    if not full_tree_nodes:
         return {}
 
-    included_keys = set()
-    pending = list(highlighted_keys)
-    while pending:
-        node_key = pending.pop()
-        if node_key in included_keys:
-            continue
-        included_keys.add(node_key)
-        for parent_key, _count in parent_edges.get(node_key, Counter()).most_common():
-            if parent_key in canonical_nodes and parent_key not in included_keys:
-                pending.append(parent_key)
-
+    # 将全量节点转换为 TalentNodeModel 并按 tree_type 分组
     grouped_nodes = defaultdict(list)
-    preserved_parent_edges = 0
-    missing_parent_edges = 0
+    node_key_map = {}  # node_key -> node，用于快速查找
 
-    for node_key in included_keys:
-        base_node = canonical_nodes.get(node_key)
-        if not base_node:
+    for raw_node in full_tree_nodes:
+        # 构建 node_key
+        tree_type = raw_node.get('tree_type') or 'spec'
+        if tree_type == 'hero_anchor':
             continue
+
+        node_id = raw_node.get('node_id')
+        talent_id = raw_node.get('talent_id')
+        spell_id = raw_node.get('spell_id')
+        key = node_id or talent_id or spell_id
+        if not key:
+            continue
+
+        node_key = f'{tree_type}:{key}'
+
+        # 判断该节点是否在 usage_map 中
         usage_item = usage_map.get(node_key, {})
-        parent_ids = []
-        seen_parent_ids = set()
-        for parent_key, _count in parent_edges.get(node_key, Counter()).most_common():
-            parent_node = canonical_nodes.get(parent_key)
-            parent_id = parent_node.key if parent_node else None
-            if (
-                not parent_node
-                or parent_key not in included_keys
-                or parent_node.tree_type != base_node.tree_type
-                or not parent_id
-            ):
-                missing_parent_edges += 1
-                continue
-            if parent_id in seen_parent_ids:
-                continue
-            seen_parent_ids.add(parent_id)
-            parent_ids.append(parent_id)
-            preserved_parent_edges += 1
+        is_highlighted = node_key in highlighted_keys
 
-        tree_key = base_node.tree_type or 'spec'
-        if tree_key == 'hero_anchor':
-            continue
-        grouped_nodes[tree_key].append(TalentNodeModel.from_raw({
-            **base_node.to_dict(),
-            'parents': parent_ids,
-            'points': 1 if node_key in highlighted_keys else 0,
-            'selected': node_key in highlighted_keys,
-        }))
+        # 构建节点
+        node = TalentNodeModel.from_raw({
+            **raw_node,
+            'points': 1 if is_highlighted else 0,
+            'selected': is_highlighted,
+        })
 
-    # Hero 子树过滤：只保留有高亮节点的子树（聚合页面用 highlighted 代替 points）
+        grouped_nodes[tree_type].append(node)
+        node_key_map[node_key] = node
+
+    # Hero 子树过滤：若有使用过的 hero subtree，则保留这些 subtree；否则保留最大 subtree
     if 'hero' in grouped_nodes:
         hero_nodes = grouped_nodes['hero']
         hero_subtrees = _group_hero_subtrees_by_column(hero_nodes)
         if len(hero_subtrees) > 1:
-            selected_subtrees = {
-                key: nodes for key, nodes in hero_subtrees.items()
-                if any(n.selected for n in nodes)
-            }
-            if selected_subtrees:
+            # 找出有使用过的子树（在 usage_map 中出现过）
+            used_subtrees = {}
+            for subtree_key, nodes in hero_subtrees.items():
+                for node in nodes:
+                    node_key = _build_talent_node_key(node)
+                    if node_key in usage_map:
+                        used_subtrees[subtree_key] = nodes
+                        break
+
+            if used_subtrees:
+                # 保留有使用过的子树
                 kept = []
-                for nodes in selected_subtrees.values():
+                for nodes in used_subtrees.values():
                     kept.extend(nodes)
                 grouped_nodes['hero'] = kept
             else:
+                # 保留最大的子树
                 largest_key = max(hero_subtrees, key=lambda k: len(hero_subtrees[k]))
                 grouped_nodes['hero'] = hero_subtrees[largest_key]
 
+    # 构建树结构
     trees = []
     for tree_type in _iter_render_tree_types(grouped_nodes):
         nodes = sorted(
@@ -879,12 +870,21 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
             synthetic_layout=not any(rows or columns),
         ))
 
+    # 构建 build_state
+    highlighted_node_keys = set()
+    for node_key in highlighted_keys:
+        if node_key in node_key_map:
+            node = node_key_map[node_key]
+            highlighted_node_keys.add(node.key)
+
     build_state = TalentBuildStateModel(
         source_type='stats',
         source_id=':'.join(part for part in [class_name, spec_name, 'popularity'] if part),
-        selected_nodes={key for key in highlighted_keys if key in included_keys},
-        node_ranks={key: 1 for key in highlighted_keys if key in included_keys},
+        selected_nodes=highlighted_node_keys,
+        node_ranks={key: 1 for key in highlighted_node_keys},
     )
+
+    # 构建 render_model
     render_model = build_talent_render_model(
         tree_set=TalentTreeSetModel(
             set_key=':'.join(part for part in [class_name, spec_name] if part),
@@ -896,14 +896,15 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         ),
         build_state=build_state,
     ).to_dict()
+
+    # 附加使用率数据
     _attach_usage_to_render_model(render_model, usage_map, highlighted_keys)
 
+    total_nodes = sum(len(nodes) for nodes in grouped_nodes.values())
     return {
         'sample_size': snapshot.get('total', 0),
         'highlighted_node_count': len(highlighted_keys),
-        'rendered_node_count': len(included_keys),
-        'preserved_parent_edges': preserved_parent_edges,
-        'missing_parent_edges': missing_parent_edges,
+        'rendered_node_count': total_nodes,
         'render_model': render_model,
         'usage': [dict(item) for item in usage_list[:top_n]],
     }
