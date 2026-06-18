@@ -43,6 +43,7 @@ class PortalEventMonitor(PortalPostMonitor):
 from botend.controller.plugins.portal.SpecDetailSeasonMonitor import SpecDetailSeasonMonitor
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
 from botend.controller.plugins.portal.SpecDetailRankingMonitor import SpecDetailRankingMonitor
+from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
 
 Monitor_Type_BaseObject_List = [
     BaseScan,
@@ -76,4 +77,5 @@ Monitor_Type_BaseObject_List = [
     SpecDetailSeasonMonitor,
     SpecDetailPlayerMonitor,
     SpecDetailRankingMonitor,
+    SpecDetailAggregationMonitor,
 ]

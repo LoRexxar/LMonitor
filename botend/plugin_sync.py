@@ -60,6 +60,8 @@ def sync_monitortasks_from_plugin_list(
                 wait_time = 86400  # 24h
             elif name in {"SpecDetailPlayerMonitor", "SpecDetailRankingMonitor"}:
                 wait_time = 43200  # 12h
+            elif name == "SpecDetailAggregationMonitor":
+                wait_time = 43200  # 12h，跟在采集后执行
             MonitorTask.objects.create(
                 name=name,
                 target=default_target,
