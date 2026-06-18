@@ -357,19 +357,6 @@ class SpecStatsService:
                 'p75': _percentile(score_list, 75),
             }
 
-        # 词缀分布
-        affixes_counter = Counter()
-        for affixes in qs.values_list('affixes', flat=True):
-            if affixes:
-                key = ','.join(str(a) for a in sorted(affixes)) if isinstance(affixes, list) else str(affixes)
-                affixes_counter[key] += 1
-        if affixes_counter:
-            total_affixes = sum(affixes_counter.values())
-            stats['affixes_distribution'] = {
-                combo: {'count': cnt, 'pct': round(cnt / total_affixes * 100, 1)}
-                for combo, cnt in affixes_counter.most_common(20)
-            }
-
         # 阵营分布
         faction_counter = Counter(r for r in qs.values_list('faction', flat=True) if r is not None and r != -1)
         if faction_counter:
@@ -405,9 +392,10 @@ class SpecStatsService:
         from botend.models import PlayerSpecTopPlayer
         player_records = list(PlayerSpecTopPlayer.objects.filter(
             season_id=season_id, class_name=class_name, spec_name=spec_name
-        ).values('gear_json')[:200])
+        ).values('gear_json', 'stats_json')[:200])
         stats['gem_popularity'] = _compute_gem_popularity(player_records, top_n=20)
         stats['enchant_popularity'] = _compute_enchant_popularity(player_records, top_n=20)
+        stats['secondary_stats'] = _compute_secondary_stats_distribution(player_records)
 
         if full:
             # 详细模式：Top 5 玩家
@@ -582,9 +570,10 @@ class SpecStatsService:
         from botend.models import PlayerSpecTopPlayer
         player_records = list(PlayerSpecTopPlayer.objects.filter(
             season_id=season_id, class_name=class_name, spec_name=spec_name
-        ).values('gear_json')[:200])
+        ).values('gear_json', 'stats_json')[:200])
         stats['gem_popularity'] = _compute_gem_popularity(player_records, top_n=20)
         stats['enchant_popularity'] = _compute_enchant_popularity(player_records, top_n=20)
+        stats['secondary_stats'] = _compute_secondary_stats_distribution(player_records)
 
         if full:
             full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
@@ -1133,6 +1122,75 @@ def _coerce_positive_int(value):
     except Exception:
         return None
     return parsed if parsed > 0 else None
+
+
+SECONDARY_STAT_LABELS = {
+    'crit': '暴击',
+    'haste': '急速',
+    'mastery': '精通',
+    'versatility': '全能',
+}
+
+
+def _compute_numeric_summary(values):
+    values = sorted(v for v in values if v is not None)
+    if not values:
+        return None
+    return {
+        'avg': round(sum(values) / len(values), 1),
+        'median': round(_percentile(values, 50), 1),
+        'min': round(values[0], 1),
+        'max': round(values[-1], 1),
+        'p25': round(_percentile(values, 25), 1),
+        'p75': round(_percentile(values, 75), 1),
+    }
+
+
+def _compute_secondary_stats_distribution(player_records):
+    """聚合人物榜属性绿字区间。来源 PlayerSpecTopPlayer.stats_json。"""
+    buckets = {key: {'pct': [], 'rating': []} for key in SECONDARY_STAT_LABELS}
+    sample_size = 0
+    for record in player_records or []:
+        stats_json = record.get('stats_json') or {}
+        if not isinstance(stats_json, dict):
+            continue
+        has_any = False
+        for key in SECONDARY_STAT_LABELS:
+            payload = stats_json.get(key) or {}
+            if not isinstance(payload, dict):
+                continue
+            pct = payload.get('pct')
+            rating = payload.get('rating')
+            try:
+                if pct is not None:
+                    buckets[key]['pct'].append(float(pct))
+                    has_any = True
+            except (TypeError, ValueError):
+                pass
+            try:
+                if rating is not None:
+                    buckets[key]['rating'].append(float(rating))
+                    has_any = True
+            except (TypeError, ValueError):
+                pass
+        if has_any:
+            sample_size += 1
+
+    result = []
+    for key, label in SECONDARY_STAT_LABELS.items():
+        pct_summary = _compute_numeric_summary(buckets[key]['pct'])
+        rating_summary = _compute_numeric_summary(buckets[key]['rating'])
+        if not pct_summary and not rating_summary:
+            continue
+        result.append({
+            'key': key,
+            'label': label,
+            'pct': pct_summary,
+            'rating': rating_summary,
+            'sample_size': sample_size,
+        })
+    return result
+
 
 def _normalize_gear_items(items):
     """统一装备展示字段并过滤明显无效项。附魔/宝石/品质自动中文化。"""

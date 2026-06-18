@@ -55,6 +55,12 @@ def _base_context(class_name, spec_name):
     }
 
 
+
+def _talent_tree_has_hero(detail):
+    trees = (((detail or {}).get('talent_popularity_tree') or {}).get('render_model') or {}).get('trees') or []
+    return any(t.get('tree_type') == 'hero' and (t.get('nodes') or []) for t in trees)
+
+
 def _load_json(season_id, class_name, spec_name, filename):
     """从聚合目录加载 JSON 文件，不存在返回 None"""
     path = os.path.join(AGGREGATED_DIR, str(season_id), class_name, spec_name, filename)
@@ -120,6 +126,9 @@ class SpecDetailDungeonView(View):
                     did = int(dungeon_id)
                     detail = next((d for d in dungeons if d.get('dungeon_id') == did), None)
                     if detail:
+                        # 兼容旧聚合 JSON：若天赋树缺英雄天赋或新维度缺失，则实时重算该详情对象
+                        if (not _talent_tree_has_hero(detail)) or ('secondary_stats' not in detail):
+                            detail = SpecStatsService.get_dungeon_detail(did, class_name, spec_name) or detail
                         ctx['dungeon_detail'] = detail
                     else:
                         ctx['dungeons'] = dungeons
@@ -155,6 +164,9 @@ class SpecDetailRaidView(View):
                         if detail:
                             break
                     if detail:
+                        # 兼容旧聚合 JSON：若天赋树缺英雄天赋或新维度缺失，则实时重算该详情对象
+                        if (not _talent_tree_has_hero(detail)) or ('secondary_stats' not in detail):
+                            detail = SpecStatsService.get_raid_detail(bid, class_name, spec_name) or detail
                         ctx['boss_detail'] = detail
                     else:
                         ctx['zone_groups'] = zone_groups

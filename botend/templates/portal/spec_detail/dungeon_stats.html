@@ -97,7 +97,7 @@
         <div class="section-block">
             <h4>阵营分布</h4>
             {% if dungeon_detail.faction_distribution %}
-            <div class="stat-cards">
+            <div class="stat-cards stat-strip">
                 {% for fid, info in dungeon_detail.faction_distribution.items %}
                 <div class="stat-card">
                     <div class="stat-label">{% if fid == "0" %}联盟{% elif fid == "1" %}部落{% else %}{{ fid }}{% endif %}</div>
@@ -328,18 +328,31 @@
             {% endif %}
         </div>
 
+
         <div class="section-block">
-            <h4>词缀分布</h4>
-            {% if dungeon_detail.affixes_distribution %}
-            {% for combo, info in dungeon_detail.affixes_distribution.items %}
-            <div class="gear-pop-row">
-                <span style="font-family:monospace;min-width:120px;">{{ combo }}</span>
-                <div class="popularity-bar small">
-                    <div class="popularity-fill" style="width:{{ info.pct }}%"></div>
+            <h4>属性绿字区间</h4>
+            {% if dungeon_detail.secondary_stats %}
+            <div class="secondary-stat-grid">
+                {% for stat in dungeon_detail.secondary_stats %}
+                <div class="secondary-stat-row">
+                    <div class="secondary-stat-name">{{ stat.label }}</div>
+                    {% if stat.pct %}
+                    <div class="secondary-stat-range">
+                        <span>{{ stat.pct.p25|floatformat:1 }}%</span>
+                        <div class="secondary-stat-bar">
+                            <div class="secondary-stat-fill" style="left:25%;width:50%;"></div>
+                            <div class="secondary-stat-marker" style="left:50%;"></div>
+                        </div>
+                        <span>{{ stat.pct.p75|floatformat:1 }}%</span>
+                    </div>
+                    <div class="secondary-stat-meta">中位 {{ stat.pct.median|floatformat:1 }}% · 平均 {{ stat.pct.avg|floatformat:1 }}%</div>
+                    {% endif %}
+                    {% if stat.rating %}
+                    <div class="secondary-stat-meta">绿字 {{ stat.rating.p25|floatformat:0 }} - {{ stat.rating.p75|floatformat:0 }} · 中位 {{ stat.rating.median|floatformat:0 }}</div>
+                    {% endif %}
                 </div>
-                <span class="popularity-pct">{{ info.pct }}% ({{ info.count }})</span>
+                {% endfor %}
             </div>
-            {% endfor %}
             {% else %}
             <div class="aggregation-pending">⏳ 数据等待聚合</div>
             {% endif %}
@@ -833,6 +846,15 @@
 
 .section-block { margin-top: 18px; }
 .section-block h4 { font-size: 1em; color: #374151; margin: 0 0 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
+
+.secondary-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.secondary-stat-row { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; background: #fff; }
+.secondary-stat-name { font-weight: 700; color: #1e293b; margin-bottom: 8px; }
+.secondary-stat-range { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; color: #475569; font-size: 0.82em; }
+.secondary-stat-bar { position: relative; height: 8px; background: #f1f5f9; border-radius: 999px; overflow: hidden; }
+.secondary-stat-fill { position: absolute; top: 0; bottom: 0; background: #93c5fd; border-radius: 999px; }
+.secondary-stat-marker { position: absolute; top: -3px; width: 2px; height: 14px; background: #2563eb; border-radius: 2px; }
+.secondary-stat-meta { margin-top: 6px; color: #64748b; font-size: 0.78em; }
 
 /* ===== Gear ===== */
 .gear-slot-section { margin-bottom: 12px; }
