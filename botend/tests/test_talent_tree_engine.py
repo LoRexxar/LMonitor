@@ -843,11 +843,32 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertIn('已复制', html)
 
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    @patch('botend.services.spec_stats_service.PlayerSpecTopPlayer.objects.filter')
     @patch('botend.services.spec_stats_service.SpecDungeonRanking.objects.filter')
-    def test_get_dungeon_detail_returns_popularity_talent_tree_render_model(self, mock_filter, mock_provider_cls):
+    def test_get_dungeon_detail_returns_popularity_talent_tree_render_model(self, mock_filter, mock_player_filter, mock_provider_cls):
         mock_provider_cls.return_value.merge_into_node.side_effect = (
             lambda node, class_name='', spec_name='': node
         )
+        mock_player_filter.return_value.values.return_value = []
+        mock_provider_cls.return_value.get_full_tree_nodes.return_value = [
+            {
+                'spell_id': 1010,
+                'talent_id': 10,
+                'name': '起点',
+                'tree_type': 'spec',
+                'row': 1,
+                'column': 2,
+            },
+            {
+                'spell_id': 2020,
+                'talent_id': 20,
+                'name': '热门节点',
+                'tree_type': 'spec',
+                'row': 3,
+                'column': 2,
+                'parents': [10],
+            },
+        ]
         records = [
             {
                 'dps': 1500000,
@@ -920,10 +941,95 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertEqual(detail['talent_popularity_tree']['preserved_parent_edges'], 1)
 
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_popularity_tree_merges_same_position_nodes_into_choice_options(self, mock_provider_cls):
+        mock_provider_cls.return_value.merge_into_node.side_effect = (
+            lambda node, class_name='', spec_name='': node
+        )
+        mock_provider_cls.return_value.get_full_tree_nodes.return_value = [
+            {
+                'node_id': 100,
+                'talent_id': 100,
+                'spell_id': 1000,
+                'name': '二选一A',
+                'icon': 'a_icon',
+                'tree_type': 'spec',
+                'row': 4,
+                'column': 5,
+                'db2_subtree_id': 0,
+            },
+            {
+                'node_id': 101,
+                'talent_id': 101,
+                'spell_id': 1001,
+                'name': '二选一B',
+                'icon': 'b_icon',
+                'tree_type': 'spec',
+                'row': 4,
+                'column': 5,
+                'db2_subtree_id': 0,
+            },
+            {
+                'node_id': 200,
+                'talent_id': 200,
+                'spell_id': 2000,
+                'name': '普通节点',
+                'icon': 'normal_icon',
+                'tree_type': 'spec',
+                'row': 5,
+                'column': 5,
+                'db2_subtree_id': 0,
+            },
+        ]
+
+        talent_tree = _compute_talent_popularity_tree(
+            records=[{
+                'talents_json': [
+                    {'node_id': 101, 'talent_id': 101, 'spell_id': 1001, 'name': '二选一B', 'tree_type': 'spec', 'row': 4, 'column': 5, 'points': 1},
+                    {'node_id': 200, 'talent_id': 200, 'spell_id': 2000, 'name': '普通节点', 'tree_type': 'spec', 'row': 5, 'column': 5, 'points': 1},
+                ],
+                'gear_json': [],
+                'faction': 'Alliance',
+            }],
+            class_name='Monk',
+            spec_name='Windwalker',
+            top_n=10,
+        )
+
+        nodes = talent_tree['render_model']['nodes']
+        positions = [(n.get('tree_type'), n.get('db2_subtree_id'), n.get('row'), n.get('column')) for n in nodes]
+        self.assertEqual(len(positions), len(set(positions)))
+        choice_node = next(n for n in nodes if n.get('row') == 4 and n.get('column') == 5)
+        self.assertTrue(choice_node['is_choice_node'])
+        self.assertEqual(len(choice_node['choice_options']), 2)
+        self.assertTrue(all('description' in option for option in choice_node['choice_options']))
+        self.assertTrue(all('description_zh' in option for option in choice_node['choice_options']))
+        self.assertEqual(choice_node['name'], '二选一B')
+        self.assertEqual(choice_node['usage_pct'], 100.0)
+
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
     def test_dungeon_stats_template_renders_popularity_talent_tree(self, mock_provider_cls):
         mock_provider_cls.return_value.merge_into_node.side_effect = (
             lambda node, class_name='', spec_name='': node
         )
+        mock_provider_cls.return_value.get_full_tree_nodes.return_value = [
+            {
+                'spell_id': 1010,
+                'talent_id': 10,
+                'name': '起点',
+                'tree_type': 'spec',
+                'row': 1,
+                'column': 2,
+            },
+            {
+                'spell_id': 2020,
+                'talent_id': 20,
+                'name': '热门节点',
+                'tree_type': 'spec',
+                'row': 3,
+                'column': 2,
+                'parents': [10],
+            },
+        ]
         talent_tree = _compute_talent_popularity_tree(
             records=[
                 {
@@ -990,6 +1096,27 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         mock_provider_cls.return_value.merge_into_node.side_effect = (
             lambda node, class_name='', spec_name='': node
         )
+        mock_provider_cls.return_value.get_full_tree_nodes.return_value = [
+            {
+                'spell_id': 3030,
+                'talent_id': 30,
+                'name': '团本前置',
+                'tree_type': 'hero',
+                'db2_subtree_id': 1,
+                'row': 1,
+                'column': 2,
+            },
+            {
+                'spell_id': 4040,
+                'talent_id': 40,
+                'name': '团本热门节点',
+                'tree_type': 'hero',
+                'db2_subtree_id': 1,
+                'row': 2,
+                'column': 2,
+                'parents': [30],
+            },
+        ]
         talent_tree = _compute_talent_popularity_tree(
             records=[
                 {

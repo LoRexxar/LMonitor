@@ -789,12 +789,11 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
     if not full_tree_nodes:
         return {}
 
-    # 将全量节点转换为 TalentNodeModel 并按 tree_type 分组
-    grouped_nodes = defaultdict(list)
-    node_key_map = {}  # node_key -> node，用于快速查找
+    # 展示层去重/合并：同一坐标视为同一展示节点
+    # 按 (tree_type, db2_subtree_id, row, column) 分组，row/column 缺失时用 identity 兜底
+    display_groups = defaultdict(list)
 
     for raw_node in full_tree_nodes:
-        # 构建 node_key
         tree_type = raw_node.get('tree_type') or 'spec'
         if tree_type == 'hero_anchor':
             continue
@@ -806,21 +805,98 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         if not key:
             continue
 
-        node_key = f'{tree_type}:{key}'
+        # 构建展示坐标 key：优先用 row/column，缺失时用 identity 兜底避免乱合并
+        row = raw_node.get('row')
+        column = raw_node.get('column')
+        db2_subtree_id = raw_node.get('db2_subtree_id', 0) or 0
 
-        # 判断该节点是否在 usage_map 中
-        usage_item = usage_map.get(node_key, {})
-        is_highlighted = node_key in highlighted_keys
+        if row is not None and column is not None:
+            display_key = (tree_type, db2_subtree_id, row, column)
+        else:
+            display_key = (tree_type, db2_subtree_id, 'identity', key)
 
-        # 构建节点
+        display_groups[display_key].append(raw_node)
+
+    # 将全量节点转换为 TalentNodeModel 并按 tree_type 分组
+    grouped_nodes = defaultdict(list)
+    node_key_map = {}  # node_key -> node，用于快速查找
+
+    for display_key, raw_nodes in display_groups.items():
+        # 为每个 raw_node 构建 node_key 并查找 usage
+        candidates = []
+        for raw_node in raw_nodes:
+            tree_type = raw_node.get('tree_type') or 'spec'
+            node_id = raw_node.get('node_id')
+            talent_id = raw_node.get('talent_id')
+            spell_id = raw_node.get('spell_id')
+            key = node_id or talent_id or spell_id
+            node_key = f'{tree_type}:{key}'
+
+            usage_item = usage_map.get(node_key, {})
+            is_highlighted = node_key in highlighted_keys
+            usage_pct = usage_item.get('usage_pct', 0)
+            usage_count = usage_item.get('count', 0)
+            has_icon = bool(raw_node.get('icon'))
+            has_name = bool(raw_node.get('name'))
+
+            candidates.append({
+                'raw_node': raw_node,
+                'node_key': node_key,
+                'is_highlighted': is_highlighted,
+                'usage_pct': usage_pct,
+                'usage_count': usage_count,
+                'has_icon': has_icon,
+                'has_name': has_name,
+            })
+
+        # 选择 base 节点：优先 highlighted，其次 usage_pct/count 最高，其次有 icon/name
+        candidates.sort(key=lambda c: (
+            c['is_highlighted'],
+            c['usage_pct'],
+            c['usage_count'],
+            c['has_icon'],
+            c['has_name'],
+        ), reverse=True)
+
+        base_candidate = candidates[0]
+        base_raw_node = base_candidate['raw_node']
+        base_node_key = base_candidate['node_key']
+        base_is_highlighted = base_candidate['is_highlighted']
+
+        # 构建 base 节点
         node = TalentNodeModel.from_raw({
-            **raw_node,
-            'points': 1 if is_highlighted else 0,
-            'selected': is_highlighted,
+            **base_raw_node,
+            'points': 1 if base_is_highlighted else 0,
+            'selected': base_is_highlighted,
         })
 
+        # 合并组中其它节点作为 choice_options
+        choice_options = []
+        seen_option_keys = set()
+
+        for candidate in candidates:
+            option_raw = candidate['raw_node']
+            option_key = f"{option_raw.get('node_id')}:{option_raw.get('talent_id')}:{option_raw.get('spell_id')}"
+            if option_key not in seen_option_keys:
+                seen_option_keys.add(option_key)
+                choice_options.append({
+                    'node_id': option_raw.get('node_id'),
+                    'talent_id': option_raw.get('talent_id'),
+                    'spell_id': option_raw.get('spell_id'),
+                    'name': option_raw.get('name', ''),
+                    'icon': option_raw.get('icon', ''),
+                    'description': option_raw.get('description', '') or '',
+                    'description_zh': option_raw.get('description_zh', '') or '',
+                })
+
+        # 若 option 数 > 1，设置 is_choice_node=True
+        if len(choice_options) > 1:
+            node.is_choice_node = True
+            node.choice_options = choice_options
+
+        tree_type = base_raw_node.get('tree_type') or 'spec'
         grouped_nodes[tree_type].append(node)
-        node_key_map[node_key] = node
+        node_key_map[base_node_key] = node
 
     # Hero 子树过滤：若有使用过的 hero subtree，则保留这些 subtree；否则保留最大 subtree
     if 'hero' in grouped_nodes:
@@ -875,13 +951,13 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
     for node_key in highlighted_keys:
         if node_key in node_key_map:
             node = node_key_map[node_key]
-            highlighted_node_keys.add(node.key)
+            highlighted_node_keys.add(str(node.key))
 
     build_state = TalentBuildStateModel(
         source_type='stats',
         source_id=':'.join(part for part in [class_name, spec_name, 'popularity'] if part),
         selected_nodes=highlighted_node_keys,
-        node_ranks={key: 1 for key in highlighted_node_keys},
+        node_ranks={str(key): 1 for key in highlighted_node_keys},
     )
 
     # 构建 render_model
@@ -901,10 +977,14 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
     _attach_usage_to_render_model(render_model, usage_map, highlighted_keys)
 
     total_nodes = sum(len(nodes) for nodes in grouped_nodes.values())
+    preserved_parent_edges = 0
+    for tree in render_model.get('trees', []) or []:
+        preserved_parent_edges += len(tree.get('paths') or [])
     return {
         'sample_size': snapshot.get('total', 0),
         'highlighted_node_count': len(highlighted_keys),
         'rendered_node_count': total_nodes,
+        'preserved_parent_edges': preserved_parent_edges,
         'render_model': render_model,
         'usage': [dict(item) for item in usage_list[:top_n]],
     }
