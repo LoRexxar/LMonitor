@@ -187,19 +187,6 @@
                 </div>
                 </div>{# /talent-stage-scale-wrapper #}
             </div>
-            {% if talent_tree.usage %}
-            <div class="talent-tree-summary">
-                {% for node in talent_tree.usage|slice:":8" %}
-                <span class="talent-summary-chip{% if node.usage_pct >= 90 %} gold{% elif node.usage_pct >= 70 %} purple{% endif %}">
-                    {% if node.icon %}
-                    <img src="{% wow_icon node.icon "tiny" %}" width="20" height="20" alt="{{ node.name }}">
-                    {% endif %}
-                    <span class="talent-summary-name">{{ node.name }}</span>
-                    <span class="talent-summary-pct">{{ node.usage_pct }}%</span>
-                </span>
-                {% endfor %}
-            </div>
-            {% endif %}
             {% endif %}
             {% endwith %}
             {% endwith %}
@@ -689,24 +676,6 @@
     border-color: rgba(96,165,250,.55);
     border-style: solid;
 }
-
-.talent-tree-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.talent-summary-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 10px 5px 5px;
-    border-radius: 999px;
-    background: #f8fafc;
-    border: 1px solid #dbeafe;
-    font-size: 0.78em;
-    color: #334155;
-}
-.talent-summary-chip img { border-radius: 50%; display: block; }
-.talent-summary-chip.gold { background: #fffbeb; border-color: #f59e0b; }
-.talent-summary-chip.purple { background: #f5f3ff; border-color: #8b5cf6; }
-.talent-summary-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.talent-summary-pct { font-weight: 700; color: #1e293b; }
 
 /* ===== Talent Grid (detail page) ===== */
 .talent-usage-grid {
