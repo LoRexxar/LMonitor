@@ -361,7 +361,7 @@
                     <span>平均分数: <strong>{{ d.score.avg|floatformat:0 }}</strong></span>
                     {% endif %}
                     {% if d.medal_distribution %}
-                    <span>金牌: <strong>{% for medal, info in d.medal_distribution.items %}{% if medal == "gold" %}{{ info.pct }}%{% endif %}{% endfor %}</strong></span>
+                    <span>奖牌: <strong>{% for medal, info in d.medal_distribution.items %}{% if forloop.counter0 > 0 %} / {% endif %}{{ medal }} {{ info.pct }}%{% endfor %}</strong></span>
                     {% endif %}
                 </div>
 
