@@ -107,6 +107,19 @@ class SpecStatsService:
         gear_payload = _resolve_player_gear(player)
         player_stats = player.stats_json or {}
 
+        # 从 gear_json 计算平均装等
+        gear_items = gear_payload.get('items') or []
+        ilvls = [int(g.get('itemLevel', 0)) for g in gear_items if g.get('itemLevel')]
+        avg_ilvl = round(sum(ilvls) / len(ilvls), 1) if ilvls else None
+
+        # 统计宝石总数
+        total_gems = sum(len(g.get('gems', [])) for g in gear_items)
+
+        # 阵营中文
+        faction_cn = {'alliance': '联盟', 'horde': '部落'}.get(
+            (player.faction or '').lower(), player.faction or ''
+        )
+
         return {
             'id': player.id,
             'rank': player.rank,
@@ -115,6 +128,7 @@ class SpecStatsService:
             'region': player.region,
             'score': player.score,
             'faction': player.faction,
+            'faction_cn': faction_cn,
             'race': player.race,
             'gender': player.gender,
             'guild_name': player.guild_name,
@@ -122,9 +136,10 @@ class SpecStatsService:
             'avatar_url': player.avatar_url,
             'profile_url': player.profile_url,
             'achievement_points': player.achievement_points,
-            'item_level': player.item_level,
-            'gear': gear_payload['items'],
+            'item_level': player.item_level or avg_ilvl,
+            'gear': gear_items,
             'gear_source': gear_payload['source'],
+            'total_gems': total_gems,
             'talents': talent_vm['nodes'],
             'talent_groups': talent_vm['trees'],
             'talent_code': talent_view.get('talent_build_code', ''),

@@ -41,6 +41,7 @@
                 <div class="overview-item"><span>评分</span><strong>{{ player_detail.score|floatformat:2 }}</strong></div>
                 <div class="overview-item"><span>地区</span><strong>{{ player_detail.region|upper }}</strong></div>
                 {% if player_detail.item_level %}<div class="overview-item"><span>装等</span><strong>{{ player_detail.item_level|floatformat:1 }}</strong></div>{% endif %}
+                {% if player_detail.faction_cn %}<div class="overview-item"><span>阵营</span><strong>{{ player_detail.faction_cn }}</strong></div>{% endif %}
                 {% if player_detail.achievement_points %}<div class="overview-item"><span>成就点</span><strong>{{ player_detail.achievement_points }}</strong></div>{% endif %}
                 {% if player_detail.last_updated %}<div class="overview-item"><span>更新时间</span><strong>{{ player_detail.last_updated|date:"Y-m-d H:i" }}</strong></div>{% endif %}
             </div>
@@ -281,14 +282,9 @@
                     <span class="gear-name-link">{{ item.name }}</span>
                     {% if item.itemLevel %}<span class="gear-ilvl">物品等级 {{ item.itemLevel }}</span>{% endif %}
                     {% if item.gems %}
-                    <span class="gear-extra-meta">宝石 {{ item.gems|length }} 个</span>
-                    {% endif %}
-                    {% if item.gems_detail %}
                     <span class="gear-extra-meta">
-                        宝石明细:
-                        {% for gem in item.gems_detail %}
-                            {% if gem.name %}{{ gem.name }}{% else %}#{{ gem.id }}{% endif %}{% if not forloop.last %} / {% endif %}
-                        {% endfor %}
+                        宝石:
+                        {% for gem in item.gems %}#{{ gem.id }}{% if not forloop.last %} / {% endif %}{% endfor %}
                     </span>
                     {% endif %}
                     {% if item.enchants_detail %}
