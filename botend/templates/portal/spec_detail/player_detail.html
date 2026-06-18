@@ -57,10 +57,10 @@
                 {% if player_detail.stats.agility %}<div class="stat-item"><span class="stat-name">敏捷</span><span class="stat-val">{{ player_detail.stats.agility }}</span></div>{% endif %}
                 {% if player_detail.stats.intellect %}<div class="stat-item"><span class="stat-name">智力</span><span class="stat-val">{{ player_detail.stats.intellect }}</span></div>{% endif %}
                 {% if player_detail.stats.stamina %}<div class="stat-item"><span class="stat-name">耐力</span><span class="stat-val">{{ player_detail.stats.stamina }}</span></div>{% endif %}
-                {% if player_detail.stats.crit %}<div class="stat-item"><span class="stat-name">暴击</span><span class="stat-val">{{ player_detail.stats.crit.pct|floatformat:1 }}%</span></div>{% endif %}
-                {% if player_detail.stats.haste %}<div class="stat-item"><span class="stat-name">急速</span><span class="stat-val">{{ player_detail.stats.haste.pct|floatformat:1 }}%</span></div>{% endif %}
-                {% if player_detail.stats.mastery %}<div class="stat-item"><span class="stat-name">精通</span><span class="stat-val">{{ player_detail.stats.mastery.pct|floatformat:1 }}%</span></div>{% endif %}
-                {% if player_detail.stats.versatility %}<div class="stat-item"><span class="stat-name">全能</span><span class="stat-val">{{ player_detail.stats.versatility.pct|floatformat:1 }}%</span></div>{% endif %}
+                {% if player_detail.stats.crit %}<div class="stat-item"><span class="stat-name">暴击</span><span class="stat-val">{{ player_detail.stats.crit.pct|floatformat:1 }}%{% if player_detail.stats.crit.rating %} ({{ player_detail.stats.crit.rating|floatformat:0 }}){% endif %}</span></div>{% endif %}
+                {% if player_detail.stats.haste %}<div class="stat-item"><span class="stat-name">急速</span><span class="stat-val">{{ player_detail.stats.haste.pct|floatformat:1 }}%{% if player_detail.stats.haste.rating %} ({{ player_detail.stats.haste.rating|floatformat:0 }}){% endif %}</span></div>{% endif %}
+                {% if player_detail.stats.mastery %}<div class="stat-item"><span class="stat-name">精通</span><span class="stat-val">{{ player_detail.stats.mastery.pct|floatformat:1 }}%{% if player_detail.stats.mastery.rating %} ({{ player_detail.stats.mastery.rating|floatformat:0 }}){% endif %}</span></div>{% endif %}
+                {% if player_detail.stats.versatility %}<div class="stat-item"><span class="stat-name">全能</span><span class="stat-val">{{ player_detail.stats.versatility.pct|floatformat:1 }}%{% if player_detail.stats.versatility.rating %} ({{ player_detail.stats.versatility.rating|floatformat:0 }}){% endif %}</span></div>{% endif %}
             </div>
             {% else %}
             <p class="empty-note">当前角色暂未抓到 Battle.net 属性面板，已先展示可用的装备与天赋数据。</p>
