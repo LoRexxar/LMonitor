@@ -10,13 +10,46 @@ from django.db.models import Avg, Max, Min, StdDev
 from botend.models import (
     SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking
 )
-from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN
+from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN, RACE_CN, ENCHANT_CN, GEM_STAT_CN, QUALITY_CN
 from botend.wow.talents.parser import normalize_talent_payload
 from botend.wow.talents.metadata import TalentMetadataProvider
 from botend.wow.talents.models import TREE_COLUMNS, TalentBuildStateModel, TalentNodeModel, TalentTreeModel, TalentTreeSetModel
 from botend.wow.talents.render import build_talent_render_model
 from botend.wow.talents.view_model import build_talent_view_model
 from botend.wow.talents.service import TalentBuildCodeService
+
+import re
+
+
+def _translate_gem_name(name):
+    """将宝石英文名翻译为中文，如 '16 Crit & 7 Mast' → '16 暴击 & 7 精通'"""
+    if not name:
+        return name
+    result = name
+    for en, cn in GEM_STAT_CN.items():
+        result = result.replace(en, cn)
+    return result
+
+
+def _translate_enchant_name(name):
+    """将附魔英文名翻译为中文"""
+    if not name:
+        return name
+    return ENCHANT_CN.get(name, name)
+
+
+def _translate_quality(quality):
+    """将品质值翻译为中文"""
+    if quality is None:
+        return ''
+    return QUALITY_CN.get(quality, str(quality))
+
+
+def _translate_race(race):
+    """将种族英文名翻译为中文"""
+    if not race:
+        return race
+    return RACE_CN.get(race, race)
 
 
 def _normalize_icon_name(icon):
@@ -120,6 +153,9 @@ class SpecStatsService:
             (player.faction or '').lower(), player.faction or ''
         )
 
+        # 种族中文
+        race_cn = _translate_race(player.race)
+
         return {
             'id': player.id,
             'rank': player.rank,
@@ -130,6 +166,7 @@ class SpecStatsService:
             'faction': player.faction,
             'faction_cn': faction_cn,
             'race': player.race,
+            'race_cn': race_cn,
             'gender': player.gender,
             'guild_name': player.guild_name,
             'realm_rank': player.realm_rank,
@@ -913,7 +950,7 @@ def _coerce_positive_int(value):
     return parsed if parsed > 0 else None
 
 def _normalize_gear_items(items):
-    """统一装备展示字段并过滤明显无效项。"""
+    """统一装备展示字段并过滤明显无效项。附魔/宝石/品质自动中文化。"""
     default_slots = [
         'head', 'neck', 'shoulder', 'shirt', 'chest', 'waist', 'legs', 'feet',
         'wrist', 'hands', 'finger1', 'finger2', 'trinket1', 'trinket2',
@@ -928,18 +965,41 @@ def _normalize_gear_items(items):
         if item_name == 'Unknown Item':
             item_name = '未知物品'
         icon = _normalize_icon_name(raw.get('icon', ''))
+
+        # 翻译附魔名称
+        enchants_detail = raw.get('enchants_detail', []) or []
+        translated_enchants = []
+        for e in enchants_detail:
+            if isinstance(e, dict):
+                translated = dict(e)
+                translated['name'] = _translate_enchant_name(e.get('name', ''))
+                translated_enchants.append(translated)
+            else:
+                translated_enchants.append(e)
+
+        # 翻译宝石名称
+        gems_detail = raw.get('gems_detail', []) or []
+        translated_gems = []
+        for g in gems_detail:
+            if isinstance(g, dict):
+                translated = dict(g)
+                translated['name'] = _translate_gem_name(g.get('name', ''))
+                translated_gems.append(translated)
+            else:
+                translated_gems.append(g)
+
         result.append({
             'slot': SLOT_CN.get(slot, '' if slot == 'unknown' else slot),
             'name': item_name,
             'id': raw.get('id') or raw.get('itemID') or raw.get('item_id'),
             'icon': icon,
             'itemLevel': raw.get('itemLevel') or raw.get('item_level'),
-            'quality': raw.get('quality', ''),
+            'quality': _translate_quality(raw.get('quality', '')),
             'bonusIDs': raw.get('bonusIDs', []),
             'gems': raw.get('gems', []),
-            'gems_detail': raw.get('gems_detail', []),
+            'gems_detail': translated_gems,
             'enchants': raw.get('enchants', []),
-            'enchants_detail': raw.get('enchants_detail', []),
+            'enchants_detail': translated_enchants,
             'source': raw.get('source', ''),
         })
     if result and all(item.get('slot') in ('', '未知') for item in result):

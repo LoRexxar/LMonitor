@@ -263,4 +263,110 @@ SLOT_CN = {
     "FINGER_1": "戒指1", "FINGER_2": "戒指2",
     "TRINKET_1": "饰品1", "TRINKET_2": "饰品2",
     "MAIN_HAND": "主手", "OFF_HAND": "副手",
+    # 下划线格式（Raider.IO / WCL）
+    "main_hand": "主手", "off_hand": "副手",
+}
+
+# 种族英文 → 中文
+RACE_CN = {
+    "Blood Elf": "血精灵",
+    "Dark Iron Dwarf": "黑铁矮人",
+    "Dracthyr": "龙希尔",
+    "Draenei": "德莱尼",
+    "Dwarf": "矮人",
+    "Gnome": "侏儒",
+    "Goblin": "地精",
+    "Haranir": "哈拉尼尔",
+    "Highmountain Tauren": "至高岭牛头人",
+    "Human": "人类",
+    "Kul Tiran": "库尔提拉斯人",
+    "Mag'har Orc": "玛格汉兽人",
+    "Mechagnome": "机械侏儒",
+    "Night Elf": "暗夜精灵",
+    "Nightborne": "夜之子",
+    "Orc": "兽人",
+    "Pandaren": "熊猫人",
+    "Tauren": "牛头人",
+    "Troll": "巨魔",
+    "Undead": "亡灵",
+    "Void Elf": "虚无精灵",
+    "Vulpera": "狐人",
+    "Worgen": "狼人",
+    "Zandalari Troll": "赞达拉巨魔",
+}
+
+# 附魔名称英文 → 中文（精确匹配）
+ENCHANT_CN = {
+    # 头盔
+    "Enchant Helm - Blessing of Speed": "附魔头盔 - 速度祝福",
+    "Enchant Helm - Empowered Blessing of Speed": "附魔头盔 - 强化速度祝福",
+    "Enchant Helm - Hex of Leeching": "附魔头盔 - 吸血妖术",
+    "Enchant Helm - Empowered Hex of Leeching": "附魔头盔 - 强化吸血妖术",
+    "Enchant Helm - Rune of Avoidance": "附魔头盔 - 闪避符文",
+    "Enchant Helm - Empowered Rune of Avoidance": "附魔头盔 - 强化闪避符文",
+    # 肩膀
+    "Enchant Shoulders - Amirdrassil's Grace": "附魔肩膀 - 阿米达希尔的恩典",
+    "Enchant Shoulders - Akil'zon's Swiftness": "附魔肩膀 - 阿基尔森的迅捷",
+    "Enchant Shoulders - Nature's Grace": "附魔肩膀 - 自然恩典",
+    "Enchant Shoulders - Silvermoon's Mending": "附魔肩膀 - 银月治愈",
+    "Enchant Shoulders - Thalassian Recovery": "附魔肩膀 - 萨拉斯复苏",
+    "Enchant Shoulders - Flight of the Eagle": "附魔肩膀 - 鹰之翱翔",
+    # 胸甲
+    "Enchant Chest - Mark of the Worldsoul": "附魔胸甲 - 世界之魂印记",
+    "Enchant Chest - Mark of Nalorakk": "附魔胸甲 - 纳洛拉克印记",
+    "Enchant Chest - Mark of the Rootwarden": "附魔胸甲 - 根须守护者印记",
+    # 靴子
+    "Enchant Boots - Lynx's Dexterity": "附魔靴子 - 猞猁敏捷",
+    "Enchant Boots - Farstrider's Hunt": "附魔靴子 - 远行者猎杀",
+    "Enchant Boots - Shaladrassil's Roots": "附魔靴子 - 沙拉达希尔之根",
+    # 戒指
+    "Enchant Ring - Eyes of the Eagle": "附魔戒指 - 鹰眼",
+    "Enchant Ring - Nature's Fury": "附魔戒指 - 自然之怒",
+    "Enchant Ring - Silvermoon's Alacrity": "附魔戒指 - 银月迅敏",
+    "Enchant Ring - Silvermoon's Tenacity": "附魔戒指 - 银月坚韧",
+    "Enchant Ring - Thalassian Haste": "附魔戒指 - 萨拉斯急速",
+    "Enchant Ring - Thalassian Vers": "附魔戒指 - 萨拉斯全能",
+    "Enchant Ring - Amani Mast": "附魔戒指 - 阿曼尼精通",
+    "Enchant Ring - Zul'jin's Mast": "附魔戒指 - 祖尔金的精通",
+    # 武器
+    "Enchant Weapon - Acuity of the Ren'dorei": "附魔武器 - 虚无精灵之敏",
+    "Enchant Weapon - Arcane Mast": "附魔武器 - 奥术精通",
+    "Enchant Weapon - Berserker's Rage": "附魔武器 - 狂战士之怒",
+    "Enchant Weapon - Jan'alai's Precision": "附魔武器 - 姜纳莱的精准",
+    "Enchant Weapon - Worldsoul Tenacity": "附魔武器 - 世界之魂坚韧",
+    # 护腿
+    "41 Agi/Str & 115 Sta": "41 敏捷/力量 & 115 耐力",
+    "41 Agi/Str & 27 Armor": "41 敏捷/力量 & 27 护甲",
+    "41 Int & 115 Sta": "41 智力 & 115 耐力",
+}
+
+# 宝石属性缩写英文 → 中文
+GEM_STAT_CN = {
+    "Crit": "暴击",
+    "Haste": "急速",
+    "Mast": "精通",
+    "Vers": "全能",
+    "Primary": "主属性",
+    "Sta": "耐力",
+    "Armor": "护甲",
+}
+
+# 物品品质数字 → 中文
+QUALITY_CN = {
+    "0": "粗糙",
+    "1": "普通",
+    "2": "优秀",
+    "3": "精良",
+    "4": "史诗",
+    "5": "传说",
+    "6": "神器",
+    "7": "传家宝",
+    0: "粗糙",
+    1: "普通",
+    2: "优秀",
+    3: "精良",
+    4: "史诗",
+    5: "传说",
+    6: "神器",
+    7: "传家宝",
 }

@@ -20,7 +20,7 @@
                 <h1>{{ player_detail.character_name }}</h1>
                 <p>
                     {{ player_detail.realm }} · {{ player_detail.region|upper }}
-                    {% if player_detail.race %}<span class="dot"></span>{{ player_detail.race }}{% endif %}
+                    {% if player_detail.race_cn %}<span class="dot"></span>{{ player_detail.race_cn }}{% endif %}
                     {% if player_detail.guild_name %}<span class="dot"></span>&lt;{{ player_detail.guild_name }}&gt;{% endif %}
                 </p>
             </div>
@@ -42,7 +42,7 @@
                 <div class="overview-item"><span>地区</span><strong>{{ player_detail.region|upper }}</strong></div>
                 {% if player_detail.item_level %}<div class="overview-item"><span>装等</span><strong>{{ player_detail.item_level|floatformat:1 }}</strong></div>{% endif %}
                 {% if player_detail.faction_cn %}<div class="overview-item"><span>阵营</span><strong>{{ player_detail.faction_cn }}</strong></div>{% endif %}
-                {% if player_detail.race %}<div class="overview-item"><span>种族</span><strong>{{ player_detail.race }}</strong></div>{% endif %}
+                {% if player_detail.race_cn %}<div class="overview-item"><span>种族</span><strong>{{ player_detail.race_cn }}</strong></div>{% endif %}
                 {% if player_detail.achievement_points %}<div class="overview-item"><span>成就点</span><strong>{{ player_detail.achievement_points }}</strong></div>{% endif %}
                 {% if player_detail.last_updated %}<div class="overview-item"><span>更新时间</span><strong>{{ player_detail.last_updated|date:"Y-m-d H:i" }}</strong></div>{% endif %}
             </div>
