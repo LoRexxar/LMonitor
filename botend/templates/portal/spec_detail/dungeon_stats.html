@@ -199,9 +199,6 @@
                                     <span>ID</span>
                                     {% endif %}
                                 </div>
-                                {% if node.points %}
-                                <span class="talent-node-points">{{ node.points }}</span>
-                                {% endif %}
                                 <span class="talent-node-usage">{{ node.usage_pct }}%</span>
                                 {% if node.is_choice_node and node.choice_options %}
                                 <div class="talent-choice-popup">
@@ -234,14 +231,6 @@
                                     {% endif %}
                                 </div>
                                 {% endwith %}
-                                <div class="talent-node-info talent-node-info--hover">
-                                    <span class="talent-node-name">{{ node.name }}</span>
-                                    <span class="talent-node-meta">
-                                        {{ tree.title }}
-                                        <span class="dot"></span>{{ node.count }} / {{ talent_tree.sample_size }} 人
-                                        {% if node.usage_pct %}<span class="dot"></span>{{ node.usage_pct }}%{% endif %}
-                                    </span>
-                                </div>
                             </a>
                             {% endfor %}
                         {% endif %}
@@ -625,25 +614,56 @@
     text-align: center;
     box-shadow: 0 6px 12px rgba(37,99,235,.25);
 }
-.talent-node-info--hover {
+.talent-node-tooltip {
+    display: none;
     position: absolute;
     left: 50%;
-    bottom: calc(100% + 8px);
-    transform: translateX(-50%) translateY(6px);
+    bottom: calc(100% + 12px);
+    transform: translateX(-50%);
     min-width: 160px;
-    max-width: 240px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: rgba(255,255,255,.98);
-    border: 1px solid rgba(37,99,235,.2);
-    box-shadow: 0 14px 28px rgba(15,23,42,.16);
-    opacity: 0;
+    max-width: 280px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(15,23,42,.98);
+    border: 1px solid rgba(96,165,250,.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    z-index: 9998;
     pointer-events: none;
-    transition: opacity .15s ease, transform .15s ease;
 }
-.talent-node-card--tree:hover .talent-node-info--hover { opacity: 1; transform: translateX(-50%) translateY(0); }
-.talent-node-name { display: block; color: #1e293b; font-weight: 700; margin-bottom: 4px; line-height: 1.3; }
-.talent-node-meta { color: #64748b; font-size: 12px; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.talent-node-tooltip::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    width: 8px;
+    height: 8px;
+    background: rgba(15,23,42,.98);
+    border-right: 1px solid rgba(96,165,250,.4);
+    border-bottom: 1px solid rgba(96,165,250,.4);
+    transform: translateX(-50%) rotate(45deg);
+}
+.talent-node-card--tree:hover .talent-node-tooltip {
+    display: block;
+}
+/* Choice nodes: hide node tooltip when popup is active */
+.talent-node-card--tree.is-choice-node.popup-active .talent-node-tooltip {
+    display: none;
+}
+.talent-node-card--tree.is-choice-node.popup-active {
+    z-index: 100;
+}
+.talent-node-tooltip-name {
+    color: #f1f5f9;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+.talent-node-tooltip-desc {
+    color: #cbd5e1;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: normal;
+}
 .talent-tree-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .talent-summary-chip {
     display: inline-flex;
