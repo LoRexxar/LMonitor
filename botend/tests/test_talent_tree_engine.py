@@ -947,6 +947,17 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         )
         mock_provider_cls.return_value.get_full_tree_nodes.return_value = [
             {
+                'node_id': 90,
+                'talent_id': 90,
+                'spell_id': 900,
+                'name': '共同父节点',
+                'icon': 'parent_icon',
+                'tree_type': 'spec',
+                'row': 3,
+                'column': 5,
+                'db2_subtree_id': 0,
+            },
+            {
                 'node_id': 100,
                 'talent_id': 100,
                 'spell_id': 1000,
@@ -956,6 +967,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
                 'row': 4,
                 'column': 5,
                 'db2_subtree_id': 0,
+                'parents': [90],
             },
             {
                 'node_id': 101,
@@ -967,6 +979,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
                 'row': 4,
                 'column': 5,
                 'db2_subtree_id': 0,
+                'parents': [90],
             },
             {
                 'node_id': 200,
@@ -1005,6 +1018,86 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertTrue(all('description_zh' in option for option in choice_node['choice_options']))
         self.assertEqual(choice_node['name'], '二选一B')
         self.assertEqual(choice_node['usage_pct'], 100.0)
+
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_popularity_tree_filters_other_spec_components_before_position_merge(self, mock_provider_cls):
+        mock_provider_cls.return_value.merge_into_node.side_effect = (
+            lambda node, class_name='', spec_name='': node
+        )
+        mock_provider_cls.return_value.get_full_tree_nodes.return_value = [
+            {
+                'node_id': 10,
+                'talent_id': 100,
+                'spell_id': 1000,
+                'name': 'Frost Strike',
+                'icon': 'frost_icon',
+                'tree_type': 'spec',
+                'row': 1200,
+                'column': 12600,
+                'db2_subtree_id': 0,
+                'parents': [],
+            },
+            {
+                'node_id': 20,
+                'talent_id': 200,
+                'spell_id': 2000,
+                'name': 'Heart Strike',
+                'icon': 'blood_icon',
+                'tree_type': 'spec',
+                'row': 1200,
+                'column': 12600,
+                'db2_subtree_id': 0,
+                'parents': [],
+            },
+            {
+                'node_id': 21,
+                'talent_id': 201,
+                'spell_id': 2001,
+                'name': 'Marrowrend',
+                'icon': 'blood_child_icon',
+                'tree_type': 'spec',
+                'row': 1800,
+                'column': 12000,
+                'db2_subtree_id': 0,
+                'parents': [20],
+            },
+            {
+                'node_id': 30,
+                'talent_id': 300,
+                'spell_id': 3000,
+                'name': 'Outbreak',
+                'icon': 'unholy_icon',
+                'tree_type': 'spec',
+                'row': 1200,
+                'column': 12600,
+                'db2_subtree_id': 0,
+                'parents': [],
+            },
+        ]
+
+        talent_tree = _compute_talent_popularity_tree(
+            records=[{
+                'talents_json': [
+                    {'node_id': 20, 'talent_id': 200, 'spell_id': 2000, 'name': 'Heart Strike', 'tree_type': 'spec', 'row': 1200, 'column': 12600, 'points': 1},
+                    {'node_id': 21, 'talent_id': 201, 'spell_id': 2001, 'name': 'Marrowrend', 'tree_type': 'spec', 'row': 1800, 'column': 12000, 'points': 1},
+                ],
+                'gear_json': [],
+                'faction': 'Alliance',
+            }],
+            class_name='DeathKnight',
+            spec_name='Blood',
+            top_n=10,
+        )
+
+        nodes = talent_tree['render_model']['nodes']
+        first_node = next(n for n in nodes if n.get('row') == 1200 and n.get('column') == 12600)
+        self.assertEqual(first_node['name'], 'Heart Strike')
+        self.assertFalse(first_node['is_choice_node'])
+        self.assertEqual(first_node['choice_options'], [])
+        self.assertEqual(
+            sorted(n.get('name') for n in nodes if n.get('tree_type') == 'spec'),
+            ['Heart Strike', 'Marrowrend'],
+        )
 
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
     def test_dungeon_stats_template_renders_popularity_talent_tree(self, mock_provider_cls):

@@ -887,6 +887,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
     full_tree_nodes = provider.get_full_tree_nodes(class_name, spec_name)
     if not full_tree_nodes:
         return {}
+    full_tree_nodes = _filter_spec_nodes_by_usage_component(full_tree_nodes, usage_map)
 
     # 展示层去重/合并：同一坐标视为同一展示节点
     # 按 (tree_type, db2_subtree_id, row, column) 分组，row/column 缺失时用 identity 兜底
@@ -1212,6 +1213,89 @@ def _group_hero_subtrees_by_column(hero_nodes):
         result.setdefault(group_key, []).append(node)
 
     return result
+
+
+def _filter_spec_nodes_by_usage_component(full_tree_nodes, usage_map):
+    """过滤同一职业 TraitTree 中混入的其它专精 spec 子图。
+
+    DB2 的 TraitTreeID 是按职业划分的，部分 backfill 数据会把同一职业的三个
+    spec 子图都写到每个 spec 下。聚合页用全量节点做底板时，如果直接按坐标合并，
+    Blood/Frost/Unholy 这类同坐标入口会被误判为 3 选 1。
+
+    当前详情页 records 的 usage_map 只包含真实样本点过的 spec 节点。这里用
+    parents_json（父 node_id / entry_id）构建 spec 节点无向图，只保留与实际使用
+    节点同一连通分量的 spec 节点；class/hero 节点保持不变。若没有可匹配 usage
+    节点，则保持原始行为，避免空数据页面被误删。
+    """
+    if not full_tree_nodes or not usage_map:
+        return full_tree_nodes
+
+    spec_nodes = []
+    by_node_id = {}
+    adjacency = defaultdict(set)
+
+    for raw_node in full_tree_nodes:
+        if (raw_node.get('tree_type') or 'spec') != 'spec':
+            continue
+        spec_nodes.append(raw_node)
+        node_id = _coerce_positive_int(raw_node.get('node_id'))
+        if node_id:
+            by_node_id[node_id] = raw_node
+            adjacency.setdefault(node_id, set())
+
+    if not spec_nodes or not by_node_id:
+        return full_tree_nodes
+
+    for raw_node in spec_nodes:
+        node_id = _coerce_positive_int(raw_node.get('node_id'))
+        if not node_id:
+            continue
+        for parent_id in raw_node.get('parents') or raw_node.get('parents_json') or []:
+            parent_id = _coerce_positive_int(parent_id)
+            if not parent_id or parent_id not in by_node_id:
+                continue
+            adjacency[node_id].add(parent_id)
+            adjacency[parent_id].add(node_id)
+
+    usage_node_ids = set()
+    for raw_node in spec_nodes:
+        node_id = _coerce_positive_int(raw_node.get('node_id'))
+        talent_id = _coerce_positive_int(raw_node.get('talent_id'))
+        spell_id = _coerce_positive_int(raw_node.get('spell_id'))
+        display_spell_id = _coerce_positive_int(raw_node.get('display_spell_id'))
+        candidate_keys = [
+            f'spec:{value}'
+            for value in (node_id, talent_id, spell_id, display_spell_id)
+            if value
+        ]
+        if any((usage_map.get(key) or {}).get('count', 0) > 0 for key in candidate_keys):
+            if node_id:
+                usage_node_ids.add(node_id)
+
+    if not usage_node_ids:
+        return full_tree_nodes
+
+    kept_node_ids = set()
+    stack = list(usage_node_ids)
+    while stack:
+        current = stack.pop()
+        if current in kept_node_ids:
+            continue
+        kept_node_ids.add(current)
+        stack.extend(adjacency.get(current, set()) - kept_node_ids)
+
+    if not kept_node_ids:
+        return full_tree_nodes
+
+    filtered = []
+    for raw_node in full_tree_nodes:
+        if (raw_node.get('tree_type') or 'spec') != 'spec':
+            filtered.append(raw_node)
+            continue
+        node_id = _coerce_positive_int(raw_node.get('node_id'))
+        if node_id in kept_node_ids:
+            filtered.append(raw_node)
+    return filtered
 
 
 def _iter_render_tree_types(grouped_nodes):
