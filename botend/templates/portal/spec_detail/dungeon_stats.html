@@ -94,6 +94,35 @@
         </div>
         {% endif %}
 
+        <div class="section-block secondary-stats-section">
+            <h4>属性绿字区间</h4>
+            {% if dungeon_detail.secondary_stats %}
+            <div class="secondary-stat-grid">
+                {% for stat in dungeon_detail.secondary_stats %}
+                <div class="secondary-stat-row">
+                    <div class="secondary-stat-name">{{ stat.label }}</div>
+                    {% if stat.pct %}
+                    <div class="secondary-stat-range">
+                        <span>{{ stat.pct.p25|floatformat:1 }}%</span>
+                        <div class="secondary-stat-bar">
+                            <div class="secondary-stat-fill" style="left:25%;width:50%;"></div>
+                            <div class="secondary-stat-marker" style="left:50%;"></div>
+                        </div>
+                        <span>{{ stat.pct.p75|floatformat:1 }}%</span>
+                    </div>
+                    <div class="secondary-stat-meta">中位 {{ stat.pct.median|floatformat:1 }}% · 平均 {{ stat.pct.avg|floatformat:1 }}%</div>
+                    {% endif %}
+                    {% if stat.rating %}
+                    <div class="secondary-stat-meta">绿字 {{ stat.rating.p25|floatformat:0 }} - {{ stat.rating.p75|floatformat:0 }} · 中位 {{ stat.rating.median|floatformat:0 }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
+        </div>
+
         <div class="section-block">
             <h4>阵营分布</h4>
             {% if dungeon_detail.faction_distribution %}
@@ -103,6 +132,23 @@
                     <div class="stat-label">{% if fid == "0" %}联盟{% elif fid == "1" %}部落{% else %}{{ fid }}{% endif %}</div>
                     <div class="stat-value">{{ info.pct }}%</div>
                     <div class="text-muted" style="font-size:12px;">{{ info.count }} 人</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
+        </div>
+
+        <div class="section-block">
+            <h4>种族分布</h4>
+            {% if dungeon_detail.race_distribution %}
+            <div class="stat-cards stat-strip">
+                {% for race in dungeon_detail.race_distribution %}
+                <div class="stat-card">
+                    <div class="stat-label">{{ race.race_cn|default:race.race }}</div>
+                    <div class="stat-value">{{ race.pct }}%</div>
+                    <div class="text-muted" style="font-size:12px;">{{ race.count }} 人</div>
                 </div>
                 {% endfor %}
             </div>
@@ -328,35 +374,6 @@
             {% endif %}
         </div>
 
-
-        <div class="section-block">
-            <h4>属性绿字区间</h4>
-            {% if dungeon_detail.secondary_stats %}
-            <div class="secondary-stat-grid">
-                {% for stat in dungeon_detail.secondary_stats %}
-                <div class="secondary-stat-row">
-                    <div class="secondary-stat-name">{{ stat.label }}</div>
-                    {% if stat.pct %}
-                    <div class="secondary-stat-range">
-                        <span>{{ stat.pct.p25|floatformat:1 }}%</span>
-                        <div class="secondary-stat-bar">
-                            <div class="secondary-stat-fill" style="left:25%;width:50%;"></div>
-                            <div class="secondary-stat-marker" style="left:50%;"></div>
-                        </div>
-                        <span>{{ stat.pct.p75|floatformat:1 }}%</span>
-                    </div>
-                    <div class="secondary-stat-meta">中位 {{ stat.pct.median|floatformat:1 }}% · 平均 {{ stat.pct.avg|floatformat:1 }}%</div>
-                    {% endif %}
-                    {% if stat.rating %}
-                    <div class="secondary-stat-meta">绿字 {{ stat.rating.p25|floatformat:0 }} - {{ stat.rating.p75|floatformat:0 }} · 中位 {{ stat.rating.median|floatformat:0 }}</div>
-                    {% endif %}
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
-        </div>
 
         <div class="section-block">
             <h4>Top 5 DPS</h4>

@@ -392,10 +392,11 @@ class SpecStatsService:
         from botend.models import PlayerSpecTopPlayer
         player_records = list(PlayerSpecTopPlayer.objects.filter(
             season_id=season_id, class_name=class_name, spec_name=spec_name
-        ).values('gear_json', 'stats_json')[:200])
+        ).values('gear_json', 'stats_json', 'race')[:200])
         stats['gem_popularity'] = _compute_gem_popularity(player_records, top_n=20)
         stats['enchant_popularity'] = _compute_enchant_popularity(player_records, top_n=20)
         stats['secondary_stats'] = _compute_secondary_stats_distribution(player_records)
+        stats['race_distribution'] = _compute_race_distribution(player_records)
 
         if full:
             # 详细模式：Top 5 玩家
@@ -570,10 +571,11 @@ class SpecStatsService:
         from botend.models import PlayerSpecTopPlayer
         player_records = list(PlayerSpecTopPlayer.objects.filter(
             season_id=season_id, class_name=class_name, spec_name=spec_name
-        ).values('gear_json', 'stats_json')[:200])
+        ).values('gear_json', 'stats_json', 'race')[:200])
         stats['gem_popularity'] = _compute_gem_popularity(player_records, top_n=20)
         stats['enchant_popularity'] = _compute_enchant_popularity(player_records, top_n=20)
         stats['secondary_stats'] = _compute_secondary_stats_distribution(player_records)
+        stats['race_distribution'] = _compute_race_distribution(player_records)
 
         if full:
             full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
@@ -850,7 +852,11 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         base_candidate = candidates[0]
         base_raw_node = base_candidate['raw_node']
         base_node_key = base_candidate['node_key']
-        base_is_highlighted = base_candidate['is_highlighted']
+        # 同一展示坐标的候选节点只渲染一个图标；使用率/高亮应取该坐标所有候选的最大值。
+        # 否则二选一或 hero 节点的 base key 未命中时会显示成全灰 0%。
+        display_usage_pct = max((c['usage_pct'] or 0) for c in candidates)
+        display_usage_count = max((c['usage_count'] or 0) for c in candidates)
+        base_is_highlighted = any(c['is_highlighted'] for c in candidates) or display_usage_count > 0
 
         # 构建 base 节点
         node = TalentNodeModel.from_raw({
@@ -858,6 +864,9 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
             'points': 1 if base_is_highlighted else 0,
             'selected': base_is_highlighted,
         })
+        node.count = display_usage_count
+        node.usage_pct = display_usage_pct
+        node.pct = display_usage_pct
 
         # 合并组中其它节点作为 choice_options
         choice_options = []
@@ -886,31 +895,22 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         tree_type = base_raw_node.get('tree_type') or 'spec'
         grouped_nodes[tree_type].append(node)
         node_key_map[base_node_key] = node
+        for candidate in candidates:
+            node_key_map[candidate['node_key']] = node
 
-    # Hero 子树过滤：若有使用过的 hero subtree，则保留这些 subtree；否则保留最大 subtree
+    # Hero 子树过滤：聚合页只展示主流英雄子树。若多个 hero subtree 都有使用率，保留总使用量最高的一棵，避免两棵英雄树叠在中间列。
     if 'hero' in grouped_nodes:
         hero_nodes = grouped_nodes['hero']
         hero_subtrees = _group_hero_subtrees_by_column(hero_nodes)
         if len(hero_subtrees) > 1:
-            # 找出有使用过的子树（在 usage_map 中出现过）
-            used_subtrees = {}
-            for subtree_key, nodes in hero_subtrees.items():
-                for node in nodes:
-                    node_key = _build_talent_node_key(node)
-                    if node_key in usage_map:
-                        used_subtrees[subtree_key] = nodes
-                        break
+            def _subtree_usage_score(nodes):
+                # 按节点 count 求和；没有 count 时回退到使用率，再回退到节点数量。
+                count_score = sum((getattr(node, 'count', 0) or 0) for node in nodes)
+                pct_score = sum((getattr(node, 'usage_pct', 0) or 0) for node in nodes)
+                return (count_score, pct_score, len(nodes))
 
-            if used_subtrees:
-                # 保留有使用过的子树
-                kept = []
-                for nodes in used_subtrees.values():
-                    kept.extend(nodes)
-                grouped_nodes['hero'] = kept
-            else:
-                # 保留最大的子树
-                largest_key = max(hero_subtrees, key=lambda k: len(hero_subtrees[k]))
-                grouped_nodes['hero'] = hero_subtrees[largest_key]
+            best_key = max(hero_subtrees, key=lambda key: _subtree_usage_score(hero_subtrees[key]))
+            grouped_nodes['hero'] = hero_subtrees[best_key]
 
     # 构建树结构
     trees = []
@@ -1041,10 +1041,12 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
 
     def _merge(node_payload):
         usage_item = usage_map.get(node_payload.get('node_key'), {})
-        node_payload['count'] = usage_item.get('count', 0)
-        node_payload['usage_pct'] = usage_item.get('usage_pct', 0)
-        node_payload['pct'] = usage_item.get('usage_pct', 0)
-        node_payload['is_highlighted'] = node_payload.get('node_key') in highlighted_set
+        fallback_count = node_payload.get('count') or 0
+        fallback_pct = node_payload.get('usage_pct') or node_payload.get('pct') or 0
+        node_payload['count'] = usage_item.get('count', fallback_count)
+        node_payload['usage_pct'] = usage_item.get('usage_pct', fallback_pct)
+        node_payload['pct'] = usage_item.get('usage_pct', fallback_pct)
+        node_payload['is_highlighted'] = node_payload.get('node_key') in highlighted_set or bool(node_payload.get('selected'))
         return node_payload
 
     for node in render_model.get('nodes', []):
@@ -1144,6 +1146,28 @@ def _compute_numeric_summary(values):
         'p25': round(_percentile(values, 25), 1),
         'p75': round(_percentile(values, 75), 1),
     }
+
+
+
+def _compute_race_distribution(player_records):
+    """聚合人物榜种族分布。来源 PlayerSpecTopPlayer.race。"""
+    race_counter = Counter()
+    total = 0
+    for record in player_records or []:
+        race = record.get('race')
+        if not race:
+            continue
+        total += 1
+        race_counter[str(race)] += 1
+    return [
+        {
+            'race': race,
+            'race_cn': _translate_race(race),
+            'count': count,
+            'pct': round(count / total * 100, 1) if total else 0,
+        }
+        for race, count in race_counter.most_common(12)
+    ]
 
 
 def _compute_secondary_stats_distribution(player_records):
