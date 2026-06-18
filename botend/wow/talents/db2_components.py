@@ -17,7 +17,7 @@ from collections import Counter, defaultdict
 from botend.constants.wow import CLASS_SPEC_MAP
 from botend.models import PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking
 
-SPEC_REGION_X = 9900
+SPEC_REGION_X = 7000  # spec 区域起始坐标（与 backfill 保持一致）
 
 
 class TalentDb2ComponentResolver:
@@ -73,7 +73,9 @@ class TalentDb2ComponentResolver:
     def _build_components(self):
         candidates_by_tree = defaultdict(set)
         for trait_node_id, info in self.db2_nodes.items():
-            if info['subtree_id'] == 0 and info['pos_x'] > SPEC_REGION_X:
+            # spec 区域：SubTreeID=0 且 pos_x >= SPEC_REGION_X。
+            # Type=3 是顶部入口/锚点，不属于任何专精 spec component，不能写进 spec 归属。
+            if info['subtree_id'] == 0 and info['type'] != 3 and info['pos_x'] >= SPEC_REGION_X:
                 candidates_by_tree[info['tree_id']].add(trait_node_id)
 
         for tree_id, candidates in candidates_by_tree.items():
@@ -94,14 +96,30 @@ class TalentDb2ComponentResolver:
                             stack.append(nb)
                 comps.append(comp)
 
-            # Major spec components first. Type=1 isolated entry nodes are appended
-            # after them and can still be assigned by real sample usage.
-            comps.sort(key=lambda comp: (
-                0 if len(comp) > 1 else 1,
+            # 分离主连通分量和 Type=1 孤立节点
+            major_components = [comp for comp in comps if len(comp) > 1]
+            isolated_entry_nodes = [comp for comp in comps if len(comp) == 1 and self.db2_nodes[comp[0]]['type'] == 1]
+            other_isolated = [comp for comp in comps if len(comp) == 1 and self.db2_nodes[comp[0]]['type'] != 1]
+
+            # 主连通分量按坐标排序
+            major_components.sort(key=lambda comp: (
                 min(self.db2_nodes[n]['pos_x'] for n in comp),
                 min(self.db2_nodes[n]['pos_y'] for n in comp),
-                -len(comp),
             ))
+            # Type=1 入口孤立节点按坐标排序
+            isolated_entry_nodes.sort(key=lambda comp: (
+                self.db2_nodes[comp[0]]['pos_x'],
+                self.db2_nodes[comp[0]]['pos_y'],
+            ))
+            # 其它孤立节点按坐标排序
+            other_isolated.sort(key=lambda comp: (
+                self.db2_nodes[comp[0]]['pos_x'],
+                self.db2_nodes[comp[0]]['pos_y'],
+            ))
+
+            # 合并：主连通分量 + Type=1 入口节点 + 其它孤立节点
+            comps = major_components + isolated_entry_nodes + other_isolated
+
             self.tree_components[tree_id] = comps
             for component_id, comp in enumerate(comps, start=1):
                 for trait_node_id in comp:
@@ -134,6 +152,7 @@ class TalentDb2ComponentResolver:
         return set(self._spec_component_cache[cache_key])
 
     def _infer_spec_component_ids(self, class_name, spec_name, tree_id):
+        # 先尝试从玩家样本统计
         counter = Counter()
         querysets = [
             PlayerSpecTopPlayer.objects.filter(class_name=class_name, spec_name=spec_name).values_list('talents_json', flat=True)[:100],
@@ -153,25 +172,55 @@ class TalentDb2ComponentResolver:
                         sample_components.add(comp_id)
                 for comp_id in sample_components:
                     counter[comp_id] += 1
-        if counter:
-            max_count = counter.most_common(1)[0][1]
-            return {
-                comp_id for comp_id, count in counter.items()
-                if count >= max(1, max_count * 0.5)
-            }
 
+        if counter:
+            # 返回高频 components：主 component + 相关 Type=1 入口 component
+            max_count = counter.most_common(1)[0][1]
+            threshold = max(1, max_count * 0.5)
+            result = {comp_id for comp_id, count in counter.items() if count >= threshold}
+
+            # 分离主连通分量和 Type=1 孤立节点
+            major_comps = []
+            entry_comps = []
+            for comp_id in result:
+                comp = self.tree_components.get(tree_id, [])[comp_id - 1] if comp_id <= len(self.tree_components.get(tree_id, [])) else []
+                if len(comp) > 1:
+                    major_comps.append(comp_id)
+                elif len(comp) == 1 and self.db2_nodes[comp[0]]['type'] == 1:
+                    entry_comps.append(comp_id)
+
+            # 主 component + 同专精的入口 component
+            if major_comps:
+                return set(major_comps + entry_comps)
+            return result
+
+        # Fallback：无样本时按 CLASS_SPEC_MAP 顺序分配
         specs = CLASS_SPEC_MAP.get(class_name, [])
         try:
             spec_index = specs.index(spec_name)
         except ValueError:
             return set()
+
+        all_components = self.tree_components.get(tree_id, [])
         major_components = [
-            idx for idx, comp in enumerate(self.tree_components.get(tree_id, []), start=1)
+            idx for idx, comp in enumerate(all_components, start=1)
             if len(comp) > 1
         ]
+        isolated_entry_components = [
+            idx for idx, comp in enumerate(all_components, start=1)
+            if len(comp) == 1 and self.db2_nodes[comp[0]]['type'] == 1
+        ]
+
+        # 分配主 component
+        result = set()
         if spec_index < len(major_components):
-            return {major_components[spec_index]}
-        return set()
+            result.add(major_components[spec_index])
+
+        # 分配对应的 Type=1 入口 component（一对一对应）
+        if spec_index < len(isolated_entry_components):
+            result.add(isolated_entry_components[spec_index])
+
+        return result
 
     @staticmethod
     def _extract_node_ids(payload):

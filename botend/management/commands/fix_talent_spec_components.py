@@ -60,9 +60,21 @@ class Command(BaseCommand):
         for row in qs.iterator(chunk_size=500):
             trait_node_id = resolver.trait_node_for_entry(row.node_id) or row.talent_id
             if not trait_node_id:
+                if (row.tree_type or 'spec') == 'spec':
+                    delete_ids.append(row.id)
+                    if len(delete_examples) < 8:
+                        delete_examples.append(
+                            f"{row.id}:{row.name_zh or row.name or row.node_id} no_db2_trait_node"
+                        )
                 continue
             info = resolver.db2_nodes.get(trait_node_id)
             if not info:
+                if (row.tree_type or 'spec') == 'spec':
+                    delete_ids.append(row.id)
+                    if len(delete_examples) < 8:
+                        delete_examples.append(
+                            f"{row.id}:{row.name_zh or row.name or row.node_id} no_db2_node"
+                        )
                 continue
             tree_id = info['tree_id']
             component_id = resolver.component_id_for_trait_node(trait_node_id)
@@ -77,6 +89,13 @@ class Command(BaseCommand):
 
             if (row.tree_type or 'spec') == 'spec':
                 target_component_ids = resolver.get_spec_component_ids(class_name, spec_name, tree_id)
+                if not component_id:
+                    delete_ids.append(row.id)
+                    if len(delete_examples) < 8:
+                        delete_examples.append(
+                            f"{row.id}:{row.name_zh or row.name or row.node_id} component=0"
+                        )
+                    continue
                 if target_component_ids and component_id not in target_component_ids:
                     delete_ids.append(row.id)
                     if len(delete_examples) < 8:

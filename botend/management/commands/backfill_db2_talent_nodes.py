@@ -205,7 +205,8 @@ class Command(BaseCommand):
                     pos_x = node_info['pos_x']
                     if subtree_id > 0:
                         tree_type = 'hero'
-                    elif pos_x < 7000:
+                    elif pos_x < 7000 or node_info['type'] == 3:
+                        # Type=3 是顶部入口/锚点，不属于 spec component，不能写入 spec 节点。
                         tree_type = 'class'
                     else:
                         tree_type = 'spec'
