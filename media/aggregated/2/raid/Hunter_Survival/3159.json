@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Hunter",
+  "spec_name": "Survival",
+  "sample_count": 100,
+  "dps": {
+    "avg": 175877.8,
+    "median": 175092.6,
+    "p25": 172692.2,
+    "p75": 177742.7,
+    "max": 189119.8,
+    "min": 170633.8,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "09595ee1111b",
+      "count": 7,
+      "pct": 7.0,
+      "avg_dps": 175775.7
+    },
+    {
+      "build": "c60c15bb9f9d",
+      "count": 6,
+      "pct": 6.0,
+      "avg_dps": 177435.6
+    },
+    {
+      "build": "3b1ee312f9a9",
+      "count": 6,
+      "pct": 6.0,
+      "avg_dps": 175194.5
+    },
+    {
+      "build": "a5ed348f1fab",
+      "count": 5,
+      "pct": 5.0,
+      "avg_dps": 173997.3
+    },
+    {
+      "build": "99851b9bfa57",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 177951.7
+    },
+    {
+      "build": "10c3181cb73e",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 174122.3
+    },
+    {
+      "build": "bc9bcab5a29a",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 177216.3
+    },
+    {
+      "build": "55e5632aa51f",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 174319.1
+    },
+    {
+      "build": "b3ef34c47de1",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 180793.8
+    },
+    {
+      "build": "7ee466b20aed",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 174482.6
+    },
+    {
+      "build": "1055c6d3cc22",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 176679.3
+    },
+    {
+      "build": "645faaa8a56f",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 175785.0
+    },
+    {
+      "build": "5012821ff3bb",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 175250.9
+    },
+    {
+      "build": "d61453bb3c4d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 187778.9
+    },
+    {
+      "build": "41a5e6e586d8",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 186683.6
+    },
+    {
+      "build": "d6ee72a01b0d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 185733.5
+    },
+    {
+      "build": "4819f9937a9a",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 185354.5
+    },
+    {
+      "build": "8b3ba8118820",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 182255.6
+    },
+    {
+      "build": "08ef96c67e74",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 181568.8
+    },
+    {
+      "build": "ca1f70be8025",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 179626.1
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "alliance": 46,
+    "horde": 54
+  },
+  "guilds": [
+    {
+      "name": "Вечный сон",
+      "count": 2
+    },
+    {
+      "name": "G A M B I T",
+      "count": 2
+    },
+    {
+      "name": "Boosted Animals",
+      "count": 1
+    },
+    {
+      "name": "R E V E R",
+      "count": 1
+    },
+    {
+      "name": "Calamity",
+      "count": 1
+    },
+    {
+      "name": "xD",
+      "count": 1
+    },
+    {
+      "name": "HKM",
+      "count": 1
+    },
+    {
+      "name": "Infinity",
+      "count": 1
+    },
+    {
+      "name": "Divinum",
+      "count": 1
+    },
+    {
+      "name": "CyaThursday",
+      "count": 1
+    },
+    {
+      "name": "Raccoonsquad",
+      "count": 1
+    },
+    {
+      "name": "Myshörnan",
+      "count": 1
+    },
+    {
+      "name": "Minds Eye",
+      "count": 1
+    },
+    {
+      "name": "Forgotten Glade",
+      "count": 1
+    },
+    {
+      "name": "Flare",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 437993.7,
+    "median": 436193.0,
+    "p25": 417161.0,
+    "p75": 462362.8
+  },
+  "stats": {},
+  "gems": []
+}

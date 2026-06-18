@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Shaman",
+  "spec_name": "Enhancement",
+  "sample_count": 100,
+  "dps": {
+    "avg": 173802.1,
+    "median": 170794.5,
+    "p25": 167701.0,
+    "p75": 177451.8,
+    "max": 211227.1,
+    "min": 163716.5,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "7e8b3010e103",
+      "count": 10,
+      "pct": 10.0,
+      "avg_dps": 176644.4
+    },
+    {
+      "build": "5b27f12672aa",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 170631.6
+    },
+    {
+      "build": "caae9379ea87",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 190585.3
+    },
+    {
+      "build": "d75a44c4314d",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 181868.3
+    },
+    {
+      "build": "b26cfd71ee43",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 177432.5
+    },
+    {
+      "build": "9aae2d812520",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 171140.0
+    },
+    {
+      "build": "cf53e8d9ed91",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 173295.8
+    },
+    {
+      "build": "aa83df08bbc2",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 165925.3
+    },
+    {
+      "build": "d3dcae40d8d8",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 203391.9
+    },
+    {
+      "build": "516ccee2cdd4",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 196815.6
+    },
+    {
+      "build": "ed76a1e57ab3",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 191032.0
+    },
+    {
+      "build": "9a45841c88a0",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 190133.8
+    },
+    {
+      "build": "cc1f4ec26dbe",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 187874.3
+    },
+    {
+      "build": "92b45aa6d565",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 187550.4
+    },
+    {
+      "build": "460b4326555f",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 186689.9
+    },
+    {
+      "build": "f633598c9774",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 186583.6
+    },
+    {
+      "build": "2064cf149fc2",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 185118.9
+    },
+    {
+      "build": "6869d831af37",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 184601.9
+    },
+    {
+      "build": "be6df44a07ad",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 183810.9
+    },
+    {
+      "build": "3c557216717d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 181676.1
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "alliance": 28,
+    "horde": 72
+  },
+  "guilds": [
+    {
+      "name": "Deposit Coin",
+      "count": 2
+    },
+    {
+      "name": "Honestly",
+      "count": 1
+    },
+    {
+      "name": "Инвиктус",
+      "count": 1
+    },
+    {
+      "name": "Вечный сон",
+      "count": 1
+    },
+    {
+      "name": "Last Pull Energy",
+      "count": 1
+    },
+    {
+      "name": "Ancient",
+      "count": 1
+    },
+    {
+      "name": "Aint Misbehavin",
+      "count": 1
+    },
+    {
+      "name": "Vantus",
+      "count": 1
+    },
+    {
+      "name": "Vestige",
+      "count": 1
+    },
+    {
+      "name": "Firehawk",
+      "count": 1
+    },
+    {
+      "name": "Eternal",
+      "count": 1
+    },
+    {
+      "name": "Retired Extremely Bad",
+      "count": 1
+    },
+    {
+      "name": "POLAR",
+      "count": 1
+    },
+    {
+      "name": "WE KNOW GIRLS IRL",
+      "count": 1
+    },
+    {
+      "name": "Hüljatud",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 436080.6,
+    "median": 432074.0,
+    "p25": 414276.8,
+    "p75": 455395.2
+  },
+  "stats": {},
+  "gems": []
+}

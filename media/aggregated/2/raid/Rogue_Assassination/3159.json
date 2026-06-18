@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Rogue",
+  "spec_name": "Assassination",
+  "sample_count": 100,
+  "dps": {
+    "avg": 148874.8,
+    "median": 145427.1,
+    "p25": 141480.1,
+    "p75": 152669.7,
+    "max": 195076.0,
+    "min": 139070.2,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "054d688be2f2",
+      "count": 22,
+      "pct": 22.0,
+      "avg_dps": 151646.0
+    },
+    {
+      "build": "8f380d751fee",
+      "count": 8,
+      "pct": 8.0,
+      "avg_dps": 155844.9
+    },
+    {
+      "build": "6f94aeff24a2",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 140396.0
+    },
+    {
+      "build": "2e50b4f8a9f4",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 149230.2
+    },
+    {
+      "build": "1810ad473661",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 152799.0
+    },
+    {
+      "build": "2a076635b878",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 142817.1
+    },
+    {
+      "build": "c443dba7ad62",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 142833.9
+    },
+    {
+      "build": "6517c26878da",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 141873.6
+    },
+    {
+      "build": "554f6b2dd9e0",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 141755.2
+    },
+    {
+      "build": "c6faebf59787",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 179351.9
+    },
+    {
+      "build": "ede78540b2ff",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 172592.6
+    },
+    {
+      "build": "4eb9188eac9d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 168664.4
+    },
+    {
+      "build": "b91201a46667",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 165090.6
+    },
+    {
+      "build": "1389989b38ac",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 160427.6
+    },
+    {
+      "build": "bf693d447882",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 159343.6
+    },
+    {
+      "build": "70f90b7a2372",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 154923.7
+    },
+    {
+      "build": "76e2d944ea4e",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 154841.2
+    },
+    {
+      "build": "4fd97059b8c5",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 154721.9
+    },
+    {
+      "build": "80bf85b9400f",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 153823.0
+    },
+    {
+      "build": "bcc458d9a271",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 152840.0
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "alliance": 67,
+    "horde": 33
+  },
+  "guilds": [
+    {
+      "name": "Potato Corner",
+      "count": 2
+    },
+    {
+      "name": "this is fine",
+      "count": 1
+    },
+    {
+      "name": "Honestly",
+      "count": 1
+    },
+    {
+      "name": "Last Call",
+      "count": 1
+    },
+    {
+      "name": "Unnecessary Flame",
+      "count": 1
+    },
+    {
+      "name": "Scarlet Conservative",
+      "count": 1
+    },
+    {
+      "name": "A D H D",
+      "count": 1
+    },
+    {
+      "name": "Skill Issues",
+      "count": 1
+    },
+    {
+      "name": "Effective Chaos",
+      "count": 1
+    },
+    {
+      "name": "Nomads TM",
+      "count": 1
+    },
+    {
+      "name": "The Hex Pistols",
+      "count": 1
+    },
+    {
+      "name": "lmao",
+      "count": 1
+    },
+    {
+      "name": "Coded Chaos",
+      "count": 1
+    },
+    {
+      "name": "Judge",
+      "count": 1
+    },
+    {
+      "name": "Ngon Nhào Zô",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 451707.0,
+    "median": 448125.0,
+    "p25": 424777.2,
+    "p75": 484298.8
+  },
+  "stats": {},
+  "gems": []
+}

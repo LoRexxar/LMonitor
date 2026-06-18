@@ -1,0 +1,1514 @@
+{
+  "season_id": 2,
+  "dungeon_id": 361753,
+  "dungeon_name": "Seat of the Triumvirate",
+  "class_name": "Priest",
+  "spec_name": "Discipline",
+  "sample_count": 100,
+  "dps": {
+    "avg": 24304.4,
+    "median": 23722.1,
+    "p25": 22361.8,
+    "p75": 25506.0,
+    "max": 47929.5,
+    "min": 18039.1,
+    "sample_count": 99
+  },
+  "clear_time": {
+    "avg": 1965686.1,
+    "median": 1972845.0,
+    "p25": 1912394.0,
+    "p75": 2020663.5
+  },
+  "keystone": {
+    "avg": 21.2,
+    "max": 23,
+    "min": 21
+  },
+  "score": {
+    "avg": 495.7,
+    "median": 501.8,
+    "p25": 500.6,
+    "p75": 504.2,
+    "max": 532.4,
+    "min": 314.4,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "d41d8cd98f00",
+      "count": 11,
+      "pct": 11.0,
+      "avg_dps": 21762.1
+    },
+    {
+      "build": "bf8c5a307f70",
+      "count": 7,
+      "pct": 7.0,
+      "avg_dps": 25311.3
+    },
+    {
+      "build": "f4a93f1909e1",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 23401.9
+    },
+    {
+      "build": "fcf0f14c5f4b",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 24587.7
+    },
+    {
+      "build": "2d1eba1994d4",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 28438.9
+    },
+    {
+      "build": "9ec473e958d4",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 26892.2
+    },
+    {
+      "build": "7b0f0244c37f",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 24086.0
+    },
+    {
+      "build": "648003b44be3",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 23495.3
+    },
+    {
+      "build": "98bbfc95471e",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 22342.0
+    },
+    {
+      "build": "9acf6c7ade2c",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 21784.3
+    },
+    {
+      "build": "34d18ec5f12d",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 21624.2
+    },
+    {
+      "build": "ec3e6d06033a",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 22859.2
+    },
+    {
+      "build": "a25f503f2dbb",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 26822.0
+    },
+    {
+      "build": "98f97dd63de4",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 25202.6
+    },
+    {
+      "build": "f6ce165bd02b",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 25142.7
+    },
+    {
+      "build": "45145dd16f92",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 24751.8
+    },
+    {
+      "build": "0fe88a8abcf0",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 24354.7
+    },
+    {
+      "build": "e92cb06ceeb6",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 21772.6
+    },
+    {
+      "build": "c8b4c31def39",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 21629.4
+    },
+    {
+      "build": "812be5b8841e",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 20025.5
+    }
+  ],
+  "gear": {
+    "head": [
+      {
+        "itemID": 250051,
+        "name": "Blind Oath's Winged Crest",
+        "icon": "inv_helm_cloth_raidpriestmidnight_d_01",
+        "count": 80,
+        "pct": 80.0,
+        "avg_itemLevel": 288.8
+      },
+      {
+        "itemID": 260370,
+        "name": "Visage of Unseen Truths",
+        "icon": "inv_helm_cloth_raidpriestmidnight_d_01",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 251080,
+        "name": "Brambledawn Halo",
+        "icon": "inv_helm_cloth_dungeonharronir_c_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 193703,
+        "name": "Organized Pontificator's Mask",
+        "icon": "inv_helm_cloth_dragondungeon_c_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249329,
+        "name": "Gaze of the Unrestrained",
+        "icon": "inv_helm_cloth_raidwarlockmidnight_d_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "neck": [
+      {
+        "itemID": 50228,
+        "name": "Barbed Ymirheim Choker",
+        "icon": "inv_jewelry_necklace_22",
+        "count": 27,
+        "pct": 27.0,
+        "avg_itemLevel": 286.6
+      },
+      {
+        "itemID": 249337,
+        "name": "Ribbon of Coiled Malice",
+        "icon": "inv_12_jewelry_devouringhost_necklace_bronze",
+        "count": 25,
+        "pct": 25.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 240950,
+        "name": "Masterwork Sin'dorei Amulet",
+        "icon": "inv_12_profession_jewelcrafting_necklace2_gold",
+        "count": 23,
+        "pct": 23.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 249368,
+        "name": "Eternal Voidsong Chain",
+        "icon": "inv_12_jewelry_silvermoonelf_necklace_blue1",
+        "count": 11,
+        "pct": 11.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250247,
+        "name": "Amulet of the Abyssal Hymn",
+        "icon": "inv_12_jewelry_devouringhost_necklace_bronze2",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 251073,
+        "name": "Voidstone Shielding Array",
+        "icon": "inv_12_profession_jewelcrafting_necklace3_silver",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 285.0
+      }
+    ],
+    "shoulder": [
+      {
+        "itemID": 250049,
+        "name": "Blind Oath's Seraphguards",
+        "icon": "inv_shoulder_cloth_raidpriestmidnight_d_01",
+        "count": 81,
+        "pct": 81.0,
+        "avg_itemLevel": 288.8
+      },
+      {
+        "itemID": 239650,
+        "name": "Martyr's Mantle",
+        "icon": "inv_shoulder_cloth_questbloodelf_b_01",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 251213,
+        "name": "Nysarra's Mantle",
+        "icon": "inv_shoulder_cloth_dungeonharronir_c_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 151299,
+        "name": "Viceroy's Umbral Mantle",
+        "icon": "inv_shoulder_cloth_legiondungeon_c_03",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "shirt": [
+      {
+        "itemID": 250054,
+        "name": "Blind Oath's Raiment",
+        "icon": "inv_robe_cloth_raidpriestmidnight_d_01",
+        "count": 28,
+        "pct": 28.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 268274,
+        "name": "Blinky's Collar",
+        "icon": "inv_jewelry_necklace_22",
+        "count": 12,
+        "pct": 12.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 6795,
+        "name": "White Swashbuckler's Shirt",
+        "icon": "inv_shirt_white_01",
+        "count": 7,
+        "pct": 7.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 52019,
+        "name": "Precious's Ribbon",
+        "icon": "inv_misc_ribbon_01",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 151116,
+        "name": "Fashionable Undershirt",
+        "icon": "inv_shirt_06",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 89195,
+        "name": "Artisan Officer's Shirt",
+        "icon": "inv_shirt03_epic",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 49825,
+        "name": "Palebone Robes",
+        "icon": "inv_chest_cloth_79",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 98543,
+        "name": "Wraps of the Blood-Soaked Brawler",
+        "icon": "inv_chest_leather_20",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 249912,
+        "name": "Robes of Endless Oblivion",
+        "icon": "inv_chest_cloth_raidwarlockmidnight_d_01",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 167082,
+        "name": "Stylish Black Shirt",
+        "icon": "inv_shirt_black_01",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 1.0
+      }
+    ],
+    "chest": [
+      {
+        "itemID": 250054,
+        "name": "Blind Oath's Raiment",
+        "icon": "inv_robe_cloth_raidpriestmidnight_d_01",
+        "count": 44,
+        "pct": 44.0,
+        "avg_itemLevel": 288.7
+      },
+      {
+        "itemID": 239664,
+        "name": "Arcanoweave Cord",
+        "icon": "inv_belt_cloth_questbloodelf_b_01",
+        "count": 16,
+        "pct": 16.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 250048,
+        "name": "Blind Oath's Jeweled Sash",
+        "icon": "inv_belt_cloth_raidpriestmidnight_d_01",
+        "count": 9,
+        "pct": 9.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249319,
+        "name": "Endless March Waistwrap",
+        "icon": "inv_belt_cloth_raidpriestmidnight_d_01",
+        "count": 7,
+        "pct": 7.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 49825,
+        "name": "Palebone Robes",
+        "icon": "inv_chest_cloth_79",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 151303,
+        "name": "Voidbender Robe",
+        "icon": "inv_chest_cloth_legiondungeon_c_03",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 260371,
+        "name": "Infernal Greatlock Girdle",
+        "icon": "inv_belt_cloth_raidwarlockmidnight_d_01",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249912,
+        "name": "Robes of Endless Oblivion",
+        "icon": "inv_chest_cloth_raidwarlockmidnight_d_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249308,
+        "name": "Despotic Raiment",
+        "icon": "inv_robe_cloth_raidpriestmidnight_d_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 193720,
+        "name": "Bronze Challenger's Robe",
+        "icon": "inv_chest_cloth_dragondungeon_c_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "waist": [
+      {
+        "itemID": 250050,
+        "name": "Blind Oath's Leggings",
+        "icon": "inv_pant_cloth_raidpriestmidnight_d_01",
+        "count": 34,
+        "pct": 34.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 260371,
+        "name": "Infernal Greatlock Girdle",
+        "icon": "inv_belt_cloth_raidwarlockmidnight_d_01",
+        "count": 13,
+        "pct": 13.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 239664,
+        "name": "Arcanoweave Cord",
+        "icon": "inv_belt_cloth_questbloodelf_b_01",
+        "count": 13,
+        "pct": 13.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 250048,
+        "name": "Blind Oath's Jeweled Sash",
+        "icon": "inv_belt_cloth_raidpriestmidnight_d_01",
+        "count": 10,
+        "pct": 10.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249319,
+        "name": "Endless March Waistwrap",
+        "icon": "inv_belt_cloth_raidpriestmidnight_d_01",
+        "count": 10,
+        "pct": 10.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 239649,
+        "name": "Martyr's Waistwrap",
+        "icon": "inv_belt_cloth_questbloodelf_b_01",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 50263,
+        "name": "Braid of Salt and Fire",
+        "icon": "inv_belt_67",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 251102,
+        "name": "Clasp of Compliance",
+        "icon": "inv_belt_cloth_dungeonharronir_c_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249323,
+        "name": "Leggings of the Devouring Advance",
+        "icon": "inv_pant_cloth_raidmagemidnight_d_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "legs": [
+      {
+        "itemID": 250050,
+        "name": "Blind Oath's Leggings",
+        "icon": "inv_pant_cloth_raidpriestmidnight_d_01",
+        "count": 54,
+        "pct": 54.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249373,
+        "name": "Dream-Scorched Striders",
+        "icon": "inv_boot_cloth_raidmagemidnight_d_01",
+        "count": 15,
+        "pct": 15.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249305,
+        "name": "Slippers of the Midnight Flame",
+        "icon": "inv_boot_cloth_raidwarlockmidnight_d_01",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250053,
+        "name": "Blind Oath's Slippers",
+        "icon": "inv_boot_cloth_raidpriestmidnight_d_01",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 239654,
+        "name": "Martyr's Slippers",
+        "icon": "inv_boot_cloth_questbloodelf_b_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 49805,
+        "name": "Ice-Steeped Sandals",
+        "icon": "inv_boots_cloth_26",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 258584,
+        "name": "Lightbinder Treads",
+        "icon": "inv_cloth_draenordungeon_c_01boot",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 151301,
+        "name": "Slippers of Growing Despair",
+        "icon": "inv_boot_cloth_legiondungeon_c_03",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "feet": [
+      {
+        "itemID": 249373,
+        "name": "Dream-Scorched Striders",
+        "icon": "inv_boot_cloth_raidmagemidnight_d_01",
+        "count": 24,
+        "pct": 24.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 239648,
+        "name": "Martyr's Bindings",
+        "icon": "inv_bracer_cloth_questbloodelf_b_01",
+        "count": 19,
+        "pct": 19.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 249305,
+        "name": "Slippers of the Midnight Flame",
+        "icon": "inv_boot_cloth_raidwarlockmidnight_d_01",
+        "count": 13,
+        "pct": 13.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 49805,
+        "name": "Ice-Steeped Sandals",
+        "icon": "inv_boots_cloth_26",
+        "count": 9,
+        "pct": 9.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250047,
+        "name": "Blind Oath's Wraps",
+        "icon": "inv_bracer_cloth_raidpriestmidnight_d_01",
+        "count": 8,
+        "pct": 8.0,
+        "avg_itemLevel": 287.4
+      },
+      {
+        "itemID": 249315,
+        "name": "Voracious Wristwraps",
+        "icon": "inv_bracer_cloth_raidpriestmidnight_d_01",
+        "count": 7,
+        "pct": 7.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250053,
+        "name": "Blind Oath's Slippers",
+        "icon": "inv_boot_cloth_raidpriestmidnight_d_01",
+        "count": 5,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 239654,
+        "name": "Martyr's Slippers",
+        "icon": "inv_boot_cloth_questbloodelf_b_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 244747,
+        "name": "Aetherlume Silken Cuffs",
+        "icon": "inv_bracer_cloth_questbloodelf_b_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 285.0
+      }
+    ],
+    "wrist": [
+      {
+        "itemID": 239648,
+        "name": "Martyr's Bindings",
+        "icon": "inv_bracer_cloth_questbloodelf_b_01",
+        "count": 37,
+        "pct": 37.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 250052,
+        "name": "Blind Oath's Touch",
+        "icon": "inv_glove_cloth_raidpriestmidnight_d_01",
+        "count": 19,
+        "pct": 19.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250047,
+        "name": "Blind Oath's Wraps",
+        "icon": "inv_bracer_cloth_raidpriestmidnight_d_01",
+        "count": 8,
+        "pct": 8.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249315,
+        "name": "Voracious Wristwraps",
+        "icon": "inv_bracer_cloth_raidpriestmidnight_d_01",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 151300,
+        "name": "Handwraps of the Ascended",
+        "icon": "inv_glove_cloth_legiondungeon_c_03",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 251172,
+        "name": "Vilehex Bonds",
+        "icon": "inv_glove_cloth_dungeonharronir_c_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 193713,
+        "name": "Experimental Safety Gloves",
+        "icon": "inv_glove_cloth_dragondungeon_c_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 239653,
+        "name": "Martyr's Gloves",
+        "icon": "inv_glove_cloth_questbloodelf_b_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 49809,
+        "name": "Wristguards of Subterranean Moss",
+        "icon": "inv_bracer_32a",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 258580,
+        "name": "Bracers of Blazing Light",
+        "icon": "inv_cloth_draenordungeon_c_01bracer",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "hands": [
+      {
+        "itemID": 250052,
+        "name": "Blind Oath's Touch",
+        "icon": "inv_glove_cloth_raidpriestmidnight_d_01",
+        "count": 30,
+        "pct": 30.0,
+        "avg_itemLevel": 288.6
+      },
+      {
+        "itemID": 251093,
+        "name": "Omission of Light",
+        "icon": "inv_12_trinket_devouring_host_currency1_silver",
+        "count": 9,
+        "pct": 9.0,
+        "avg_itemLevel": 287.1
+      },
+      {
+        "itemID": 251211,
+        "name": "Fractured Fingerguards",
+        "icon": "inv_glove_cloth_dungeonharronir_c_01",
+        "count": 8,
+        "pct": 8.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 151300,
+        "name": "Handwraps of the Ascended",
+        "icon": "inv_glove_cloth_legiondungeon_c_03",
+        "count": 7,
+        "pct": 7.0,
+        "avg_itemLevel": 287.1
+      },
+      {
+        "itemID": 251172,
+        "name": "Vilehex Bonds",
+        "icon": "inv_glove_cloth_dungeonharronir_c_01",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249369,
+        "name": "Bond of Light",
+        "icon": "inv_12_jewelry_silvermoonelf_ring_blue1",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 251217,
+        "name": "Occlusion of Void",
+        "icon": "inv_12_trinket_devouring_host_currency1_bronze",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 286.8
+      },
+      {
+        "itemID": 240949,
+        "name": "Masterwork Sin'dorei Band",
+        "icon": "inv_12_profession_jewelcrafting_ring4_gold",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 151308,
+        "name": "Eredath Seal of Nobility",
+        "icon": "inv_70_dungeon_ring3c",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 282.5
+      },
+      {
+        "itemID": 251115,
+        "name": "Bifurcation Band",
+        "icon": "inv_12_trinket_devouring_host_currency2_void",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "finger1": [
+      {
+        "itemID": 251217,
+        "name": "Occlusion of Void",
+        "icon": "inv_12_trinket_devouring_host_currency1_bronze",
+        "count": 24,
+        "pct": 24.0,
+        "avg_itemLevel": 287.9
+      },
+      {
+        "itemID": 251093,
+        "name": "Omission of Light",
+        "icon": "inv_12_trinket_devouring_host_currency1_silver",
+        "count": 18,
+        "pct": 18.0,
+        "avg_itemLevel": 288.3
+      },
+      {
+        "itemID": 240949,
+        "name": "Masterwork Sin'dorei Band",
+        "icon": "inv_12_profession_jewelcrafting_ring4_gold",
+        "count": 10,
+        "pct": 10.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 193708,
+        "name": "Platinum Star Band",
+        "icon": "inv_10_dungeonjewelry_explorer_ring_1_color1",
+        "count": 9,
+        "pct": 9.0,
+        "avg_itemLevel": 286.1
+      },
+      {
+        "itemID": 249336,
+        "name": "Signet of the Starved Beast",
+        "icon": "inv_12_jewelry_devouringhost_ring_silver2",
+        "count": 8,
+        "pct": 8.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249369,
+        "name": "Bond of Light",
+        "icon": "inv_12_jewelry_silvermoonelf_ring_blue1",
+        "count": 7,
+        "pct": 7.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 49812,
+        "name": "Purloined Wedding Ring",
+        "icon": "inv_jewelry_ring_42",
+        "count": 7,
+        "pct": 7.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 151311,
+        "name": "Band of the Triumvirate",
+        "icon": "inv_70_dungeon_ring2b",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 251513,
+        "name": "Loa Worshiper's Band",
+        "icon": "inv_12_profession_jewelcrafting_ring3_silver",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 249919,
+        "name": "Sin'dorei Band of Hope",
+        "icon": "inv_12_jewelry_silvermoonelf_ring_red1",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "finger2": [
+      {
+        "itemID": 249808,
+        "name": "Litany of Lightblind Wrath",
+        "icon": "inv_12_trinket_raid_voidspire_healer2_litanyoflightblindwrath",
+        "count": 19,
+        "pct": 19.0,
+        "avg_itemLevel": 291.8
+      },
+      {
+        "itemID": 251217,
+        "name": "Occlusion of Void",
+        "icon": "inv_12_trinket_devouring_host_currency1_bronze",
+        "count": 16,
+        "pct": 16.0,
+        "avg_itemLevel": 287.4
+      },
+      {
+        "itemID": 249343,
+        "name": "Gaze of the Alnseer",
+        "icon": "inv_12_trinket_raid_dreamrift_gazeofthealnseer",
+        "count": 11,
+        "pct": 11.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 251093,
+        "name": "Omission of Light",
+        "icon": "inv_12_trinket_devouring_host_currency1_silver",
+        "count": 11,
+        "pct": 11.0,
+        "avg_itemLevel": 285.5
+      },
+      {
+        "itemID": 49812,
+        "name": "Purloined Wedding Ring",
+        "icon": "inv_jewelry_ring_42",
+        "count": 8,
+        "pct": 8.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249369,
+        "name": "Bond of Light",
+        "icon": "inv_12_jewelry_silvermoonelf_ring_blue1",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 240949,
+        "name": "Masterwork Sin'dorei Band",
+        "icon": "inv_12_profession_jewelcrafting_ring4_gold",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 250256,
+        "name": "Heart of Wind",
+        "icon": "inv_10_jewelcrafting3_soulcage_air",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 249336,
+        "name": "Signet of the Starved Beast",
+        "icon": "inv_12_jewelry_devouringhost_ring_silver2",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249919,
+        "name": "Sin'dorei Band of Hope",
+        "icon": "inv_12_jewelry_silvermoonelf_ring_red1",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "trinket1": [
+      {
+        "itemID": 249808,
+        "name": "Litany of Lightblind Wrath",
+        "icon": "inv_12_trinket_raid_voidspire_healer2_litanyoflightblindwrath",
+        "count": 37,
+        "pct": 37.0,
+        "avg_itemLevel": 292.7
+      },
+      {
+        "itemID": 249343,
+        "name": "Gaze of the Alnseer",
+        "icon": "inv_12_trinket_raid_dreamrift_gazeofthealnseer",
+        "count": 34,
+        "pct": 34.0,
+        "avg_itemLevel": 297.4
+      },
+      {
+        "itemID": 249346,
+        "name": "Vaelgor's Final Stare",
+        "icon": "inv_12_trinket_raid_voidspire_int1_voiddragoneye",
+        "count": 7,
+        "pct": 7.0,
+        "avg_itemLevel": 292.4
+      },
+      {
+        "itemID": 250256,
+        "name": "Heart of Wind",
+        "icon": "inv_10_jewelcrafting3_soulcage_air",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 294.8
+      },
+      {
+        "itemID": 249809,
+        "name": "Locus-Walker's Ribbon",
+        "icon": "inv_12_trinket_raid_voidspire_int2_locuswalkerslastribbon",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 251792,
+        "name": "Glorious Crusader's Keepsake",
+        "icon": "inv_12_trinket_gloriuscrusaderskeepsake",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 250144,
+        "name": "Emberwing Feather",
+        "icon": "inv_icon_feather06a",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 249341,
+        "name": "Volatile Void Suffuser",
+        "icon": "inv_12_trinket_raid_voidspire_healer1_volatilevoidsuffuser",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 193718,
+        "name": "Emerald Coach's Whistle",
+        "icon": "inv_misc_head_dragon_green",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 298.0
+      }
+    ],
+    "trinket2": [
+      {
+        "itemID": 249343,
+        "name": "Gaze of the Alnseer",
+        "icon": "inv_12_trinket_raid_dreamrift_gazeofthealnseer",
+        "count": 31,
+        "pct": 31.0,
+        "avg_itemLevel": 297.2
+      },
+      {
+        "itemID": 239656,
+        "name": "Adherent's Silken Shroud",
+        "icon": "inv_cape_cloth_questbloodelf_b_01",
+        "count": 18,
+        "pct": 18.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 249808,
+        "name": "Litany of Lightblind Wrath",
+        "icon": "inv_12_trinket_raid_voidspire_healer2_litanyoflightblindwrath",
+        "count": 12,
+        "pct": 12.0,
+        "avg_itemLevel": 292.6
+      },
+      {
+        "itemID": 250046,
+        "name": "Blind Oath's Shroud",
+        "icon": "inv_cape_cloth_raidpriestmidnight_d_01",
+        "count": 10,
+        "pct": 10.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249346,
+        "name": "Vaelgor's Final Stare",
+        "icon": "inv_12_trinket_raid_voidspire_int1_voiddragoneye",
+        "count": 7,
+        "pct": 7.0,
+        "avg_itemLevel": 289.3
+      },
+      {
+        "itemID": 249370,
+        "name": "Draconic Nullcape",
+        "icon": "inv_plate_revendrethraid_d_01_cape",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 252411,
+        "name": "Radiant Sunstone",
+        "icon": "inv_qirajidol_sun",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 260312,
+        "name": "Defiant Defender's Drape",
+        "icon": "inv_cape_plate_dungeonharronir_c_01",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250256,
+        "name": "Heart of Wind",
+        "icon": "inv_10_jewelcrafting3_soulcage_air",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 258575,
+        "name": "Rigid Scale Greatcloak",
+        "icon": "inv_cape_draenordungeon_c_02_plate",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "back": [
+      {
+        "itemID": 239656,
+        "name": "Adherent's Silken Shroud",
+        "icon": "inv_cape_cloth_questbloodelf_b_01",
+        "count": 39,
+        "pct": 39.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 249293,
+        "name": "Weight of Command",
+        "icon": "inv_mace_1h_raidmidnight_d_02",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 258047,
+        "name": "Spire of the Furious Construct",
+        "icon": "invstaff_2h_draenordungeon_c_04",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 251201,
+        "name": "Corespark Multitool",
+        "icon": "inv_staff_2h_domanaar_b_01",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 245770,
+        "name": "Aln'hara Cane",
+        "icon": "inv_staff_2h_dungeonharronir_c_02",
+        "count": 5,
+        "pct": 5.0,
+        "avg_itemLevel": 295.0
+      },
+      {
+        "itemID": 251178,
+        "name": "Ceremonial Hexblade",
+        "icon": "inv_knife_1h_dungeonharronir_c_02",
+        "count": 5,
+        "pct": 5.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 258514,
+        "name": "Umbral Spire of Zuraal",
+        "icon": "inv_staff_2h_oribosdungeon_c_01",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 249370,
+        "name": "Draconic Nullcape",
+        "icon": "inv_plate_revendrethraid_d_01_cape",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 260312,
+        "name": "Defiant Defender's Drape",
+        "icon": "inv_cape_plate_dungeonharronir_c_01",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 285.8
+      },
+      {
+        "itemID": 250046,
+        "name": "Blind Oath's Shroud",
+        "icon": "inv_cape_cloth_raidpriestmidnight_d_01",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "main_hand": [
+      {
+        "itemID": 251201,
+        "name": "Corespark Multitool",
+        "icon": "inv_staff_2h_domanaar_b_01",
+        "count": 12,
+        "pct": 12.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 258514,
+        "name": "Umbral Spire of Zuraal",
+        "icon": "inv_staff_2h_oribosdungeon_c_01",
+        "count": 11,
+        "pct": 11.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 245770,
+        "name": "Aln'hara Cane",
+        "icon": "inv_staff_2h_dungeonharronir_c_02",
+        "count": 10,
+        "pct": 10.0,
+        "avg_itemLevel": 294.0
+      },
+      {
+        "itemID": 193707,
+        "name": "Final Grade",
+        "icon": "inv_staff_2h_drakonid_c_01",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 249922,
+        "name": "Tome of Alnscorned Regret",
+        "icon": "inv_offhand_1h_raidmidnight_d_01",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 258047,
+        "name": "Spire of the Furious Construct",
+        "icon": "invstaff_2h_draenordungeon_c_04",
+        "count": 4,
+        "pct": 4.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 245769,
+        "name": "Aln'hara Lantern",
+        "icon": "inv_offhand_1h_dungeonharronir_c_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 295.0
+      },
+      {
+        "itemID": 193709,
+        "name": "Vexamus' Expulsion Rod",
+        "icon": "inv_offhand_1h_drakonid_c_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 251178,
+        "name": "Ceremonial Hexblade",
+        "icon": "inv_knife_1h_dungeonharronir_c_02",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 251111,
+        "name": "Splitshroud Stinger",
+        "icon": "inv_knife_1h_dungeonharronir_c_02",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 298.0
+      }
+    ],
+    "off_hand": [
+      {
+        "itemID": 249922,
+        "name": "Tome of Alnscorned Regret",
+        "icon": "inv_offhand_1h_raidmidnight_d_01",
+        "count": 6,
+        "pct": 6.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 233290,
+        "name": "Sacred Templar's Tabard",
+        "icon": "inv_tabard_nightfall_c_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 43349,
+        "name": "Tabard of Brute Force",
+        "icon": "inv_chest_cloth_30",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 233288,
+        "name": "Radiant Recruit's Tabard",
+        "icon": "inv_tabard_nightfall_a_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 174069,
+        "name": "Tabard of the Vulpera",
+        "icon": "inv_tabard_vulperaracial",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 172652,
+        "name": "Corrupted Gladiator's Tabard",
+        "icon": "inv_tabard_battlepvps4_alliance",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 15.0
+      },
+      {
+        "itemID": 69210,
+        "name": "Renowned Guild Tabard",
+        "icon": "inv_epicguildtabard",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 178991,
+        "name": "Tabard of the Ascended",
+        "icon": "inv_tabard_bastion_d_01",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 45574,
+        "name": "Stormwind Tabard",
+        "icon": "inv_misc_tournaments_tabard_human",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 245769,
+        "name": "Aln'hara Lantern",
+        "icon": "inv_offhand_1h_dungeonharronir_c_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 295.0
+      }
+    ],
+    "tabard": [
+      {
+        "itemID": 233289,
+        "name": "Radiant Stalwart's Tabard",
+        "icon": "inv_tabard_nightfall_b_01",
+        "count": 3,
+        "pct": 3.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 69210,
+        "name": "Renowned Guild Tabard",
+        "icon": "inv_epicguildtabard",
+        "count": 2,
+        "pct": 2.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 232908,
+        "name": "Astral Gladiator's Tabard",
+        "icon": "inv_tabard_pvp_11season3_d_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 5976,
+        "name": "Guild Tabard",
+        "icon": "inv_shirt_guildtabard_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 35279,
+        "name": "Tabard of Summer Skies",
+        "icon": "inv_misc_tabardsummer02",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 178336,
+        "name": "Tabard of the Wild Hunt",
+        "icon": "inv_tabard_ardenweald_d_01",
+        "count": 1,
+        "pct": 1.0,
+        "avg_itemLevel": 15.0
+      }
+    ]
+  },
+  "race": {},
+  "factions": {
+    "alliance": 81,
+    "horde": 19
+  },
+  "guilds": [
+    {
+      "name": "月刃",
+      "count": 2
+    },
+    {
+      "name": "Checkmate",
+      "count": 2
+    },
+    {
+      "name": "Quichons",
+      "count": 2
+    },
+    {
+      "name": "奇異果果粒茶室",
+      "count": 2
+    },
+    {
+      "name": "Average",
+      "count": 2
+    },
+    {
+      "name": "Bloom",
+      "count": 1
+    },
+    {
+      "name": "Divinus",
+      "count": 1
+    },
+    {
+      "name": "The Amazing Zoo",
+      "count": 1
+    },
+    {
+      "name": "Stardrift",
+      "count": 1
+    },
+    {
+      "name": "Tab Target",
+      "count": 1
+    },
+    {
+      "name": "Alpha",
+      "count": 1
+    },
+    {
+      "name": "A D H D",
+      "count": 1
+    },
+    {
+      "name": "Токсичные Пепеги",
+      "count": 1
+    },
+    {
+      "name": "just sit me",
+      "count": 1
+    },
+    {
+      "name": "xD",
+      "count": 1
+    }
+  ],
+  "stats": {},
+  "gems": []
+}

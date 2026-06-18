@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Mage",
+  "spec_name": "Frost",
+  "sample_count": 100,
+  "dps": {
+    "avg": 163755.8,
+    "median": 161515.3,
+    "p25": 159816.6,
+    "p75": 164895.3,
+    "max": 209619.7,
+    "min": 157843.7,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "a502de4b4a1f",
+      "count": 6,
+      "pct": 6.0,
+      "avg_dps": 161016.0
+    },
+    {
+      "build": "5cc65fcf1d94",
+      "count": 5,
+      "pct": 5.0,
+      "avg_dps": 164375.0
+    },
+    {
+      "build": "ee525cfc319b",
+      "count": 5,
+      "pct": 5.0,
+      "avg_dps": 161769.7
+    },
+    {
+      "build": "6efe67ac6e1e",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 165023.6
+    },
+    {
+      "build": "5e35703630f9",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 176300.7
+    },
+    {
+      "build": "b4b720217edd",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 163535.5
+    },
+    {
+      "build": "cd8868984aa9",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 162731.7
+    },
+    {
+      "build": "47390e01df72",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 162534.6
+    },
+    {
+      "build": "08e874acaf9e",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 162644.9
+    },
+    {
+      "build": "5a4e3298c2ff",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 161574.5
+    },
+    {
+      "build": "a612d63bc589",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 160922.8
+    },
+    {
+      "build": "afa0093dd584",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 209619.7
+    },
+    {
+      "build": "cef4ac8566f7",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 193272.7
+    },
+    {
+      "build": "f94599365b5a",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 176202.4
+    },
+    {
+      "build": "9eeef7886ab9",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 172805.9
+    },
+    {
+      "build": "59ab000ecc72",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 172574.7
+    },
+    {
+      "build": "2b9ee4600851",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 170696.6
+    },
+    {
+      "build": "ef098e739c56",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 168739.7
+    },
+    {
+      "build": "fd39f22823f7",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 167204.6
+    },
+    {
+      "build": "143d4483c49c",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 167182.4
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "horde": 26,
+    "alliance": 74
+  },
+  "guilds": [
+    {
+      "name": "BROOMERS",
+      "count": 3
+    },
+    {
+      "name": "Дайте Рыбку",
+      "count": 2
+    },
+    {
+      "name": "Comfy",
+      "count": 2
+    },
+    {
+      "name": "Налегке",
+      "count": 2
+    },
+    {
+      "name": "Timballo e Arrosticini",
+      "count": 2
+    },
+    {
+      "name": "Honestly",
+      "count": 2
+    },
+    {
+      "name": "Nefastus",
+      "count": 2
+    },
+    {
+      "name": "Fragglene",
+      "count": 1
+    },
+    {
+      "name": "Anomaly",
+      "count": 1
+    },
+    {
+      "name": "Liquid",
+      "count": 1
+    },
+    {
+      "name": "Holà Drinkers",
+      "count": 1
+    },
+    {
+      "name": "Avatar",
+      "count": 1
+    },
+    {
+      "name": "Ascencia",
+      "count": 1
+    },
+    {
+      "name": "Save The Wife",
+      "count": 1
+    },
+    {
+      "name": "Stimulated Apes",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 419702.8,
+    "median": 415400.5,
+    "p25": 382312.8,
+    "p75": 454974.0
+  },
+  "stats": {},
+  "gems": []
+}

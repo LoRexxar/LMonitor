@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Shaman",
+  "spec_name": "Restoration",
+  "sample_count": 100,
+  "dps": {
+    "avg": 31458.3,
+    "median": 30486.6,
+    "p25": 28670.9,
+    "p75": 32676.6,
+    "max": 51020.3,
+    "min": 27566.2,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "5dc86934a7a6",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 40549.8
+    },
+    {
+      "build": "624e02004c98",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 30197.6
+    },
+    {
+      "build": "10538ca5cfd7",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 28151.0
+    },
+    {
+      "build": "b62bd1e13475",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 43984.9
+    },
+    {
+      "build": "9bf4bd7c34bb",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 42021.3
+    },
+    {
+      "build": "ce8b9da40095",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 41359.6
+    },
+    {
+      "build": "03d8f31d371e",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 41333.7
+    },
+    {
+      "build": "541fae3b5b69",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 40347.9
+    },
+    {
+      "build": "3a722b59f26e",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 39745.4
+    },
+    {
+      "build": "283a0e634b5e",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 37408.7
+    },
+    {
+      "build": "8faa6415613d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 36572.8
+    },
+    {
+      "build": "4157e4f318ae",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 36567.7
+    },
+    {
+      "build": "0eaab2f50b65",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 35194.2
+    },
+    {
+      "build": "62b39d538ce7",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 35076.2
+    },
+    {
+      "build": "480ddb63e1cf",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 35051.4
+    },
+    {
+      "build": "d55788945da0",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 34923.8
+    },
+    {
+      "build": "4f09a88bbb13",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 34698.1
+    },
+    {
+      "build": "01d4790d0e96",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 34460.4
+    },
+    {
+      "build": "2cb6fca7cfc0",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 34224.7
+    },
+    {
+      "build": "dc190b3313da",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 33980.2
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "horde": 41,
+    "alliance": 59
+  },
+  "guilds": [
+    {
+      "name": "Consistency",
+      "count": 2
+    },
+    {
+      "name": "Synergy",
+      "count": 1
+    },
+    {
+      "name": "Milkin Time",
+      "count": 1
+    },
+    {
+      "name": "United By Fate",
+      "count": 1
+    },
+    {
+      "name": "Sketchy",
+      "count": 1
+    },
+    {
+      "name": "Grizzly Hills Track Team",
+      "count": 1
+    },
+    {
+      "name": "WatchYourFeet",
+      "count": 1
+    },
+    {
+      "name": "LoFi Beats",
+      "count": 1
+    },
+    {
+      "name": "Bound To Fail",
+      "count": 1
+    },
+    {
+      "name": "eGirls for Hire",
+      "count": 1
+    },
+    {
+      "name": "Special Kneads",
+      "count": 1
+    },
+    {
+      "name": "Skate Better",
+      "count": 1
+    },
+    {
+      "name": "Phantas",
+      "count": 1
+    },
+    {
+      "name": "Звездный Свет",
+      "count": 1
+    },
+    {
+      "name": "Nothing But Trouble",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 443800.5,
+    "median": 445726.0,
+    "p25": 419678.2,
+    "p75": 470578.2
+  },
+  "stats": {},
+  "gems": []
+}

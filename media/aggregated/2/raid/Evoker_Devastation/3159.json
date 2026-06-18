@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Evoker",
+  "spec_name": "Devastation",
+  "sample_count": 100,
+  "dps": {
+    "avg": 157815.3,
+    "median": 154242.4,
+    "p25": 149339.5,
+    "p75": 163610.8,
+    "max": 207110.7,
+    "min": 146036.1,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "b57d4176103b",
+      "count": 5,
+      "pct": 5.0,
+      "avg_dps": 159729.9
+    },
+    {
+      "build": "17ec5556e1a3",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 161473.2
+    },
+    {
+      "build": "1c99c49d8a5c",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 149517.1
+    },
+    {
+      "build": "31f2e7828e29",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 155288.4
+    },
+    {
+      "build": "6a658bced917",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 156952.7
+    },
+    {
+      "build": "8269f071be84",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 160326.8
+    },
+    {
+      "build": "a7b2854031b7",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 152113.7
+    },
+    {
+      "build": "e3870586f261",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 150625.6
+    },
+    {
+      "build": "f3927b5012d5",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 174545.4
+    },
+    {
+      "build": "a4bcb1387a1d",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 167267.1
+    },
+    {
+      "build": "c226939f6ef9",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 166705.5
+    },
+    {
+      "build": "d9b1caf8a8e6",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 156504.7
+    },
+    {
+      "build": "1039a59c9197",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 151637.4
+    },
+    {
+      "build": "d9256fc6f84f",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 207110.7
+    },
+    {
+      "build": "c7cfd1267fe9",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 183640.9
+    },
+    {
+      "build": "cf5ab2f14dfe",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 182735.6
+    },
+    {
+      "build": "9d833b3e2670",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 179410.8
+    },
+    {
+      "build": "5e72396b23af",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 176388.3
+    },
+    {
+      "build": "a450d0a1e1ad",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 174671.8
+    },
+    {
+      "build": "aceeb80a615c",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 173838.9
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "alliance": 27,
+    "horde": 73
+  },
+  "guilds": [
+    {
+      "name": "Save The Wife",
+      "count": 2
+    },
+    {
+      "name": "My Way to Skill",
+      "count": 2
+    },
+    {
+      "name": "Utter Chaos",
+      "count": 2
+    },
+    {
+      "name": "Noctis",
+      "count": 1
+    },
+    {
+      "name": "The Burning Seagull",
+      "count": 1
+    },
+    {
+      "name": "Nerd Rage",
+      "count": 1
+    },
+    {
+      "name": "Wisp",
+      "count": 1
+    },
+    {
+      "name": "Force",
+      "count": 1
+    },
+    {
+      "name": "lookin cute feeIin cute",
+      "count": 1
+    },
+    {
+      "name": "I Mici Amici",
+      "count": 1
+    },
+    {
+      "name": "Advance",
+      "count": 1
+    },
+    {
+      "name": "poptart corndoG",
+      "count": 1
+    },
+    {
+      "name": "Well Named guild",
+      "count": 1
+    },
+    {
+      "name": "glorp",
+      "count": 1
+    },
+    {
+      "name": "Wing It",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 429985.7,
+    "median": 424606.0,
+    "p25": 395877.5,
+    "p75": 457425.5
+  },
+  "stats": {},
+  "gems": []
+}

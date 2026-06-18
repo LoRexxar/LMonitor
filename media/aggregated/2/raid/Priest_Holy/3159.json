@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Priest",
+  "spec_name": "Holy",
+  "sample_count": 100,
+  "dps": {
+    "avg": 23807.7,
+    "median": 22503.3,
+    "p25": 21769.6,
+    "p75": 24147.2,
+    "max": 38996.9,
+    "min": 21205.0,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "f6558dac376a",
+      "count": 7,
+      "pct": 7.0,
+      "avg_dps": 23549.8
+    },
+    {
+      "build": "1892bbc22773",
+      "count": 7,
+      "pct": 7.0,
+      "avg_dps": 22242.5
+    },
+    {
+      "build": "468a1e93f6b8",
+      "count": 6,
+      "pct": 6.0,
+      "avg_dps": 22346.2
+    },
+    {
+      "build": "a6a1e437cc3b",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 22730.7
+    },
+    {
+      "build": "3ad1e7844737",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 22658.2
+    },
+    {
+      "build": "fb5880d03584",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 32646.9
+    },
+    {
+      "build": "0a89fa3ea211",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 24865.4
+    },
+    {
+      "build": "4c133889521f",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 24976.6
+    },
+    {
+      "build": "d657cefe7036",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 22718.8
+    },
+    {
+      "build": "13602268758c",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 22612.8
+    },
+    {
+      "build": "09846f084cb8",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 22040.4
+    },
+    {
+      "build": "637944bd0660",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 21934.3
+    },
+    {
+      "build": "745879c67640",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 21466.6
+    },
+    {
+      "build": "1111c201a965",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 37718.6
+    },
+    {
+      "build": "5c465559f0e7",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 37432.5
+    },
+    {
+      "build": "253d74ce4fc6",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 34659.7
+    },
+    {
+      "build": "f454e36f1346",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 33948.0
+    },
+    {
+      "build": "8b4981af27cb",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 30130.2
+    },
+    {
+      "build": "c5ca3ae540d2",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 29958.3
+    },
+    {
+      "build": "fce9e083dbc7",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 28898.6
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "alliance": 60,
+    "horde": 40
+  },
+  "guilds": [
+    {
+      "name": "Solid Lads",
+      "count": 2
+    },
+    {
+      "name": "Buffalo Soldiers",
+      "count": 2
+    },
+    {
+      "name": "Adaptation",
+      "count": 2
+    },
+    {
+      "name": "W A S H E D",
+      "count": 2
+    },
+    {
+      "name": "Nrage",
+      "count": 2
+    },
+    {
+      "name": "La Terre Mère",
+      "count": 1
+    },
+    {
+      "name": "improved",
+      "count": 1
+    },
+    {
+      "name": "Grizzly Hills Track Team",
+      "count": 1
+    },
+    {
+      "name": "Нулевая видимость",
+      "count": 1
+    },
+    {
+      "name": "Amazing Stories",
+      "count": 1
+    },
+    {
+      "name": "The Order of Chäos",
+      "count": 1
+    },
+    {
+      "name": "uncaged",
+      "count": 1
+    },
+    {
+      "name": "Reckoning",
+      "count": 1
+    },
+    {
+      "name": "Alter Ego",
+      "count": 1
+    },
+    {
+      "name": "Revolt",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 456307.0,
+    "median": 455616.0,
+    "p25": 427910.0,
+    "p75": 486345.5
+  },
+  "stats": {},
+  "gems": []
+}

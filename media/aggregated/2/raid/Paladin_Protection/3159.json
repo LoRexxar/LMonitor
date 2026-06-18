@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Paladin",
+  "spec_name": "Protection",
+  "sample_count": 100,
+  "dps": {
+    "avg": 87028.9,
+    "median": 85307.7,
+    "p25": 83147.5,
+    "p75": 89189.6,
+    "max": 106515.7,
+    "min": 80787.7,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "7c85300ad249",
+      "count": 5,
+      "pct": 5.0,
+      "avg_dps": 91732.9
+    },
+    {
+      "build": "45e826edcd78",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 92843.0
+    },
+    {
+      "build": "e5bc77d88d73",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 98107.2
+    },
+    {
+      "build": "abff5c39f2bc",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 85607.4
+    },
+    {
+      "build": "3b7b434fdc77",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 90513.2
+    },
+    {
+      "build": "42d23f23cc7f",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 85136.4
+    },
+    {
+      "build": "b540bfcd627b",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 81967.5
+    },
+    {
+      "build": "53139677bf62",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 104904.5
+    },
+    {
+      "build": "4a88e323b819",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 99127.4
+    },
+    {
+      "build": "24b2364ff4e6",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 98600.1
+    },
+    {
+      "build": "d04c1ebd7ccb",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 94498.8
+    },
+    {
+      "build": "c86a6478338b",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 94417.4
+    },
+    {
+      "build": "e35b65e427d1",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 94077.0
+    },
+    {
+      "build": "38b4e14248ee",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 93369.6
+    },
+    {
+      "build": "a9b5d0c41529",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 93271.0
+    },
+    {
+      "build": "26a2edb25b89",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 91410.0
+    },
+    {
+      "build": "d46abc44c577",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 90898.1
+    },
+    {
+      "build": "920067092c04",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 90745.3
+    },
+    {
+      "build": "d411d76e5308",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 90285.6
+    },
+    {
+      "build": "d53898e87439",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 90232.4
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "horde": 42,
+    "alliance": 58
+  },
+  "guilds": [
+    {
+      "name": "International Misfits",
+      "count": 2
+    },
+    {
+      "name": "Solid Lads",
+      "count": 2
+    },
+    {
+      "name": "improved",
+      "count": 1
+    },
+    {
+      "name": "Die Fackaduus",
+      "count": 1
+    },
+    {
+      "name": "Poverty",
+      "count": 1
+    },
+    {
+      "name": "Sub Optimal",
+      "count": 1
+    },
+    {
+      "name": "Leftovers",
+      "count": 1
+    },
+    {
+      "name": "velocity",
+      "count": 1
+    },
+    {
+      "name": "Testemunhas de Geodude",
+      "count": 1
+    },
+    {
+      "name": "Team Bitters",
+      "count": 1
+    },
+    {
+      "name": "Onyx Team",
+      "count": 1
+    },
+    {
+      "name": "Acheron",
+      "count": 1
+    },
+    {
+      "name": "Mah Oida",
+      "count": 1
+    },
+    {
+      "name": "HALP SHARK",
+      "count": 1
+    },
+    {
+      "name": "Манчкины",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 454890.2,
+    "median": 461775.5,
+    "p25": 423596.2,
+    "p75": 483465.2
+  },
+  "stats": {},
+  "gems": []
+}

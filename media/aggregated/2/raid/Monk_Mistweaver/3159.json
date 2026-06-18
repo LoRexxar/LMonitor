@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Monk",
+  "spec_name": "Mistweaver",
+  "sample_count": 100,
+  "dps": {
+    "avg": 48895.2,
+    "median": 47818.5,
+    "p25": 45594.5,
+    "p75": 50823.4,
+    "max": 66375.8,
+    "min": 44408.3,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "68e4c3f6dc53",
+      "count": 5,
+      "pct": 5.0,
+      "avg_dps": 45757.1
+    },
+    {
+      "build": "4d11a8907d2d",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 46639.9
+    },
+    {
+      "build": "e77d095ccc57",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 56266.7
+    },
+    {
+      "build": "85c2d7521591",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 64052.1
+    },
+    {
+      "build": "777390591af6",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 48332.6
+    },
+    {
+      "build": "4d9fb7dd8113",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 47662.7
+    },
+    {
+      "build": "b0d00801f275",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 65303.3
+    },
+    {
+      "build": "aa211ad0a4bf",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 62656.6
+    },
+    {
+      "build": "2f7e9d16fa2f",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 59047.0
+    },
+    {
+      "build": "a4628413d330",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 54376.6
+    },
+    {
+      "build": "723dd2cb26c9",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 54209.0
+    },
+    {
+      "build": "03dc5728665d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 53875.0
+    },
+    {
+      "build": "259bac66a8d6",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 53039.8
+    },
+    {
+      "build": "63c74d6511bf",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 52747.1
+    },
+    {
+      "build": "a24a86fc5515",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 52461.4
+    },
+    {
+      "build": "6d071725d09a",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 52283.0
+    },
+    {
+      "build": "7997001ca261",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 51955.6
+    },
+    {
+      "build": "05eea216c82c",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 51943.7
+    },
+    {
+      "build": "602d6eb7e1ed",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 51855.1
+    },
+    {
+      "build": "2041d0f10e61",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 51820.0
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "horde": 24,
+    "alliance": 76
+  },
+  "guilds": [
+    {
+      "name": "Raidy or Not",
+      "count": 1
+    },
+    {
+      "name": "Sordid",
+      "count": 1
+    },
+    {
+      "name": "Prisoners of Warcraft",
+      "count": 1
+    },
+    {
+      "name": "Amazing Stories",
+      "count": 1
+    },
+    {
+      "name": "Intent",
+      "count": 1
+    },
+    {
+      "name": "Enclave",
+      "count": 1
+    },
+    {
+      "name": "Backstab",
+      "count": 1
+    },
+    {
+      "name": "Yeah Okay",
+      "count": 1
+    },
+    {
+      "name": "flying fools",
+      "count": 1
+    },
+    {
+      "name": "Smör",
+      "count": 1
+    },
+    {
+      "name": "Good Try",
+      "count": 1
+    },
+    {
+      "name": "A L V",
+      "count": 1
+    },
+    {
+      "name": "Genesis",
+      "count": 1
+    },
+    {
+      "name": "Veneration",
+      "count": 1
+    },
+    {
+      "name": "Prisma",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 449332.8,
+    "median": 451493.0,
+    "p25": 426199.2,
+    "p75": 484829.0
+  },
+  "stats": {},
+  "gems": []
+}

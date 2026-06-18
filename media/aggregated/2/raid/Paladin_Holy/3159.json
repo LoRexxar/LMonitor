@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Paladin",
+  "spec_name": "Holy",
+  "sample_count": 100,
+  "dps": {
+    "avg": 15519.0,
+    "median": 13583.8,
+    "p25": 12438.5,
+    "p75": 16777.8,
+    "max": 39176.1,
+    "min": 11424.5,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "0b2875767cc5",
+      "count": 17,
+      "pct": 17.0,
+      "avg_dps": 12660.2
+    },
+    {
+      "build": "fdf76affbcfe",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 13698.7
+    },
+    {
+      "build": "8098b47dc550",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 11691.2
+    },
+    {
+      "build": "a5b2e2fbcdf9",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 34545.5
+    },
+    {
+      "build": "9733c52e8499",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 15639.0
+    },
+    {
+      "build": "b984853a6566",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 15528.6
+    },
+    {
+      "build": "8d39b4266645",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 13573.3
+    },
+    {
+      "build": "7a86031be621",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 39176.1
+    },
+    {
+      "build": "956c0955266d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 32809.2
+    },
+    {
+      "build": "4c2588d81818",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 28310.3
+    },
+    {
+      "build": "9b00cd7d4c10",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 26340.5
+    },
+    {
+      "build": "989691debe39",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 25192.8
+    },
+    {
+      "build": "3a66a813f963",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 24697.8
+    },
+    {
+      "build": "12ab3a9e0527",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 24407.2
+    },
+    {
+      "build": "6c4673aa060d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 22133.8
+    },
+    {
+      "build": "f3a69e382105",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 21122.5
+    },
+    {
+      "build": "4f1ba8f4ba4d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 20180.3
+    },
+    {
+      "build": "761b59b954ac",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 20012.6
+    },
+    {
+      "build": "3df4fcf6d9ba",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 19551.9
+    },
+    {
+      "build": "8bce1fcd7827",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 19311.5
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "horde": 46,
+    "alliance": 54
+  },
+  "guilds": [
+    {
+      "name": "Bench Brigade",
+      "count": 2
+    },
+    {
+      "name": "Jet Set Club",
+      "count": 1
+    },
+    {
+      "name": "Nightshade",
+      "count": 1
+    },
+    {
+      "name": "Reflection",
+      "count": 1
+    },
+    {
+      "name": "Snacks",
+      "count": 1
+    },
+    {
+      "name": "Scuffed",
+      "count": 1
+    },
+    {
+      "name": "Deep Insanity",
+      "count": 1
+    },
+    {
+      "name": "Зависимость",
+      "count": 1
+    },
+    {
+      "name": "Pure Energy",
+      "count": 1
+    },
+    {
+      "name": "The Order of Chäos",
+      "count": 1
+    },
+    {
+      "name": "Dundee",
+      "count": 1
+    },
+    {
+      "name": "Pasta Party",
+      "count": 1
+    },
+    {
+      "name": "Граница Ночи",
+      "count": 1
+    },
+    {
+      "name": "Cope",
+      "count": 1
+    },
+    {
+      "name": "Insomnìa",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 459136.8,
+    "median": 467273.5,
+    "p25": 429975.5,
+    "p75": 492450.2
+  },
+  "stats": {},
+  "gems": []
+}

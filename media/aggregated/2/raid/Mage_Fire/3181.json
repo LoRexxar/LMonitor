@@ -1,0 +1,865 @@
+{
+  "season_id": 2,
+  "encounter_id": 3181,
+  "boss_name": "Crown of the Cosmos",
+  "boss_name_cn": "宇宙之冠",
+  "class_name": "Mage",
+  "spec_name": "Fire",
+  "sample_count": 15,
+  "dps": {
+    "avg": 72768.2,
+    "median": 72232.2,
+    "p25": 68801.7,
+    "p75": 80250.3,
+    "max": 87888.1,
+    "min": 57176.2,
+    "sample_count": 15
+  },
+  "talents": [
+    {
+      "build": "ba6fc8571541",
+      "count": 2,
+      "pct": 13.3,
+      "avg_dps": 78086.3
+    },
+    {
+      "build": "c7efa6aad1d6",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 87888.1
+    },
+    {
+      "build": "e7120f6f8ec4",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 81781.9
+    },
+    {
+      "build": "a441c3cd379a",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 81705.7
+    },
+    {
+      "build": "25923278d491",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 79222.6
+    },
+    {
+      "build": "250454587b39",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 77838.3
+    },
+    {
+      "build": "38e758d951e6",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 72232.2
+    },
+    {
+      "build": "c1bea4bfc73b",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 70832.9
+    },
+    {
+      "build": "915a3d0f4a76",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 69098.5
+    },
+    {
+      "build": "ad0145ce442c",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 68941.0
+    },
+    {
+      "build": "3ae2e20c798f",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 68662.4
+    },
+    {
+      "build": "368d34412906",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 60066.5
+    },
+    {
+      "build": "233771b6689b",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 59903.7
+    },
+    {
+      "build": "0a4245facb38",
+      "count": 1,
+      "pct": 6.7,
+      "avg_dps": 57176.2
+    }
+  ],
+  "gear": {
+    "head": [
+      {
+        "itemID": 250060,
+        "name": "Voidbreaker's Veil",
+        "icon": "inv_helm_cloth_raidmagemidnight_d_01",
+        "count": 15,
+        "pct": 100.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "neck": [
+      {
+        "itemID": 240950,
+        "name": "Masterwork Sin'dorei Amulet",
+        "icon": "inv_12_profession_jewelcrafting_necklace2_gold",
+        "count": 5,
+        "pct": 33.3,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 250247,
+        "name": "Amulet of the Abyssal Hymn",
+        "icon": "inv_12_jewelry_devouringhost_necklace_bronze2",
+        "count": 4,
+        "pct": 26.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249368,
+        "name": "Eternal Voidsong Chain",
+        "icon": "inv_12_jewelry_silvermoonelf_necklace_blue1",
+        "count": 4,
+        "pct": 26.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 251096,
+        "name": "Pendant of Aching Grief",
+        "icon": "inv_12_jewelry_silvermoonelf_necklace_white",
+        "count": 2,
+        "pct": 13.3,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "shoulder": [
+      {
+        "itemID": 250058,
+        "name": "Voidbreaker's Leyline Nexi",
+        "icon": "inv_shoulder_cloth_raidmagemidnight_d_01",
+        "count": 15,
+        "pct": 100.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "shirt": [
+      {
+        "itemID": 268274,
+        "name": "Blinky's Collar",
+        "icon": "inv_jewelry_necklace_22",
+        "count": 4,
+        "pct": 26.7,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 18231,
+        "name": "Sleeveless T-Shirt",
+        "icon": "inv_shirt_12",
+        "count": 2,
+        "pct": 13.3,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 52019,
+        "name": "Precious's Ribbon",
+        "icon": "inv_misc_ribbon_01",
+        "count": 2,
+        "pct": 13.3,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 89195,
+        "name": "Artisan Officer's Shirt",
+        "icon": "inv_shirt03_epic",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 167223,
+        "name": "Selis' Silk Shirt",
+        "icon": "inv_shirt_black_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 239655,
+        "name": "Martyr's Vestments",
+        "icon": "inv_robe_cloth_questbloodelf_b_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 6096,
+        "name": "Apprentice's Shirt",
+        "icon": "inv_shirt_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 3428,
+        "name": "Common Gray Shirt",
+        "icon": "inv_shirt_grey_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 138385,
+        "name": "Lucky Shirt",
+        "icon": "inv_shirt_02",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 249912,
+        "name": "Robes of Endless Oblivion",
+        "icon": "inv_chest_cloth_raidwarlockmidnight_d_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "chest": [
+      {
+        "itemID": 268284,
+        "name": "Mycomancer's Rot Robes",
+        "icon": "inv_chest_cloth_raidmagemidnight_d_01",
+        "count": 5,
+        "pct": 33.3,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 249912,
+        "name": "Robes of Endless Oblivion",
+        "icon": "inv_chest_cloth_raidwarlockmidnight_d_01",
+        "count": 4,
+        "pct": 26.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250063,
+        "name": "Voidbreaker's Robe",
+        "icon": "inv_chest_cloth_raidmagemidnight_d_01",
+        "count": 3,
+        "pct": 20.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 239649,
+        "name": "Martyr's Waistwrap",
+        "icon": "inv_belt_cloth_questbloodelf_b_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 249319,
+        "name": "Endless March Waistwrap",
+        "icon": "inv_belt_cloth_raidpriestmidnight_d_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 239655,
+        "name": "Martyr's Vestments",
+        "icon": "inv_robe_cloth_questbloodelf_b_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 285.0
+      }
+    ],
+    "waist": [
+      {
+        "itemID": 239649,
+        "name": "Martyr's Waistwrap",
+        "icon": "inv_belt_cloth_questbloodelf_b_01",
+        "count": 5,
+        "pct": 33.3,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 249376,
+        "name": "Whisper-Inscribed Sash",
+        "icon": "inv_belt_cloth_raidmagemidnight_d_01",
+        "count": 5,
+        "pct": 33.3,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250059,
+        "name": "Voidbreaker's Britches",
+        "icon": "inv_pant_cloth_raidmagemidnight_d_01",
+        "count": 2,
+        "pct": 13.3,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249319,
+        "name": "Endless March Waistwrap",
+        "icon": "inv_belt_cloth_raidpriestmidnight_d_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250057,
+        "name": "Voidbreaker's Sage Cord",
+        "icon": "inv_belt_cloth_raidmagemidnight_d_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 251102,
+        "name": "Clasp of Compliance",
+        "icon": "inv_belt_cloth_dungeonharronir_c_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "legs": [
+      {
+        "itemID": 250059,
+        "name": "Voidbreaker's Britches",
+        "icon": "inv_pant_cloth_raidmagemidnight_d_01",
+        "count": 13,
+        "pct": 86.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250062,
+        "name": "Voidbreaker's Treads",
+        "icon": "inv_boot_cloth_raidmagemidnight_d_01",
+        "count": 2,
+        "pct": 13.3,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "feet": [
+      {
+        "itemID": 250062,
+        "name": "Voidbreaker's Treads",
+        "icon": "inv_boot_cloth_raidmagemidnight_d_01",
+        "count": 12,
+        "pct": 80.0,
+        "avg_itemLevel": 290.5
+      },
+      {
+        "itemID": 249315,
+        "name": "Voracious Wristwraps",
+        "icon": "inv_bracer_cloth_raidpriestmidnight_d_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249305,
+        "name": "Slippers of the Midnight Flame",
+        "icon": "inv_boot_cloth_raidwarlockmidnight_d_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 239648,
+        "name": "Martyr's Bindings",
+        "icon": "inv_bracer_cloth_questbloodelf_b_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 285.0
+      }
+    ],
+    "wrist": [
+      {
+        "itemID": 239648,
+        "name": "Martyr's Bindings",
+        "icon": "inv_bracer_cloth_questbloodelf_b_01",
+        "count": 7,
+        "pct": 46.7,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 249315,
+        "name": "Voracious Wristwraps",
+        "icon": "inv_bracer_cloth_raidpriestmidnight_d_01",
+        "count": 5,
+        "pct": 33.3,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 250061,
+        "name": "Voidbreaker's Gloves",
+        "icon": "inv_glove_cloth_raidmagemidnight_d_01",
+        "count": 2,
+        "pct": 13.3,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 49809,
+        "name": "Wristguards of Subterranean Moss",
+        "icon": "inv_bracer_32a",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "hands": [
+      {
+        "itemID": 250061,
+        "name": "Voidbreaker's Gloves",
+        "icon": "inv_glove_cloth_raidmagemidnight_d_01",
+        "count": 13,
+        "pct": 86.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 240949,
+        "name": "Masterwork Sin'dorei Band",
+        "icon": "inv_12_profession_jewelcrafting_ring4_gold",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 49812,
+        "name": "Purloined Wedding Ring",
+        "icon": "inv_jewelry_ring_42",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "finger1": [
+      {
+        "itemID": 249920,
+        "name": "Eye of Midnight",
+        "icon": "inv_12_jewelry_devouringhost_ring_bronze",
+        "count": 4,
+        "pct": 26.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249369,
+        "name": "Bond of Light",
+        "icon": "inv_12_jewelry_silvermoonelf_ring_blue1",
+        "count": 3,
+        "pct": 20.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 240949,
+        "name": "Masterwork Sin'dorei Band",
+        "icon": "inv_12_profession_jewelcrafting_ring4_gold",
+        "count": 3,
+        "pct": 20.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 251093,
+        "name": "Omission of Light",
+        "icon": "inv_12_trinket_devouring_host_currency1_silver",
+        "count": 3,
+        "pct": 20.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 251115,
+        "name": "Bifurcation Band",
+        "icon": "inv_12_trinket_devouring_host_currency2_void",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 276.0
+      },
+      {
+        "itemID": 268290,
+        "name": "Sporecaller's Blooming Loop",
+        "icon": "inv_12_jewelry_rutaani_ring_blue",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      }
+    ],
+    "finger2": [
+      {
+        "itemID": 249369,
+        "name": "Bond of Light",
+        "icon": "inv_12_jewelry_silvermoonelf_ring_blue1",
+        "count": 5,
+        "pct": 33.3,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 240949,
+        "name": "Masterwork Sin'dorei Band",
+        "icon": "inv_12_profession_jewelcrafting_ring4_gold",
+        "count": 4,
+        "pct": 26.7,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 249920,
+        "name": "Eye of Midnight",
+        "icon": "inv_12_jewelry_devouringhost_ring_bronze",
+        "count": 2,
+        "pct": 13.3,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249346,
+        "name": "Vaelgor's Final Stare",
+        "icon": "inv_12_trinket_raid_voidspire_int1_voiddragoneye",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 268290,
+        "name": "Sporecaller's Blooming Loop",
+        "icon": "inv_12_jewelry_rutaani_ring_blue",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 251093,
+        "name": "Omission of Light",
+        "icon": "inv_12_trinket_devouring_host_currency1_silver",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249343,
+        "name": "Gaze of the Alnseer",
+        "icon": "inv_12_trinket_raid_dreamrift_gazeofthealnseer",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      }
+    ],
+    "trinket1": [
+      {
+        "itemID": 250144,
+        "name": "Emberwing Feather",
+        "icon": "inv_icon_feather06a",
+        "count": 6,
+        "pct": 40.0,
+        "avg_itemLevel": 293.7
+      },
+      {
+        "itemID": 249343,
+        "name": "Gaze of the Alnseer",
+        "icon": "inv_12_trinket_raid_dreamrift_gazeofthealnseer",
+        "count": 6,
+        "pct": 40.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 249346,
+        "name": "Vaelgor's Final Stare",
+        "icon": "inv_12_trinket_raid_voidspire_int1_voiddragoneye",
+        "count": 3,
+        "pct": 20.0,
+        "avg_itemLevel": 298.0
+      }
+    ],
+    "trinket2": [
+      {
+        "itemID": 249346,
+        "name": "Vaelgor's Final Stare",
+        "icon": "inv_12_trinket_raid_voidspire_int1_voiddragoneye",
+        "count": 10,
+        "pct": 66.7,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 249370,
+        "name": "Draconic Nullcape",
+        "icon": "inv_plate_revendrethraid_d_01_cape",
+        "count": 2,
+        "pct": 13.3,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249343,
+        "name": "Gaze of the Alnseer",
+        "icon": "inv_12_trinket_raid_dreamrift_gazeofthealnseer",
+        "count": 2,
+        "pct": 13.3,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 249809,
+        "name": "Locus-Walker's Ribbon",
+        "icon": "inv_12_trinket_raid_voidspire_int2_locuswalkerslastribbon",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      }
+    ],
+    "back": [
+      {
+        "itemID": 239656,
+        "name": "Adherent's Silken Shroud",
+        "icon": "inv_cape_cloth_questbloodelf_b_01",
+        "count": 12,
+        "pct": 80.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 251201,
+        "name": "Corespark Multitool",
+        "icon": "inv_staff_2h_domanaar_b_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 250055,
+        "name": "Voidbreaker's Encryption",
+        "icon": "inv_cape_cloth_raidmagemidnight_d_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249294,
+        "name": "Blade of the Blind Verdict",
+        "icon": "inv_sword_1h_raidmidnight_d_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      }
+    ],
+    "main_hand": [
+      {
+        "itemID": 249286,
+        "name": "Brazier of the Dissonant Dirge",
+        "icon": "inv_staff_2h_raidmidnight_d_02",
+        "count": 6,
+        "pct": 40.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 193707,
+        "name": "Final Grade",
+        "icon": "inv_staff_2h_drakonid_c_01",
+        "count": 3,
+        "pct": 20.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 251201,
+        "name": "Corespark Multitool",
+        "icon": "inv_staff_2h_domanaar_b_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 245770,
+        "name": "Aln'hara Cane",
+        "icon": "inv_staff_2h_dungeonharronir_c_02",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 295.0
+      },
+      {
+        "itemID": 193710,
+        "name": "Spellboon Saber",
+        "icon": "inv_sword_1h_dragon_c_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 245769,
+        "name": "Aln'hara Lantern",
+        "icon": "inv_offhand_1h_dungeonharronir_c_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 295.0
+      },
+      {
+        "itemID": 249294,
+        "name": "Blade of the Blind Verdict",
+        "icon": "inv_sword_1h_raidmidnight_d_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      }
+    ],
+    "off_hand": [
+      {
+        "itemID": 69210,
+        "name": "Renowned Guild Tabard",
+        "icon": "inv_epicguildtabard",
+        "count": 2,
+        "pct": 13.3,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 172651,
+        "name": "Corrupted Gladiator's Tabard",
+        "icon": "inv_tabard_battlepvps4_horde",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 15.0
+      },
+      {
+        "itemID": 118372,
+        "name": "Orgrimmar Tabard",
+        "icon": "inv_misc_tabardpvp_04",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 15.0
+      },
+      {
+        "itemID": 69209,
+        "name": "Illustrious Guild Tabard",
+        "icon": "inv_rareguildtabard",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 210469,
+        "name": "Personal Tabard",
+        "icon": "inv_shirt_guildtabard_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 245769,
+        "name": "Aln'hara Lantern",
+        "icon": "inv_offhand_1h_dungeonharronir_c_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 295.0
+      },
+      {
+        "itemID": 45574,
+        "name": "Stormwind Tabard",
+        "icon": "inv_misc_tournaments_tabard_human",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 249922,
+        "name": "Tome of Alnscorned Regret",
+        "icon": "inv_offhand_1h_raidmidnight_d_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 298.0
+      }
+    ],
+    "tabard": [
+      {
+        "itemID": 186997,
+        "name": "Death's Advance Tabard",
+        "icon": "inv_tabard_deathsadvance_b_01",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 69210,
+        "name": "Renowned Guild Tabard",
+        "icon": "inv_epicguildtabard",
+        "count": 1,
+        "pct": 6.7,
+        "avg_itemLevel": 1.0
+      }
+    ]
+  },
+  "race": {},
+  "factions": {
+    "alliance": 11,
+    "horde": 4
+  },
+  "guilds": [
+    {
+      "name": "BIG PULL ET AU LIT",
+      "count": 2
+    },
+    {
+      "name": "Dabu",
+      "count": 2
+    },
+    {
+      "name": "macht DRUCK",
+      "count": 1
+    },
+    {
+      "name": "Denial of Service",
+      "count": 1
+    },
+    {
+      "name": "The Next Step",
+      "count": 1
+    },
+    {
+      "name": "Ascendancy",
+      "count": 1
+    },
+    {
+      "name": "Incarnate",
+      "count": 1
+    },
+    {
+      "name": "slurp",
+      "count": 1
+    },
+    {
+      "name": "Кайзер",
+      "count": 1
+    },
+    {
+      "name": "Resonate",
+      "count": 1
+    },
+    {
+      "name": "Copium",
+      "count": 1
+    },
+    {
+      "name": "Warpath",
+      "count": 1
+    },
+    {
+      "name": "Most Hated",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 472725.4,
+    "median": 475347.0,
+    "p25": 454046.0,
+    "p75": 491300.5
+  },
+  "stats": {},
+  "gems": []
+}

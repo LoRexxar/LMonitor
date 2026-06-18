@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Warrior",
+  "spec_name": "Protection",
+  "sample_count": 100,
+  "dps": {
+    "avg": 97703.4,
+    "median": 97105.3,
+    "p25": 93940.9,
+    "p75": 100249.8,
+    "max": 118225.1,
+    "min": 91922.3,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "5ae4ffcc59e6",
+      "count": 6,
+      "pct": 6.0,
+      "avg_dps": 97404.9
+    },
+    {
+      "build": "cab6da2ad231",
+      "count": 5,
+      "pct": 5.0,
+      "avg_dps": 99850.3
+    },
+    {
+      "build": "533d83f4d5d1",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 99384.3
+    },
+    {
+      "build": "6c3a4cd072a4",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 96582.7
+    },
+    {
+      "build": "66c974f6fe0e",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 99514.9
+    },
+    {
+      "build": "8407256dc076",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 106885.5
+    },
+    {
+      "build": "56b3db471d28",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 103608.9
+    },
+    {
+      "build": "9efc370a9d20",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 97575.5
+    },
+    {
+      "build": "567c56e717af",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 96207.5
+    },
+    {
+      "build": "b5d36c3e244e",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 94721.7
+    },
+    {
+      "build": "2f428f0b1991",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 92742.6
+    },
+    {
+      "build": "98c7ea3e6f2c",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 106311.6
+    },
+    {
+      "build": "566c1c3ee873",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 105194.9
+    },
+    {
+      "build": "2bc2efc4655a",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 104796.7
+    },
+    {
+      "build": "25094c153df2",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 104672.7
+    },
+    {
+      "build": "ad2d088a7be5",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 103922.9
+    },
+    {
+      "build": "66084e55186f",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 103578.7
+    },
+    {
+      "build": "c8a64a364922",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 102980.9
+    },
+    {
+      "build": "469ddee37029",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 102951.0
+    },
+    {
+      "build": "aa3582a2b86b",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 102073.5
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "horde": 35,
+    "alliance": 65
+  },
+  "guilds": [
+    {
+      "name": "constant",
+      "count": 2
+    },
+    {
+      "name": "Raze",
+      "count": 1
+    },
+    {
+      "name": "Midgard",
+      "count": 1
+    },
+    {
+      "name": "Hype",
+      "count": 1
+    },
+    {
+      "name": "Void",
+      "count": 1
+    },
+    {
+      "name": "The Amazing Zoo",
+      "count": 1
+    },
+    {
+      "name": "Syndicated",
+      "count": 1
+    },
+    {
+      "name": "Northern Sky",
+      "count": 1
+    },
+    {
+      "name": "GRAB A CACTUS",
+      "count": 1
+    },
+    {
+      "name": "Cutting Bread",
+      "count": 1
+    },
+    {
+      "name": "MythicDungeonFools",
+      "count": 1
+    },
+    {
+      "name": "Pull is Live",
+      "count": 1
+    },
+    {
+      "name": "SG",
+      "count": 1
+    },
+    {
+      "name": "Aspect",
+      "count": 1
+    },
+    {
+      "name": "Райдо",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 439185.9,
+    "median": 436525.5,
+    "p25": 410423.8,
+    "p75": 472004.2
+  },
+  "stats": {},
+  "gems": []
+}

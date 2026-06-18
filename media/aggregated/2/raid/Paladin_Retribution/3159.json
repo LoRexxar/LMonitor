@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Paladin",
+  "spec_name": "Retribution",
+  "sample_count": 100,
+  "dps": {
+    "avg": 162523.3,
+    "median": 160876.4,
+    "p25": 159133.4,
+    "p75": 165252.9,
+    "max": 173624.7,
+    "min": 157401.2,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "5debeb974c75",
+      "count": 7,
+      "pct": 7.0,
+      "avg_dps": 162006.9
+    },
+    {
+      "build": "04c0b0a6f33f",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 169416.1
+    },
+    {
+      "build": "ade70caae808",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 162782.0
+    },
+    {
+      "build": "76f5686d2d06",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 165504.4
+    },
+    {
+      "build": "733c03e98ded",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 162295.1
+    },
+    {
+      "build": "969b977ca032",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 166421.9
+    },
+    {
+      "build": "db7521c0a713",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 161879.3
+    },
+    {
+      "build": "3e95b7751357",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 163612.0
+    },
+    {
+      "build": "031a6ffb863b",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 161204.6
+    },
+    {
+      "build": "cc43525f4e59",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 159819.0
+    },
+    {
+      "build": "339e3f72b840",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 160604.6
+    },
+    {
+      "build": "090f6c7876d5",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 159439.7
+    },
+    {
+      "build": "35dd8d6372e0",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 158846.4
+    },
+    {
+      "build": "a73e12abecba",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 173624.7
+    },
+    {
+      "build": "532dc045cdf5",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 172731.4
+    },
+    {
+      "build": "ce99e5cb7074",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 171659.9
+    },
+    {
+      "build": "dfea6bf28c5c",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 171334.8
+    },
+    {
+      "build": "5a4e6a7a6314",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 170678.3
+    },
+    {
+      "build": "60e5c276c2c7",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 169645.7
+    },
+    {
+      "build": "e36a5fb4aad6",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 169132.4
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "alliance": 61,
+    "horde": 39
+  },
+  "guilds": [
+    {
+      "name": "Mistake",
+      "count": 2
+    },
+    {
+      "name": "Beware of Yeti",
+      "count": 1
+    },
+    {
+      "name": "Prohibicja",
+      "count": 1
+    },
+    {
+      "name": "K L I K A",
+      "count": 1
+    },
+    {
+      "name": "Adoration",
+      "count": 1
+    },
+    {
+      "name": "Epos",
+      "count": 1
+    },
+    {
+      "name": "STG",
+      "count": 1
+    },
+    {
+      "name": "Avalerion",
+      "count": 1
+    },
+    {
+      "name": "Skattkistan",
+      "count": 1
+    },
+    {
+      "name": "velocity",
+      "count": 1
+    },
+    {
+      "name": "Frost Wolf Clan",
+      "count": 1
+    },
+    {
+      "name": "Liquid",
+      "count": 1
+    },
+    {
+      "name": "Мицелиум",
+      "count": 1
+    },
+    {
+      "name": "Odds and Probabilities",
+      "count": 1
+    },
+    {
+      "name": "Freaky Fellas",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 452512.0,
+    "median": 450522.5,
+    "p25": 423447.8,
+    "p75": 484057.2
+  },
+  "stats": {},
+  "gems": []
+}

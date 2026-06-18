@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Hunter",
+  "spec_name": "BeastMastery",
+  "sample_count": 100,
+  "dps": {
+    "avg": 159156.2,
+    "median": 157182.3,
+    "p25": 154629.7,
+    "p75": 161279.8,
+    "max": 204945.3,
+    "min": 152518.1,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "a745538b167a",
+      "count": 6,
+      "pct": 6.0,
+      "avg_dps": 159757.4
+    },
+    {
+      "build": "191df4f3500d",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 164783.6
+    },
+    {
+      "build": "1a7c1e506c66",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 178319.7
+    },
+    {
+      "build": "ff12813ed9c6",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 163011.5
+    },
+    {
+      "build": "71bb4939fa5e",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 159511.2
+    },
+    {
+      "build": "319d92f1bc28",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 158132.9
+    },
+    {
+      "build": "5628a0360e40",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 165269.9
+    },
+    {
+      "build": "48c7fd6ca68d",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 162305.8
+    },
+    {
+      "build": "c46c662c9358",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 160509.2
+    },
+    {
+      "build": "d5e4a6445f0b",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 157750.5
+    },
+    {
+      "build": "3d0b70f0414a",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 159792.2
+    },
+    {
+      "build": "a573405f9c88",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 155903.5
+    },
+    {
+      "build": "2559546e92ff",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 156172.4
+    },
+    {
+      "build": "7039ae3e82fd",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 156008.3
+    },
+    {
+      "build": "857b0fcf1182",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 154786.1
+    },
+    {
+      "build": "7d661e6eb4de",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 153792.1
+    },
+    {
+      "build": "7605ee6419a6",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 174284.6
+    },
+    {
+      "build": "02a91f1db259",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 168966.0
+    },
+    {
+      "build": "88b045a927f8",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 168940.3
+    },
+    {
+      "build": "fa6549e2df86",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 165170.8
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "alliance": 54,
+    "horde": 46
+  },
+  "guilds": [
+    {
+      "name": "Дайте Рыбку",
+      "count": 2
+    },
+    {
+      "name": "Завтра",
+      "count": 2
+    },
+    {
+      "name": "Nordavind",
+      "count": 1
+    },
+    {
+      "name": "TERRA",
+      "count": 1
+    },
+    {
+      "name": "Leftovers",
+      "count": 1
+    },
+    {
+      "name": "xD",
+      "count": 1
+    },
+    {
+      "name": "团长失踪指挥没起床",
+      "count": 1
+    },
+    {
+      "name": "hope is overrated",
+      "count": 1
+    },
+    {
+      "name": "Warpath",
+      "count": 1
+    },
+    {
+      "name": "Templar of Steel",
+      "count": 1
+    },
+    {
+      "name": "Salted",
+      "count": 1
+    },
+    {
+      "name": "Clarity",
+      "count": 1
+    },
+    {
+      "name": "VoidBound",
+      "count": 1
+    },
+    {
+      "name": "ÆVUM",
+      "count": 1
+    },
+    {
+      "name": "Налегке",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 439479.3,
+    "median": 444098.5,
+    "p25": 405488.8,
+    "p75": 472096.0
+  },
+  "stats": {},
+  "gems": []
+}

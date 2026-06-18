@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Shaman",
+  "spec_name": "Elemental",
+  "sample_count": 100,
+  "dps": {
+    "avg": 170234.0,
+    "median": 168530.5,
+    "p25": 165090.1,
+    "p75": 173299.5,
+    "max": 197429.2,
+    "min": 161121.0,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "b82146843b43",
+      "count": 5,
+      "pct": 5.0,
+      "avg_dps": 180899.2
+    },
+    {
+      "build": "739e769b3343",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 174810.5
+    },
+    {
+      "build": "ecd38257e821",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 170288.5
+    },
+    {
+      "build": "fe3c1fa7901b",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 171267.6
+    },
+    {
+      "build": "ebba2c934b62",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 166415.5
+    },
+    {
+      "build": "bd07a2202367",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 165644.7
+    },
+    {
+      "build": "161be392fffc",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 164486.8
+    },
+    {
+      "build": "7fbacb882fb9",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 195003.0
+    },
+    {
+      "build": "2bdf9ebc965f",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 191825.2
+    },
+    {
+      "build": "d8569ed2c791",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 191650.7
+    },
+    {
+      "build": "b275f94438a0",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 183029.6
+    },
+    {
+      "build": "ac96ffb2870d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 183026.2
+    },
+    {
+      "build": "8818d45e324c",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 181337.7
+    },
+    {
+      "build": "9d50d482a01c",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 180205.0
+    },
+    {
+      "build": "f7313b37f5a0",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 179389.8
+    },
+    {
+      "build": "fa5172e1985c",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 178739.2
+    },
+    {
+      "build": "ac49d53a75cb",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 178596.6
+    },
+    {
+      "build": "15094ce4780b",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 178401.4
+    },
+    {
+      "build": "04fd910798af",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 177139.1
+    },
+    {
+      "build": "04268d49d426",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 176983.4
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "horde": 39,
+    "alliance": 61
+  },
+  "guilds": [
+    {
+      "name": "Interstellar Bum Orcs",
+      "count": 2
+    },
+    {
+      "name": "Honestly",
+      "count": 2
+    },
+    {
+      "name": "get help",
+      "count": 2
+    },
+    {
+      "name": "Wild Things",
+      "count": 1
+    },
+    {
+      "name": "Pull More Please",
+      "count": 1
+    },
+    {
+      "name": "Suspicion",
+      "count": 1
+    },
+    {
+      "name": "Humble",
+      "count": 1
+    },
+    {
+      "name": "Value",
+      "count": 1
+    },
+    {
+      "name": "La Sucrerie",
+      "count": 1
+    },
+    {
+      "name": "Vibrant",
+      "count": 1
+    },
+    {
+      "name": "Last hold",
+      "count": 1
+    },
+    {
+      "name": "Redemption Arc",
+      "count": 1
+    },
+    {
+      "name": "Echoes",
+      "count": 1
+    },
+    {
+      "name": "Only Raiders",
+      "count": 1
+    },
+    {
+      "name": "Cave Canem",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 435136.9,
+    "median": 425778.5,
+    "p25": 412582.0,
+    "p75": 458058.0
+  },
+  "stats": {},
+  "gems": []
+}

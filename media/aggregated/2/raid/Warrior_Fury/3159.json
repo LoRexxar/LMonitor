@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Warrior",
+  "spec_name": "Fury",
+  "sample_count": 100,
+  "dps": {
+    "avg": 183555.8,
+    "median": 181708.6,
+    "p25": 176914.2,
+    "p75": 189090.8,
+    "max": 221752.3,
+    "min": 173903.9,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "9168aba47a12",
+      "count": 18,
+      "pct": 18.0,
+      "avg_dps": 187507.0
+    },
+    {
+      "build": "51b9677a27bf",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 183084.7
+    },
+    {
+      "build": "8aa65576a980",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 182254.9
+    },
+    {
+      "build": "6f5703c79efc",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 180185.7
+    },
+    {
+      "build": "a13ec8f09087",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 186469.4
+    },
+    {
+      "build": "ebf7e71cc92c",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 190414.9
+    },
+    {
+      "build": "5e68c3ecb656",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 186347.8
+    },
+    {
+      "build": "ea2d539e8e48",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 185093.2
+    },
+    {
+      "build": "ac91cf00da69",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 180983.4
+    },
+    {
+      "build": "e07f052c1e9d",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 178875.0
+    },
+    {
+      "build": "7c9664dd5257",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 175626.5
+    },
+    {
+      "build": "72bbdbe55a26",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 202333.8
+    },
+    {
+      "build": "e7f3e10b5aa5",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 201152.3
+    },
+    {
+      "build": "a1c13457b4c4",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 200140.0
+    },
+    {
+      "build": "14f51d9eb04d",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 198502.9
+    },
+    {
+      "build": "aee20bdf34f3",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 192067.9
+    },
+    {
+      "build": "d07cdc254337",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 191209.8
+    },
+    {
+      "build": "6a5f0d772ee5",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 190366.7
+    },
+    {
+      "build": "741371e7a17b",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 190350.9
+    },
+    {
+      "build": "512ac791342c",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 189753.9
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "alliance": 71,
+    "horde": 29
+  },
+  "guilds": [
+    {
+      "name": "Wächter von Walhall",
+      "count": 2
+    },
+    {
+      "name": "A L V",
+      "count": 1
+    },
+    {
+      "name": "Husk at Crit",
+      "count": 1
+    },
+    {
+      "name": "Decidedly Uncouth",
+      "count": 1
+    },
+    {
+      "name": "Merely A Setback",
+      "count": 1
+    },
+    {
+      "name": "Beacon",
+      "count": 1
+    },
+    {
+      "name": "The Tavern",
+      "count": 1
+    },
+    {
+      "name": "Rewind",
+      "count": 1
+    },
+    {
+      "name": "Авангард Альфа",
+      "count": 1
+    },
+    {
+      "name": "Frenzied Apes",
+      "count": 1
+    },
+    {
+      "name": "Dream Infusion",
+      "count": 1
+    },
+    {
+      "name": "Raise Your Eyes",
+      "count": 1
+    },
+    {
+      "name": "sound issues",
+      "count": 1
+    },
+    {
+      "name": "The Cenarion Circle",
+      "count": 1
+    },
+    {
+      "name": "Wild Things",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 434585.0,
+    "median": 430048.0,
+    "p25": 407315.5,
+    "p75": 467134.2
+  },
+  "stats": {},
+  "gems": []
+}

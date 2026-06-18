@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "Druid",
+  "spec_name": "Guardian",
+  "sample_count": 100,
+  "dps": {
+    "avg": 95254.8,
+    "median": 94337.7,
+    "p25": 91796.2,
+    "p75": 98239.6,
+    "max": 107643.4,
+    "min": 89877.5,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "c36b15a55db2",
+      "count": 5,
+      "pct": 5.0,
+      "avg_dps": 97922.9
+    },
+    {
+      "build": "5426887ff14a",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 95474.5
+    },
+    {
+      "build": "d2b264de209e",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 94179.0
+    },
+    {
+      "build": "4f8b4249a1c6",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 97171.1
+    },
+    {
+      "build": "6ac196003ec0",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 96210.0
+    },
+    {
+      "build": "f422ade29fda",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 96001.7
+    },
+    {
+      "build": "b32a15b357ad",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 96089.9
+    },
+    {
+      "build": "10140b018829",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 92428.3
+    },
+    {
+      "build": "204d77f16d0f",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 91879.2
+    },
+    {
+      "build": "2a265820d1ee",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 107643.4
+    },
+    {
+      "build": "0374cd6781cf",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 107373.3
+    },
+    {
+      "build": "6eb17c29381b",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 103960.2
+    },
+    {
+      "build": "8d3539560202",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 102751.7
+    },
+    {
+      "build": "a7db8406b14f",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 102733.4
+    },
+    {
+      "build": "9e07385dbcf5",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 102052.9
+    },
+    {
+      "build": "37166f6087ce",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 101967.0
+    },
+    {
+      "build": "3f257659c526",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 101925.1
+    },
+    {
+      "build": "f4d04c1fbadd",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 100104.9
+    },
+    {
+      "build": "e9a9d81faa68",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 99495.7
+    },
+    {
+      "build": "c3ecad3f7bef",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 98838.2
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "horde": 27,
+    "alliance": 73
+  },
+  "guilds": [
+    {
+      "name": "Void",
+      "count": 2
+    },
+    {
+      "name": "The Amazing Zoo",
+      "count": 2
+    },
+    {
+      "name": "Инвинсибл",
+      "count": 2
+    },
+    {
+      "name": "Putsched",
+      "count": 1
+    },
+    {
+      "name": "Corrupted",
+      "count": 1
+    },
+    {
+      "name": "The History",
+      "count": 1
+    },
+    {
+      "name": "styx",
+      "count": 1
+    },
+    {
+      "name": "Mostly Mediocre",
+      "count": 1
+    },
+    {
+      "name": "Die Fackaduus",
+      "count": 1
+    },
+    {
+      "name": "BROOMERS",
+      "count": 1
+    },
+    {
+      "name": "Redemption Arc",
+      "count": 1
+    },
+    {
+      "name": "tre dagar",
+      "count": 1
+    },
+    {
+      "name": "Siamensis",
+      "count": 1
+    },
+    {
+      "name": "Mistake",
+      "count": 1
+    },
+    {
+      "name": "Myth",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 423702.0,
+    "median": 422489.0,
+    "p25": 403683.2,
+    "p75": 443947.8
+  },
+  "stats": {},
+  "gems": []
+}

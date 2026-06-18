@@ -1,0 +1,992 @@
+{
+  "season_id": 2,
+  "class_name": "Druid",
+  "spec_name": "Balance",
+  "sample_count": 20,
+  "players": [
+    {
+      "rank": 1,
+      "character_name": "Druidic",
+      "realm": "Burning Blade",
+      "region": "CN",
+      "score": 4109.04,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "云梦灵歌",
+      "item_level": null
+    },
+    {
+      "rank": 2,
+      "character_name": "Paperchicken",
+      "realm": "Twisting Nether",
+      "region": "EU",
+      "score": 4100.01,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "TBT",
+      "item_level": 290.0
+    },
+    {
+      "rank": 3,
+      "character_name": "青蒿",
+      "realm": "Pandaren",
+      "region": "CN",
+      "score": 4072.28,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Northern Lights",
+      "item_level": null
+    },
+    {
+      "rank": 4,
+      "character_name": "阿揪揪",
+      "realm": "Rhonin",
+      "region": "CN",
+      "score": 4042.07,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "All J B Homie",
+      "item_level": null
+    },
+    {
+      "rank": 5,
+      "character_name": "Jeannelin",
+      "realm": "Burning Blade",
+      "region": "CN",
+      "score": 4041.84,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "XCG",
+      "item_level": null
+    },
+    {
+      "rank": 6,
+      "character_name": "AnonEBCEF0E",
+      "realm": "Anonymous",
+      "region": "US",
+      "score": 4013.83,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Midnights",
+      "item_level": null
+    },
+    {
+      "rank": 7,
+      "character_name": "Adeptxo",
+      "realm": "Illidan",
+      "region": "US",
+      "score": 4007.17,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Melee Mechanics",
+      "item_level": 290.0
+    },
+    {
+      "rank": 8,
+      "character_name": "Вадявитамин",
+      "realm": "Gordunni",
+      "region": "EU",
+      "score": 3988.14,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Сам решу",
+      "item_level": 289.0
+    },
+    {
+      "rank": 9,
+      "character_name": "Silhouétte",
+      "realm": "Kazzak",
+      "region": "EU",
+      "score": 3985.02,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Santa Maria",
+      "item_level": 290.0
+    },
+    {
+      "rank": 10,
+      "character_name": "Darilldruide",
+      "realm": "Ysondre",
+      "region": "EU",
+      "score": 3968.1,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Wave",
+      "item_level": 290.0
+    },
+    {
+      "rank": 11,
+      "character_name": "Sveyl",
+      "realm": "Ysondre",
+      "region": "EU",
+      "score": 3952.06,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "playing parse on ptr",
+      "item_level": 290.0
+    },
+    {
+      "rank": 12,
+      "character_name": "Cascoo",
+      "realm": "Tarren Mill",
+      "region": "EU",
+      "score": 3937.25,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Dunderhonung",
+      "item_level": 290.0
+    },
+    {
+      "rank": 13,
+      "character_name": "Beersmeld",
+      "realm": "Mal'Ganis",
+      "region": "US",
+      "score": 3935.01,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "THE MOVE",
+      "item_level": 289.0
+    },
+    {
+      "rank": 14,
+      "character_name": "Canexxfourty",
+      "realm": "Tarren Mill",
+      "region": "EU",
+      "score": 3934.19,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Method",
+      "item_level": 290.0
+    },
+    {
+      "rank": 15,
+      "character_name": "Litshi",
+      "realm": "Blackmoore",
+      "region": "EU",
+      "score": 3925.77,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Sklaven des Blutrausches",
+      "item_level": 290.0
+    },
+    {
+      "rank": 16,
+      "character_name": "Pkjake",
+      "realm": "Mal'Ganis",
+      "region": "US",
+      "score": 3921.74,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Catalysts",
+      "item_level": 290.0
+    },
+    {
+      "rank": 17,
+      "character_name": "日不落",
+      "realm": "Vol'jin",
+      "region": "CN",
+      "score": 3921.7,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Dream Store",
+      "item_level": null
+    },
+    {
+      "rank": 18,
+      "character_name": "月弥",
+      "realm": "Holy Chanter",
+      "region": "CN",
+      "score": 3921.03,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "冬日童话镇",
+      "item_level": null
+    },
+    {
+      "rank": 19,
+      "character_name": "Destilsz",
+      "realm": "Frostmourne",
+      "region": "US",
+      "score": 3916.21,
+      "faction": "alliance",
+      "race": "Night Elf",
+      "guild_name": "Crimson",
+      "item_level": 269.0
+    },
+    {
+      "rank": 20,
+      "character_name": "Daddydog",
+      "realm": "Tarren Mill",
+      "region": "EU",
+      "score": 3909.76,
+      "faction": "horde",
+      "race": "Troll",
+      "guild_name": "OMX TRENOLL",
+      "item_level": 289.0
+    }
+  ],
+  "gear": {
+    "head": [
+      {
+        "itemID": 250024,
+        "name": "Branches of the Luminous Bloom",
+        "icon": "inv_helm_leather_raiddruidmidnight_d_01",
+        "count": 18,
+        "pct": 90.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "neck": [
+      {
+        "itemID": 249337,
+        "name": "Ribbon of Coiled Malice",
+        "icon": "inv_12_jewelry_devouringhost_necklace_bronze",
+        "count": 5,
+        "pct": 25.0,
+        "avg_itemLevel": 287.0
+      },
+      {
+        "itemID": 50228,
+        "name": "Barbed Ymirheim Choker",
+        "icon": "inv_jewelry_necklace_22",
+        "count": 5,
+        "pct": 25.0,
+        "avg_itemLevel": 283.8
+      },
+      {
+        "itemID": 240950,
+        "name": "Masterwork Sin'dorei Amulet",
+        "icon": "inv_12_profession_jewelcrafting_necklace2_gold",
+        "count": 4,
+        "pct": 20.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 250247,
+        "name": "Amulet of the Abyssal Hymn",
+        "icon": "inv_12_jewelry_devouringhost_necklace_bronze2",
+        "count": 2,
+        "pct": 10.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249368,
+        "name": "Eternal Voidsong Chain",
+        "icon": "inv_12_jewelry_silvermoonelf_necklace_blue1",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 255612,
+        "name": "Galactic Gladiator's Amulet",
+        "icon": "inv_12_jewelry_voidelf_necklace_purple",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 263.0
+      }
+    ],
+    "shoulder": [
+      {
+        "itemID": 250022,
+        "name": "Seedpods of the Luminous Bloom",
+        "icon": "inv_shoulder_leather_raiddruidmidnight_d_01",
+        "count": 17,
+        "pct": 85.0,
+        "avg_itemLevel": 288.6
+      },
+      {
+        "itemID": 249333,
+        "name": "Blooming Barklight Spaulders",
+        "icon": "inv_shoulder_leather_raiddruidmidnight_d_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      }
+    ],
+    "shirt": [
+      {
+        "itemID": 268274,
+        "name": "Blinky's Collar",
+        "icon": "inv_jewelry_necklace_22",
+        "count": 5,
+        "pct": 25.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 52019,
+        "name": "Precious's Ribbon",
+        "icon": "inv_misc_ribbon_01",
+        "count": 2,
+        "pct": 10.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 98091,
+        "name": "Last Season's Shirt",
+        "icon": "inv_shirt_green_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 41253,
+        "name": "Blue Workman's Shirt",
+        "icon": "inv_shirt_13",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 10054,
+        "name": "Lavender Mageweave Shirt",
+        "icon": "inv_shirt_purple_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 138385,
+        "name": "Lucky Shirt",
+        "icon": "inv_shirt_02",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 1.0
+      }
+    ],
+    "chest": [
+      {
+        "itemID": 250027,
+        "name": "Trunk of the Luminous Bloom",
+        "icon": "inv_chest_leather_raiddruidmidnight_d_01",
+        "count": 18,
+        "pct": 90.0,
+        "avg_itemLevel": 288.3
+      }
+    ],
+    "waist": [
+      {
+        "itemID": 250021,
+        "name": "Barksash of the Luminous Bloom",
+        "icon": "inv_belt_leather_raiddruidmidnight_d_01",
+        "count": 11,
+        "pct": 55.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249374,
+        "name": "Scorn-Scarred Shul'ka's Belt",
+        "icon": "inv_belt_leather_raidmonkmidnight_d_01",
+        "count": 3,
+        "pct": 15.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 244573,
+        "name": "Silvermoon Agent's Utility Belt",
+        "icon": "inv_belt_leather_questbloodelf_b_01",
+        "count": 3,
+        "pct": 15.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 255894,
+        "name": "Galactic Warmonger's Belt",
+        "icon": "inv_belt_leather_outdoorvoidelf_c_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 250.0
+      }
+    ],
+    "legs": [
+      {
+        "itemID": 250023,
+        "name": "Phloemwraps of the Luminous Bloom",
+        "icon": "inv_pant_leather_raiddruidmidnight_d_01",
+        "count": 18,
+        "pct": 90.0,
+        "avg_itemLevel": 288.3
+      }
+    ],
+    "feet": [
+      {
+        "itemID": 250026,
+        "name": "Rootslippers of the Luminous Bloom",
+        "icon": "inv_boot_leather_raiddruidmidnight_d_01",
+        "count": 9,
+        "pct": 45.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 260372,
+        "name": "Nullstrider's Boots",
+        "icon": "inv_boot_leather_raidroguemidnight_d_01",
+        "count": 2,
+        "pct": 10.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249382,
+        "name": "Canopy Walker's Footwraps",
+        "icon": "inv_boot_leather_raiddruidmidnight_d_01",
+        "count": 2,
+        "pct": 10.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 258577,
+        "name": "Boots of Burning Focus",
+        "icon": "inv_leather_draenordungeon_c_01boot",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 244569,
+        "name": "Silvermoon Agent's Sneakers",
+        "icon": "inv_boot_leather_questbloodelf_b_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 251121,
+        "name": "Domanaar's Dire Treads",
+        "icon": "inv_boot_leather_dungeonharronir_c_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 251210,
+        "name": "Eclipse Espadrilles",
+        "icon": "inv_boot_leather_dungeonharronir_c_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 255890,
+        "name": "Galactic Warmonger's Boots",
+        "icon": "inv_boot_leather_outdoorvoidelf_c_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 250.0
+      }
+    ],
+    "wrist": [
+      {
+        "itemID": 244576,
+        "name": "Silvermoon Agent's Deflectors",
+        "icon": "inv_bracer_leather_questbloodelf_b_01",
+        "count": 13,
+        "pct": 65.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 249327,
+        "name": "Void-Skinned Bracers",
+        "icon": "inv_bracer_leather_raidroguemidnight_d_01",
+        "count": 3,
+        "pct": 15.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 50264,
+        "name": "Chewed Leather Wristguards",
+        "icon": "inv_bracer_23a",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 255895,
+        "name": "Galactic Warmonger's Wraps",
+        "icon": "inv_bracer_leather_outdoorvoidelf_c_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 250.0
+      }
+    ],
+    "hands": [
+      {
+        "itemID": 249321,
+        "name": "Vaelgor's Fearsome Grasp",
+        "icon": "inv_glove_leather_raiddruidmidnight_d_01",
+        "count": 9,
+        "pct": 45.0,
+        "avg_itemLevel": 287.6
+      },
+      {
+        "itemID": 250025,
+        "name": "Arbortenders of the Luminous Bloom",
+        "icon": "inv_glove_leather_raiddruidmidnight_d_01",
+        "count": 4,
+        "pct": 20.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 251113,
+        "name": "Gloves of Viscous Goo",
+        "icon": "inv_glove_leather_dungeonharronir_c_01",
+        "count": 2,
+        "pct": 10.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 244575,
+        "name": "Silvermoon Agent's Handwraps",
+        "icon": "inv_glove_leather_questbloodelf_b_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 251204,
+        "name": "Corewright's Zappers",
+        "icon": "inv_glove_leather_dungeonharronir_c_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 255891,
+        "name": "Galactic Warmonger's Handwraps",
+        "icon": "inv_glove_leather_outdoorvoidelf_c_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 250.0
+      }
+    ],
+    "finger1": [
+      {
+        "itemID": 251217,
+        "name": "Occlusion of Void",
+        "icon": "inv_12_trinket_devouring_host_currency1_bronze",
+        "count": 11,
+        "pct": 55.0,
+        "avg_itemLevel": 287.8
+      },
+      {
+        "itemID": 251093,
+        "name": "Omission of Light",
+        "icon": "inv_12_trinket_devouring_host_currency1_silver",
+        "count": 4,
+        "pct": 20.0,
+        "avg_itemLevel": 285.8
+      },
+      {
+        "itemID": 249920,
+        "name": "Eye of Midnight",
+        "icon": "inv_12_jewelry_devouringhost_ring_bronze",
+        "count": 2,
+        "pct": 10.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 255607,
+        "name": "Galactic Gladiator's Ring",
+        "icon": "inv_12_jewelry_voidelf_ring_purple",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 263.0
+      }
+    ],
+    "finger2": [
+      {
+        "itemID": 251093,
+        "name": "Omission of Light",
+        "icon": "inv_12_trinket_devouring_host_currency1_silver",
+        "count": 10,
+        "pct": 50.0,
+        "avg_itemLevel": 286.4
+      },
+      {
+        "itemID": 251217,
+        "name": "Occlusion of Void",
+        "icon": "inv_12_trinket_devouring_host_currency1_bronze",
+        "count": 6,
+        "pct": 30.0,
+        "avg_itemLevel": 286.8
+      },
+      {
+        "itemID": 249920,
+        "name": "Eye of Midnight",
+        "icon": "inv_12_jewelry_devouringhost_ring_bronze",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 255609,
+        "name": "Galactic Gladiator's Signet",
+        "icon": "inv_12_jewelry_silvermoonelf_ring_white1",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 263.0
+      }
+    ],
+    "trinket1": [
+      {
+        "itemID": 249343,
+        "name": "Gaze of the Alnseer",
+        "icon": "inv_12_trinket_raid_dreamrift_gazeofthealnseer",
+        "count": 9,
+        "pct": 45.0,
+        "avg_itemLevel": 297.0
+      },
+      {
+        "itemID": 249346,
+        "name": "Vaelgor's Final Stare",
+        "icon": "inv_12_trinket_raid_voidspire_int1_voiddragoneye",
+        "count": 7,
+        "pct": 35.0,
+        "avg_itemLevel": 295.3
+      },
+      {
+        "itemID": 250144,
+        "name": "Emberwing Feather",
+        "icon": "inv_icon_feather06a",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 255614,
+        "name": "Galactic Gladiator's Insignia of Alacrity",
+        "icon": "inv_misc_token_argentdawn3",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 263.0
+      }
+    ],
+    "trinket2": [
+      {
+        "itemID": 249346,
+        "name": "Vaelgor's Final Stare",
+        "icon": "inv_12_trinket_raid_voidspire_int1_voiddragoneye",
+        "count": 9,
+        "pct": 45.0,
+        "avg_itemLevel": 294.1
+      },
+      {
+        "itemID": 249343,
+        "name": "Gaze of the Alnseer",
+        "icon": "inv_12_trinket_raid_dreamrift_gazeofthealnseer",
+        "count": 8,
+        "pct": 40.0,
+        "avg_itemLevel": 296.9
+      },
+      {
+        "itemID": 255616,
+        "name": "Galactic Gladiator's Medallion",
+        "icon": "ability_pvp_gladiatormedallion",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 263.0
+      }
+    ],
+    "back": [
+      {
+        "itemID": 239656,
+        "name": "Adherent's Silken Shroud",
+        "icon": "inv_cape_cloth_questbloodelf_b_01",
+        "count": 8,
+        "pct": 40.0,
+        "avg_itemLevel": 285.0
+      },
+      {
+        "itemID": 250019,
+        "name": "Leafdrape of the Luminous Bloom",
+        "icon": "inv_cape_leather_raiddruidmidnight_d_01",
+        "count": 7,
+        "pct": 35.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 258575,
+        "name": "Rigid Scale Greatcloak",
+        "icon": "inv_cape_draenordungeon_c_02_plate",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 249335,
+        "name": "Imperator's Banner",
+        "icon": "inv_plate_raiddeathknightmidnight_d_01_cape",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 289.0
+      },
+      {
+        "itemID": 255917,
+        "name": "Galactic Warmonger's Drape",
+        "icon": "inv_cape_leather_outdoorvoidelf_c_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 250.0
+      }
+    ],
+    "main_hand": [
+      {
+        "itemID": 251201,
+        "name": "Corespark Multitool",
+        "icon": "inv_staff_2h_domanaar_b_01",
+        "count": 6,
+        "pct": 30.0,
+        "avg_itemLevel": 296.5
+      },
+      {
+        "itemID": 245770,
+        "name": "Aln'hara Cane",
+        "icon": "inv_staff_2h_dungeonharronir_c_02",
+        "count": 3,
+        "pct": 15.0,
+        "avg_itemLevel": 291.7
+      },
+      {
+        "itemID": 249283,
+        "name": "Belo'melorn, the Shattered Talon",
+        "icon": "inv_knife_1h_raidmidnight_d_02",
+        "count": 3,
+        "pct": 15.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 251111,
+        "name": "Splitshroud Stinger",
+        "icon": "inv_knife_1h_dungeonharronir_c_02",
+        "count": 2,
+        "pct": 10.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 251083,
+        "name": "Excavating Cudgel",
+        "icon": "inv_mace_1h_dungeonharronir_c_02",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 251178,
+        "name": "Ceremonial Hexblade",
+        "icon": "inv_knife_1h_dungeonharronir_c_02",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 258050,
+        "name": "Arcanic of the High Sage",
+        "icon": "inv_hand_1h_draenordungeon_c_02",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 298.0
+      },
+      {
+        "itemID": 258514,
+        "name": "Umbral Spire of Zuraal",
+        "icon": "inv_staff_2h_oribosdungeon_c_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 298.0
+      }
+    ],
+    "tabard": [
+      {
+        "itemID": 46874,
+        "name": "Argent Crusader's Tabard",
+        "icon": "inv_shirt_guildtabard_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 1.0
+      },
+      {
+        "itemID": 52252,
+        "name": "Tabard of the Lightbringer",
+        "icon": "inv_shirt_guildtabard_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 14.0
+      },
+      {
+        "itemID": 232908,
+        "name": "Astral Gladiator's Tabard",
+        "icon": "inv_tabard_pvp_11season3_d_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 1.0
+      }
+    ],
+    "off_hand": [
+      {
+        "itemID": 245769,
+        "name": "Aln'hara Lantern",
+        "icon": "inv_offhand_1h_dungeonharronir_c_01",
+        "count": 7,
+        "pct": 35.0,
+        "avg_itemLevel": 295.0
+      },
+      {
+        "itemID": 193709,
+        "name": "Vexamus' Expulsion Rod",
+        "icon": "inv_offhand_1h_drakonid_c_01",
+        "count": 1,
+        "pct": 5.0,
+        "avg_itemLevel": 298.0
+      }
+    ]
+  },
+  "race": {
+    "Night Elf": 19,
+    "Troll": 1
+  },
+  "factions": {
+    "alliance": 19,
+    "horde": 1
+  },
+  "stats": {
+    "crit": {
+      "avg": 22.51,
+      "median": 23.33
+    },
+    "haste": {
+      "avg": 19.38,
+      "median": 19.43
+    },
+    "mastery": {
+      "avg": 18.51,
+      "median": 18.15
+    },
+    "versatility": {
+      "avg": 1.89,
+      "median": 0.69
+    }
+  },
+  "guilds": [
+    {
+      "name": "云梦灵歌",
+      "count": 1
+    },
+    {
+      "name": "TBT",
+      "count": 1
+    },
+    {
+      "name": "Northern Lights",
+      "count": 1
+    },
+    {
+      "name": "All J B Homie",
+      "count": 1
+    },
+    {
+      "name": "XCG",
+      "count": 1
+    },
+    {
+      "name": "Midnights",
+      "count": 1
+    },
+    {
+      "name": "Melee Mechanics",
+      "count": 1
+    },
+    {
+      "name": "Сам решу",
+      "count": 1
+    },
+    {
+      "name": "Santa Maria",
+      "count": 1
+    },
+    {
+      "name": "Wave",
+      "count": 1
+    },
+    {
+      "name": "playing parse on ptr",
+      "count": 1
+    },
+    {
+      "name": "Dunderhonung",
+      "count": 1
+    },
+    {
+      "name": "THE MOVE",
+      "count": 1
+    },
+    {
+      "name": "Method",
+      "count": 1
+    },
+    {
+      "name": "Sklaven des Blutrausches",
+      "count": 1
+    }
+  ],
+  "gems": [
+    {
+      "id": 240906,
+      "name": "16 Crit & 7 Haste",
+      "icon": "inv_12_profession_jewelcrafting_rare_gem_cut_nature_red",
+      "count": 20
+    },
+    {
+      "id": 240900,
+      "name": "16 Mast & 7 Haste",
+      "icon": "inv_12_profession_jewelcrafting_rare_gem_cut_nature_purple",
+      "count": 18
+    },
+    {
+      "id": 240908,
+      "name": "16 Crit & 7 Mast",
+      "icon": "inv_12_profession_jewelcrafting_rare_gem_cut_void_red",
+      "count": 12
+    },
+    {
+      "id": 240983,
+      "name": "32 Primary",
+      "icon": "inv_12_profession_jewelcrafting_epic_gem_cut_green",
+      "count": 11
+    },
+    {
+      "id": 240898,
+      "name": "16 Mast & 7 Crit",
+      "icon": "inv_12_profession_jewelcrafting_rare_gem_cut_fire_purple",
+      "count": 7
+    },
+    {
+      "id": 240890,
+      "name": "16 Haste & 7 Crit",
+      "icon": "inv_12_profession_jewelcrafting_rare_gem_cut_fire_green",
+      "count": 3
+    },
+    {
+      "id": 240918,
+      "name": "16 Vers & 7 Mast",
+      "icon": "inv_12_profession_jewelcrafting_rare_gem_cut_void_blue",
+      "count": 2
+    },
+    {
+      "id": 241143,
+      "name": "23 Primary / opponent's failed interrupt attempts grant Precognition",
+      "icon": "inv_misc_epicgem_01",
+      "count": 1
+    },
+    {
+      "id": 240967,
+      "name": "23 Primary / +0.15% critical strike effectiveness per unique Midnight gem color",
+      "icon": "inv_12_profession_jewelcrafting_epic_gem_cut_orange",
+      "count": 1
+    },
+    {
+      "id": 240914,
+      "name": "16 Vers & 7 Crit",
+      "icon": "inv_12_profession_jewelcrafting_rare_gem_cut_fire_blue",
+      "count": 1
+    }
+  ]
+}

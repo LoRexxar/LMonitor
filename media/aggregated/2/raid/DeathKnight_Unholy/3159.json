@@ -1,0 +1,216 @@
+{
+  "season_id": 2,
+  "encounter_id": 3159,
+  "boss_name": "Rotmire",
+  "boss_name_cn": "烂泥沼泽",
+  "class_name": "DeathKnight",
+  "spec_name": "Unholy",
+  "sample_count": 100,
+  "dps": {
+    "avg": 167977.2,
+    "median": 165500.8,
+    "p25": 162901.5,
+    "p75": 170256.0,
+    "max": 210645.3,
+    "min": 161505.0,
+    "sample_count": 100
+  },
+  "talents": [
+    {
+      "build": "7926acfea6ad",
+      "count": 5,
+      "pct": 5.0,
+      "avg_dps": 176476.8
+    },
+    {
+      "build": "621fe2d860fd",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 184519.3
+    },
+    {
+      "build": "a2b428dcaaa5",
+      "count": 4,
+      "pct": 4.0,
+      "avg_dps": 165014.9
+    },
+    {
+      "build": "48e422f92a2a",
+      "count": 3,
+      "pct": 3.0,
+      "avg_dps": 168574.2
+    },
+    {
+      "build": "9fe623b3720c",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 176561.7
+    },
+    {
+      "build": "16d4349cacea",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 173018.2
+    },
+    {
+      "build": "61bfc54a0723",
+      "count": 2,
+      "pct": 2.0,
+      "avg_dps": 164209.4
+    },
+    {
+      "build": "cabb5c3b9960",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 181383.3
+    },
+    {
+      "build": "af7841135281",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 175043.4
+    },
+    {
+      "build": "8e782878a5df",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 174871.0
+    },
+    {
+      "build": "98089bf06601",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 174544.3
+    },
+    {
+      "build": "5b534f113543",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 173772.1
+    },
+    {
+      "build": "93cec2e68477",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 173239.4
+    },
+    {
+      "build": "b6f821a35a51",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 172648.0
+    },
+    {
+      "build": "dcbd624ea52f",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 172409.6
+    },
+    {
+      "build": "504ab5e06c40",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 172364.9
+    },
+    {
+      "build": "bcf2c8a80155",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 172048.1
+    },
+    {
+      "build": "922787836aeb",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 172013.5
+    },
+    {
+      "build": "016ceb48e485",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 171874.1
+    },
+    {
+      "build": "1b4721db0407",
+      "count": 1,
+      "pct": 1.0,
+      "avg_dps": 171677.4
+    }
+  ],
+  "gear": {},
+  "race": {},
+  "factions": {
+    "alliance": 52,
+    "horde": 48
+  },
+  "guilds": [
+    {
+      "name": "Дайте Рыбку",
+      "count": 2
+    },
+    {
+      "name": "Black Wall",
+      "count": 2
+    },
+    {
+      "name": "Northern Sky",
+      "count": 2
+    },
+    {
+      "name": "Ultimate Triage",
+      "count": 1
+    },
+    {
+      "name": "Bedtime Bandits",
+      "count": 1
+    },
+    {
+      "name": "Zero Percentile",
+      "count": 1
+    },
+    {
+      "name": "Lex Divina",
+      "count": 1
+    },
+    {
+      "name": "E V O",
+      "count": 1
+    },
+    {
+      "name": "the long nap",
+      "count": 1
+    },
+    {
+      "name": "Селестиал Бинг",
+      "count": 1
+    },
+    {
+      "name": "Still Rooted",
+      "count": 1
+    },
+    {
+      "name": "Just dont die",
+      "count": 1
+    },
+    {
+      "name": "Euphonie",
+      "count": 1
+    },
+    {
+      "name": "Seven Day Ban",
+      "count": 1
+    },
+    {
+      "name": "Antigen",
+      "count": 1
+    }
+  ],
+  "kill_time": {
+    "avg": 435861.2,
+    "median": 432641.5,
+    "p25": 409909.0,
+    "p75": 464502.0
+  },
+  "stats": {},
+  "gems": []
+}
