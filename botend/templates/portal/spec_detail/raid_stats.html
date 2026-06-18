@@ -238,75 +238,89 @@
         </div>
         {% endif %}
 
-        <div class="section-block">
+        <!-- 装备热门度 -->
+        <div class="section-block popularity-section">
             <h4>装备热门度</h4>
+            <div class="popularity-section-note">按部位统计样本玩家最常用装备，百分比代表样本中使用该装备的人数占比。</div>
             {% if boss_detail.gear_popularity %}
+            <div class="gear-slot-grid">
             {% for slot, items in boss_detail.gear_popularity.items %}
             <div class="gear-slot-section">
                 <div class="slot-name">{{ slot|default:"未知部位" }}</div>
                 {% for item in items %}
-                <div class="gear-pop-row">
+                <div class="gear-pop-card">
                     {% if item.icon %}
-                    <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank">
-                        <img src="{% wow_icon item.icon "small" %}" width="20" height="20" class="gear-icon">
+                    <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank" aria-label="{{ item.name|default:item.itemID }}">
+                        <img src="{% wow_icon item.icon "small" %}" class="gear-icon" alt="{{ item.name|default:item.itemID }}">
                     </a>
                     {% endif %}
-                    <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank" class="gear-name-link">{{ item.name|default:item.itemID }}</a>
-                    {% if item.itemLevel %}<span class="gear-ilvl">{{ item.itemLevel }}</span>{% endif %}
-                    <div class="popularity-bar small">
-                        <div class="popularity-fill" style="width:{{ item.pct }}%"></div>
+                    <div class="gear-pop-main">
+                        <a href="https://www.wowhead.com/item={{ item.itemID }}" target="_blank" class="gear-name-link" title="{{ item.name|default:item.itemID }}">{{ item.name|default:item.itemID }}</a>
+                        <div class="gear-pop-meta">
+                            {% if item.itemLevel %}<span class="gear-ilvl">装等 {{ item.itemLevel }}</span>{% endif %}
+                            <div class="popularity-bar"><div class="popularity-fill" style="width:{{ item.pct }}%"></div></div>
+                        </div>
                     </div>
-                    <span class="popularity-pct">{{ item.pct }}%</span>
+                    <div class="popularity-stat">{{ item.pct }}%<small>{{ item.count|default:"" }}{% if item.count %}人{% endif %}</small></div>
                 </div>
                 {% endfor %}
             </div>
             {% endfor %}
+            </div>
             {% else %}
             <div class="aggregation-pending">⏳ 数据等待聚合</div>
             {% endif %}
         </div>
 
-        <div class="section-block">
+        <div class="section-block popularity-section">
             <h4>宝石热门度</h4>
+            <div class="popularity-section-note">按玩家去重统计：同一玩家插多个相同宝石只计 1 人。</div>
             {% if boss_detail.gem_popularity %}
+            <div class="popularity-card-grid">
             {% for gem in boss_detail.gem_popularity %}
-            <div class="gear-pop-row">
+            <div class="popularity-mini-card">
                 {% if gem.icon %}
-                <img src="{% wow_icon gem.icon 'tiny' %}" width="20" height="20" style="border-radius:50%">
+                <img src="{% wow_icon gem.icon 'tiny' %}" class="popularity-icon popularity-icon--round" alt="{{ gem.name|default:gem.id }}">
                 {% endif %}
-                <span style="min-width:160px;">{{ gem.name|default:gem.id }}</span>
-                <div class="popularity-bar small">
-                    <div class="popularity-fill" style="width:{{ gem.pct }}%"></div>
+                <div class="popularity-mini-main">
+                    <div class="popularity-rank">#{{ forloop.counter }}</div>
+                    <div class="popularity-name" title="{{ gem.name|default:gem.id }}">{{ gem.name|default:gem.id }}</div>
+                    <div class="popularity-mini-meta"><div class="popularity-bar"><div class="popularity-fill" style="width:{{ gem.pct }}%"></div></div></div>
                 </div>
-                <span class="popularity-pct">{{ gem.count }}人 ({{ gem.pct }}%)</span>
+                <div class="popularity-stat">{{ gem.pct }}%<small>{{ gem.count }}人</small></div>
             </div>
             {% endfor %}
+            </div>
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
+        </div>
+
+        <div class="section-block popularity-section">
+            <h4>附魔热门度</h4>
+            <div class="popularity-section-note">按玩家去重统计：显示样本中有多少人使用对应附魔。</div>
+            {% if boss_detail.enchant_popularity %}
+            <div class="popularity-card-grid">
+            {% for ench in boss_detail.enchant_popularity %}
+            <div class="popularity-mini-card">
+                {% if ench.icon %}
+                <img src="{% wow_icon ench.icon 'tiny' %}" class="popularity-icon popularity-icon--round" alt="{{ ench.name|default:ench.id }}">
+                {% endif %}
+                <div class="popularity-mini-main">
+                    <div class="popularity-rank">#{{ forloop.counter }}</div>
+                    <div class="popularity-name" title="{{ ench.name|default:ench.id }}">{{ ench.name|default:ench.id }}</div>
+                    <div class="popularity-mini-meta"><div class="popularity-bar"><div class="popularity-fill" style="width:{{ ench.pct }}%"></div></div></div>
+                </div>
+                <div class="popularity-stat">{{ ench.pct }}%<small>{{ ench.count }}人</small></div>
+            </div>
+            {% endfor %}
+            </div>
             {% else %}
             <div class="aggregation-pending">⏳ 数据等待聚合</div>
             {% endif %}
         </div>
 
         <div class="section-block">
-            <h4>附魔热门度</h4>
-            {% if boss_detail.enchant_popularity %}
-            {% for ench in boss_detail.enchant_popularity %}
-            <div class="gear-pop-row">
-                {% if ench.icon %}
-                <img src="{% wow_icon ench.icon 'tiny' %}" width="20" height="20" style="border-radius:50%">
-                {% endif %}
-                <span style="min-width:280px;">{{ ench.name|default:ench.id }}</span>
-                <div class="popularity-bar small">
-                    <div class="popularity-fill" style="width:{{ ench.pct }}%"></div>
-                </div>
-                <span class="popularity-pct">{{ ench.count }}人 ({{ ench.pct }}%)</span>
-            </div>
-            {% endfor %}
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
-        </div>
-
-                <div class="section-block">
             <h4>阵营分布</h4>
             {% if boss_detail.faction_distribution %}
             <div class="stat-cards stat-strip">
@@ -810,19 +824,144 @@
 .secondary-stat-marker { position: absolute; top: -3px; width: 2px; height: 14px; background: #2563eb; border-radius: 2px; }
 .secondary-stat-meta { margin-top: 6px; color: #64748b; font-size: 0.78em; }
 
-/* ===== Gear ===== */
-.gear-slot-section { margin-bottom: 12px; }
-.slot-name { font-size: 0.8em; color: #6b7280; font-weight: 600; margin-bottom: 4px; }
-.gear-pop-row { display: flex; align-items: center; gap: 8px; font-size: 0.85em; padding: 3px 0; }
-.gear-icon { border-radius: 3px; }
-.gear-name-link { color: #2563eb; text-decoration: none; font-size: 0.85em; }
-.gear-name-link:hover { text-decoration: underline; }
-.gear-ilvl { color: #059669; font-size: 0.8em; font-weight: 500; }
-.popularity-bar { flex: 1; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; max-width: 200px; }
-.popularity-bar.small { max-width: 120px; height: 6px; }
-.popularity-fill { height: 100%; background: #2563eb; border-radius: 4px; }
-.popularity-pct { min-width: 40px; text-align: right; font-weight: 600; color: #1e293b; }
-.popularity-count { color: #94a3b8; font-size: 0.85em; }
+/* ===== Popularity: Gear / Gems / Enchants ===== */
+.popularity-section-note {
+    margin: -2px 0 12px;
+    color: #64748b;
+    font-size: 0.86em;
+}
+.gear-slot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 12px;
+}
+.gear-slot-section {
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    padding: 12px;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, .04);
+}
+.slot-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #3730a3;
+    font-size: 0.78em;
+    font-weight: 800;
+    margin-bottom: 10px;
+}
+.gear-pop-card {
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid #eef2f7;
+}
+.gear-pop-card:first-of-type { border-top: none; }
+.gear-icon, .popularity-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    object-fit: cover;
+    box-shadow: 0 0 0 1px rgba(15,23,42,.12), 0 4px 10px rgba(15,23,42,.08);
+    display: block;
+}
+.popularity-icon--round { border-radius: 50%; }
+.gear-pop-main { min-width: 0; }
+.gear-name-link, .popularity-name {
+    color: #1e293b;
+    text-decoration: none;
+    font-size: 0.9em;
+    font-weight: 700;
+    line-height: 1.28;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.gear-name-link { white-space: normal; }
+.gear-name-link:hover { color: #2563eb; text-decoration: underline; }
+.gear-pop-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+.gear-ilvl {
+    color: #047857;
+    background: #d1fae5;
+    border: 1px solid #a7f3d0;
+    border-radius: 999px;
+    padding: 1px 6px;
+    font-size: 0.75em;
+    font-weight: 800;
+}
+.popularity-bar {
+    position: relative;
+    flex: 1;
+    height: 7px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+.popularity-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #60a5fa 0%, #2563eb 100%);
+    border-radius: 999px;
+}
+.popularity-stat {
+    min-width: 62px;
+    text-align: right;
+    font-weight: 900;
+    color: #0f172a;
+}
+.popularity-stat small {
+    display: block;
+    margin-top: 2px;
+    color: #64748b;
+    font-size: 0.72em;
+    font-weight: 700;
+}
+.popularity-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 10px;
+}
+.popularity-mini-card {
+    display: grid;
+    grid-template-columns: 42px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 13px;
+    background: #fff;
+    padding: 10px 12px;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, .035);
+}
+.popularity-mini-card:hover {
+    border-color: #bfdbfe;
+    box-shadow: 0 10px 24px rgba(37, 99, 235, .08);
+}
+.popularity-mini-main { min-width: 0; }
+.popularity-mini-meta {
+    margin-top: 7px;
+}
+.popularity-rank {
+    color: #94a3b8;
+    font-size: 0.75em;
+    font-weight: 800;
+    margin-bottom: 3px;
+}
+@media (max-width: 720px) {
+    .gear-slot-grid, .popularity-card-grid { grid-template-columns: 1fr; }
+    .gear-pop-card, .popularity-mini-card { grid-template-columns: 34px 1fr auto; }
+    .gear-icon, .popularity-icon { width: 34px; height: 34px; }
+}
 
 /* ===== Table ===== */
 .data-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
