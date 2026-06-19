@@ -200,21 +200,23 @@ class Command(BaseCommand):
                 to_create = []
 
                 for trait_node_id, node_info in tree_trait_nodes.items():
-                    # 分类
+                    # 基础分类必须按 TraitNode 重新计算；不要在 entry 循环里复用/污染。
+                    # 同一个 TraitNode 可能有多个 TraitNodeEntry，其中某个 entry 被标记为
+                    # hero_anchor 后，如果不重置，后续 entry 会被错误写成 hero_anchor。
                     subtree_id = node_info['subtree_id']
                     pos_x = node_info['pos_x']
                     if subtree_id > 0:
-                        tree_type = 'hero'
+                        base_tree_type = 'hero'
                     elif pos_x < 7000 or node_info['type'] == 3:
                         # Type=3 是顶部入口/锚点，不属于 spec component，不能写入 spec 节点。
-                        tree_type = 'class'
+                        base_tree_type = 'class'
                     else:
-                        tree_type = 'spec'
+                        base_tree_type = 'spec'
 
                     db2_tree_id = node_info['tree_id']
                     db2_component_id = component_resolver.component_id_for_trait_node(trait_node_id)
                     target_spec_component_ids = set()
-                    if tree_type == 'spec':
+                    if base_tree_type == 'spec':
                         target_spec_component_ids = component_resolver.get_spec_component_ids(
                             cls_name, spec_name, db2_tree_id
                         )
@@ -236,6 +238,7 @@ class Command(BaseCommand):
                         max_points = 1
                         display_spell_id = None
 
+                        tree_type = base_tree_type
                         if entry_id in entries_db2:
                             def_id = entries_db2[entry_id]['def_id']
                             max_points = entries_db2[entry_id]['max_ranks']

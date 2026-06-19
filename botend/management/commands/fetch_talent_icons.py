@@ -6,6 +6,8 @@
 解析出图标名称后更新 WowTalentNodeMetadata.icon 字段。
 """
 import csv
+import html
+import json
 import os
 import re
 import time
@@ -116,18 +118,7 @@ class Command(BaseCommand):
             url = f'https://wago.tools/files?search={file_data_id}'
             try:
                 r = requests.get(url, timeout=20, headers={'User-Agent': 'Mozilla/5.0'})
-                matches = re.findall(r'filename&quot;:&quot;([^&]+\\.blp)&quot;', r.text, re.I)
-                icon_name = ''
-                for raw in matches:
-                    path = raw.replace('\\/', '/').lower()
-                    if '/icons/' not in path:
-                        continue
-                    base = os.path.basename(path)
-                    if not base.endswith('.blp'):
-                        continue
-                    icon_name = base[:-4]
-                    break
-                icon_cache[file_data_id] = icon_name
+                icon_cache[file_data_id] = self._extract_icon_name(r.text, file_data_id)
             except Exception as e:
                 self.stderr.write(f'查询失败 FileDataID={file_data_id}: {e}')
                 icon_cache[file_data_id] = ''
@@ -168,3 +159,40 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'完成: 更新 {updated} 个节点的图标'
         ))
+
+    def _extract_icon_name(self, text, file_data_id):
+        for raw in re.findall(r'filename&quot;:&quot;([^&]+\.blp)&quot;', text, re.I):
+            icon_name = self._icon_name_from_path(raw)
+            if icon_name:
+                return icon_name
+
+        page_match = re.search(r'data-page="([^"]+)"', text, re.S)
+        if not page_match:
+            return ''
+        try:
+            data = json.loads(html.unescape(page_match.group(1)))
+        except Exception:
+            return ''
+
+        files = data.get('props', {}).get('files', {})
+        rows = files.get('data') if isinstance(files, dict) else []
+        for row in rows or []:
+            try:
+                row_fdid = int(row.get('fdid') or row.get('id') or 0)
+            except Exception:
+                row_fdid = 0
+            if row_fdid and row_fdid != int(file_data_id):
+                continue
+            icon_name = self._icon_name_from_path(row.get('filename') or '')
+            if icon_name:
+                return icon_name
+        return ''
+
+    def _icon_name_from_path(self, raw):
+        path = html.unescape(str(raw or '')).replace('\\/', '/').lower()
+        if '/icons/' not in path:
+            return ''
+        base = os.path.basename(path)
+        if not base.endswith('.blp'):
+            return ''
+        return base[:-4]
