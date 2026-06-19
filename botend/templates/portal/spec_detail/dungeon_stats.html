@@ -224,7 +224,19 @@
                                 data-tree-type="{{ node.tree_type }}"
                             >
                                 <div class="talent-node-icon">
-                                    {% if node.icon %}
+                                    {% if node.is_choice_node and node.choice_options and not node.selected %}
+                                    <div class="talent-icon-split" aria-label="{{ node.name }}">
+                                        {% for option in node.choice_options|slice:":2" %}
+                                        <span class="talent-icon-split-half{% if forloop.first %} is-left{% else %} is-right{% endif %}">
+                                            {% if option.icon %}
+                                            <img src="{% wow_icon option.icon "small" %}" alt="{{ option.name|default:'选项' }}">
+                                            {% else %}
+                                            <span>?</span>
+                                            {% endif %}
+                                        </span>
+                                        {% endfor %}
+                                    </div>
+                                    {% elif node.icon %}
                                     <img src="{% wow_icon node.icon "small" %}" width="42" height="42" alt="{{ node.name }}">
                                     {% else %}
                                     <span>ID</span>
@@ -782,13 +794,102 @@
 .talent-choice-popup-option.is-active .talent-choice-popup-name {
     color: #93c5fd;
 }
+
+/* Game-like choice node presentation */
 .talent-node-card--tree.is-choice-node {
-    border-style: dashed;
-    border-color: rgba(251,191,36,.35);
+    border-style: none;
 }
-.talent-node-card--tree.is-choice-node.is-selected {
-    border-color: rgba(96,165,250,.55);
-    border-style: solid;
+.talent-node-card--tree.is-choice-node::before,
+.talent-node-card--tree.is-choice-node::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 0;
+    height: 0;
+    border-top: 7px solid transparent;
+    border-bottom: 7px solid transparent;
+    filter: drop-shadow(0 0 4px rgba(251,191,36,.65));
+    z-index: 5;
+    pointer-events: none;
+}
+.talent-node-card--tree.is-choice-node::before {
+    right: calc(100% + 1px);
+    border-right: 9px solid #facc15;
+    transform: translateY(-50%);
+}
+.talent-node-card--tree.is-choice-node::after {
+    left: calc(100% + 1px);
+    border-left: 9px solid #facc15;
+    transform: translateY(-50%);
+}
+.talent-node-card--tree.is-choice-node .talent-node-icon {
+    outline: 1.5px solid rgba(250,204,21,.88);
+    outline-offset: 1px;
+    box-shadow: 0 0 10px rgba(250,204,21,.28), 0 8px 20px rgba(2,6,23,.28);
+}
+.talent-node-card--tree.is-choice-node.is-unselected .talent-node-icon {
+    background: #111827;
+}
+.talent-node-card--tree.is-choice-node.is-unselected .talent-node-icon img,
+.talent-node-card--tree.is-choice-node.is-unselected .talent-icon-split img {
+    filter: grayscale(1) saturate(.25) brightness(.64);
+    opacity: .9;
+}
+.talent-icon-split {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    border-radius: inherit;
+    overflow: hidden;
+    background: #020617;
+}
+.talent-icon-split-half {
+    width: 50%;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.talent-icon-split-half img {
+    width: 200%;
+    height: 100%;
+    object-fit: cover;
+    max-width: none;
+    border-radius: 0;
+}
+.talent-icon-split-half.is-left img { transform: translateX(25%); }
+.talent-icon-split-half.is-right img { transform: translateX(-25%); }
+.talent-icon-split-half + .talent-icon-split-half {
+    border-left: 1px solid rgba(250,204,21,.45);
+}
+
+
+
+/* Dynamic tooltip for popup options */
+.talent-option-tooltip {
+    position: fixed;
+    min-width: 180px;
+    max-width: 320px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: rgba(15,23,42,.98);
+    border: 1px solid rgba(96,165,250,.45);
+    box-shadow: 0 12px 32px rgba(0,0,0,.6);
+    z-index: 99999;
+    pointer-events: none;
+}
+.talent-option-tooltip-name {
+    color: #f1f5f9;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+.talent-option-tooltip-desc {
+    color: #cbd5e1;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: normal;
 }
 
 /* ===== Responsive Scaling ===== */
@@ -1311,6 +1412,74 @@
     }
     scaleTalentStage();
     window.addEventListener('resize', scaleTalentStage);
+
+    /* ===== Choice Node Popup Hover ===== */
+    var activeTooltip = null;
+
+    document.querySelectorAll('.talent-node-card--tree.is-choice-node').forEach(function(node) {
+        var popup = node.querySelector('.talent-choice-popup');
+        if (!popup) return;
+        var hoverTimeout = null;
+
+        function showPopup() {
+            if (hoverTimeout) clearTimeout(hoverTimeout);
+            node.classList.add('popup-active');
+            node.style.zIndex = '100';
+        }
+
+        function hidePopup() {
+            hoverTimeout = setTimeout(function() {
+                node.classList.remove('popup-active');
+                node.style.zIndex = '';
+                hideOptionTooltip();
+            }, 150);
+        }
+
+        node.addEventListener('mouseenter', showPopup);
+        node.addEventListener('mouseleave', hidePopup);
+        popup.addEventListener('mouseenter', showPopup);
+        popup.addEventListener('mouseleave', hidePopup);
+
+        popup.querySelectorAll('.talent-choice-popup-option').forEach(function(option) {
+            option.addEventListener('mouseenter', function() {
+                var name = option.getAttribute('data-option-name');
+                var desc = option.getAttribute('data-option-desc');
+                if (!name) return;
+                showOptionTooltip(name, desc, option);
+            });
+            option.addEventListener('mouseleave', hideOptionTooltip);
+        });
+    });
+
+    function showOptionTooltip(name, desc, anchor) {
+        hideOptionTooltip();
+        var tip = document.createElement('div');
+        tip.className = 'talent-option-tooltip';
+        tip.innerHTML = '<div class="talent-option-tooltip-name">' + name + '</div>' +
+            (desc ? '<div class="talent-option-tooltip-desc">' + desc + '</div>' : '');
+        document.body.appendChild(tip);
+
+        var rect = anchor.getBoundingClientRect();
+        tip.style.left = (rect.right + 10) + 'px';
+        tip.style.top = rect.top + 'px';
+
+        var tipRect = tip.getBoundingClientRect();
+        if (tipRect.right > window.innerWidth - 10) {
+            tip.style.left = (rect.left - tipRect.width - 10) + 'px';
+        }
+        if (tipRect.bottom > window.innerHeight - 10) {
+            tip.style.top = (window.innerHeight - tipRect.height - 10) + 'px';
+        }
+
+        activeTooltip = tip;
+    }
+
+    function hideOptionTooltip() {
+        if (activeTooltip) {
+            activeTooltip.remove();
+            activeTooltip = null;
+        }
+    }
 })();
 </script>
 {% endblock %}
