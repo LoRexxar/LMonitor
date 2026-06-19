@@ -268,6 +268,12 @@
                                     WCL日志分析
                                 </a>
                             </li>
+                            <li class="submenu-item" data-tool="wago-skill-diff-rerun">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-rotate-right mr-2 text-xs"></i>
+                                    Wago指定版本重跑
+                                </a>
+                            </li>
                         </ul>
                     </li>
                     <li class="nav-item has-submenu" data-section="database-tables">
@@ -764,6 +770,39 @@
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+
+
+                <div class="tool-content" id="wago-skill-diff-rerun" style="display: none;">
+                    <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-3">Wago 指定版本重跑</h3>
+                        <p class="text-gray-600 mb-4">用于补跑错过的 build 区间，只生成/覆盖职业技能变更报告，不推进自动监控的当前版本。</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+                                <input id="wago-rerun-branch" type="text" value="wow" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="wow / ptr / beta">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Locale</label>
+                                <input id="wago-rerun-locale" type="text" value="enUS" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="enUS">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">From Build</label>
+                                <input id="wago-rerun-from-build" type="text" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="例如 11.2.0.62000">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">To Build</label>
+                                <input id="wago-rerun-to-build" type="text" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="例如 11.2.0.62100" onkeydown="if(event.key==='Enter'){event.preventDefault();submitWagoSkillDiffRerun();}">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button id="wago-rerun-submit" onclick="submitWagoSkillDiffRerun(); return false;" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">
+                                <i class="fas fa-rotate-right mr-2"></i>生成报告
+                            </button>
+                            <div id="wago-rerun-message" class="text-sm text-gray-600"></div>
+                        </div>
+                        <div id="wago-rerun-result" class="mt-4 hidden rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm"></div>
                     </div>
                 </div>
 

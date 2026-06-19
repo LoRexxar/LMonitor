@@ -99,6 +99,110 @@ document.addEventListener('DOMContentLoaded', function() {
 /**
  * 初始化仪表盘数据
  */
+
+function initWagoSkillDiffRerunTool() {
+    const submitBtn = document.getElementById('wago-rerun-submit');
+    const fromInput = document.getElementById('wago-rerun-from-build');
+    const toInput = document.getElementById('wago-rerun-to-build');
+    if (!submitBtn || submitBtn.dataset.bound === '1') return;
+    submitBtn.dataset.bound = '1';
+    [fromInput, toInput].forEach(input => {
+        if (!input) return;
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitWagoSkillDiffRerun();
+            }
+        });
+    });
+}
+
+async function submitWagoSkillDiffRerun() {
+    const branchEl = document.getElementById('wago-rerun-branch');
+    const localeEl = document.getElementById('wago-rerun-locale');
+    const fromEl = document.getElementById('wago-rerun-from-build');
+    const toEl = document.getElementById('wago-rerun-to-build');
+    const btn = document.getElementById('wago-rerun-submit');
+    const msg = document.getElementById('wago-rerun-message');
+    const resultEl = document.getElementById('wago-rerun-result');
+
+    const payload = {
+        branch: (branchEl && branchEl.value || 'wow').trim(),
+        locale: (localeEl && localeEl.value || 'enUS').trim(),
+        from_build: (fromEl && fromEl.value || '').trim(),
+        to_build: (toEl && toEl.value || '').trim(),
+    };
+    if (!payload.from_build || !payload.to_build) {
+        showMessage('请填写 from_build 和 to_build', 'warning');
+        return;
+    }
+    if (payload.from_build === payload.to_build) {
+        showMessage('from_build 和 to_build 不能相同', 'warning');
+        return;
+    }
+
+    const csrfToken = getCSRFToken();
+    if (!csrfToken) {
+        showMessage('无法获取CSRF令牌，请刷新页面', 'error');
+        return;
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-60', 'cursor-not-allowed');
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>生成中...';
+    }
+    if (msg) msg.textContent = '正在生成报告，可能需要几十秒到数分钟...';
+    if (resultEl) {
+        resultEl.classList.add('hidden');
+        resultEl.innerHTML = '';
+    }
+
+    try {
+        const resp = await fetch('/api/wago-skill-diff/rerun/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!data.success) {
+            throw new Error(data.error || '生成失败');
+        }
+        const reportUrl = data.report_url || (data.report_id ? `/portal/wow-skill-diff/${data.report_id}/` : '');
+        if (msg) msg.textContent = data.message || '报告已生成';
+        if (resultEl) {
+            resultEl.classList.remove('hidden');
+            resultEl.innerHTML = `
+                <div class="font-semibold text-gray-800 mb-2">生成成功</div>
+                <div>分支：${escapeHtml(data.branch || payload.branch)} / Locale：${escapeHtml(data.locale || payload.locale)}</div>
+                <div>版本：${escapeHtml(data.from_build || payload.from_build)} → ${escapeHtml(data.to_build || payload.to_build)}</div>
+                <div>技能数：${data.spell_count || 0}，职业数：${data.class_count || 0}</div>
+                ${reportUrl ? `<a class="inline-flex items-center mt-3 text-blue-600 hover:text-blue-800" href="${reportUrl}" target="_blank"><i class="fas fa-external-link-alt mr-1"></i>打开报告</a>` : ''}
+            `;
+        }
+        showMessage(data.message || 'Wago指定版本报告已生成', 'success');
+    } catch (err) {
+        const text = String(err && err.message || err || '生成失败');
+        if (msg) msg.textContent = `生成失败：${text}`;
+        showMessage(`生成失败：${text}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.classList.remove('opacity-60', 'cursor-not-allowed');
+            btn.innerHTML = '<i class="fas fa-rotate-right mr-2"></i>生成报告';
+        }
+    }
+}
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function initDashboard() {
     // 这里可以添加AJAX请求获取初始数据
     updateSystemStatus();
@@ -242,6 +346,9 @@ function initNavigation() {
                         if (toolName === 'wcl-analysis-entry') {
                             initWclDashboardModule();
                             fetchWclDashboardTasks();
+                        }
+                        if (toolName === 'wago-skill-diff-rerun') {
+                            initWagoSkillDiffRerunTool();
                         }
                     }
                 }

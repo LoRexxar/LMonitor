@@ -1207,6 +1207,81 @@ class WagoSkillDiffMonitor(BaseScan):
         st.save(update_fields=['build', 'last_event_at', 'last_event_status', 'report_url', 'wago_diff_url', 'ext'])
         return True
 
+    def rerun_build_diff(self, branch, from_build, to_build, locale=None):
+        """手动按指定 build 区间重跑 Wago 职业技能差异报告。
+
+        只生成/覆盖 WowSkillDiffReport，不推进 WowWagoMonitorState.build，避免影响自动监控游标。
+        """
+        branch = (branch or '').strip()
+        from_build = (from_build or '').strip()
+        to_build = (to_build or '').strip()
+        target_locale = (locale or '').strip() or self.locale
+
+        if not branch:
+            return {'success': False, 'error': '缺少 branch'}
+        if not from_build:
+            return {'success': False, 'error': '缺少 from_build'}
+        if not to_build:
+            return {'success': False, 'error': '缺少 to_build'}
+        if from_build == to_build:
+            return {'success': False, 'error': 'from_build 和 to_build 不能相同'}
+
+        old_locale = self.locale
+        try:
+            self.locale = target_locale
+            report = self._generate_report(branch, from_build, to_build)
+            if not report:
+                report = {
+                    'display_from_build': '',
+                    'display_to_build': '',
+                    'content_md': (
+                        f'# Wago 职业技能变更报告\n\n'
+                        f'- 分支：{branch}\n'
+                        f'- Locale：{target_locale}\n'
+                        f'- 版本：{from_build} → {to_build}\n'
+                        f'- 技能数：0\n\n'
+                        f'指定版本区间未发现可归属到职业/专精的技能变更。'
+                    ),
+                    'content_html_path': '',
+                    'changed_tables_json': '[]',
+                    'spell_count': 0,
+                    'class_count': 0,
+                }
+
+            row, _ = WowSkillDiffReport.objects.update_or_create(
+                branch=branch,
+                locale=target_locale,
+                to_build=to_build,
+                defaults={
+                    'from_build': from_build,
+                    'display_from_build': report.get('display_from_build') or '',
+                    'display_to_build': report.get('display_to_build') or '',
+                    'content_md': report.get('content_md') or '',
+                    'content_html_path': report.get('content_html_path') or '',
+                    'changed_tables_json': report.get('changed_tables_json') or '[]',
+                    'spell_count': int(report.get('spell_count') or 0),
+                    'class_count': int(report.get('class_count') or 0),
+                }
+            )
+            report_url = f'/portal/wow-skill-diff/{row.id}/'
+            return {
+                'success': True,
+                'report_id': row.id,
+                'report_url': report_url,
+                'spell_count': int(report.get('spell_count') or 0),
+                'class_count': int(report.get('class_count') or 0),
+                'from_build': from_build,
+                'to_build': to_build,
+                'branch': branch,
+                'locale': target_locale,
+                'message': '指定版本报告已生成' if int(report.get('spell_count') or 0) > 0 else '指定版本报告已生成（无职业技能变更）',
+            }
+        except Exception as e:
+            logger.error(f"[WagoSkillDiffMonitor] manual rerun failed: {e}\n", exc_info=True)
+            return {'success': False, 'error': str(e)}
+        finally:
+            self.locale = old_locale
+
     def _heuristic_summary_title(self, class_spell_counts, spell_count, changed_tables, samples=None):
         cn = {
             1: '战士',

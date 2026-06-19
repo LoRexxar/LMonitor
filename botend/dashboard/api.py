@@ -199,6 +199,41 @@ class PortalPeakSpecRankRefreshAPIView(View):
             return JsonResponse({'success': False, 'error': f'刷新巅峰榜失败: {str(e)}'})
 
 
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class WagoSkillDiffRerunAPIView(View):
+    def post(self, request):
+        try:
+            payload = json.loads(request.body or '{}')
+            branch = (payload.get('branch') or 'wow').strip()
+            from_build = (payload.get('from_build') or '').strip()
+            to_build = (payload.get('to_build') or '').strip()
+            locale = (payload.get('locale') or 'enUS').strip()
+
+            if not from_build or not to_build:
+                return JsonResponse({'success': False, 'error': '请填写 from_build 和 to_build'})
+
+            from LMonitor.config import Monitor_Type_BaseObject_List
+            from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
+
+            task = MonitorTask.objects.filter(name='WagoSkillDiffMonitor').first()
+            if not task:
+                try:
+                    idx = Monitor_Type_BaseObject_List.index(WagoSkillDiffMonitor)
+                    task = MonitorTask.objects.filter(type=idx).order_by('id').first()
+                except ValueError:
+                    task = None
+            if not task:
+                return JsonResponse({'success': False, 'error': '未找到 WagoSkillDiffMonitor 任务，请先同步 MonitorTask'})
+
+            monitor = WagoSkillDiffMonitor(None, task)
+            result = monitor.rerun_build_diff(branch=branch, from_build=from_build, to_build=to_build, locale=locale)
+            return JsonResponse(result)
+        except Exception as e:
+            logger.error(f"Wago指定版本重跑失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'Wago指定版本重跑失败: {str(e)}'})
+
+
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class ConvertTextAPIView(View):
     """
