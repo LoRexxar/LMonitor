@@ -204,6 +204,9 @@ class PortalPeakSpecRankRefreshAPIView(View):
 class WagoSkillDiffRerunAPIView(View):
     def post(self, request):
         try:
+            if not getattr(request, 'user', None) or not request.user.is_authenticated:
+                return JsonResponse({'success': False, 'error': '请先登录 Dashboard 后再执行 Wago 指定版本重跑'}, status=401)
+
             payload = json.loads(request.body or '{}')
             branch = (payload.get('branch') or 'wow').strip()
             from_build = (payload.get('from_build') or '').strip()
