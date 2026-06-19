@@ -50,6 +50,21 @@ def _first_text(value):
     return re.sub(r'\s+', ' ', value).strip()
 
 
+def _has_cjk(value):
+    return bool(re.search(r'[\u3400-\u9fff]', str(value or '')))
+
+
+def _clean_wowhead_title(title):
+    """Wowhead CN title: 破法者的护腕—物品—魔兽世界 / Name - Item - World of Warcraft."""
+    title = _first_text(title)
+    title = re.sub(r'^\[|\]$', '', title).strip()
+    for sep in ('—', ' - '):
+        if sep in title:
+            title = title.split(sep, 1)[0].strip()
+            break
+    return re.sub(r'^\[|\]$', '', title).strip()
+
+
 class Command(BaseCommand):
     help = '从现有 gear_json 收集装备/宝石/附魔 ID，并从 Wowhead CN 抓取中文名称/描述落库。'
 
@@ -58,9 +73,15 @@ class Command(BaseCommand):
         parser.add_argument('--sleep', type=float, default=0.2, help='请求间隔秒数')
         parser.add_argument('--force', action='store_true', help='强制刷新已有中文数据')
         parser.add_argument('--season-id', type=int, default=0, help='仅收集指定赛季')
+        parser.add_argument('--item-id', action='append', type=int, default=[], help='只抓取指定物品 ID；可重复传入')
 
     def handle(self, *args, **opts):
-        items = self._collect_items(opts.get('season_id') or None)
+        item_ids = [item_id for item_id in (opts.get('item_id') or []) if item_id]
+        if item_ids:
+            # 调试/补单个物品时不要先全表扫描 gear_json。
+            items = OrderedDict((item_id, {}) for item_id in item_ids)
+        else:
+            items = self._collect_items(opts.get('season_id') or None)
         if opts['limit']:
             items = OrderedDict(list(items.items())[:opts['limit']])
         self.stdout.write(f'待处理物品数: {len(items)}')
@@ -73,18 +94,20 @@ class Command(BaseCommand):
         created = updated = skipped = failed = 0
         for idx, (item_id, fallback) in enumerate(items.items(), 1):
             row = existing.get(int(item_id))
-            if row and row.name_zh and row.description_zh and not opts['force']:
+            if row and _has_cjk(row.name_zh) and row.description_zh and not opts['force']:
                 skipped += 1
                 continue
             meta = self._fetch_wowhead_cn(session, item_id)
             if not meta:
                 failed += 1
                 meta = {}
+            fallback_name_zh = fallback.get('name_zh') if _has_cjk(fallback.get('name_zh')) else ''
+            row_name_zh = row.name_zh if row and _has_cjk(row.name_zh) else ''
             payload = {
                 'name': fallback.get('name') or (row.name if row else '') or meta.get('name') or '',
-                'name_zh': meta.get('name_zh') or (row.name_zh if row else '') or fallback.get('name_zh') or fallback.get('name') or '',
+                'name_zh': meta.get('name_zh') or row_name_zh or fallback_name_zh,
                 'description': fallback.get('description') or (row.description if row else '') or '',
-                'description_zh': meta.get('description_zh') or (row.description_zh if row else '') or '',
+                'description_zh': meta.get('description_zh') or (row.description_zh if row and _has_cjk(row.description_zh) else '') or '',
                 'icon': fallback.get('icon') or (row.icon if row else '') or meta.get('icon') or '',
                 'quality': _coerce_quality(fallback.get('quality') or (row.quality if row else 0)),
                 'source': 'wowhead_cn',
@@ -158,8 +181,7 @@ class Command(BaseCommand):
         title = ''
         m = re.search(r'<title>(.*?)</title>', text, re.S | re.I)
         if m:
-            title = _first_text(m.group(1)).split(' - ')[0].strip()
-            title = re.sub(r'^\[|\]$', '', title).strip()
+            title = _clean_wowhead_title(m.group(1))
         desc = ''
         # Wowhead 的 CN 页面通常把 tooltip 文本嵌在 markup/description/json 字段中，这里尽量提取可读中文句子。
         candidates = []
@@ -184,4 +206,8 @@ class Command(BaseCommand):
         im = re.search(r'images/wow/icons/(?:small|medium|large)/([a-z0-9_]+)\.(?:jpg|png)', text, re.I)
         if im:
             icon = im.group(1)
-        return {'name_zh': title, 'description_zh': desc, 'icon': icon}
+        return {
+            'name_zh': title if _has_cjk(title) else '',
+            'description_zh': desc if _has_cjk(desc) else '',
+            'icon': icon,
+        }

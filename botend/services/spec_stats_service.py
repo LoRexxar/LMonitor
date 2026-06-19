@@ -105,6 +105,11 @@ def _wowhead_item_url(item_id):
     return f'https://www.wowhead.com/cn/item={item_id}' if item_id else ''
 
 
+def _has_cjk(value):
+    """是否包含中文/中日韩字符。避免把英文 fallback 当作中文名显示。"""
+    return bool(re.search(r'[\u3400-\u9fff]', str(value or '')))
+
+
 def _collect_item_ids_from_records(records, include_gear=True, include_gems=True, include_enchants=True):
     ids = set()
     for record in records or []:
@@ -154,8 +159,11 @@ def _item_snapshot_payload(item_id, fallback_name='', fallback_icon='', fallback
         description = snapshot.description or description
         icon = snapshot.icon or icon
         quality = snapshot.quality or quality
-    name_zh = snapshot.name_zh if snapshot else ''
-    description_zh = snapshot.description_zh if snapshot else ''
+    raw_name_zh = snapshot.name_zh if snapshot else ''
+    raw_description_zh = snapshot.description_zh if snapshot else ''
+    # 旧数据曾把英文 fallback 写进 name_zh；只有真正含中文时才当中文显示。
+    name_zh = raw_name_zh if _has_cjk(raw_name_zh) else ''
+    description_zh = raw_description_zh if _has_cjk(raw_description_zh) else ''
     display_name = name_zh or name or (f'#{item_id}' if item_id else '')
     return {
         'id': item_id,
@@ -467,10 +475,11 @@ class SpecStatsService:
             top_n=talent_limit,
             snapshot=usage_snapshot,
         )
-        stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
-        # 宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用），不要用人物榜 20 人作分母。
+        # 装备/宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用）。
+        # gear_detail_records 优先用人物榜 Raider.IO gear 回填，补齐 slot/gems_detail/enchants_detail；长度不变，分母仍是 ranking 样本数。
         gear_detail_records = _merge_player_profile_gear(records, season_id, class_name, spec_name)
+        stats['gear_popularity'] = _compute_gear_popularity(gear_detail_records, top_n=gear_limit)
         stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
         stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
 
@@ -650,10 +659,11 @@ class SpecStatsService:
             top_n=talent_limit,
             snapshot=usage_snapshot,
         )
-        stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
 
-        # 宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用），不要用人物榜 20 人作分母。
+        # 装备/宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用）。
+        # gear_detail_records 优先用人物榜 Raider.IO gear 回填，补齐 slot/gems_detail/enchants_detail；长度不变，分母仍是 ranking 样本数。
         gear_detail_records = _merge_player_profile_gear(records, season_id, class_name, spec_name)
+        stats['gear_popularity'] = _compute_gear_popularity(gear_detail_records, top_n=gear_limit)
         stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
         stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
 
