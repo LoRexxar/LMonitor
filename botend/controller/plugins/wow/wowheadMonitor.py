@@ -17,7 +17,7 @@ import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
-from core.glm import GLMClient
+from botend.services.article_translation_service import build_translation_service
 
 from botend.models import WowArticle
 from datetime import datetime
@@ -34,7 +34,7 @@ class wowheadMonitor(BaseScan):
         self.post_desp = ""
         self.target_url = "https://www.wowhead.com/wow/retail"
         self.task = task
-        self.glm = GLMClient()
+        self.translation_service = build_translation_service()
         # 单次 scan 最多翻译多少篇（包括补翻译历史记录）
         self._translate_budget = 10
 
@@ -212,11 +212,11 @@ class wowheadMonitor(BaseScan):
 
             # 补翻译：避免只翻译“最新列表里出现的文章”，导致历史文章长期 title_cn/content_cn 为空
             try:
-                if translated_count < self._translate_budget and getattr(self.glm, "api_key", ""):
+                if translated_count < self._translate_budget and self.translation_service.available():
                     from django.db.models import Q
                     missing = (
                         WowArticle.objects.filter(source="wowhead")
-                        .filter(Q(title_cn__isnull=True) | Q(content_cn__isnull=True))
+                        .filter(Q(title_cn__isnull=True) | Q(title_cn="") | Q(content_cn__isnull=True) | Q(content_cn=""))
                         .exclude(content="")
                         .order_by("-publish_time")[: max(0, self._translate_budget - translated_count)]
                     )
@@ -252,110 +252,10 @@ class wowheadMonitor(BaseScan):
         3) 保存 title_cn/content_cn（分开保存，正文失败不影响标题）
         4) 若本次抓取/翻译失败，下一次 scan 会继续补齐
         """
-        if not getattr(self.glm, "api_key", ""):
-            return False
-
-        any_translated = False
-
-        if (article.title or "").strip() and not (article.title_cn or "").strip():
-            try:
-                title_cn = self._translate_title(article.title)
-                if title_cn:
-                    article.title_cn = title_cn
-                    article.save(update_fields=['title_cn'])
-                    any_translated = True
-                else:
-                    logger.warning(
-                        f"[wowheadMonitor] title translate returned empty for article_id={article.id} url={article.url}; glm_error={getattr(self.glm, 'last_error', '')}"
-                    )
-            except Exception as e:
-                logger.error(
-                    f"[wowheadMonitor] title translate exception for article_id={article.id} url={article.url}: {e}; glm_error={getattr(self.glm, 'last_error', '')}"
-                )
-
-        if (article.content or "").strip() and not (article.content_cn or "").strip():
-            try:
-                content_cn = self._translate_content(article.content)
-                if content_cn:
-                    article.content_cn = content_cn
-                    article.save(update_fields=['content_cn'])
-                    any_translated = True
-                else:
-                    logger.warning(
-                        f"[wowheadMonitor] content translate returned empty for article_id={article.id} url={article.url}; glm_error={getattr(self.glm, 'last_error', '')}"
-                    )
-            except Exception as e:
-                logger.error(
-                    f"[wowheadMonitor] content translate exception for article_id={article.id} url={article.url}: {e}; glm_error={getattr(self.glm, 'last_error', '')}"
-                )
-
-        return any_translated
-
-    def _translate_title(self, title: str) -> str:
-        title = (title or "").strip()
-        if not title:
-            return ""
-        prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
-        result = self.glm.send_message(prompt, max_tokens=200, thinking_type="disabled")
-        if not result:
-            try:
-                logger.warning(f"[wowheadMonitor] title translate failed: {getattr(self.glm, 'last_error', '')}")
-            except Exception:
-                pass
-        return (result or "").strip().strip('"').strip("'")
-
-    def _translate_content(self, content: str) -> str:
-        content = (content or "").strip()
-        if not content:
-            return ""
-        paragraphs = [p.strip() for p in content.split("\n") if p and p.strip()]
-        if not paragraphs:
-            return ""
-
-        translated_pairs = []
-        i = 0
-        while i < len(paragraphs):
-            batch = []
-            total = 0
-            while i < len(paragraphs) and len(batch) < 10:
-                p = paragraphs[i]
-                if len(p) > 2000:
-                    p = p[:2000]
-                if batch and (total + len(p) > 4000):
-                    break
-                batch.append(p)
-                total += len(p)
-                i += 1
-
-            prompt = (
-                "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
-                "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
-                f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
-            )
-            result = self.glm.send_message(prompt, max_tokens=2400, thinking_type="disabled")
-            if not result:
-                try:
-                    logger.warning(f"[wowheadMonitor] content translate failed: {getattr(self.glm, 'last_error', '')}")
-                except Exception:
-                    pass
-            translated_list = None
-            if result:
-                try:
-                    translated_list = json.loads(result)
-                except Exception:
-                    translated_list = None
-            if not isinstance(translated_list, list):
-                translated_list = [t.strip() for t in (result or "").splitlines() if t.strip()]
-
-            for j, orig in enumerate(batch):
-                trans = ""
-                if j < len(translated_list) and isinstance(translated_list[j], str):
-                    trans = translated_list[j].strip()
-                translated_pairs.append({"original": orig, "translated": trans})
-
-            time.sleep(0.6)
-
-        return json.dumps(translated_pairs, ensure_ascii=False)
+        return self.translation_service.translate_article_fields(
+            article,
+            logger_prefix="wowheadMonitor",
+        )
 
     def _parse_posts_from_page_html(self, page_html, limit=10):
         t = page_html or ""

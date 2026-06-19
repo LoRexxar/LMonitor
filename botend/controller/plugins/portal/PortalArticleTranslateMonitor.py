@@ -10,7 +10,7 @@ from django.db.models import Q
 
 from botend.controller.BaseScan import BaseScan
 from botend.models import WowArticle
-from core.glm import GLMClient
+from botend.services.article_translation_service import build_translation_service
 from utils.log import logger
 
 
@@ -18,7 +18,7 @@ class PortalArticleTranslateMonitor(BaseScan):
     def __init__(self, req, task):
         super().__init__(req, task)
         self.task = task
-        self.glm = GLMClient()
+        self.translation_service = build_translation_service()
 
     def scan(self, url):
         query = Q(
@@ -46,37 +46,14 @@ class PortalArticleTranslateMonitor(BaseScan):
                         fetched_count += 1
                         logger.info(f"[PortalArticleTranslateMonitor] fetched content: {article.title[:50]}")
 
-                if article.title and not article.title_cn:
-                    try:
-                        title_cn = self._translate_title(article.title)
-                        if title_cn:
-                            article.title_cn = title_cn
-                            article.save(update_fields=['title_cn'])
-                        else:
-                            logger.warning(
-                                f"[PortalArticleTranslateMonitor] title translate returned empty for article_id={article.id} url={article.url}; glm_error={getattr(self.glm, 'last_error', '')}"
-                            )
-                    except Exception as e:
-                        logger.error(
-                            f"[PortalArticleTranslateMonitor] title translate exception for article_id={article.id} url={article.url}: {e}; glm_error={getattr(self.glm, 'last_error', '')}"
-                        )
-
-                if article.content and not article.content_cn:
-                    try:
-                        content_cn = self._translate_content(article.content)
-                        if content_cn:
-                            article.content_cn = content_cn
-                            article.save(update_fields=['content_cn'])
-                            translated_count += 1
-                            logger.info(f"[PortalArticleTranslateMonitor] translated: {article.title[:50]}")
-                        else:
-                            logger.warning(
-                                f"[PortalArticleTranslateMonitor] content translate returned empty for article_id={article.id} url={article.url}; glm_error={getattr(self.glm, 'last_error', '')}"
-                            )
-                    except Exception as e:
-                        logger.error(
-                            f"[PortalArticleTranslateMonitor] content translate exception for article_id={article.id} url={article.url}: {e}; glm_error={getattr(self.glm, 'last_error', '')}"
-                        )
+                had_content_cn = bool((article.content_cn or "").strip())
+                did_translate = self.translation_service.translate_article_fields(
+                    article,
+                    logger_prefix="PortalArticleTranslateMonitor",
+                )
+                if did_translate and not had_content_cn and (article.content_cn or "").strip():
+                    translated_count += 1
+                    logger.info(f"[PortalArticleTranslateMonitor] translated: {article.title[:50]}")
 
                 time.sleep(1)
             except Exception as e:
@@ -239,70 +216,3 @@ class PortalArticleTranslateMonitor(BaseScan):
         lines = [line.strip() for line in text.split('\n')]
         lines = [line for line in lines if line]
         return '\n'.join(lines)
-
-    def _translate_title(self, title):
-        if not title:
-            return None
-        try:
-            prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
-            result = self.glm.send_message(prompt, max_tokens=200, thinking_type="disabled")
-            if result:
-                return result.strip().strip('"').strip("'")
-            return None
-        except Exception as e:
-            logger.error(f"[PortalArticleTranslateMonitor] translate title error: {str(e)}")
-            return None
-
-    def _translate_content(self, content):
-        if not content:
-            return None
-        try:
-            paragraphs = [p.strip() for p in content.split('\n') if p and p.strip()]
-            if not paragraphs:
-                return None
-
-            translated_pairs = []
-            # 分段策略：按字符长度组 batch，避免单次过长导致模型截断/输出不齐
-            i = 0
-            while i < len(paragraphs):
-                batch = []
-                total = 0
-                while i < len(paragraphs) and len(batch) < 10:
-                    p = paragraphs[i]
-                    # 单段过长就直接截断，避免超长段落影响整批
-                    if len(p) > 2000:
-                        p = p[:2000]
-                    if batch and (total + len(p) > 4000):
-                        break
-                    batch.append(p)
-                    total += len(p)
-                    i += 1
-
-                prompt = (
-                    "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
-                    "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
-                    f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
-                )
-                result = self.glm.send_message(prompt, max_tokens=2400, thinking_type="disabled")
-                translated_list = None
-                if result:
-                    try:
-                        translated_list = json.loads(result)
-                    except Exception:
-                        translated_list = None
-                if not isinstance(translated_list, list):
-                    # 兜底：按行对齐（不可靠，但保证不中断）
-                    translated_list = [t.strip() for t in (result or '').splitlines() if t.strip()]
-
-                for j, orig in enumerate(batch):
-                    trans = ''
-                    if j < len(translated_list) and isinstance(translated_list[j], str):
-                        trans = translated_list[j].strip()
-                    translated_pairs.append({'original': orig, 'translated': trans})
-
-                time.sleep(0.6)
-
-            return json.dumps(translated_pairs, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"[PortalArticleTranslateMonitor] translate content error: {str(e)}; glm_error={getattr(self.glm, 'last_error', '')}")
-            return None

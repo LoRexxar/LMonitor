@@ -12,8 +12,7 @@ from botend.alerting import upsert_system_alert
 from django.utils import timezone
 from utils.log import logger
 from urllib.parse import urljoin, urlparse
-from core.glm import GLMClient
-import json
+from botend.services.article_translation_service import build_translation_service
 
 
 def _hash_url(url):
@@ -27,7 +26,7 @@ class PortalPostMonitor(BaseScan):
     def __init__(self, req, task):
         super().__init__(req, task)
         self.task = task
-        self.glm = GLMClient()
+        self.translation_service = build_translation_service()
         self._translate_budget = 3
 
     def scan(self, url):
@@ -183,30 +182,16 @@ class PortalPostMonitor(BaseScan):
                         article.description = body[:1200]
                     updated.extend(["content", "description"])
 
-            # 再补翻译（无 key 就不翻译）
-            if not getattr(self.glm, "api_key", ""):
-                if updated:
-                    article.save(update_fields=list(set(updated)))
-                    return True
-                return False
-
-            if (article.title or "").strip() and not (article.title_cn or "").strip():
-                title_cn = self._translate_title(article.title)
-                if title_cn:
-                    article.title_cn = title_cn
-                    updated.append("title_cn")
-
-            if (article.content or "").strip() and not (article.content_cn or "").strip():
-                content_cn = self._translate_content(article.content)
-                if content_cn:
-                    article.content_cn = content_cn
-                    updated.append("content_cn")
-
             if updated:
                 article.save(update_fields=list(set(updated)))
-                return True
-            return False
-        except Exception:
+
+            did_translate = self.translation_service.translate_article_fields(
+                article,
+                logger_prefix="PortalPostMonitor",
+            )
+            return bool(updated or did_translate)
+        except Exception as e:
+            logger.error(f"[PortalPostMonitor] fill/translate article error: {e}; article_id={getattr(article, 'id', None)} url={getattr(article, 'url', '')}")
             try:
                 if updated:
                     article.save(update_fields=list(set(updated)))
@@ -252,60 +237,6 @@ class PortalPostMonitor(BaseScan):
             return txt
         except Exception:
             return ""
-
-    def _translate_title(self, title: str) -> str:
-        title = (title or "").strip()
-        if not title:
-            return ""
-        prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
-        result = self.glm.send_message(prompt, max_tokens=200, thinking_type="disabled")
-        return (result or "").strip().strip('"').strip("'")
-
-    def _translate_content(self, content: str) -> str:
-        content = (content or "").strip()
-        if not content:
-            return ""
-        paragraphs = [p.strip() for p in content.split("\n") if p and p.strip()]
-        if not paragraphs:
-            return ""
-        translated_pairs = []
-        i = 0
-        while i < len(paragraphs):
-            batch = []
-            total = 0
-            while i < len(paragraphs) and len(batch) < 10:
-                p = paragraphs[i]
-                if len(p) > 2000:
-                    p = p[:2000]
-                if batch and (total + len(p) > 4000):
-                    break
-                batch.append(p)
-                total += len(p)
-                i += 1
-
-            prompt = (
-                "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
-                "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
-                f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
-            )
-            result = self.glm.send_message(prompt, max_tokens=2400, thinking_type="disabled")
-            translated_list = None
-            if result:
-                try:
-                    translated_list = json.loads(result)
-                except Exception:
-                    translated_list = None
-            if not isinstance(translated_list, list):
-                translated_list = [t.strip() for t in (result or "").splitlines() if t.strip()]
-
-            for j, orig in enumerate(batch):
-                trans = ""
-                if j < len(translated_list) and isinstance(translated_list[j], str):
-                    trans = translated_list[j].strip()
-                translated_pairs.append({"original": orig, "translated": trans})
-
-            time.sleep(0.6)
-        return json.dumps(translated_pairs, ensure_ascii=False)
 
     def update_exwind_latest(self):
         try:
