@@ -200,7 +200,7 @@ class PortalPeakSpecRankRefreshAPIView(View):
 
 
 
-@method_decorator([csrf_exempt, login_required], name='dispatch')
+@method_decorator([csrf_exempt], name='dispatch')
 class WagoSkillDiffRerunAPIView(View):
     def post(self, request):
         try:

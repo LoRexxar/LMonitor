@@ -164,6 +164,14 @@ async function submitWagoSkillDiffRerun() {
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
             body: JSON.stringify(payload),
         });
+        const contentType = resp.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const text = await resp.text();
+            if (resp.redirected || text.includes('/auth/login/') || text.includes('<html')) {
+                throw new Error('接口返回了HTML页面，请确认已登录Dashboard并刷新页面');
+            }
+            throw new Error(`接口返回非JSON内容：${text.slice(0, 120)}`);
+        }
         const data = await resp.json();
         if (!data.success) {
             throw new Error(data.error || '生成失败');
