@@ -370,16 +370,8 @@ def _register_node_identity(identity_lookup, node, node_layout):
 
 
 def _build_minimal_svg_path(start_x, start_y, end_x, end_y):
-    if start_x == end_x or start_y == end_y:
-        return f'M {_fmt(start_x)} {_fmt(start_y)} L {_fmt(end_x)} {_fmt(end_y)}'
-
-    mid_y = (start_y + end_y) / 2
-    return (
-        f'M {_fmt(start_x)} {_fmt(start_y)} '
-        f'L {_fmt(start_x)} {_fmt(mid_y)} '
-        f'L {_fmt(end_x)} {_fmt(mid_y)} '
-        f'L {_fmt(end_x)} {_fmt(end_y)}'
-    )
+    """Build a direct diagonal connector between two talent nodes."""
+    return f'M {_fmt(start_x)} {_fmt(start_y)} L {_fmt(end_x)} {_fmt(end_y)}'
 
 
 def _shift_panel(panel, offset_x=0, offset_y=0):
