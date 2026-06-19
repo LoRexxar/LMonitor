@@ -69,24 +69,29 @@ def build_tree_set_from_talents(
 
     # DB 已有正确的 class/hero/spec 分类，不再需要 hero 左右过滤
 
-    # Hero 子树过滤：按 db2_subtree_id 分组，只保留有选中节点的子树
+    # Hero 子树过滤：按 db2_subtree_id 分组，单个玩家只保留当前选择的一棵英雄天赋树。
+    # 某些来源的 talents_json / build code 解码可能会让两个 hero subtree 都带少量 points，
+    # 但游戏内同一角色只能选择一个英雄天赋树；这里用总 points 最高的子树作为当前选择。
     if 'hero' in grouped_nodes:
         hero_nodes = grouped_nodes['hero']
         hero_subtrees = _group_hero_subtrees(hero_nodes)
         if len(hero_subtrees) > 1:
-            # 找出有选中节点的子树
             selected_subtrees = {
                 key: nodes for key, nodes in hero_subtrees.items()
                 if any(n.points > 0 for n in nodes)
             }
             if selected_subtrees:
-                # 保留有选中的子树
-                kept = []
-                for nodes in selected_subtrees.values():
-                    kept.extend(nodes)
-                grouped_nodes['hero'] = kept
+                keep_key = max(
+                    selected_subtrees,
+                    key=lambda k: (
+                        sum((n.points or 0) for n in selected_subtrees[k]),
+                        sum(1 for n in selected_subtrees[k] if (n.points or 0) > 0),
+                        len(selected_subtrees[k]),
+                    ),
+                )
+                grouped_nodes['hero'] = selected_subtrees[keep_key]
             else:
-                # 无选中节点时保留节点数最多的子树
+                # 无选中节点时保留节点数最多的子树作为默认展示，避免两个 hero tree 同时出现。
                 largest_key = max(hero_subtrees, key=lambda k: len(hero_subtrees[k]))
                 grouped_nodes['hero'] = hero_subtrees[largest_key]
 
