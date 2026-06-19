@@ -1,3 +1,6 @@
+import os
+
+from django.conf import settings
 from django.views import View
 from django.shortcuts import render
 from django.http import HttpResponse
@@ -36,9 +39,16 @@ class PortalWowSkillDiffReportView(View):
             'wowxptr': 'PTR X(测试服)',
         }
         server_title = server_title_map.get(branch, branch)
-        from_build = (row.from_build or '').strip()
-        to_build = (row.to_build or '').strip()
+        from_build = (row.display_from_build or row.from_build or '').strip()
+        to_build = (row.display_to_build or row.to_build or '').strip()
         md = (row.content_md or '').strip()
+        html_exists = False
+        html_path = (row.content_html_path or '').strip()
+        if html_path:
+            static_root = os.path.join(str(getattr(settings, 'BASE_DIR', '') or ''), 'static')
+            full_path = os.path.abspath(os.path.join(static_root, html_path))
+            static_root_abs = os.path.abspath(static_root)
+            html_exists = full_path.startswith(static_root_abs + os.sep) and os.path.isfile(full_path)
         summary = ''
         if md:
             for line in md.splitlines():
@@ -52,4 +62,9 @@ class PortalWowSkillDiffReportView(View):
             title = f"{server_title}：{summary}（{from_build} → {to_build}）".strip()
         else:
             title = f"{server_title} 职业技能变更报告：{from_build} → {to_build}".strip()
-        return render(request, 'portal/wow_skill_diff_report.html', {'report': row, 'page_title': title, 'server_title': server_title})
+        return render(request, 'portal/wow_skill_diff_report.html', {
+            'report': row,
+            'page_title': title,
+            'server_title': server_title,
+            'html_exists': html_exists,
+        })

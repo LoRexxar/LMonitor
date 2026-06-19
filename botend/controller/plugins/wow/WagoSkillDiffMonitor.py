@@ -113,6 +113,8 @@ class WagoSkillDiffMonitor(BaseScan):
                     to_build=current_build,
                     defaults={
                         'from_build': last_build,
+                        'display_from_build': report.get('display_from_build') or '',
+                        'display_to_build': report.get('display_to_build') or '',
                         'content_md': report.get('content_md') or '',
                         'content_html_path': report.get('content_html_path') or '',
                         'changed_tables_json': report.get('changed_tables_json') or '',
@@ -1172,6 +1174,8 @@ class WagoSkillDiffMonitor(BaseScan):
                 to_build=to_build,
                 defaults={
                     'from_build': from_build,
+                    'display_from_build': report.get('display_from_build') or '',
+                    'display_to_build': report.get('display_to_build') or '',
                     'content_md': report.get('content_md') or '',
                     'content_html_path': report.get('content_html_path') or '',
                     'changed_tables_json': report.get('changed_tables_json') or '',

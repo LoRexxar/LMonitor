@@ -46,18 +46,23 @@
                     </div>
                 </div>
             </div>
-            {% if report.content_html_path %}
+            {% if report.content_html_path and html_exists %}
                 <div class="mt-5">
                     <a class="text-xs text-indigo-700 hover:text-indigo-900 underline" href="{% static report.content_html_path %}" target="_blank" rel="noopener noreferrer">打开 HTML 报告</a>
                     <iframe class="mt-3 w-full h-[75vh] rounded-lg border border-slate-200 bg-white" src="{% static report.content_html_path %}"></iframe>
                 </div>
             {% else %}
+                {% if report.content_html_path and not html_exists %}
+                    <div class="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        HTML 报告文件不存在，已回退显示 Markdown 记录。
+                    </div>
+                {% endif %}
                 <div class="mt-5 md-content" id="md-root"></div>
             {% endif %}
         </div>
     </div>
 
-    {% if not report.content_html_path %}
+    {% if not report.content_html_path or not html_exists %}
         {{ report.content_md|json_script:"wow-skill-diff-md" }}
         <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
         <script>
