@@ -47,18 +47,36 @@ class PortalArticleTranslateMonitor(BaseScan):
                         logger.info(f"[PortalArticleTranslateMonitor] fetched content: {article.title[:50]}")
 
                 if article.title and not article.title_cn:
-                    title_cn = self._translate_title(article.title)
-                    if title_cn:
-                        article.title_cn = title_cn
-                        article.save()
+                    try:
+                        title_cn = self._translate_title(article.title)
+                        if title_cn:
+                            article.title_cn = title_cn
+                            article.save(update_fields=['title_cn'])
+                        else:
+                            logger.warning(
+                                f"[PortalArticleTranslateMonitor] title translate returned empty for article_id={article.id} url={article.url}; glm_error={getattr(self.glm, 'last_error', '')}"
+                            )
+                    except Exception as e:
+                        logger.error(
+                            f"[PortalArticleTranslateMonitor] title translate exception for article_id={article.id} url={article.url}: {e}; glm_error={getattr(self.glm, 'last_error', '')}"
+                        )
 
                 if article.content and not article.content_cn:
-                    content_cn = self._translate_content(article.content)
-                    if content_cn:
-                        article.content_cn = content_cn
-                        article.save()
-                        translated_count += 1
-                        logger.info(f"[PortalArticleTranslateMonitor] translated: {article.title[:50]}")
+                    try:
+                        content_cn = self._translate_content(article.content)
+                        if content_cn:
+                            article.content_cn = content_cn
+                            article.save(update_fields=['content_cn'])
+                            translated_count += 1
+                            logger.info(f"[PortalArticleTranslateMonitor] translated: {article.title[:50]}")
+                        else:
+                            logger.warning(
+                                f"[PortalArticleTranslateMonitor] content translate returned empty for article_id={article.id} url={article.url}; glm_error={getattr(self.glm, 'last_error', '')}"
+                            )
+                    except Exception as e:
+                        logger.error(
+                            f"[PortalArticleTranslateMonitor] content translate exception for article_id={article.id} url={article.url}: {e}; glm_error={getattr(self.glm, 'last_error', '')}"
+                        )
 
                 time.sleep(1)
             except Exception as e:

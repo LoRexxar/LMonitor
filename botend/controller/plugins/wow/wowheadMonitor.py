@@ -249,32 +249,47 @@ class wowheadMonitor(BaseScan):
         端到端链路要求：
         1) 先抓取并落库原文（title/content）
         2) 标题与正文分段走 GLM 翻译
-        3) 保存 title_cn/content_cn
+        3) 保存 title_cn/content_cn（分开保存，正文失败不影响标题）
         4) 若本次抓取/翻译失败，下一次 scan 会继续补齐
         """
-        try:
-            if not getattr(self.glm, "api_key", ""):
-                return False
+        if not getattr(self.glm, "api_key", ""):
+            return False
 
-            updated = []
-            if (article.title or "").strip() and not (article.title_cn or "").strip():
+        any_translated = False
+
+        if (article.title or "").strip() and not (article.title_cn or "").strip():
+            try:
                 title_cn = self._translate_title(article.title)
                 if title_cn:
                     article.title_cn = title_cn
-                    updated.append("title_cn")
+                    article.save(update_fields=['title_cn'])
+                    any_translated = True
+                else:
+                    logger.warning(
+                        f"[wowheadMonitor] title translate returned empty for article_id={article.id} url={article.url}; glm_error={getattr(self.glm, 'last_error', '')}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"[wowheadMonitor] title translate exception for article_id={article.id} url={article.url}: {e}; glm_error={getattr(self.glm, 'last_error', '')}"
+                )
 
-            if (article.content or "").strip() and not (article.content_cn or "").strip():
+        if (article.content or "").strip() and not (article.content_cn or "").strip():
+            try:
                 content_cn = self._translate_content(article.content)
                 if content_cn:
                     article.content_cn = content_cn
-                    updated.append("content_cn")
+                    article.save(update_fields=['content_cn'])
+                    any_translated = True
+                else:
+                    logger.warning(
+                        f"[wowheadMonitor] content translate returned empty for article_id={article.id} url={article.url}; glm_error={getattr(self.glm, 'last_error', '')}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"[wowheadMonitor] content translate exception for article_id={article.id} url={article.url}: {e}; glm_error={getattr(self.glm, 'last_error', '')}"
+                )
 
-            if updated:
-                article.save(update_fields=updated)
-                return True
-            return False
-        except Exception:
-            return False
+        return any_translated
 
     def _translate_title(self, title: str) -> str:
         title = (title or "").strip()
