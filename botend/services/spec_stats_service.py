@@ -752,6 +752,19 @@ def _talent_tree_label(tree_type):
     return mapping.get(tree_type or 'spec', tree_type or '天赋')
 
 
+def _talent_tree_render_title(tree_type, hero_index=None):
+    if tree_type == 'hero' and hero_index:
+        return f'英雄天赋 {hero_index}'
+    return _talent_tree_label(tree_type)
+
+
+def _hero_subtree_sort_key(subtree_key, nodes):
+    count_score = sum((getattr(node, 'count', 0) or 0) for node in nodes)
+    pct_score = sum((getattr(node, 'usage_pct', 0) or 0) for node in nodes)
+    first_column = min((node.column or 999999 for node in nodes), default=999999)
+    return (first_column, -count_score, -pct_score, -len(nodes), subtree_key)
+
+
 def _has_valid_talent_payload(record):
     """Return True when a ranking record contains real talent nodes.
 
@@ -1020,25 +1033,36 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         for candidate in candidates:
             node_key_map[candidate['node_key']] = node
 
-    # Hero 子树过滤：聚合页只展示主流英雄子树。若多个 hero subtree 都有使用率，保留总使用量最高的一棵，避免两棵英雄树叠在中间列。
+    # 聚合页展示两棵英雄天赋树：与个人页不同，不再只保留使用量最高的一棵。
+    hero_subtrees = {}
     if 'hero' in grouped_nodes:
-        hero_nodes = grouped_nodes['hero']
+        hero_nodes = grouped_nodes.pop('hero')
         hero_subtrees = _group_hero_subtrees_by_column(hero_nodes)
-        if len(hero_subtrees) > 1:
-            def _subtree_usage_score(nodes):
-                # 按节点 count 求和；没有 count 时回退到使用率，再回退到节点数量。
-                count_score = sum((getattr(node, 'count', 0) or 0) for node in nodes)
-                pct_score = sum((getattr(node, 'usage_pct', 0) or 0) for node in nodes)
-                return (count_score, pct_score, len(nodes))
-
-            best_key = max(hero_subtrees, key=lambda key: _subtree_usage_score(hero_subtrees[key]))
-            grouped_nodes['hero'] = hero_subtrees[best_key]
 
     # 构建树结构
     trees = []
+    ordered_tree_groups = []
     for tree_type in _iter_render_tree_types(grouped_nodes):
+        ordered_tree_groups.append((tree_type, grouped_nodes[tree_type], None))
+        if tree_type == 'class' and hero_subtrees:
+            sorted_hero_items = sorted(
+                hero_subtrees.items(),
+                key=lambda item: _hero_subtree_sort_key(item[0], item[1]),
+            )
+            for index, (subtree_key, nodes) in enumerate(sorted_hero_items[:2], start=1):
+                ordered_tree_groups.append(('hero', nodes, index))
+
+    if hero_subtrees and not any(tree_type == 'hero' for tree_type, _, _ in ordered_tree_groups):
+        sorted_hero_items = sorted(
+            hero_subtrees.items(),
+            key=lambda item: _hero_subtree_sort_key(item[0], item[1]),
+        )
+        for index, (subtree_key, nodes) in enumerate(sorted_hero_items[:2], start=1):
+            ordered_tree_groups.append(('hero', nodes, index))
+
+    for tree_type, tree_nodes, hero_index in ordered_tree_groups:
         nodes = sorted(
-            grouped_nodes[tree_type],
+            tree_nodes,
             key=lambda item: (
                 item.row if item.row is not None else 999,
                 item.column if item.column is not None else 999,
@@ -1051,6 +1075,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         columns = [node.column for node in nodes if node.column is not None]
         trees.append(TalentTreeModel(
             tree_type=tree_type,
+            title=_talent_tree_render_title(tree_type, hero_index),
             nodes=nodes,
             grid_columns=max([default_columns, *columns]) if columns else default_columns,
             grid_rows=max(rows) if rows else max(1, (len(nodes) + default_columns - 1) // default_columns),
@@ -1087,7 +1112,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
     # 附加使用率数据
     _attach_usage_to_render_model(render_model, usage_map, highlighted_keys)
 
-    total_nodes = sum(len(nodes) for nodes in grouped_nodes.values())
+    total_nodes = sum(len(tree.nodes) for tree in trees)
     preserved_parent_edges = 0
     for tree in render_model.get('trees', []) or []:
         preserved_parent_edges += len(tree.get('paths') or [])

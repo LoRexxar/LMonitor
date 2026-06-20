@@ -1197,6 +1197,39 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         )
 
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_popularity_tree_renders_two_hero_subtrees_stacked(self, mock_provider_cls):
+        mock_provider_cls.return_value.merge_into_node.side_effect = (
+            lambda node, class_name='', spec_name='': node
+        )
+        mock_provider_cls.return_value.get_full_tree_nodes.return_value = [
+            {'spell_id': 1001, 'talent_id': 1001, 'name': '职业', 'tree_type': 'class', 'row': 1000, 'column': 1000},
+            {'spell_id': 2001, 'talent_id': 2001, 'name': '英雄一', 'tree_type': 'hero', 'db2_subtree_id': 11, 'row': 1000, 'column': 5000},
+            {'spell_id': 2002, 'talent_id': 2002, 'name': '英雄二', 'tree_type': 'hero', 'db2_subtree_id': 22, 'row': 1000, 'column': 9000},
+            {'spell_id': 3001, 'talent_id': 3001, 'name': '专精', 'tree_type': 'spec', 'row': 1000, 'column': 13000},
+        ]
+
+        talent_tree = _compute_talent_popularity_tree(
+            records=[{
+                'talents_json': [
+                    {'spell_id': 1001, 'talent_id': 1001, 'name': '职业', 'tree_type': 'class', 'row': 1000, 'column': 1000},
+                    {'spell_id': 2001, 'talent_id': 2001, 'name': '英雄一', 'tree_type': 'hero', 'db2_subtree_id': 11, 'row': 1000, 'column': 5000},
+                    {'spell_id': 2002, 'talent_id': 2002, 'name': '英雄二', 'tree_type': 'hero', 'db2_subtree_id': 22, 'row': 1000, 'column': 9000},
+                    {'spell_id': 3001, 'talent_id': 3001, 'name': '专精', 'tree_type': 'spec', 'row': 1000, 'column': 13000},
+                ],
+            }],
+            class_name='DeathKnight',
+            spec_name='Blood',
+            top_n=10,
+        )
+
+        trees = talent_tree['render_model']['trees']
+        self.assertEqual([tree['tree_type'] for tree in trees], ['class', 'hero', 'hero', 'spec'])
+        self.assertEqual([tree['title'] for tree in trees], ['职业天赋', '英雄天赋 1', '英雄天赋 2', '专精天赋'])
+        hero_panels = [tree['panel'] for tree in trees if tree['tree_type'] == 'hero']
+        self.assertEqual(hero_panels[0]['x'], hero_panels[1]['x'])
+        self.assertLess(hero_panels[0]['y'], hero_panels[1]['y'])
+
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
     def test_dungeon_stats_template_renders_popularity_talent_tree(self, mock_provider_cls):
         mock_provider_cls.return_value.merge_into_node.side_effect = (
             lambda node, class_name='', spec_name='': node

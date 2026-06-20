@@ -101,12 +101,11 @@ def build_talent_render_model(
 
 def _build_render_collections(tree_set, layout, build_state, build_code):
     selected_nodes = set(build_state.selected_nodes or set())
-    panel_lookup = {panel.tree_type: panel for panel in layout.panels}
     render_nodes = []
     render_trees = []
 
-    for tree in tree_set.trees:
-        panel = panel_lookup.get(tree.tree_type)
+    for index, tree in enumerate(tree_set.trees):
+        panel = layout.panels[index] if index < len(layout.panels) else None
         node_layout_lookup = {}
         path_payloads = []
         panel_payload = None

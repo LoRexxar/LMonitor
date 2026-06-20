@@ -10,6 +10,11 @@ from botend.wow.talents.models import (
 )
 
 
+def _is_hero_tree(tree_or_panel) -> bool:
+    tree_type = getattr(tree_or_panel, 'tree_type', '') or ''
+    return tree_type == 'hero' or tree_type.startswith('hero_')
+
+
 LAYOUT_PANEL_COLUMNS = {
     'three-column': 3,
 }
@@ -151,7 +156,7 @@ def build_talent_tree_layout(
             coord_w = max_col - min_col
             coord_h = max_row - min_row
             # 动态计算 scale：目标面板宽度根据树类型调整（3:1:3 比例）
-            if tree.tree_type == 'hero':
+            if _is_hero_tree(tree):
                 target_w = 180  # hero 树窄一些
             else:
                 target_w = 500  # class/spec 树正常宽度
@@ -160,7 +165,7 @@ def build_talent_tree_layout(
             scale_y = target_h / max(coord_h, 1)
             scale = min(scale_x, scale_y)  # 取较小值保持比例
             # 节点尺寸随 scale 调整，hero 树节点略小
-            if tree.tree_type == 'hero':
+            if _is_hero_tree(tree):
                 node_size = max(28, min(44, int(scale * 500)))
             else:
                 node_size = max(32, min(56, int(scale * 600)))
@@ -188,6 +193,33 @@ def build_talent_tree_layout(
             'node_size': node_size,
         })
 
+    selected_nodes = set(build_state_model.selected_nodes or set())
+    if _should_use_dual_hero_middle_layout(panel_blueprints):
+        panels, max_right, max_bottom = _build_dual_hero_middle_layout(
+            panel_blueprints,
+            selected_nodes,
+            config_model,
+        )
+    else:
+        panels, max_right, max_bottom = _build_grid_panel_layout(
+            panel_blueprints,
+            selected_nodes,
+            config_model,
+            panel_columns,
+        )
+
+    return TalentTreeLayoutModel(
+        set_key=tree_set_model.set_key,
+        class_name=tree_set_model.class_name,
+        spec_name=tree_set_model.spec_name,
+        layout_mode=tree_set_model.layout_mode,
+        width=max_right,
+        height=max_bottom,
+        panels=panels,
+    )
+
+
+def _build_grid_panel_layout(panel_blueprints, selected_nodes, config_model, panel_columns):
     row_heights = []
     for offset in range(0, len(panel_blueprints), panel_columns):
         row_blueprints = panel_blueprints[offset:offset + panel_columns]
@@ -197,7 +229,6 @@ def build_talent_tree_layout(
     max_right = 0
     max_bottom = 0
     row_y_positions = _build_row_y_positions(row_heights, config_model.panel_gap_y)
-    selected_nodes = set(build_state_model.selected_nodes or set())
 
     for index, blueprint in enumerate(panel_blueprints):
         row_index = index // panel_columns
@@ -207,21 +238,7 @@ def build_talent_tree_layout(
         x = sum(item['width'] for item in row_items[:column_index]) + (column_index * config_model.panel_gap_x)
         y = row_y_positions[row_index]
 
-        panel = _build_tree_panel_layout(
-            tree=blueprint['tree'],
-            panel_x=x,
-            panel_y=y,
-            width=blueprint['width'],
-            height=blueprint['height'],
-            grid_columns=blueprint['grid_columns'],
-            grid_rows=blueprint['grid_rows'],
-            selected_nodes=selected_nodes,
-            config=config_model,
-            min_col=blueprint['min_col'],
-            min_row=blueprint['min_row'],
-            scale=blueprint['scale'],
-            node_size=blueprint['node_size'],
-        )
+        panel = _layout_panel_from_blueprint(blueprint, x, y, selected_nodes, config_model)
         panels.append(panel)
         max_right = max(max_right, panel.x + panel.width)
         max_bottom = max(max_bottom, panel.y + panel.height)
@@ -239,14 +256,68 @@ def build_talent_tree_layout(
                 _shift_panel(panel, offset_x=offset_x)
         max_right = max(p.x + p.width for p in panels)
 
-    return TalentTreeLayoutModel(
-        set_key=tree_set_model.set_key,
-        class_name=tree_set_model.class_name,
-        spec_name=tree_set_model.spec_name,
-        layout_mode=tree_set_model.layout_mode,
-        width=max_right,
-        height=max_bottom,
-        panels=panels,
+    return panels, max_right, max_bottom
+
+
+def _should_use_dual_hero_middle_layout(panel_blueprints):
+    hero_count = sum(1 for item in panel_blueprints if _is_hero_tree(item['tree']))
+    has_class = any(item['tree'].tree_type == 'class' for item in panel_blueprints)
+    has_spec = any(item['tree'].tree_type == 'spec' for item in panel_blueprints)
+    return hero_count == 2 and has_class and has_spec and len(panel_blueprints) == 4
+
+
+def _build_dual_hero_middle_layout(panel_blueprints, selected_nodes, config_model):
+    class_item = next(item for item in panel_blueprints if item['tree'].tree_type == 'class')
+    spec_item = next(item for item in panel_blueprints if item['tree'].tree_type == 'spec')
+    hero_items = [item for item in panel_blueprints if _is_hero_tree(item['tree'])]
+
+    hero_column_width = max(item['width'] for item in hero_items)
+    hero_stack_height = sum(item['height'] for item in hero_items) + config_model.panel_gap_y
+    stage_height = max(hero_stack_height, class_item['height'], spec_item['height'])
+
+    class_x = 0
+    hero_x = class_item['width'] + config_model.panel_gap_x
+    spec_x = hero_x + hero_column_width + config_model.panel_gap_x
+
+    placements = [
+        (class_item, class_x, max(0, (stage_height - class_item['height']) // 2)),
+    ]
+
+    hero_y = max(0, (stage_height - hero_stack_height) // 2)
+    for hero_item in hero_items:
+        hero_offset_x = hero_x + max(0, (hero_column_width - hero_item['width']) // 2)
+        placements.append((hero_item, hero_offset_x, hero_y))
+        hero_y += hero_item['height'] + config_model.panel_gap_y
+
+    placements.append((spec_item, spec_x, max(0, (stage_height - spec_item['height']) // 2)))
+
+    panels = []
+    max_right = 0
+    max_bottom = 0
+    for blueprint, x, y in placements:
+        panel = _layout_panel_from_blueprint(blueprint, x, y, selected_nodes, config_model)
+        panels.append(panel)
+        max_right = max(max_right, panel.x + panel.width)
+        max_bottom = max(max_bottom, panel.y + panel.height)
+
+    return panels, max_right, max_bottom
+
+
+def _layout_panel_from_blueprint(blueprint, x, y, selected_nodes, config_model):
+    return _build_tree_panel_layout(
+        tree=blueprint['tree'],
+        panel_x=x,
+        panel_y=y,
+        width=blueprint['width'],
+        height=blueprint['height'],
+        grid_columns=blueprint['grid_columns'],
+        grid_rows=blueprint['grid_rows'],
+        selected_nodes=selected_nodes,
+        config=config_model,
+        min_col=blueprint['min_col'],
+        min_row=blueprint['min_row'],
+        scale=blueprint['scale'],
+        node_size=blueprint['node_size'],
     )
 
 
