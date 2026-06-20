@@ -8,7 +8,8 @@ from collections import Counter, defaultdict
 from django.db.models import Avg, Max, Min, StdDev
 
 from botend.models import (
-    SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking, WowItemSnapshot
+    SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking, WowItemSnapshot,
+    WowTalentNodeMetadata,
 )
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN, RACE_CN, ENCHANT_CN, GEM_STAT_CN, QUALITY_CN
 from botend.wow.talents.parser import normalize_talent_payload
@@ -913,6 +914,7 @@ def _compute_talent_usage(records, class_name, spec_name, top_n=20, snapshot=Non
 def _talent_build_record_state(record, provider, class_name, spec_name):
     """Return selected talent node keys and display metadata for one ranking row."""
     nodes_by_key = {}
+    hero_nodes_by_subtree = defaultdict(list)
     for raw in record.get('talents_json') or []:
         node = _normalize_stats_talent_node(raw, provider, class_name, spec_name)
         if not node or node.tree_type == 'build_code':
@@ -920,10 +922,14 @@ def _talent_build_record_state(record, provider, class_name, spec_name):
         node_key = _build_talent_node_key(node)
         if not node_key:
             continue
+        if node.tree_type == 'hero':
+            hero_nodes_by_subtree[getattr(node, 'db2_subtree_id', 0) or 0].append(node)
+            continue
         existing = nodes_by_key.get(node_key)
         if existing is None or _score_talent_node(node) >= _score_talent_node(existing):
             nodes_by_key[node_key] = node
 
+    hero_summary = _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name)
     return {
         'keys': set(nodes_by_key.keys()),
         'nodes': {
@@ -939,7 +945,37 @@ def _talent_build_record_state(record, provider, class_name, spec_name):
             }
             for node_key, node in nodes_by_key.items()
         },
+        'hero_talent_summary': hero_summary,
     }
+
+
+def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name):
+    """Summarize selected hero subtree names for a build row."""
+    if not hero_nodes_by_subtree:
+        return []
+
+    subtree_ids = [subtree_id for subtree_id in hero_nodes_by_subtree.keys() if subtree_id]
+    anchor_names = {}
+    if subtree_ids:
+        anchors = WowTalentNodeMetadata.objects.filter(
+            class_name=class_name or '',
+            spec_name=spec_name or '',
+            tree_type='hero_anchor',
+            db2_subtree_id__in=subtree_ids,
+        ).exclude(name='').values('db2_subtree_id', 'name', 'name_zh')
+        for anchor in anchors:
+            anchor_names[anchor['db2_subtree_id']] = anchor.get('name_zh') or anchor.get('name') or ''
+
+    summary = []
+    for subtree_id, nodes in sorted(hero_nodes_by_subtree.items(), key=lambda item: item[0] or 0):
+        node_names = [node.name for node in nodes if node.name]
+        fallback_name = node_names[0] if node_names else (f"英雄天赋 {subtree_id}" if subtree_id else '英雄天赋')
+        summary.append({
+            'subtree_id': subtree_id,
+            'name': anchor_names.get(subtree_id) or fallback_name,
+            'selected_count': len(nodes),
+        })
+    return summary
 
 
 def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
@@ -994,6 +1030,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
             'count': count,
             'pct': round(count / total * 100, 1) if total else 0,
             'is_template': build_code == template_code,
+            'hero_talent_summary': state.get('hero_talent_summary') or [],
             'diff_count': len(added_keys) + len(missing_keys),
             'added_talents': [_node_payload(nodes, key) for key in added_keys],
             'missing_talents': [_node_payload(template_nodes, key) for key in missing_keys],
@@ -1253,6 +1290,7 @@ def _normalize_stats_talent_node(raw, provider, class_name, spec_name):
         'selected': raw.get('selected', False),
         'source': raw.get('source', 'stats'),
         'parents': list(raw.get('parents') or raw.get('parents_json') or []),
+        'db2_subtree_id': raw.get('db2_subtree_id') or raw.get('db2SubtreeID') or 0,
     }
     node_data = provider.merge_into_node(node_data, class_name=class_name, spec_name=spec_name)
     node = TalentNodeModel.from_raw(node_data)

@@ -670,6 +670,41 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertEqual([node['name'] for node in result['builds'][1]['added_talents']], ['变体天赋'])
         self.assertEqual([node['name'] for node in result['builds'][1]['missing_talents']], ['模板天赋'])
 
+    @patch('botend.services.spec_stats_service.WowTalentNodeMetadata.objects.filter')
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_talent_build_popularity_summarizes_hero_choice_without_diff(self, mock_provider_cls, mock_anchor_filter):
+        mock_provider_cls.return_value.merge_into_node.side_effect = (
+            lambda node, class_name='', spec_name='': node
+        )
+        mock_anchor_filter.return_value.exclude.return_value.values.return_value = [
+            {'db2_subtree_id': 11, 'name': 'Deathbringer', 'name_zh': ''},
+            {'db2_subtree_id': 12, 'name': "San'layn", 'name_zh': ''},
+        ]
+        records = [
+            {
+                'talent_build_code': 'CODE_A',
+                'talents_json': [
+                    {'node_id': 1, 'spell_id': 101, 'name': '通用天赋', 'tree_type': 'class', 'points': 1},
+                    {'node_id': 2, 'spell_id': 102, 'name': '专精天赋', 'tree_type': 'spec', 'points': 1},
+                    {'node_id': 11, 'spell_id': 201, 'name': '英雄A', 'tree_type': 'hero', 'db2_subtree_id': 11, 'points': 1},
+                ],
+            },
+            {
+                'talent_build_code': 'CODE_B',
+                'talents_json': [
+                    {'node_id': 1, 'spell_id': 101, 'name': '通用天赋', 'tree_type': 'class', 'points': 1},
+                    {'node_id': 2, 'spell_id': 102, 'name': '专精天赋', 'tree_type': 'spec', 'points': 1},
+                    {'node_id': 12, 'spell_id': 202, 'name': '英雄B', 'tree_type': 'hero', 'db2_subtree_id': 12, 'points': 1},
+                ],
+            },
+        ]
+
+        result = _compute_talent_build_popularity(records, 'DeathKnight', 'Blood', top_n=10)
+
+        self.assertEqual([item['diff_count'] for item in result['builds']], [0, 0])
+        self.assertEqual(result['builds'][0]['hero_talent_summary'][0]['name'], 'Deathbringer')
+        self.assertEqual(result['builds'][1]['hero_talent_summary'][0]['name'], "San'layn")
+
     @patch('botend.wow.talents.metadata.TalentMetadataProvider.get_full_tree_nodes')
     @patch('botend.wow.talents.adapters.TalentMetadataProvider')
     @patch('botend.services.spec_stats_service.PlayerSpecTopPlayer.objects.filter')

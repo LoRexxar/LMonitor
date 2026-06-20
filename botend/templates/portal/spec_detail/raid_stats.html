@@ -271,6 +271,14 @@
                                 {% if build.diff_count %}<span class="talent-build-diff-count">差异 {{ build.diff_count }} 个</span>{% else %}<span class="talent-build-diff-count">无差异</span>{% endif %}
                             </div>
                             <div class="talent-build-code" title="{{ build.code }}">{{ build.code }}</div>
+                            {% if build.hero_talent_summary %}
+                            <div class="talent-build-hero-summary">
+                                <span class="talent-build-hero-label">英雄天赋</span>
+                                {% for hero in build.hero_talent_summary %}
+                                <span class="talent-build-hero-chip">{{ hero.name }}</span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
                         </div>
                         <button type="button" class="talent-build-copy" data-build-code="{{ build.code|escape }}">复制</button>
                     </div>
@@ -1209,6 +1217,33 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+.talent-build-hero-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+.talent-build-hero-label,
+.talent-build-hero-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    font-size: 0.78em;
+    font-weight: 900;
+}
+.talent-build-hero-label {
+    color: #fde68a;
+    background: rgba(146,64,14,.18);
+    border: 1px solid rgba(251,191,36,.24);
+    padding: 3px 8px;
+}
+.talent-build-hero-chip {
+    color: #e0f2fe;
+    background: rgba(14,116,144,.18);
+    border: 1px solid rgba(34,211,238,.24);
+    padding: 3px 9px;
 }
 .talent-build-copy {
     border: 1px solid rgba(96,165,250,.34);
