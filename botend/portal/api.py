@@ -8,6 +8,7 @@ from django.utils import timezone
 from datetime import timedelta
 
 from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport, WowWagoMonitorState
+from botend.services.article_content_service import loads_blocks
 from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
@@ -394,6 +395,8 @@ class PortalArticleDetailAPIView(View):
                 content_cn = json.loads(article.content_cn)
             except Exception:
                 content_cn = None
+        content_blocks = loads_blocks(article.content_blocks)
+        content_blocks_cn = loads_blocks(article.content_blocks_cn)
 
         return JsonResponse({
             'status': 'success',
@@ -408,6 +411,8 @@ class PortalArticleDetailAPIView(View):
                 'publish_time': _fmt_dt(article.publish_time),
                 'content': article.content or '',
                 'content_cn': content_cn,
+                'content_blocks': content_blocks,
+                'content_blocks_cn': content_blocks_cn,
             }
         })
 

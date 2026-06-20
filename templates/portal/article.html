@@ -11,6 +11,13 @@
     <style>
         .article-content { line-height: 1.8; }
         .article-content p { margin-bottom: 1rem; }
+        .article-content h2 { margin: 1.6rem 0 0.75rem; font-size: 1.15rem; font-weight: 700; color: #0f172a; }
+        .article-content blockquote { margin: 1rem 0; padding: 0.75rem 1rem; border-left: 3px solid #818cf8; background: #f8fafc; color: #334155; }
+        .article-content ul, .article-content ol { margin: 0 0 1rem 1.25rem; }
+        .article-content ul { list-style: disc; }
+        .article-content ol { list-style: decimal; }
+        .article-content img { max-width: 100%; border-radius: 0.75rem; margin: 1rem auto; display: block; }
+        .article-image-caption { margin-top: -0.5rem; margin-bottom: 1rem; text-align: center; color: #64748b; font-size: 0.8rem; }
         .translation-pair { margin-bottom: 1.5rem; }
         .translated-text { color: #0f172a; font-size: 0.95rem; }
         .original-text { margin-top: 0.35rem; color: #64748b; font-size: 0.8125rem; }
@@ -51,6 +58,63 @@
             return "";
         }
 
+        function renderBlocks(blocks) {
+            if (!Array.isArray(blocks) || !blocks.length) return '';
+            let html = '';
+            let listOpen = false;
+            let listType = '';
+            const closeList = () => {
+                if (listOpen) {
+                    html += `</${listType}>`;
+                    listOpen = false;
+                    listType = '';
+                }
+            };
+            blocks.forEach(block => {
+                if (!block || typeof block !== 'object') return;
+                const type = block.type || 'paragraph';
+                if (type !== 'list_item') closeList();
+                if (type === 'heading') {
+                    html += `<h2>${escapeHtml(block.text || '')}</h2>`;
+                } else if (type === 'quote') {
+                    html += `<blockquote>${escapeHtml(block.text || '')}</blockquote>`;
+                } else if (type === 'image') {
+                    const src = sanitizeHref(block.url || '');
+                    if (src) {
+                        html += `<figure><img src="${escapeHtml(src)}" alt="${escapeHtml(block.alt || '')}" loading="lazy">`;
+                        if (block.caption) html += `<figcaption class="article-image-caption">${escapeHtml(block.caption)}</figcaption>`;
+                        html += `</figure>`;
+                    }
+                } else if (type === 'list_item') {
+                    const wantedList = block.ordered ? 'ol' : 'ul';
+                    if (!listOpen || listType !== wantedList) {
+                        closeList();
+                        listType = wantedList;
+                        html += `<${listType}>`;
+                        listOpen = true;
+                    }
+                    html += `<li>${escapeHtml(block.text || '')}</li>`;
+                } else if (block.text) {
+                    html += `<p>${escapeHtml(block.text)}</p>`;
+                }
+            });
+            closeList();
+            return html;
+        }
+
+        function renderLegacyTranslation(pairs) {
+            if (!Array.isArray(pairs)) return '';
+            return pairs.map(pair => `
+                <div class="translation-pair">
+                    ${pair.translated
+                        ? `<div class="translated-text">${escapeHtml(pair.translated)}</div>
+                           <div class="original-text">${escapeHtml(pair.original)}</div>`
+                        : `<div class="translated-text">${escapeHtml(pair.original)}</div>`
+                    }
+                </div>
+            `).join('');
+        }
+
         async function loadArticle() {
             const container = document.getElementById('article-container');
             if (!ARTICLE_ID) {
@@ -83,22 +147,15 @@
                 const sourceName = sourceNames[article.source] || article.source;
                 const href = sanitizeHref(article.url);
 
-                let contentHtml = '';
-                if (article.content_cn && Array.isArray(article.content_cn)) {
-                    contentHtml = article.content_cn.map(pair => `
-                        <div class="translation-pair">
-                            ${pair.translated
-                                ? `<div class="translated-text">${escapeHtml(pair.translated)}</div>
-                                   <div class="original-text">${escapeHtml(pair.original)}</div>`
-                                : `<div class="translated-text">${escapeHtml(pair.original)}</div>`
-                            }
-                        </div>
-                    `).join('');
-                } else if (article.content) {
+                let contentHtml = renderBlocks(article.content_blocks_cn) || renderBlocks(article.content_blocks);
+                if (!contentHtml && article.content_cn && Array.isArray(article.content_cn)) {
+                    contentHtml = renderLegacyTranslation(article.content_cn);
+                } else if (!contentHtml && article.content) {
                     contentHtml = article.content.split('\n').filter(p => p.trim()).map(p =>
                         `<p>${escapeHtml(p)}</p>`
                     ).join('');
-                } else {
+                }
+                if (!contentHtml) {
                     contentHtml = '<div class="text-slate-500">暂无内容，请访问原文查看。</div>';
                 }
 

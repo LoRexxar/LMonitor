@@ -3,6 +3,7 @@ import time
 from typing import Any, Callable, Dict, Optional, Type
 
 from core.glm import GLMClient
+from botend.services.article_content_service import dumps_blocks, loads_blocks, translate_blocks
 from utils.log import logger
 
 
@@ -138,7 +139,12 @@ class ArticleTranslationService:
                 content_cn = self.translate_content(article.content)
                 if content_cn:
                     article.content_cn = content_cn
-                    article.save(update_fields=["content_cn"])
+                    update_fields = ["content_cn"]
+                    blocks = loads_blocks(getattr(article, "content_blocks", "") or "")
+                    if blocks and hasattr(article, "content_blocks_cn"):
+                        article.content_blocks_cn = dumps_blocks(translate_blocks(blocks, content_cn))
+                        update_fields.append("content_blocks_cn")
+                    article.save(update_fields=update_fields)
                     any_translated = True
                 else:
                     logger.warning(

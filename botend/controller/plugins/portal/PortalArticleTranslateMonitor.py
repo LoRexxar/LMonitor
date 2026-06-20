@@ -10,6 +10,7 @@ from django.db.models import Q
 
 from botend.controller.BaseScan import BaseScan
 from botend.models import WowArticle
+from botend.services.article_content_service import blocks_to_plain_text, dumps_blocks, extract_structured_article, plain_text_to_blocks
 from botend.services.article_translation_service import build_translation_service
 from utils.log import logger
 
@@ -39,10 +40,18 @@ class PortalArticleTranslateMonitor(BaseScan):
         for article in articles:
             try:
                 if not article.content:
-                    content = self._fetch_content(article.url, article.source)
+                    blocks = self._fetch_content_blocks(article.url, article.source)
+                    content = blocks_to_plain_text(blocks)
+                    if not content:
+                        content = self._fetch_content(article.url, article.source)
+                        blocks = plain_text_to_blocks(content)
                     if content:
                         article.content = content
-                        article.save()
+                        update_fields = ["content"]
+                        if blocks and not (article.content_blocks or "").strip():
+                            article.content_blocks = dumps_blocks(blocks)
+                            update_fields.append("content_blocks")
+                        article.save(update_fields=update_fields)
                         fetched_count += 1
                         logger.info(f"[PortalArticleTranslateMonitor] fetched content: {article.title[:50]}")
 
@@ -64,10 +73,20 @@ class PortalArticleTranslateMonitor(BaseScan):
         return True
 
     def _fetch_content(self, url, source):
+        blocks = self._fetch_content_blocks(url, source)
+        if blocks:
+            return blocks_to_plain_text(blocks)
+        return None
+
+    def _fetch_content_blocks(self, url, source):
         try:
             html_text = self._fetch_html(url, source)
             if not html_text:
-                return None
+                return []
+
+            blocks = extract_structured_article(html_text, base_url=url, source=source)
+            if blocks:
+                return blocks
 
             soup = BeautifulSoup(html_text, 'html.parser')
 
@@ -84,10 +103,10 @@ class PortalArticleTranslateMonitor(BaseScan):
 
             if content:
                 content = self._clean_content(content)
-            return content
+            return plain_text_to_blocks(content or "")
         except Exception as e:
             logger.error(f"[PortalArticleTranslateMonitor] fetch error: {str(e)}")
-            return None
+            return []
 
     def _fetch_html(self, url, source):
         """

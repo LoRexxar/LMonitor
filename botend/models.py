@@ -108,6 +108,8 @@ class WowArticle(models.Model):
     description = models.TextField(null=True)
     content = models.TextField(null=True, blank=True)
     content_cn = models.TextField(null=True, blank=True)
+    content_blocks = models.TextField(null=True, blank=True)
+    content_blocks_cn = models.TextField(null=True, blank=True)
     publish_time = models.DateTimeField(default=timezone.now, null=True)
     reply_count = models.IntegerField(default=0)
     source = models.CharField(max_length=32, default="unknown")

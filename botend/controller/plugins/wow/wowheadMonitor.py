@@ -18,6 +18,7 @@ from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
 from botend.services.article_translation_service import build_translation_service
+from botend.services.article_content_service import blocks_to_plain_text, dumps_blocks, extract_structured_article, plain_text_to_blocks
 
 from botend.models import WowArticle
 from datetime import datetime
@@ -156,21 +157,30 @@ class wowheadMonitor(BaseScan):
                     wa = WowArticle.objects.filter(url=post_link).first()
                     if wa:
                         if not (getattr(wa, "description", "") or "").strip() or len((getattr(wa, "description", "") or "")) < 800:
-                            body = self._fetch_article_body(post_link, cookies="")
+                            blocks = self._fetch_article_blocks(post_link, cookies="")
+                            body = blocks_to_plain_text(blocks)
                             if body:
                                 wa.description = body
+                                update_fields = ["description"]
+                                if blocks and not (getattr(wa, "content_blocks", "") or "").strip():
+                                    wa.content_blocks = dumps_blocks(blocks)
+                                    update_fields.append("content_blocks")
                                 # 同步写入 content，供 Portal 详情页与翻译监控使用
                                 if not (getattr(wa, "content", "") or "").strip():
                                     wa.content = body
-                                    wa.save(update_fields=["description", "content"])
-                                else:
-                                    wa.save(update_fields=["description"])
+                                    update_fields.append("content")
+                                wa.save(update_fields=update_fields)
                         # 若 content 缺失，补抓正文
                         if not (getattr(wa, "content", "") or "").strip() or len((getattr(wa, "content", "") or "")) < 800:
-                            body = self._fetch_article_body(post_link, cookies="")
+                            blocks = self._fetch_article_blocks(post_link, cookies="")
+                            body = blocks_to_plain_text(blocks)
                             if body:
                                 wa.content = body
-                                wa.save(update_fields=["content"])
+                                update_fields = ["content"]
+                                if blocks and not (getattr(wa, "content_blocks", "") or "").strip():
+                                    wa.content_blocks = dumps_blocks(blocks)
+                                    update_fields.append("content_blocks")
+                                wa.save(update_fields=update_fields)
                         # 若译文缺失，补翻译（标题/内容）
                         if translated_count < self._translate_budget:
                             translated = self._ensure_translated(wa)
@@ -178,7 +188,8 @@ class wowheadMonitor(BaseScan):
                                 translated_count += 1
                         continue
 
-                    body = self._fetch_article_body(post_link, cookies="")
+                    blocks = self._fetch_article_blocks(post_link, cookies="")
+                    body = blocks_to_plain_text(blocks)
                     obj = WowArticle(
                         title="[{}]{}".format(post_type, post_title),
                         url=post_link,
@@ -186,6 +197,7 @@ class wowheadMonitor(BaseScan):
                         author="wowhead",
                         description=post_preview or body,
                         content=body or "",
+                        content_blocks=dumps_blocks(blocks) if blocks else "",
                         source="wowhead",
                         category="news",
                     )
@@ -366,6 +378,23 @@ class wowheadMonitor(BaseScan):
         return cards
 
     def _fetch_article_body(self, url, cookies=""):
+        blocks = self._fetch_article_blocks(url, cookies=cookies)
+        return blocks_to_plain_text(blocks)
+
+    def _fetch_article_blocks(self, url, cookies=""):
+        try:
+            html_text = self._fetch_article_html(url, cookies=cookies)
+            if not html_text:
+                return []
+            blocks = extract_structured_article(html_text, base_url=url, source="wowhead")
+            if blocks:
+                return blocks
+            body = self._extract_body_from_html(html_text)
+            return plain_text_to_blocks(body)
+        except Exception:
+            return []
+
+    def _fetch_article_html(self, url, cookies=""):
         try:
             html_text = ""
             # Wowhead 部分页面正文可能需要前端渲染，优先尝试 Chrome 渲染版本
@@ -406,7 +435,7 @@ class wowheadMonitor(BaseScan):
                 html_text = getattr(resp, 'text', '') or ''
             if not html_text:
                 return ""
-            return self._extract_body_from_html(html_text)
+            return html_text
         except Exception:
             return ""
 

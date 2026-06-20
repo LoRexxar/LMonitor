@@ -3,6 +3,13 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from botend.services.article_content_service import (
+    blocks_to_plain_text,
+    dumps_blocks,
+    extract_structured_article,
+    loads_blocks,
+    translate_blocks,
+)
 from botend.services.article_translation_service import (
     ArticleTranslationService,
     GLMTranslationEngine,
@@ -97,3 +104,42 @@ class ArticleTranslationServiceTests(SimpleTestCase):
 
         self.assertIsInstance(svc.engine, GLMTranslationEngine)
         self.assertTrue(svc.available())
+
+
+
+class ArticleContentServiceTests(SimpleTestCase):
+    def test_extract_structured_article_keeps_sections_lists_and_images(self):
+        html = """
+        <article>
+          <h2>Patch Notes</h2>
+          <p>Class changes are live.</p>
+          <ul><li>Buff A</li><li>Nerf B</li></ul>
+          <blockquote>Developer note</blockquote>
+          <img src="/images/a.png" alt="A">
+        </article>
+        """
+
+        blocks = extract_structured_article(html, base_url="https://example.com/news/1")
+
+        self.assertEqual(blocks[0], {"type": "heading", "text": "Patch Notes", "level": 2})
+        self.assertIn({"type": "list_item", "text": "Buff A", "ordered": False}, blocks)
+        self.assertIn({"type": "quote", "text": "Developer note"}, blocks)
+        self.assertIn({"type": "image", "url": "https://example.com/images/a.png", "alt": "A"}, blocks)
+        self.assertIn("Class changes are live.", blocks_to_plain_text(blocks))
+
+    def test_translate_blocks_preserves_non_text_blocks(self):
+        blocks = [
+            {"type": "heading", "text": "Patch Notes", "level": 2},
+            {"type": "paragraph", "text": "Class changes are live."},
+            {"type": "image", "url": "https://example.com/a.png", "alt": "A"},
+        ]
+        pairs = [
+            {"original": "Patch Notes", "translated": "补丁说明"},
+            {"original": "Class changes are live.", "translated": "职业改动已上线。"},
+        ]
+
+        translated = translate_blocks(loads_blocks(dumps_blocks(blocks)), pairs)
+
+        self.assertEqual(translated[0]["text"], "补丁说明")
+        self.assertEqual(translated[1]["text"], "职业改动已上线。")
+        self.assertEqual(translated[2], blocks[2])
