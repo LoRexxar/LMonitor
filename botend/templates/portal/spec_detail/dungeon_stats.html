@@ -619,7 +619,7 @@
     transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
 .talent-node-card--tree:hover { transform: translateY(-2px); border-color: rgba(37,99,235,.45); box-shadow: 0 10px 20px rgba(37,99,235,.16); }
-.talent-node-card--tree.is-selected .talent-node-icon { box-shadow: 0 0 0 1.5px rgba(96,165,250,.8), 0 0 8px rgba(37,99,235,.3); }
+.talent-node-card--tree.is-selected .talent-node-icon { box-shadow: 0 0 0 1px rgba(96,165,250,.8), 0 0 7px rgba(37,99,235,.3); }
 .talent-render-stage .talent-node-card--tree.is-unselected {
     background: transparent;
     border: none;
@@ -627,8 +627,8 @@
 }
 .talent-node-card--tree.is-unselected .talent-node-icon img { filter: grayscale(1) saturate(.4) brightness(.82); opacity: .92; }
 .talent-node-icon {
-    width: 43px;
-    height: 43px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     overflow: hidden;
     background: #e2e8f0;
@@ -641,16 +641,16 @@
 .talent-node-icon img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
 .talent-node-usage {
     position: absolute;
-    right: -2px;
-    bottom: -2px;
-    min-width: 28px;
-    height: 16px;
-    line-height: 16px;
+    right: -1px;
+    bottom: -1px;
+    min-width: 24px;
+    height: 14px;
+    line-height: 14px;
     border-radius: 999px;
-    padding: 0 4px;
+    padding: 0 3px;
     background: #2563eb;
     color: #eff6ff;
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 700;
     text-align: center;
     box-shadow: 0 6px 12px rgba(37,99,235,.25);

@@ -166,9 +166,9 @@ def build_talent_tree_layout(
             scale = min(scale_x, scale_y)  # 取较小值保持比例
             # 节点尺寸随 scale 调整，hero 树节点略小
             if _is_hero_tree(tree):
-                node_size = max(28, min(44, int(scale * 500)))
+                node_size = max(24, min(36, int(scale * 420)))
             else:
-                node_size = max(32, min(56, int(scale * 600)))
+                node_size = max(28, min(48, int(scale * 520)))
             panel_w = int(coord_w * scale) + node_size + config_model.panel_padding_x * 2
             panel_h = int(coord_h * scale) + node_size + config_model.panel_padding_y * 2 + config_model.header_height
             grid_columns = max_col
