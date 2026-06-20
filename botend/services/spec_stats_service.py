@@ -12,7 +12,7 @@ from botend.models import (
 )
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN, RACE_CN, ENCHANT_CN, GEM_STAT_CN, QUALITY_CN
 from botend.wow.talents.parser import normalize_talent_payload
-from botend.wow.talents.metadata import TalentMetadataProvider
+from botend.wow.talents.metadata import TalentMetadataProvider, dedupe_talent_option_nodes, normalize_talent_option_spell_id
 from botend.wow.talents.models import TREE_COLUMNS, TalentBuildStateModel, TalentNodeModel, TalentTreeModel, TalentTreeSetModel
 from botend.wow.talents.render import build_talent_render_model
 from botend.wow.talents.view_model import build_talent_view_model
@@ -933,6 +933,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
 
     for display_key, raw_nodes in display_groups.items():
         # 为每个 raw_node 构建 node_key 并查找 usage
+        raw_nodes = dedupe_talent_option_nodes(raw_nodes)
         candidates = []
         for raw_node in raw_nodes:
             tree_type = raw_node.get('tree_type') or 'spec'
@@ -993,13 +994,15 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
 
         for candidate in candidates:
             option_raw = candidate['raw_node']
-            option_key = f"{option_raw.get('node_id')}:{option_raw.get('talent_id')}:{option_raw.get('spell_id')}"
+            option_spell_id = normalize_talent_option_spell_id(option_raw) or option_raw.get('spell_id')
+            option_key = f"{option_raw.get('node_id')}:{option_raw.get('talent_id')}:{option_spell_id}"
             if option_key not in seen_option_keys:
                 seen_option_keys.add(option_key)
                 choice_options.append({
                     'node_id': option_raw.get('node_id'),
                     'talent_id': option_raw.get('talent_id'),
-                    'spell_id': option_raw.get('spell_id'),
+                    'spell_id': option_spell_id,
+                    'display_spell_id': option_raw.get('display_spell_id') or option_spell_id,
                     'name': option_raw.get('name', ''),
                     'icon': option_raw.get('icon', ''),
                     'description': option_raw.get('description', '') or '',

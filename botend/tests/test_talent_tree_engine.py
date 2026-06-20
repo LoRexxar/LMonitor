@@ -1020,6 +1020,103 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertEqual(choice_node['usage_pct'], 100.0)
 
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_popularity_tree_does_not_mark_duplicate_source_rows_as_choice(self, mock_provider_cls):
+        mock_provider_cls.return_value.merge_into_node.side_effect = (
+            lambda node, class_name='', spec_name='': node
+        )
+        mock_provider_cls.return_value.get_full_tree_nodes.return_value = [
+            {
+                'node_id': 90,
+                'talent_id': 90,
+                'spell_id': 900,
+                'name': '父节点',
+                'icon': 'parent_icon',
+                'tree_type': 'spec',
+                'row': 3600,
+                'column': 11400,
+                'db2_subtree_id': 0,
+                'source': 'db2_backfill',
+            },
+            {
+                'node_id': 96170,
+                'talent_id': 96170,
+                'spell_id': 96170,
+                'display_spell_id': 108199,
+                'name': '血魔之握-旧源',
+                'icon': 'old_icon',
+                'tree_type': 'spec',
+                'row': 4200,
+                'column': 11400,
+                'db2_subtree_id': 0,
+                'parents': [90],
+                'source': 'dungeon_ranking',
+            },
+            {
+                'node_id': 96170,
+                'talent_id': 76042,
+                'spell_id': 108199,
+                'display_spell_id': 108199,
+                'name': '血魔之握',
+                'icon': 'db2_icon',
+                'tree_type': 'spec',
+                'row': 4200,
+                'column': 11400,
+                'db2_subtree_id': 0,
+                'parents': [90],
+                'source': 'db2_backfill',
+            },
+            {
+                'node_id': 136213,
+                'talent_id': 76042,
+                'spell_id': 1263569,
+                'display_spell_id': 1263569,
+                'name': '憎恶附肢',
+                'icon': 'choice_icon',
+                'tree_type': 'spec',
+                'row': 4200,
+                'column': 11400,
+                'db2_subtree_id': 0,
+                'parents': [90],
+                'source': 'db2_backfill',
+            },
+            {
+                'node_id': 200,
+                'talent_id': 200,
+                'spell_id': 2000,
+                'name': '普通节点',
+                'icon': 'normal_icon',
+                'tree_type': 'spec',
+                'row': 4800,
+                'column': 11400,
+                'db2_subtree_id': 0,
+            },
+        ]
+
+        talent_tree = _compute_talent_popularity_tree(
+            records=[{
+                'talents_json': [
+                    {'node_id': 96170, 'spell_id': 108199, 'tree_type': 'spec', 'points': 1},
+                    {'node_id': 200, 'spell_id': 2000, 'tree_type': 'spec', 'points': 1},
+                ],
+                'gear_json': [],
+                'faction': 'Alliance',
+            }],
+            class_name='DeathKnight',
+            spec_name='Blood',
+            top_n=10,
+        )
+
+        nodes = talent_tree['render_model']['nodes']
+        blood_grip = next(n for n in nodes if n.get('row') == 4200 and n.get('column') == 11400)
+        self.assertTrue(blood_grip['is_choice_node'])
+        self.assertEqual(len(blood_grip['choice_options']), 2)
+        self.assertEqual(
+            sorted(option['spell_id'] for option in blood_grip['choice_options']),
+            [108199, 1263569],
+        )
+        self.assertNotIn(96170, [option['spell_id'] for option in blood_grip['choice_options']])
+
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
     def test_popularity_tree_filters_other_spec_components_before_position_merge(self, mock_provider_cls):
         mock_provider_cls.return_value.merge_into_node.side_effect = (
             lambda node, class_name='', spec_name='': node

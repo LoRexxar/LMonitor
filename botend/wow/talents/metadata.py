@@ -17,6 +17,52 @@ from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
 from botend.wow.spell_text import get_spell_text_resolver
 
 STRUCTURAL_FIELDS = {'tree_type', 'row', 'column', 'max_points', 'parents'}
+AUTHORITATIVE_TALENT_SOURCES = {'db2_backfill', 'db2_repair', 'db2'}
+
+
+def normalize_talent_option_spell_id(node):
+    """返回用于判断二选一候选项的真实展示 spell id。"""
+    value = node.get('display_spell_id') or node.get('spell_id')
+    try:
+        parsed = int(value)
+    except Exception:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def is_authoritative_talent_source(node):
+    return (node.get('source') or '') in AUTHORITATIVE_TALENT_SOURCES
+
+
+def dedupe_talent_option_nodes(nodes):
+    """去掉旧采集源和 DB2 回填源混在一起时的等价重复节点。"""
+    grouped = {}
+    for node in nodes:
+        option_spell_id = normalize_talent_option_spell_id(node)
+        if option_spell_id is None:
+            key = ('node', node.get('node_id') or node.get('talent_id') or node.get('spell_id'))
+        else:
+            key = ('spell', option_spell_id)
+        current = grouped.get(key)
+        if current is None:
+            grouped[key] = node
+            continue
+        if _talent_source_priority(node) > _talent_source_priority(current):
+            grouped[key] = node
+    return list(grouped.values())
+
+
+def _talent_source_priority(node):
+    score = 0
+    if is_authoritative_talent_source(node):
+        score += 10
+    if node.get('icon'):
+        score += 2
+    if node.get('name'):
+        score += 1
+    if node.get('description') or node.get('description_zh'):
+        score += 1
+    return score
 
 
 @dataclass
@@ -110,16 +156,23 @@ class TalentMetadataProvider:
 
             current_options = current.setdefault('choice_options', [])
             current['is_choice_node'] = True
-            option_payload = self._build_choice_option(row_data)
-            if option_payload and option_payload not in current_options:
-                current_options.append(option_payload)
+            if row_data not in current_options:
+                current_options.append(row_data)
 
         nodes = []
         for node in grouped_by_node.values():
-            if node.get('choice_options'):
-                base_option = self._build_choice_option(node)
-                if base_option and base_option not in node['choice_options']:
-                    node['choice_options'].insert(0, base_option)
+            choice_nodes = dedupe_talent_option_nodes([node] + [
+                option for option in node.get('choice_options', []) if option
+            ])
+            node = dict(choice_nodes[0]) if choice_nodes else node
+            if len(choice_nodes) > 1:
+                node['choice_options'] = [
+                    self._build_choice_option(option) for option in choice_nodes
+                ]
+                node['is_choice_node'] = True
+            else:
+                node['choice_options'] = []
+                node['is_choice_node'] = False
             nodes.append(node)
 
         self._spec_cache[cache_key] = [dict(node) for node in nodes]
@@ -174,6 +227,7 @@ class TalentMetadataProvider:
             'db2_subtree_id': getattr(row, 'db2_subtree_id', 0) or 0,
             'db2_tree_id': getattr(row, 'db2_tree_id', None),
             'db2_component_id': getattr(row, 'db2_component_id', 0) or 0,
+            'source': getattr(row, 'source', '') or '',
             'selected': False,
             'points': 0,
         }
