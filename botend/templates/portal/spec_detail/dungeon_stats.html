@@ -317,6 +317,68 @@
         </div>
         {% endif %}
 
+        <div class="section-block talent-build-section">
+            <h4>天赋字符串使用率</h4>
+            <div class="popularity-section-note">按当前样本的原始天赋导入字符串聚合；最多人使用的字符串作为模板，其他字符串展示与模板相比多选/少选的天赋。</div>
+            {% if dungeon_detail.talent_build_popularity.builds %}
+            <div class="talent-build-summary">
+                <span>有效样本：<strong>{{ dungeon_detail.talent_build_popularity.total }}</strong> 人</span>
+                <span>模板使用：<strong>{{ dungeon_detail.talent_build_popularity.template_count }}</strong> 人</span>
+            </div>
+            <div class="talent-build-list">
+                {% for build in dungeon_detail.talent_build_popularity.builds %}
+                <div class="talent-build-card{% if build.is_template %} is-template{% endif %}">
+                    <div class="talent-build-head">
+                        <div class="talent-build-rank">#{{ build.rank }}</div>
+                        <div class="talent-build-main">
+                            <div class="talent-build-title">
+                                {% if build.is_template %}<span class="talent-build-badge">模板</span>{% endif %}
+                                <strong>{{ build.count }} 人</strong>
+                                <span>{{ build.pct }}%</span>
+                                {% if build.diff_count %}<span class="talent-build-diff-count">差异 {{ build.diff_count }} 个</span>{% else %}<span class="talent-build-diff-count">无差异</span>{% endif %}
+                            </div>
+                            <div class="talent-build-code" title="{{ build.code }}">{{ build.code }}</div>
+                        </div>
+                        <button type="button" class="talent-build-copy" data-build-code="{{ build.code|escape }}">复制</button>
+                    </div>
+                    {% if build.added_talents or build.missing_talents %}
+                    <div class="talent-build-diffs">
+                        {% if build.added_talents %}
+                        <div class="talent-build-diff-group">
+                            <div class="talent-build-diff-label">比模板多选</div>
+                            <div class="talent-build-talent-list">
+                                {% for talent in build.added_talents %}
+                                <span class="talent-build-talent-chip">
+                                    {% if talent.icon %}<img src="{% wow_icon talent.icon "tiny" %}" alt="{{ talent.name }}">{% endif %}
+                                    {{ talent.name }}
+                                </span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if build.missing_talents %}
+                        <div class="talent-build-diff-group">
+                            <div class="talent-build-diff-label">比模板少选</div>
+                            <div class="talent-build-talent-list">
+                                {% for talent in build.missing_talents %}
+                                <span class="talent-build-talent-chip is-missing">
+                                    {% if talent.icon %}<img src="{% wow_icon talent.icon "tiny" %}" alt="{{ talent.name }}">{% endif %}
+                                    {{ talent.name }}
+                                </span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
+        </div>
+
         <!-- 装备热门度 -->
         <div class="section-block popularity-section">
             <h4>装备热门度</h4>
@@ -1140,6 +1202,170 @@
     .gear-icon, .popularity-icon { width: 34px; height: 34px; }
 }
 
+
+/* ===== Talent Build Popularity ===== */
+.talent-build-section { overflow: visible; }
+.talent-build-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 12px 0 14px;
+}
+.talent-build-summary span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(59,130,246,.12);
+    border: 1px solid rgba(96,165,250,.24);
+    color: #cbd5e1;
+    font-size: 0.86em;
+    font-weight: 700;
+}
+.talent-build-summary strong { color: #bfdbfe; }
+.talent-build-list {
+    display: grid;
+    gap: 12px;
+}
+.talent-build-card {
+    border: 1px solid rgba(148,163,184,.16);
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(30,41,59,.82), rgba(15,23,42,.92));
+    box-shadow: 0 10px 24px rgba(2,6,23,.16);
+    padding: 12px;
+}
+.talent-build-card.is-template {
+    border-color: rgba(250,204,21,.42);
+    box-shadow: 0 10px 26px rgba(250,204,21,.08), 0 10px 24px rgba(2,6,23,.16);
+}
+.talent-build-head {
+    display: grid;
+    grid-template-columns: 46px 1fr auto;
+    gap: 12px;
+    align-items: start;
+}
+.talent-build-rank {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #bfdbfe;
+    background: rgba(37,99,235,.18);
+    border: 1px solid rgba(96,165,250,.28);
+    font-weight: 900;
+}
+.talent-build-main { min-width: 0; }
+.talent-build-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    color: #cbd5e1;
+    font-size: 0.92em;
+}
+.talent-build-title strong { color: #f8fafc; }
+.talent-build-badge, .talent-build-diff-count {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 0.78em;
+    font-weight: 900;
+}
+.talent-build-badge {
+    color: #713f12;
+    background: #fde68a;
+}
+.talent-build-diff-count {
+    color: #bfdbfe;
+    background: rgba(59,130,246,.16);
+    border: 1px solid rgba(96,165,250,.22);
+}
+.talent-build-code {
+    margin-top: 7px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(2,6,23,.52);
+    border: 1px solid rgba(148,163,184,.14);
+    color: #94a3b8;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78em;
+    line-height: 1.45;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.talent-build-copy {
+    border: 1px solid rgba(96,165,250,.34);
+    border-radius: 10px;
+    background: rgba(37,99,235,.18);
+    color: #bfdbfe;
+    padding: 7px 12px;
+    font-weight: 900;
+    cursor: pointer;
+}
+.talent-build-copy:hover { background: rgba(37,99,235,.28); color: #eff6ff; }
+.talent-build-copy.is-copied {
+    border-color: rgba(34,197,94,.38);
+    background: rgba(22,163,74,.18);
+    color: #bbf7d0;
+}
+.talent-build-copy.is-failed {
+    border-color: rgba(248,113,113,.38);
+    background: rgba(220,38,38,.16);
+    color: #fecaca;
+}
+.talent-build-diffs {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(148,163,184,.12);
+}
+.talent-build-diff-label {
+    margin-bottom: 7px;
+    color: #94a3b8;
+    font-size: 0.8em;
+    font-weight: 900;
+}
+.talent-build-talent-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+.talent-build-talent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 260px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(21,128,61,.16);
+    border: 1px solid rgba(34,197,94,.24);
+    color: #bbf7d0;
+    font-size: 0.82em;
+    font-weight: 800;
+}
+.talent-build-talent-chip.is-missing {
+    background: rgba(185,28,28,.16);
+    border-color: rgba(248,113,113,.24);
+    color: #fecaca;
+}
+.talent-build-talent-chip img {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: 0 0 auto;
+}
+@media (max-width: 720px) {
+    .talent-build-head { grid-template-columns: 38px 1fr; }
+    .talent-build-copy { grid-column: 2; justify-self: start; }
+}
+
 /* ===== Table ===== */
 .data-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
 .data-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e5e7eb; color: #6b7280; font-weight: 600; }
@@ -1448,6 +1674,55 @@
                 showOptionTooltip(name, desc, option);
             });
             option.addEventListener('mouseleave', hideOptionTooltip);
+        });
+    });
+
+
+    /* ===== Talent Build Copy ===== */
+    function fallbackCopyText(text) {
+        var textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+        textarea.remove();
+        return ok;
+    }
+
+    function setCopyState(button, text, className) {
+        var original = button.getAttribute('data-original-text') || button.textContent;
+        button.setAttribute('data-original-text', original);
+        button.textContent = text;
+        button.classList.remove('is-copied', 'is-failed');
+        if (className) button.classList.add(className);
+        setTimeout(function() {
+            button.textContent = original;
+            button.classList.remove('is-copied', 'is-failed');
+        }, 1400);
+    }
+
+    document.querySelectorAll('.talent-build-copy').forEach(function(button) {
+        button.addEventListener('click', function() {
+            var code = button.getAttribute('data-build-code') || '';
+            if (!code) {
+                setCopyState(button, '无内容', 'is-failed');
+                return;
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(code).then(function() {
+                    setCopyState(button, '已复制', 'is-copied');
+                }).catch(function() {
+                    var copied = fallbackCopyText(code);
+                    setCopyState(button, copied ? '已复制' : '失败', copied ? 'is-copied' : 'is-failed');
+                });
+            } else {
+                var copied = fallbackCopyText(code);
+                setCopyState(button, copied ? '已复制' : '失败', copied ? 'is-copied' : 'is-failed');
+            }
         });
     });
 

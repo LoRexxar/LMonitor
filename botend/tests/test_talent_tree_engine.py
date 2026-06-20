@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.template.loader import render_to_string
 from django.test import SimpleTestCase
 
-from botend.services.spec_stats_service import SpecStatsService, _compute_talent_popularity_tree
+from botend.services.spec_stats_service import SpecStatsService, _compute_talent_popularity_tree, _compute_talent_build_popularity
 from botend.management.commands.backfill_talent_spell_names import Command as BackfillTalentSpellNamesCommand
 from botend.management.commands.init_talent_metadata import Command as InitTalentMetadataCommand
 from botend.management.commands.normalize_talent_metadata import Command as NormalizeTalentMetadataCommand
@@ -629,6 +629,47 @@ class TalentTreeRenderTests(SimpleTestCase):
 
 
 class SpecStatsTalentRenderTests(SimpleTestCase):
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_talent_build_popularity_uses_most_common_code_as_template(self, mock_provider_cls):
+        mock_provider_cls.return_value.merge_into_node.side_effect = (
+            lambda node, class_name='', spec_name='': node
+        )
+        records = [
+            {
+                'talent_build_code': 'CODE_A',
+                'talents_json': [
+                    {'node_id': 1, 'spell_id': 101, 'name': '通用天赋', 'tree_type': 'class', 'points': 1},
+                    {'node_id': 2, 'spell_id': 102, 'name': '模板天赋', 'tree_type': 'spec', 'points': 1},
+                ],
+            },
+            {
+                'talent_build_code': 'CODE_A',
+                'talents_json': [
+                    {'node_id': 1, 'spell_id': 101, 'name': '通用天赋', 'tree_type': 'class', 'points': 1},
+                    {'node_id': 2, 'spell_id': 102, 'name': '模板天赋', 'tree_type': 'spec', 'points': 1},
+                ],
+            },
+            {
+                'talent_build_code': 'CODE_B',
+                'talents_json': [
+                    {'node_id': 1, 'spell_id': 101, 'name': '通用天赋', 'tree_type': 'class', 'points': 1},
+                    {'node_id': 3, 'spell_id': 103, 'name': '变体天赋', 'tree_type': 'spec', 'points': 1},
+                ],
+            },
+        ]
+
+        result = _compute_talent_build_popularity(records, 'Monk', 'Windwalker', top_n=10)
+
+        self.assertEqual(result['total'], 3)
+        self.assertEqual(result['template_code'], 'CODE_A')
+        self.assertEqual([item['code'] for item in result['builds']], ['CODE_A', 'CODE_B'])
+        self.assertTrue(result['builds'][0]['is_template'])
+        self.assertEqual(result['builds'][0]['diff_count'], 0)
+        self.assertEqual(result['builds'][1]['count'], 1)
+        self.assertEqual(result['builds'][1]['pct'], 33.3)
+        self.assertEqual([node['name'] for node in result['builds'][1]['added_talents']], ['变体天赋'])
+        self.assertEqual([node['name'] for node in result['builds'][1]['missing_talents']], ['模板天赋'])
+
     @patch('botend.wow.talents.metadata.TalentMetadataProvider.get_full_tree_nodes')
     @patch('botend.wow.talents.adapters.TalentMetadataProvider')
     @patch('botend.services.spec_stats_service.PlayerSpecTopPlayer.objects.filter')

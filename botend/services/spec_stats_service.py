@@ -455,7 +455,7 @@ class SpecStatsService:
             }
 
         # 天赋/装备热门度（概览也展示）
-        records = list(qs.values('talents_json', 'gear_json', 'faction', 'character_name', 'realm', 'region'))
+        records = list(qs.values('talents_json', 'talent_build_code', 'gear_json', 'faction', 'character_name', 'realm', 'region'))
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -474,6 +474,12 @@ class SpecStatsService:
             spec_name,
             top_n=talent_limit,
             snapshot=usage_snapshot,
+        )
+        stats['talent_build_popularity'] = _compute_talent_build_popularity(
+            records,
+            class_name,
+            spec_name,
+            top_n=20 if full else 5,
         )
 
         # 装备/宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用）。
@@ -639,7 +645,7 @@ class SpecStatsService:
             }
 
         # 天赋/装备热门度（概览也展示）
-        records = list(qs.values('talents_json', 'gear_json', 'faction', 'character_name', 'realm', 'region'))
+        records = list(qs.values('talents_json', 'talent_build_code', 'gear_json', 'faction', 'character_name', 'realm', 'region'))
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -658,6 +664,12 @@ class SpecStatsService:
             spec_name,
             top_n=talent_limit,
             snapshot=usage_snapshot,
+        )
+        stats['talent_build_popularity'] = _compute_talent_build_popularity(
+            records,
+            class_name,
+            spec_name,
+            top_n=20 if full else 5,
         )
 
         # 装备/宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用）。
@@ -896,6 +908,103 @@ def _compute_talent_usage(records, class_name, spec_name, top_n=20, snapshot=Non
     """返回更适合页面展示的天赋使用率列表。"""
     snapshot = snapshot or _build_talent_usage_snapshot(records, class_name, spec_name)
     return [dict(item) for item in snapshot['usage_list'][:top_n]]
+
+
+def _talent_build_record_state(record, provider, class_name, spec_name):
+    """Return selected talent node keys and display metadata for one ranking row."""
+    nodes_by_key = {}
+    for raw in record.get('talents_json') or []:
+        node = _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+        if not node or node.tree_type == 'build_code':
+            continue
+        node_key = _build_talent_node_key(node)
+        if not node_key:
+            continue
+        existing = nodes_by_key.get(node_key)
+        if existing is None or _score_talent_node(node) >= _score_talent_node(existing):
+            nodes_by_key[node_key] = node
+
+    return {
+        'keys': set(nodes_by_key.keys()),
+        'nodes': {
+            node_key: {
+                'node_key': node_key,
+                'tree_type': node.tree_type or 'spec',
+                'tree_label': _talent_tree_label(node.tree_type),
+                'spell_id': node.spell_id,
+                'talent_id': node.talent_id,
+                'node_id': node.node_id,
+                'name': node.name or (f"技能ID {node.spell_id or node.talent_id or node.node_id}"),
+                'icon': node.icon or '',
+            }
+            for node_key, node in nodes_by_key.items()
+        },
+    }
+
+
+def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
+    """按天赋导入字符串聚合，并输出与最热门模板字符串的差异。"""
+    provider = TalentMetadataProvider()
+    build_counter = Counter()
+    build_states = {}
+    total = 0
+    first_seen_order = {}
+
+    for record in _valid_talent_records(records):
+        build_code = TalentBuildCodeService.extract_build_code(
+            record.get('talent_build_code', ''),
+            record.get('talents_json') or [],
+        )
+        if not build_code:
+            continue
+        total += 1
+        if build_code not in first_seen_order:
+            first_seen_order[build_code] = len(first_seen_order)
+        build_counter[build_code] += 1
+        if build_code not in build_states:
+            build_states[build_code] = _talent_build_record_state(record, provider, class_name, spec_name)
+
+    if not build_counter:
+        return {
+            'total': 0,
+            'template_code': '',
+            'template_count': 0,
+            'builds': [],
+        }
+
+    ordered = sorted(build_counter.items(), key=lambda item: (-item[1], first_seen_order.get(item[0], 0)))[:top_n]
+    template_code, template_count = ordered[0]
+    template_state = build_states.get(template_code) or {'keys': set(), 'nodes': {}}
+    template_keys = template_state.get('keys') or set()
+    template_nodes = template_state.get('nodes') or {}
+
+    def _node_payload(node_map, node_key):
+        return dict(node_map.get(node_key) or template_nodes.get(node_key) or {'node_key': node_key, 'name': node_key, 'icon': ''})
+
+    builds = []
+    for index, (build_code, count) in enumerate(ordered, start=1):
+        state = build_states.get(build_code) or {'keys': set(), 'nodes': {}}
+        keys = state.get('keys') or set()
+        nodes = state.get('nodes') or {}
+        added_keys = sorted(keys - template_keys, key=lambda key: (nodes.get(key, {}).get('tree_type', ''), nodes.get(key, {}).get('name', key)))
+        missing_keys = sorted(template_keys - keys, key=lambda key: (template_nodes.get(key, {}).get('tree_type', ''), template_nodes.get(key, {}).get('name', key)))
+        builds.append({
+            'rank': index,
+            'code': build_code,
+            'count': count,
+            'pct': round(count / total * 100, 1) if total else 0,
+            'is_template': build_code == template_code,
+            'diff_count': len(added_keys) + len(missing_keys),
+            'added_talents': [_node_payload(nodes, key) for key in added_keys],
+            'missing_talents': [_node_payload(template_nodes, key) for key in missing_keys],
+        })
+
+    return {
+        'total': total,
+        'template_code': template_code,
+        'template_count': template_count,
+        'builds': builds,
+    }
 
 
 def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, snapshot=None):
