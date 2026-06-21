@@ -16,6 +16,33 @@ class MonitorTask(models.Model):
     proxy_enabled = models.BooleanField(default=False)
 
 
+class MonitorTaskLog(models.Model):
+    STATUS_STARTED = 'started'
+    STATUS_SUCCESS = 'success'
+    STATUS_FAILED = 'failed'
+
+    task = models.ForeignKey(MonitorTask, null=True, blank=True, on_delete=models.SET_NULL, related_name='logs')
+    task_name = models.CharField(max_length=100)
+    task_type = models.IntegerField(default=0)
+    target = models.CharField(max_length=2000, blank=True, default='')
+    status = models.CharField(max_length=20)
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    duration_ms = models.IntegerField(null=True, blank=True)
+    error_type = models.CharField(max_length=200, blank=True, default='')
+    error_message = models.TextField(blank=True, default='')
+    traceback = models.TextField(blank=True, default='')
+    task_flag = models.CharField(max_length=2000, null=True, blank=True, default=None)
+    extra = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['task_name', 'status', 'started_at']),
+            models.Index(fields=['status', 'started_at']),
+            models.Index(fields=['task', 'started_at']),
+        ]
+
+
 class TargetAuth(models.Model):
     domain = models.CharField(max_length=200)
     cookie = models.TextField(null=True)

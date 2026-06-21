@@ -14,7 +14,7 @@ from utils.LReq import LReq
 from utils.log import logger
 from core.threadingpool import ThreadPool
 
-from botend.models import MonitorTask, MonitorWebhook
+from botend.models import MonitorTask, MonitorTaskLog, MonitorWebhook
 from botend.monitor_env import filter_runnable_tasks
 from botend.plugin_sync import sync_monitortasks_from_plugin_list
 from LMonitor.config import Monitor_Type_BaseObject_List
@@ -23,6 +23,54 @@ THREAD_LIMIT_NUM = int(getattr(django_settings, 'THREAD_LIMIT_NUM', 10))
 
 is_Block = False
 lock = threading.Lock()
+
+
+def _truncate_text(value, limit=20000):
+    text = str(value or '')
+    if len(text) <= limit:
+        return text
+    return text[:limit] + '\n...(truncated)'
+
+
+def _create_monitor_task_log(task):
+    try:
+        return MonitorTaskLog.objects.create(
+            task=task,
+            task_name=task.name,
+            task_type=task.type,
+            target=task.target or '',
+            status=MonitorTaskLog.STATUS_STARTED,
+            started_at=timezone.now(),
+            task_flag=task.flag,
+            extra={'env_limit': task.env_limit, 'proxy_enabled': task.proxy_enabled},
+        )
+    except Exception:
+        logger.warning('[Scan] failed to create monitor task log, {}'.format(traceback.format_exc()))
+        return None
+
+
+def _finish_monitor_task_log(log_row, task, status, exc=None, error_message=''):
+    if not log_row:
+        return
+    try:
+        finished_at = timezone.now()
+        log_row.status = status
+        log_row.finished_at = finished_at
+        log_row.duration_ms = int((finished_at - log_row.started_at).total_seconds() * 1000)
+        log_row.task_flag = getattr(task, 'flag', None)
+        if exc is not None:
+            log_row.error_type = exc.__class__.__name__[:200]
+            log_row.error_message = _truncate_text(str(exc), 20000)
+            log_row.traceback = _truncate_text(traceback.format_exc(), 20000)
+        elif error_message:
+            log_row.error_type = 'MonitorFailed'
+            log_row.error_message = _truncate_text(error_message, 20000)
+        log_row.save(update_fields=[
+            'status', 'finished_at', 'duration_ms', 'task_flag',
+            'error_type', 'error_message', 'traceback',
+        ])
+    except Exception:
+        logger.warning('[Scan] failed to finish monitor task log, {}'.format(traceback.format_exc()))
 
 
 class LMonitorCoreBackend:
@@ -140,10 +188,22 @@ class LMonitorCore:
                     except Exception:
                         pass
                     t = task_class(Lreq, now_task)
+                    task_log = _create_monitor_task_log(now_task)
                     try:
-                        t.scan(task_url)
-                    except Exception:
+                        scan_result = t.scan(task_url)
+                    except Exception as scan_exc:
                         logger.warning('[Scan] task error, {}'.format(traceback.format_exc()))
+                        _finish_monitor_task_log(task_log, now_task, MonitorTaskLog.STATUS_FAILED, scan_exc)
+                    else:
+                        if scan_result is False:
+                            _finish_monitor_task_log(
+                                task_log,
+                                now_task,
+                                MonitorTaskLog.STATUS_FAILED,
+                                error_message='scan returned False',
+                            )
+                        else:
+                            _finish_monitor_task_log(task_log, now_task, MonitorTaskLog.STATUS_SUCCESS)
                     try:
                         Lreq.set_current_task(None)
                     except Exception:
