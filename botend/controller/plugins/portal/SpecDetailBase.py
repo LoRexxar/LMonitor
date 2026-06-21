@@ -142,6 +142,45 @@ class SpecDetailBase(BaseScan):
             return None
         return rankings
 
+    def fetch_wcl_combatant_info(self, report_code, fight_id):
+        """获取单场日志的 CombatantInfo 事件，用于补充完整天赋节点。"""
+        if not report_code or not fight_id:
+            return []
+
+        query = """
+        query($code:String!, $fightIDs:[Int]) {
+            reportData {
+                report(code:$code) {
+                    masterData {
+                        actors {
+                            id
+                            name
+                            server
+                            type
+                            subType
+                        }
+                    }
+                    events(fightIDs:$fightIDs, dataType: CombatantInfo, limit: 300) {
+                        data
+                    }
+                }
+            }
+        }
+        """
+        data = self._wcl_graphql(query, {
+            'code': report_code,
+            'fightIDs': [int(fight_id)],
+        })
+        report = (((data or {}).get('reportData') or {}).get('report') or {})
+        actors = ((report.get('masterData') or {}).get('actors') or [])
+        actor_map = {actor.get('id'): actor for actor in actors if actor.get('id') is not None}
+        events = (report.get('events') or {}).get('data') or []
+        for event in events:
+            actor = actor_map.get(event.get('sourceID'))
+            if actor:
+                event['source'] = actor
+        return events
+
     # ========== Raider.IO ==========
 
     def fetch_raiderio_top(self, class_name, spec_name, season, region='us', limit=20, page=0):
@@ -403,5 +442,29 @@ class SpecDetailBase(BaseScan):
                 'points': t.get('points', 0),
                 'row': t.get('row'),
                 'column': t.get('column'),
+            })
+        return result
+
+    @staticmethod
+    def parse_wcl_talent_tree(talent_tree):
+        """解析 WCL CombatantInfo.talentTree 为标准化格式。"""
+        if not talent_tree:
+            return []
+        result = []
+        for t in talent_tree:
+            result.append({
+                'tree_type': t.get('treeType') or t.get('tree_type') or 'spec',
+                'talentID': t.get('id'),
+                'spellID': t.get('spellID') or t.get('id'),
+                'talent_id': t.get('id'),
+                'spell_id': t.get('spellID') or t.get('id'),
+                'node_id': t.get('nodeID') or t.get('node_id'),
+                'points': t.get('rank', 0),
+                'rank': t.get('rank', 0),
+                'row': t.get('row'),
+                'column': t.get('column'),
+                'name': t.get('name', ''),
+                'icon': t.get('icon', ''),
+                'source': 'wcl_combatantinfo',
             })
         return result

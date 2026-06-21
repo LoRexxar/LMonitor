@@ -83,6 +83,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         empty_talent_total = 0
         now = timezone.now()
         records = []
+        combatant_cache = {}
 
         for encounter in season.mplus_encounters:
             enc_id = encounter['id']
@@ -112,7 +113,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 report = r.get('report', {}) or {}
                                 guild = r.get('guild', {}) or {}
 
-                                talents_payload = self.parse_wcl_talents(r.get('talents', []))
+                                talents_payload = self._parse_rank_talents(r, combatant_cache)
                                 if not talents_payload:
                                     empty_talent_count += 1
                                     empty_talent_total += 1
@@ -173,12 +174,44 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         logger.info(f"[SpecDetailRanking] M+ 排名采集完成: {total} 条, 空天赋 {empty_talent_total} 条")
         return True
 
+    def _parse_rank_talents(self, ranking, combatant_cache):
+        """优先使用 report CombatantInfo.talentTree，回退到 ranking.talents。"""
+        report = ranking.get('report', {}) or {}
+        report_code = report.get('code', '')
+        fight_id = report.get('fightID') or ranking.get('fightID')
+        character_name = ranking.get('name', '')
+
+        if report_code and fight_id and character_name:
+            cache_key = (report_code, int(fight_id))
+            if cache_key not in combatant_cache:
+                combatant_cache[cache_key] = self.fetch_wcl_combatant_info(report_code, fight_id)
+            combatant = self._find_combatant_for_ranking(combatant_cache.get(cache_key) or [], ranking)
+            talents = self.parse_wcl_talent_tree((combatant or {}).get('talentTree') or [])
+            if talents:
+                return talents
+
+        return self.parse_wcl_talents(ranking.get('talents', []))
+
+    @staticmethod
+    def _find_combatant_for_ranking(combatants, ranking):
+        """用 ranking.name 在 CombatantInfo.source.name 中匹配当前角色。"""
+        target_name = (ranking.get('name') or '').strip().lower()
+        if not target_name:
+            return None
+        for combatant in combatants:
+            source = combatant.get('source') or {}
+            source_name = (source.get('name') or combatant.get('name') or '').strip().lower()
+            if source_name == target_name:
+                return combatant
+        return None
+
     def _collect_raid_rankings(self, season):
         """采集团本排名（Mythic only），每个 boss 独立事务 + bulk_create"""
         logger.info(f"[SpecDetailRanking] 采集团本排名: {len(season.raid_encounters)} Boss x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
         total = 0
         now = timezone.now()
+        combatant_cache = {}
 
         # Build encounter→zone mapping from raid_zones (if available)
         enc_zone_map = {}
@@ -213,7 +246,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                             report = r.get('report', {}) or {}
                             guild = r.get('guild', {}) or {}
 
-                            talents_payload = self.parse_wcl_talents(r.get('talents', []))
+                            talents_payload = self._parse_rank_talents(r, combatant_cache)
                             records.append(SpecRaidRanking(
                                 season_id=season.id,
                                 boss_id=enc_id,
@@ -235,7 +268,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 faction=r.get('faction'),
                                 guild_name=guild.get('name', ''),
                                 report_code=report.get('code', ''),
-                                fight_id=r.get('fightID'),
+                                fight_id=report.get('fightID') or r.get('fightID'),
                                 last_updated=now,
                             ))
                         except Exception as e:

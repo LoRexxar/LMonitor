@@ -206,6 +206,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         path = char.get('path', '')
         profile_url = ('https://raider.io' + path) if path else None
+        talent_build_code = self._extract_rio_talent_build_code(char)
 
         return {
             '_class_name': class_name,
@@ -224,7 +225,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             'achievement_points': None,
             'item_level': self._coerce_item_level(char.get('gear')),
             'gear': self._parse_rio_gear(char.get('gear')),
-            'talents': self._parse_rio_talents(char.get('talentLoadoutText')),
+            'talent_build_code': talent_build_code,
+            'talents': self._parse_rio_talents(talent_build_code),
         }
 
     def _parse_rio_gear(self, gear_data):
@@ -272,6 +274,18 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             'column': None,
         }]
 
+    @staticmethod
+    def _extract_rio_talent_build_code(char_data):
+        """兼容 Raider.IO 新旧字段，提取天赋导入字符串。"""
+        if not isinstance(char_data, dict):
+            return ''
+        loadout_obj = char_data.get('talentLoadout')
+        if isinstance(loadout_obj, dict):
+            loadout_text = loadout_obj.get('loadout_text') or loadout_obj.get('loadoutText')
+            if loadout_text:
+                return str(loadout_text).strip()
+        return str(char_data.get('talentLoadoutText') or '').strip()
+
     def _enrich_talents(self, players):
         """为 Top 20 玩家补充结构化天赋+装备数据。
         
@@ -312,11 +326,15 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 player['race'] = char_data.get('race') or player.get('race')
                 player['faction'] = char_data.get('faction') or player.get('faction')
 
+                talent_build_code = self._extract_rio_talent_build_code(char_data)
+                if talent_build_code:
+                    player['talent_build_code'] = talent_build_code
+
                 if self._has_display_ready_talents(player.get('talents')):
                     time.sleep(0.2)
                     continue
-
                 structured = self._parse_rio_talents_from_profile(char_data)
+
                 if structured:
                     player['talents'] = self._normalize_talent_nodes(
                         structured,
