@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
 from botend.wow.spell_text import get_spell_text_resolver
 
-STRUCTURAL_FIELDS = {'tree_type', 'row', 'column', 'max_points', 'parents'}
+STRUCTURAL_FIELDS = {'tree_type', 'row', 'column', 'max_points', 'parents', 'db2_subtree_id'}
 AUTHORITATIVE_TALENT_SOURCES = {'db2_backfill', 'db2_repair', 'db2'}
 
 

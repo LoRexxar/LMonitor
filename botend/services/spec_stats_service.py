@@ -821,6 +821,19 @@ def _talent_tree_render_title(tree_type, hero_index=None):
     return _talent_tree_label(tree_type)
 
 
+def _hero_subtree_display_title(class_name, spec_name, subtree_id, hero_index=None):
+    if subtree_id:
+        anchor = WowTalentNodeMetadata.objects.filter(
+            class_name=class_name or '',
+            spec_name=spec_name or '',
+            tree_type='hero_anchor',
+            db2_subtree_id=subtree_id,
+        ).exclude(name='').values('name', 'name_zh').first()
+        if anchor:
+            return anchor.get('name_zh') or anchor.get('name') or _talent_tree_render_title('hero', hero_index)
+    return _talent_tree_render_title('hero', hero_index)
+
+
 def _hero_subtree_sort_key(subtree_key, nodes):
     count_score = sum((getattr(node, 'count', 0) or 0) for node in nodes)
     pct_score = sum((getattr(node, 'usage_pct', 0) or 0) for node in nodes)
@@ -855,6 +868,8 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
     canonical_nodes = {}
     parent_edges = defaultdict(Counter)
 
+    hero_subtree_counts = Counter()
+
     for record in records:
         record_nodes = {}
         identity_lookup = {}
@@ -868,6 +883,14 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
             existing = record_nodes.get(node_key)
             if existing is None or _score_talent_node(node) >= _score_talent_node(existing):
                 record_nodes[node_key] = node
+
+        selected_hero_subtrees = {
+            node.db2_subtree_id
+            for node in record_nodes.values()
+            if node.tree_type == 'hero' and node.db2_subtree_id
+        }
+        for subtree_id in selected_hero_subtrees:
+            hero_subtree_counts[subtree_id] += 1
 
         for node_key, node in record_nodes.items():
             usage_item = usage.setdefault(node_key, {
@@ -917,6 +940,7 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
         'usage_map': {item['node_key']: item for item in usage_list},
         'canonical_nodes': canonical_nodes,
         'parent_edges': parent_edges,
+        'hero_subtree_counts': dict(hero_subtree_counts),
     }
 
 
@@ -1099,6 +1123,8 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
     snapshot = snapshot or _build_talent_usage_snapshot(records, class_name, spec_name)
     usage_list = snapshot.get('usage_list') or []
     usage_map = snapshot.get('usage_map') or {}
+    hero_subtree_counts = snapshot.get('hero_subtree_counts') or {}
+    total_samples = snapshot.get('total', 0)
     highlighted_keys = [item['node_key'] for item in usage_list[:top_n] if item.get('node_key')]
 
     # 使用全量节点作为底板
@@ -1151,9 +1177,9 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
             spell_id = raw_node.get('spell_id')
             key = node_id or talent_id or spell_id
             node_key = f'{tree_type}:{key}'
-
-            usage_item = usage_map.get(node_key, {})
-            is_highlighted = node_key in highlighted_keys
+            candidate_keys = _talent_usage_candidate_keys(tree_type, raw_node)
+            usage_item = _best_talent_usage_item(candidate_keys, usage_map)
+            is_highlighted = any(candidate_key in highlighted_keys for candidate_key in candidate_keys)
             usage_pct = usage_item.get('usage_pct', 0)
             usage_count = usage_item.get('count', 0)
             has_icon = bool(raw_node.get('icon'))
@@ -1207,6 +1233,11 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
             option_key = f"{option_raw.get('node_id')}:{option_raw.get('talent_id')}:{option_spell_id}"
             if option_key not in seen_option_keys:
                 seen_option_keys.add(option_key)
+                option_usage = _best_talent_usage_item(
+                    _talent_usage_candidate_keys(option_raw.get('tree_type') or 'spec', option_raw),
+                    usage_map,
+                )
+                option_usage_pct = option_usage.get('usage_pct', 0)
                 choice_options.append({
                     'node_id': option_raw.get('node_id'),
                     'talent_id': option_raw.get('talent_id'),
@@ -1216,6 +1247,10 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
                     'icon': option_raw.get('icon', ''),
                     'description': option_raw.get('description', '') or '',
                     'description_zh': option_raw.get('description_zh', '') or '',
+                    'count': option_usage.get('count', 0),
+                    'usage_pct': option_usage_pct,
+                    'pct': option_usage_pct,
+                    'is_active': (option_usage.get('count', 0) or 0) > 0,
                 })
 
         # 若 option 数 > 1，设置 is_choice_node=True
@@ -1234,6 +1269,12 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
     if 'hero' in grouped_nodes:
         hero_nodes = grouped_nodes.pop('hero')
         hero_subtrees = _group_hero_subtrees_by_column(hero_nodes)
+        hero_subtrees = _filter_hero_subtrees_for_spec(
+            hero_subtrees,
+            class_name,
+            spec_name,
+            hero_subtree_counts.keys(),
+        )
 
     # 构建树结构
     trees = []
@@ -1256,6 +1297,8 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         for index, (subtree_key, nodes) in enumerate(sorted_hero_items[:2], start=1):
             ordered_tree_groups.append(('hero', nodes, index))
 
+    hero_tree_meta = []
+
     for tree_type, tree_nodes, hero_index in ordered_tree_groups:
         nodes = sorted(
             tree_nodes,
@@ -1266,12 +1309,30 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
                 item.name or '',
             ),
         )
+        subtree_id = None
+        subtree_count = 0
+        subtree_usage_pct = 0
+        subtree_title = _talent_tree_render_title(tree_type, hero_index)
+        if tree_type == 'hero':
+            subtree_ids = [node.db2_subtree_id for node in nodes if node.db2_subtree_id]
+            subtree_id = Counter(subtree_ids).most_common(1)[0][0] if subtree_ids else None
+            if subtree_id is not None:
+                subtree_count = hero_subtree_counts.get(subtree_id, 0)
+                subtree_usage_pct = round(subtree_count / total_samples * 100, 1) if total_samples else 0
+                subtree_title = _hero_subtree_display_title(class_name, spec_name, subtree_id, hero_index)
         default_columns = TREE_COLUMNS.get(tree_type, 8)
         rows = [node.row for node in nodes if node.row is not None]
         columns = [node.column for node in nodes if node.column is not None]
+        if tree_type == 'hero':
+            hero_tree_meta.append({
+                'subtree_id': subtree_id,
+                'subtree_count': subtree_count,
+                'subtree_usage_pct': subtree_usage_pct,
+                'pct': subtree_usage_pct,
+            })
         trees.append(TalentTreeModel(
             tree_type=tree_type,
-            title=_talent_tree_render_title(tree_type, hero_index),
+            title=subtree_title,
             nodes=nodes,
             grid_columns=max([default_columns, *columns]) if columns else default_columns,
             grid_rows=max(rows) if rows else max(1, (len(nodes) + default_columns - 1) // default_columns),
@@ -1304,6 +1365,11 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         ),
         build_state=build_state,
     ).to_dict()
+
+    for tree in render_model.get('trees', []) or []:
+        if tree.get('tree_type') != 'hero' or not hero_tree_meta:
+            continue
+        tree.update(hero_tree_meta.pop(0))
 
     # 附加使用率数据
     _attach_usage_to_render_model(render_model, usage_map, highlighted_keys)
@@ -1358,6 +1424,32 @@ def _build_talent_node_key(node):
     return f'{node.tree_type or "spec"}:{node_identity}'
 
 
+def _talent_usage_candidate_keys(tree_type, raw_node):
+    keys = []
+    seen = set()
+    for value in (
+        raw_node.get('node_id'),
+        raw_node.get('talent_id'),
+        raw_node.get('spell_id'),
+        raw_node.get('display_spell_id'),
+    ):
+        value = _coerce_positive_int(value)
+        if value is None:
+            continue
+        key = f'{tree_type}:{value}'
+        if key not in seen:
+            seen.add(key)
+            keys.append(key)
+    return keys
+
+
+def _best_talent_usage_item(candidate_keys, usage_map):
+    matched = [usage_map.get(key) for key in candidate_keys if usage_map.get(key)]
+    if not matched:
+        return {}
+    return max(matched, key=lambda item: (item.get('count', 0), item.get('usage_pct', 0)))
+
+
 def _register_talent_identity(identity_lookup, node, node_key):
     for value in {node.node_id, node.talent_id, node.spell_id, node.key}:
         parsed = _coerce_positive_int(value)
@@ -1398,6 +1490,33 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
     for tree in render_model.get('trees', []):
         for node in tree.get('nodes', []):
             _merge(node)
+
+
+def _filter_hero_subtrees_for_spec(hero_subtrees, class_name, spec_name, used_subtree_ids):
+    if not hero_subtrees:
+        return {}
+
+    used_subtree_ids = {subtree_id for subtree_id in used_subtree_ids if subtree_id in hero_subtrees}
+    anchor_subtree_ids = set(
+        WowTalentNodeMetadata.objects.filter(
+            class_name=class_name or '',
+            spec_name=spec_name or '',
+            tree_type='hero_anchor',
+            db2_subtree_id__in=list(hero_subtrees.keys()),
+        ).exclude(db2_subtree_id=0).values_list('db2_subtree_id', flat=True)
+    )
+    preferred_ids = used_subtree_ids | anchor_subtree_ids
+    if len(preferred_ids) >= 2:
+        return {subtree_id: hero_subtrees[subtree_id] for subtree_id in hero_subtrees if subtree_id in preferred_ids}
+
+    result = {subtree_id: hero_subtrees[subtree_id] for subtree_id in hero_subtrees if subtree_id in preferred_ids}
+    for subtree_id, nodes in sorted(hero_subtrees.items(), key=lambda item: _hero_subtree_sort_key(item[0], item[1])):
+        if subtree_id in result:
+            continue
+        result[subtree_id] = nodes
+        if len(result) >= 2:
+            break
+    return result
 
 
 def _group_hero_subtrees_by_column(hero_nodes):

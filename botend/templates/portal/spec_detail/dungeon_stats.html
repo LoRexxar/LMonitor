@@ -205,6 +205,9 @@
                             <div class="talent-panel-head">
                                 <div>
                                     <div class="talent-panel-title">{{ tree.title }}</div>
+                                    {% if tree.tree_type == 'hero' %}
+                                    <div class="talent-panel-subtitle">选择率 {{ tree.subtree_usage_pct }}% · {{ tree.subtree_count }} 人</div>
+                                    {% endif %}
                                 </div>
 
                             </div>
@@ -247,7 +250,7 @@
                                 <div class="talent-choice-popup">
                                     {% for option in node.choice_options %}
                                     <span
-                                        class="talent-choice-popup-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}"
+                                        class="talent-choice-popup-option{% if option.is_active %} is-active{% endif %}"
                                         onclick="window.open('{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}', '_blank')"
                                         data-option-name="{{ option.name|default:'未命名' }}"
                                         data-option-desc="{{ option.description_zh|default:option.description|default:'' }}"
@@ -260,6 +263,7 @@
                                             {% endif %}
                                         </div>
                                         <div class="talent-choice-popup-name">{{ option.name|default:"未命名" }}</div>
+                                        <div class="talent-choice-popup-rate">{{ option.usage_pct }}% · {{ option.count }} 人</div>
                                     </span>
                                     {% endfor %}
                                 </div>
@@ -863,6 +867,15 @@
 }
 .talent-choice-popup-option.is-active .talent-choice-popup-name {
     color: #93c5fd;
+}
+.talent-choice-popup-rate {
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 2px;
+}
+.talent-choice-popup-option.is-active .talent-choice-popup-rate {
+    color: #bfdbfe;
 }
 
 /* Game-like choice node presentation */
