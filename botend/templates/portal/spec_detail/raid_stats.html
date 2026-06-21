@@ -90,6 +90,41 @@
             {% endif %}
         </div>
 
+        <div class="section-block">
+            <h4>阵营分布</h4>
+            {% if boss_detail.faction_distribution %}
+            <div class="stat-cards stat-strip">
+                {% for fid, info in boss_detail.faction_distribution.items %}
+                <div class="stat-card">
+                    <div class="stat-label">{% if fid == "0" %}联盟{% elif fid == "1" %}部落{% else %}{{ fid }}{% endif %}</div>
+                    <div class="stat-value">{{ info.pct }}%</div>
+                    <div class="text-muted" style="font-size:12px;">{{ info.count }} 人</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
+        </div>
+
+
+        <div class="section-block">
+            <h4>种族分布</h4>
+            {% if boss_detail.race_distribution %}
+            <div class="stat-cards stat-strip">
+                {% for race in boss_detail.race_distribution %}
+                <div class="stat-card">
+                    <div class="stat-label">{{ race.race_cn|default:race.race }}</div>
+                    <div class="stat-value">{{ race.pct }}%</div>
+                    <div class="text-muted" style="font-size:12px;">{{ race.count }} 人</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="aggregation-pending">⏳ 数据等待聚合</div>
+            {% endif %}
+        </div>
+
         {% if boss_detail.talent_popularity_tree.render_model %}
 
         <div class="section-block">
@@ -411,41 +446,6 @@
                 </div>
             </a>
             {% endfor %}
-            </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
-        </div>
-
-        <div class="section-block">
-            <h4>阵营分布</h4>
-            {% if boss_detail.faction_distribution %}
-            <div class="stat-cards stat-strip">
-                {% for fid, info in boss_detail.faction_distribution.items %}
-                <div class="stat-card">
-                    <div class="stat-label">{% if fid == "0" %}联盟{% elif fid == "1" %}部落{% else %}{{ fid }}{% endif %}</div>
-                    <div class="stat-value">{{ info.pct }}%</div>
-                    <div class="text-muted" style="font-size:12px;">{{ info.count }} 人</div>
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
-        </div>
-
-
-        <div class="section-block">
-            <h4>种族分布</h4>
-            {% if boss_detail.race_distribution %}
-            <div class="stat-cards stat-strip">
-                {% for race in boss_detail.race_distribution %}
-                <div class="stat-card">
-                    <div class="stat-label">{{ race.race_cn|default:race.race }}</div>
-                    <div class="stat-value">{{ race.pct }}%</div>
-                    <div class="text-muted" style="font-size:12px;">{{ race.count }} 人</div>
-                </div>
-                {% endfor %}
             </div>
             {% else %}
             <div class="aggregation-pending">⏳ 数据等待聚合</div>
