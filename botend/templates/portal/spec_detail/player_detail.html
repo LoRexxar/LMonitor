@@ -609,10 +609,12 @@
     border-bottom: 1px solid rgba(96,165,250,.4);
     transform: translateX(-50%) rotate(45deg);
 }
-.talent-node-card--tree:hover .talent-node-tooltip {
+.talent-node-card--tree:not(.is-choice-node):hover .talent-node-tooltip {
     display: block;
 }
-/* Choice nodes: hide node tooltip when popup is active */
+/* Choice nodes use the two-option popup + option tooltip, not the base node tooltip. */
+.talent-node-card--tree.is-choice-node .talent-node-tooltip,
+.talent-node-card--tree.is-choice-node:hover .talent-node-tooltip,
 .talent-node-card--tree.is-choice-node.popup-active .talent-node-tooltip {
     display: none;
 }
@@ -942,6 +944,8 @@
             if (hoverTimeout) clearTimeout(hoverTimeout);
             node.classList.add('popup-active');
             node.style.zIndex = '100';
+            var nodeTooltip = node.querySelector('.talent-node-tooltip');
+            if (nodeTooltip) nodeTooltip.style.display = 'none';
         }
 
         function hidePopup() {
