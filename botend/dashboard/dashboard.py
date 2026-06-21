@@ -42,7 +42,6 @@ def _fmt_dt(dt):
 # 模型描述映射
 MODEL_DESCRIPTIONS = {
     'MonitorTask': '监控任务',
-    'MonitorTaskLog': '监控执行日志',
     'TargetAuth': '目标认证信息',
     'MonitorWebhook': '监控钩子',
     'WechatAccountTask': '微信公众号任务',
@@ -98,11 +97,7 @@ COMMON_FIELD_LABELS = {
     'task': '任务',
     'task_name': '任务名称',
     'task_type': '任务类型',
-    'duration_ms': '耗时(ms)',
-    'error_type': '错误类型',
     'error_message': '错误信息',
-    'traceback': '异常堆栈',
-    'task_flag': '任务标记快照',
     'extra': '扩展信息',
     'domain': '域名',
     'cookie': 'Cookie',
