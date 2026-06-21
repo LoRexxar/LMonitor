@@ -58,48 +58,55 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
         return ok
 
-    def _fetch_rankings_with_retry(self, enc_id, class_name, spec_name, metric='dps', difficulty=None, max_retries=5):
+    def _fetch_rankings_with_retry(self, enc_id, class_name, spec_name, metric='dps', difficulty=None, page=1, max_retries=5):
         """带加强重试的排名获取，处理限流和临时错误"""
         for attempt in range(max_retries):
-            rankings = self.fetch_wcl_rankings(enc_id, class_name, spec_name, metric, difficulty=difficulty)
+            rankings = self.fetch_wcl_rankings(enc_id, class_name, spec_name, metric, difficulty=difficulty, page=page)
             if rankings is not None:
                 return rankings
 
             # fetch_wcl_rankings 返回 None 可能是限流或临时错误
             wait = min(2 ** attempt * 3, 60)
-            logger.warning(f"[SpecDetailRanking] 获取失败 {enc_id}/{class_name}/{spec_name}, "
+            logger.warning(f"[SpecDetailRanking] 获取失败 {enc_id}/{class_name}/{spec_name}/page={page}, "
                           f"重试 {attempt+1}/{max_retries}, 等待 {wait}s")
             time.sleep(wait)
 
-        logger.error(f"[SpecDetailRanking] 获取失败（已耗尽重试）: {enc_id}/{class_name}/{spec_name}")
+        logger.error(f"[SpecDetailRanking] 获取失败（已耗尽重试）: {enc_id}/{class_name}/{spec_name}/page={page}")
         return None
 
     def _collect_dungeon_rankings(self, season):
-        """采集 M+ 副本排名"""
+        """采集 M+ 副本排名：保留更多原始日志，聚合阶段再筛选 100 人样本。"""
         logger.info(f"[SpecDetailRanking] 采集 M+ 排名: {len(season.mplus_encounters)} 副本 x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
+        target_per_spec = 200
         total = 0
         empty_talent_total = 0
         now = timezone.now()
+        records = []
 
-        with transaction.atomic():
-            # 全量覆盖：删除该赛季旧数据
-            SpecDungeonRanking.objects.filter(season_id=season.id).delete()
+        for encounter in season.mplus_encounters:
+            enc_id = encounter['id']
+            enc_name = encounter['name']
 
-            for encounter in season.mplus_encounters:
-                enc_id = encounter['id']
-                enc_name = encounter['name']
+            for class_name, specs in CLASS_SPEC_MAP.items():
+                for spec_name in specs:
+                    page = 1
+                    collected = 0
+                    empty_talent_count = 0
 
-                for class_name, specs in CLASS_SPEC_MAP.items():
-                    for spec_name in specs:
-                        rankings = self.fetch_wcl_rankings(enc_id, class_name, spec_name, 'dps')
+                    while collected < target_per_spec:
+                        rankings = self._fetch_rankings_with_retry(enc_id, class_name, spec_name, 'dps', page=page)
                         if not rankings:
                             time.sleep(0.3)
-                            continue
+                            break
 
-                        rank_list = rankings.get('rankings', [])
-                        empty_talent_count = 0
+                        rank_list = rankings.get('rankings', []) or []
+                        if not rank_list:
+                            break
+
                         for r in rank_list:
+                            if collected >= target_per_spec:
+                                break
                             try:
                                 server = r.get('server', {}) or {}
                                 report = r.get('report', {}) or {}
@@ -109,7 +116,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 if not talents_payload:
                                     empty_talent_count += 1
                                     empty_talent_total += 1
-                                SpecDungeonRanking.objects.create(
+                                records.append(SpecDungeonRanking(
                                     season_id=season.id,
                                     dungeon_id=enc_id,
                                     dungeon_name=enc_name,
@@ -134,17 +141,34 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                     report_code=report.get('code', ''),
                                     fight_id=report.get('fightID'),
                                     last_updated=now,
-                                )
-                                total += 1
+                                ))
+                                collected += 1
                             except Exception as e:
-                                logger.warning(f"[SpecDetailRanking] M+ 插入失败: {e}")
+                                logger.warning(f"[SpecDetailRanking] M+ 构建记录失败: {e}")
 
-                        if empty_talent_count:
-                            logger.info(
-                                f"[SpecDetailRanking] M+ {enc_id}/{class_name}/{spec_name}: "
-                                f"{empty_talent_count}/{len(rank_list)} 条记录缺失天赋数据（保留 DPS/装备样本，天赋聚合会排除）"
-                            )
-                        time.sleep(0.3)  # 限速
+                        if not rankings.get('hasMorePages') or len(rank_list) == 0:
+                            break
+                        page += 1
+                        time.sleep(0.3)
+
+                    if empty_talent_count:
+                        logger.info(
+                            f"[SpecDetailRanking] M+ {enc_id}/{class_name}/{spec_name}: "
+                            f"{empty_talent_count}/{collected} 条记录缺失天赋数据（保留 DPS/装备样本，天赋聚合会排除）"
+                        )
+                    logger.info(f"[SpecDetailRanking] M+ {enc_id}/{class_name}/{spec_name}: 拉取 {collected} 条")
+                    time.sleep(0.3)  # 限速
+
+        try:
+            with transaction.atomic():
+                # 全量覆盖：删除该赛季旧数据
+                SpecDungeonRanking.objects.filter(season_id=season.id).delete()
+                if records:
+                    SpecDungeonRanking.objects.bulk_create(records, batch_size=500)
+            total = len(records)
+        except Exception as e:
+            logger.error(f"[SpecDetailRanking] M+ 排名写入失败: {e}")
+            return False
 
         logger.info(f"[SpecDetailRanking] M+ 排名采集完成: {total} 条, 空天赋 {empty_talent_total} 条")
         return True

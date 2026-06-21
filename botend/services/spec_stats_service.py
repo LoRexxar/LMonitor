@@ -380,32 +380,32 @@ class SpecStatsService:
             'sample_size': 0,
         }
 
-        if not qs.exists():
+        selected_records = _select_dungeon_sample_records(qs, max_samples=100)
+        if not selected_records:
             return stats
 
         # DPS 统计
-        dps_agg = qs.aggregate(
-            avg=Avg('dps'), max=Max('dps'), min=Min('dps'), stddev=StdDev('dps')
-        )
-        dps_list = sorted(qs.values_list('dps', flat=True))
+        dps_list = sorted([r.get('dps') or 0 for r in selected_records])
         n = len(dps_list)
 
         stats['sample_size'] = n
         p25 = _percentile(dps_list, 25)
         p75 = _percentile(dps_list, 75)
         median = _percentile(dps_list, 50)
-        dps_min = dps_agg['min']
-        dps_max = dps_agg['max']
+        dps_min = min(dps_list)
+        dps_max = max(dps_list)
+        dps_avg = sum(dps_list) / n if n else 0
+        dps_stddev = _stddev(dps_list)
         dps_range = dps_max - dps_min if dps_max and dps_min else 1
 
         stats['dps'] = {
-            'avg': dps_agg['avg'],
+            'avg': dps_avg,
             'median': median,
             'max': dps_max,
             'min': dps_min,
             'p25': p25,
             'p75': p75,
-            'stddev': dps_agg['stddev'],
+            'stddev': dps_stddev,
             # 百分比字段（给前端 DPS 分布条用）
             'p25_pct': round((p25 - dps_min) / dps_range * 100, 1) if p25 and dps_range else 0,
             'iqr_pct': round((p75 - p25) / dps_range * 100, 1) if p75 and p25 and dps_range else 0,
@@ -413,7 +413,7 @@ class SpecStatsService:
         }
 
         # 钥石等级
-        ks_list = sorted([v for v in qs.values_list('keystone_level', flat=True) if v])
+        ks_list = sorted([r.get('keystone_level') for r in selected_records if r.get('keystone_level')])
         if ks_list:
             stats['keystone'] = {
                 'avg': sum(ks_list) / len(ks_list),
@@ -422,7 +422,7 @@ class SpecStatsService:
             }
 
         # 通关时间
-        ct_list = sorted([v for v in qs.values_list('clear_time', flat=True) if v])
+        ct_list = sorted([r.get('clear_time') for r in selected_records if r.get('clear_time')])
         if ct_list:
             ct_median = _percentile(ct_list, 50)
             ct_avg = sum(ct_list) // len(ct_list)
@@ -434,20 +434,19 @@ class SpecStatsService:
             }
 
         # M+ 分数统计
-        score_list = sorted([v for v in qs.values_list('score', flat=True) if v])
+        score_list = sorted([r.get('score') for r in selected_records if r.get('score')])
         if score_list:
-            score_agg = qs.aggregate(avg=Avg('score'), max=Max('score'), min=Min('score'))
             stats['score'] = {
-                'avg': score_agg['avg'],
+                'avg': sum(score_list) / len(score_list),
                 'median': _percentile(score_list, 50),
-                'max': score_agg['max'],
-                'min': score_agg['min'],
+                'max': max(score_list),
+                'min': min(score_list),
                 'p25': _percentile(score_list, 25),
                 'p75': _percentile(score_list, 75),
             }
 
         # 阵营分布
-        faction_counter = Counter(r for r in qs.values_list('faction', flat=True) if r is not None and r != -1)
+        faction_counter = Counter(r.get('faction') for r in selected_records if r.get('faction') is not None and r.get('faction') != -1)
         if faction_counter:
             total_factions = sum(faction_counter.values())
             stats['faction_distribution'] = {
@@ -456,7 +455,7 @@ class SpecStatsService:
             }
 
         # 天赋/装备热门度（概览也展示）
-        records = list(qs.values('talents_json', 'talent_build_code', 'gear_json', 'faction', 'character_name', 'realm', 'region'))
+        records = selected_records
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -499,10 +498,8 @@ class SpecStatsService:
         stats['race_distribution'] = _compute_race_distribution(player_records)
 
         if full:
-            # 详细模式：Top 5 玩家
-            full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
-                                      'character_name', 'realm', 'region', 'dps',
-                                      'keystone_level', 'clear_time', 'score'))
+            # 详细模式：Top 5 玩家（与统计口径使用同一批筛选样本）
+            full_records = [dict(r) for r in selected_records]
             stats['top5'] = sorted(full_records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
             # 格式化 top5 通关时间
             for r in stats['top5']:
@@ -712,6 +709,59 @@ def _percentile(sorted_list, pct):
     if c >= len(sorted_list):
         return sorted_list[-1]
     return sorted_list[f] + (k - f) * (sorted_list[c] - sorted_list[f])
+
+
+def _stddev(values):
+    """计算样本标准差，避免筛选后的内存样本再走 ORM aggregate。"""
+    if len(values) <= 1:
+        return 0
+    avg = sum(values) / len(values)
+    variance = sum((v - avg) ** 2 for v in values) / (len(values) - 1)
+    return variance ** 0.5
+
+
+def _select_dungeon_sample_records(qs, max_samples=100):
+    """
+    为 M+ 聚合选择最终样本。
+
+    规则：先按钥石层数从高到低分层，每层按 DPS 从高到低排序；每层只保留 DPS >= 该层中位数的日志，
+    再从高层到低层累积，按 region+realm+character_name 去重，最终最多 max_samples 个玩家样本。
+    """
+    fields = (
+        'talents_json', 'talent_build_code', 'gear_json', 'faction', 'guild_name',
+        'character_name', 'realm', 'region', 'dps', 'keystone_level', 'clear_time', 'score',
+    )
+    rows = list(qs.values(*fields))
+    if not rows:
+        return []
+
+    by_level = defaultdict(list)
+    for row in rows:
+        level = row.get('keystone_level') or 0
+        by_level[level].append(row)
+
+    selected = []
+    seen_players = set()
+    for level in sorted(by_level.keys(), reverse=True):
+        level_rows = sorted(by_level[level], key=lambda r: r.get('dps') or 0, reverse=True)
+        dps_values = sorted([r.get('dps') or 0 for r in level_rows])
+        median_dps = _percentile(dps_values, 50)
+        for row in level_rows:
+            if len(selected) >= max_samples:
+                return selected
+            if median_dps is not None and (row.get('dps') or 0) < median_dps:
+                continue
+            player_key = (
+                (row.get('region') or '').strip().lower(),
+                (row.get('realm') or '').strip().lower(),
+                (row.get('character_name') or '').strip().lower(),
+            )
+            if player_key in seen_players:
+                continue
+            seen_players.add(player_key)
+            selected.append(row)
+
+    return selected
 
 
 def _ms_to_time(ms):
