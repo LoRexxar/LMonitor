@@ -475,8 +475,15 @@ class SpecStatsService:
             top_n=talent_limit,
             snapshot=usage_snapshot,
         )
-        stats['talent_build_popularity'] = _compute_talent_build_popularity(
+        talent_build_records = _merge_player_profile_fields(
             records,
+            season_id,
+            class_name,
+            spec_name,
+            fields=('talent_build_code',),
+        )
+        stats['talent_build_popularity'] = _compute_talent_build_popularity(
+            talent_build_records,
             class_name,
             spec_name,
             top_n=20 if full else 5,
@@ -666,8 +673,15 @@ class SpecStatsService:
             top_n=talent_limit,
             snapshot=usage_snapshot,
         )
-        stats['talent_build_popularity'] = _compute_talent_build_popularity(
+        talent_build_records = _merge_player_profile_fields(
             records,
+            season_id,
+            class_name,
+            spec_name,
+            fields=('talent_build_code',),
+        )
+        stats['talent_build_popularity'] = _compute_talent_build_popularity(
+            talent_build_records,
             class_name,
             spec_name,
             top_n=20 if full else 5,
