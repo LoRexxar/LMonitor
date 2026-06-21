@@ -65,6 +65,107 @@ def _clean_wowhead_title(title):
     return re.sub(r'^\[|\]$', '', title).strip()
 
 
+def _decode_js_string(raw):
+    if raw is None:
+        return ''
+    try:
+        return json.loads(f'"{raw}"')
+    except Exception:
+        return html.unescape(str(raw))
+
+
+def _clean_effect_html(value):
+    if not value:
+        return ''
+    value = _decode_js_string(value) if '\\' in str(value) else str(value)
+    value = value.replace('\b', '')
+    value = re.sub(r'<!--.*?-->', ' ', value, flags=re.S)
+    value = re.sub(r'<br\s*/?>', '\n', value, flags=re.I)
+    value = re.sub(r'</(?:div|p|span|table|tr|td)>', '\n', value, flags=re.I)
+    value = html.unescape(re.sub(r'<[^>]+>', '', value))
+    lines = []
+    noise_prefixes = (
+        '物品等级', '需要等级', '最大叠加', '售价', '拾取后绑定',
+        '唯一', '装备唯一', '职业', '耐久度', '需要 ', 'Requires ',
+    )
+    for raw_line in value.splitlines():
+        line = re.sub(r'\s+', ' ', raw_line).strip(' ：:')
+        if not line or line in {'使用', '装备', '效果'}:
+            continue
+        if any(line.startswith(prefix) for prefix in noise_prefixes):
+            continue
+        if re.fullmatch(r'[0-9金银铜 ]+', line):
+            continue
+        lines.append(line)
+    return '\n'.join(dict.fromkeys(lines)).strip()
+
+
+def _extract_assignment_string(text, pattern):
+    match = re.search(pattern, text, re.S)
+    return _decode_js_string(match.group(1)) if match else ''
+
+
+def _extract_item_tooltip(text, item_id):
+    tooltip = _extract_assignment_string(
+        text,
+        rf'g_items\[{int(item_id)}\]\.tooltip_zhcn\s*=\s*"((?:\\.|[^"\\])*)"',
+    )
+    return _clean_effect_html(tooltip)
+
+
+def _extract_profession_description(text):
+    candidates = []
+    for raw in re.findall(r'"description_zhcn"\s*:\s*"((?:\\.|[^"\\])*)"', text, re.S):
+        desc = _clean_effect_html(raw)
+        if desc and _has_cjk(desc):
+            candidates.append(desc)
+    return max(candidates, key=len) if candidates else ''
+
+
+def _extract_meta_description(text):
+    candidates = []
+    for pat in [
+        r'<meta\s+name="description"\s+content="([^"]+)"',
+        r'<meta\s+property="og:description"\s+content="([^"]+)"',
+        r'"description"\s*:\s*"((?:\\.|[^"\\])*)"',
+    ]:
+        for match in re.findall(pat, text, re.S | re.I):
+            val = _clean_effect_html(match)
+            if val and _has_cjk(val) and not _is_wowhead_seo_description(val):
+                candidates.append(val)
+    if not candidates:
+        return ''
+    desc = max(candidates, key=len)
+    return re.sub(r'\s*-\s*魔兽世界.*$', '', desc).strip()
+
+
+def _strip_description_name(desc, title):
+    if not desc or not title:
+        return desc or ''
+    title = title.strip()
+    lines = []
+    for line in str(desc).splitlines():
+        clean = line.strip()
+        if clean and clean != title:
+            lines.append(clean)
+    return '\n'.join(lines).strip()
+
+
+def _is_wowhead_seo_description(value):
+    value = str(value or '')
+    if not value:
+        return False
+    noise_markers = (
+        '添加于 [World of Warcraft',
+        'Always up to date with the latest patch',
+        '始终保持更新',
+        '[In the ',
+        '物品放置于',
+        '这是295级',
+    )
+    return any(marker in value for marker in noise_markers)
+
+
 class Command(BaseCommand):
     help = '从现有 gear_json 收集装备/宝石/附魔 ID，并从 Wowhead CN 抓取中文名称/描述落库。'
 
@@ -94,7 +195,7 @@ class Command(BaseCommand):
         created = updated = skipped = failed = 0
         for idx, (item_id, fallback) in enumerate(items.items(), 1):
             row = existing.get(int(item_id))
-            if row and _has_cjk(row.name_zh) and row.description_zh and not opts['force']:
+            if row and _has_cjk(row.name_zh) and row.description_zh and not _is_wowhead_seo_description(row.description_zh) and not opts['force']:
                 skipped += 1
                 continue
             meta = self._fetch_wowhead_cn(session, item_id)
@@ -103,11 +204,12 @@ class Command(BaseCommand):
                 meta = {}
             fallback_name_zh = fallback.get('name_zh') if _has_cjk(fallback.get('name_zh')) else ''
             row_name_zh = row.name_zh if row and _has_cjk(row.name_zh) else ''
+            row_desc_zh = row.description_zh if row and _has_cjk(row.description_zh) and not _is_wowhead_seo_description(row.description_zh) else ''
             payload = {
                 'name': fallback.get('name') or (row.name if row else '') or meta.get('name') or '',
                 'name_zh': meta.get('name_zh') or row_name_zh or fallback_name_zh,
                 'description': fallback.get('description') or (row.description if row else '') or '',
-                'description_zh': meta.get('description_zh') or (row.description_zh if row and _has_cjk(row.description_zh) else '') or '',
+                'description_zh': meta.get('description_zh') or row_desc_zh,
                 'icon': fallback.get('icon') or (row.icon if row else '') or meta.get('icon') or '',
                 'quality': _coerce_quality(fallback.get('quality') or (row.quality if row else 0)),
                 'source': 'wowhead_cn',
@@ -182,26 +284,8 @@ class Command(BaseCommand):
         m = re.search(r'<title>(.*?)</title>', text, re.S | re.I)
         if m:
             title = _clean_wowhead_title(m.group(1))
-        desc = ''
-        # Wowhead 的 CN 页面通常把 tooltip 文本嵌在 markup/description/json 字段中，这里尽量提取可读中文句子。
-        candidates = []
-        for pat in [
-            r'<meta\s+name="description"\s+content="([^"]+)"',
-            r'<meta\s+property="og:description"\s+content="([^"]+)"',
-            r'"description"\s*:\s*"((?:\\.|[^"\\])*)"',
-        ]:
-            for match in re.findall(pat, text, re.S | re.I):
-                try:
-                    val = bytes(match, 'utf-8').decode('unicode_escape') if '\\' in match else match
-                except Exception:
-                    val = match
-                val = _first_text(val)
-                if val and re.search(r'[\u4e00-\u9fff]', val):
-                    candidates.append(val)
-        if candidates:
-            # 选最长的中文描述，去掉站点噪音。
-            desc = max(candidates, key=len)
-            desc = re.sub(r'\s*-\s*魔兽世界.*$', '', desc).strip()
+        desc = _extract_item_tooltip(text, item_id) or _extract_profession_description(text) or _extract_meta_description(text)
+        desc = _strip_description_name(desc, title)
         icon = ''
         im = re.search(r'images/wow/icons/(?:small|medium|large)/([a-z0-9_]+)\.(?:jpg|png)', text, re.I)
         if im:
