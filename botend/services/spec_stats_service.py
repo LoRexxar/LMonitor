@@ -489,13 +489,16 @@ class SpecStatsService:
         stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
         stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
 
-        # 人物属性/种族仍来自人物榜（ranking 数据没有 stats_json/race 详情）。
-        from botend.models import PlayerSpecTopPlayer
-        player_records = list(PlayerSpecTopPlayer.objects.filter(
-            season_id=season_id, class_name=class_name, spec_name=spec_name
-        ).values('gear_json', 'stats_json', 'race')[:200])
-        stats['secondary_stats'] = _compute_secondary_stats_distribution(player_records)
-        stats['race_distribution'] = _compute_race_distribution(player_records)
+        # 人物属性/种族按当前详情页 ranking 样本回填，避免人物榜 Top20/Top200 与 100 人样本混用。
+        player_detail_records = _merge_player_profile_fields(
+            records,
+            season_id,
+            class_name,
+            spec_name,
+            fields=('stats_json', 'race'),
+        )
+        stats['secondary_stats'] = _compute_secondary_stats_distribution(player_detail_records)
+        stats['race_distribution'] = _compute_race_distribution(player_detail_records)
 
         if full:
             # 详细模式：Top 5 玩家（与统计口径使用同一批筛选样本）
@@ -677,13 +680,16 @@ class SpecStatsService:
         stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
         stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
 
-        # 人物属性/种族仍来自人物榜（ranking 数据没有 stats_json/race 详情）。
-        from botend.models import PlayerSpecTopPlayer
-        player_records = list(PlayerSpecTopPlayer.objects.filter(
-            season_id=season_id, class_name=class_name, spec_name=spec_name
-        ).values('gear_json', 'stats_json', 'race')[:200])
-        stats['secondary_stats'] = _compute_secondary_stats_distribution(player_records)
-        stats['race_distribution'] = _compute_race_distribution(player_records)
+        # 人物属性/种族按当前详情页 ranking 样本回填，避免人物榜 Top20/Top200 与 100 人样本混用。
+        player_detail_records = _merge_player_profile_fields(
+            records,
+            season_id,
+            class_name,
+            spec_name,
+            fields=('stats_json', 'race'),
+        )
+        stats['secondary_stats'] = _compute_secondary_stats_distribution(player_detail_records)
+        stats['race_distribution'] = _compute_race_distribution(player_detail_records)
 
         if full:
             full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
@@ -1696,19 +1702,17 @@ def _compute_numeric_summary(values):
 
 
 def _compute_race_distribution(player_records):
-    """聚合人物榜种族分布。来源 PlayerSpecTopPlayer.race。"""
+    """聚合当前样本种族分布。缺失种族显式计入未知，避免样本人数凭空丢失。"""
     race_counter = Counter()
     total = 0
     for record in player_records or []:
-        race = record.get('race')
-        if not race:
-            continue
+        race = record.get('race') or 'unknown'
         total += 1
         race_counter[str(race)] += 1
     return [
         {
             'race': race,
-            'race_cn': _translate_race(race),
+            'race_cn': '未知' if race == 'unknown' else _translate_race(race),
             'count': count,
             'pct': round(count / total * 100, 1) if total else 0,
         }
@@ -1865,6 +1869,54 @@ def _describe_player_stats_source(player):
     if player.stats_crawl_status == 0:
         return 'Battle.net 属性 Monitor 待采集'
     return '暂无稳定属性来源'
+
+
+def _merge_player_profile_fields(records, season_id, class_name, spec_name, fields=('race', 'stats_json')):
+    """按角色身份把人物榜字段回填到当前 ranking 样本，保持 records 长度不变。"""
+    try:
+        from botend.models import PlayerSpecTopPlayer
+        keys = set()
+        for r in records or []:
+            key = (
+                (r.get('region') or '').lower(),
+                (r.get('realm') or '').lower(),
+                (r.get('character_name') or '').lower(),
+            )
+            if all(key):
+                keys.add(key)
+        if not keys:
+            return [dict(r) for r in records or []]
+
+        value_fields = ('region', 'realm', 'character_name', *fields)
+        profiles = {}
+        for p in PlayerSpecTopPlayer.objects.filter(
+            season_id=season_id, class_name=class_name, spec_name=spec_name
+        ).values(*value_fields):
+            key = (
+                (p.get('region') or '').lower(),
+                (p.get('realm') or '').lower(),
+                (p.get('character_name') or '').lower(),
+            )
+            if key in keys:
+                profiles[key] = p
+
+        merged = []
+        for r in records or []:
+            row = dict(r)
+            key = (
+                (row.get('region') or '').lower(),
+                (row.get('realm') or '').lower(),
+                (row.get('character_name') or '').lower(),
+            )
+            profile = profiles.get(key) or {}
+            for field in fields:
+                if profile.get(field) not in (None, '', [], {}):
+                    row[field] = profile.get(field)
+            merged.append(row)
+        return merged
+    except Exception:
+        return [dict(r) for r in records or []]
+
 def _merge_player_profile_gear(records, season_id, class_name, spec_name):
     """把人物榜 gear_json 的 gems_detail/enchants_detail 按角色匹配回填到 ranking 样本。
 
