@@ -1,11 +1,19 @@
-import alibabacloud_oss_v2 as oss
 import os
+from urllib.parse import quote
 from django.conf import settings as django_settings
 from utils.log import logger
 
 OSS_CONFIG = getattr(django_settings, 'OSS_CONFIG', {}) or {}
 
-def ossUpload(file_path: str):
+def _build_public_url(object_key: str) -> str:
+    base_url = (OSS_CONFIG.get("base_url") or "").strip()
+    if not base_url:
+        return ""
+    encoded_key = "/".join(quote(part) for part in str(object_key or "").split("/"))
+    return "{}{}".format(base_url.rstrip("/") + "/", encoded_key)
+
+
+def ossUploadObject(file_path: str, object_key: str = ""):
 
     """
     Python SDK V2 客户端初始化配置说明：
@@ -19,6 +27,16 @@ def ossUpload(file_path: str):
        - SDK 默认使用 HTTPS 协议构造访问域名
        - 如需使用 HTTP 协议，在指定域名时明确指定：http://oss-cn-hangzhou.aliyuncs.com
     """
+
+    object_key = (object_key or os.path.basename(file_path)).lstrip("/")
+    if not object_key:
+        logger.error("文件上传失败: object_key 为空")
+        return ""
+    try:
+        import alibabacloud_oss_v2 as oss
+    except Exception as e:
+        logger.error("文件上传失败: OSS SDK 未安装 {}".format(str(e)))
+        return ""
 
     # 从环境变量中加载凭证信息，用于身份验证
     credentials_provider = oss.credentials.StaticCredentialsProvider(
@@ -59,7 +77,7 @@ def ossUpload(file_path: str):
         result = client.put_object(
             oss.PutObjectRequest(
                 bucket=OSS_CONFIG["bucket_name"],  # 存储空间名称
-                key=os.path.basename(file_path),        # 对象名称
+                key=object_key,        # 对象名称
                 body=f.read()        # 读取文件内容
             )
         )
@@ -67,10 +85,14 @@ def ossUpload(file_path: str):
     # 输出请求的结果信息，包括状态码、请求ID、内容MD5、ETag、CRC64校验码、版本ID和服务器响应时间
     if result.status_code == 200:
         logger.info("文件上传成功")
-        return True
+        return _build_public_url(object_key)
     else:
         logger.error("文件上传失败")
-        return False
+        return ""
+
+
+def ossUpload(file_path: str):
+    return bool(ossUploadObject(file_path))
 
 # 当此脚本被直接运行时，调用main函数
 if __name__ == "__main__":

@@ -13,6 +13,10 @@ import json
 import time
 import re
 import html
+import os
+import tempfile
+from hashlib import sha1
+from urllib.parse import urlparse
 import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
@@ -156,13 +160,19 @@ class wowheadMonitor(BaseScan):
 
                     wa = WowArticle.objects.filter(url=post_link).first()
                     if wa:
-                        if not (getattr(wa, "description", "") or "").strip() or len((getattr(wa, "description", "") or "")) < 800:
+                        existing_blocks = []
+                        try:
+                            existing_blocks = json.loads(getattr(wa, "content_blocks", "") or "[]")
+                        except Exception:
+                            existing_blocks = []
+                        needs_image_blocks = not any(isinstance(b, dict) and b.get("type") == "image" for b in (existing_blocks or []))
+                        if not (getattr(wa, "description", "") or "").strip() or len((getattr(wa, "description", "") or "")) < 800 or needs_image_blocks:
                             blocks = self._fetch_article_blocks(post_link, cookies="")
                             body = blocks_to_plain_text(blocks)
                             if body:
                                 wa.description = body
                                 update_fields = ["description"]
-                                if blocks and not (getattr(wa, "content_blocks", "") or "").strip():
+                                if blocks and (needs_image_blocks or not (getattr(wa, "content_blocks", "") or "").strip()):
                                     wa.content_blocks = dumps_blocks(blocks)
                                     update_fields.append("content_blocks")
                                 # 同步写入 content，供 Portal 详情页与翻译监控使用
@@ -177,7 +187,7 @@ class wowheadMonitor(BaseScan):
                             if body:
                                 wa.content = body
                                 update_fields = ["content"]
-                                if blocks and not (getattr(wa, "content_blocks", "") or "").strip():
+                                if blocks and (needs_image_blocks or not (getattr(wa, "content_blocks", "") or "").strip()):
                                     wa.content_blocks = dumps_blocks(blocks)
                                     update_fields.append("content_blocks")
                                 wa.save(update_fields=update_fields)
@@ -388,11 +398,87 @@ class wowheadMonitor(BaseScan):
                 return []
             blocks = extract_structured_article(html_text, base_url=url, source="wowhead")
             if blocks:
-                return blocks
+                return self._upload_article_images(blocks, article_url=url)
             body = self._extract_body_from_html(html_text)
             return plain_text_to_blocks(body)
         except Exception:
             return []
+
+    def _upload_article_images(self, blocks, article_url=""):
+        result = []
+        for block in blocks or []:
+            if not isinstance(block, dict):
+                continue
+            new_block = dict(block)
+            if new_block.get("type") == "image":
+                uploaded_url = self._download_and_upload_image(new_block.get("url"), article_url=article_url)
+                if uploaded_url:
+                    new_block["source_url"] = new_block.get("url") or ""
+                    new_block["url"] = uploaded_url
+            result.append(new_block)
+        return result
+
+    def _download_and_upload_image(self, image_url, article_url=""):
+        image_url = (image_url or "").strip()
+        if not image_url or not image_url.startswith(("http://", "https://")):
+            return ""
+        try:
+            from botend.interface.ossupload import ossUploadObject
+            resp = self.req.get(image_url, "Response", 0, "") if self.req else None
+            if not resp:
+                return ""
+            status_code = getattr(resp, "status_code", 200)
+            if int(status_code or 0) >= 400:
+                return ""
+            content = getattr(resp, "content", None)
+            if content is None:
+                text = getattr(resp, "text", "") or ""
+                content = text.encode("utf-8")
+            if not content:
+                return ""
+            suffix = self._image_suffix(image_url, getattr(resp, "headers", {}) or {})
+            digest = sha1(image_url.encode("utf-8")).hexdigest()[:16]
+            article_slug = self._article_slug(article_url)
+            object_key = "portal/wowhead/{}/{}{}".format(article_slug, digest, suffix)
+            tmp_path = ""
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
+                return ossUploadObject(tmp_path, object_key=object_key) or ""
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+        except Exception as e:
+            logger.warning("[wowheadMonitor] Upload article image failed {}: {}".format(image_url, str(e)))
+            return ""
+
+    def _image_suffix(self, image_url, headers):
+        content_type = ""
+        try:
+            content_type = (headers.get("Content-Type") or headers.get("content-type") or "").split(";")[0].strip().lower()
+        except Exception:
+            content_type = ""
+        mapping = {
+            "image/jpeg": ".jpg",
+            "image/jpg": ".jpg",
+            "image/png": ".png",
+            "image/webp": ".webp",
+            "image/gif": ".gif",
+        }
+        if content_type in mapping:
+            return mapping[content_type]
+        path = urlparse(image_url).path.lower()
+        _, ext = os.path.splitext(path)
+        if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+            return ".jpg" if ext == ".jpeg" else ext
+        return ".jpg"
+
+    def _article_slug(self, article_url):
+        path = urlparse(article_url or "").path.strip("/")
+        slug = path.split("/")[-1] if path else "article"
+        slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", slug).strip("-")
+        return slug[:96] or "article"
 
     def _fetch_article_html(self, url, cookies=""):
         try:
