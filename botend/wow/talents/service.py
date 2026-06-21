@@ -4,7 +4,7 @@ import copy
 import json
 from functools import lru_cache
 
-from botend.wow.talents.build_code import TalentBuildCodeDecoder
+from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder
 from botend.wow.talents.metadata import TalentMetadataProvider
 from botend.wow.talents.parser import normalize_talent_payload
 from botend.wow.talents.view_model import build_talent_view_model
@@ -35,6 +35,8 @@ class TalentBuildCodeService:
     @classmethod
     def build_api_view(cls, talent_build_code='', talents_json=None, class_name='', spec_name=''):
         build_code = cls.extract_build_code(talent_build_code, talents_json)
+        if not build_code and talents_json:
+            build_code = cls.encode_build_code_from_nodes(talents_json, class_name=class_name, spec_name=spec_name)
         payload = cls.build_full_payload(
             class_name=class_name,
             spec_name=spec_name,
@@ -79,8 +81,58 @@ class TalentBuildCodeService:
         }
 
     @classmethod
+    def encode_build_code_from_nodes(cls, talents_json=None, class_name='', spec_name='', reference_build_code=''):
+        selected_nodes = cls._normalize_nodes_for_encoding(talents_json, class_name=class_name, spec_name=spec_name)
+        if not selected_nodes:
+            return ''
+
+        provider = TalentMetadataProvider()
+        full_nodes = provider.get_full_tree_nodes(class_name, spec_name)
+        if not full_nodes:
+            return ''
+
+        reference = str(reference_build_code or '').strip() or cls._find_reference_build_code(class_name, spec_name)
+        if not reference:
+            return ''
+        return TalentBuildCodeEncoder.encode_node_states(reference, full_nodes, selected_nodes)
+
+    @staticmethod
+    def _find_reference_build_code(class_name='', spec_name=''):
+        try:
+            from botend.models import PlayerSpecTopPlayer
+        except Exception:
+            return ''
+        row = (
+            PlayerSpecTopPlayer.objects
+            .filter(class_name=class_name, spec_name=spec_name)
+            .exclude(talent_build_code='')
+            .only('talent_build_code')
+            .first()
+        )
+        return str(getattr(row, 'talent_build_code', '') or '').strip()
+
+    @classmethod
+    def _normalize_nodes_for_encoding(cls, talents_json=None, class_name='', spec_name=''):
+        payload_model = normalize_talent_payload(talents_json or [], class_name=class_name, spec_name=spec_name)
+        nodes = []
+        for item in payload_model.get('nodes') or []:
+            if not isinstance(item, dict) or cls._extract_build_code_from_node(item):
+                continue
+            node = dict(item)
+            if node.get('id') and not node.get('node_id'):
+                node['node_id'] = node.get('id')
+            if node.get('talentID') and not node.get('talent_id'):
+                node['talent_id'] = node.get('talentID')
+            if node.get('spellID') and not node.get('spell_id'):
+                node['spell_id'] = node.get('spellID')
+            nodes.append(node)
+        return nodes
+
+    @classmethod
     def build_full_payload(cls, class_name='', spec_name='', talent_build_code='', talents_json=None):
         build_code = cls.extract_build_code(talent_build_code, talents_json)
+        if not build_code and talents_json:
+            build_code = cls.encode_build_code_from_nodes(talents_json, class_name=class_name, spec_name=spec_name)
         payload_model = normalize_talent_payload(talents_json or [], class_name=class_name, spec_name=spec_name)
         selected_nodes = []
         for item in payload_model.get('nodes') or []:

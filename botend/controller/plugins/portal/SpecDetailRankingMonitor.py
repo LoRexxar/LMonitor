@@ -133,8 +133,10 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                     medal=r.get('medal', ''),
                                     affixes=r.get('affixes', []),
                                     talents_json=talents_payload,
-                                    talent_build_code=TalentBuildCodeService.extract_build_code(
-                                        talents_json=talents_payload
+                                    talent_build_code=TalentBuildCodeService.encode_build_code_from_nodes(
+                                        talents_json=talents_payload,
+                                        class_name=class_name,
+                                        spec_name=spec_name,
                                     ),
                                     gear_json=self.parse_wcl_gear(r.get('gear', [])),
                                     faction=r.get('faction'),
@@ -261,8 +263,10 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 dps=r.get('amount', 0),
                                 kill_time=r.get('duration'),
                                 talents_json=talents_payload,
-                                talent_build_code=TalentBuildCodeService.extract_build_code(
-                                    talents_json=talents_payload
+                                talent_build_code=TalentBuildCodeService.encode_build_code_from_nodes(
+                                    talents_json=talents_payload,
+                                    class_name=class_name,
+                                    spec_name=spec_name,
                                 ),
                                 gear_json=self.parse_wcl_gear(r.get('gear', [])),
                                 faction=r.get('faction'),
