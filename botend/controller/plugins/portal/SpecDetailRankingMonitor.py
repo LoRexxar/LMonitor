@@ -177,7 +177,11 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         return True
 
     def _parse_rank_talents(self, ranking, combatant_cache):
-        """优先使用 report CombatantInfo.talentTree，回退到 ranking.talents。"""
+        """优先使用 ranking 自带 talents，缺失时再尝试 report CombatantInfo.talentTree。"""
+        talents = self.parse_wcl_talents(ranking.get('talents', []))
+        if talents:
+            return talents
+
         report = ranking.get('report', {}) or {}
         report_code = report.get('code', '')
         fight_id = report.get('fightID') or ranking.get('fightID')
@@ -192,7 +196,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             if talents:
                 return talents
 
-        return self.parse_wcl_talents(ranking.get('talents', []))
+        return []
 
     @staticmethod
     def _find_combatant_for_ranking(combatants, ranking):
