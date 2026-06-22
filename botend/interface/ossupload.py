@@ -32,6 +32,11 @@ def ossUploadObject(file_path: str, object_key: str = ""):
     if not object_key:
         logger.error("文件上传失败: object_key 为空")
         return ""
+    required_keys = ["access_key_id", "access_key_secret", "region", "bucket_name", "base_url"]
+    missing_keys = [key for key in required_keys if not OSS_CONFIG.get(key)]
+    if missing_keys:
+        logger.warning("文件上传跳过: OSS_CONFIG 缺少 {}".format(",".join(missing_keys)))
+        return ""
     try:
         import alibabacloud_oss_v2 as oss
     except Exception as e:

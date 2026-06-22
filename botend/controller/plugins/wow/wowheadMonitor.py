@@ -166,13 +166,21 @@ class wowheadMonitor(BaseScan):
                         except Exception:
                             existing_blocks = []
                         needs_image_blocks = not any(isinstance(b, dict) and b.get("type") == "image" for b in (existing_blocks or []))
-                        if not (getattr(wa, "description", "") or "").strip() or len((getattr(wa, "description", "") or "")) < 800 or needs_image_blocks:
+                        needs_image_upload = self._needs_article_image_upload(existing_blocks)
+                        if needs_image_upload and not needs_image_blocks:
+                            uploaded_blocks = self._upload_article_images(existing_blocks, article_url=post_link)
+                            if uploaded_blocks != existing_blocks:
+                                wa.content_blocks = dumps_blocks(uploaded_blocks)
+                                wa.save(update_fields=["content_blocks"])
+                                existing_blocks = uploaded_blocks
+                                needs_image_upload = self._needs_article_image_upload(existing_blocks)
+                        if not (getattr(wa, "description", "") or "").strip() or len((getattr(wa, "description", "") or "")) < 800 or needs_image_blocks or needs_image_upload:
                             blocks = self._fetch_article_blocks(post_link, cookies="")
                             body = blocks_to_plain_text(blocks)
                             if body:
                                 wa.description = body
                                 update_fields = ["description"]
-                                if blocks and (needs_image_blocks or not (getattr(wa, "content_blocks", "") or "").strip()):
+                                if blocks and (needs_image_blocks or needs_image_upload or not (getattr(wa, "content_blocks", "") or "").strip()):
                                     wa.content_blocks = dumps_blocks(blocks)
                                     update_fields.append("content_blocks")
                                 # 同步写入 content，供 Portal 详情页与翻译监控使用
@@ -410,13 +418,35 @@ class wowheadMonitor(BaseScan):
             if not isinstance(block, dict):
                 continue
             new_block = dict(block)
-            if new_block.get("type") == "image":
+            if self._needs_article_image_upload([new_block]):
                 uploaded_url = self._download_and_upload_image(new_block.get("url"), article_url=article_url)
                 if uploaded_url:
                     new_block["source_url"] = new_block.get("url") or ""
                     new_block["url"] = uploaded_url
             result.append(new_block)
         return result
+
+    def _needs_article_image_upload(self, blocks):
+        for block in blocks or []:
+            if not isinstance(block, dict) or block.get("type") != "image":
+                continue
+            image_url = (block.get("url") or "").strip()
+            if image_url and self._is_external_article_image_url(image_url):
+                return True
+        return False
+
+    def _is_external_article_image_url(self, image_url):
+        image_url = (image_url or "").strip()
+        if not image_url.startswith(("http://", "https://")):
+            return False
+        try:
+            from django.conf import settings
+            base_url = ((getattr(settings, "OSS_CONFIG", {}) or {}).get("base_url") or "").strip()
+            if base_url and image_url.startswith(base_url.rstrip("/") + "/"):
+                return False
+        except Exception:
+            pass
+        return True
 
     def _download_and_upload_image(self, image_url, article_url=""):
         image_url = (image_url or "").strip()
