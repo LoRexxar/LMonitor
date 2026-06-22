@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Top 20 人物榜采集器
-从 Raider.IO 获取每个专精 Top 20 玩家数据，从 Battle.net 补充属性面板
+人物榜采集器
+从 Raider.IO 获取每个专精榜单玩家数据，从 Battle.net 补充前排玩家属性面板
 """
 
 import time
@@ -19,6 +19,9 @@ from utils.log import logger
 
 
 class SpecDetailPlayerMonitor(SpecDetailBase):
+    PLAYER_RANKING_LIMIT = 100
+    PROFILE_ENRICH_LIMIT = 20
+
     DEFAULT_GEAR_SLOTS = [
         'head', 'neck', 'shoulder', 'shirt', 'chest', 'waist', 'legs', 'feet',
         'wrist', 'hands', 'finger1', 'finger2', 'trinket1', 'trinket2',
@@ -52,7 +55,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         # 遍历所有专精
         for class_name, specs in CLASS_SPEC_MAP.items():
             for spec_name in specs:
-                # 从 Raider.IO 获取 Top 20
+                # 从 Raider.IO 获取榜单玩家
                 players = self._fetch_top_players(class_name, spec_name, rio_season)
                 if not players:
                     continue
@@ -137,24 +140,24 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
     REGIONS = ['us', 'eu', 'tw', 'kr', 'cn']
 
     def _fetch_top_players(self, class_name, spec_name, season):
-        """从 Raider.IO 获取全球 Top 20 玩家，优先使用世界榜。"""
-        top20 = self._fetch_world_top_players(class_name, spec_name, season)
+        """从 Raider.IO 获取全球榜单玩家，优先使用世界榜。"""
+        players = self._fetch_world_top_players(class_name, spec_name, season)
 
-        if len(top20) < 20:
+        if len(players) < self.PLAYER_RANKING_LIMIT:
             logger.warning(
-                f"[SpecDetailPlayer] world 榜单不足 20 条，回退到多地区聚合: {class_name}/{spec_name}"
+                f"[SpecDetailPlayer] world 榜单不足 {self.PLAYER_RANKING_LIMIT} 条，回退到多地区聚合: {class_name}/{spec_name}"
             )
-            top20 = self._fetch_top_players_from_regions(class_name, spec_name, season)
+            players = self._fetch_top_players_from_regions(class_name, spec_name, season)
 
-        # 为 Top 20 玩家补充结构化天赋数据
-        self._enrich_talents(top20)
+        # 只有前排玩家需要补充装备/天赋/属性等昂贵 profile 数据；race/faction 在榜单响应里已包含。
+        self._enrich_talents(players[:self.PROFILE_ENRICH_LIMIT])
 
-        return top20
+        return players
 
     def _fetch_world_top_players(self, class_name, spec_name, season):
-        """直接抓取 Raider.IO 世界榜前 20。"""
+        """直接抓取 Raider.IO 世界榜。"""
         data = self.fetch_raiderio_top(
-            class_name, spec_name, season, region='world', limit=20, page=0
+            class_name, spec_name, season, region='world', limit=self.PLAYER_RANKING_LIMIT, page=0
         )
         if not data:
             return []
@@ -163,7 +166,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         ranked_characters = rankings.get('rankedCharacters', []) if isinstance(rankings, dict) else []
 
         result = []
-        for r in ranked_characters[:20]:
+        for r in ranked_characters[:self.PLAYER_RANKING_LIMIT]:
             player = self._build_player_from_ranking(class_name, spec_name, r)
             if player:
                 result.append(player)
@@ -175,7 +178,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         for region in self.REGIONS:
             data = self.fetch_raiderio_top(
-                class_name, spec_name, season, region=region, limit=20, page=0
+                class_name, spec_name, season, region=region, limit=self.PLAYER_RANKING_LIMIT, page=0
             )
             if not data:
                 continue
@@ -191,7 +194,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             time.sleep(0.3)  # 限速
 
         all_players.sort(key=lambda p: p.get('score', 0) or 0, reverse=True)
-        return all_players[:20]
+        return all_players[:self.PLAYER_RANKING_LIMIT]
 
     def _build_player_from_ranking(self, class_name, spec_name, ranking):
         """将 Raider.IO 排名响应中的单个角色转换为统一结构。"""
@@ -287,7 +290,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         return str(char_data.get('talentLoadoutText') or '').strip()
 
     def _enrich_talents(self, players):
-        """为 Top 20 玩家补充结构化天赋+装备数据。
+        """为前排玩家补充结构化天赋+装备数据。
         
         执行顺序：
         1. 先调用 Raider.IO profile 获取装备+天赋（数据最完整，有 enchants_detail/gems_detail）
