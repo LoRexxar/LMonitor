@@ -221,7 +221,7 @@
                                         class="talent-choice-popup-option{% if option.is_active %} is-active{% endif %}"
                                         onclick="window.open('{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}', '_blank')"
                                         data-option-name="{{ option.name|default:'未命名' }}"
-                                        data-option-desc="{{ option.description_zh|default:option.description|default:'' }}"
+                                        data-option-desc="{% if option.description_zh %}{{ option.description_zh }}{% elif option.description %}{{ option.description }}{% endif %}"
                                     >
                                         <div class="talent-choice-popup-icon">
                                             {% if option.icon %}
@@ -232,6 +232,17 @@
                                         </div>
                                         <div class="talent-choice-popup-name">{{ option.name|default:"未命名" }}</div>
                                         <div class="talent-choice-popup-rate">{{ option.usage_pct }}% · {{ option.count }} 人</div>
+                                        {% if option.top_players %}
+                                        <div class="talent-tooltip-top-players is-compact">
+                                            <div class="talent-tooltip-top-title">Top DPS</div>
+                                            {% for player in option.top_players %}
+                                            <div class="talent-tooltip-player-row">
+                                                <span class="talent-tooltip-player-name" title="{{ player.name }}{% if player.realm %}-{{ player.realm }}{% endif %}">{{ player.name }}{% if player.realm %}-{{ player.realm }}{% endif %}</span>
+                                                <span class="talent-tooltip-player-dps">{% if player.dps_fmt %}{{ player.dps_fmt }}{% elif player.score_fmt %}{{ player.score_fmt }}{% endif %}</span>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                        {% endif %}
                                     </span>
                                     {% endfor %}
                                 </div>
@@ -243,6 +254,17 @@
                                     <div class="talent-node-tooltip-desc">{{ node.description_zh }}</div>
                                     {% elif node.description %}
                                     <div class="talent-node-tooltip-desc">{{ node.description }}</div>
+                                    {% endif %}
+                                    {% if node.top_players %}
+                                    <div class="talent-tooltip-top-players">
+                                        <div class="talent-tooltip-top-title">Top 5 DPS</div>
+                                        {% for player in node.top_players %}
+                                        <div class="talent-tooltip-player-row">
+                                            <span class="talent-tooltip-player-name" title="{{ player.name }}{% if player.realm %}-{{ player.realm }}{% endif %}">{{ player.name }}{% if player.realm %}-{{ player.realm }}{% endif %}</span>
+                                            <span class="talent-tooltip-player-dps">{% if player.dps_fmt %}{{ player.dps_fmt }}{% elif player.score_fmt %}{{ player.score_fmt }}{% endif %}</span>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
                                     {% endif %}
                                 </div>
                                 {% endwith %}
@@ -720,6 +742,44 @@
     line-height: 1.5;
     white-space: normal;
 }
+.talent-tooltip-top-players {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(148,163,184,.22);
+}
+.talent-tooltip-top-players.is-compact {
+    width: 100%;
+    margin-top: 6px;
+    padding-top: 6px;
+}
+.talent-tooltip-top-title {
+    color: #93c5fd;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+.talent-tooltip-player-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    color: #e2e8f0;
+    font-size: 11px;
+    line-height: 1.5;
+}
+.talent-tooltip-player-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.talent-tooltip-player-dps {
+    flex: 0 0 auto;
+    color: #facc15;
+    font-variant-numeric: tabular-nums;
+}
+
 /* ===== Choice Node Popup (hover to reveal options) ===== */
 .talent-choice-popup {
     display: none;

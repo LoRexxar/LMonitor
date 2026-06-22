@@ -655,7 +655,7 @@ class SpecStatsService:
             }
 
         # 天赋/装备热门度（概览也展示）
-        records = list(qs.values('talents_json', 'talent_build_code', 'gear_json', 'faction', 'character_name', 'realm', 'region'))
+        records = list(qs.values('talents_json', 'talent_build_code', 'gear_json', 'faction', 'character_name', 'realm', 'region', 'dps'))
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -922,7 +922,7 @@ def _valid_talent_records(records):
 
 
 def _build_talent_usage_snapshot(records, class_name, spec_name):
-    """聚合统计页热门天赋所需的节点、使用率与父子连线。"""
+    """聚合统计页热门天赋所需的节点、使用率、玩家样本与父子连线。"""
     records = _valid_talent_records(records)
     total = len(records)
     provider = TalentMetadataProvider()
@@ -932,7 +932,7 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
 
     hero_subtree_counts = Counter()
 
-    for record in records:
+    for record_index, record in enumerate(records):
         record_nodes = {}
         identity_lookup = {}
         for raw in record.get('talents_json') or []:
@@ -965,8 +965,15 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
                 'name': node.name or (f"技能ID {node.spell_id or node.talent_id or node.node_id}"),
                 'icon': node.icon or '',
                 'count': 0,
+                'top_players': [],
+                '_player_keys': set(),
             })
             usage_item['count'] += 1
+            player_payload = _talent_usage_player_payload(record, record_index)
+            player_key = player_payload.get('player_key')
+            if player_key and player_key not in usage_item['_player_keys']:
+                usage_item['_player_keys'].add(player_key)
+                usage_item['top_players'].append(player_payload)
             if node_key not in canonical_nodes or _score_talent_node(node) >= _score_talent_node(canonical_nodes[node_key]):
                 canonical_nodes[node_key] = node
                 usage_item.update({
@@ -989,10 +996,24 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
     usage_list = []
     for node_key, item in usage.items():
         pct = round(item['count'] / total * 100, 1) if total else 0
+        top_players = sorted(
+            item.get('top_players') or [],
+            key=lambda player: (player.get('sort_score') or 0, player.get('dps') or 0),
+            reverse=True,
+        )[:5]
+        clean_item = {
+            key: value
+            for key, value in item.items()
+            if key not in {'_player_keys', 'top_players'}
+        }
         usage_list.append({
-            **item,
+            **clean_item,
             'usage_pct': pct,
             'pct': pct,
+            'top_players': [
+                {key: value for key, value in player.items() if key not in {'player_key', 'sort_score'}}
+                for player in top_players
+            ],
         })
 
     usage_list.sort(key=lambda item: (-item['usage_pct'], item['name']))
@@ -1003,6 +1024,30 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
         'canonical_nodes': canonical_nodes,
         'parent_edges': parent_edges,
         'hero_subtree_counts': dict(hero_subtree_counts),
+    }
+
+
+def _talent_usage_player_payload(record, record_index):
+    character_name = (record.get('character_name') or '').strip() or '未知玩家'
+    realm = (record.get('realm') or '').strip()
+    region = (record.get('region') or '').strip()
+    dps = record.get('dps') or 0
+    score = record.get('score') or 0
+    player_key = ':'.join([
+        (region or '').lower(),
+        (realm or '').lower(),
+        character_name.lower(),
+    ]) or f'row:{record_index}'
+    return {
+        'player_key': player_key,
+        'name': character_name,
+        'realm': realm,
+        'region': region,
+        'dps': dps,
+        'dps_fmt': f'{dps:,.0f}' if dps else '',
+        'score': score,
+        'score_fmt': f'{score:.1f}' if score else '',
+        'sort_score': dps,
     }
 
 
@@ -1244,6 +1289,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
             is_highlighted = any(candidate_key in highlighted_keys for candidate_key in candidate_keys)
             usage_pct = usage_item.get('usage_pct', 0)
             usage_count = usage_item.get('count', 0)
+            top_players = usage_item.get('top_players') or []
             has_icon = bool(raw_node.get('icon'))
             has_name = bool(raw_node.get('name'))
 
@@ -1253,6 +1299,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
                 'is_highlighted': is_highlighted,
                 'usage_pct': usage_pct,
                 'usage_count': usage_count,
+                'top_players': top_players,
                 'has_icon': has_icon,
                 'has_name': has_name,
             })
@@ -1273,6 +1320,11 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         # 否则二选一或 hero 节点的 base key 未命中时会显示成全灰 0%。
         display_usage_pct = max((c['usage_pct'] or 0) for c in candidates)
         display_usage_count = max((c['usage_count'] or 0) for c in candidates)
+        display_top_players = []
+        for candidate in candidates:
+            if candidate.get('usage_count') == display_usage_count:
+                display_top_players = candidate.get('top_players') or []
+                break
         base_is_highlighted = any(c['is_highlighted'] for c in candidates) or display_usage_count > 0
 
         # 构建 base 节点
@@ -1284,6 +1336,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         node.count = display_usage_count
         node.usage_pct = display_usage_pct
         node.pct = display_usage_pct
+        node.top_players = display_top_players
 
         # 合并组中其它节点作为 choice_options
         choice_options = []
@@ -1312,6 +1365,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
                     'count': option_usage.get('count', 0),
                     'usage_pct': option_usage_pct,
                     'pct': option_usage_pct,
+                    'top_players': option_usage.get('top_players') or [],
                     'is_active': (option_usage.get('count', 0) or 0) > 0,
                 })
 
@@ -1544,6 +1598,7 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
         node_payload['count'] = usage_item.get('count', fallback_count)
         node_payload['usage_pct'] = usage_item.get('usage_pct', fallback_pct)
         node_payload['pct'] = usage_item.get('usage_pct', fallback_pct)
+        node_payload['top_players'] = usage_item.get('top_players', node_payload.get('top_players') or [])
         node_payload['is_highlighted'] = node_payload.get('node_key') in highlighted_set or bool(node_payload.get('selected'))
         return node_payload
 

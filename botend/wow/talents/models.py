@@ -60,6 +60,7 @@ class TalentNodeModel:
     db2_subtree_id: int = 0
     description: str = ''
     description_zh: str = ''
+    top_players: list[dict] = field(default_factory=list)
 
     @property
     def key(self):
@@ -112,6 +113,7 @@ class TalentNodeModel:
             db2_subtree_id=int(raw.get('db2_subtree_id') or 0),
             description=raw.get('description') or '',
             description_zh=raw.get('description_zh') or '',
+            top_players=[dict(player) for player in (raw.get('top_players') or raw.get('topPlayers') or []) if isinstance(player, dict)],
         )
 
     def to_dict(self):
