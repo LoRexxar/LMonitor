@@ -1100,15 +1100,15 @@ def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name):
             db2_subtree_id__in=subtree_ids,
         ).exclude(name='').values('db2_subtree_id', 'name', 'name_zh')
         for anchor in anchors:
-            anchor_names[anchor['db2_subtree_id']] = anchor.get('name_zh') or anchor.get('name') or ''
+            anchor_name = anchor.get('name') or ''
+            anchor_names[anchor['db2_subtree_id']] = anchor.get('name_zh') or hero_subtree_name_zh(anchor_name) or anchor_name
 
     summary = []
     for subtree_id, nodes in sorted(hero_nodes_by_subtree.items(), key=lambda item: item[0] or 0):
-        node_names = [node.name for node in nodes if node.name]
-        fallback_name = node_names[0] if node_names else (f"英雄天赋 {subtree_id}" if subtree_id else '英雄天赋')
+        fallback_name = f"英雄天赋 {subtree_id}" if subtree_id else '英雄天赋'
         summary.append({
             'subtree_id': subtree_id,
-            'name': anchor_names.get(subtree_id) or fallback_name,
+            'name': _hero_subtree_name_from_table(subtree_id) or anchor_names.get(subtree_id) or fallback_name,
             'selected_count': len(nodes),
         })
     return summary

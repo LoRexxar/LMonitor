@@ -702,8 +702,8 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         result = _compute_talent_build_popularity(records, 'DeathKnight', 'Blood', top_n=10)
 
         self.assertEqual([item['diff_count'] for item in result['builds']], [0, 0])
-        self.assertEqual(result['builds'][0]['hero_talent_summary'][0]['name'], 'Deathbringer')
-        self.assertEqual(result['builds'][1]['hero_talent_summary'][0]['name'], "San'layn")
+        self.assertEqual(result['builds'][0]['hero_talent_summary'][0]['name'], '死亡使者')
+        self.assertEqual(result['builds'][1]['hero_talent_summary'][0]['name'], '萨莱因')
 
     @patch('botend.wow.talents.metadata.TalentMetadataProvider.get_full_tree_nodes')
     @patch('botend.wow.talents.adapters.TalentMetadataProvider')
