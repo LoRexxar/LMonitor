@@ -82,6 +82,7 @@ def upsert_system_alert(category, subject, level, title, content):
                     'level',
                     'title',
                     'content',
+                    'dedup_key',
                     'count',
                     'last_seen_at',
                     'is_read',

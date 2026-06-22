@@ -98,7 +98,11 @@ class SpecDetailBase(BaseScan):
 
                 payload = resp.json()
                 if payload.get('errors'):
-                    logger.error(f"[SpecDetail] WCL GraphQL 错误: {payload['errors']}")
+                    errors = payload['errors']
+                    if self._is_wcl_report_permission_error(errors):
+                        logger.warning(f"[SpecDetail] WCL report 无权限，跳过该日志: {errors}")
+                    else:
+                        logger.error(f"[SpecDetail] WCL GraphQL 错误: {errors}")
                     return None
                 return payload.get('data')
             except Exception as e:
@@ -106,6 +110,20 @@ class SpecDetailBase(BaseScan):
                 if attempt < retries - 1:
                     time.sleep(1)
         return None
+
+    def _is_wcl_report_permission_error(self, errors):
+        """WCL 私有日志/无权限日志是排名样本里的可预期缺口，不写后台错误记录。"""
+        for error in errors or []:
+            message = str((error or {}).get('message') or '')
+            path = (error or {}).get('path') or []
+            if (
+                'permission to view this report' in message.lower()
+                and len(path) >= 2
+                and path[0] == 'reportData'
+                and path[1] == 'report'
+            ):
+                return True
+        return False
 
     def fetch_wcl_rankings(self, encounter_id, class_name, spec_name, metric='dps', difficulty=None, page=1):
         """
