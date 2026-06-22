@@ -1272,8 +1272,16 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             ['Heart Strike', 'Marrowrend'],
         )
 
+    @patch('botend.services.spec_stats_service.WowTalentNodeMetadata')
+    @patch('botend.services.spec_stats_service.connection')
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
-    def test_popularity_tree_renders_two_hero_subtrees_stacked(self, mock_provider_cls):
+    def test_popularity_tree_renders_two_hero_subtrees_stacked(self, mock_provider_cls, mock_connection, mock_metadata):
+        mock_metadata.objects.filter.return_value.exclude.return_value.values_list.return_value = []
+        mock_cursor = mock_connection.cursor.return_value.__enter__.return_value
+        mock_cursor.fetchall.side_effect = [
+            [(None, 'Deathbringer')],
+            [(None, 'Rider of the Apocalypse')],
+        ]
         mock_provider_cls.return_value.merge_into_node.side_effect = (
             lambda node, class_name='', spec_name='': node
         )
@@ -1300,7 +1308,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
 
         trees = talent_tree['render_model']['trees']
         self.assertEqual([tree['tree_type'] for tree in trees], ['class', 'hero', 'hero', 'spec'])
-        self.assertEqual([tree['title'] for tree in trees], ['职业天赋', '英雄天赋 1', '英雄天赋 2', '专精天赋'])
+        self.assertEqual([tree['title'] for tree in trees], ['职业天赋', 'Deathbringer', 'Rider of the Apocalypse', '专精天赋'])
         hero_panels = [tree['panel'] for tree in trees if tree['tree_type'] == 'hero']
         self.assertEqual(hero_panels[0]['x'], hero_panels[1]['x'])
         self.assertLess(hero_panels[0]['y'], hero_panels[1]['y'])

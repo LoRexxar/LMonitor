@@ -5,6 +5,7 @@
 """
 
 from collections import Counter, defaultdict
+from django.db import connection
 from django.db.models import Avg, Max, Min, StdDev
 
 from botend.models import (
@@ -841,7 +842,45 @@ def _talent_tree_render_title(tree_type, hero_index=None):
     return _talent_tree_label(tree_type)
 
 
+def _is_placeholder_hero_subtree_name(name):
+    if not name:
+        return True
+    normalized = str(name).strip().lower()
+    return (
+        normalized in {'ph', 'placeholder'}
+        or '[dnt]' in normalized
+        or normalized.startswith('ping cho:')
+    )
+
+
+def _hero_subtree_name_from_table(subtree_id):
+    if not subtree_id:
+        return ''
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT hero_name_zh, hero_name
+                FROM wow_talent_hero_subtree
+                WHERE subtree_id = %s
+                  AND hero_name <> ''
+                ORDER BY node_count DESC, id ASC
+                """,
+                [subtree_id],
+            )
+            for hero_name_zh, hero_name in cursor.fetchall():
+                title = hero_name_zh or hero_name or ''
+                if not _is_placeholder_hero_subtree_name(title):
+                    return title
+    except Exception:
+        return ''
+    return ''
+
+
 def _hero_subtree_display_title(class_name, spec_name, subtree_id, hero_index=None):
+    title = _hero_subtree_name_from_table(subtree_id)
+    if title:
+        return title
     if subtree_id:
         anchor = WowTalentNodeMetadata.objects.filter(
             class_name=class_name or '',
