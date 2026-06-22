@@ -778,7 +778,7 @@ class SeasonMeta(models.Model):
 
 
 class PlayerSpecTopPlayer(models.Model):
-    """人物榜（Raider.IO + Battle.net），每角色每专精每赛季 1 条，Top 20 专用"""
+    """人物资料缓存（Raider.IO + Battle.net），每角色每专精每赛季 1 条"""
     season_id = models.IntegerField("赛季ID", help_text="赛季 ID")
     region = models.CharField("区域", max_length=10, help_text="区域 us/eu/kr/tw")
     realm = models.CharField("服务器", max_length=50, help_text="服务器")

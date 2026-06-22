@@ -19,8 +19,9 @@ from utils.log import logger
 
 
 class SpecDetailPlayerMonitor(SpecDetailBase):
-    PLAYER_RANKING_LIMIT = 100
+    PLAYER_RANKING_LIMIT = 20
     PROFILE_ENRICH_LIMIT = 20
+    RANKING_SAMPLE_BACKFILL_LIMIT = 100
 
     DEFAULT_GEAR_SLOTS = [
         'head', 'neck', 'shoulder', 'shirt', 'chest', 'waist', 'legs', 'feet',
@@ -118,12 +119,12 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                         except Exception as e:
                             logger.warning(f"[SpecDetailPlayer] 插入失败 {player.get('name')}: {e}")
 
-                    stale_ids = [
-                        row.id for key, row in existing_map.items()
-                        if key not in seen_keys
-                    ]
-                    if stale_ids:
-                        PlayerSpecTopPlayer.objects.filter(id__in=stale_ids).delete()
+                self._backfill_ranking_sample_profiles(
+                    season.id,
+                    class_name,
+                    spec_name,
+                    limit=self.RANKING_SAMPLE_BACKFILL_LIMIT,
+                )
 
                 time.sleep(0.2)
 
@@ -195,6 +196,147 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         all_players.sort(key=lambda p: p.get('score', 0) or 0, reverse=True)
         return all_players[:self.PLAYER_RANKING_LIMIT]
+
+    def _backfill_ranking_sample_profiles(self, season_id, class_name, spec_name, limit=100):
+        """按当前 ranking 样本定向补齐人物资料缓存，避免盲目扩大人物榜采集。"""
+        from botend.models import PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking
+
+        sample_map = {}
+        ranking_fields = ('region', 'realm', 'character_name', 'faction', 'gear_json', 'talent_build_code', 'talents_json', 'guild_name')
+
+        dungeon_ids = SpecDungeonRanking.objects.filter(
+            season_id=season_id,
+            class_name=class_name,
+            spec_name=spec_name,
+        ).values_list('dungeon_id', flat=True).distinct()
+        for dungeon_id in dungeon_ids:
+            rows = SpecDungeonRanking.objects.filter(
+                season_id=season_id,
+                dungeon_id=dungeon_id,
+                class_name=class_name,
+                spec_name=spec_name,
+            ).order_by('-dps').values(*ranking_fields)[:limit]
+            self._add_profile_rows_to_sample_map(sample_map, rows)
+
+        boss_ids = SpecRaidRanking.objects.filter(
+            season_id=season_id,
+            class_name=class_name,
+            spec_name=spec_name,
+        ).values_list('boss_id', flat=True).distinct()
+        for boss_id in boss_ids:
+            rows = SpecRaidRanking.objects.filter(
+                season_id=season_id,
+                boss_id=boss_id,
+                class_name=class_name,
+                spec_name=spec_name,
+            ).order_by('-dps').values(*ranking_fields)[:limit]
+            self._add_profile_rows_to_sample_map(sample_map, rows)
+
+        if not sample_map:
+            return 0
+
+        existing = {}
+        for profile in PlayerSpecTopPlayer.objects.filter(
+            season_id=season_id,
+            class_name=class_name,
+            spec_name=spec_name,
+        ):
+            key = self._profile_identity_key(profile.region, profile.realm, profile.character_name)
+            if key:
+                existing[key] = profile
+
+        updated = 0
+        for key, row in sample_map.items():
+            profile = existing.get(key)
+            needs_profile = self._profile_needs_rio_enrichment(profile)
+            if not profile:
+                profile = PlayerSpecTopPlayer(
+                    season_id=season_id,
+                    region=(row.get('region') or '').strip().lower(),
+                    realm=(row.get('realm') or '').strip(),
+                    character_name=(row.get('character_name') or '').strip(),
+                    class_name=class_name,
+                    spec_name=spec_name,
+                    rank=None,
+                    stats_crawl_status=0,
+                )
+
+            self._apply_ranking_row_to_profile(profile, row)
+            if needs_profile and (profile.region or '').lower() != 'cn':
+                self._enrich_profile_model_from_raiderio(profile)
+                time.sleep(0.2)
+
+            profile.last_updated = timezone.now()
+            profile.save()
+            existing[key] = profile
+            updated += 1
+
+        logger.info(f"[SpecDetailPlayer] 定向补齐 ranking 样本: {class_name}/{spec_name} {updated} 条")
+        return updated
+
+    def _add_profile_rows_to_sample_map(self, sample_map, rows):
+        for row in rows:
+            key = self._profile_identity_key(row.get('region'), row.get('realm'), row.get('character_name'))
+            if key and key not in sample_map:
+                sample_map[key] = row
+
+    @staticmethod
+    def _profile_identity_key(region, realm, character_name):
+        region = (region or '').strip().lower()
+        realm = (realm or '').strip().lower()
+        character_name = (character_name or '').strip().lower()
+        if not region or not realm or not character_name:
+            return None
+        return region, realm, character_name
+
+    @staticmethod
+    def _profile_needs_rio_enrichment(profile):
+        if not profile:
+            return True
+        gear = profile.gear_json or []
+        has_profile_gear = any(
+            isinstance(item, dict) and (item.get('gems_detail') or item.get('enchants_detail') or item.get('source') == 'raiderio_profile')
+            for item in gear
+        )
+        return not has_profile_gear or not profile.talent_build_code
+
+    def _apply_ranking_row_to_profile(self, profile, row):
+        if row.get('faction') is not None and profile.faction in (None, ''):
+            profile.faction = str(row.get('faction'))
+        if row.get('guild_name') and not profile.guild_name:
+            profile.guild_name = row.get('guild_name')
+        if row.get('talent_build_code') and not profile.talent_build_code:
+            profile.talent_build_code = row.get('talent_build_code')
+        if row.get('talents_json') and not profile.talents_json:
+            profile.talents_json = self._normalize_talent_nodes(row.get('talents_json'), profile.class_name, profile.spec_name)
+        if row.get('gear_json') and not profile.gear_json:
+            profile.gear_json = self._normalize_gear_list(row.get('gear_json'))
+
+    def _enrich_profile_model_from_raiderio(self, profile):
+        char_data = self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
+        if not char_data:
+            return False
+
+        gear_items = self._parse_rio_gear(char_data.get('gear'))
+        if gear_items:
+            profile.gear_json = self._normalize_gear_list(gear_items)
+            item_level = self._coerce_item_level(char_data.get('gear'))
+            if item_level:
+                profile.item_level = item_level
+        profile.achievement_points = char_data.get('achievement_points') or profile.achievement_points
+        profile.profile_url = char_data.get('profile_url') or profile.profile_url
+        profile.avatar_url = char_data.get('thumbnail_url') or profile.avatar_url
+        profile.race = char_data.get('race') or profile.race
+        profile.faction = char_data.get('faction') or profile.faction
+
+        talent_build_code = self._extract_rio_talent_build_code(char_data)
+        if talent_build_code:
+            profile.talent_build_code = talent_build_code
+        elif not profile.talents_json:
+            structured = self._parse_rio_talents_from_profile(char_data)
+            if structured:
+                profile.talents_json = self._normalize_talent_nodes(structured, profile.class_name, profile.spec_name)
+        return True
 
     def _build_player_from_ranking(self, class_name, spec_name, ranking):
         """将 Raider.IO 排名响应中的单个角色转换为统一结构。"""
