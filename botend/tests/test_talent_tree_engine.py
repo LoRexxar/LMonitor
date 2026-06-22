@@ -1308,7 +1308,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
 
         trees = talent_tree['render_model']['trees']
         self.assertEqual([tree['tree_type'] for tree in trees], ['class', 'hero', 'hero', 'spec'])
-        self.assertEqual([tree['title'] for tree in trees], ['职业天赋', 'Deathbringer', 'Rider of the Apocalypse', '专精天赋'])
+        self.assertEqual([tree['title'] for tree in trees], ['职业天赋', '死亡使者', '天启骑士', '专精天赋'])
         hero_panels = [tree['panel'] for tree in trees if tree['tree_type'] == 'hero']
         self.assertEqual(hero_panels[0]['x'], hero_panels[1]['x'])
         self.assertLess(hero_panels[0]['y'], hero_panels[1]['y'])

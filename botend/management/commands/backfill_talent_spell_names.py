@@ -10,14 +10,10 @@ from django.db.models import Q
 from django.utils import timezone
 
 from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
+from botend.constants.hero_talents import HERO_SUBTREE_NAME_ZH
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata, WowWagoMonitorState
 from botend.wow.db2_dump import load_db2_dump_map, load_db2_dump_rows
 
-
-HERO_SUBTREE_NAME_ZH = {
-    'Shado-Pan': '影踪派',
-    'Conduit of the Celestials': '天神御师',
-}
 
 
 class Command(BaseCommand):
