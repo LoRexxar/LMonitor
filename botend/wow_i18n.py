@@ -60,7 +60,7 @@ PEAK_SPEC_CN = {
 
 PEAK_CLASS_SPEC_CN = {
     ("druid", "restoration"): "奶德",
-    ("shaman", "restoration"): "恢复",
+    ("shaman", "restoration"): "奶萨",
     ("druid", "guardian"): "熊德",
     ("paladin", "holy"): "神圣",
     ("priest", "holy"): "神圣",
