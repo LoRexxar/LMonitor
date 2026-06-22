@@ -78,7 +78,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         """采集 M+ 副本排名：保留更多原始日志，聚合阶段再筛选 100 人样本。"""
         logger.info(f"[SpecDetailRanking] 采集 M+ 排名: {len(season.mplus_encounters)} 副本 x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
-        target_per_spec = 200
+        target_per_spec = 300
         total = 0
         empty_talent_total = 0
         now = timezone.now()
