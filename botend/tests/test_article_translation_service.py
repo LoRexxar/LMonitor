@@ -12,12 +12,14 @@ from botend.services.article_content_service import (
 )
 from botend.services.article_translation_service import (
     ArticleTranslationService,
+    FallbackTranslationEngine,
     GLMTranslationEngine,
     build_translation_service,
 )
 
 
 class FakeEngine:
+    name = "fake"
     last_error = ""
 
     def __init__(self, responses=None, available=True):
@@ -96,13 +98,36 @@ class ArticleTranslationServiceTests(SimpleTestCase):
         self.assertIs(svc.engine, engine)
         self.assertEqual(svc.translate_title("Title"), "标题")
 
+    def test_fallback_engine_uses_codex_when_glm_returns_empty(self):
+        glm = FakeEngine([""], available=True)
+        glm.name = "glm"
+        codex = FakeEngine(["兜底标题"], available=True)
+        codex.name = "codex"
+        engine = FallbackTranslationEngine([glm, codex])
+        svc = ArticleTranslationService(engine=engine, sleep_func=lambda _: None)
+
+        self.assertEqual(svc.translate_title("Title"), "兜底标题")
+        self.assertEqual(len(glm.prompts), 1)
+        self.assertEqual(len(codex.prompts), 1)
+
     @patch("botend.services.article_translation_service.GLMClient")
-    def test_default_registry_builds_glm_engine(self, mock_glm_client):
+    def test_glm_registry_builds_glm_engine(self, mock_glm_client):
         mock_glm_client.return_value.api_key = "fake"
 
         svc = build_translation_service(engine_name="glm", sleep_func=lambda _: None)
 
         self.assertIsInstance(svc.engine, GLMTranslationEngine)
+        self.assertTrue(svc.available())
+
+    @patch("botend.services.article_translation_service.CodexTranslationEngine")
+    @patch("botend.services.article_translation_service.GLMTranslationEngine")
+    def test_default_registry_builds_fallback_engine(self, mock_glm_engine, mock_codex_engine):
+        mock_glm_engine.return_value.available.return_value = False
+        mock_codex_engine.return_value.available.return_value = True
+
+        svc = build_translation_service(sleep_func=lambda _: None)
+
+        self.assertIsInstance(svc.engine, FallbackTranslationEngine)
         self.assertTrue(svc.available())
 
 

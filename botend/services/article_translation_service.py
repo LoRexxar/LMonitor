@@ -1,6 +1,10 @@
 import json
 import time
-from typing import Any, Callable, Dict, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
+from urllib.parse import urljoin
+
+import requests
+from django.conf import settings
 
 from core.glm import GLMClient
 from botend.services.article_content_service import dumps_blocks, loads_blocks, translate_blocks
@@ -26,8 +30,95 @@ class GLMTranslationEngine:
         return self.client.send_message(prompt, max_tokens=max_tokens, thinking_type="disabled") or ""
 
 
-TRANSLATION_ENGINES: Dict[str, Type[GLMTranslationEngine]] = {
+class CodexTranslationEngine:
+    """OpenAI-compatible fallback engine backed by settings.CODEX_API_CONFIG."""
+
+    name = "codex"
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        self.config = config if config is not None else (getattr(settings, "CODEX_API_CONFIG", {}) or {})
+        self.last_error = ""
+
+    def available(self) -> bool:
+        return bool((self.config.get("api_key") or "").strip() and (self.config.get("base_url") or "").strip())
+
+    def send_message(self, prompt: str, *, max_tokens: int) -> str:
+        self.last_error = ""
+        if not self.available():
+            self.last_error = "CODEX_API_CONFIG 缺少 api_key/base_url"
+            return ""
+        base_url = (self.config.get("base_url") or "").strip().rstrip("/") + "/"
+        url = urljoin(base_url, "v1/chat/completions")
+        model = (self.config.get("model") or "gpt-5.5").strip()
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "你是专业的游戏资讯翻译。只输出用户要求的翻译结果，不要添加解释。"},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+        }
+        try:
+            resp = requests.post(
+                url,
+                headers={
+                    "Authorization": "Bearer {}".format((self.config.get("api_key") or "").strip()),
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=int(self.config.get("request_timeout_seconds", 90) or 90),
+            )
+            if resp.status_code >= 400:
+                self.last_error = "Codex HTTP bad status={}: {}".format(resp.status_code, (resp.text or "")[:300])
+                return ""
+            data = resp.json()
+            choices = data.get("choices") or []
+            if not choices:
+                self.last_error = "Codex response missing choices"
+                return ""
+            content = ((choices[0].get("message") or {}).get("content") or "").strip()
+            if not content:
+                self.last_error = "Codex response empty content"
+            return content
+        except Exception as e:
+            self.last_error = "Codex request failed: {}".format(str(e)[:300])
+            return ""
+
+
+class FallbackTranslationEngine:
+    name = "fallback"
+
+    def __init__(self, engines: Optional[List[Any]] = None):
+        self.engines = engines if engines is not None else [GLMTranslationEngine(), CodexTranslationEngine()]
+        self.last_error = ""
+
+    def available(self) -> bool:
+        return any(getattr(engine, "available", lambda: False)() for engine in self.engines)
+
+    def send_message(self, prompt: str, *, max_tokens: int) -> str:
+        errors = []
+        for engine in self.engines:
+            if not getattr(engine, "available", lambda: False)():
+                errors.append("{} unavailable".format(getattr(engine, "name", engine.__class__.__name__)))
+                continue
+            try:
+                result = engine.send_message(prompt, max_tokens=max_tokens)
+            except Exception as e:
+                errors.append("{} exception: {}".format(getattr(engine, "name", engine.__class__.__name__), str(e)[:200]))
+                continue
+            if result:
+                self.last_error = ""
+                return result
+            errors.append("{} empty: {}".format(getattr(engine, "name", engine.__class__.__name__), getattr(engine, "last_error", "")))
+        self.last_error = "; ".join([e for e in errors if e])
+        return ""
+
+
+TRANSLATION_ENGINES: Dict[str, Type[Any]] = {
     "glm": GLMTranslationEngine,
+    "codex": CodexTranslationEngine,
+    "fallback": FallbackTranslationEngine,
 }
 
 
@@ -39,7 +130,7 @@ class ArticleTranslationService:
     implementing the same engine interface and registering it in TRANSLATION_ENGINES.
     """
 
-    def __init__(self, engine: Any = None, engine_name: str = "glm", sleep_func: Callable[[float], None] = time.sleep):
+    def __init__(self, engine: Any = None, engine_name: str = "fallback", sleep_func: Callable[[float], None] = time.sleep):
         self.engine = engine if engine is not None else build_translation_engine(engine_name)
         self.sleep_func = sleep_func
 
@@ -158,12 +249,12 @@ class ArticleTranslationService:
         return any_translated
 
 
-def build_translation_engine(engine_name: str = "glm"):
-    engine_cls = TRANSLATION_ENGINES.get(engine_name or "glm")
+def build_translation_engine(engine_name: str = "fallback"):
+    engine_cls = TRANSLATION_ENGINES.get(engine_name or "fallback")
     if not engine_cls:
         raise ValueError(f"Unknown translation engine: {engine_name}")
     return engine_cls()
 
 
-def build_translation_service(engine_name: str = "glm", engine: Any = None, **kwargs) -> ArticleTranslationService:
+def build_translation_service(engine_name: str = "fallback", engine: Any = None, **kwargs) -> ArticleTranslationService:
     return ArticleTranslationService(engine=engine, engine_name=engine_name, **kwargs)
