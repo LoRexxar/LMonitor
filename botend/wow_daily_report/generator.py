@@ -889,9 +889,11 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                 profile = (getattr(r, "character_path", "") or "").strip()
                 url = "https://raider.io" + (profile if profile.startswith("/") else f"/{profile}") if profile else "https://raider.io"
                 score = getattr(r, "score", None)
+                class_cn = cn_class_spec(class_slug=r.class_slug, spec_slug="", class_name=class_name, spec_name="") or class_name
+                spec_cn = cn_class_spec(class_slug=r.class_slug, spec_slug=r.spec_slug, class_name="", spec_name=spec_name)
                 intro = _peak_new_player_fallback_intro(
-                    class_name=cn_class_spec(class_slug=r.class_slug, spec_slug="", class_name=class_name, spec_name="") or class_name,
-                    spec_name=cn_class_spec(class_slug="", spec_slug=r.spec_slug, class_name="", spec_name=spec_name) or spec_name,
+                    class_name=class_cn,
+                    spec_name=spec_cn or spec_name,
                     rank=rk,
                     new_player=name,
                     old_player=old_name,
@@ -907,8 +909,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                             "type": "peak_new_player",
                             "season": season,
                             "region": region,
-                            "class": cn_class_spec(class_slug=r.class_slug, spec_slug="", class_name=class_name, spec_name="") or class_name,
-                            "spec": cn_class_spec(class_slug="", spec_slug=r.spec_slug, class_name="", spec_name=spec_name) or spec_name,
+                            "class": class_cn,
+                            "spec": spec_cn or spec_name,
                             "rank": int(rk or 0),
                             "new_player": name,
                             "old_player": old_name,

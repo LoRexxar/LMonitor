@@ -543,8 +543,8 @@ const PEAK_SPEC_CN = {
   "devourer": "噬灭",
   "balance": "平衡",
   "feral": "野性",
-  "guardian": "熊德",
-  "restoration": "奶德",
+  "guardian": "守护",
+  "restoration": "恢复",
   "devastation": "湮灭",
   "preservation": "恩护",
   "augmentation": "增辉",
@@ -573,6 +573,14 @@ const PEAK_SPEC_CN = {
   "fury": "狂怒",
 };
 
+const PEAK_CLASS_SPEC_CN = {
+  "druid:restoration": "奶德",
+  "shaman:restoration": "恢复",
+  "druid:guardian": "熊德",
+  "paladin:holy": "神圣",
+  "priest:holy": "神圣",
+};
+
 function peakCnClass(slug, fallback) {
   const k = String(slug || "").toLowerCase();
   return PEAK_CLASS_CN[k] || fallback || slug || "";
@@ -581,6 +589,12 @@ function peakCnClass(slug, fallback) {
 function peakCnSpec(slug, fallback) {
   const k = String(slug || "").toLowerCase();
   return PEAK_SPEC_CN[k] || fallback || slug || "";
+}
+
+function peakCnClassSpec(classSlug, specSlug, fallback) {
+  const cls = String(classSlug || "").toLowerCase();
+  const spec = String(specSlug || "").toLowerCase();
+  return PEAK_CLASS_SPEC_CN[`${cls}:${spec}`] || peakCnSpec(specSlug, fallback);
 }
 
 function renderPeakSpecControls(payload) {
@@ -613,7 +627,7 @@ function renderPeakSpecGrid(containerId, payload) {
 
     const titleColor = classColor(classSlug);
     const softBg = mythicstatsHexToRgba(titleColor, 0.1);
-    const title = `${peakCnClass(classSlug, className)} · ${peakCnSpec(specSlug, specName)}`;
+    const title = `${peakCnClass(classSlug, className)} · ${peakCnClassSpec(classSlug, specSlug, specName)}`;
     const titleLower = String(title).toLowerCase();
 
     let filtered = top;

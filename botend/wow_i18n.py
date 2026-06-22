@@ -58,6 +58,15 @@ PEAK_SPEC_CN = {
 }
 
 
+PEAK_CLASS_SPEC_CN = {
+    ("druid", "restoration"): "奶德",
+    ("shaman", "restoration"): "恢复",
+    ("druid", "guardian"): "熊德",
+    ("paladin", "holy"): "神圣",
+    ("priest", "holy"): "神圣",
+}
+
+
 MYTHICSTATS_SPEC_CN = {
     "unholy-death-knight": "邪恶",
     "frost-death-knight": "冰霜",
@@ -124,9 +133,15 @@ def cn_spec_from_slug(slug, fallback=""):
     return PEAK_SPEC_CN.get(k) or (fallback or slug or "")
 
 
+def cn_spec_from_class_spec(class_slug, spec_slug, fallback=""):
+    cls = str(class_slug or "").strip().lower()
+    spec = str(spec_slug or "").strip().lower()
+    return PEAK_CLASS_SPEC_CN.get((cls, spec)) or cn_spec_from_slug(spec, fallback)
+
+
 def cn_class_spec(*, class_slug, spec_slug, class_name="", spec_name=""):
     cls = cn_class_from_slug(class_slug, class_name)
-    sp = cn_spec_from_slug(spec_slug, spec_name)
+    sp = cn_spec_from_class_spec(class_slug, spec_slug, spec_name)
     if cls and sp:
         return f"{cls}-{sp}"
     return cls or sp or ""
