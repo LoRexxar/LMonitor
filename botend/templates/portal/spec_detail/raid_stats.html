@@ -1579,8 +1579,13 @@
     box-shadow: 0 10px 24px rgba(2,6,23,.18);
 }
 .secondary-stat-name, .talent-card-name, .gear-name-link, .popularity-name,
-.popularity-stat, .dungeon-name, .zone-header h2 { color: #f8fafc; }
+.popularity-stat { color: #f8fafc; }
 .gear-name-link:hover, .popularity-mini-card:hover .popularity-name { color: #93c5fd; }
+.dungeon-card .dungeon-name,
+.zone-header h2 { color: #1e293b; }
+.dungeon-card .dungeon-meta { color: #64748b !important; }
+.dungeon-card .dungeon-meta strong { color: #1e293b; }
+.zone-header .zone-name-en { color: #64748b !important; }
 .secondary-stat-range { color: #cbd5e1; }
 .secondary-stat-bar, .talent-card-bar, .popularity-bar { background: rgba(51,65,85,.9); }
 .secondary-stat-fill, .talent-card-fill, .popularity-fill {
@@ -1635,18 +1640,20 @@
     box-shadow: 0 6px 12px rgba(37,99,235,.35);
 }
 .dungeon-card {
-    background: linear-gradient(135deg, rgba(30,41,59,.84), rgba(15,23,42,.94));
-    border: 1px solid rgba(148,163,184,.14);
-    box-shadow: 0 10px 24px rgba(2,6,23,.16);
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 10px 24px rgba(15,23,42,.08);
 }
 .dungeon-card::before {
-    background: linear-gradient(135deg, rgba(59,130,246,.12), rgba(37,99,235,0));
+    background: linear-gradient(135deg, rgba(37,99,235,.04), rgba(37,99,235,0));
 }
 .dungeon-card:hover {
-    border-color: rgba(96,165,250,.45);
-    box-shadow: 0 14px 32px rgba(2,6,23,.26);
+    border-color: #2563eb;
+    box-shadow: 0 14px 32px rgba(15,23,42,.14);
 }
-.dungeon-meta strong { color: #e0f2fe; }
+.dungeon-card .dungeon-name { color: #1e293b; }
+.dungeon-card .dungeon-meta { color: #64748b !important; }
+.dungeon-card .dungeon-meta strong { color: #1e293b; }
 .dps-bar { background: rgba(51,65,85,.9); }
 .dps-range { background: rgba(96,165,250,.4); }
 .dps-median { background: #60a5fa; }
