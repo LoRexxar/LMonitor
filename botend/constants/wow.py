@@ -244,7 +244,7 @@ RAID_BOSS_CN = {
     "Belo'ren, Child of Al'ar": "贝洛朗",
     "Midnight Falls": "至暗之夜降临",
     # Sporefall (孢子坠落)
-    "Rotmire": "烂泥沼泽",
+    "Rotmire": "腐沼幽境",
 }
 
 # 装备槽位英文 → 中文
