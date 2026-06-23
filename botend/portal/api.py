@@ -364,11 +364,18 @@ class PortalNgaHotAPIView(View):
 
 class PortalExwindLatestAPIView(View):
     def get(self, request):
+        source = (request.GET.get('source') or '').strip()
         since = timezone.now() - timedelta(days=7)
-        rows = (
-            WowArticle.objects.filter(source__in=['exwind', 'blizzard_cn'], is_active=True, publish_time__gte=since)
-            .order_by('-publish_time')[:60]
-        )
+        if source == 'nga_preview':
+            rows = (
+                WowArticle.objects.filter(source='nga', category='nga', author='nga前瞻区', is_active=True)
+                .order_by('-publish_time', '-id')[:60]
+            )
+        else:
+            rows = (
+                WowArticle.objects.filter(source__in=['exwind', 'blizzard_cn'], is_active=True, publish_time__gte=since)
+                .order_by('-publish_time')[:60]
+            )
         return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
 
 

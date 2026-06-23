@@ -395,8 +395,44 @@ const PORTAL_STATE = {
   activeMythicstatsPeriod: "",
   mythicstatsMeta: { dungeons: [], periods: [] },
   activeMythicstatsSeason: "",
+  activeExwindSource: "default",
+  exwindTabsBound: false,
   searchBound: false,
 };
+
+function getExwindUrl() {
+  const ep = SECTION_MAP.exwind;
+  if (!ep) return "";
+  if (PORTAL_STATE.activeExwindSource === "nga_preview") return `${ep.url}?source=nga_preview`;
+  return ep.url;
+}
+
+function renderExwindSourceTabs() {
+  const wrap = document.getElementById("exwind-source-tabs");
+  if (!wrap) return;
+  const active = PORTAL_STATE.activeExwindSource || "default";
+  wrap.querySelectorAll("[data-exwind-source]").forEach((btn) => {
+    const on = btn.getAttribute("data-exwind-source") === active;
+    btn.className = `px-3 py-1 rounded-full text-xs border ${on ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`;
+  });
+}
+
+function bindExwindSourceTabs() {
+  if (PORTAL_STATE.exwindTabsBound) return;
+  const wrap = document.getElementById("exwind-source-tabs");
+  if (!wrap) return;
+  wrap.querySelectorAll("[data-exwind-source]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const next = btn.getAttribute("data-exwind-source") || "default";
+      if (next === PORTAL_STATE.activeExwindSource) return;
+      PORTAL_STATE.activeExwindSource = next;
+      renderExwindSourceTabs();
+      await loadSection("exwind");
+      updateSearchMeta();
+    });
+  });
+  PORTAL_STATE.exwindTabsBound = true;
+}
 
 function classColor(slug) {
   const m = {
@@ -1378,6 +1414,9 @@ async function loadSection(key) {
 
   try {
     let url = ep.url;
+    if (key === "exwind") {
+      url = getExwindUrl();
+    }
     if (key === "mplus_rankings" && PORTAL_STATE.activeDungeon) {
       url = `${ep.url}?dungeon=${encodeURIComponent(PORTAL_STATE.activeDungeon)}`;
     }
@@ -1577,6 +1616,8 @@ async function loadAll() {
   await loadTools();
 
   bindSearch();
+  bindExwindSourceTabs();
+  renderExwindSourceTabs();
   await loadSection("blueposts");
   await loadSection("exwind");
   await loadSection("wowhead");
