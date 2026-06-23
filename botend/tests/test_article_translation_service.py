@@ -152,6 +152,24 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn({"type": "image", "url": "https://example.com/images/a.png", "alt": "A"}, blocks)
         self.assertIn("Class changes are live.", blocks_to_plain_text(blocks))
 
+    def test_extract_wowhead_article_keeps_inline_links_in_paragraph(self):
+        html = """
+        <div id="news-post"><div class="text">
+          <div>The <a href="/item=1">Sun Festival's Painted Roc</a>
+          is a brand new mount from this year's <a href="/event=341">Midsummer Fire Festival</a>
+          which drops from <span><img src="/icon.jpg" alt=""> Frost Lord Ahune</span>.</div>
+          <h2>Rewards</h2>
+          <div>Requires Level <a href="/spell=1">70</a> Max Stack: 1000</div>
+        </div></div>
+        """
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
+        text_blocks = [b for b in blocks if b["type"] in {"paragraph", "heading"}]
+
+        self.assertEqual(text_blocks[0]["text"], "The Sun Festival's Painted Roc is a brand new mount from this year's Midsummer Fire Festival which drops from Frost Lord Ahune.")
+        self.assertEqual(text_blocks[1], {"type": "heading", "text": "Rewards", "level": 2})
+        self.assertEqual(text_blocks[2]["text"], "Requires Level 70 Max Stack: 1000")
+
     def test_translate_blocks_preserves_non_text_blocks(self):
         blocks = [
             {"type": "heading", "text": "Patch Notes", "level": 2},

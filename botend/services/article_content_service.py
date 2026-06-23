@@ -62,12 +62,15 @@ def extract_structured_article(html_text: str, *, base_url: str = "", source: st
     if not root:
         return []
 
+    if source == "wowhead":
+        _normalize_wowhead_inline_breaks(root)
+
     blocks = []
     for child in root.children:
         _append_node_blocks(child, blocks, base_url=base_url)
 
     if not blocks:
-        text = root.get_text(separator="\n", strip=True)
+        text = _node_inline_text(root)
         blocks = plain_text_to_blocks(_clean_plain_text(text))
     return _dedupe_blocks(blocks)
 
@@ -156,18 +159,18 @@ def _append_node_blocks(node, blocks: List[Dict[str, Any]], *, base_url: str):
         return
 
     if name in {"h1", "h2", "h3", "h4"}:
-        _append_text_block(blocks, "heading", node.get_text(" ", strip=True), level=int(name[1]))
+        _append_text_block(blocks, "heading", _node_inline_text(node), level=int(name[1]))
         return
     if name == "p":
-        _append_text_block(blocks, "paragraph", node.get_text(" ", strip=True))
+        _append_text_block(blocks, "paragraph", _node_inline_text(node))
         return
     if name == "blockquote":
-        _append_text_block(blocks, "quote", node.get_text(" ", strip=True))
+        _append_text_block(blocks, "quote", _node_inline_text(node))
         return
     if name in {"ul", "ol"}:
         ordered = name == "ol"
         for li in node.find_all("li", recursive=False):
-            _append_text_block(blocks, "list_item", li.get_text(" ", strip=True), ordered=ordered)
+            _append_text_block(blocks, "list_item", _node_inline_text(li), ordered=ordered)
         return
     if name == "img":
         block = _image_block(node, base_url=base_url)
@@ -180,17 +183,73 @@ def _append_node_blocks(node, blocks: List[Dict[str, Any]], *, base_url: str):
         if block:
             caption = node.find("figcaption")
             if caption:
-                block["caption"] = caption.get_text(" ", strip=True)
+                block["caption"] = _node_inline_text(caption)
             blocks.append(block)
         return
 
-    direct_text = _clean_plain_text(node.get_text("\n", strip=True))
     if name in {"div", "section"}:
-        for child in node.children:
-            _append_node_blocks(child, blocks, base_url=base_url)
+        _append_container_blocks(node, blocks, base_url=base_url)
         return
+
+    direct_text = _node_inline_text(node)
     if direct_text:
         _append_text_block(blocks, "paragraph", direct_text)
+
+
+def _append_container_blocks(node, blocks: List[Dict[str, Any]], *, base_url: str):
+    inline_parts = []
+    for child in node.children:
+        child_name = getattr(child, "name", None)
+        if not child_name:
+            text = str(child).strip()
+            if text:
+                inline_parts.append(text)
+            continue
+        if child_name in {"br"}:
+            _flush_inline_parts(inline_parts, blocks)
+            continue
+        if child_name in _BLOCK_TAGS:
+            _flush_inline_parts(inline_parts, blocks)
+            _append_node_blocks(child, blocks, base_url=base_url)
+            continue
+        text = _node_inline_text(child)
+        if text:
+            inline_parts.append(text)
+    _flush_inline_parts(inline_parts, blocks)
+
+
+def _flush_inline_parts(inline_parts: List[str], blocks: List[Dict[str, Any]]):
+    text = _clean_inline_text(" ".join([part for part in inline_parts if part]))
+    inline_parts.clear()
+    _append_text_block(blocks, "paragraph", text)
+
+
+_BLOCK_TAGS = {
+    "address", "article", "aside", "blockquote", "dd", "div", "dl", "dt",
+    "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3",
+    "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p",
+    "pre", "section", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul",
+}
+
+
+def _node_inline_text(node) -> str:
+    text = node.get_text(" ", strip=True) if hasattr(node, "get_text") else str(node)
+    return _clean_inline_text(text)
+
+
+def _clean_inline_text(text: str) -> str:
+    text = html.unescape(text or "")
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s+([,.;:!?%)\]}>])", r"\1", text)
+    text = re.sub(r"([([{<])\s+", r"\1", text)
+    text = re.sub(r"(\d+)\s*/\s*(\d+)", r"\1/\2", text)
+    text = re.sub(r"\s+([.。])", r"\1", text)
+    return text.strip()
+
+
+def _normalize_wowhead_inline_breaks(root):
+    for tag in root.select("ins, .advertisement, .ad, .heading-size, .heading-permalink"):
+        tag.decompose()
 
 
 def _append_text_block(blocks: List[Dict[str, Any]], block_type: str, text: str, **extra):
