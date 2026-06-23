@@ -14,6 +14,9 @@ from utils.log import logger
 
 
 class SpecDetailSeasonMonitor(SpecDetailBase):
+    EXTRA_RAID_ZONE_IDS_BY_SEASON = {
+        'mn-s1': [50],  # Sporefall / Rotmire is published as a separate WCL raid zone.
+    }
 
     def __init__(self, req, task):
         super().__init__(req, task)
@@ -33,12 +36,19 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
             logger.error("[SpecDetailSeason] 未找到 M+ Season zone")
             return False
 
-        # 3. 找到最新的 Raid zone
-        # 3. 找到所有 Raid zones
-        raid_zones = self._find_all_raid_zones(zones)
+        # 3. 获取 Raider.IO 赛季 slug，并确定 season_key
+        # 从 rio_season 推断，如 "season-mn-1" → "mn-s1"；fallback 到旧逻辑
+        rio_season = self._fetch_rio_season()
+        mplus_name = mplus_zone.get('name', '') if mplus_zone else ''
+        season_num = self._extract_season_number(mplus_name)
+        season_key = self._derive_season_key(rio_season, season_num, mplus_zone)
+
+        # 4. 找到所有 Raid zones
+        raid_zones = self._find_all_raid_zones(zones, season_key=season_key)
         if not raid_zones:
             logger.warning("[SpecDetailSeason] 未找到 Raid zone")
-        # 4. 获取副本/Boss 列表
+
+        # 5. 获取副本/Boss 列表
         mplus_encounters = self._fetch_encounters(mplus_zone['id']) if mplus_zone else []
         all_raid_encounters = []
         for rz in raid_zones:
@@ -50,19 +60,10 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         for i, enc in enumerate(all_raid_encounters):
             enc['index'] = i + 1
 
-        # 5. 获取 Raider.IO 赛季 slug
-        rio_season = self._fetch_rio_season()
-
-        # 6. 确定 season_key
-        # 从 rio_season 推断，如 "season-mn-1" → "mn-s1"；fallback 到旧逻辑
-        mplus_name = mplus_zone.get('name', '') if mplus_zone else ''
-        season_num = self._extract_season_number(mplus_name)
-        season_key = self._derive_season_key(rio_season, season_num, mplus_zone)
-
-        # 7. 获取最新 wcl_partition
+        # 6. 获取最新 wcl_partition
         wcl_partition = self._fetch_wcl_partition(mplus_zone['id']) if mplus_zone else 1
 
-        # 8. 更新 SeasonMeta
+        # 7. 更新 SeasonMeta
         SeasonMeta.objects.filter(is_active=True).update(is_active=False)
 
         obj, created = SeasonMeta.objects.update_or_create(
@@ -106,23 +107,39 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         # 取 ID 最大的
         return max(mplus_zones, key=lambda z: z['id'])
 
-    def _find_all_raid_zones(self, zones):
+    def _find_all_raid_zones(self, zones, season_key=None):
         """从数据库读取已配置的团本区域 ID，从 WCL zones 中匹配详情。
         
-        注意：始终从 WCL zones 匹配，不读 raid_zones 缓存。
+        注意：始终从 WCL zones 匹配，不读 raid_zones 缓存中的 encounter。
         因为旧赛季的 raid_zones 可能存了错误的 zone 数据（如 TWW zone），
-        必须用 raid_zone_id 从最新的 WCL zones 中重新匹配。
+        必须用配置的 zone id 从最新的 WCL zones 中重新匹配。
         """
         season = SeasonMeta.objects.filter(is_active=True).first()
-        if not season or not season.raid_zone_id:
+        zone_ids = []
+        if season:
+            if season.raid_zone_id:
+                zone_ids.append(season.raid_zone_id)
+            for rz in season.raid_zones or []:
+                zone_id = rz.get('id') or rz.get('zone_id')
+                if zone_id:
+                    zone_ids.append(int(zone_id))
+            season_key = season_key or season.season_key
+
+        for zone_id in self.EXTRA_RAID_ZONE_IDS_BY_SEASON.get(season_key or '', []):
+            zone_ids.append(zone_id)
+
+        zone_ids = list(dict.fromkeys(zone_ids))
+        if not zone_ids:
             return []
         
         zone_map = {z['id']: z for z in zones}
-        if season.raid_zone_id in zone_map:
-            return [zone_map[season.raid_zone_id]]
-        
-        logger.warning(f"[SpecDetailSeason] raid_zone_id={season.raid_zone_id} 在 WCL zones 中未找到")
-        return []
+        raid_zones = []
+        for zone_id in zone_ids:
+            if zone_id in zone_map:
+                raid_zones.append(zone_map[zone_id])
+            else:
+                logger.warning(f"[SpecDetailSeason] raid_zone_id={zone_id} 在 WCL zones 中未找到")
+        return raid_zones
 
     def _fetch_encounters(self, zone_id):
         """获取 zone 下的所有 encounters"""
