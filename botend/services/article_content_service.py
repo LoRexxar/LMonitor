@@ -42,6 +42,53 @@ def blocks_to_plain_text(blocks: Iterable[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def article_blocks_match_reference(blocks: Iterable[Dict[str, Any]], reference_text: str = "", reference_title: str = "") -> bool:
+    body = blocks_to_plain_text(blocks)
+    if not body or len(body.strip()) < 20:
+        return False
+    if _contains_bad_article_markers(body):
+        return False
+
+    reference = "\n".join([reference_title or "", reference_text or ""]).strip()
+    if not reference:
+        return True
+    if _contains_bad_article_markers(reference):
+        return False
+
+    body_tokens = _article_match_tokens(body)
+    reference_tokens = _article_match_tokens(reference)
+    if not reference_tokens:
+        return True
+    if not body_tokens:
+        return False
+
+    overlap = len(body_tokens & reference_tokens)
+    min_required = min(8, max(3, len(reference_tokens) // 25))
+    return overlap >= min_required
+
+
+def _article_match_tokens(text: str) -> set:
+    tokens = set()
+    stop_words = {
+        "with", "from", "that", "this", "have", "will", "your", "they", "them", "were", "been",
+        "into", "also", "more", "some", "what", "when", "where", "which", "their", "there",
+    }
+    for token in re.findall(r"[A-Za-z][A-Za-z'’-]{3,}", text or ""):
+        token = token.lower().strip("'’-")
+        if token and token not in stop_words:
+            tokens.add(token)
+    return tokens
+
+
+def _contains_bad_article_markers(text: str) -> bool:
+    lowered = (text or "").lower()
+    bad_markers = [
+        "高危漏洞库", "漏洞名称", "阿里云安全专家", "avd-", "cve-",
+        "直播间", "直播中", "人充电", "个人资料", "预约\n收起", "bilibili",
+    ]
+    return any(marker in lowered for marker in bad_markers)
+
+
 def plain_text_to_blocks(text: str) -> List[Dict[str, Any]]:
     blocks = []
     for line in (text or "").splitlines():

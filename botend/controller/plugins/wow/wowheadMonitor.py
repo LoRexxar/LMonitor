@@ -22,7 +22,7 @@ from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
 from botend.services.article_translation_service import build_translation_service
-from botend.services.article_content_service import blocks_to_plain_text, dumps_blocks, extract_structured_article, plain_text_to_blocks
+from botend.services.article_content_service import article_blocks_match_reference, blocks_to_plain_text, dumps_blocks, extract_structured_article, plain_text_to_blocks
 
 from botend.models import WowArticle
 from datetime import datetime
@@ -216,7 +216,7 @@ class wowheadMonitor(BaseScan):
                                 existing_blocks = uploaded_blocks
                                 needs_image_upload = self._needs_article_image_upload(existing_blocks)
                         if not (getattr(wa, "description", "") or "").strip() or len((getattr(wa, "description", "") or "")) < 800 or needs_image_blocks or needs_image_upload:
-                            blocks = self._fetch_article_blocks(post_link, cookies="")
+                            blocks = self._fetch_article_blocks(post_link, cookies="", reference_text=wa.content or wa.description or "", reference_title=wa.title or "")
                             body = blocks_to_plain_text(blocks)
                             if body:
                                 wa.description = body
@@ -231,7 +231,7 @@ class wowheadMonitor(BaseScan):
                                 wa.save(update_fields=update_fields)
                         # 若 content 缺失，补抓正文
                         if not (getattr(wa, "content", "") or "").strip() or len((getattr(wa, "content", "") or "")) < 800:
-                            blocks = self._fetch_article_blocks(post_link, cookies="")
+                            blocks = self._fetch_article_blocks(post_link, cookies="", reference_text=wa.content or wa.description or "", reference_title=wa.title or "")
                             body = blocks_to_plain_text(blocks)
                             if body:
                                 wa.content = body
@@ -493,16 +493,24 @@ class wowheadMonitor(BaseScan):
         blocks = self._fetch_article_blocks(url, cookies=cookies)
         return blocks_to_plain_text(blocks)
 
-    def _fetch_article_blocks(self, url, cookies=""):
+    def _fetch_article_blocks(self, url, cookies="", reference_text="", reference_title=""):
         try:
             html_text = self._fetch_article_html(url, cookies=cookies)
             if not html_text:
                 return []
             blocks = extract_structured_article(html_text, base_url=url, source="wowhead")
             if blocks:
-                return self._upload_article_images(blocks, article_url=url)
+                uploaded_blocks = self._upload_article_images(blocks, article_url=url)
+                candidate_blocks = uploaded_blocks or blocks
+                if article_blocks_match_reference(candidate_blocks, reference_text=reference_text, reference_title=reference_title):
+                    return candidate_blocks
+                logger.warning("[wowheadMonitor] Skip unsafe article blocks for {}".format(url))
+                return []
             body = self._extract_body_from_html(html_text)
-            return plain_text_to_blocks(body)
+            fallback_blocks = plain_text_to_blocks(body)
+            if fallback_blocks and article_blocks_match_reference(fallback_blocks, reference_text=reference_text, reference_title=reference_title):
+                return fallback_blocks
+            return []
         except Exception:
             return []
 

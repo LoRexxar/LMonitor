@@ -4,6 +4,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from botend.services.article_content_service import (
+    article_blocks_match_reference,
     blocks_to_plain_text,
     dumps_blocks,
     extract_structured_article,
@@ -49,6 +50,8 @@ class FakeArticle:
         self.content = "Paragraph one.\nParagraph two."
         self.title_cn = ""
         self.content_cn = ""
+        self.content_blocks = ""
+        self.content_blocks_cn = ""
         self.saved_fields = []
 
     def save(self, update_fields=None):
@@ -97,6 +100,23 @@ class ArticleTranslationServiceTests(SimpleTestCase):
 
         self.assertIs(svc.engine, engine)
         self.assertEqual(svc.translate_title("Title"), "标题")
+
+    def test_translate_article_fields_skips_mismatched_content_blocks(self):
+        article = FakeArticle()
+        article.title_cn = "已有标题"
+        article.content_blocks = dumps_blocks([
+            {"type": "paragraph", "text": "直播间 1351 人充电 个人资料 预约 收起 bilibili"},
+        ])
+        svc = ArticleTranslationService(
+            engine=FakeEngine([json.dumps(["第一段", "第二段"], ensure_ascii=False)]),
+            sleep_func=lambda _: None,
+        )
+
+        ok = svc.translate_article_fields(article, logger_prefix="test")
+
+        self.assertTrue(ok)
+        self.assertEqual(article.content_blocks_cn, "")
+        self.assertEqual(article.saved_fields, [["content_cn"]])
 
     def test_fallback_engine_uses_codex_when_glm_returns_empty(self):
         glm = FakeEngine([""], available=True)
@@ -186,3 +206,15 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertEqual(translated[0]["text"], "补丁说明")
         self.assertEqual(translated[1]["text"], "职业改动已上线。")
         self.assertEqual(translated[2], blocks[2])
+
+    def test_article_blocks_match_reference_rejects_wrong_page_markers(self):
+        blocks = [{"type": "paragraph", "text": "直播间 1351 人充电 个人资料 预约 收起 bilibili"}]
+        reference = "Our Unholy Death Knight writer discusses class changes and tier set bonuses."
+
+        self.assertFalse(article_blocks_match_reference(blocks, reference_text=reference))
+
+    def test_article_blocks_match_reference_accepts_shared_article_terms(self):
+        blocks = [{"type": "paragraph", "text": "Unholy Death Knight class changes and tier set bonuses are discussed."}]
+        reference = "Our Unholy Death Knight writer discusses class changes and tier set bonuses."
+
+        self.assertTrue(article_blocks_match_reference(blocks, reference_text=reference))

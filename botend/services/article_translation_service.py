@@ -7,7 +7,7 @@ import requests
 from django.conf import settings
 
 from core.glm import GLMClient
-from botend.services.article_content_service import dumps_blocks, loads_blocks, translate_blocks
+from botend.services.article_content_service import article_blocks_match_reference, dumps_blocks, loads_blocks, translate_blocks
 from utils.log import logger
 
 
@@ -232,7 +232,15 @@ class ArticleTranslationService:
                     article.content_cn = content_cn
                     update_fields = ["content_cn"]
                     blocks = loads_blocks(getattr(article, "content_blocks", "") or "")
-                    if blocks and hasattr(article, "content_blocks_cn"):
+                    if (
+                        blocks
+                        and hasattr(article, "content_blocks_cn")
+                        and article_blocks_match_reference(
+                            blocks,
+                            reference_text=getattr(article, "content", "") or "",
+                            reference_title=getattr(article, "title", "") or "",
+                        )
+                    ):
                         article.content_blocks_cn = dumps_blocks(translate_blocks(blocks, content_cn))
                         update_fields.append("content_blocks_cn")
                     article.save(update_fields=update_fields)
