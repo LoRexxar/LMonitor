@@ -75,6 +75,20 @@ def _load_json(season_id, class_name, spec_name, filename):
         return json.load(f)
 
 
+def _raid_overview_json_is_stale(season, zone_groups):
+    """判断团本概览 JSON 是否落后于当前 SeasonMeta boss 配置。"""
+    expected_ids = {enc.get('id') for enc in (season.raid_encounters or []) if enc.get('id')}
+    if not expected_ids:
+        return False
+    json_ids = {
+        boss.get('boss_id')
+        for zone in (zone_groups or [])
+        for boss in (zone.get('bosses') or [])
+        if boss.get('boss_id')
+    }
+    return not expected_ids.issubset(json_ids)
+
+
 class SpecDetailPlayerView(View):
     """人物榜页面"""
 
@@ -158,6 +172,8 @@ class SpecDetailRaidView(View):
             data = _load_json(season_id, class_name, spec_name, 'raid.json')
             if data:
                 zone_groups = data.get('zone_groups', [])
+                if _raid_overview_json_is_stale(ctx['season'], zone_groups):
+                    zone_groups = SpecStatsService.get_raid_overview(class_name, spec_name, season_id)
                 if boss_id:
                     bid = int(boss_id)
                     detail = None
