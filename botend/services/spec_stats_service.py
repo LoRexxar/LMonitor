@@ -1164,6 +1164,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
     provider = TalentMetadataProvider()
     build_counter = Counter()
     build_states = {}
+    build_players_by_key = {}
     total = 0
     first_seen_order = {}
 
@@ -1180,6 +1181,14 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
         build_counter[build_code] += 1
         if build_code not in build_states:
             build_states[build_code] = _talent_build_record_state(record, provider, class_name, spec_name)
+        state = build_states.get(build_code) or {}
+        player_payload = _talent_usage_player_payload(record, total)
+        player_key = player_payload.get('player_key')
+        if player_key:
+            players_by_key = build_players_by_key.setdefault(build_code, defaultdict(dict))
+            for node_key in state.get('keys') or set():
+                if player_key not in players_by_key[node_key]:
+                    players_by_key[node_key][player_key] = player_payload
 
     if not build_counter:
         return {
@@ -1195,8 +1204,19 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
     template_keys = template_state.get('keys') or set()
     template_nodes = template_state.get('nodes') or {}
 
-    def _node_payload(node_map, node_key):
-        return dict(node_map.get(node_key) or template_nodes.get(node_key) or {'node_key': node_key, 'name': node_key, 'icon': ''})
+    def _node_payload(node_map, node_key, build_code_for_players):
+        payload = dict(node_map.get(node_key) or template_nodes.get(node_key) or {'node_key': node_key, 'name': node_key, 'icon': ''})
+        players = list((build_players_by_key.get(build_code_for_players, {}).get(node_key) or {}).values())
+        top_players = sorted(
+            players,
+            key=lambda player: (player.get('sort_score') or 0, player.get('dps') or 0),
+            reverse=True,
+        )[:5]
+        payload['top_players'] = [
+            {key: value for key, value in player.items() if key not in {'player_key', 'sort_score'}}
+            for player in top_players
+        ]
+        return payload
 
     builds = []
     for index, (build_code, count) in enumerate(ordered, start=1):
@@ -1213,8 +1233,8 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
             'is_template': build_code == template_code,
             'hero_talent_summary': state.get('hero_talent_summary') or [],
             'diff_count': len(added_keys) + len(missing_keys),
-            'added_talents': [_node_payload(nodes, key) for key in added_keys],
-            'missing_talents': [_node_payload(template_nodes, key) for key in missing_keys],
+            'added_talents': [_node_payload(nodes, key, build_code) for key in added_keys],
+            'missing_talents': [_node_payload(template_nodes, key, template_code) for key in missing_keys],
         })
 
     return {

@@ -637,6 +637,10 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         records = [
             {
                 'talent_build_code': 'CODE_A',
+                'character_name': 'TemplateOne',
+                'realm': 'RealmA',
+                'region': 'cn',
+                'dps': 1000,
                 'talents_json': [
                     {'node_id': 1, 'spell_id': 101, 'name': '通用天赋', 'tree_type': 'class', 'points': 1},
                     {'node_id': 2, 'spell_id': 102, 'name': '模板天赋', 'tree_type': 'spec', 'points': 1},
@@ -644,6 +648,10 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             },
             {
                 'talent_build_code': 'CODE_A',
+                'character_name': 'TemplateTwo',
+                'realm': 'RealmA',
+                'region': 'cn',
+                'dps': 2000,
                 'talents_json': [
                     {'node_id': 1, 'spell_id': 101, 'name': '通用天赋', 'tree_type': 'class', 'points': 1},
                     {'node_id': 2, 'spell_id': 102, 'name': '模板天赋', 'tree_type': 'spec', 'points': 1},
@@ -651,6 +659,10 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             },
             {
                 'talent_build_code': 'CODE_B',
+                'character_name': 'VariantOne',
+                'realm': 'RealmB',
+                'region': 'cn',
+                'dps': 3000,
                 'talents_json': [
                     {'node_id': 1, 'spell_id': 101, 'name': '通用天赋', 'tree_type': 'class', 'points': 1},
                     {'node_id': 3, 'spell_id': 103, 'name': '变体天赋', 'tree_type': 'spec', 'points': 1},
@@ -669,6 +681,11 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertEqual(result['builds'][1]['pct'], 33.3)
         self.assertEqual([node['name'] for node in result['builds'][1]['added_talents']], ['变体天赋'])
         self.assertEqual([node['name'] for node in result['builds'][1]['missing_talents']], ['模板天赋'])
+        self.assertEqual(result['builds'][1]['added_talents'][0]['top_players'][0]['name'], 'VariantOne')
+        self.assertEqual(
+            [player['name'] for player in result['builds'][1]['missing_talents'][0]['top_players']],
+            ['TemplateTwo', 'TemplateOne'],
+        )
 
     @patch('botend.services.spec_stats_service.WowTalentNodeMetadata.objects.filter')
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
@@ -1484,3 +1501,69 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertIn('data-child-key="hero:40"', html)
         self.assertIn('团本热门节点', html)
         self.assertIn('100.0%', html)
+
+class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
+    def test_stats_templates_render_talent_build_diff_top_players(self):
+        talent_build_popularity = {
+            'total': 3,
+            'template_code': 'CODE_A',
+            'template_count': 2,
+            'builds': [
+                {
+                    'rank': 1,
+                    'code': 'CODE_B',
+                    'count': 1,
+                    'pct': 33.3,
+                    'is_template': False,
+                    'hero_talent_summary': [],
+                    'diff_count': 2,
+                    'added_talents': [
+                        {
+                            'name': '变体天赋',
+                            'icon': '',
+                            'top_players': [{'name': 'VariantOne', 'realm': 'RealmB', 'dps_fmt': '3,000'}],
+                        },
+                    ],
+                    'missing_talents': [
+                        {
+                            'name': '模板天赋',
+                            'icon': '',
+                            'top_players': [{'name': 'TemplateTwo', 'realm': 'RealmA', 'dps_fmt': '2,000'}],
+                        },
+                    ],
+                },
+            ],
+        }
+        nav = {
+            'class_name': 'Monk',
+            'spec_name': 'Windwalker',
+            'class_cn': '武僧',
+            'spec_cn': '踏风',
+            'spec_icon': 'ability_monk_flyingdragonkick',
+            'role': 'dps',
+        }
+
+        for template_name, detail_key, detail_name_key in [
+            ('portal/spec_detail/dungeon_stats.html', 'dungeon_detail', 'dungeon_name'),
+            ('portal/spec_detail/raid_stats.html', 'boss_detail', 'boss_name'),
+        ]:
+            html = render_to_string(
+                template_name,
+                {
+                    'class_name': 'Monk',
+                    'spec_name': 'Windwalker',
+                    'nav': nav,
+                    detail_key: {
+                        detail_name_key: '测试目标',
+                        'sample_size': 3,
+                        'talent_build_popularity': talent_build_popularity,
+                    },
+                },
+            )
+
+            self.assertIn('talent-build-player-tooltip', html)
+            self.assertIn('选取该天赋 Top5', html)
+            self.assertIn('模板选取 Top5', html)
+            self.assertIn('VariantOne-RealmB', html)
+            self.assertIn('TemplateTwo-RealmA', html)
+            self.assertIn('3,000 DPS', html)

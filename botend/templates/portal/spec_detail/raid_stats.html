@@ -348,17 +348,39 @@
                         <div class="talent-build-diff-label">普通天赋差异</div>
                         <div class="talent-build-talent-list">
                             {% for talent in build.added_talents %}
-                            <span class="talent-build-talent-chip is-added">
+                            <span class="talent-build-talent-chip is-added{% if talent.top_players %} has-players{% endif %}">
                                 <span class="talent-build-diff-symbol">+</span>
                                 {% if talent.icon %}<img src="{% wow_icon talent.icon "tiny" %}" alt="{{ talent.name }}">{% endif %}
                                 {{ talent.name }}
+                                {% if talent.top_players %}
+                                <span class="talent-build-player-tooltip">
+                                    <span class="talent-build-player-tooltip-title">选取该天赋 Top5</span>
+                                    {% for player in talent.top_players %}
+                                    <span class="talent-build-player-row">
+                                        <span class="talent-build-player-name">{{ player.name }}{% if player.realm %}-{{ player.realm }}{% endif %}</span>
+                                        {% if player.dps_fmt %}<span class="talent-build-player-metric">{{ player.dps_fmt }} DPS</span>{% elif player.score_fmt %}<span class="talent-build-player-metric">{{ player.score_fmt }} 分</span>{% endif %}
+                                    </span>
+                                    {% endfor %}
+                                </span>
+                                {% endif %}
                             </span>
                             {% endfor %}
                             {% for talent in build.missing_talents %}
-                            <span class="talent-build-talent-chip is-missing">
+                            <span class="talent-build-talent-chip is-missing{% if talent.top_players %} has-players{% endif %}">
                                 <span class="talent-build-diff-symbol">−</span>
                                 {% if talent.icon %}<img src="{% wow_icon talent.icon "tiny" %}" alt="{{ talent.name }}">{% endif %}
                                 {{ talent.name }}
+                                {% if talent.top_players %}
+                                <span class="talent-build-player-tooltip">
+                                    <span class="talent-build-player-tooltip-title">模板选取 Top5</span>
+                                    {% for player in talent.top_players %}
+                                    <span class="talent-build-player-row">
+                                        <span class="talent-build-player-name">{{ player.name }}{% if player.realm %}-{{ player.realm }}{% endif %}</span>
+                                        {% if player.dps_fmt %}<span class="talent-build-player-metric">{{ player.dps_fmt }} DPS</span>{% elif player.score_fmt %}<span class="talent-build-player-metric">{{ player.score_fmt }} 分</span>{% endif %}
+                                    </span>
+                                    {% endfor %}
+                                </span>
+                                {% endif %}
                             </span>
                             {% endfor %}
                         </div>
@@ -1387,6 +1409,79 @@
     height: 18px;
     border-radius: 50%;
     object-fit: cover;
+    flex: 0 0 auto;
+}
+
+.talent-build-talent-chip.has-players {
+    position: relative;
+    cursor: help;
+}
+.talent-build-player-tooltip {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    min-width: 220px;
+    max-width: 280px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(15,23,42,.97);
+    border: 1px solid rgba(148,163,184,.36);
+    box-shadow: 0 18px 38px rgba(15,23,42,.28);
+    color: #e5e7eb;
+    z-index: 80;
+    pointer-events: none;
+    white-space: normal;
+}
+.talent-build-player-tooltip::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -6px;
+    width: 10px;
+    height: 10px;
+    background: rgba(15,23,42,.97);
+    border-right: 1px solid rgba(148,163,184,.36);
+    border-bottom: 1px solid rgba(148,163,184,.36);
+    transform: translateX(-50%) rotate(45deg);
+}
+.talent-build-talent-chip.has-players:hover {
+    z-index: 90;
+}
+.talent-build-talent-chip.has-players:hover .talent-build-player-tooltip {
+    display: block;
+}
+.talent-build-player-tooltip-title {
+    display: block;
+    margin-bottom: 7px;
+    color: #bfdbfe;
+    font-size: 12px;
+    font-weight: 900;
+}
+.talent-build-player-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 0;
+    border-top: 1px solid rgba(148,163,184,.16);
+}
+.talent-build-player-row:first-of-type {
+    border-top: 0;
+}
+.talent-build-player-name {
+    color: #f8fafc;
+    font-size: 12px;
+    font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.talent-build-player-metric {
+    color: #93c5fd;
+    font-size: 11px;
+    font-weight: 900;
     flex: 0 0 auto;
 }
 @media (max-width: 720px) {
