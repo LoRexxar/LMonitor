@@ -96,7 +96,7 @@ class wowheadMonitor(BaseScan):
             posts_data = []
             for _ in range(8):
                 page_html = (getattr(driver, "html", "") or "").strip()
-                if "news-card-simple-text-title" in page_html:
+                if page_html:
                     posts_data = self._parse_posts_from_page_html(page_html, limit=limit)
                     if posts_data:
                         break
@@ -303,6 +303,10 @@ class wowheadMonitor(BaseScan):
         if BeautifulSoup:
             try:
                 soup = BeautifulSoup(t, "html.parser")
+                json_cards = self._parse_posts_from_home_news_json(soup, limit=limit)
+                if json_cards:
+                    return json_cards
+
                 anchors = soup.select(
                     "a.recent-news-post-list-topic, "
                     ".news-card-simple-text-title a, "
@@ -391,6 +395,55 @@ class wowheadMonitor(BaseScan):
                 continue
             cards.append({"type": "", "title": title_text, "link": link, "preview": "", "date": ""})
             seen.add(link)
+            if len(cards) >= int(limit or 10):
+                break
+        return cards
+
+    def _parse_posts_from_home_news_json(self, soup, limit=10):
+        """解析 Wowhead 首页当前的 JSON 数据块。"""
+        try:
+            script = soup.select_one('script#data\.home\.newsData')
+            if not script:
+                script = soup.find('script', attrs={'id': 'data.home.newsData'})
+            raw = (script.string or script.get_text() or '').strip() if script else ''
+            if not raw:
+                return []
+            data = json.loads(raw)
+        except Exception:
+            return []
+
+        posts = data.get('newsPosts') if isinstance(data, dict) else None
+        if not isinstance(posts, list):
+            return []
+
+        cards = []
+        seen = set()
+        for item in posts:
+            if not isinstance(item, dict):
+                continue
+            href = (item.get('postUrl') or item.get('url') or '').strip()
+            if not href or '/news/' not in href or '/blue-tracker/' in href:
+                continue
+            if href.startswith('/'):
+                href = "https://www.wowhead.com{}".format(href)
+            if href in seen:
+                continue
+
+            title_text = " ".join(str(item.get('title') or '').split())
+            if not title_text or len(title_text) < 8:
+                continue
+            preview_text = " ".join(str(item.get('preview') or '').split())
+            type_text = " ".join(str(item.get('typeName') or '').split())
+            date_text = " ".join(str(item.get('postedFull') or item.get('posted') or '').split())
+
+            cards.append({
+                "type": html.unescape(type_text),
+                "title": html.unescape(title_text),
+                "link": href,
+                "preview": html.unescape(preview_text),
+                "date": html.unescape(date_text),
+            })
+            seen.add(href)
             if len(cards) >= int(limit or 10):
                 break
         return cards
