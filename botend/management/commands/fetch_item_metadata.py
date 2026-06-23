@@ -16,6 +16,8 @@ from botend.models import PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanki
 
 
 WOWHEAD_CN_ITEM = 'https://www.wowhead.com/cn/item={item_id}'
+WOWHEAD_EN_ITEM = 'https://www.wowhead.com/item={item_id}'
+WOWHEAD_TOOLTIP_API = 'https://nether.wowhead.com/tooltip/item/{item_id}?locale={locale}'
 
 
 def _norm_icon(icon):
@@ -81,7 +83,8 @@ def _clean_effect_html(value):
     value = value.replace('\b', '')
     value = re.sub(r'<!--.*?-->', ' ', value, flags=re.S)
     value = re.sub(r'<br\s*/?>', '\n', value, flags=re.I)
-    value = re.sub(r'</(?:div|p|span|table|tr|td)>', '\n', value, flags=re.I)
+    value = re.sub(r'</(?:div|p|span)>', '\n', value, flags=re.I)
+    value = re.sub(r'</(?:table|tr|td|th)>', ' ', value, flags=re.I)
     value = html.unescape(re.sub(r'<[^>]+>', '', value))
     lines = []
     noise_prefixes = (
@@ -92,6 +95,30 @@ def _clean_effect_html(value):
         line = re.sub(r'\s+', ' ', raw_line).strip(' ：:')
         if not line or line in {'使用', '装备', '效果'}:
             continue
+        if line.startswith('拾取后绑定'):
+            tail = line.replace('拾取后绑定', '', 1).replace('唯一', '').strip(' ：:')
+            if tail:
+                line = tail
+            else:
+                continue
+        if line.startswith('Binds when picked up'):
+            tail = line.replace('Binds when picked up', '', 1).replace('Unique', '').strip(' ：:')
+            if tail:
+                line = tail
+            else:
+                continue
+        if line.startswith('唯一'):
+            tail = line.replace('唯一', '', 1).strip(' ：:')
+            if tail:
+                line = tail
+            else:
+                continue
+        if line.startswith('Unique'):
+            tail = line.replace('Unique', '', 1).strip(' ：:')
+            if tail:
+                line = tail
+            else:
+                continue
         if any(line.startswith(prefix) for prefix in noise_prefixes):
             continue
         if re.fullmatch(r'[0-9金银铜 ]+', line):
@@ -105,24 +132,25 @@ def _extract_assignment_string(text, pattern):
     return _decode_js_string(match.group(1)) if match else ''
 
 
-def _extract_item_tooltip(text, item_id):
+def _extract_item_tooltip(text, item_id, locale='zhcn'):
     tooltip = _extract_assignment_string(
         text,
-        rf'g_items\[{int(item_id)}\]\.tooltip_zhcn\s*=\s*"((?:\\.|[^"\\])*)"',
+        rf'g_items\[{int(item_id)}\]\.tooltip_{re.escape(locale)}\s*=\s*"((?:\\.|[^"\\])*)"',
     )
     return _clean_effect_html(tooltip)
 
 
-def _extract_profession_description(text):
+def _extract_profession_description(text, locale='zhcn'):
     candidates = []
-    for raw in re.findall(r'"description_zhcn"\s*:\s*"((?:\\.|[^"\\])*)"', text, re.S):
+    has_locale_filter = locale == 'zhcn'
+    for raw in re.findall(rf'"description_{re.escape(locale)}"\s*:\s*"((?:\\.|[^"\\])*)"', text, re.S):
         desc = _clean_effect_html(raw)
-        if desc and _has_cjk(desc):
+        if desc and (not has_locale_filter or _has_cjk(desc)):
             candidates.append(desc)
     return max(candidates, key=len) if candidates else ''
 
 
-def _extract_meta_description(text):
+def _extract_meta_description(text, require_cjk=True):
     candidates = []
     for pat in [
         r'<meta\s+name="description"\s+content="([^"]+)"',
@@ -131,12 +159,12 @@ def _extract_meta_description(text):
     ]:
         for match in re.findall(pat, text, re.S | re.I):
             val = _clean_effect_html(match)
-            if val and _has_cjk(val) and not _is_wowhead_seo_description(val):
+            if val and (not require_cjk or _has_cjk(val)) and not _is_wowhead_seo_description(val):
                 candidates.append(val)
     if not candidates:
         return ''
     desc = max(candidates, key=len)
-    return re.sub(r'\s*-\s*魔兽世界.*$', '', desc).strip()
+    return re.sub(r'\s*-\s*(?:魔兽世界|World of Warcraft).*$','', desc).strip()
 
 
 def _strip_description_name(desc, title):
@@ -195,23 +223,31 @@ class Command(BaseCommand):
         created = updated = skipped = failed = 0
         for idx, (item_id, fallback) in enumerate(items.items(), 1):
             row = existing.get(int(item_id))
-            if row and _has_cjk(row.name_zh) and row.description_zh and not _is_wowhead_seo_description(row.description_zh) and not opts['force']:
+            needs_cn = not (row and _has_cjk(row.name_zh) and _has_cjk(row.description_zh) and not _is_wowhead_seo_description(row.description_zh))
+            needs_en = not (row and row.description and not _is_wowhead_seo_description(row.description))
+            has_complete_row = row and not needs_cn and not needs_en
+            if has_complete_row and not opts['force']:
                 skipped += 1
                 continue
-            meta = self._fetch_wowhead_cn(session, item_id)
-            if not meta:
+            meta = self._fetch_wowhead_cn(session, item_id) if (opts['force'] or needs_cn) else {}
+            meta_en = self._fetch_wowhead_en(session, item_id) if (opts['force'] or needs_en) else {}
+            if not meta and not meta_en:
                 failed += 1
                 meta = {}
+                meta_en = {}
             fallback_name_zh = fallback.get('name_zh') if _has_cjk(fallback.get('name_zh')) else ''
+            fallback_desc_zh = fallback.get('description_zh') if _has_cjk(fallback.get('description_zh')) and not _is_wowhead_seo_description(fallback.get('description_zh')) else ''
             row_name_zh = row.name_zh if row and _has_cjk(row.name_zh) else ''
             row_desc_zh = row.description_zh if row and _has_cjk(row.description_zh) and not _is_wowhead_seo_description(row.description_zh) else ''
+            row_description = row.description if row and row.description and not _is_wowhead_seo_description(row.description) else ''
+            fallback_description = fallback.get('description') if fallback.get('description') and not _is_wowhead_seo_description(fallback.get('description')) else ''
             payload = {
-                'name': fallback.get('name') or (row.name if row else '') or meta.get('name') or '',
+                'name': fallback.get('name') or (row.name if row else '') or meta_en.get('name') or '',
                 'name_zh': meta.get('name_zh') or row_name_zh or fallback_name_zh,
-                'description': fallback.get('description') or (row.description if row else '') or '',
-                'description_zh': meta.get('description_zh') or row_desc_zh,
-                'icon': fallback.get('icon') or (row.icon if row else '') or meta.get('icon') or '',
-                'quality': _coerce_quality(fallback.get('quality') or (row.quality if row else 0)),
+                'description': meta_en.get('description') or fallback_description or row_description,
+                'description_zh': meta.get('description_zh') or row_desc_zh or fallback_desc_zh,
+                'icon': fallback.get('icon') or (row.icon if row else '') or meta.get('icon') or meta_en.get('icon') or '',
+                'quality': _coerce_quality(fallback.get('quality') or meta.get('quality') or meta_en.get('quality') or (row.quality if row else 0)),
                 'source': 'wowhead_cn',
                 'updated_at': timezone.now(),
             }
@@ -271,7 +307,33 @@ class Command(BaseCommand):
             'quality': _coerce_quality(payload.get('quality') or 0),
         }
 
+    def _fetch_wowhead_tooltip_api(self, session, item_id, locale):
+        url = WOWHEAD_TOOLTIP_API.format(item_id=item_id, locale=locale)
+        try:
+            resp = session.get(url, timeout=15)
+            if resp.status_code >= 400:
+                return {}
+            data = resp.json()
+        except Exception:
+            return {}
+        title = _first_text(data.get('name') or '')
+        desc = _strip_description_name(_clean_effect_html(data.get('tooltip') or ''), title)
+        return {
+            'name': title,
+            'description': desc,
+            'icon': _norm_icon(data.get('icon') or ''),
+            'quality': _coerce_quality(data.get('quality')),
+        }
+
     def _fetch_wowhead_cn(self, session, item_id):
+        api_meta = self._fetch_wowhead_tooltip_api(session, item_id, 'zhCN')
+        if api_meta and (_has_cjk(api_meta.get('name')) or _has_cjk(api_meta.get('description'))):
+            return {
+                'name_zh': api_meta.get('name') if _has_cjk(api_meta.get('name')) else '',
+                'description_zh': api_meta.get('description') if _has_cjk(api_meta.get('description')) else '',
+                'icon': api_meta.get('icon') or '',
+                'quality': api_meta.get('quality') or 0,
+            }
         url = WOWHEAD_CN_ITEM.format(item_id=item_id)
         try:
             resp = session.get(url, timeout=15)
@@ -284,7 +346,7 @@ class Command(BaseCommand):
         m = re.search(r'<title>(.*?)</title>', text, re.S | re.I)
         if m:
             title = _clean_wowhead_title(m.group(1))
-        desc = _extract_item_tooltip(text, item_id) or _extract_profession_description(text) or _extract_meta_description(text)
+        desc = _extract_item_tooltip(text, item_id, locale='zhcn') or _extract_profession_description(text, locale='zhcn') or _extract_meta_description(text, require_cjk=True)
         desc = _strip_description_name(desc, title)
         icon = ''
         im = re.search(r'images/wow/icons/(?:small|medium|large)/([a-z0-9_]+)\.(?:jpg|png)', text, re.I)
@@ -293,5 +355,33 @@ class Command(BaseCommand):
         return {
             'name_zh': title if _has_cjk(title) else '',
             'description_zh': desc if _has_cjk(desc) else '',
+            'icon': icon,
+        }
+
+    def _fetch_wowhead_en(self, session, item_id):
+        api_meta = self._fetch_wowhead_tooltip_api(session, item_id, 'enUS')
+        if api_meta and (api_meta.get('name') or api_meta.get('description')):
+            return api_meta
+        url = WOWHEAD_EN_ITEM.format(item_id=item_id)
+        try:
+            resp = session.get(url, timeout=15)
+            if resp.status_code >= 400:
+                return {}
+            text = resp.text
+        except Exception:
+            return {}
+        title = ''
+        m = re.search(r'<title>(.*?)</title>', text, re.S | re.I)
+        if m:
+            title = _clean_wowhead_title(m.group(1))
+        desc = _extract_item_tooltip(text, item_id, locale='enus') or _extract_profession_description(text, locale='enus') or _extract_meta_description(text, require_cjk=False)
+        desc = _strip_description_name(desc, title)
+        icon = ''
+        im = re.search(r'images/wow/icons/(?:small|medium|large)/([a-z0-9_]+)\.(?:jpg|png)', text, re.I)
+        if im:
+            icon = im.group(1)
+        return {
+            'name': title,
+            'description': desc,
             'icon': icon,
         }
