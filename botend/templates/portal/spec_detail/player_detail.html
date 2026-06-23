@@ -335,20 +335,35 @@
         <p class="source-note">{{ player_detail.gear_source }}</p>
         <div class="gear-grid-detail">
             {% for item in player_detail.gear %}
-            <a href="{% if item.id %}https://www.wowhead.com/item={{ item.id }}{% else %}#{% endif %}" target="_blank" class="gear-item-detail">
+            <a href="{% if item.wowhead_url %}{{ item.wowhead_url }}{% elif item.id %}https://www.wowhead.com/cn/item={{ item.id }}{% else %}#{% endif %}" target="_blank" class="gear-item-detail">
                 <div class="gear-item-icon">
                     {% if item.icon %}
-                    <img src="{% wow_icon item.icon "small" %}" width="36" height="36" alt="{{ item.name }}">
+                    <img src="{% wow_icon item.icon "small" %}" width="36" height="36" alt="{{ item.display_name|default:item.name }}">
                     {% else %}
                     <span>ID</span>
                     {% endif %}
                 </div>
                 <div class="gear-item-info">
                     {% if item.slot %}<span class="gear-slot-name">{{ item.slot }}</span>{% endif %}
-                    <span class="gear-name-link">{{ item.name }}</span>
+                    <span class="gear-name-link">{{ item.display_name|default:item.name }}</span>
+                    {% if item.name_zh and item.name %}<span class="gear-name-original">{{ item.name }}</span>{% endif %}
                     {% if item.itemLevel %}<span class="gear-ilvl">物品等级 {{ item.itemLevel }}</span>{% endif %}
                     {% if item.bonusIDs %}
                     <span class="gear-extra-meta">BonusIDs: {{ item.bonusIDs|join:", " }}</span>
+                    {% endif %}
+                </div>
+                <div class="gear-item-tooltip">
+                    <div class="gear-tooltip-name">{{ item.display_name|default:item.name }}</div>
+                    {% if item.itemLevel or item.quality %}
+                    <div class="gear-tooltip-meta">
+                        {% if item.itemLevel %}<span>物品等级 {{ item.itemLevel }}</span>{% endif %}
+                        {% if item.quality %}<span>{{ item.quality }}</span>{% endif %}
+                    </div>
+                    {% endif %}
+                    {% if item.display_description %}
+                    <div class="gear-tooltip-desc">{{ item.display_description|safe }}</div>
+                    {% else %}
+                    <div class="gear-tooltip-desc is-muted">暂无中文描述，点击查看 Wowhead。</div>
                     {% endif %}
                 </div>
             </a>
@@ -661,22 +676,57 @@
 
 .gear-grid-detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .gear-item-detail {
+    position: relative;
     display: flex;
-    gap: 12px;
+    gap: 10px;
     align-items: center;
     text-decoration: none;
     color: inherit;
     padding: 12px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, rgba(30,41,59,.82), rgba(15,23,42,.95));
-    border: 1px solid rgba(148,163,184,.14);
+    border: 1px solid rgba(148,163,184,.16);
+    border-radius: 16px;
+    background: rgba(15,23,42,.78);
+    transition: transform .16s ease, border-color .16s ease, background .16s ease;
 }
+.gear-item-detail:hover { transform: translateY(-1px); border-color: rgba(96,165,250,.5); background: rgba(15,23,42,.94); z-index: 20; }
 .gear-item-icon { width: 40px; height: 40px; border-radius: 10px; overflow: hidden; background: rgba(51,65,85,.9); display: flex; align-items: center; justify-content: center; color: #cbd5e1; flex-shrink: 0; }
+.gear-item-icon img { width: 100%; height: 100%; object-fit: cover; }
 .gear-item-info { min-width: 0; display: flex; flex-direction: column; }
 .gear-slot-name { color: #94a3b8; font-size: 12px; margin-bottom: 2px; text-transform: capitalize; }
 .gear-name-link { color: #f8fafc; font-weight: 700; margin-bottom: 2px; }
+.gear-name-original { color: #94a3b8; font-size: 11px; margin-top: -1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gear-ilvl { color: #86efac; font-size: 12px; }
 .gear-extra-meta { display: block; color: #94a3b8; font-size: 11px; margin-top: 3px; word-break: break-word; }
+.gear-item-tooltip {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    width: min(360px, calc(100vw - 48px));
+    z-index: 9999;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(250, 204, 21, .38);
+    background: rgba(15, 23, 42, .98);
+    box-shadow: 0 18px 42px rgba(0,0,0,.42);
+    color: #e5e7eb;
+    pointer-events: none;
+}
+.gear-item-tooltip::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    transform: translateX(-50%);
+    border: 7px solid transparent;
+    border-top-color: rgba(15, 23, 42, .98);
+}
+.gear-item-detail:hover .gear-item-tooltip { display: block; }
+.gear-tooltip-name { color: #facc15; font-weight: 800; font-size: 14px; margin-bottom: 6px; }
+.gear-tooltip-meta { display: flex; gap: 8px; flex-wrap: wrap; color: #86efac; font-size: 12px; margin-bottom: 8px; }
+.gear-tooltip-desc { color: #cbd5e1; font-size: 12px; line-height: 1.55; }
+.gear-tooltip-desc.is-muted { color: #94a3b8; }
 
 /* 宝石与附魔板块 */
 .gem-enchant-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }

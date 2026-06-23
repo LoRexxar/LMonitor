@@ -1885,6 +1885,7 @@ def _normalize_gear_items(items):
         'back', 'main_hand', 'off_hand', 'tabard',
     ]
     result = []
+    item_snapshots = _collect_item_ids_from_records([{'gear_json': items}], include_gems=False, include_enchants=False)
     for raw in items or []:
         if not isinstance(raw, dict):
             continue
@@ -1916,13 +1917,28 @@ def _normalize_gear_items(items):
             else:
                 translated_gems.append(g)
 
+        item_id = raw.get('id') or raw.get('itemID') or raw.get('item_id')
+        item_meta = _item_snapshot_payload(
+            item_id,
+            fallback_name=item_name,
+            fallback_icon=icon,
+            fallback_description=raw.get('description', ''),
+            fallback_quality=raw.get('quality', 0),
+            snapshots=item_snapshots,
+        )
         result.append({
             'slot': SLOT_CN.get(slot, '' if slot == 'unknown' else slot),
-            'name': item_name,
-            'id': raw.get('id') or raw.get('itemID') or raw.get('item_id'),
-            'icon': icon,
+            'name': item_meta['name'],
+            'name_zh': item_meta['name_zh'],
+            'display_name': item_meta['display_name'],
+            'description': item_meta['description'],
+            'description_zh': item_meta['description_zh'],
+            'display_description': item_meta['display_description'],
+            'id': item_meta['id'],
+            'wowhead_url': item_meta['wowhead_url'],
+            'icon': item_meta['icon'],
             'itemLevel': raw.get('itemLevel') or raw.get('item_level'),
-            'quality': _translate_quality(raw.get('quality', '')),
+            'quality': _translate_quality(item_meta['quality'] or raw.get('quality', '')),
             'bonusIDs': raw.get('bonusIDs', []),
             'gems': raw.get('gems', []),
             'gems_detail': translated_gems,
