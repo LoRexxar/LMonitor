@@ -209,8 +209,8 @@
                     </li>
                     <li class="nav-item" data-section="error-logs">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
-                            <i class="fas fa-bug mr-3"></i>
-                            错误日志
+                            <i class="fas fa-bell mr-3"></i>
+                            系统报警
                         </a>
                     </li>
                     <li class="nav-item has-submenu" data-section="tools">
@@ -477,18 +477,18 @@
                 </div>
             </div>
             
-            <!-- 错误日志内容区域 -->
+            <!-- 系统报警内容区域 -->
             <div class="content-section" id="error-logs" style="display: none;">
                 <div class="mb-6">
-                    <h2 class="text-3xl font-bold text-gray-800 mb-2">错误日志</h2>
-                    <p class="text-gray-600">系统自动收集的所有 ERROR/CRITICAL 级别日志</p>
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2">系统报警</h2>
+                    <p class="text-gray-600">系统自动收集的监控失败、接口异常和错误日志</p>
                 </div>
 
                 <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
                     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div class="flex items-center space-x-4">
                             <div class="relative">
-                                <input type="text" id="error-log-search" placeholder="搜索错误日志..." class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <input type="text" id="error-log-search" placeholder="搜索报警记录..." class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                                 <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
                             </div>
                             <select id="error-log-page-size" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
@@ -520,7 +520,7 @@
                     </div>
                     <div id="error-log-empty" class="text-center py-12 hidden">
                         <i class="fas fa-check-circle text-green-400 text-4xl mb-4"></i>
-                        <p class="text-gray-500 text-lg">暂无错误日志</p>
+                        <p class="text-gray-500 text-lg">暂无报警记录</p>
                         <p class="text-gray-400 text-sm">系统运行正常</p>
                     </div>
                     <div id="error-log-pagination" class="px-6 py-4 bg-gray-50 border-t border-gray-200">

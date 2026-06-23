@@ -107,6 +107,7 @@ class SystemAlertAPIView(View):
                         'title': a.title,
                         'content': a.content,
                         'count': a.count,
+                        'is_read': a.is_read,
                         'first_seen_at': _fmt_dt(a.first_seen_at),
                         'last_seen_at': _fmt_dt(a.last_seen_at),
                     }

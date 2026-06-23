@@ -7583,13 +7583,13 @@ function initErrorLogPage() {
     }
     if (markAllBtn) {
         markAllBtn.addEventListener('click', async () => {
-            if (!confirm('确定将所有错误日志标记为已读？')) return;
+            if (!confirm('确定将所有系统报警标记为已读？')) return;
             try {
                 const resp = await fetch('/api/system-alert/', {
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'mark_all_read', category: 'ERROR_LOG' })
+                    body: JSON.stringify({ action: 'mark_all_read' })
                 });
                 const data = await resp.json();
                 if (data.success) {
@@ -7605,13 +7605,13 @@ function initErrorLogPage() {
     }
     if (deleteAllReadBtn) {
         deleteAllReadBtn.addEventListener('click', async () => {
-            if (!confirm('确定清除所有已读的错误日志？此操作不可恢复。')) return;
+            if (!confirm('确定清除所有已读的系统报警？此操作不可恢复。')) return;
             try {
                 const resp = await fetch('/api/system-alert/', {
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'delete_all_read', category: 'ERROR_LOG' })
+                    body: JSON.stringify({ action: 'delete_all_read' })
                 });
                 const data = await resp.json();
                 if (data.success) {
@@ -7653,7 +7653,7 @@ function initErrorLogPage() {
         const pageSize = pageSizeSelect ? pageSizeSelect.value : '20';
         const showRead = showReadCheckbox ? showReadCheckbox.checked : false;
 
-        let url = `/api/system-alert/?category=ERROR_LOG&page=${currentPage}&page_size=${pageSize}`;
+        let url = `/api/system-alert/?page=${currentPage}&page_size=${pageSize}`;
         if (showRead) url += '&show_read=true';
 
         listEl.innerHTML = '<div class="px-6 py-8 text-center text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>加载中...</div>';
@@ -7688,7 +7688,7 @@ function initErrorLogPage() {
                             <div class="flex-1 min-w-0">
                                 <div class="flex items-center gap-2 mb-1">
                                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                                        <i class="fas fa-exclamation-circle mr-1"></i>ERROR
+                                        <i class="fas fa-exclamation-circle mr-1"></i>${escapeHtml(a.category || 'ALERT')}
                                     </span>
                                     <span class="text-xs text-gray-500">${escapeHtml(a.subject || '')}</span>
                                     <span class="text-xs text-gray-400">×${a.count || 1}</span>
