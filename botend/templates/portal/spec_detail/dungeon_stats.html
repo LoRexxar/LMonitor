@@ -1291,27 +1291,27 @@
     gap: 4px;
     padding: 6px 10px;
     border-radius: 999px;
-    background: rgba(59,130,246,.12);
-    border: 1px solid rgba(96,165,250,.24);
-    color: #cbd5e1;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
     font-size: 0.86em;
     font-weight: 700;
 }
-.talent-build-summary strong { color: #bfdbfe; }
+.talent-build-summary strong { color: #1d4ed8; }
 .talent-build-list {
     display: grid;
     gap: 12px;
 }
 .talent-build-card {
-    border: 1px solid rgba(148,163,184,.16);
+    border: 1px solid #e5e7eb;
     border-radius: 16px;
-    background: linear-gradient(135deg, rgba(30,41,59,.82), rgba(15,23,42,.92));
-    box-shadow: 0 10px 24px rgba(2,6,23,.16);
+    background: #ffffff;
+    box-shadow: 0 10px 24px rgba(15,23,42,.06);
     padding: 12px;
 }
 .talent-build-card.is-template {
     border-color: rgba(250,204,21,.42);
-    box-shadow: 0 10px 26px rgba(250,204,21,.08), 0 10px 24px rgba(2,6,23,.16);
+    box-shadow: 0 10px 26px rgba(250,204,21,.08), 0 10px 24px rgba(15,23,42,.06);
 }
 .talent-build-head {
     display: grid;
@@ -1326,9 +1326,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: #bfdbfe;
-    background: rgba(37,99,235,.18);
-    border: 1px solid rgba(96,165,250,.28);
+    color: #1d4ed8;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
     font-weight: 900;
 }
 .talent-build-main { min-width: 0; }
@@ -1337,10 +1337,10 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    color: #cbd5e1;
+    color: #64748b;
     font-size: 0.92em;
 }
-.talent-build-title strong { color: #f8fafc; }
+.talent-build-title strong { color: #1e293b; }
 .talent-build-badge, .talent-build-diff-count {
     display: inline-flex;
     align-items: center;
@@ -1354,17 +1354,17 @@
     background: #fde68a;
 }
 .talent-build-diff-count {
-    color: #bfdbfe;
-    background: rgba(59,130,246,.16);
-    border: 1px solid rgba(96,165,250,.22);
+    color: #1d4ed8;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
 }
 .talent-build-code {
     margin-top: 7px;
     padding: 8px 10px;
     border-radius: 10px;
-    background: rgba(2,6,23,.52);
-    border: 1px solid rgba(148,163,184,.14);
-    color: #94a3b8;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    color: #64748b;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.78em;
     line-height: 1.45;
@@ -1530,19 +1530,18 @@
     max-width: 1200px;
     margin: 0 auto;
     padding: 24px;
-    color: #e2e8f0;
+    color: #1e293b;
 }
 .spec-header {
     padding: 24px 28px;
     border-radius: 22px;
-    background: radial-gradient(circle at top left, rgba(59,130,246,.22), rgba(15,23,42,.96) 55%),
-                linear-gradient(135deg, #0f172a, #111827);
-    border: 1px solid rgba(148,163,184,.18);
-    box-shadow: 0 18px 48px rgba(2,6,23,.28);
+    background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(248,250,252,.92));
+    border: 1px solid rgba(148,163,184,.28);
+    box-shadow: 0 18px 40px rgba(15,23,42,.08);
     margin-bottom: 18px;
 }
-.spec-title h1, .spec-header h1 { margin: 0; color: #f8fafc; }
-.spec-icon { border-radius: 14px; box-shadow: 0 8px 20px rgba(0,0,0,.25); }
+.spec-title h1, .spec-header h1 { margin: 0; color: #0f172a; }
+.spec-icon { border-radius: 14px; box-shadow: 0 8px 20px rgba(15,23,42,.12); }
 .spec-nav {
     display: flex;
     gap: 14px;
@@ -1555,12 +1554,12 @@
     padding: 10px 16px;
     border-radius: 999px;
     font-weight: 600;
-    color: #94a3b8;
-    background: rgba(15,23,42,.72);
-    border: 1px solid rgba(148,163,184,.14);
+    color: #475569;
+    background: rgba(255,255,255,.86);
+    border: 1px solid rgba(148,163,184,.35);
 }
 .spec-nav a.active, .spec-nav a:hover, .back-link:hover {
-    color: #f8fafc;
+    color: #ffffff;
     background: linear-gradient(135deg, #2563eb, #1d4ed8);
     border-color: transparent;
     padding-bottom: 10px;
@@ -1568,90 +1567,90 @@
     text-decoration: none;
 }
 .detail-section {
-    background: rgba(15,23,42,.92);
-    border: 1px solid rgba(148,163,184,.16);
+    background: rgba(255,255,255,.94);
+    border: 1px solid rgba(148,163,184,.28);
     border-radius: 22px;
     padding: 22px;
-    box-shadow: 0 14px 36px rgba(2,6,23,.24);
+    box-shadow: 0 14px 34px rgba(15,23,42,.08);
 }
-.detail-section h2 { color: #f8fafc; }
+.detail-section h2 { color: #0f172a; }
 .text-muted, .aggregation-pending, .popularity-section-note, .secondary-stat-meta,
 .talent-tree-meta, .talent-card-tree, .talent-card-count, .dungeon-meta, .zone-name-en {
-    color: #94a3b8 !important;
+    color: #64748b !important;
 }
 .section-block {
     margin-top: 18px;
     padding: 18px;
     border-radius: 18px;
-    background: linear-gradient(135deg, rgba(30,41,59,.78), rgba(15,23,42,.88));
-    border: 1px solid rgba(148,163,184,.14);
-    box-shadow: 0 10px 26px rgba(2,6,23,.18);
+    background: linear-gradient(135deg, #ffffff, #f8fafc);
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 10px 26px rgba(15,23,42,.06);
 }
 .section-block h4 {
-    color: #f8fafc;
-    border-bottom: 1px solid rgba(148,163,184,.16);
+    color: #1e293b;
+    border-bottom: 1px solid #e5e7eb;
     padding-bottom: 8px;
 }
 .section-head h4 { border-bottom: 0; padding-bottom: 0; }
 .stat-strip {
-    border: 1px solid rgba(148,163,184,.16);
-    background: rgba(15,23,42,.62);
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
     border-radius: 14px;
 }
 .stat-card,
 .stat-strip .stat-card {
-    background: rgba(15,23,42,.65);
-    border-color: rgba(148,163,184,.14);
-    border-right: 1px solid rgba(148,163,184,.14);
-    color: #e2e8f0;
+    background: #f8fafc;
+    border-color: #e5e7eb;
+    border-right: 1px solid #e5e7eb;
+    color: #1e293b;
 }
 .stat-card:hover, .stat-strip .stat-card:hover {
-    background: rgba(30,41,59,.88);
+    background: #ffffff;
     box-shadow: none;
 }
 .stat-card.highlight,
 .stat-strip .stat-card.highlight {
-    background: linear-gradient(135deg, rgba(37,99,235,.24), rgba(15,23,42,.75));
-    border-color: rgba(96,165,250,.32);
+    background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+    border-color: #e5e7eb;
 }
-.stat-label { color: #94a3b8; }
-.stat-value, .dps-val { color: #f8fafc; }
+.stat-label { color: #64748b; }
+.stat-value, .dps-val { color: #0f172a; }
 .secondary-stat-row,
 .talent-usage-card,
 .gear-slot-section,
 .popularity-mini-card {
-    background: linear-gradient(135deg, rgba(30,41,59,.84), rgba(15,23,42,.94));
-    border: 1px solid rgba(148,163,184,.14);
-    color: #e2e8f0;
-    box-shadow: 0 10px 24px rgba(2,6,23,.18);
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    color: #1e293b;
+    box-shadow: 0 10px 24px rgba(15,23,42,.06);
 }
 .secondary-stat-name, .talent-card-name, .gear-name-link, .popularity-name,
-.popularity-stat, .dungeon-name, .zone-header h2 { color: #f8fafc; }
-.gear-name-link:hover, .popularity-mini-card:hover .popularity-name { color: #93c5fd; }
-.secondary-stat-range { color: #cbd5e1; }
-.secondary-stat-bar, .talent-card-bar, .popularity-bar { background: rgba(51,65,85,.9); }
+.popularity-stat, .dungeon-name, .zone-header h2 { color: #1e293b; }
+.gear-name-link:hover, .popularity-mini-card:hover .popularity-name { color: #2563eb; }
+.secondary-stat-range { color: #475569; }
+.secondary-stat-bar, .talent-card-bar, .popularity-bar { background: #e2e8f0; }
 .secondary-stat-fill, .talent-card-fill, .popularity-fill {
     background: linear-gradient(90deg, #60a5fa 0%, #2563eb 100%);
 }
-.secondary-stat-marker { background: #bfdbfe; }
+.secondary-stat-marker { background: #1d4ed8; }
 .slot-name, .gear-ilvl {
-    background: rgba(37,99,235,.18);
-    color: #bfdbfe;
-    border: 1px solid rgba(96,165,250,.24);
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
 }
 .gear-pop-card {
-    border-top: 1px solid rgba(148,163,184,.12);
-    color: #e2e8f0;
+    border-top: 1px solid #e5e7eb;
+    color: #1e293b;
 }
 .gear-icon, .popularity-icon, .talent-card-icon-wrap, .talent-node-icon {
-    background: rgba(51,65,85,.8);
-    box-shadow: 0 0 0 1px rgba(148,163,184,.16), 0 8px 18px rgba(2,6,23,.24);
+    background: #e2e8f0;
+    box-shadow: 0 0 0 1px rgba(148,163,184,.18), 0 8px 18px rgba(15,23,42,.1);
 }
 .popularity-mini-card:hover, .talent-usage-card:hover {
-    border-color: rgba(96,165,250,.45);
-    box-shadow: 0 12px 28px rgba(2,6,23,.28);
+    border-color: rgba(37,99,235,.35);
+    box-shadow: 0 12px 28px rgba(15,23,42,.1);
 }
-.popularity-stat small { color: #94a3b8; }
+.popularity-stat small { color: #64748b; }
 .popularity-tooltip {
     background: rgba(15,23,42,.98);
     border-color: rgba(96,165,250,.4);
@@ -1660,66 +1659,69 @@
 .popularity-tooltip strong { color: #f8fafc; }
 .popularity-tooltip p, .popularity-tooltip span { color: #cbd5e1; }
 .talent-panel {
-    background: linear-gradient(180deg, rgba(30,41,59,.92) 0, rgba(15,23,42,.96) 100%);
-    border: 1px solid rgba(96,165,250,.18);
-    box-shadow: 0 14px 34px rgba(2,6,23,.3);
+    background: linear-gradient(180deg, #ffffff 0, #ffffff 64px, #f8fbff 100%);
+    border: 1px solid #dbeafe;
+    box-shadow: 0 14px 34px rgba(37,99,235,.08);
 }
-.talent-panel-title { color: #93c5fd; }
+.talent-panel-title { color: #1d4ed8; }
 .talent-tree-meta span {
-    background: rgba(15,23,42,.72);
-    border: 1px solid rgba(148,163,184,.14);
-    color: #94a3b8;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    color: #64748b;
 }
 .talent-node-card--tree {
-    background: transparent;
-    border: none;
-    box-shadow: none;
+    background: radial-gradient(circle at top, #ffffff, #eff6ff 70%);
+    border: 1px solid rgba(148,163,184,.24);
+    box-shadow: 0 10px 24px rgba(15,23,42,.12);
 }
-.talent-node-card--tree:hover { border-color: transparent; box-shadow: none; }
+.talent-node-card--tree:hover { border-color: rgba(37,99,235,.45); box-shadow: 0 10px 20px rgba(37,99,235,.16); }
 .talent-node-usage {
     background: linear-gradient(135deg, #2563eb, #1d4ed8);
     color: #eff6ff;
-    box-shadow: 0 6px 12px rgba(37,99,235,.35);
+    box-shadow: 0 6px 12px rgba(37,99,235,.25);
 }
 .dungeon-card {
-    background: linear-gradient(135deg, rgba(30,41,59,.84), rgba(15,23,42,.94));
-    border: 1px solid rgba(148,163,184,.14);
-    box-shadow: 0 10px 24px rgba(2,6,23,.16);
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 10px 24px rgba(15,23,42,.08);
 }
 .dungeon-card::before {
-    background: linear-gradient(135deg, rgba(59,130,246,.12), rgba(37,99,235,0));
+    background: linear-gradient(135deg, rgba(37,99,235,.04), rgba(37,99,235,0));
 }
 .dungeon-card:hover {
-    border-color: rgba(96,165,250,.45);
-    box-shadow: 0 14px 32px rgba(2,6,23,.26);
+    border-color: #2563eb;
+    box-shadow: 0 14px 32px rgba(15,23,42,.14);
 }
-.dungeon-meta strong { color: #e0f2fe; }
-.dps-bar { background: rgba(51,65,85,.9); }
-.dps-range { background: rgba(96,165,250,.4); }
-.dps-median { background: #60a5fa; }
+.dungeon-card .dungeon-name { color: #1e293b; }
+.dungeon-card .dungeon-meta { color: #64748b !important; }
+.dungeon-card .dungeon-meta strong { color: #1e293b; }
+.dps-bar { background: #e2e8f0; }
+.dps-range { background: #bfdbfe; }
+.dps-median { background: #2563eb; }
+.dps-bar-labels { color: #475569; font-weight: 600; }
 .data-table {
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
     overflow: hidden;
     border-radius: 14px;
-    border: 1px solid rgba(148,163,184,.14);
+    border: 1px solid #e5e7eb;
 }
 .data-table th {
-    background: rgba(15,23,42,.84);
-    color: #94a3b8;
-    border-bottom: 1px solid rgba(148,163,184,.14);
+    background: #f8fafc;
+    color: #475569;
+    border-bottom: 1px solid #e5e7eb;
 }
 .data-table td {
-    background: rgba(30,41,59,.54);
-    color: #e2e8f0;
-    border-bottom: 1px solid rgba(148,163,184,.1);
+    background: #ffffff;
+    color: #1e293b;
+    border-bottom: 1px solid #e5e7eb;
 }
-.data-table tbody tr:hover td { background: rgba(37,99,235,.16); }
+.data-table tbody tr:hover td { background: #eff6ff; }
 .empty-state {
-    background: rgba(15,23,42,.72);
-    border: 1px solid rgba(148,163,184,.14);
-    color: #94a3b8;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    color: #64748b;
     border-radius: 18px;
 }
 
