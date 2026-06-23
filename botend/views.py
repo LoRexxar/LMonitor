@@ -187,7 +187,8 @@ class LMonitorCore:
                         _record_monitor_task_alert(now_task, exc=scan_exc)
                     else:
                         if scan_result is False:
-                            _record_monitor_task_alert(now_task, error_message='scan returned False')
+                            detail = getattr(t, 'last_error_detail', '') or 'scan returned False'
+                            _record_monitor_task_alert(now_task, error_message=detail)
                     try:
                         Lreq.set_current_task(None)
                     except Exception:

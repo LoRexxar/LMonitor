@@ -40,8 +40,56 @@ class wowheadMonitor(BaseScan):
         self.target_url = "https://www.wowhead.com/wow/retail"
         self.task = task
         self.translation_service = build_translation_service()
+        self.last_error_detail = ""
         # 单次 scan 最多翻译多少篇（包括补翻译历史记录）
         self._translate_budget = 10
+
+    def _set_error_detail(self, message, **extra):
+        parts = [str(message or "").strip()]
+        for key, value in extra.items():
+            if value is None:
+                continue
+            parts.append("{}={}".format(key, value))
+        self.last_error_detail = "; ".join([p for p in parts if p])[:1000]
+        return self.last_error_detail
+
+    def _html_debug_summary(self, html_text, prefix="html"):
+        text = html_text or ""
+        low = text.lower()
+        return {
+            "{}_len".format(prefix): len(text),
+            "{}_news_data".format(prefix): "data.home.newsData" in text,
+            "{}_news_href_count".format(prefix): low.count("/news/"),
+            "{}_cloudflare".format(prefix): "cloudflare" in low or "cf-chl" in low,
+            "{}_captcha".format(prefix): "captcha" in low,
+            "{}_access_denied".format(prefix): "access denied" in low,
+            "{}_just_moment".format(prefix): "just a moment" in low,
+        }
+
+    def _request_fallback_posts(self, cookies, limit=10, reason=""):
+        try:
+            resp = self.req.get(self.target_url, 'Response', 0, cookies)
+        except Exception as e:
+            self._set_error_detail("wowhead requests fallback exception", reason=reason, error=str(e))
+            return 0, 0, False
+        if resp is False or resp is None:
+            self._set_error_detail("wowhead requests fallback returned empty", reason=reason)
+            return 0, 0, False
+        status_code = getattr(resp, 'status_code', 200)
+        html_text = getattr(resp, "text", "") or ""
+        if int(status_code or 0) >= 400:
+            detail = self._html_debug_summary(html_text, prefix="response")
+            detail.update({"reason": reason, "status": status_code})
+            self._set_error_detail("wowhead requests fallback bad status", **detail)
+            return 0, 0, False
+        fake_driver = type("RespWrapper", (), {"html": html_text, "eles": True})()
+        post_count, new_count = self.resolve_data(fake_driver, "wowhead", limit)
+        if int(post_count or 0) <= 0:
+            detail = self._html_debug_summary(html_text, prefix="response")
+            detail.update({"reason": reason, "status": status_code})
+            self._set_error_detail("wowhead requests fallback parsed no posts", **detail)
+            return post_count, new_count, False
+        return post_count, new_count, True
 
     def scan(self, url):
         """
@@ -67,24 +115,17 @@ class wowheadMonitor(BaseScan):
         if not driver or not hasattr(driver, 'eles'):
             logger.error("[wowheadMonitor] Browser request failed.")
             # 最后再尝试 requests 直连 HTML，哪怕不稳定，也至少保留退路
-            try:
-                resp = self.req.get(self.target_url, 'Response', 0, cookies)
-            except Exception:
-                resp = None
-            if resp is False or resp is None:
-                logger.error("[wowheadMonitor] Request failed.")
-                return False
-            status_code = getattr(resp, 'status_code', 200)
-            if int(status_code or 0) >= 400:
-                logger.error("[wowheadMonitor] Request bad status: {}".format(status_code))
-                return False
-            fake_driver = type("RespWrapper", (), {"html": getattr(resp, "text", "") or "", "eles": True})()
-            post_count, _ = self.resolve_data(fake_driver, "wowhead", 10)
-            return int(post_count or 0) > 0
+            _, _, ok = self._request_fallback_posts(cookies, limit=10, reason="browser_unavailable")
+            return ok
 
         post_count, _ = self.resolve_data(driver, "wowhead", 10)
         if int(post_count or 0) <= 0:
-            return False
+            html_text = (getattr(driver, "html", "") or "")
+            detail = self._html_debug_summary(html_text, prefix="browser")
+            self._set_error_detail("wowhead browser parsed no posts", **detail)
+            logger.warning("[wowheadMonitor] Browser parsed no posts, fallback to requests. {}".format(self.last_error_detail))
+            _, _, ok = self._request_fallback_posts(cookies, limit=10, reason="browser_parsed_no_posts")
+            return ok
 
         return True
 
