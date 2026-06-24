@@ -38,7 +38,8 @@ def _normalize_icon_name(icon_name):
             icon_name = base
             continue
         break
-    return icon_name.strip()
+    icon_name = ''.join(icon_name.strip().split())
+    return icon_name
 
 
 def _wow_icon_oss_base_url():
