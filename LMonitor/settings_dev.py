@@ -87,10 +87,16 @@ ALLOW_REGISTRATION = False
 
 MONITOR_TASK_AUTO_SYNC_PLUGINS = True
 
+PROXY_CONFIG = {
+    "http": "http://proxy:proxy_mN3dLhDeHoPGIQhgYjWZifPX@43.155.208.65:8883",
+    "https": "http://proxy:proxy_mN3dLhDeHoPGIQhgYjWZifPX@43.155.208.65:8883",
+}
+
 REQUEST_CONFIG = {
     "timeout": (5, 20),
     "retries": 2,
     "enable_proxy": False,
+    "proxies": PROXY_CONFIG,
 }
 
 WCL_V2_CONFIG = {

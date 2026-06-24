@@ -52,10 +52,10 @@ def _build_wow_icon_oss_url(base_url, size, icon_name):
 
 @register.simple_tag
 def wow_icon(icon_name, size='small'):
-    """返回本地 wow 图标路径。
+    """返回 WoW 图标 URL。
 
-    优先使用本地 static/wow_icons/{size}/{icon_name}.jpg，
-    如果本地不存在则回退到站内占位图，避免外链被浏览器拦截。
+    生产环境优先使用 OSS 图标前缀；没有 OSS 配置时保留本地 static
+    回退，方便开发环境或临时离线验证。
     """
     icon_name = _normalize_icon_name(icon_name)
     if not icon_name:
