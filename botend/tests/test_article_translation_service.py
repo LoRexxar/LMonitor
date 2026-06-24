@@ -80,6 +80,56 @@ class ArticleTranslationServiceTests(SimpleTestCase):
             ],
         )
 
+    def test_translate_content_blocks_preserves_structure(self):
+        blocks = [
+            {"type": "heading", "text": "Classes", "level": 2},
+            {"type": "list_item", "text": "Demon Hunter changes.", "ordered": False},
+            {"type": "image", "url": "https://example.com/a.png", "alt": "A"},
+            {"type": "list_item", "text": "Warrior changes.", "ordered": False},
+        ]
+        svc = ArticleTranslationService(
+            engine=FakeEngine([json.dumps(["职业", "恶魔猎手改动。", "战士改动。"], ensure_ascii=False)]),
+            sleep_func=lambda _: None,
+        )
+
+        translated = svc.translate_content_blocks(blocks)
+
+        self.assertEqual(len(translated), len(blocks))
+        self.assertEqual(translated[0], {"type": "heading", "text": "职业", "level": 2, "original": "Classes"})
+        self.assertEqual(translated[1]["text"], "恶魔猎手改动。")
+        self.assertEqual(translated[1]["ordered"], False)
+        self.assertEqual(translated[2], blocks[2])
+        self.assertEqual(translated[3]["text"], "战士改动。")
+
+    def test_translate_article_fields_uses_block_translation_for_content_blocks_cn(self):
+        article = FakeArticle()
+        article.title_cn = "已有标题"
+        article.content = "Classes\nDemon Hunter changes.\nWarrior changes."
+        article.content_blocks = dumps_blocks([
+            {"type": "heading", "text": "Classes", "level": 2},
+            {"type": "list_item", "text": "Demon Hunter changes.", "ordered": False},
+            {"type": "image", "url": "https://example.com/a.png", "alt": "A"},
+            {"type": "list_item", "text": "Warrior changes.", "ordered": False},
+        ])
+        svc = ArticleTranslationService(
+            engine=FakeEngine([
+                json.dumps(["旧字段-职业", "旧字段-恶魔猎手", "旧字段-战士"], ensure_ascii=False),
+                json.dumps(["职业", "恶魔猎手改动。", "战士改动。"], ensure_ascii=False),
+            ]),
+            sleep_func=lambda _: None,
+        )
+
+        ok = svc.translate_article_fields(article, logger_prefix="test")
+        translated_blocks = loads_blocks(article.content_blocks_cn)
+
+        self.assertTrue(ok)
+        self.assertEqual(len(translated_blocks), 4)
+        self.assertEqual(translated_blocks[0]["text"], "职业")
+        self.assertEqual(translated_blocks[1]["text"], "恶魔猎手改动。")
+        self.assertEqual(translated_blocks[2]["type"], "image")
+        self.assertEqual(translated_blocks[3]["text"], "战士改动。")
+        self.assertEqual(article.saved_fields, [["content_cn", "content_blocks_cn"]])
+
     def test_translate_article_fields_saves_title_when_content_translation_fails(self):
         article = FakeArticle()
         svc = ArticleTranslationService(
@@ -171,6 +221,37 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn({"type": "quote", "text": "Developer note"}, blocks)
         self.assertIn({"type": "image", "url": "https://example.com/images/a.png", "alt": "A"}, blocks)
         self.assertIn("Class changes are live.", blocks_to_plain_text(blocks))
+
+    def test_extract_structured_article_splits_nested_list_items(self):
+        html = """
+        <article>
+          <ul>
+            <li><strong>DEATH KNIGHT</strong>
+              <ul>
+                <li><strong>Frost</strong>
+                  <ul>
+                    <li><em>Developers' notes: tuning changes.</em></li>
+                    <li>Pillar of Frost now increases Strength by 20%.</li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </article>
+        """
+
+        blocks = extract_structured_article(html, base_url="https://example.com/news/1")
+        text_blocks = [b for b in blocks if b["type"] == "list_item"]
+
+        self.assertEqual(
+            text_blocks,
+            [
+                {"type": "list_item", "text": "DEATH KNIGHT", "ordered": False},
+                {"type": "list_item", "text": "Frost", "ordered": False},
+                {"type": "list_item", "text": "Developers' notes: tuning changes.", "ordered": False},
+                {"type": "list_item", "text": "Pillar of Frost now increases Strength by 20%.", "ordered": False},
+            ],
+        )
 
     def test_extract_wowhead_article_keeps_inline_links_in_paragraph(self):
         html = """

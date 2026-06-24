@@ -215,9 +215,7 @@ def _append_node_blocks(node, blocks: List[Dict[str, Any]], *, base_url: str):
         _append_text_block(blocks, "quote", _node_inline_text(node))
         return
     if name in {"ul", "ol"}:
-        ordered = name == "ol"
-        for li in node.find_all("li", recursive=False):
-            _append_text_block(blocks, "list_item", _node_inline_text(li), ordered=ordered)
+        _append_list_blocks(node, blocks, base_url=base_url)
         return
     if name == "img":
         block = _image_block(node, base_url=base_url)
@@ -263,6 +261,29 @@ def _append_container_blocks(node, blocks: List[Dict[str, Any]], *, base_url: st
         if text:
             inline_parts.append(text)
     _flush_inline_parts(inline_parts, blocks)
+
+
+def _append_list_blocks(node, blocks: List[Dict[str, Any]], *, base_url: str):
+    ordered = getattr(node, "name", None) == "ol"
+    for li in node.find_all("li", recursive=False):
+        inline_parts = []
+        child_lists = []
+        for child in li.children:
+            child_name = getattr(child, "name", None)
+            if child_name in {"ul", "ol"}:
+                child_lists.append(child)
+                continue
+            if child_name in {"br"}:
+                continue
+            text = _node_inline_text(child) if child_name else str(child).strip()
+            if text:
+                inline_parts.append(text)
+
+        text = _clean_inline_text(" ".join(inline_parts))
+        if text:
+            _append_text_block(blocks, "list_item", text, ordered=ordered)
+        for child_list in child_lists:
+            _append_list_blocks(child_list, blocks, base_url=base_url)
 
 
 def _flush_inline_parts(inline_parts: List[str], blocks: List[Dict[str, Any]]):

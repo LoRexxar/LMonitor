@@ -7,7 +7,7 @@ import requests
 from django.conf import settings
 
 from core.glm import GLMClient
-from botend.services.article_content_service import article_blocks_match_reference, dumps_blocks, loads_blocks, translate_blocks
+from botend.services.article_content_service import TEXT_BLOCK_TYPES, article_blocks_match_reference, blocks_to_plain_text, dumps_blocks, loads_blocks, translate_blocks
 from utils.log import logger
 
 
@@ -167,8 +167,6 @@ class ArticleTranslationService:
             total = 0
             while i < len(paragraphs) and len(batch) < 10:
                 p = paragraphs[i]
-                if len(p) > 2000:
-                    p = p[:2000]
                 if batch and (total + len(p) > 4000):
                     break
                 batch.append(p)
@@ -200,6 +198,79 @@ class ArticleTranslationService:
 
         return json.dumps(translated_pairs, ensure_ascii=False)
 
+    def translate_content_blocks(self, blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        source_blocks = [dict(b) for b in (blocks or []) if isinstance(b, dict)]
+        if not source_blocks or not self.available():
+            return []
+
+        text_items = []
+        for index, block in enumerate(source_blocks):
+            if block.get("type") in TEXT_BLOCK_TYPES:
+                text = (block.get("text") or "").strip()
+                if text:
+                    text_items.append((index, text))
+
+        if not text_items:
+            return source_blocks
+
+        translated_by_index = {}
+        i = 0
+        while i < len(text_items):
+            batch = []
+            batch_indexes = []
+            total = 0
+            while i < len(text_items) and len(batch) < 10:
+                block_index, text = text_items[i]
+                if batch and (total + len(text) > 4000):
+                    break
+                batch.append(text)
+                batch_indexes.append(block_index)
+                total += len(text)
+                i += 1
+
+            prompt = (
+                "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
+                "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
+                f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
+            )
+            result = self.engine.send_message(prompt, max_tokens=3000)
+            translated_list = None
+            if result:
+                try:
+                    translated_list = json.loads(result)
+                except Exception:
+                    translated_list = None
+            if not isinstance(translated_list, list):
+                translated_list = [t.strip() for t in (result or "").splitlines() if t.strip()]
+
+            for j, block_index in enumerate(batch_indexes):
+                if j < len(translated_list) and isinstance(translated_list[j], str):
+                    translated = translated_list[j].strip()
+                    if translated:
+                        translated_by_index[block_index] = translated
+
+            self.sleep_func(0.6)
+
+        result_blocks = []
+        for index, block in enumerate(source_blocks):
+            new_block = dict(block)
+            if index in translated_by_index:
+                new_block["original"] = (block.get("text") or "").strip()
+                new_block["text"] = translated_by_index[index]
+            result_blocks.append(new_block)
+        return result_blocks
+
+    def _needs_content_blocks_translation(self, source_blocks: List[Dict[str, Any]], translated_blocks: List[Dict[str, Any]]) -> bool:
+        if not source_blocks:
+            return False
+        if not translated_blocks or len(translated_blocks) != len(source_blocks):
+            return True
+        source_text_len = len(blocks_to_plain_text(source_blocks))
+        translated_text_len = len(blocks_to_plain_text(translated_blocks))
+        if source_text_len >= 1000 and translated_text_len < max(300, int(source_text_len * 0.4)):
+            return True
+        return False
+
     def translate_article_fields(self, article, logger_prefix: str = "ArticleTranslationService") -> bool:
         """Translate missing title/content fields and save each field independently."""
         if not self.available():
@@ -225,30 +296,50 @@ class ArticleTranslationService:
                     f"[{logger_prefix}] title translate exception for article_id={article_id} url={url}: {e}; engine_error={self.last_error}"
                 )
 
-        if (getattr(article, "content", "") or "").strip() and not (getattr(article, "content_cn", "") or "").strip():
+        content = (getattr(article, "content", "") or "").strip()
+        blocks = loads_blocks(getattr(article, "content_blocks", "") or "")
+        translated_blocks = loads_blocks(getattr(article, "content_blocks_cn", "") or "")
+        blocks_are_valid = (
+            blocks
+            and hasattr(article, "content_blocks_cn")
+            and article_blocks_match_reference(
+                blocks,
+                reference_text=content,
+                reference_title=getattr(article, "title", "") or "",
+            )
+        )
+        needs_content_cn = content and not (getattr(article, "content_cn", "") or "").strip()
+        needs_blocks_cn = blocks_are_valid and self._needs_content_blocks_translation(blocks, translated_blocks)
+
+        if needs_content_cn or needs_blocks_cn:
             try:
-                content_cn = self.translate_content(article.content)
-                if content_cn:
-                    article.content_cn = content_cn
-                    update_fields = ["content_cn"]
-                    blocks = loads_blocks(getattr(article, "content_blocks", "") or "")
-                    if (
-                        blocks
-                        and hasattr(article, "content_blocks_cn")
-                        and article_blocks_match_reference(
-                            blocks,
-                            reference_text=getattr(article, "content", "") or "",
-                            reference_title=getattr(article, "title", "") or "",
+                update_fields = []
+                content_cn = getattr(article, "content_cn", "") or ""
+                if needs_content_cn:
+                    content_cn = self.translate_content(article.content)
+                    if content_cn:
+                        article.content_cn = content_cn
+                        update_fields.append("content_cn")
+                    else:
+                        logger.warning(
+                            f"[{logger_prefix}] content translate returned empty for article_id={article_id} url={url}; engine_error={self.last_error}"
                         )
-                    ):
-                        article.content_blocks_cn = dumps_blocks(translate_blocks(blocks, content_cn))
+
+                if needs_blocks_cn:
+                    new_blocks = self.translate_content_blocks(blocks)
+                    if not new_blocks and content_cn:
+                        new_blocks = translate_blocks(blocks, content_cn)
+                    if new_blocks:
+                        article.content_blocks_cn = dumps_blocks(new_blocks)
                         update_fields.append("content_blocks_cn")
+                    else:
+                        logger.warning(
+                            f"[{logger_prefix}] content blocks translate returned empty for article_id={article_id} url={url}; engine_error={self.last_error}"
+                        )
+
+                if update_fields:
                     article.save(update_fields=update_fields)
                     any_translated = True
-                else:
-                    logger.warning(
-                        f"[{logger_prefix}] content translate returned empty for article_id={article_id} url={url}; engine_error={self.last_error}"
-                    )
             except Exception as e:
                 logger.error(
                     f"[{logger_prefix}] content translate exception for article_id={article_id} url={url}: {e}; engine_error={self.last_error}"
