@@ -247,7 +247,7 @@ class wowheadMonitor(BaseScan):
                                 translated_count += 1
                         continue
 
-                    blocks = self._fetch_article_blocks(post_link, cookies="")
+                    blocks = self._fetch_article_blocks(post_link, cookies="", reference_title=post_title)
                     body = blocks_to_plain_text(blocks)
                     obj = WowArticle(
                         title="[{}]{}".format(post_type, post_title),
