@@ -7,7 +7,7 @@ import requests
 from django.conf import settings
 
 from core.glm import GLMClient
-from botend.services.article_content_service import TEXT_BLOCK_TYPES, article_blocks_match_reference, blocks_to_plain_text, dumps_blocks, loads_blocks, translate_blocks
+from botend.services.article_content_service import TEXT_BLOCK_TYPES, article_blocks_match_reference, blocks_to_plain_text, dumps_blocks, html_block_translate_texts, loads_blocks, translate_blocks
 from utils.log import logger
 
 
@@ -203,12 +203,7 @@ class ArticleTranslationService:
         if not source_blocks or not self.available():
             return []
 
-        text_items = []
-        for index, block in enumerate(source_blocks):
-            if block.get("type") in TEXT_BLOCK_TYPES:
-                text = (block.get("text") or "").strip()
-                if text:
-                    text_items.append((index, text))
+        text_items = self._block_text_items(source_blocks)
 
         if not text_items:
             return source_blocks
@@ -220,11 +215,11 @@ class ArticleTranslationService:
             batch_indexes = []
             total = 0
             while i < len(text_items) and len(batch) < 10:
-                block_index, text = text_items[i]
+                item_index, _block_index, text = text_items[i]
                 if batch and (total + len(text) > 4000):
                     break
                 batch.append(text)
-                batch_indexes.append(block_index)
+                batch_indexes.append(item_index)
                 total += len(text)
                 i += 1
 
@@ -254,11 +249,39 @@ class ArticleTranslationService:
         result_blocks = []
         for index, block in enumerate(source_blocks):
             new_block = dict(block)
-            if index in translated_by_index:
+            if block.get("type") == "html":
+                translations = [translated_by_index[item_index] for item_index, _block_index, _text in text_items if _block_index == index and item_index in translated_by_index]
+                new_block = html_block_translate_texts(block, {}, translations)
+            elif index in translated_by_index:
                 new_block["original"] = (block.get("text") or "").strip()
                 new_block["text"] = translated_by_index[index]
             result_blocks.append(new_block)
         return result_blocks
+
+    def _block_text_items(self, blocks: List[Dict[str, Any]]) -> List[Any]:
+        text_items = []
+        for block_index, block in enumerate(blocks):
+            if block.get("type") in TEXT_BLOCK_TYPES:
+                text = (block.get("text") or "").strip()
+                if text:
+                    text_items.append((block_index, block_index, text))
+            elif block.get("type") == "html":
+                for text in self._html_text_nodes(block.get("html") or ""):
+                    text_items.append((len(text_items), block_index, text))
+        return text_items
+
+    def _html_text_nodes(self, html_text: str) -> List[str]:
+        try:
+            from bs4 import BeautifulSoup
+        except Exception:
+            return []
+        soup = BeautifulSoup(html_text or "", "html.parser")
+        texts = []
+        for text_node in soup.find_all(string=True):
+            text = " ".join(str(text_node).split()).strip()
+            if text:
+                texts.append(text)
+        return texts
 
     def _needs_content_blocks_translation(self, source_blocks: List[Dict[str, Any]], translated_blocks: List[Dict[str, Any]]) -> bool:
         if not source_blocks:

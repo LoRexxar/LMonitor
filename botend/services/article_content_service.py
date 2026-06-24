@@ -1,7 +1,8 @@
+import copy
 import html
 import json
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List
 from urllib.parse import urljoin
 
 try:
@@ -11,6 +12,8 @@ except Exception:  # pragma: no cover - runtime dependency is present in product
 
 
 TEXT_BLOCK_TYPES = {"paragraph", "heading", "quote", "list_item"}
+HTML_BLOCK_TYPES = {"html"}
+TRANSLATABLE_BLOCK_TYPES = TEXT_BLOCK_TYPES | HTML_BLOCK_TYPES
 
 
 def dumps_blocks(blocks: Iterable[Dict[str, Any]]) -> str:
@@ -39,7 +42,19 @@ def blocks_to_plain_text(blocks: Iterable[Dict[str, Any]]) -> str:
             text = (block.get("text") or "").strip()
             if text:
                 lines.append(text)
+        elif block_type == "html":
+            text = html_block_to_plain_text(block)
+            if text:
+                lines.append(text)
     return "\n".join(lines)
+
+
+def html_block_to_plain_text(block: Dict[str, Any]) -> str:
+    html_text = (block or {}).get("html") or ""
+    if not html_text or not BeautifulSoup:
+        return ""
+    soup = BeautifulSoup(html_text, "html.parser")
+    return _clean_plain_text(soup.get_text("\n", strip=True))
 
 
 def article_blocks_match_reference(blocks: Iterable[Dict[str, Any]], reference_text: str = "", reference_title: str = "") -> bool:
@@ -112,14 +127,10 @@ def extract_structured_article(html_text: str, *, base_url: str = "", source: st
     if source == "wowhead":
         _normalize_wowhead_inline_breaks(root)
 
-    blocks = []
-    for child in root.children:
-        _append_node_blocks(child, blocks, base_url=base_url)
-
-    if not blocks:
-        text = _node_inline_text(root)
-        blocks = plain_text_to_blocks(_clean_plain_text(text))
-    return _dedupe_blocks(blocks)
+    block = _html_block(root, base_url=base_url)
+    if block:
+        return [block]
+    return plain_text_to_blocks(_clean_plain_text(root.get_text("\n", strip=True)))
 
 
 def translate_blocks(blocks: Iterable[Dict[str, Any]], translated_pairs: Any) -> List[Dict[str, Any]]:
@@ -160,6 +171,9 @@ def translate_blocks(blocks: Iterable[Dict[str, Any]], translated_pairs: Any) ->
                 new_block["text"] = translated
                 new_block["original"] = original
             result.append(new_block)
+        elif block_type == "html":
+            result.append(html_block_translate_texts(block, translated_by_original, translated_queue[queue_index:]))
+            queue_index = len(translated_queue)
         else:
             result.append(block)
     return result
@@ -197,107 +211,66 @@ def _select_article_root(soup, *, source: str = ""):
     return best
 
 
-def _append_node_blocks(node, blocks: List[Dict[str, Any]], *, base_url: str):
-    name = getattr(node, "name", None)
-    if not name:
-        text = str(node).strip()
-        if text:
-            _append_text_block(blocks, "paragraph", text)
-        return
-
-    if name in {"h1", "h2", "h3", "h4"}:
-        _append_text_block(blocks, "heading", _node_inline_text(node), level=int(name[1]))
-        return
-    if name == "p":
-        _append_text_block(blocks, "paragraph", _node_inline_text(node))
-        return
-    if name == "blockquote":
-        _append_text_block(blocks, "quote", _node_inline_text(node))
-        return
-    if name in {"ul", "ol"}:
-        _append_list_blocks(node, blocks, base_url=base_url)
-        return
-    if name == "img":
-        block = _image_block(node, base_url=base_url)
-        if block:
-            blocks.append(block)
-        return
-    if name in {"figure"}:
-        img = node.find("img")
-        block = _image_block(img, base_url=base_url) if img else None
-        if block:
-            caption = node.find("figcaption")
-            if caption:
-                block["caption"] = _node_inline_text(caption)
-            blocks.append(block)
-        return
-
-    if name in {"div", "section"}:
-        _append_container_blocks(node, blocks, base_url=base_url)
-        return
-
-    direct_text = _node_inline_text(node)
-    if direct_text:
-        _append_text_block(blocks, "paragraph", direct_text)
-
-
-def _append_container_blocks(node, blocks: List[Dict[str, Any]], *, base_url: str):
-    inline_parts = []
-    for child in node.children:
-        child_name = getattr(child, "name", None)
-        if not child_name:
-            text = str(child).strip()
-            if text:
-                inline_parts.append(text)
+def html_block_translate_texts(block: Dict[str, Any], translated_by_original: Dict[str, str], translated_queue: List[str]) -> Dict[str, Any]:
+    new_block = dict(block or {})
+    html_text = new_block.get("html") or ""
+    if not html_text or not BeautifulSoup:
+        return new_block
+    soup = BeautifulSoup(html_text, "html.parser")
+    queue_index = 0
+    for text_node in soup.find_all(string=True):
+        original = _clean_inline_text(str(text_node))
+        if not original:
             continue
-        if child_name in {"br"}:
-            _flush_inline_parts(inline_parts, blocks)
+        translated = translated_by_original.get(original)
+        if not translated and queue_index < len(translated_queue):
+            translated = translated_queue[queue_index]
+            queue_index += 1
+        if translated:
+            text_node.replace_with(translated)
+    new_block["html"] = str(soup)
+    if block.get("html"):
+        new_block["original_html"] = block.get("html")
+    return new_block
+
+
+def _html_block(root, *, base_url: str) -> Dict[str, Any]:
+    cloned = copy.copy(root)
+    for tag in cloned.find_all(["script", "style", "nav", "header", "footer", "aside", "iframe", "form"]):
+        tag.decompose()
+    for tag in cloned.find_all("noscript"):
+        tag.unwrap()
+    for tag in cloned.select("ins, .advertisement, .ad, .heading-size, .heading-permalink"):
+        tag.decompose()
+    for tag in cloned.find_all(True):
+        _sanitize_html_tag(tag, base_url=base_url)
+    html_text = _clean_html_fragment("".join(str(child) for child in cloned.children))
+    if not html_text:
+        return {}
+    return {"type": "html", "html": html_text}
+
+
+def _sanitize_html_tag(tag, *, base_url: str):
+    allowed_attrs = {"href", "src", "alt", "title", "class", "id", "colspan", "rowspan"}
+    for attr in list(tag.attrs.keys()):
+        if attr not in allowed_attrs:
+            del tag.attrs[attr]
+    for attr in ["href", "src"]:
+        value = (tag.get(attr) or "").strip()
+        if not value:
             continue
-        if child_name in _BLOCK_TAGS:
-            _flush_inline_parts(inline_parts, blocks)
-            _append_node_blocks(child, blocks, base_url=base_url)
+        if value.startswith(("javascript:", "data:")):
+            del tag.attrs[attr]
             continue
-        text = _node_inline_text(child)
-        if text:
-            inline_parts.append(text)
-    _flush_inline_parts(inline_parts, blocks)
+        tag.attrs[attr] = urljoin(base_url, value)
+    if tag.name == "a" and tag.get("href"):
+        tag.attrs["target"] = "_blank"
+        tag.attrs["rel"] = "noreferrer"
 
 
-def _append_list_blocks(node, blocks: List[Dict[str, Any]], *, base_url: str):
-    ordered = getattr(node, "name", None) == "ol"
-    for li in node.find_all("li", recursive=False):
-        inline_parts = []
-        child_lists = []
-        for child in li.children:
-            child_name = getattr(child, "name", None)
-            if child_name in {"ul", "ol"}:
-                child_lists.append(child)
-                continue
-            if child_name in {"br"}:
-                continue
-            text = _node_inline_text(child) if child_name else str(child).strip()
-            if text:
-                inline_parts.append(text)
-
-        text = _clean_inline_text(" ".join(inline_parts))
-        if text:
-            _append_text_block(blocks, "list_item", text, ordered=ordered)
-        for child_list in child_lists:
-            _append_list_blocks(child_list, blocks, base_url=base_url)
-
-
-def _flush_inline_parts(inline_parts: List[str], blocks: List[Dict[str, Any]]):
-    text = _clean_inline_text(" ".join([part for part in inline_parts if part]))
-    inline_parts.clear()
-    _append_text_block(blocks, "paragraph", text)
-
-
-_BLOCK_TAGS = {
-    "address", "article", "aside", "blockquote", "dd", "div", "dl", "dt",
-    "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3",
-    "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p",
-    "pre", "section", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul",
-}
+def _clean_html_fragment(html_text: str) -> str:
+    html_text = re.sub(r"\n{3,}", "\n\n", html_text or "")
+    return html_text.strip()
 
 
 def _node_inline_text(node) -> str:
@@ -327,23 +300,6 @@ def _append_text_block(blocks: List[Dict[str, Any]], block_type: str, text: str,
     block = {"type": block_type, "text": text}
     block.update(extra)
     blocks.append(block)
-
-
-def _image_block(node, *, base_url: str) -> Optional[Dict[str, Any]]:
-    if not node:
-        return None
-    src = (node.get("src") or node.get("data-src") or node.get("data-original") or "").strip()
-    if not src:
-        srcset = (node.get("srcset") or "").split(",")
-        if srcset:
-            src = srcset[0].strip().split(" ")[0]
-    if not src or src.startswith("data:"):
-        return None
-    return {
-        "type": "image",
-        "url": urljoin(base_url, src),
-        "alt": (node.get("alt") or "").strip(),
-    }
 
 
 def _clean_plain_text(text: str) -> str:

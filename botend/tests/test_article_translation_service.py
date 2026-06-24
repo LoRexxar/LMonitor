@@ -203,7 +203,7 @@ class ArticleTranslationServiceTests(SimpleTestCase):
 
 
 class ArticleContentServiceTests(SimpleTestCase):
-    def test_extract_structured_article_keeps_sections_lists_and_images(self):
+    def test_extract_structured_article_keeps_source_html(self):
         html = """
         <article>
           <h2>Patch Notes</h2>
@@ -216,13 +216,13 @@ class ArticleContentServiceTests(SimpleTestCase):
 
         blocks = extract_structured_article(html, base_url="https://example.com/news/1")
 
-        self.assertEqual(blocks[0], {"type": "heading", "text": "Patch Notes", "level": 2})
-        self.assertIn({"type": "list_item", "text": "Buff A", "ordered": False}, blocks)
-        self.assertIn({"type": "quote", "text": "Developer note"}, blocks)
-        self.assertIn({"type": "image", "url": "https://example.com/images/a.png", "alt": "A"}, blocks)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["type"], "html")
+        self.assertIn("<h2>Patch Notes</h2>", blocks[0]["html"])
+        self.assertIn('src="https://example.com/images/a.png"', blocks[0]["html"])
         self.assertIn("Class changes are live.", blocks_to_plain_text(blocks))
 
-    def test_extract_structured_article_splits_nested_list_items(self):
+    def test_extract_structured_article_keeps_nested_list_html(self):
         html = """
         <article>
           <ul>
@@ -241,17 +241,10 @@ class ArticleContentServiceTests(SimpleTestCase):
         """
 
         blocks = extract_structured_article(html, base_url="https://example.com/news/1")
-        text_blocks = [b for b in blocks if b["type"] == "list_item"]
-
-        self.assertEqual(
-            text_blocks,
-            [
-                {"type": "list_item", "text": "DEATH KNIGHT", "ordered": False},
-                {"type": "list_item", "text": "Frost", "ordered": False},
-                {"type": "list_item", "text": "Developers' notes: tuning changes.", "ordered": False},
-                {"type": "list_item", "text": "Pillar of Frost now increases Strength by 20%.", "ordered": False},
-            ],
-        )
+        self.assertEqual(blocks[0]["type"], "html")
+        self.assertIn("<ul>", blocks[0]["html"])
+        self.assertIn("<strong>DEATH KNIGHT</strong>", blocks[0]["html"])
+        self.assertIn("Pillar of Frost now increases Strength by 20%.", blocks_to_plain_text(blocks))
 
     def test_extract_wowhead_article_keeps_inline_links_in_paragraph(self):
         html = """
@@ -265,11 +258,23 @@ class ArticleContentServiceTests(SimpleTestCase):
         """
 
         blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
-        text_blocks = [b for b in blocks if b["type"] in {"paragraph", "heading"}]
+        self.assertEqual(blocks[0]["type"], "html")
+        self.assertIn('href="https://www.wowhead.com/item=1"', blocks[0]["html"])
+        self.assertIn("Sun Festival's Painted Roc", blocks_to_plain_text(blocks))
+        self.assertIn("Requires Level", blocks_to_plain_text(blocks))
 
-        self.assertEqual(text_blocks[0]["text"], "The Sun Festival's Painted Roc is a brand new mount from this year's Midsummer Fire Festival which drops from Frost Lord Ahune.")
-        self.assertEqual(text_blocks[1], {"type": "heading", "text": "Rewards", "level": 2})
-        self.assertEqual(text_blocks[2]["text"], "Requires Level 70 Max Stack: 1000")
+    def test_translate_blocks_translates_html_text_without_removing_tags(self):
+        blocks = [{"type": "html", "html": '<h2>Patch Notes</h2><p>Class changes are live.</p><img src="https://example.com/a.png"/>'}]
+        pairs = [
+            {"original": "Patch Notes", "translated": "补丁说明"},
+            {"original": "Class changes are live.", "translated": "职业改动已上线。"},
+        ]
+
+        translated = translate_blocks(loads_blocks(dumps_blocks(blocks)), pairs)
+
+        self.assertIn("<h2>补丁说明</h2>", translated[0]["html"])
+        self.assertIn("<p>职业改动已上线。</p>", translated[0]["html"])
+        self.assertIn('src="https://example.com/a.png"', translated[0]["html"])
 
     def test_translate_blocks_preserves_non_text_blocks(self):
         blocks = [

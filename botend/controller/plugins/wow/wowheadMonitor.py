@@ -520,13 +520,36 @@ class wowheadMonitor(BaseScan):
             if not isinstance(block, dict):
                 continue
             new_block = dict(block)
-            if self._needs_article_image_upload([new_block]):
+            if new_block.get("type") == "html":
+                new_block["html"] = self._upload_article_html_images(new_block.get("html") or "", article_url=article_url)
+            elif self._needs_article_image_upload([new_block]):
                 uploaded_url = self._download_and_upload_image(new_block.get("url"), article_url=article_url)
                 if uploaded_url:
                     new_block["source_url"] = new_block.get("url") or ""
                     new_block["url"] = uploaded_url
             result.append(new_block)
         return result
+
+    def _upload_article_html_images(self, html_text, article_url=""):
+        if not html_text:
+            return html_text
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html_text, "html.parser")
+            changed = False
+            for img in soup.find_all("img"):
+                image_url = (img.get("src") or "").strip()
+                if not self._is_external_article_image_url(image_url):
+                    continue
+                uploaded_url = self._download_and_upload_image(image_url, article_url=article_url)
+                if uploaded_url:
+                    img["data-source-src"] = image_url
+                    img["src"] = uploaded_url
+                    changed = True
+            return str(soup) if changed else html_text
+        except Exception as e:
+            logger.warning("[wowheadMonitor] Upload article html images failed {}: {}".format(article_url, str(e)))
+            return html_text
 
     def _needs_article_image_upload(self, blocks):
         for block in blocks or []:
