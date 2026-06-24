@@ -459,3 +459,71 @@ body {
 .nga-item {
     position: relative;
 }
+
+/* ── section dot nav ── */
+.snap-section {
+    scroll-margin-top: 4rem;
+}
+
+.snap-dots {
+    position: fixed;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    align-items: center;
+}
+
+.snap-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 9999px;
+    border: 2px solid rgba(100, 116, 139, 0.45);
+    background: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.snap-dot:hover {
+    border-color: rgba(99, 102, 241, 0.7);
+    background: rgba(99, 102, 241, 0.15);
+    transform: scale(1.3);
+}
+
+.snap-dot.active {
+    border-color: rgba(99, 102, 241, 0.9);
+    background: rgba(99, 102, 241, 0.85);
+    transform: scale(1.2);
+}
+
+.snap-dot-label {
+    position: absolute;
+    right: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    font-size: 0.75rem;
+    color: rgb(51, 65, 85);
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 0.5rem;
+    padding: 0.25rem 0.6rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+
+.snap-dot:hover .snap-dot-label {
+    opacity: 1;
+}
+
+@media (max-width: 768px) {
+    .snap-dots {
+        display: none;
+    }
+}

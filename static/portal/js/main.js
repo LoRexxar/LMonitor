@@ -1686,4 +1686,76 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   bindLogoBackgroundRemoval();
   loadAll();
+  initSectionDots();
 });
+
+/* ── section dot navigation (no scroll snapping) ── */
+const SECTION_DOT_LABELS = {
+  "portal-topbar": "搜索",
+  "section-news": "新闻速递",
+  "section-wow-skill-diff": "数据挖掘",
+  "section-nga": "NGA热议",
+  "section-events-videos": "活动 / 视频",
+  "section-mplus-cutoffs": "大秘境分数",
+  "section-rank": "Top Runs",
+  "section-peak-spec": "巅峰榜",
+  "section-mythicstats": "DPS榜单",
+  "section-spec-detail": "专精详情",
+  "section-tools": "工具导航",
+};
+
+let sectionDotSections = [];
+let sectionDots = [];
+
+function initSectionDots() {
+  const container = document.getElementById("snap-dots");
+  if (!container) return;
+  sectionDotSections = Array.from(document.querySelectorAll(".snap-section"));
+  if (!sectionDotSections.length) return;
+
+  sectionDotSections.forEach((section, index) => {
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "snap-dot";
+    dot.setAttribute("aria-label", getSectionDotLabel(section, index));
+
+    const label = document.createElement("span");
+    label.className = "snap-dot-label";
+    label.textContent = getSectionDotLabel(section, index);
+    dot.appendChild(label);
+
+    dot.addEventListener("click", () => scrollToSectionDot(index));
+    container.appendChild(dot);
+    sectionDots.push(dot);
+  });
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const index = sectionDotSections.indexOf(entry.target);
+        if (index >= 0) setActiveSectionDot(index);
+      });
+    },
+    { rootMargin: "-30% 0px -60% 0px", threshold: 0 }
+  );
+  sectionDotSections.forEach((section) => observer.observe(section));
+  setActiveSectionDot(0);
+}
+
+function getSectionDotLabel(section, index) {
+  const key = section.id || (section.classList.contains("portal-topbar") ? "portal-topbar" : "");
+  return SECTION_DOT_LABELS[key] || "板块 " + (index + 1);
+}
+
+function setActiveSectionDot(index) {
+  sectionDots.forEach((dot, dotIndex) => dot.classList.toggle("active", dotIndex === index));
+}
+
+function scrollToSectionDot(index) {
+  const section = sectionDotSections[index];
+  if (!section) return;
+  const headerHeight = document.querySelector(".portal-header")?.offsetHeight || 56;
+  window.scrollTo({ top: section.offsetTop - headerHeight, behavior: "smooth" });
+  setActiveSectionDot(index);
+}
