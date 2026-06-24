@@ -113,6 +113,22 @@ def _has_cjk(value):
     return bool(re.search(r'[\u3400-\u9fff]', str(value or '')))
 
 
+def _is_wowhead_seo_description(value):
+    value = str(value or '')
+    if not value:
+        return False
+    noise_markers = (
+        '添加于 [World of Warcraft',
+        'Always up to date with the latest patch',
+        '始终保持更新',
+        '[In the ',
+        '物品放置于',
+        '这件0等级',
+        '这是295级',
+    )
+    return any(marker in value for marker in noise_markers)
+
+
 def _collect_item_ids_from_records(records, include_gear=True, include_gems=True, include_enchants=True):
     ids = set()
     for record in records or []:
@@ -166,7 +182,8 @@ def _item_snapshot_payload(item_id, fallback_name='', fallback_icon='', fallback
     raw_description_zh = snapshot.description_zh if snapshot else ''
     # 旧数据曾把英文 fallback 写进 name_zh；只有真正含中文时才当中文显示。
     name_zh = raw_name_zh if _has_cjk(raw_name_zh) else ''
-    description_zh = raw_description_zh if _has_cjk(raw_description_zh) else ''
+    description_zh = raw_description_zh if _has_cjk(raw_description_zh) and not _is_wowhead_seo_description(raw_description_zh) else ''
+    description = description if not _is_wowhead_seo_description(description) else ''
     display_name = name_zh or name or (f'#{item_id}' if item_id else '')
     return {
         'id': item_id,

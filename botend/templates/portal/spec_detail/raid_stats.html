@@ -420,7 +420,15 @@
                     <div class="popularity-stat">{{ item.pct }}%<small>{{ item.count|default:"" }}{% if item.count %}人{% endif %}</small></div>
                     <div class="popularity-tooltip">
                         <strong>{{ item.display_name|default:item.name|default:item.itemID }}</strong>
-                        {% if item.display_description %}<p>{{ item.display_description }}</p>{% else %}<p>暂无中文描述</p>{% endif %}
+                        {% with desc_lines=item.display_description|wow_item_description_lines %}
+                        {% if desc_lines %}
+                        <div class="tooltip-desc-lines">
+                            {% for line in desc_lines %}
+                            <div class="tooltip-desc-line tooltip-desc-line--{{ line.class }}">{{ line.text }}</div>
+                            {% endfor %}
+                        </div>
+                        {% else %}<p>暂无中文描述</p>{% endif %}
+                        {% endwith %}
                         <span>{{ item.count|default:0 }} 人使用 · {{ item.pct }}%</span>
                     </div>
                 </div>
@@ -451,7 +459,15 @@
                 <div class="popularity-stat">{{ gem.pct }}%<small>{{ gem.count }}人</small></div>
                 <div class="popularity-tooltip">
                     <strong>{{ gem.display_name|default:gem.name|default:gem.id }}</strong>
-                    {% if gem.display_description %}<p>{{ gem.display_description }}</p>{% else %}<p>暂无中文描述</p>{% endif %}
+                    {% with desc_lines=gem.display_description|wow_item_description_lines %}
+                    {% if desc_lines %}
+                    <div class="tooltip-desc-lines">
+                        {% for line in desc_lines %}
+                        <div class="tooltip-desc-line tooltip-desc-line--{{ line.class }}">{{ line.text }}</div>
+                        {% endfor %}
+                    </div>
+                    {% else %}<p>暂无中文描述</p>{% endif %}
+                    {% endwith %}
                     <span>{{ gem.count }} 人使用 · {{ gem.pct }}%</span>
                 </div>
             </a>
@@ -480,7 +496,15 @@
                 <div class="popularity-stat">{{ ench.pct }}%<small>{{ ench.count }}人</small></div>
                 <div class="popularity-tooltip">
                     <strong>{{ ench.display_name|default:ench.name|default:ench.id }}</strong>
-                    {% if ench.display_description %}<p>{{ ench.display_description }}</p>{% else %}<p>暂无中文描述</p>{% endif %}
+                    {% with desc_lines=ench.display_description|wow_item_description_lines %}
+                    {% if desc_lines %}
+                    <div class="tooltip-desc-lines">
+                        {% for line in desc_lines %}
+                        <div class="tooltip-desc-line tooltip-desc-line--{{ line.class }}">{{ line.text }}</div>
+                        {% endfor %}
+                    </div>
+                    {% else %}<p>暂无中文描述</p>{% endif %}
+                    {% endwith %}
                     <span>{{ ench.count }} 人使用 · {{ ench.pct }}%</span>
                 </div>
             </a>
@@ -1567,6 +1591,13 @@
 }
 .popularity-tooltip strong { display:block; color:#fff; font-size:13px; margin-bottom:4px; }
 .popularity-tooltip p { margin:0 0 6px; color:#cbd5e1; }
+.tooltip-desc-lines { margin: 0 0 6px; }
+.tooltip-desc-line { margin-top: 4px; color: #cbd5e1; }
+.tooltip-desc-line:first-child { margin-top: 0; }
+.tooltip-desc-line--equip, .tooltip-desc-line--use { color: #86efac; }
+.tooltip-desc-line--requirement { color: #fca5a5; }
+.tooltip-desc-line--set { color: #93c5fd; }
+.tooltip-desc-line--sell { color: #94a3b8; }
 .popularity-tooltip span { color:#93c5fd; font-weight:700; }
 .gear-pop-card:hover .popularity-tooltip,
 .popularity-mini-card:hover .popularity-tooltip { display:block; }

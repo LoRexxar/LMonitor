@@ -360,11 +360,17 @@
                         {% if item.quality %}<span>{{ item.quality }}</span>{% endif %}
                     </div>
                     {% endif %}
-                    {% if item.display_description %}
-                    <div class="gear-tooltip-desc">{{ item.display_description|safe }}</div>
+                    {% with desc_lines=item.display_description|wow_item_description_lines %}
+                    {% if desc_lines %}
+                    <div class="gear-tooltip-desc">
+                        {% for line in desc_lines %}
+                        <div class="gear-tooltip-line gear-tooltip-line--{{ line.class }}">{{ line.text }}</div>
+                        {% endfor %}
+                    </div>
                     {% else %}
                     <div class="gear-tooltip-desc is-muted">暂无中文描述，点击查看 Wowhead。</div>
                     {% endif %}
+                    {% endwith %}
                 </div>
             </a>
             {% endfor %}
@@ -724,6 +730,13 @@
 .gear-tooltip-name { color: #facc15; font-weight: 800; font-size: 14px; margin-bottom: 6px; }
 .gear-tooltip-meta { display: flex; gap: 8px; flex-wrap: wrap; color: #86efac; font-size: 12px; margin-bottom: 8px; }
 .gear-tooltip-desc { color: #cbd5e1; font-size: 12px; line-height: 1.55; }
+.gear-tooltip-line { margin-top: 4px; }
+.gear-tooltip-line:first-child { margin-top: 0; }
+.gear-tooltip-line--plain { color: #cbd5e1; }
+.gear-tooltip-line--equip, .gear-tooltip-line--use { color: #86efac; }
+.gear-tooltip-line--requirement { color: #fca5a5; }
+.gear-tooltip-line--set { color: #93c5fd; }
+.gear-tooltip-line--sell { color: #94a3b8; }
 .gear-tooltip-desc.is-muted { color: #94a3b8; }
 
 /* 宝石与附魔板块 */

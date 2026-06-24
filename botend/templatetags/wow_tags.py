@@ -2,8 +2,28 @@ import os
 from urllib.parse import quote
 from django import template
 from django.conf import settings
+from django.utils.html import strip_tags
 
 register = template.Library()
+
+
+_DESCRIPTION_LINE_CLASSES = (
+    ('equip', ('装备：', 'Equip:', '套装：', 'Set:')),
+    ('use', ('使用：', 'Use:')),
+    ('requirement', ('需要等级', '需要职业', '需要', 'Requires', 'Classes:')),
+    ('set', ('职业：', '耐久:', '耐久：', '套装：', 'Set:', '(', '（')),
+    ('sell', ('售价：', 'Sell Price:')),
+)
+
+_WOWHEAD_SEO_MARKERS = (
+    '添加于 [World of Warcraft',
+    'Always up to date with the latest patch',
+    '始终保持更新',
+    '[In the ',
+    '物品放置于',
+    '这件0等级',
+    '这是295级',
+)
 
 
 def _normalize_icon_name(icon_name):
@@ -48,6 +68,34 @@ def _build_wow_icon_oss_url(base_url, size, icon_name):
     encoded_icon = quote(icon_name, safe='')
     encoded_size = quote(str(size or 'small'), safe='')
     return f'{base_url}/{encoded_size}/{encoded_icon}.jpg'
+
+
+@register.filter
+def wow_item_description_lines(description):
+    """Split a WoW item tooltip description into display-friendly lines."""
+    text = strip_tags(str(description or '')).replace('\r\n', '\n').replace('\r', '\n')
+    if any(marker in text for marker in _WOWHEAD_SEO_MARKERS):
+        return []
+    text = text.replace('职业：', '\n职业：')
+    text = text.replace('耐久:', '\n耐久:')
+    text = text.replace('耐久：', '\n耐久：')
+    text = text.replace('套装：', '\n套装：')
+    text = text.replace('(2)', '\n(2)')
+    text = text.replace('(4)', '\n(4)')
+    text = text.replace('（2）', '\n（2）')
+    text = text.replace('（4）', '\n（4）')
+    lines = []
+    for raw_line in text.split('\n'):
+        line = ' '.join(raw_line.strip().split())
+        if not line:
+            continue
+        line_class = 'plain'
+        for candidate_class, prefixes in _DESCRIPTION_LINE_CLASSES:
+            if any(line.startswith(prefix) for prefix in prefixes):
+                line_class = candidate_class
+                break
+        lines.append({'text': line, 'class': line_class})
+    return lines
 
 
 @register.simple_tag
