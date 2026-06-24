@@ -4,11 +4,13 @@ import io
 import json
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from django.conf import settings
 from django.db.models import Q
+from django.db.utils import NotSupportedError
 from django.utils import timezone
 
 from botend.controller.BaseScan import BaseScan
@@ -42,6 +44,11 @@ class WagoSkillDiffMonitor(BaseScan):
         self._spellmisc_by_spell_cache = {}
         self._spellradius_cache = {}
         self._spellpower_by_spell_cache = {}
+        self._http_session = requests.Session()
+        self._http_session.headers.update({
+            'User-Agent': 'Mozilla/5.0',
+            'Connection': 'close',
+        })
         self.core_tables = {
             'spell',
             'spelleffect',
@@ -66,6 +73,50 @@ class WagoSkillDiffMonitor(BaseScan):
             'traitnode',
             'traittree',
         }
+
+    def _bulk_upsert_snapshots(self, model, objs, unique_fields, update_fields, batch_size=None):
+        if not objs:
+            return
+        try:
+            model.objects.bulk_create(
+                objs,
+                batch_size=batch_size,
+                update_conflicts=True,
+                unique_fields=unique_fields,
+                update_fields=update_fields,
+            )
+            return
+        except NotSupportedError:
+            pass
+
+        key_to_obj = {tuple(getattr(obj, field) for field in unique_fields): obj for obj in objs}
+        q = Q()
+        for key in key_to_obj.keys():
+            item_q = Q()
+            for field, value in zip(unique_fields, key):
+                item_q &= Q(**{field: value})
+            q |= item_q
+
+        existing_by_key = {}
+        if q:
+            for existing in model.objects.filter(q):
+                existing_by_key[tuple(getattr(existing, field) for field in unique_fields)] = existing
+
+        create_objs = []
+        update_objs = []
+        for key, obj in key_to_obj.items():
+            existing = existing_by_key.get(key)
+            if not existing:
+                create_objs.append(obj)
+                continue
+            for field in update_fields:
+                setattr(existing, field, getattr(obj, field))
+            update_objs.append(existing)
+
+        if create_objs:
+            model.objects.bulk_create(create_objs, batch_size=batch_size)
+        if update_objs:
+            model.objects.bulk_update(update_objs, update_fields, batch_size=batch_size)
 
     def scan(self, url):
         states = list(WowWagoMonitorState.objects.filter(locale=self.locale, is_active=True).order_by('branch', 'id'))
@@ -1088,9 +1139,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 )
             )
         if spell_objs:
-            WowSpellSnapshot.objects.bulk_create(
+            self._bulk_upsert_snapshots(
+                WowSpellSnapshot,
                 spell_objs,
-                update_conflicts=True,
                 unique_fields=['branch', 'locale', 'spell_id'],
                 update_fields=['name', 'description', 'aura_description', 'snapshot_build', 'updated_at'],
             )
@@ -1113,9 +1164,9 @@ class WagoSkillDiffMonitor(BaseScan):
                         updated_at=now,
                     )
                 )
-            WowSpellEffectSnapshot.objects.bulk_create(
+            self._bulk_upsert_snapshots(
+                WowSpellEffectSnapshot,
                 eff_objs,
-                update_conflicts=True,
                 unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
                 update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
             )
@@ -1699,9 +1750,9 @@ class WagoSkillDiffMonitor(BaseScan):
                         updated_at=now,
                     )
                 )
-            WowSpecSpellMapSnapshot.objects.bulk_create(
+            self._bulk_upsert_snapshots(
+                WowSpecSpellMapSnapshot,
                 map_objs,
-                update_conflicts=True,
                 unique_fields=['branch', 'locale', 'spec_id', 'spell_id'],
                 update_fields=['snapshot_build', 'updated_at'],
             )
@@ -1721,9 +1772,9 @@ class WagoSkillDiffMonitor(BaseScan):
                         updated_at=now,
                     )
                 )
-            WowSpellSnapshot.objects.bulk_create(
+            self._bulk_upsert_snapshots(
+                WowSpellSnapshot,
                 spell_objs,
-                update_conflicts=True,
                 unique_fields=['branch', 'locale', 'spell_id'],
                 update_fields=['name', 'description', 'aura_description', 'snapshot_build', 'updated_at'],
             )
@@ -1746,9 +1797,9 @@ class WagoSkillDiffMonitor(BaseScan):
                         updated_at=now,
                     )
                 )
-            WowSpellEffectSnapshot.objects.bulk_create(
+            self._bulk_upsert_snapshots(
+                WowSpellEffectSnapshot,
                 eff_objs,
-                update_conflicts=True,
                 unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
                 update_fields=[
                     'effect',
@@ -2380,9 +2431,9 @@ class WagoSkillDiffMonitor(BaseScan):
                     )
                 )
             if spell_objs:
-                WowSpellSnapshot.objects.bulk_create(
+                self._bulk_upsert_snapshots(
+                    WowSpellSnapshot,
                     spell_objs,
-                    update_conflicts=True,
                     unique_fields=['branch', 'locale', 'spell_id'],
                     update_fields=['name', 'description', 'aura_description', 'snapshot_build', 'updated_at'],
                 )
@@ -2404,9 +2455,9 @@ class WagoSkillDiffMonitor(BaseScan):
                             updated_at=now,
                         )
                     )
-                WowSpellEffectSnapshot.objects.bulk_create(
+                self._bulk_upsert_snapshots(
+                    WowSpellEffectSnapshot,
                     eff_objs,
-                    update_conflicts=True,
                     unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
                     update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
                 )
@@ -2438,9 +2489,9 @@ class WagoSkillDiffMonitor(BaseScan):
                         updated_at=now,
                     )
                 )
-            WowSpecSpellMapSnapshot.objects.bulk_create(
+            self._bulk_upsert_snapshots(
+                WowSpecSpellMapSnapshot,
                 map_objs,
-                update_conflicts=True,
                 unique_fields=['branch', 'locale', 'spec_id', 'spell_id'],
                 update_fields=['snapshot_build', 'updated_at'],
             )
@@ -2460,9 +2511,9 @@ class WagoSkillDiffMonitor(BaseScan):
                         updated_at=now,
                     )
                 )
-            WowSpellSnapshot.objects.bulk_create(
+            self._bulk_upsert_snapshots(
+                WowSpellSnapshot,
                 spell_objs,
-                update_conflicts=True,
                 unique_fields=['branch', 'locale', 'spell_id'],
                 update_fields=['name', 'description', 'aura_description', 'snapshot_build', 'updated_at'],
             )
@@ -2485,9 +2536,9 @@ class WagoSkillDiffMonitor(BaseScan):
                         updated_at=now,
                     )
                 )
-            WowSpellEffectSnapshot.objects.bulk_create(
+            self._bulk_upsert_snapshots(
+                WowSpellEffectSnapshot,
                 eff_objs,
-                update_conflicts=True,
                 unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
                 update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
             )
@@ -2998,37 +3049,37 @@ class WagoSkillDiffMonitor(BaseScan):
                 out.append(cid)
         return out
 
+    def _http_get(self, url, timeout=None, *, binary=False, attempts=None):
+        timeout = max(int(timeout or self.http_timeout or 30), int(getattr(settings, 'WAGO_SKILL_DIFF_MIN_TIMEOUT', 45) or 45))
+        attempts = int(attempts or getattr(settings, 'WAGO_SKILL_DIFF_HTTP_RETRIES', 3) or 3)
+        attempts = max(1, attempts)
+        last_error = ''
+        for attempt in range(1, attempts + 1):
+            started = time.time()
+            logger.info(f"[WagoSkillDiffMonitor] request {attempt}/{attempts} {url}")
+            try:
+                resp = self._http_session.get(url, timeout=timeout)
+                elapsed = time.time() - started
+                if resp.status_code == 200:
+                    size = len(resp.content or b'')
+                    logger.info(f"[WagoSkillDiffMonitor] request done status=200 size={size} elapsed={elapsed:.1f}s {url}")
+                    return resp.content if binary else (resp.text or '')
+                last_error = f"status={resp.status_code} elapsed={elapsed:.1f}s"
+                logger.warning(f"[WagoSkillDiffMonitor] request failed {attempt}/{attempts} {url}: {last_error}")
+            except Exception as e:
+                elapsed = time.time() - started
+                last_error = f"{e} elapsed={elapsed:.1f}s"
+                logger.warning(f"[WagoSkillDiffMonitor] request error {attempt}/{attempts} {url}: {last_error}")
+            if attempt < attempts:
+                time.sleep(min(2 * attempt, 8))
+        logger.warning(f"[WagoSkillDiffMonitor] request exhausted {url}: {last_error}")
+        return b'' if binary else ''
+
     def _http_get_text(self, url, timeout=None):
-        timeout = timeout or self.http_timeout
-        try:
-            resp = self.req.getResponse(url, '', headers={'Accept': 'text/html'}) if getattr(self, 'req', None) else None
-            if resp is not None:
-                return resp.text or ''
-        except Exception:
-            pass
-        try:
-            r = requests.get(url, timeout=timeout, headers={'User-Agent': 'Mozilla/5.0'})
-            if r.status_code != 200:
-                return ''
-            return r.text or ''
-        except Exception:
-            return ''
+        return self._http_get(url, timeout=timeout, binary=False)
 
     def _http_get_bytes(self, url, timeout=None):
-        timeout = timeout or self.http_timeout
-        try:
-            resp = self.req.getResponse(url, '', headers={'Accept': '*/*'}) if getattr(self, 'req', None) else None
-            if resp is not None:
-                return resp.content
-        except Exception:
-            pass
-        try:
-            r = requests.get(url, timeout=timeout, headers={'User-Agent': 'Mozilla/5.0'})
-            if r.status_code != 200:
-                return b''
-            return r.content
-        except Exception:
-            return b''
+        return self._http_get(url, timeout=timeout, binary=True)
 
     def _parse_first_table_rows(self, html_text):
         html_text = html_text or ''
@@ -3341,9 +3392,9 @@ class WagoSkillDiffMonitor(BaseScan):
                     )
                 )
             if objs:
-                WowSpellSnapshot.objects.bulk_create(
+                self._bulk_upsert_snapshots(
+                    WowSpellSnapshot,
                     objs,
-                    update_conflicts=True,
                     unique_fields=['branch', 'locale', 'spell_id'],
                     update_fields=['name_zh', 'snapshot_build', 'updated_at'],
                 )
