@@ -137,7 +137,7 @@ SPEC_ICON = {
     ("Mage", "Fire"):                 "https://wow.zamimg.com/images/wow/icons/medium/spell_fire_firebolt02.jpg",
     ("Mage", "Frost"):                "https://wow.zamimg.com/images/wow/icons/medium/spell_frost_frostbolt02.jpg",
     ("Monk", "Brewmaster"):           "https://wow.zamimg.com/images/wow/icons/medium/monk_stance_drunkenox.jpg",
-    ("Monk", "Mistweaver"):           "https://wow.zamimg.com/images/wow/icons/medium/monk_stance_wisdom.jpg",
+    ("Monk", "Mistweaver"):           "https://wow.zamimg.com/images/wow/icons/medium/spell_monk_mistweaver_spec.jpg",
     ("Monk", "Windwalker"):           "https://wow.zamimg.com/images/wow/icons/medium/monk_stance_whitetiger.jpg",
     ("Paladin", "Holy"):              "https://wow.zamimg.com/images/wow/icons/medium/spell_holy_holybolt.jpg",
     ("Paladin", "Protection"):        "https://wow.zamimg.com/images/wow/icons/medium/ability_paladin_shieldofthetemplar.jpg",
@@ -157,9 +157,9 @@ SPEC_ICON = {
     ("Warlock", "Affliction"):        "https://wow.zamimg.com/images/wow/icons/medium/spell_shadow_deathcoil.jpg",
     ("Warlock", "Demonology"):        "https://wow.zamimg.com/images/wow/icons/medium/spell_shadow_metamorphosis.jpg",
     ("Warlock", "Destruction"):       "https://wow.zamimg.com/images/wow/icons/medium/spell_shadow_rainoffire.jpg",
-    ("Evoker", "Augmentation"):       "https://wow.zamimg.com/images/wow/icons/medium/ability_evoker_augmentation.jpg",
-    ("Evoker", "Devastation"):        "https://wow.zamimg.com/images/wow/icons/medium/ability_evoker_devastation.jpg",
-    ("Evoker", "Preservation"):       "https://wow.zamimg.com/images/wow/icons/medium/ability_evoker_preservation.jpg",
+    ("Evoker", "Augmentation"):       "https://wow.zamimg.com/images/wow/icons/medium/classicon_evoker_augmentation.jpg",
+    ("Evoker", "Devastation"):        "https://wow.zamimg.com/images/wow/icons/medium/classicon_evoker_devastation.jpg",
+    ("Evoker", "Preservation"):       "https://wow.zamimg.com/images/wow/icons/medium/classicon_evoker_preservation.jpg",
 }
 
 # ========== 副本/团本 中文名 ==========
