@@ -13,10 +13,22 @@
         .article-content p { margin-bottom: 1rem; }
         .article-content h2 { margin: 1.6rem 0 0.75rem; font-size: 1.15rem; font-weight: 700; color: #0f172a; }
         .article-content blockquote { margin: 1rem 0; padding: 0.75rem 1rem; border-left: 3px solid #818cf8; background: #f8fafc; color: #334155; }
-        .article-content ul, .article-content ol { margin: 0 0 1rem 1.25rem; }
+        .article-content ul, .article-content ol { margin: 0 0 1rem 1.25rem; padding-left: 0.5rem; }
         .article-content ul { list-style: disc; }
         .article-content ol { list-style: decimal; }
+        .article-content li { margin-bottom: 0.4rem; line-height: 1.6; }
         .article-content img { max-width: 100%; border-radius: 0.75rem; margin: 1rem auto; display: block; }
+        .article-content a { color: #4f46e5; text-decoration: underline; }
+        .article-content a:hover { color: #4338ca; }
+        .article-content code { background: #f1f5f9; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-family: 'Courier New', monospace; font-size: 0.9em; }
+        .article-content pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 1rem 0; }
+        .article-content pre code { background: transparent; padding: 0; color: inherit; }
+        .article-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; overflow-x: auto; display: block; max-width: 100%; }
+        .article-content thead { background: #f8fafc; }
+        .article-content th, .article-content td { border: 1px solid #e2e8f0; padding: 0.6rem 0.8rem; text-align: left; }
+        .article-content th { font-weight: 600; color: #0f172a; }
+        .article-content td { color: #334155; }
+        .article-content br + br { display: block; content: ""; margin-top: 0.5rem; }
         .translation-pair { margin-bottom: 1.5rem; }
         .translated-text { color: #0f172a; font-size: 0.95rem; }
         .original-text { margin-top: 0.35rem; color: #64748b; font-size: 0.8125rem; }
@@ -161,10 +173,6 @@
                 let contentHtml = renderBlocks(article.content_blocks_cn) || renderBlocks(article.content_blocks);
                 if (!contentHtml && article.content_cn && Array.isArray(article.content_cn)) {
                     contentHtml = renderLegacyTranslation(article.content_cn);
-                } else if (!contentHtml && article.content) {
-                    contentHtml = article.content.split('\n').filter(p => p.trim()).map(p =>
-                        `<p>${escapeHtml(p)}</p>`
-                    ).join('');
                 }
                 if (!contentHtml) {
                     contentHtml = '<div class="text-slate-500">暂无内容，请访问原文查看。</div>';
