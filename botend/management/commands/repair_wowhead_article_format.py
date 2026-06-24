@@ -6,6 +6,7 @@ from django.db import transaction
 
 from botend.models import WowArticle
 from botend.services.article_content_service import blocks_to_plain_text, dumps_blocks, extract_structured_article, loads_blocks
+from botend.services.article_translation_service import build_translation_service
 
 
 TEXT_TYPES = {'paragraph', 'heading', 'quote', 'list_item'}
@@ -20,6 +21,8 @@ class Command(BaseCommand):
         parser.add_argument('--id', type=int, action='append', dest='ids')
         parser.add_argument('--reset-translation', action='store_true', help='Clear Chinese content fields after source content changes.')
         parser.add_argument('--force', action='store_true', help='Rewrite even if content does not look suspicious.')
+        parser.add_argument('--refetch-only', action='store_true', help='Do not repair from existing content when remote fetch fails.')
+        parser.add_argument('--translate', action='store_true', help='Translate repaired articles after saving source content.')
 
     def handle(self, *args, **options):
         apply_changes = bool(options.get('apply'))
@@ -27,6 +30,10 @@ class Command(BaseCommand):
         ids = options.get('ids') or []
         reset_translation = bool(options.get('reset_translation'))
         force = bool(options.get('force'))
+        refetch_only = bool(options.get('refetch_only'))
+        translate_after = bool(options.get('translate'))
+        translation_service = build_translation_service() if translate_after else None
+        fetcher = self._build_wowhead_fetcher()
 
         qs = WowArticle.objects.filter(source='wowhead').exclude(url__isnull=True).exclude(url='').order_by('-publish_time', '-id')
         if ids:
@@ -47,9 +54,9 @@ class Command(BaseCommand):
                     skipped += 1
                     continue
 
-                blocks = self._extract_blocks(article.url)
+                blocks = self._extract_blocks(article, fetcher=fetcher)
                 source = 'fetch'
-                if not blocks:
+                if not blocks and not refetch_only:
                     blocks = self._repair_existing_blocks(article)
                     source = 'local'
                 body = blocks_to_plain_text(blocks)
@@ -73,8 +80,8 @@ class Command(BaseCommand):
 
                 content_changed = bool(update_fields)
                 if content_changed:
-                    cn_blocks = [] if reset_translation else self._repair_translated_blocks(article.content_blocks_cn or '')
-                    cn_body = '' if reset_translation else self._repair_translated_content(article.content_cn or '')
+                    cn_blocks = [] if (reset_translation or translate_after) else self._repair_translated_blocks(article.content_blocks_cn or '')
+                    cn_body = '' if (reset_translation or translate_after) else self._repair_translated_content(article.content_cn or '')
                     if article.content_cn != cn_body:
                         article.content_cn = cn_body
                         update_fields.append('content_cn')
@@ -97,6 +104,8 @@ class Command(BaseCommand):
                 if apply_changes:
                     with transaction.atomic():
                         article.save(update_fields=sorted(set(update_fields)))
+                    if translate_after and translation_service:
+                        translation_service.translate_article_fields(article, logger_prefix='repair_wowhead_article_format')
             except Exception as exc:
                 failed += 1
                 self.stdout.write(self.style.WARNING(f"failed id={article.id} error={exc}"))
@@ -108,17 +117,37 @@ class Command(BaseCommand):
             )
         )
 
-    def _extract_blocks(self, url):
+    def _build_wowhead_fetcher(self):
         try:
-            import requests
+            from utils.LReq import LReq
+            from botend.controller.plugins.wow.wowheadMonitor import wowheadMonitor
+            req = LReq(is_chrome=False, is_cloak=True)
+            return wowheadMonitor(req, None)
+        except Exception:
+            return None
 
+    def _extract_blocks(self, article, fetcher=None):
+        try:
+            url = article.url
+            if fetcher:
+                blocks = fetcher._fetch_article_blocks(url, reference_title=article.title or '')
+                if blocks:
+                    return blocks
+
+            import requests
             resp = requests.get(url, timeout=20, headers={
                 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36',
                 'Accept-Language': 'en-US,en;q=0.9',
             })
             if resp.status_code >= 400:
                 return []
-            return extract_structured_article(resp.text or '', base_url=url, source='wowhead')
+            blocks = extract_structured_article(resp.text or '', base_url=url, source='wowhead')
+            if not blocks:
+                return []
+            from botend.services.article_content_service import article_blocks_match_reference
+            if not article_blocks_match_reference(blocks, reference_title=article.title or '', reference_text=''):
+                return []
+            return blocks
         except Exception:
             return []
 
@@ -261,6 +290,8 @@ class Command(BaseCommand):
         try:
             blocks = json.loads(article.content_blocks or '[]')
         except Exception:
+            return True
+        if not (len(blocks) == 1 and isinstance(blocks[0], dict) and blocks[0].get('type') == 'html'):
             return True
         text_blocks = [b for b in blocks if isinstance(b, dict) and b.get('type') in TEXT_TYPES]
         if len(text_blocks) == 1 and stats['lines'] > 8:
