@@ -2562,25 +2562,34 @@ class WagoSkillDiffMonitor(BaseScan):
 
     def _fetch_changed_db2_tables(self, from_build, to_build):
         url = f"https://wago.tools/builds-diff?to={to_build}&from={from_build}"
-        text = self._http_get_text(url)
-        if not text:
-            return set()
-        props = self._extract_inertia_props(text)
-        items = props.get('items') or {}
-        if isinstance(items, dict):
-            items = items.get('data') or []
+        next_url = url
+        visited = set()
         tables = set()
-        for it in items if isinstance(items, list) else []:
-            if not isinstance(it, dict):
-                continue
-            if (it.get('Type') or '').strip() != 'db2':
-                continue
-            filename = (it.get('Filename') or '').strip()
-            if not filename.lower().startswith('dbfilesclient/') or not filename.lower().endswith('.db2'):
-                continue
-            table = filename.split('/')[-1][:-4]
-            if table:
-                tables.add(table)
+        while next_url and next_url not in visited:
+            visited.add(next_url)
+            text = self._http_get_text(next_url)
+            if not text:
+                break
+            props = self._extract_inertia_props(text)
+            payload = props.get('items') or {}
+            items = payload.get('data') if isinstance(payload, dict) else payload
+            for it in items if isinstance(items, list) else []:
+                if not isinstance(it, dict):
+                    continue
+                if (it.get('Type') or '').strip() != 'db2':
+                    continue
+                filename = (it.get('Filename') or '').strip()
+                if not filename.lower().startswith('dbfilesclient/') or not filename.lower().endswith('.db2'):
+                    continue
+                table = filename.split('/')[-1][:-4]
+                if table:
+                    tables.add(table)
+            next_url = payload.get('next_page_url') if isinstance(payload, dict) else None
+            if next_url and next_url.startswith('/'):
+                next_url = "https://wago.tools" + next_url
+            if next_url and 'from=' not in next_url and 'to=' not in next_url:
+                sep = '&' if '?' in next_url else '?'
+                next_url = f"{next_url}{sep}from={from_build}&to={to_build}"
         return tables
 
     def _fetch_db2_diff_rows(self, table, from_build, to_build):
