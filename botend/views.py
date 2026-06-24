@@ -126,11 +126,9 @@ class LMonitorCore:
         if not disable_cloak:
             disable_cloak = str(os.getenv('LMONITOR_DISABLE_CLOAK', '')).strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
 
-        Lreq = LReq(is_chrome=True, is_cloak=(not disable_cloak))
-        recycle_every = int(req_cfg.get('chrome_recycle_every', 0) or 0)
-        finished = 0
-
         while 1:
+            Lreq = None
+            acquired_scan_lock = False
             try:
                 close_old_connections()
                 global is_Block
@@ -143,6 +141,7 @@ class LMonitorCore:
                         need_wait = True
                     else:
                         is_Block = True
+                        acquired_scan_lock = True
                 finally:
                     lock.release()
 
@@ -163,46 +162,51 @@ class LMonitorCore:
                         task.last_scan_time = timezone.now()
                         task.save()
                         break
+
+                    if now_task:
+                        task_type = now_task.type
+                        task_url = now_task.target
+                        task_class = Monitor_Type_BaseObject_List[task_type]
+
+                        Lreq = LReq(is_chrome=True, is_cloak=(not disable_cloak))
+                        try:
+                            Lreq.set_current_task(now_task)
+                        except Exception:
+                            pass
+                        t = task_class(Lreq, now_task)
+                        try:
+                            scan_result = t.scan(task_url)
+                        except Exception as scan_exc:
+                            logger.warning('[Scan] task error, {}'.format(traceback.format_exc()))
+                            _record_monitor_task_alert(now_task, exc=scan_exc)
+                        else:
+                            if scan_result is False:
+                                detail = getattr(t, 'last_error_detail', '') or 'scan returned False'
+                                _record_monitor_task_alert(now_task, error_message=detail)
+                        try:
+                            Lreq.set_current_task(None)
+                        except Exception:
+                            pass
+
+                        now_task.save()
+                        time.sleep(10)
                 finally:
-                    lock.acquire()
-                    try:
-                        is_Block = False
-                    finally:
-                        lock.release()
-
-                if now_task:
-                    task_type = now_task.type
-                    task_url = now_task.target
-                    task_class = Monitor_Type_BaseObject_List[task_type]
-
-                    try:
-                        Lreq.set_current_task(now_task)
-                    except Exception:
-                        pass
-                    t = task_class(Lreq, now_task)
-                    try:
-                        scan_result = t.scan(task_url)
-                    except Exception as scan_exc:
-                        logger.warning('[Scan] task error, {}'.format(traceback.format_exc()))
-                        _record_monitor_task_alert(now_task, exc=scan_exc)
-                    else:
-                        if scan_result is False:
-                            detail = getattr(t, 'last_error_detail', '') or 'scan returned False'
-                            _record_monitor_task_alert(now_task, error_message=detail)
-                    try:
-                        Lreq.set_current_task(None)
-                    except Exception:
-                        pass
-
-                    now_task.save()
-                    finished += 1
-                    if recycle_every and Lreq.is_chrome and (finished % recycle_every == 0):
-                        Lreq.reset_chrome()
-                    time.sleep(10)
+                    if Lreq is not None:
+                        try:
+                            Lreq.close_driver()
+                        except Exception:
+                            pass
+                    if acquired_scan_lock:
+                        lock.acquire()
+                        try:
+                            is_Block = False
+                        finally:
+                            lock.release()
 
             except KeyboardInterrupt:
                 logger.error("[Scan] Stop Scaning.")
-                Lreq.close_driver()
+                if Lreq is not None:
+                    Lreq.close_driver()
                 exit(0)
 
             except OperationalError:
