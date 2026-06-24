@@ -17,7 +17,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        from botend.models import SpecDungeonRanking, SpecRaidRanking, PlayerSpecTopPlayer
+        from botend.models import SpecDungeonRanking, SpecRaidRanking, PlayerSpecTopPlayer, WowItemSnapshot
 
         icons = set()
 
@@ -32,15 +32,24 @@ class Command(BaseCommand):
                     if not json_data or not isinstance(json_data, list):
                         continue
                     for item in json_data:
-                        if isinstance(item, dict) and item.get('icon'):
-                            normalized = self._normalize_icon_name(item['icon'])
-                            if normalized:
-                                icons.add(normalized)
+                        if isinstance(item, dict):
+                            self._collect_icon_from_payload(item, icons)
                 count += 1
                 if count % 1000 == 0:
                     gc.collect()  # 主动回收内存
 
             self.stdout.write(f'  {model.__name__}: {count} 条记录, {len(icons)} 个图标')
+
+        self.stdout.write('扫描 WowItemSnapshot...')
+        snapshot_count = 0
+        for icon_name in WowItemSnapshot.objects.exclude(icon='').values_list('icon', flat=True).iterator(chunk_size=500):
+            normalized = self._normalize_icon_name(icon_name)
+            if normalized:
+                icons.add(normalized)
+            snapshot_count += 1
+            if snapshot_count % 2000 == 0:
+                gc.collect()
+        self.stdout.write(f'  WowItemSnapshot: {snapshot_count} 条记录, {len(icons)} 个图标')
 
         icons.discard(None)
         icons.discard('')
@@ -96,6 +105,21 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'完成: {downloaded} 已下载, {skipped} 已跳过, {failed} 失败'
         ))
+
+    @classmethod
+    def _collect_icon_from_payload(cls, payload, icons):
+        normalized = cls._normalize_icon_name(payload.get('icon'))
+        if normalized:
+            icons.add(normalized)
+        for key in ('gems_detail', 'gems', 'enchants_detail'):
+            values = payload.get(key) or []
+            if not isinstance(values, list):
+                continue
+            for child in values:
+                if isinstance(child, dict):
+                    child_icon = cls._normalize_icon_name(child.get('icon'))
+                    if child_icon:
+                        icons.add(child_icon)
 
     @staticmethod
     def _normalize_icon_name(icon_name):

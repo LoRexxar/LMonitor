@@ -89,6 +89,23 @@ def _raid_overview_json_is_stale(season, zone_groups):
     return not expected_ids.issubset(json_ids)
 
 
+def _detail_item_metadata_is_stale(detail):
+    """旧聚合 JSON 可能缺少装备/宝石/附魔名称或图标，需要实时重算详情。"""
+    for key in ('gear_popularity', 'gem_popularity', 'enchant_popularity'):
+        entries = (detail or {}).get(key) or []
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            display_name = str(entry.get('display_name') or entry.get('name_zh') or entry.get('name') or '').strip()
+            icon = str(entry.get('icon') or '').strip()
+            item_id = entry.get('id') or entry.get('item_id')
+            if item_id and (not icon or not display_name or display_name == f'#{item_id}'):
+                return True
+    return False
+
+
 class SpecDetailPlayerView(View):
     """人物榜页面"""
 
@@ -146,7 +163,12 @@ class SpecDetailDungeonView(View):
                     detail = next((d for d in dungeons if d.get('dungeon_id') == did), None)
                     if detail:
                         # 兼容旧聚合 JSON：若天赋树缺英雄天赋、新维度缺失或天赋字符串为空，则实时重算该详情对象
-                        if (not _talent_tree_has_hero(detail)) or ('secondary_stats' not in detail) or (not _talent_build_popularity_has_builds(detail)):
+                        if (
+                            (not _talent_tree_has_hero(detail))
+                            or ('secondary_stats' not in detail)
+                            or (not _talent_build_popularity_has_builds(detail))
+                            or _detail_item_metadata_is_stale(detail)
+                        ):
                             detail = SpecStatsService.get_dungeon_detail(did, class_name, spec_name) or detail
                         ctx['dungeon_detail'] = detail
                     else:
@@ -186,7 +208,12 @@ class SpecDetailRaidView(View):
                             break
                     if detail:
                         # 兼容旧聚合 JSON：若天赋树缺英雄天赋、新维度缺失或天赋字符串为空，则实时重算该详情对象
-                        if (not _talent_tree_has_hero(detail)) or ('secondary_stats' not in detail) or (not _talent_build_popularity_has_builds(detail)):
+                        if (
+                            (not _talent_tree_has_hero(detail))
+                            or ('secondary_stats' not in detail)
+                            or (not _talent_build_popularity_has_builds(detail))
+                            or _detail_item_metadata_is_stale(detail)
+                        ):
                             detail = SpecStatsService.get_raid_detail(bid, class_name, spec_name) or detail
                         ctx['boss_detail'] = detail
                     else:

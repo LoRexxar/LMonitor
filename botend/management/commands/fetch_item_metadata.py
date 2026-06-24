@@ -283,9 +283,9 @@ class Command(BaseCommand):
                     if not isinstance(item, dict):
                         continue
                     self._add_item(result, item.get('id') or item.get('itemID') or item.get('item_id'), item)
-                    for gem in item.get('gems_detail') or []:
+                    for gem in (item.get('gems_detail') or []) + (item.get('gems') or []):
                         if isinstance(gem, dict):
-                            self._add_item(result, gem.get('id'), gem)
+                            self._add_item(result, gem.get('id') or gem.get('itemID') or gem.get('item_id'), gem)
                     for ench in item.get('enchants_detail') or []:
                         if isinstance(ench, dict):
                             self._add_item(result, ench.get('id'), ench)
