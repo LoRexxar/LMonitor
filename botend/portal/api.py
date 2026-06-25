@@ -105,6 +105,7 @@ def _event_to_dict(e):
 
 
 VIDEO_PLACEHOLDER_TAGS = {'测试'}
+VIDEO_EXCLUDED_TITLE_KEYWORDS = ['【直播回放】']
 
 
 def _video_display_tag(tag):
@@ -444,6 +445,8 @@ class PortalVideosAPIView(View):
         tag = (request.GET.get('tag') or '').strip()
         since = timezone.now() - timedelta(days=3)
         qs = PortalVideo.objects.filter(is_active=True, published_at__gte=since)
+        for keyword in VIDEO_EXCLUDED_TITLE_KEYWORDS:
+            qs = qs.exclude(title__icontains=keyword)
         if tag:
             qs = qs.filter(tag=tag)
         rows = list(qs.order_by('-published_at', '-id')[:60])
