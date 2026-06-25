@@ -28,6 +28,7 @@ from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.controller.plugins.wow.wowheadMonitor import wowheadMonitor
 from botend.controller.plugins.wow.DeprecatedWowPortalMonitor import DeprecatedWowPortalMonitor
 from botend.controller.plugins.portal.PortalPostMonitor import PortalPostMonitor
+from botend.controller.plugins.portal.PortalEventMonitor import PortalEventMonitor
 from botend.controller.plugins.portal.PortalMplusRunMonitor import PortalMplusRunMonitor
 from botend.controller.plugins.portal.PortalMplusCutoffMonitor import PortalMplusCutoffMonitor
 from botend.controller.plugins.portal.PortalPeakSpecRankMonitor import PortalPeakSpecRankMonitor
@@ -36,9 +37,6 @@ from botend.controller.plugins.portal.PortalMythicstatsDpsMonitor import PortalM
 from botend.controller.plugins.portal.PortalArticleTranslateMonitor import PortalArticleTranslateMonitor
 from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
 from botend.controller.plugins.wow.WowDailyReportMonitor import WowDailyReportMonitor
-
-class PortalEventMonitor(PortalPostMonitor):
-    pass
 
 from botend.controller.plugins.portal.SpecDetailSeasonMonitor import SpecDetailSeasonMonitor
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor

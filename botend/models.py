@@ -138,12 +138,20 @@ class PortalEvent(models.Model):
     start_at = models.DateTimeField(null=True, blank=True)
     end_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=32, null=True, blank=True)
+    summary = models.TextField(default="", blank=True)
+    image_url = models.CharField(max_length=2000, default="", blank=True)
+    external_id = models.CharField(max_length=128, default="", blank=True)
+    raw_data = models.JSONField(default=dict, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'wow_portal_event'
         indexes = [
             models.Index(fields=['url_hash']),
+            models.Index(fields=['source', 'is_active']),
+            models.Index(fields=['start_at']),
+            models.Index(fields=['last_seen_at']),
         ]
 
     def save(self, *args, **kwargs):

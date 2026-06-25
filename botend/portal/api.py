@@ -101,6 +101,9 @@ def _event_to_dict(e):
         'status': status,
         'start_at': _fmt_dt(e.start_at),
         'end_at': _fmt_dt(e.end_at),
+        'summary': getattr(e, 'summary', '') or '',
+        'image_url': _normalize_url(getattr(e, 'image_url', '') or ''),
+        'external_id': getattr(e, 'external_id', '') or '',
     }
 
 
