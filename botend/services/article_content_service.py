@@ -218,7 +218,7 @@ def html_block_translate_texts(block: Dict[str, Any], translated_by_original: Di
         return new_block
     soup = BeautifulSoup(html_text, "html.parser")
     queue_index = 0
-    for text_node in soup.find_all(string=True):
+    for text_node in _translatable_html_text_nodes(soup):
         original = _clean_inline_text(str(text_node))
         if not original:
             continue
@@ -234,6 +234,34 @@ def html_block_translate_texts(block: Dict[str, Any], translated_by_original: Di
     return new_block
 
 
+def html_block_text_nodes(html_text: str) -> List[str]:
+    if not html_text or not BeautifulSoup:
+        return []
+    soup = BeautifulSoup(html_text or "", "html.parser")
+    texts = []
+    for text_node in _translatable_html_text_nodes(soup):
+        text = _clean_inline_text(str(text_node))
+        if text:
+            texts.append(text)
+    return texts
+
+
+def _translatable_html_text_nodes(soup):
+    skip_parents = {"script", "style", "iframe", "form", "noscript", "svg", "path", "title", "code", "pre"}
+    for text_node in soup.find_all(string=True):
+        parent = getattr(text_node, "parent", None)
+        if not parent:
+            continue
+        if any(getattr(ancestor, "name", None) in skip_parents for ancestor in getattr(text_node, "parents", [])):
+            continue
+        text = _clean_inline_text(str(text_node))
+        if not text:
+            continue
+        if parent.name == "a" and len(text) < 3:
+            continue
+        yield text_node
+
+
 def _html_block(root, *, base_url: str) -> Dict[str, Any]:
     cloned = copy.copy(root)
     for tag in cloned.find_all(["script", "style", "nav", "header", "footer", "aside", "iframe", "form"]):
@@ -242,12 +270,38 @@ def _html_block(root, *, base_url: str) -> Dict[str, Any]:
         tag.unwrap()
     for tag in cloned.select("ins, .advertisement, .ad, .heading-size, .heading-permalink"):
         tag.decompose()
+    _clean_discourse_lightbox_meta(cloned)
     for tag in cloned.find_all(True):
         _sanitize_html_tag(tag, base_url=base_url)
     html_text = _clean_html_fragment("".join(str(child) for child in cloned.children))
     if not html_text:
         return {}
     return {"type": "html", "html": html_text}
+
+
+def _clean_discourse_lightbox_meta(root):
+    """Normalize Discourse lightbox widgets to clean clickable article images."""
+    for lightbox in root.select(".lightbox-wrapper"):
+        img = lightbox.find("img")
+        if not img:
+            lightbox.decompose()
+            continue
+        link = lightbox.find("a", class_="lightbox") or lightbox.find("a")
+        if link and link.get("href"):
+            tag_factory = BeautifulSoup("", "html.parser")
+            clean_link = tag_factory.new_tag("a", href=link.get("href"), title=link.get("title") or img.get("alt") or "")
+            clean_link["class"] = "article-image-link"
+            clean_link.append(img.extract())
+            lightbox.replace_with(clean_link)
+        else:
+            lightbox.replace_with(img.extract())
+
+    for image_grid in root.select(".d-image-grid"):
+        for paragraph in list(image_grid.find_all("p", recursive=False)):
+            if paragraph.find(["img", "a", "div"]) and not _clean_inline_text(paragraph.get_text(" ", strip=True)):
+                paragraph.unwrap()
+        if not image_grid.find("img"):
+            image_grid.decompose()
 
 
 def _sanitize_html_tag(tag, *, base_url: str):

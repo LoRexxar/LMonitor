@@ -11,6 +11,7 @@ from botend.services.article_content_service import (
     loads_blocks,
     translate_blocks,
 )
+from botend.services.article_image_service import upload_article_html_images
 from botend.services.article_translation_service import (
     ArticleTranslationService,
     FallbackTranslationEngine,
@@ -276,6 +277,23 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn("<p>职业改动已上线。</p>", translated[0]["html"])
         self.assertIn('src="https://example.com/a.png"', translated[0]["html"])
 
+    def test_translate_blocks_skips_non_visible_html_text(self):
+        blocks = [{"type": "html", "html": '<p>Patch Notes</p><svg><title>pulverize</title></svg><noscript>fallback</noscript>'}]
+        pairs = [{"original": "Patch Notes", "translated": "补丁说明"}]
+
+        translated = translate_blocks(loads_blocks(dumps_blocks(blocks)), pairs)
+
+        self.assertIn("<p>补丁说明</p>", translated[0]["html"])
+        self.assertIn("pulverize", translated[0]["html"])
+        self.assertIn("fallback", translated[0]["html"])
+
+    def test_polluted_html_block_translation_is_rejected(self):
+        blocks = [{"type": "html", "html": "<p>A normal article paragraph.</p>"}]
+        translated = [{"type": "html", "html": "<p>{}</p>".format(" ".join(["pulverize"] * 40))}]
+        svc = ArticleTranslationService(engine=FakeEngine([]), sleep_func=lambda _: None)
+
+        self.assertTrue(svc._blocks_look_polluted(blocks, translated))
+
     def test_translate_blocks_preserves_non_text_blocks(self):
         blocks = [
             {"type": "heading", "text": "Patch Notes", "level": 2},
@@ -304,3 +322,48 @@ class ArticleContentServiceTests(SimpleTestCase):
         reference = "Our Unholy Death Knight writer discusses class changes and tier set bonuses."
 
         self.assertTrue(article_blocks_match_reference(blocks, reference_text=reference))
+
+    def test_upload_article_html_images_replaces_link_and_removes_source_attr(self):
+        html = '<a class="article-image-link" href="https://cdn.example.com/original.jpg"><img data-source-src="https://cdn.example.com/thumb.jpg" src="https://cdn.example.com/thumb.jpg"/></a>'
+
+        with patch("botend.services.article_image_service.download_and_upload_article_image", return_value="https://oss.wowdaily.cn/portal/articles/a.jpg"):
+            result = upload_article_html_images(html, article_url="https://example.com/post/1", source="blizzard_tracker")
+
+        self.assertIn('href="https://oss.wowdaily.cn/portal/articles/a.jpg"', result)
+        self.assertIn('src="https://oss.wowdaily.cn/portal/articles/a.jpg"', result)
+        self.assertNotIn("data-source-src", result)
+
+    def test_extract_structured_article_normalizes_discourse_lightbox_images(self):
+        html = """
+        <article>
+          <p>Check out this image:</p>
+          <div class="d-image-grid">
+            <p><div class="lightbox-wrapper">
+              <a class="lightbox" href="https://example.com/original.jpg" title="Screenshot">
+                <img src="https://example.com/thumb.jpg" alt="Screenshot">
+                <div class="meta">
+                  <svg class="fa-icon" aria-hidden="true"><use href="#discourse-expand"></use></svg>
+                  <span class="filename">screenshot.jpg</span>
+                  <span class="informations">1920×1080 234 KB</span>
+                </div>
+              </a>
+            </div></p>
+          </div>
+          <p>More text here.</p>
+        </article>
+        """
+
+        blocks = extract_structured_article(html, base_url="https://example.com/post/1", source="blizzard_tracker")
+
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["type"], "html")
+        html_result = blocks[0]["html"]
+        self.assertIn('class="article-image-link"', html_result)
+        self.assertIn('href="https://example.com/original.jpg"', html_result)
+        self.assertIn('<img alt="Screenshot" src="https://example.com/thumb.jpg"/>', html_result)
+        self.assertNotIn("class=\"meta\"", html_result)
+        self.assertNotIn("class=\"filename\"", html_result)
+        self.assertNotIn("class=\"informations\"", html_result)
+        self.assertNotIn("<svg", html_result)
+        self.assertNotIn("<p><div", html_result)
+        self.assertIn("More text here.", blocks_to_plain_text(blocks))

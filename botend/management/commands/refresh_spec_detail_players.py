@@ -42,58 +42,66 @@ class Command(BaseCommand):
         with transaction.atomic():
             existing_qs = PlayerSpecTopPlayer.objects.filter(
                 season_id=season.id,
-                class_name=class_name,
                 spec_name=spec_name,
             )
             existing_map = {
-                ((row.region or '').lower(), row.realm or '', row.character_name or ''): row
+                monitor._profile_identity_key(row.region, row.realm, row.character_name): row
                 for row in existing_qs
             }
+            existing_map.pop(None, None)
             seen_keys = set()
 
             for i, player in enumerate(players[:20], start=1):
                 region = player.get('region', '')
                 realm = player.get('realm', '')
                 character_name = player.get('name', '')
-                row_key = ((region or '').lower(), realm, character_name)
+                row_key = monitor._profile_identity_key(region, realm, character_name)
                 seen_keys.add(row_key)
                 existing = existing_map.get(row_key)
                 stats_json = existing.stats_json if existing and existing.stats_json else {}
                 stats_status = existing.stats_crawl_status if existing else 0
-
-                PlayerSpecTopPlayer.objects.update_or_create(
-                    season_id=season.id,
-                    class_name=class_name,
-                    spec_name=spec_name,
-                    region=region,
-                    realm=realm,
-                    character_name=character_name,
-                    defaults={
-                        'rank': i,
-                        'score': player.get('score'),
-                        'faction': player.get('faction'),
-                        'race': player.get('race'),
-                        'gender': player.get('gender'),
-                        'guild_name': player.get('guild_name'),
-                        'realm_rank': player.get('realm_rank'),
-                        'avatar_url': player.get('avatar_url'),
-                        'profile_url': player.get('profile_url'),
-                        'achievement_points': player.get('achievement_points'),
-                        'item_level': player.get('item_level'),
-                        'gear_json': monitor._normalize_gear_list(player.get('gear', [])),
-                        'talent_build_code': TalentBuildCodeService.extract_build_code(
-                            talents_json=player.get('talents', [])
-                        ),
-                        'talents_json': monitor._normalize_talent_nodes(
-                            player.get('talents', []),
-                            class_name,
-                            spec_name,
-                        ),
-                        'stats_json': stats_json,
-                        'stats_crawl_status': stats_status,
-                        'last_updated': timezone.now(),
-                    },
-                )
+                defaults = {
+                    'rank': i,
+                    'score': player.get('score'),
+                    'faction': player.get('faction'),
+                    'race': player.get('race'),
+                    'gender': player.get('gender'),
+                    'guild_name': player.get('guild_name'),
+                    'realm_rank': player.get('realm_rank'),
+                    'avatar_url': player.get('avatar_url'),
+                    'profile_url': player.get('profile_url'),
+                    'achievement_points': player.get('achievement_points'),
+                    'item_level': player.get('item_level'),
+                    'gear_json': monitor._normalize_gear_list(player.get('gear', [])),
+                    'talent_build_code': TalentBuildCodeService.extract_build_code(
+                        talents_json=player.get('talents', [])
+                    ),
+                    'talents_json': monitor._normalize_talent_nodes(
+                        player.get('talents', []),
+                        class_name,
+                        spec_name,
+                    ),
+                    'stats_json': stats_json,
+                    'stats_crawl_status': stats_status,
+                    'last_updated': timezone.now(),
+                }
+                if existing:
+                    for field, value in defaults.items():
+                        setattr(existing, field, value)
+                    existing.class_name = class_name
+                    existing.save(update_fields=[*defaults.keys(), 'class_name'])
+                else:
+                    profile = PlayerSpecTopPlayer(
+                        season_id=season.id,
+                        region=(region or '').strip().lower(),
+                        realm=(realm or '').strip(),
+                        character_name=(character_name or '').strip(),
+                        class_name=class_name,
+                        spec_name=spec_name,
+                    )
+                    for field, value in defaults.items():
+                        setattr(profile, field, value)
+                    monitor._save_profile_safely(profile)
 
             stale_ids = [
                 row.id for key, row in existing_map.items()

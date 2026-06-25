@@ -5,9 +5,10 @@
 """
 
 import time
+import unicodedata
 
 from django.utils import timezone
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, PlayerSpecTopPlayer
@@ -63,12 +64,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
                 with transaction.atomic():
                     existing_qs = PlayerSpecTopPlayer.objects.filter(
-                        season_id=season.id, class_name=class_name, spec_name=spec_name
+                        season_id=season.id, spec_name=spec_name
                     )
                     existing_map = {
-                        ((row.region or '').lower(), row.realm or '', row.character_name or ''): row
+                        self._profile_identity_key(row.region, row.realm, row.character_name): row
                         for row in existing_qs
                     }
+                    existing_map.pop(None, None)
                     seen_keys = set()
 
                     for i, player in enumerate(players):
@@ -76,45 +78,54 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                             region = player.get('region', '')
                             realm = player.get('realm', '')
                             character_name = player.get('name', '')
-                            row_key = ((region or '').lower(), realm, character_name)
+                            row_key = self._profile_identity_key(region, realm, character_name)
                             seen_keys.add(row_key)
                             existing = existing_map.get(row_key)
                             stats_json = existing.stats_json if existing and existing.stats_json else {}
                             stats_status = existing.stats_crawl_status if existing else 0
 
-                            PlayerSpecTopPlayer.objects.update_or_create(
-                                season_id=season.id,
-                                class_name=class_name,
-                                spec_name=spec_name,
-                                region=region,
-                                realm=realm,
-                                character_name=character_name,
-                                defaults={
-                                    'rank': i + 1,
-                                    'score': player.get('score'),
-                                    'faction': player.get('faction'),
-                                    'race': player.get('race'),
-                                    'gender': player.get('gender'),
-                                    'guild_name': player.get('guild_name'),
-                                    'realm_rank': player.get('realm_rank'),
-                                    'avatar_url': player.get('avatar_url'),
-                                    'profile_url': player.get('profile_url'),
-                                    'achievement_points': player.get('achievement_points'),
-                                    'item_level': player.get('item_level'),
-                                    'gear_json': self._normalize_gear_list(player.get('gear', [])),
-                                    'talent_build_code': player.get('talent_build_code', '') or TalentBuildCodeService.extract_build_code(
-                                        talents_json=player.get('talents', [])
-                                    ),
-                                    'talents_json': self._normalize_talent_nodes(
-                                        player.get('talents', []),
-                                        class_name,
-                                        spec_name,
-                                    ),
-                                    'stats_json': stats_json,
-                                    'stats_crawl_status': stats_status,
-                                    'last_updated': timezone.now(),
-                                },
-                            )
+                            defaults = {
+                                'rank': i + 1,
+                                'score': player.get('score'),
+                                'faction': player.get('faction'),
+                                'race': player.get('race'),
+                                'gender': player.get('gender'),
+                                'guild_name': player.get('guild_name'),
+                                'realm_rank': player.get('realm_rank'),
+                                'avatar_url': player.get('avatar_url'),
+                                'profile_url': player.get('profile_url'),
+                                'achievement_points': player.get('achievement_points'),
+                                'item_level': player.get('item_level'),
+                                'gear_json': self._normalize_gear_list(player.get('gear', [])),
+                                'talent_build_code': player.get('talent_build_code', '') or TalentBuildCodeService.extract_build_code(
+                                    talents_json=player.get('talents', [])
+                                ),
+                                'talents_json': self._normalize_talent_nodes(
+                                    player.get('talents', []),
+                                    class_name,
+                                    spec_name,
+                                ),
+                                'stats_json': stats_json,
+                                'stats_crawl_status': stats_status,
+                                'last_updated': timezone.now(),
+                            }
+                            if existing:
+                                for field, value in defaults.items():
+                                    setattr(existing, field, value)
+                                existing.class_name = class_name
+                                existing.save(update_fields=[*defaults.keys(), 'class_name'])
+                            else:
+                                profile = PlayerSpecTopPlayer(
+                                    season_id=season.id,
+                                    region=(region or '').strip().lower(),
+                                    realm=(realm or '').strip(),
+                                    character_name=(character_name or '').strip(),
+                                    class_name=class_name,
+                                    spec_name=spec_name,
+                                )
+                                for field, value in defaults.items():
+                                    setattr(profile, field, value)
+                                self._save_profile_safely(profile)
                             total_inserted += 1
                         except Exception as e:
                             logger.warning(f"[SpecDetailPlayer] 插入失败 {player.get('name')}: {e}")
@@ -238,7 +249,6 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         existing = {}
         for profile in PlayerSpecTopPlayer.objects.filter(
             season_id=season_id,
-            class_name=class_name,
             spec_name=spec_name,
         ):
             key = self._profile_identity_key(profile.region, profile.realm, profile.character_name)
@@ -267,7 +277,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 time.sleep(0.2)
 
             profile.last_updated = timezone.now()
-            profile.save()
+            self._save_profile_safely(profile)
             existing[key] = profile
             updated += 1
 
@@ -281,13 +291,56 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 sample_map[key] = row
 
     @staticmethod
-    def _profile_identity_key(region, realm, character_name):
-        region = (region or '').strip().lower()
-        realm = (realm or '').strip().lower()
-        character_name = (character_name or '').strip().lower()
+    def _normalize_identity_part(value):
+        value = (value or '').strip().lower()
+        if not value:
+            return ''
+        normalized = unicodedata.normalize('NFKD', value)
+        return ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+
+    @classmethod
+    def _profile_identity_key(cls, region, realm, character_name):
+        region = cls._normalize_identity_part(region)
+        realm = cls._normalize_identity_part(realm)
+        character_name = cls._normalize_identity_part(character_name)
         if not region or not realm or not character_name:
             return None
         return region, realm, character_name
+
+    def _save_profile_safely(self, profile):
+        try:
+            with transaction.atomic():
+                profile.save()
+            return profile
+        except IntegrityError:
+            existing = self._find_existing_profile_for_unique_key(profile)
+            if not existing:
+                raise
+            for field in (
+                'class_name', 'rank', 'score', 'faction', 'race', 'gender', 'guild_name',
+                'realm_rank', 'avatar_url', 'profile_url', 'achievement_points', 'item_level',
+                'gear_json', 'talents_json', 'talent_build_code', 'stats_json',
+                'stats_crawl_status', 'last_updated',
+            ):
+                setattr(existing, field, getattr(profile, field))
+            existing.save(update_fields=[
+                'class_name', 'rank', 'score', 'faction', 'race', 'gender', 'guild_name',
+                'realm_rank', 'avatar_url', 'profile_url', 'achievement_points', 'item_level',
+                'gear_json', 'talents_json', 'talent_build_code', 'stats_json',
+                'stats_crawl_status', 'last_updated',
+            ])
+            profile.id = existing.id
+            return existing
+
+    def _find_existing_profile_for_unique_key(self, profile):
+        target_key = self._profile_identity_key(profile.region, profile.realm, profile.character_name)
+        for existing in PlayerSpecTopPlayer.objects.filter(
+            season_id=profile.season_id,
+            spec_name=profile.spec_name,
+        ):
+            if self._profile_identity_key(existing.region, existing.realm, existing.character_name) == target_key:
+                return existing
+        return None
 
     @staticmethod
     def _profile_needs_rio_enrichment(profile):

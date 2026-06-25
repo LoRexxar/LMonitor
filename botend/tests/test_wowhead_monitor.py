@@ -1,7 +1,9 @@
 import json
 from unittest import TestCase
+from unittest.mock import patch
 
 from botend.controller.plugins.wow.wowheadMonitor import wowheadMonitor
+from botend.models import WowArticle
 
 
 class WowheadMonitorParserTest(TestCase):
@@ -37,3 +39,30 @@ class WowheadMonitorParserTest(TestCase):
         self.assertEqual(posts[0]["date"], "2026/06/22 at 5:33 PM")
         self.assertIn("Venomous Abyss", posts[0]["title"])
         self.assertIn("raid testing", posts[0]["preview"])
+
+    @patch.object(wowheadMonitor, '_fetch_article_blocks', return_value=[])
+    def test_skip_new_article_when_body_is_empty(self, mock_fetch):
+        monitor = wowheadMonitor(None, None)
+        monitor._parse_posts_from_page_html = lambda page_html, limit=10: [
+            {
+                'type': 'PTR',
+                'title': 'Test Article',
+                'link': 'https://www.wowhead.com/news/test-article-123',
+                'preview': 'Preview text',
+                'date': '2026/06/24 at 05:33 PM',
+            }
+        ]
+
+        class _Task:
+            flag = ''
+            def save(self):
+                pass
+
+        setattr(monitor, 'task', _Task())
+        before = WowArticle.objects.filter(url='https://www.wowhead.com/news/test-article-123').count()
+        result = monitor.resolve_data(type('D', (), {'html': '<html></html>'})(), 'wowhead', limit=1)
+        after = WowArticle.objects.filter(url='https://www.wowhead.com/news/test-article-123').count()
+
+        self.assertEqual(before, after)
+        self.assertEqual(result[0], 1)
+        self.assertEqual(result[1], 0)

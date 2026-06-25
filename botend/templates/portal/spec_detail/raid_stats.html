@@ -331,7 +331,20 @@
                                 <span>{{ build.pct }}%</span>
                                 {% if build.diff_count %}<span class="talent-build-diff-count">差异 {{ build.diff_count }} 个</span>{% else %}<span class="talent-build-diff-count">无差异</span>{% endif %}
                             </div>
-                            <div class="talent-build-code" title="{{ build.code }}">{{ build.code }}</div>
+                            <div class="talent-build-code-wrap{% if build.top_players %} has-players{% endif %}">
+                                <div class="talent-build-code" title="{{ build.code }}">{{ build.code }}</div>
+                                {% if build.top_players %}
+                                <div class="talent-build-player-tooltip">
+                                    <span class="talent-build-player-tooltip-title">使用该字符串 Top5</span>
+                                    {% for player in build.top_players %}
+                                    <span class="talent-build-player-row">
+                                        <span class="talent-build-player-name">{{ player.name }}{% if player.realm %}-{{ player.realm }}{% endif %}</span>
+                                        {% if player.dps_fmt %}<span class="talent-build-player-metric">{{ player.dps_fmt }} DPS</span>{% elif player.score_fmt %}<span class="talent-build-player-metric">{{ player.score_fmt }} 分</span>{% endif %}
+                                    </span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </div>
                             {% if build.hero_talent_summary %}
                             <div class="talent-build-hero-summary">
                                 <span class="talent-build-hero-label">英雄天赋</span>
@@ -348,39 +361,17 @@
                         <div class="talent-build-diff-label">普通天赋差异</div>
                         <div class="talent-build-talent-list">
                             {% for talent in build.added_talents %}
-                            <span class="talent-build-talent-chip is-added{% if talent.top_players %} has-players{% endif %}">
+                            <span class="talent-build-talent-chip is-added">
                                 <span class="talent-build-diff-symbol">+</span>
                                 {% if talent.icon %}<img src="{% wow_icon talent.icon "tiny" %}" alt="{{ talent.name }}">{% endif %}
                                 {{ talent.name }}
-                                {% if talent.top_players %}
-                                <span class="talent-build-player-tooltip">
-                                    <span class="talent-build-player-tooltip-title">选取该天赋 Top5</span>
-                                    {% for player in talent.top_players %}
-                                    <span class="talent-build-player-row">
-                                        <span class="talent-build-player-name">{{ player.name }}{% if player.realm %}-{{ player.realm }}{% endif %}</span>
-                                        {% if player.dps_fmt %}<span class="talent-build-player-metric">{{ player.dps_fmt }} DPS</span>{% elif player.score_fmt %}<span class="talent-build-player-metric">{{ player.score_fmt }} 分</span>{% endif %}
-                                    </span>
-                                    {% endfor %}
-                                </span>
-                                {% endif %}
                             </span>
                             {% endfor %}
                             {% for talent in build.missing_talents %}
-                            <span class="talent-build-talent-chip is-missing{% if talent.top_players %} has-players{% endif %}">
+                            <span class="talent-build-talent-chip is-missing">
                                 <span class="talent-build-diff-symbol">−</span>
                                 {% if talent.icon %}<img src="{% wow_icon talent.icon "tiny" %}" alt="{{ talent.name }}">{% endif %}
                                 {{ talent.name }}
-                                {% if talent.top_players %}
-                                <span class="talent-build-player-tooltip">
-                                    <span class="talent-build-player-tooltip-title">模板选取 Top5</span>
-                                    {% for player in talent.top_players %}
-                                    <span class="talent-build-player-row">
-                                        <span class="talent-build-player-name">{{ player.name }}{% if player.realm %}-{{ player.realm }}{% endif %}</span>
-                                        {% if player.dps_fmt %}<span class="talent-build-player-metric">{{ player.dps_fmt }} DPS</span>{% elif player.score_fmt %}<span class="talent-build-player-metric">{{ player.score_fmt }} 分</span>{% endif %}
-                                    </span>
-                                    {% endfor %}
-                                </span>
-                                {% endif %}
                             </span>
                             {% endfor %}
                         </div>
@@ -1316,6 +1307,12 @@
     background: #eff6ff;
     border: 1px solid #bfdbfe;
 }
+.talent-build-code-wrap {
+    position: relative;
+}
+.talent-build-code-wrap.has-players {
+    cursor: help;
+}
 .talent-build-code {
     margin-top: 7px;
     padding: 8px 10px;
@@ -1962,3 +1959,4 @@
 })();
 </script>
 {% endblock %}
+

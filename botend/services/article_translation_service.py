@@ -7,7 +7,7 @@ import requests
 from django.conf import settings
 
 from core.glm import GLMClient
-from botend.services.article_content_service import TEXT_BLOCK_TYPES, article_blocks_match_reference, blocks_to_plain_text, dumps_blocks, html_block_translate_texts, loads_blocks, translate_blocks
+from botend.services.article_content_service import TEXT_BLOCK_TYPES, article_blocks_match_reference, blocks_to_plain_text, dumps_blocks, html_block_text_nodes, html_block_translate_texts, loads_blocks, translate_blocks
 from utils.log import logger
 
 
@@ -266,22 +266,21 @@ class ArticleTranslationService:
                 if text:
                     text_items.append((block_index, block_index, text))
             elif block.get("type") == "html":
-                for text in self._html_text_nodes(block.get("html") or ""):
+                for text in html_block_text_nodes(block.get("html") or ""):
                     text_items.append((len(text_items), block_index, text))
         return text_items
 
-    def _html_text_nodes(self, html_text: str) -> List[str]:
-        try:
-            from bs4 import BeautifulSoup
-        except Exception:
-            return []
-        soup = BeautifulSoup(html_text or "", "html.parser")
-        texts = []
-        for text_node in soup.find_all(string=True):
-            text = " ".join(str(text_node).split()).strip()
-            if text:
-                texts.append(text)
-        return texts
+    def _blocks_look_polluted(self, source_blocks: List[Dict[str, Any]], translated_blocks: List[Dict[str, Any]]) -> bool:
+        source_text = blocks_to_plain_text(source_blocks).lower()
+        translated_text = blocks_to_plain_text(translated_blocks).lower()
+        if not translated_text:
+            return False
+        for marker in ["pulverize"]:
+            source_count = source_text.count(marker)
+            translated_count = translated_text.count(marker)
+            if translated_count >= max(20, source_count * 10 + 20):
+                return True
+        return False
 
     def _needs_content_blocks_translation(self, source_blocks: List[Dict[str, Any]], translated_blocks: List[Dict[str, Any]]) -> bool:
         if not source_blocks:
@@ -352,6 +351,11 @@ class ArticleTranslationService:
                     new_blocks = self.translate_content_blocks(blocks)
                     if not new_blocks and content_cn:
                         new_blocks = translate_blocks(blocks, content_cn)
+                    if new_blocks and self._blocks_look_polluted(blocks, new_blocks):
+                        logger.warning(
+                            f"[{logger_prefix}] skip polluted content blocks translation for article_id={article_id} url={url}; engine_error={self.last_error}"
+                        )
+                        new_blocks = []
                     if new_blocks:
                         article.content_blocks_cn = dumps_blocks(new_blocks)
                         update_fields.append("content_blocks_cn")

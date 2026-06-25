@@ -21,6 +21,7 @@ import DrissionPage
 from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
+from botend.services.article_image_service import upload_article_images_in_blocks
 from botend.services.article_translation_service import build_translation_service
 from botend.services.article_content_service import article_blocks_match_reference, blocks_to_plain_text, dumps_blocks, extract_structured_article, plain_text_to_blocks
 
@@ -249,13 +250,16 @@ class wowheadMonitor(BaseScan):
 
                     blocks = self._fetch_article_blocks(post_link, cookies="", reference_title=post_title)
                     body = blocks_to_plain_text(blocks)
+                    if not body:
+                        logger.warning("[wowheadMonitor] Skip new article with empty body: {} {}".format(post_title, post_link))
+                        continue
                     obj = WowArticle(
                         title="[{}]{}".format(post_type, post_title),
                         url=post_link,
                         publish_time=django_date_time,
                         author="wowhead",
                         description=post_preview or body,
-                        content=body or "",
+                        content=body,
                         content_blocks=dumps_blocks(blocks) if blocks else "",
                         source="wowhead",
                         category="news",
@@ -500,19 +504,67 @@ class wowheadMonitor(BaseScan):
                 return []
             blocks = extract_structured_article(html_text, base_url=url, source="wowhead")
             if blocks:
-                uploaded_blocks = self._upload_article_images(blocks, article_url=url)
+                uploaded_blocks = upload_article_images_in_blocks(
+                    blocks,
+                    req=self.req,
+                    article_url=url,
+                    source="wowhead",
+                )
                 candidate_blocks = uploaded_blocks or blocks
-                if article_blocks_match_reference(candidate_blocks, reference_text=reference_text, reference_title=reference_title):
+                if (
+                    article_blocks_match_reference(candidate_blocks, reference_text=reference_text, reference_title=reference_title)
+                    or self._html_matches_article_title(html_text, reference_title)
+                ):
                     return candidate_blocks
                 logger.warning("[wowheadMonitor] Skip unsafe article blocks for {}".format(url))
                 return []
             body = self._extract_body_from_html(html_text)
             fallback_blocks = plain_text_to_blocks(body)
-            if fallback_blocks and article_blocks_match_reference(fallback_blocks, reference_text=reference_text, reference_title=reference_title):
+            if fallback_blocks and (
+                article_blocks_match_reference(fallback_blocks, reference_text=reference_text, reference_title=reference_title)
+                or self._html_matches_article_title(html_text, reference_title)
+            ):
                 return fallback_blocks
             return []
         except Exception:
             return []
+
+    def _html_matches_article_title(self, html_text, reference_title=""):
+        title = (reference_title or "").strip()
+        if not title:
+            return False
+        title = re.sub(r"^\[[^\]]+\]", "", title).strip()
+        if not title:
+            return False
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html_text or "", "html.parser")
+            candidates = []
+            if soup.title:
+                candidates.append(soup.title.get_text(" ", strip=True))
+            for selector in [
+                ('meta', {'property': 'og:title'}),
+                ('meta', {'name': 'twitter:title'}),
+            ]:
+                tag = soup.find(*selector)
+                if tag:
+                    candidates.append(tag.get('content') or '')
+            normalized_title = self._normalize_article_title(title)
+            if not normalized_title:
+                return False
+            for candidate in candidates:
+                normalized_candidate = self._normalize_article_title(candidate)
+                if normalized_title and normalized_title in normalized_candidate:
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def _normalize_article_title(self, value):
+        value = html.unescape(value or "").lower()
+        value = re.sub(r"\s*-\s*wowhead.*$", "", value)
+        value = re.sub(r"[^a-z0-9]+", " ", value)
+        return " ".join(value.split())
 
     def _upload_article_images(self, blocks, article_url=""):
         result = []

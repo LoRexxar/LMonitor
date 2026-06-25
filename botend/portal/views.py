@@ -6,6 +6,7 @@ from django.shortcuts import render
 from django.http import HttpResponse
 
 from botend.models import WowSkillDiffReport
+from botend.services.wago_report_html import build_wow_skill_diff_fallback_html
 
 
 class PortalHomeView(View):
@@ -62,9 +63,13 @@ class PortalWowSkillDiffReportView(View):
             title = f"{server_title}：{summary}（{from_build} → {to_build}）".strip()
         else:
             title = f"{server_title} 职业技能变更报告：{from_build} → {to_build}".strip()
+        fallback_html = ''
+        if not html_exists:
+            fallback_html = build_wow_skill_diff_fallback_html(row, page_title=title, server_title=server_title)
         return render(request, 'portal/wow_skill_diff_report.html', {
             'report': row,
             'page_title': title,
             'server_title': server_title,
             'html_exists': html_exists,
+            'fallback_html': fallback_html,
         })

@@ -677,8 +677,16 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertEqual([item['code'] for item in result['builds']], ['CODE_A', 'CODE_B'])
         self.assertTrue(result['builds'][0]['is_template'])
         self.assertEqual(result['builds'][0]['diff_count'], 0)
+        self.assertEqual(
+            [player['name'] for player in result['builds'][0]['top_players']],
+            ['TemplateTwo', 'TemplateOne'],
+        )
         self.assertEqual(result['builds'][1]['count'], 1)
         self.assertEqual(result['builds'][1]['pct'], 33.3)
+        self.assertEqual(
+            [player['name'] for player in result['builds'][1]['top_players']],
+            ['VariantOne'],
+        )
         self.assertEqual([node['name'] for node in result['builds'][1]['added_talents']], ['变体天赋'])
         self.assertEqual([node['name'] for node in result['builds'][1]['missing_talents']], ['模板天赋'])
         self.assertEqual(result['builds'][1]['added_talents'][0]['top_players'][0]['name'], 'VariantOne')
@@ -1515,6 +1523,10 @@ class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
                     'count': 1,
                     'pct': 33.3,
                     'is_template': False,
+                    'top_players': [
+                        {'name': 'VariantOne', 'realm': 'RealmB', 'dps_fmt': '3,000'},
+                        {'name': 'VariantTwo', 'realm': 'RealmC', 'dps_fmt': '2,500'},
+                    ],
                     'hero_talent_summary': [],
                     'diff_count': 2,
                     'added_talents': [
@@ -1562,8 +1574,10 @@ class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
             )
 
             self.assertIn('talent-build-player-tooltip', html)
-            self.assertIn('选取该天赋 Top5', html)
-            self.assertIn('模板选取 Top5', html)
+            self.assertIn('使用该字符串 Top5', html)
+            self.assertNotIn('选取该天赋 Top5', html)
+            self.assertNotIn('模板选取 Top5', html)
             self.assertIn('VariantOne-RealmB', html)
-            self.assertIn('TemplateTwo-RealmA', html)
+            self.assertIn('VariantTwo-RealmC', html)
+            self.assertNotIn('TemplateTwo-RealmA', html)
             self.assertIn('3,000 DPS', html)

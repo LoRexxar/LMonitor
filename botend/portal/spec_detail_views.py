@@ -63,7 +63,9 @@ def _talent_tree_has_hero(detail):
 
 def _talent_build_popularity_has_builds(detail):
     builds = (((detail or {}).get('talent_build_popularity') or {}).get('builds') or [])
-    return bool(builds)
+    if not builds:
+        return False
+    return all('top_players' in build for build in builds if isinstance(build, dict))
 
 
 def _load_json(season_id, class_name, spec_name, filename):

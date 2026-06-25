@@ -86,7 +86,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 update_fields=update_fields,
             )
             return
-        except NotSupportedError:
+        except (NotSupportedError, ValueError):
             pass
 
         key_to_obj = {tuple(getattr(obj, field) for field in unique_fields): obj for obj in objs}
@@ -1282,18 +1282,21 @@ class WagoSkillDiffMonitor(BaseScan):
             self.locale = target_locale
             report = self._generate_report(branch, from_build, to_build)
             if not report:
+                server_title = self._branch_title(branch)
+                empty_html = self._write_empty_html_report(
+                    branch=branch,
+                    server_title=server_title,
+                    from_build=from_build,
+                    to_build=to_build,
+                    display_from_build='',
+                    display_to_build='',
+                    message='指定版本区间未发现可归属到职业/专精的技能变更。',
+                )
                 report = {
                     'display_from_build': '',
                     'display_to_build': '',
-                    'content_md': (
-                        f'# Wago 职业技能变更报告\n\n'
-                        f'- 分支：{branch}\n'
-                        f'- Locale：{target_locale}\n'
-                        f'- 版本：{from_build} → {to_build}\n'
-                        f'- 技能数：0\n\n'
-                        f'指定版本区间未发现可归属到职业/专精的技能变更。'
-                    ),
-                    'content_html_path': '',
+                    'content_md': '',
+                    'content_html_path': (empty_html or {}).get('path') or '',
                     'changed_tables_json': '[]',
                     'spell_count': 0,
                     'class_count': 0,
@@ -3909,6 +3912,44 @@ class WagoSkillDiffMonitor(BaseScan):
             else:
                 out.append(f"<span class='ins'>{html.escape(i)}</span>")
         return ''.join(out).replace('\\n', ' ')
+
+    def _write_empty_html_report(self, branch, server_title, from_build, to_build, display_from_build='', display_to_build='', message=''):
+        rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{to_build.replace('.', '_')}_empty.html"
+        base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
+        static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
+        full_path = os.path.join(static_dir, rel_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        title_from = display_from_build or from_build
+        title_to = display_to_build or to_build
+        title = f"{server_title} 职业技能变更报告：{title_from} → {title_to}"
+        html_text = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{html.escape(title)}</title>
+<style>
+body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;line-height:1.55;background:#f1f5f9;color:#0f172a}}
+.card{{max-width:1200px;margin:0 auto;background:#fff;border:1px solid rgba(148,163,184,.35);border-radius:14px;padding:18px}}
+.meta{{color:#475569;font-size:12px;margin-top:6px;display:flex;flex-wrap:wrap;gap:10px}}
+.empty{{margin-top:16px;border:1px solid #c7d2fe;background:#eef2ff;color:#3730a3;border-radius:12px;padding:14px}}
+</style>
+</head>
+<body>
+<div class="card">
+<h1 style="margin:0;font-size:18px">{html.escape(title)}</h1>
+<div class="meta"><span>技能数：0</span><span>职业数：0</span><span>语言：{html.escape(self.locale)}</span></div>
+<div class="empty">{html.escape(message or '指定版本区间未发现可归属到职业/专精的技能变更。')}</div>
+</div>
+</body>
+</html>
+"""
+        try:
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(html_text)
+        except Exception:
+            return {}
+        return {'path': rel_path, 'class_count': 0}
 
     def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url='', data_build=''):
         data_build = (data_build or '').strip() or to_build

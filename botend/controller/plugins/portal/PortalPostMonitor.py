@@ -10,6 +10,7 @@ from urllib.parse import urljoin, urlparse
 from botend.controller.BaseScan import BaseScan
 from botend.models import TargetAuth, WowArticle
 from botend.alerting import upsert_system_alert
+from botend.services.article_image_service import upload_article_images_in_blocks
 from django.utils import timezone
 from utils.log import logger
 from botend.services.article_content_service import blocks_to_plain_text, dumps_blocks, extract_structured_article, plain_text_to_blocks
@@ -228,7 +229,12 @@ class PortalPostMonitor(BaseScan):
             return []
         blocks = extract_structured_article(html_text, base_url=url, source="blizzard_tracker")
         if blocks:
-            return blocks
+            return upload_article_images_in_blocks(
+                blocks,
+                req=self.req,
+                article_url=url,
+                source="blizzard_tracker",
+            )
         try:
             from bs4 import BeautifulSoup
         except Exception:
