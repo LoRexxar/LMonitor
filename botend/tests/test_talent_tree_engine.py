@@ -6,7 +6,12 @@ from unittest.mock import patch
 from django.template.loader import render_to_string
 from django.test import SimpleTestCase
 
-from botend.services.spec_stats_service import SpecStatsService, _compute_talent_popularity_tree, _compute_talent_build_popularity
+from botend.services.spec_stats_service import (
+    SpecStatsService,
+    _compute_gear_popularity,
+    _compute_talent_build_popularity,
+    _compute_talent_popularity_tree,
+)
 from botend.management.commands.backfill_talent_spell_names import Command as BackfillTalentSpellNamesCommand
 from botend.management.commands.init_talent_metadata import Command as InitTalentMetadataCommand
 from botend.management.commands.normalize_talent_metadata import Command as NormalizeTalentMetadataCommand
@@ -629,6 +634,45 @@ class TalentTreeRenderTests(SimpleTestCase):
 
 
 class SpecStatsTalentRenderTests(SimpleTestCase):
+    def test_gear_popularity_merges_ring_trinket_slots_and_filters_cosmetic_slots(self):
+        records = [
+            {
+                'gear_json': [
+                    {'slot': 'finger1', 'id': 101, 'name': '急速戒指', 'icon': 'inv_ring_01'},
+                    {'slot': 'finger2', 'id': 102, 'name': '精通戒指', 'icon': 'inv_ring_02'},
+                    {'slot': 'trinket1', 'id': 201, 'name': '主动饰品', 'icon': 'inv_trinket_01'},
+                    {'slot': 'trinket2', 'id': 202, 'name': '被动饰品', 'icon': 'inv_trinket_02'},
+                    {'slot': 'shirt', 'id': 301, 'name': '衬衫', 'icon': 'inv_shirt_01'},
+                    {'slot': 'tabard', 'id': 302, 'name': '战袍', 'icon': 'inv_tabard_01'},
+                ],
+            },
+            {
+                'gear_json': [
+                    {'slot': 'FINGER_1', 'id': 101, 'name': '急速戒指', 'icon': 'inv_ring_01'},
+                    {'slot': 'TRINKET_2', 'id': 201, 'name': '主动饰品', 'icon': 'inv_trinket_01'},
+                ],
+            },
+        ]
+
+        result = _compute_gear_popularity(records, top_n=10)
+
+        self.assertIn('戒指', result)
+        self.assertNotIn('戒指1', result)
+        self.assertNotIn('戒指2', result)
+        self.assertEqual(
+            [(item['itemID'], item['count']) for item in result['戒指']],
+            [(101, 2), (102, 1)],
+        )
+        self.assertIn('饰品', result)
+        self.assertNotIn('饰品1', result)
+        self.assertNotIn('饰品2', result)
+        self.assertEqual(
+            [(item['itemID'], item['count']) for item in result['饰品']],
+            [(201, 2), (202, 1)],
+        )
+        self.assertNotIn('衬衫', result)
+        self.assertNotIn('战袍', result)
+
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
     def test_talent_build_popularity_uses_most_common_code_as_template(self, mock_provider_cls):
         mock_provider_cls.return_value.merge_into_node.side_effect = (

@@ -2234,6 +2234,36 @@ _GEAR_DEFAULT_SLOTS = [
     'back', 'main_hand', 'off_hand', 'tabard',
 ]
 
+_GEAR_AGGREGATION_SLOT_MAP = {
+    'finger1': 'finger',
+    'finger2': 'finger',
+    'FINGER_1': 'finger',
+    'FINGER_2': 'finger',
+    '戒指1': 'finger',
+    '戒指2': 'finger',
+    'trinket1': 'trinket',
+    'trinket2': 'trinket',
+    'TRINKET_1': 'trinket',
+    'TRINKET_2': 'trinket',
+    '饰品1': 'trinket',
+    '饰品2': 'trinket',
+}
+
+_GEAR_AGGREGATION_SLOT_LABELS = {
+    'finger': '戒指',
+    'trinket': '饰品',
+}
+
+_GEAR_AGGREGATION_EXCLUDED_SLOTS = {'shirt', 'SHIRT', '衬衫', 'tabard', 'TABARD', '战袍'}
+
+
+def _normalize_gear_aggregation_slot(slot):
+    raw_slot = slot or 'unknown'
+    if raw_slot in _GEAR_AGGREGATION_EXCLUDED_SLOTS:
+        return None
+    normalized_slot = _GEAR_AGGREGATION_SLOT_MAP.get(raw_slot, raw_slot)
+    return _GEAR_AGGREGATION_SLOT_LABELS.get(normalized_slot) or SLOT_CN.get(normalized_slot, normalized_slot)
+
 
 def _compute_gear_popularity(records, top_n=5):
     """计算装备选取率（每个槽位 Top N）：同一玩家同槽位同物品只计 1 人。"""
@@ -2253,7 +2283,9 @@ def _compute_gear_popularity(records, top_n=5):
             slot = g.get('slot', 'unknown')
             if all_unknown and slot in ('unknown', ''):
                 slot = _GEAR_DEFAULT_SLOTS[idx] if idx < len(_GEAR_DEFAULT_SLOTS) else f'slot_{idx}'
-            cn_slot = SLOT_CN.get(slot, slot)
+            cn_slot = _normalize_gear_aggregation_slot(slot)
+            if not cn_slot:
+                continue
             item_id = _coerce_item_id(g.get('id') or g.get('itemID') or g.get('item_id'))
             if not item_id:
                 continue
