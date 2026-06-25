@@ -2186,8 +2186,20 @@ def _compute_gem_popularity(records, top_n=20):
         })
     return result
 
+def _normalize_enchant_aggregation_slot(slot):
+    raw_slot = slot or 'unknown'
+    normalized_slot = _GEAR_AGGREGATION_SLOT_MAP.get(raw_slot, raw_slot)
+    return _GEAR_AGGREGATION_SLOT_LABELS.get(normalized_slot) or SLOT_CN.get(normalized_slot, normalized_slot)
+
+
+def _format_enchant_display_label(slot_label, enchant_name):
+    label = str(enchant_name or '').strip()
+    label = re.sub(r'\s*[-－—:]\s*', '：', label, count=1)
+    return f'{slot_label}：{label}' if label else slot_label
+
+
 def _compute_enchant_popularity(enchant_records, top_n=20):
-    """计算附魔选取率：按玩家去重，并从 WowItemSnapshot 读取中文名/描述。"""
+    """计算附魔选取率：按装备位置 + 附魔分组，按玩家去重。"""
     snapshots = _collect_item_ids_from_records(enchant_records, include_gear=False, include_gems=False, include_enchants=True)
     enchant_players = {}
     enchant_info = {}
@@ -2199,27 +2211,35 @@ def _compute_enchant_popularity(enchant_records, top_n=20):
         for g in gear:
             if not isinstance(g, dict):
                 continue
+            slot_label = _normalize_enchant_aggregation_slot(g.get('slot'))
             for e in g.get('enchants_detail') or []:
                 if not isinstance(e, dict):
                     continue
                 eid = _coerce_item_id(e.get('id'))
                 if not eid:
                     continue
-                player_enchants.add(eid)
-                if eid not in enchant_info:
+                key = (slot_label, eid)
+                player_enchants.add(key)
+                if key not in enchant_info:
                     payload = _item_snapshot_payload(
                         eid,
                         fallback_name=_translate_enchant_name(e.get('name', '')),
                         fallback_icon=e.get('icon', ''),
                         snapshots=snapshots,
                     )
-                    enchant_info[eid] = payload
-        for eid in player_enchants:
-            enchant_players.setdefault(eid, set()).add(idx)
+                    display_name = payload.get('display_name') or payload.get('name_zh') or payload.get('name') or f'#{eid}'
+                    enchant_info[key] = {
+                        **payload,
+                        'slot': slot_label,
+                        'slot_label': slot_label,
+                        'display_label': _format_enchant_display_label(slot_label, display_name),
+                    }
+        for key in player_enchants:
+            enchant_players.setdefault(key, set()).add(idx)
 
     result = []
-    for eid, player_set in sorted(enchant_players.items(), key=lambda x: len(x[1]), reverse=True)[:top_n]:
-        info = enchant_info.get(eid, {})
+    for key, player_set in sorted(enchant_players.items(), key=lambda x: len(x[1]), reverse=True)[:top_n]:
+        info = enchant_info.get(key, {})
         player_count = len(player_set)
         result.append({
             **info,

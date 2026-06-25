@@ -105,6 +105,11 @@ def _detail_item_metadata_is_stale(detail):
             item_id = entry.get('id') or entry.get('item_id')
             if item_id and (not icon or not display_name or display_name == f'#{item_id}'):
                 return True
+    enchant_entries = (detail or {}).get('enchant_popularity') or []
+    if isinstance(enchant_entries, list):
+        for entry in enchant_entries:
+            if isinstance(entry, dict) and (not entry.get('slot_label') or not entry.get('display_label')):
+                return True
     return False
 
 

@@ -471,36 +471,29 @@
 
         <div class="section-block popularity-section">
             <h4>附魔热门度</h4>
-            <div class="popularity-section-note">按玩家去重统计：显示样本中有多少人使用对应附魔。</div>
+            <div class="popularity-section-note">按装备位置 + 附魔统计：显示样本中有多少人使用对应位置的附魔。</div>
             {% if boss_detail.enchant_popularity %}
-            <div class="popularity-card-grid">
-            {% for ench in boss_detail.enchant_popularity %}
-            <a class="popularity-mini-card popularity-mini-card--link" href="{% if ench.wowhead_url %}{{ ench.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ ench.id }}{% endif %}" target="_blank">
-                {% if ench.icon %}
-                <img src="{% wow_icon ench.icon 'tiny' %}" class="popularity-icon popularity-icon--round" alt="{{ ench.display_name|default:ench.name|default:ench.id }}">
-                {% endif %}
-                <div class="popularity-mini-main">
-                    <div class="popularity-rank">#{{ forloop.counter }}</div>
-                    <div class="popularity-name" title="{{ ench.display_name|default:ench.name|default:ench.id }}">{{ ench.display_name|default:ench.name|default:ench.id }}</div>
-                    <div class="popularity-mini-meta"><div class="popularity-bar"><div class="popularity-fill" style="width:{{ ench.pct }}%"></div></div></div>
-                </div>
-                <div class="popularity-stat">{{ ench.pct }}%<small>{{ ench.count }}人</small></div>
-                <div class="popularity-tooltip">
-                    <strong>{{ ench.display_name|default:ench.name|default:ench.id }}</strong>
-                    {% with desc_lines=ench.display_description|wow_item_description_lines %}
-                    {% if desc_lines %}
-                    <div class="tooltip-desc-lines">
-                        {% for line in desc_lines %}
-                        <div class="tooltip-desc-line tooltip-desc-line--{{ line.class }}">{{ line.text }}</div>
-                        {% endfor %}
-                    </div>
-                    {% else %}<p>暂无中文描述</p>{% endif %}
-                    {% endwith %}
-                    <span>{{ ench.count }} 人使用 · {{ ench.pct }}%</span>
-                </div>
-            </a>
-            {% endfor %}
-            </div>
+            <table class="data-table enchant-popularity-table">
+                <thead>
+                    <tr><th>#</th><th>附魔</th><th>使用率</th><th>人数</th></tr>
+                </thead>
+                <tbody>
+                {% for ench in boss_detail.enchant_popularity %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>
+                            {% if ench.wowhead_url %}
+                            <a href="{{ ench.wowhead_url }}" target="_blank">{{ ench.display_label|default:ench.display_name|default:ench.name|default:ench.id }}</a>
+                            {% else %}
+                            {{ ench.display_label|default:ench.display_name|default:ench.name|default:ench.id }}
+                            {% endif %}
+                        </td>
+                        <td>{{ ench.pct }}%</td>
+                        <td>{{ ench.count }}人</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
             {% else %}
             <div class="aggregation-pending">⏳ 数据等待聚合</div>
             {% endif %}

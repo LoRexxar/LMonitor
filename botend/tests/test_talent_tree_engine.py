@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 
 from botend.services.spec_stats_service import (
     SpecStatsService,
+    _compute_enchant_popularity,
     _compute_gear_popularity,
     _compute_talent_build_popularity,
     _compute_talent_popularity_tree,
@@ -634,6 +635,35 @@ class TalentTreeRenderTests(SimpleTestCase):
 
 
 class SpecStatsTalentRenderTests(SimpleTestCase):
+    def test_enchant_popularity_groups_by_slot_and_formats_display_label(self):
+        records = [
+            {
+                'gear_json': [
+                    {'slot': 'head', 'enchants_detail': [{'id': 1001, 'name': 'Enchant Helm - Blessing of Speed', 'icon': 'spell_speed'}]},
+                    {'slot': 'finger1', 'enchants_detail': [{'id': 2001, 'name': 'Enchant Ring - Eyes of the Eagle', 'icon': 'spell_eagle'}]},
+                ],
+            },
+            {
+                'gear_json': [
+                    {'slot': 'HEAD', 'enchants_detail': [{'id': 1001, 'name': 'Enchant Helm - Blessing of Speed', 'icon': 'spell_speed'}]},
+                    {'slot': 'finger2', 'enchants_detail': [{'id': 2001, 'name': 'Enchant Ring - Eyes of the Eagle', 'icon': 'spell_eagle'}]},
+                    {'slot': 'hands', 'enchants_detail': [{'id': 2001, 'name': 'Enchant Ring - Eyes of the Eagle', 'icon': 'spell_eagle'}]},
+                ],
+            },
+        ]
+
+        result = _compute_enchant_popularity(records, top_n=10)
+
+        labels = [item['display_label'] for item in result]
+        self.assertIn('头盔：附魔头盔：速度祝福', labels)
+        self.assertIn('戒指：附魔戒指：鹰眼', labels)
+        self.assertIn('手套：附魔戒指：鹰眼', labels)
+        by_label = {item['display_label']: item for item in result}
+        self.assertEqual(by_label['头盔：附魔头盔：速度祝福']['count'], 2)
+        self.assertEqual(by_label['戒指：附魔戒指：鹰眼']['count'], 2)
+        self.assertEqual(by_label['手套：附魔戒指：鹰眼']['count'], 1)
+        self.assertEqual(by_label['戒指：附魔戒指：鹰眼']['slot_label'], '戒指')
+
     def test_gear_popularity_merges_ring_trinket_slots_and_filters_cosmetic_slots(self):
         records = [
             {
