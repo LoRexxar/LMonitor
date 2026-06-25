@@ -503,36 +503,33 @@
 
         <div class="section-block popularity-section">
             <h4>附魔热门度</h4>
-            <div class="popularity-section-note">按装备位置 + 附魔统计：显示样本中有多少人使用对应位置的附魔。</div>
+            <div class="popularity-section-note">按装备位置分组统计：显示样本中有多少人使用对应位置的附魔。</div>
             {% if dungeon_detail.enchant_popularity %}
-            <div class="enchant-popularity-groups">
-            {% for slot_group in dungeon_detail.enchant_popularity %}
-                <div class="enchant-popularity-group">
-                    <div class="popularity-subtitle">{{ slot_group.slot_label|default:slot_group.slot }}</div>
-                    <table class="data-table enchant-popularity-table">
-                        <thead>
-                            <tr><th>#</th><th>附魔</th><th>使用率</th><th>人数</th></tr>
-                        </thead>
-                        <tbody>
-                        {% for ench in slot_group.enchants %}
-                            <tr>
-                                <td>{{ forloop.counter }}</td>
-                                <td>
-                                    {% if ench.wowhead_url %}
-                                    <a href="{{ ench.wowhead_url }}" target="_blank">{{ ench.display_label|default:ench.display_name|default:ench.name|default:ench.id }}</a>
-                                    {% else %}
-                                    {{ ench.display_label|default:ench.display_name|default:ench.name|default:ench.id }}
-                                    {% endif %}
-                                </td>
-                                <td>{{ ench.pct }}%</td>
-                                <td>{{ ench.count }}人</td>
-                            </tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            {% endfor %}
-            </div>
+            <table class="data-table enchant-popularity-matrix">
+                <thead>
+                    <tr><th>位置</th><th>#</th><th>附魔</th><th>热度</th><th>使用率</th><th>人数</th></tr>
+                </thead>
+                <tbody>
+                {% for slot_group in dungeon_detail.enchant_popularity %}
+                    {% for ench in slot_group.enchants %}
+                    <tr>
+                        {% if forloop.first %}<th class="enchant-slot-cell" scope="rowgroup" rowspan="{{ slot_group.enchants|length }}">{{ slot_group.slot_label|default:slot_group.slot }}</th>{% endif %}
+                        <td class="enchant-rank-cell"><span class="enchant-rank">{{ forloop.counter }}</span></td>
+                        <td class="enchant-name-cell">
+                            {% if ench.wowhead_url %}
+                            <a class="enchant-name" href="{{ ench.wowhead_url }}" target="_blank">{{ ench.display_name|default:ench.name|default:ench.id }}</a>
+                            {% else %}
+                            <span class="enchant-name">{{ ench.display_name|default:ench.name|default:ench.id }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="enchant-meter-cell"><span class="enchant-meter"><span style="width:{{ ench.pct }}%"></span></span></td>
+                        <td class="enchant-pct">{{ ench.pct }}%</td>
+                        <td class="enchant-count">{{ ench.count }}人</td>
+                    </tr>
+                    {% endfor %}
+                {% endfor %}
+                </tbody>
+            </table>
             {% else %}
             <div class="aggregation-pending">⏳ 数据等待聚合</div>
             {% endif %}
@@ -1841,6 +1838,85 @@
     border-bottom: 1px solid #e5e7eb;
 }
 .data-table tbody tr:hover td { background: #eff6ff; }
+.enchant-popularity-matrix {
+    table-layout: fixed;
+}
+.enchant-popularity-matrix th:nth-child(1) { width: 88px; text-align: center; }
+.enchant-popularity-matrix th:nth-child(2) { width: 52px; text-align: center; }
+.enchant-popularity-matrix th:nth-child(4) { width: 150px; }
+.enchant-popularity-matrix th:nth-child(5),
+.enchant-popularity-matrix th:nth-child(6) {
+    width: 72px;
+    text-align: right;
+}
+.enchant-popularity-matrix tbody tr:hover th,
+.enchant-popularity-matrix tbody tr:hover td {
+    background: #eff6ff;
+}
+.enchant-slot-cell {
+    padding: 12px 14px !important;
+    background: #f8fafc !important;
+    border-bottom: 1px solid #e5e7eb;
+    border-right: 1px solid #e5e7eb;
+    color: #334155;
+    font-weight: 800;
+    text-align: center;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.enchant-rank-cell { text-align: center; }
+.enchant-rank {
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #0369a1;
+    font-size: .78em;
+    font-weight: 800;
+}
+.enchant-name-cell { min-width: 0; }
+.enchant-name {
+    color: #1e293b;
+    font-weight: 650;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+a.enchant-name:hover { color: #2563eb; }
+.enchant-meter-cell { padding-left: 10px !important; padding-right: 10px !important; }
+.enchant-meter {
+    display: block;
+    height: 7px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    overflow: hidden;
+}
+.enchant-meter span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #38bdf8, #2563eb);
+}
+.enchant-pct,
+.enchant-count {
+    color: #475569;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+}
+.enchant-pct { font-weight: 800; color: #1d4ed8; }
+@media (max-width: 760px) {
+    .enchant-popularity-matrix th:nth-child(4),
+    .enchant-popularity-matrix td.enchant-meter-cell,
+    .enchant-popularity-matrix th:nth-child(6),
+    .enchant-count { display: none; }
+    .enchant-popularity-matrix th:nth-child(1) { width: 64px; }
+    .enchant-popularity-matrix th:nth-child(2) { width: 42px; }
+}
 .empty-state {
     background: #ffffff;
     border: 1px solid #e5e7eb;
