@@ -104,6 +104,14 @@ def _event_to_dict(e):
     }
 
 
+VIDEO_PLACEHOLDER_TAGS = {'测试'}
+
+
+def _video_display_tag(tag):
+    value = (tag or '').strip()
+    return '' if value in VIDEO_PLACEHOLDER_TAGS else value
+
+
 def _video_to_dict(v):
     return {
         'title': v.title or '',
@@ -114,7 +122,7 @@ def _video_to_dict(v):
         'author': _normalize_display_text(v.author_name),
         'author_url': _normalize_url(v.author_url),
         'source': (getattr(getattr(v, 'target', None), 'platform', '') or 'bilibili'),
-        'tag': v.tag or '',
+        'tag': _video_display_tag(v.tag),
     }
 
 
@@ -439,7 +447,11 @@ class PortalVideosAPIView(View):
         if tag:
             qs = qs.filter(tag=tag)
         rows = list(qs.order_by('-published_at', '-id')[:60])
-        tags = list(qs.exclude(tag='').values_list('tag', flat=True).distinct())
+        tags = sorted({
+            display_tag
+            for display_tag in (_video_display_tag(value) for value in qs.exclude(tag='').values_list('tag', flat=True))
+            if display_tag
+        })
         items = [_video_to_dict(x) for x in rows]
         return JsonResponse({'status': 'success', 'data': {'tags': tags, 'items': items}})
 

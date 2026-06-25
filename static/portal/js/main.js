@@ -1175,8 +1175,8 @@ function renderVideos(payload) {
     listEl.innerHTML = `<div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-sm text-slate-500">无匹配视频</div>`;
     return;
   }
-  listEl.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">${filtered
-    .slice(0, 12)
+  listEl.innerHTML = `<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5">${filtered
+    .slice(0, 18)
     .map((it) => {
       const title = escapeHtml(it.title || "");
       const urlHref = sanitizeHref(it.url || "");
@@ -1192,25 +1192,25 @@ function renderVideos(payload) {
       const coverBox = cover
         ? `<img src="${cover}" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" loading="lazy" />`
         : `<div class="w-full h-full portal-skeleton"></div>`;
-      const sourceBadge = source ? `<span class="rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-slate-700 shadow-sm">${source}</span>` : "";
-      const tagBadge = tag ? `<span class="rounded-full bg-fuchsia-50 px-2 py-0.5 text-[11px] font-semibold text-fuchsia-700 border border-fuchsia-100">${tag}</span>` : "";
+      const sourceBadge = source ? `<span class="rounded-full bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 shadow-sm">${source}</span>` : "";
+      const tagBadge = tag ? `<span class="rounded-full bg-fuchsia-50 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700 border border-fuchsia-100 portal-line-clamp-1">${tag}</span>` : "";
       const coverHtml = url
-        ? `<a class="group relative block aspect-video overflow-hidden rounded-xl border border-slate-200 bg-slate-100" href="${url}" target="_blank" rel="noreferrer">${coverBox}<span class="absolute left-2 top-2">${sourceBadge}</span></a>`
-        : `<div class="relative aspect-video overflow-hidden rounded-xl border border-slate-200 bg-slate-100">${coverBox}<span class="absolute left-2 top-2">${sourceBadge}</span></div>`;
+        ? `<a class="group relative block aspect-video overflow-hidden rounded-lg border border-slate-200 bg-slate-100" href="${url}" target="_blank" rel="noreferrer">${coverBox}<span class="absolute left-1.5 top-1.5">${sourceBadge}</span></a>`
+        : `<div class="relative aspect-video overflow-hidden rounded-lg border border-slate-200 bg-slate-100">${coverBox}<span class="absolute left-1.5 top-1.5">${sourceBadge}</span></div>`;
       const titleHtml = url
-        ? `<a class="mt-2 block min-h-[2.5rem] text-sm font-semibold leading-5 text-slate-900 hover:text-fuchsia-700 portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
-        : `<span class="mt-2 block min-h-[2.5rem] text-sm font-semibold leading-5 text-slate-900 portal-line-clamp-2">${title}</span>`;
+        ? `<a class="mt-1.5 block min-h-[2.25rem] text-xs font-semibold leading-[1.15rem] text-slate-900 hover:text-fuchsia-700 portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
+        : `<span class="mt-1.5 block min-h-[2.25rem] text-xs font-semibold leading-[1.15rem] text-slate-900 portal-line-clamp-2">${title}</span>`;
       const authorHtml = author && authorUrl
-        ? `<a class="text-slate-600 hover:text-fuchsia-700" href="${authorUrl}" target="_blank" rel="noreferrer">${author}</a>`
-        : `<span>${author || "未知 UP"}</span>`;
-      return `<div class="rounded-2xl border border-slate-200/80 bg-white p-2.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+        ? `<a class="truncate text-slate-600 hover:text-fuchsia-700" href="${authorUrl}" target="_blank" rel="noreferrer">${author}</a>`
+        : `<span class="truncate">${author || "未知 UP"}</span>`;
+      return `<div class="rounded-xl border border-slate-200/80 bg-white p-2 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
         ${coverHtml}
         ${titleHtml}
-        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-          <span>UP：${authorHtml}</span>
-          ${time ? `<span>·</span><span>${time}</span>` : ""}
-          ${tagBadge}
+        <div class="mt-1.5 flex items-center gap-1 text-[11px] leading-4 text-slate-500">
+          <span class="min-w-0 flex-1 truncate">${authorHtml}</span>
+          ${time ? `<span class="shrink-0 text-slate-400">${time}</span>` : ""}
         </div>
+        ${tagBadge ? `<div class="mt-1 flex">${tagBadge}</div>` : ""}
       </div>`;
     })
     .join("")}</div>`;
