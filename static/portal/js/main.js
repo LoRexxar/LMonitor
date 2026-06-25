@@ -1147,15 +1147,15 @@ function renderVideos(payload) {
   const active = PORTAL_STATE.activeVideoTag || "";
   if (!items || !items.length) {
     if (tagsEl) tagsEl.innerHTML = "";
-    listEl.innerHTML = `<div class="text-slate-500">暂无近2天视频</div>`;
+    listEl.innerHTML = `<div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-sm text-slate-500">暂无近 3 天视频更新</div>`;
     return;
   }
   if (tagsEl) {
-    const allBtn = `<button data-video-tag="" class="px-3 py-1 rounded-full text-xs border ${active ? "border-slate-200 bg-white text-slate-700" : "border-slate-900 bg-slate-900 text-white"}">全部</button>`;
+    const allBtn = `<button data-video-tag="" class="px-3 py-1 rounded-full text-xs border ${active ? "border-slate-200 bg-white text-slate-700" : "border-fuchsia-700 bg-fuchsia-700 text-white"}">全部</button>`;
     const btns = tags
       .map((t) => {
         const on = active === t;
-        return `<button data-video-tag="${escapeHtml(t)}" class="px-3 py-1 rounded-full text-xs border ${on ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}">${escapeHtml(t)}</button>`;
+        return `<button data-video-tag="${escapeHtml(t)}" class="px-3 py-1 rounded-full text-xs border ${on ? "border-fuchsia-700 bg-fuchsia-700 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}">${escapeHtml(t)}</button>`;
       })
       .join("");
     tagsEl.innerHTML = allBtn + btns;
@@ -1171,12 +1171,15 @@ function renderVideos(payload) {
   const q = getSearchQuery();
   const filteredByTag = active ? items.filter((x) => (x.tag || "") === active) : items;
   const filtered = filterItems(filteredByTag, q);
-  listEl.innerHTML = filtered
+  if (!filtered.length) {
+    listEl.innerHTML = `<div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-sm text-slate-500">无匹配视频</div>`;
+    return;
+  }
+  listEl.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">${filtered
     .slice(0, 12)
-    .map((it, idx) => {
+    .map((it) => {
       const title = escapeHtml(it.title || "");
-      const rawUrl = it.url || "";
-      const urlHref = sanitizeHref(rawUrl);
+      const urlHref = sanitizeHref(it.url || "");
       const url = escapeHtml(urlHref);
       const coverHref = sanitizeHref(it.cover_url || it.cover || "");
       const cover = escapeHtml(coverHref);
@@ -1185,37 +1188,32 @@ function renderVideos(payload) {
       const authorUrl = escapeHtml(authorHref);
       const time = escapeHtml((it.published_at || "").replaceAll("\n", " ").trim());
       const tag = escapeHtml(it.tag || "");
-      const divider = idx === 0 ? "" : "border-t border-slate-100";
+      const source = escapeHtml(it.source || "");
       const coverBox = cover
-        ? `<img src="${cover}" alt="" class="w-full h-full object-cover" loading="lazy" />`
+        ? `<img src="${cover}" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" loading="lazy" />`
         : `<div class="w-full h-full portal-skeleton"></div>`;
+      const sourceBadge = source ? `<span class="rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-slate-700 shadow-sm">${source}</span>` : "";
+      const tagBadge = tag ? `<span class="rounded-full bg-fuchsia-50 px-2 py-0.5 text-[11px] font-semibold text-fuchsia-700 border border-fuchsia-100">${tag}</span>` : "";
       const coverHtml = url
-        ? `<a class="shrink-0 w-20 h-11 rounded-lg overflow-hidden border border-slate-200 bg-slate-100" href="${url}" target="_blank" rel="noreferrer">${coverBox}</a>`
-        : `<div class="shrink-0 w-20 h-11 rounded-lg overflow-hidden border border-slate-200 bg-slate-100">${coverBox}</div>`;
-      return `<div class="py-2 ${divider}">
-        <div class="flex items-start gap-3">
-          ${coverHtml}
-          <div class="min-w-0 flex-1">
-            ${
-              url
-                ? `<a class="block text-slate-900 hover:text-indigo-700 font-medium portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
-                : `<span class="block text-slate-900 font-medium portal-line-clamp-2">${title}</span>`
-            }
-            <div class="mt-1 text-xs text-slate-500">
-              ${
-                author && authorUrl
-                  ? `UP：<a class="text-indigo-700 hover:text-indigo-900" href="${authorUrl}" target="_blank" rel="noreferrer">${author}</a>`
-                  : (author ? `UP：${author}` : "")
-              }
-              ${author && time ? " · " : ""}
-              ${time}
-              ${tag ? ` · ${tag}` : ""}
-            </div>
-          </div>
+        ? `<a class="group relative block aspect-video overflow-hidden rounded-xl border border-slate-200 bg-slate-100" href="${url}" target="_blank" rel="noreferrer">${coverBox}<span class="absolute left-2 top-2">${sourceBadge}</span></a>`
+        : `<div class="relative aspect-video overflow-hidden rounded-xl border border-slate-200 bg-slate-100">${coverBox}<span class="absolute left-2 top-2">${sourceBadge}</span></div>`;
+      const titleHtml = url
+        ? `<a class="mt-2 block min-h-[2.5rem] text-sm font-semibold leading-5 text-slate-900 hover:text-fuchsia-700 portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
+        : `<span class="mt-2 block min-h-[2.5rem] text-sm font-semibold leading-5 text-slate-900 portal-line-clamp-2">${title}</span>`;
+      const authorHtml = author && authorUrl
+        ? `<a class="text-slate-600 hover:text-fuchsia-700" href="${authorUrl}" target="_blank" rel="noreferrer">${author}</a>`
+        : `<span>${author || "未知 UP"}</span>`;
+      return `<div class="rounded-2xl border border-slate-200/80 bg-white p-2.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+        ${coverHtml}
+        ${titleHtml}
+        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+          <span>UP：${authorHtml}</span>
+          ${time ? `<span>·</span><span>${time}</span>` : ""}
+          ${tagBadge}
         </div>
       </div>`;
     })
-    .join("");
+    .join("")}</div>`;
 }
 
 function renderEvents(items) {
@@ -1695,7 +1693,8 @@ const SECTION_DOT_LABELS = {
   "section-news": "新闻速递",
   "section-wow-skill-diff": "数据挖掘",
   "section-nga": "NGA热议",
-  "section-events-videos": "活动 / 视频",
+  "section-events": "活动提醒",
+  "section-videos": "视频攻略",
   "section-mplus-cutoffs": "大秘境分数",
   "section-rank": "Top Runs",
   "section-peak-spec": "巅峰榜",

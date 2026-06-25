@@ -88,9 +88,6 @@ class PortalVideoMonitor(BaseScan):
                 continue
             if not newest_bvid:
                 newest_bvid = bvid
-            if target.last_seen_bvid and bvid == target.last_seen_bvid:
-                break
-
             published_at = self._parse_published_at(item.get("published_ts"))
             video_url = _normalize_bilibili_url(item.get("url")) or f"https://www.bilibili.com/video/{bvid}"
             PortalVideo.objects.update_or_create(

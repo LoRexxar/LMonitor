@@ -113,6 +113,7 @@ def _video_to_dict(v):
         'published_at': _fmt_dt(v.published_at),
         'author': _normalize_display_text(v.author_name),
         'author_url': _normalize_url(v.author_url),
+        'source': (getattr(getattr(v, 'target', None), 'platform', '') or 'bilibili'),
         'tag': v.tag or '',
     }
 
@@ -433,7 +434,7 @@ class PortalEventsAPIView(View):
 class PortalVideosAPIView(View):
     def get(self, request):
         tag = (request.GET.get('tag') or '').strip()
-        since = timezone.now() - timedelta(days=2)
+        since = timezone.now() - timedelta(days=3)
         qs = PortalVideo.objects.filter(is_active=True, published_at__gte=since)
         if tag:
             qs = qs.filter(tag=tag)
