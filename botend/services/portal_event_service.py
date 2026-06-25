@@ -1,8 +1,11 @@
+import csv
 import hashlib
+import html
 import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from io import StringIO
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -25,6 +28,10 @@ DEFAULT_EVENT_SOURCES = [
         "url": "https://worldofwarcraft.blizzard.com/en-us/news",
     },
 ]
+
+WAGO_DB2_INDEX_URL = "https://wago.tools/db2"
+WAGO_DB2_CSV_URL = "https://wago.tools/db2/{table}/csv?build={build}&locale={locale}"
+WAGO_DB2_EVENT_TABLES = ("Holidays", "HolidayNames", "HolidayDescriptions")
 
 EVENT_TITLE_KEYWORDS = [
     "活动",
@@ -142,25 +149,59 @@ class PortalEventService:
         self._proxies = req_cfg.get("proxies") if req_cfg.get("enable_proxy", False) else None
 
     def sync_events(self, source_url="", deactivate_missing=False):
+        if source_url:
+            return self.sync_news_events(source_url=source_url, deactivate_missing=deactivate_missing)
+        return self.sync_db2_events(deactivate_missing=deactivate_missing)
+
+    def sync_news_events(self, source_url="", deactivate_missing=False):
         parsed = self.collect_events(source_url=source_url)
+        return self.upsert_events(parsed, deactivate_missing=deactivate_missing)
+
+    def sync_db2_events(self, build="", locale="zhCN", deactivate_missing=False):
+        parsed = self.collect_db2_events(build=build, locale=locale)
+        return self.upsert_events(parsed, deactivate_missing=deactivate_missing)
+
+    def upsert_events(self, parsed, deactivate_missing=False):
+        payloads = []
         seen_hashes = set()
-        created = 0
-        updated = 0
         for item in parsed:
-            obj, was_created = self.upsert_event(item)
+            payload = self._build_event_defaults(item)
+            if not payload:
+                continue
+            url_hash = payload["url_hash"]
+            if url_hash in seen_hashes:
+                continue
+            seen_hashes.add(url_hash)
+            payloads.append(payload)
+
+        existing = PortalEvent.objects.in_bulk(seen_hashes, field_name="url_hash") if seen_hashes else {}
+        to_create = []
+        to_update = []
+        update_fields = [
+            "title", "url", "source", "tag", "start_at", "end_at", "status", "is_active",
+            "summary", "image_url", "external_id", "raw_data", "last_seen_at",
+        ]
+        for payload in payloads:
+            obj = existing.get(payload["url_hash"])
             if obj:
-                seen_hashes.add(obj.url_hash)
-                if was_created:
-                    created += 1
-                else:
-                    updated += 1
+                for field in update_fields:
+                    setattr(obj, field, payload[field])
+                to_update.append(obj)
+            else:
+                to_create.append(PortalEvent(**payload))
+
+        if to_create:
+            PortalEvent.objects.bulk_create(to_create, batch_size=500, ignore_conflicts=True)
+        if to_update:
+            PortalEvent.objects.bulk_update(to_update, update_fields, batch_size=500)
+
         deactivated = 0
         if deactivate_missing and seen_hashes:
             deactivated = PortalEvent.objects.exclude(url_hash__in=seen_hashes).update(is_active=False)
         return {
-            "total": len(parsed),
-            "created": created,
-            "updated": updated,
+            "total": len(payloads),
+            "created": len(to_create),
+            "updated": len(to_update),
             "deactivated": deactivated,
         }
 
@@ -177,6 +218,134 @@ class PortalEventService:
                 seen.add(key)
                 results.append(item)
         return results
+
+    def collect_db2_events(self, build="", locale="zhCN"):
+        build = (build or "").strip() or self._fetch_current_wago_build()
+        locale = (locale or "zhCN").strip() or "zhCN"
+        tables = {table: self._fetch_wago_csv_rows(table, build, locale) for table in WAGO_DB2_EVENT_TABLES}
+        return self.parse_db2_holidays(
+            tables.get("Holidays") or [],
+            tables.get("HolidayNames") or [],
+            tables.get("HolidayDescriptions") or [],
+            build=build,
+            locale=locale,
+        )
+
+    def parse_db2_holidays(self, holiday_rows, name_rows, description_rows, build="", locale="zhCN"):
+        names = {str(row.get("ID") or ""): (row.get("Name_lang") or "").strip() for row in name_rows}
+        descriptions = {
+            str(row.get("ID") or ""): (row.get("Description_lang") or "").strip()
+            for row in description_rows
+        }
+        events = []
+        for row in holiday_rows:
+            holiday_id = str(row.get("ID") or "").strip()
+            title = names.get(str(row.get("HolidayNameID") or ""), "").strip()
+            if not holiday_id or not title:
+                continue
+            summary = descriptions.get(str(row.get("HolidayDescriptionID") or ""), "").strip()
+            durations = self._extract_db2_durations(row)
+            dates = self._extract_db2_dates(row)
+            if not dates and not durations:
+                continue
+            texture_ids = [
+                int(row.get(f"TextureFileDataID_{index}") or 0)
+                for index in range(3)
+                if int(row.get(f"TextureFileDataID_{index}") or 0)
+            ]
+            for index, start_at in enumerate(dates):
+                duration_hours = durations[min(index, len(durations) - 1)] if durations else 0
+                end_at = start_at + timedelta(hours=duration_hours) if duration_hours else None
+                external_id = f"db2-holiday-{holiday_id}-{index}-{int(start_at.timestamp())}"
+                events.append(ParsedPortalEvent(
+                    title=title,
+                    url=f"https://wago.tools/db2/Holidays?build={build}&locale={locale}&filter%5BID%5D=exact%3A{holiday_id}",
+                    source="db2_holidays",
+                    tag="日历活动",
+                    start_at=start_at,
+                    end_at=end_at,
+                    status=infer_status(start_at, end_at),
+                    summary=summary,
+                    external_id=hash_url(external_id),
+                    raw_data={
+                        "source": "wago_db2",
+                        "build": build,
+                        "locale": locale,
+                        "table": "Holidays",
+                        "holiday_id": holiday_id,
+                        "date_index": index,
+                        "duration_hours": duration_hours,
+                        "texture_file_data_ids": texture_ids,
+                        "row": row,
+                    },
+                ))
+        return self._dedupe_and_limit(events, limit=5000)
+
+    def _fetch_current_wago_build(self):
+        html_text = self._fetch_html(WAGO_DB2_INDEX_URL)
+        props = self._extract_wago_props(html_text)
+        build = (props.get("currentVersion") or "").strip()
+        return build or "latest"
+
+    def _fetch_wago_csv_rows(self, table, build, locale):
+        url = WAGO_DB2_CSV_URL.format(table=table, build=build, locale=locale)
+        headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/csv,*/*;q=0.8"}
+        try:
+            resp = requests.get(url, timeout=60, headers=headers, proxies=self._proxies)
+            if resp.status_code != 200:
+                return []
+        except Exception:
+            return []
+        return list(csv.DictReader(StringIO(resp.text or "")))
+
+    def _extract_wago_props(self, html_text):
+        match = re.search(r"data-page=(?:\"([^\"]+)\"|'([^']+)')", html_text or "")
+        if not match:
+            return {}
+        raw = match.group(1) or match.group(2) or ""
+        try:
+            payload = json.loads(html.unescape(raw))
+        except Exception:
+            return {}
+        return payload.get("props") or {}
+
+    def _extract_db2_durations(self, row):
+        durations = []
+        for index in range(10):
+            try:
+                value = int(row.get(f"Duration_{index}") or 0)
+            except Exception:
+                value = 0
+            if value > 0:
+                durations.append(value)
+        return durations
+
+    def _extract_db2_dates(self, row):
+        dates = []
+        for index in range(26):
+            try:
+                value = int(row.get(f"Date_{index}") or 0)
+            except Exception:
+                value = 0
+            parsed = self._decode_db2_calendar_time(value)
+            if parsed:
+                dates.append(parsed)
+        dates.sort()
+        return dates
+
+    def _decode_db2_calendar_time(self, value):
+        if not value:
+            return None
+        try:
+            minute = value & 0x3F
+            hour = (value >> 6) & 0x1F
+            day = ((value >> 14) & 0x3F) + 1
+            month = ((value >> 20) & 0x0F) + 1
+            year = ((value >> 24) & 0x1F) + 2000
+            dt = datetime(year, month, day, hour, minute)
+        except Exception:
+            return None
+        return timezone.make_aware(dt, timezone.get_current_timezone())
 
     def _resolve_sources(self, source_url):
         value = (source_url or "").strip()
@@ -286,10 +455,16 @@ class PortalEventService:
         return results
 
     def upsert_event(self, item):
-        if not item or not item.url or not item.title:
+        defaults = self._build_event_defaults(item)
+        if not defaults:
             return None, False
+        return PortalEvent.objects.update_or_create(url_hash=defaults["url_hash"], defaults=defaults)
+
+    def _build_event_defaults(self, item):
+        if not item or not item.url or not item.title:
+            return None
         url_hash = item.external_id or hash_url(item.url)
-        defaults = {
+        return {
             "title": item.title[:500],
             "url": item.url[:2000],
             "url_hash": url_hash,
@@ -305,7 +480,6 @@ class PortalEventService:
             "raw_data": item.raw_data or {},
             "last_seen_at": timezone.now(),
         }
-        return PortalEvent.objects.update_or_create(url_hash=url_hash, defaults=defaults)
 
     def seed_fallback_events(self):
         now = timezone.now()

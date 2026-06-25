@@ -13,7 +13,10 @@ class PortalEventMonitor(BaseScan):
     def scan(self, url):
         service = PortalEventService(request_client=self.req)
         try:
-            result = service.sync_events(source_url=url)
+            if (url or "").strip():
+                result = service.sync_news_events(source_url=url)
+            else:
+                result = service.sync_db2_events()
             if result.get("total", 0) == 0:
                 fallback = service.seed_fallback_events()
                 logger.warning(f"[PortalEventMonitor] no remote events parsed, seeded fallback: {fallback}")

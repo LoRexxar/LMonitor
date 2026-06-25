@@ -439,7 +439,18 @@ class PortalArticleDetailAPIView(View):
 
 class PortalEventsAPIView(View):
     def get(self, request):
-        rows = list(PortalEvent.objects.filter(is_active=True).order_by('-start_at', '-id')[:30])
+        now = timezone.now()
+        rows = list(
+            PortalEvent.objects.filter(is_active=True, end_at__gte=now)
+            .order_by('start_at', 'id')[:30]
+        )
+        if len(rows) < 30:
+            extra = list(
+                PortalEvent.objects.filter(is_active=True)
+                .exclude(id__in=[row.id for row in rows])
+                .order_by('-start_at', '-id')[:30 - len(rows)]
+            )
+            rows.extend(extra)
         return JsonResponse({'status': 'success', 'data': [_event_to_dict(x) for x in rows]})
 
 
