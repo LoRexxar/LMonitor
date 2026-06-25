@@ -93,7 +93,7 @@ def _raid_overview_json_is_stale(season, zone_groups):
 
 def _detail_item_metadata_is_stale(detail):
     """旧聚合 JSON 可能缺少装备/宝石/附魔名称或图标，需要实时重算详情。"""
-    for key in ('gear_popularity', 'gem_popularity', 'enchant_popularity'):
+    for key in ('gear_popularity', 'gem_popularity'):
         entries = (detail or {}).get(key) or []
         if not isinstance(entries, list):
             continue
@@ -105,11 +105,23 @@ def _detail_item_metadata_is_stale(detail):
             item_id = entry.get('id') or entry.get('item_id')
             if item_id and (not icon or not display_name or display_name == f'#{item_id}'):
                 return True
-    enchant_entries = (detail or {}).get('enchant_popularity') or []
-    if isinstance(enchant_entries, list):
-        for entry in enchant_entries:
-            if isinstance(entry, dict) and (not entry.get('slot_label') or not entry.get('display_label')):
+    enchant_groups = (detail or {}).get('enchant_popularity') or []
+    if isinstance(enchant_groups, list):
+        for group in enchant_groups:
+            if not isinstance(group, dict):
+                continue
+            if not group.get('slot_label') or not isinstance(group.get('enchants'), list):
                 return True
+            for entry in group.get('enchants') or []:
+                if not isinstance(entry, dict):
+                    continue
+                display_name = str(entry.get('display_name') or entry.get('name_zh') or entry.get('name') or '').strip()
+                icon = str(entry.get('icon') or '').strip()
+                item_id = entry.get('id') or entry.get('item_id')
+                if not entry.get('slot_label') or not entry.get('display_label'):
+                    return True
+                if item_id and (not icon or not display_name or display_name == f'#{item_id}'):
+                    return True
     return False
 
 

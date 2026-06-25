@@ -654,15 +654,15 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
 
         result = _compute_enchant_popularity(records, top_n=10)
 
-        labels = [item['display_label'] for item in result]
-        self.assertIn('头盔：附魔头盔：速度祝福', labels)
-        self.assertIn('戒指：附魔戒指：鹰眼', labels)
-        self.assertIn('手套：附魔戒指：鹰眼', labels)
-        by_label = {item['display_label']: item for item in result}
-        self.assertEqual(by_label['头盔：附魔头盔：速度祝福']['count'], 2)
-        self.assertEqual(by_label['戒指：附魔戒指：鹰眼']['count'], 2)
-        self.assertEqual(by_label['手套：附魔戒指：鹰眼']['count'], 1)
-        self.assertEqual(by_label['戒指：附魔戒指：鹰眼']['slot_label'], '戒指')
+        self.assertEqual([group['slot_label'] for group in result], ['头盔', '手套', '戒指'])
+        by_slot = {group['slot_label']: group['enchants'] for group in result}
+        self.assertEqual(by_slot['头盔'][0]['display_label'], '头盔：附魔头盔：速度祝福')
+        self.assertEqual(by_slot['头盔'][0]['count'], 2)
+        self.assertEqual(by_slot['戒指'][0]['display_label'], '戒指：附魔戒指：鹰眼')
+        self.assertEqual(by_slot['戒指'][0]['count'], 2)
+        self.assertEqual(by_slot['手套'][0]['display_label'], '手套：附魔戒指：鹰眼')
+        self.assertEqual(by_slot['手套'][0]['count'], 1)
+        self.assertEqual(by_slot['戒指'][0]['slot_label'], '戒指')
 
     def test_gear_popularity_merges_ring_trinket_slots_and_filters_cosmetic_slots(self):
         records = [

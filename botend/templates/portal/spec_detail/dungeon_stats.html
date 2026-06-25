@@ -505,27 +505,34 @@
             <h4>附魔热门度</h4>
             <div class="popularity-section-note">按装备位置 + 附魔统计：显示样本中有多少人使用对应位置的附魔。</div>
             {% if dungeon_detail.enchant_popularity %}
-            <table class="data-table enchant-popularity-table">
-                <thead>
-                    <tr><th>#</th><th>附魔</th><th>使用率</th><th>人数</th></tr>
-                </thead>
-                <tbody>
-                {% for ench in dungeon_detail.enchant_popularity %}
-                    <tr>
-                        <td>{{ forloop.counter }}</td>
-                        <td>
-                            {% if ench.wowhead_url %}
-                            <a href="{{ ench.wowhead_url }}" target="_blank">{{ ench.display_label|default:ench.display_name|default:ench.name|default:ench.id }}</a>
-                            {% else %}
-                            {{ ench.display_label|default:ench.display_name|default:ench.name|default:ench.id }}
-                            {% endif %}
-                        </td>
-                        <td>{{ ench.pct }}%</td>
-                        <td>{{ ench.count }}人</td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
+            <div class="enchant-popularity-groups">
+            {% for slot_group in dungeon_detail.enchant_popularity %}
+                <div class="enchant-popularity-group">
+                    <div class="popularity-subtitle">{{ slot_group.slot_label|default:slot_group.slot }}</div>
+                    <table class="data-table enchant-popularity-table">
+                        <thead>
+                            <tr><th>#</th><th>附魔</th><th>使用率</th><th>人数</th></tr>
+                        </thead>
+                        <tbody>
+                        {% for ench in slot_group.enchants %}
+                            <tr>
+                                <td>{{ forloop.counter }}</td>
+                                <td>
+                                    {% if ench.wowhead_url %}
+                                    <a href="{{ ench.wowhead_url }}" target="_blank">{{ ench.display_label|default:ench.display_name|default:ench.name|default:ench.id }}</a>
+                                    {% else %}
+                                    {{ ench.display_label|default:ench.display_name|default:ench.name|default:ench.id }}
+                                    {% endif %}
+                                </td>
+                                <td>{{ ench.pct }}%</td>
+                                <td>{{ ench.count }}人</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endfor %}
+            </div>
             {% else %}
             <div class="aggregation-pending">⏳ 数据等待聚合</div>
             {% endif %}

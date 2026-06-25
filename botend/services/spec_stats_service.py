@@ -2198,10 +2198,21 @@ def _format_enchant_display_label(slot_label, enchant_name):
     return f'{slot_label}：{label}' if label else slot_label
 
 
+def _enchant_slot_sort_key(slot_label):
+    slot_order = [
+        '头盔', '项链', '肩甲', '披风', '胸甲', '护腕', '手套', '腰带',
+        '腿甲', '靴子', '戒指', '主手', '副手', '未知',
+    ]
+    try:
+        return (slot_order.index(slot_label), slot_label)
+    except ValueError:
+        return (len(slot_order), slot_label)
+
+
 def _compute_enchant_popularity(enchant_records, top_n=20):
-    """计算附魔选取率：按装备位置 + 附魔分组，按玩家去重。"""
+    """计算附魔选取率：按装备位置分组，每个位置内按附魔统计玩家去重。"""
     snapshots = _collect_item_ids_from_records(enchant_records, include_gear=False, include_gems=False, include_enchants=True)
-    enchant_players = {}
+    slot_enchant_players = {}
     enchant_info = {}
     total = len(enchant_records)
 
@@ -2234,18 +2245,29 @@ def _compute_enchant_popularity(enchant_records, top_n=20):
                         'slot_label': slot_label,
                         'display_label': _format_enchant_display_label(slot_label, display_name),
                     }
-        for key in player_enchants:
-            enchant_players.setdefault(key, set()).add(idx)
+        for slot_label, eid in player_enchants:
+            slot_enchant_players.setdefault(slot_label, {}).setdefault(eid, set()).add(idx)
 
     result = []
-    for key, player_set in sorted(enchant_players.items(), key=lambda x: len(x[1]), reverse=True)[:top_n]:
-        info = enchant_info.get(key, {})
-        player_count = len(player_set)
-        result.append({
-            **info,
-            'count': player_count,
-            'pct': round(player_count / total * 100, 1) if total else 0,
-        })
+    for slot_label in sorted(slot_enchant_players.keys(), key=_enchant_slot_sort_key):
+        enchants = []
+        for eid, player_set in sorted(
+            slot_enchant_players[slot_label].items(),
+            key=lambda x: (-len(x[1]), str(enchant_info.get((slot_label, x[0]), {}).get('display_label') or '')),
+        )[:top_n]:
+            info = enchant_info.get((slot_label, eid), {})
+            player_count = len(player_set)
+            enchants.append({
+                **info,
+                'count': player_count,
+                'pct': round(player_count / total * 100, 1) if total else 0,
+            })
+        if enchants:
+            result.append({
+                'slot': slot_label,
+                'slot_label': slot_label,
+                'enchants': enchants,
+            })
     return result
 
 _GEAR_DEFAULT_SLOTS = [
