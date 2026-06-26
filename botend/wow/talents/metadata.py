@@ -144,8 +144,16 @@ class TalentMetadataProvider:
         ).exclude(tree_type='hero_anchor').order_by('tree_type', 'row', 'column', 'node_id', 'spell_id', 'talent_id')
 
         grouped_by_node = {}
+        seen_spell_ids = set()
         for row in rows.iterator():
             row_data = self._as_dict(row)
+            # Deduplicate by spell_id first - some nodes have different talent_id
+            # but the same spell_id (e.g., multiple Battle Stance entries)
+            spell_id = row_data.get('spell_id')
+            if spell_id and spell_id in seen_spell_ids:
+                continue
+            if spell_id:
+                seen_spell_ids.add(spell_id)
             # Use talent_id (DB2 TraitNode ID) as grouping key.
             # Choice nodes have multiple entries with different node_id/spell_id
             # but the same talent_id. Using node_id would split them into separate groups.
