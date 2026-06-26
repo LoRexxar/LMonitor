@@ -204,7 +204,6 @@ class ArticleTranslationService:
             return []
 
         text_items = self._block_text_items(source_blocks)
-
         if not text_items:
             return source_blocks
 
@@ -214,6 +213,7 @@ class ArticleTranslationService:
             batch = []
             batch_indexes = []
             total = 0
+            batch_start = i  # 记录批次起始位置，用于重试
             while i < len(text_items) and len(batch) < 10:
                 item_index, _block_index, text = text_items[i]
                 if batch and (total + len(text) > 4000):
@@ -223,19 +223,42 @@ class ArticleTranslationService:
                 total += len(text)
                 i += 1
 
-            prompt = (
-                "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
-                "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
-                f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
-            )
-            result = self.engine.send_message(prompt, max_tokens=3000)
+            # 重试逻辑：最多 3 次
             translated_list = None
-            if result:
+            result = None
+            for attempt in range(3):
+                prompt = (
+                    "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
+                    "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
+                    f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
+                )
+                result = self.engine.send_message(prompt, max_tokens=5000)
+                if not result:
+                    if attempt < 2:
+                        self.sleep_func(1)
+                        continue
+                    break
+
                 try:
                     translated_list = json.loads(result)
+                    if isinstance(translated_list, list) and len(translated_list) >= len(batch):
+                        break  # 成功
+                    translated_list = None  # 长度不匹配，重试
                 except Exception:
                     translated_list = None
+
+                if translated_list is None and attempt < 2:
+                    # 可能是截断：用更小的 batch 重试
+                    if len(batch) > 3:
+                        # 拆半重试
+                        i = batch_start + len(batch) // 2
+                        batch = batch[:len(batch) // 2]
+                        batch_indexes = batch_indexes[:len(batch)]
+                        total = sum(len(t) for t in batch)
+                    self.sleep_func(1)
+
             if not isinstance(translated_list, list):
+                # fallback: 按行分割
                 translated_list = [t.strip() for t in (result or "").splitlines() if t.strip()]
 
             for j, block_index in enumerate(batch_indexes):
@@ -289,8 +312,17 @@ class ArticleTranslationService:
             return True
         source_text_len = len(blocks_to_plain_text(source_blocks))
         translated_text_len = len(blocks_to_plain_text(translated_blocks))
-        if source_text_len >= 1000 and translated_text_len < max(300, int(source_text_len * 0.4)):
+        # 部分翻译检测：翻译文本长度应接近原文（至少 60%）
+        if source_text_len >= 500 and translated_text_len < max(300, int(source_text_len * 0.6)):
             return True
+        # 检查是否有未翻译的英文段落残留
+        source_plain = blocks_to_plain_text(source_blocks)
+        translated_plain = blocks_to_plain_text(translated_blocks)
+        # 如果翻译后仍有大量英文（>30%字符是 ASCII），可能翻译不完整
+        if source_text_len >= 1000:
+            ascii_count = sum(1 for c in translated_plain if ord(c) < 128)
+            if ascii_count > len(translated_plain) * 0.3:
+                return True
         return False
 
     def translate_article_fields(self, article, logger_prefix: str = "ArticleTranslationService") -> bool:

@@ -604,12 +604,19 @@ class wowheadMonitor(BaseScan):
             return html_text
 
     def _needs_article_image_upload(self, blocks):
+        import re
         for block in blocks or []:
-            if not isinstance(block, dict) or block.get("type") != "image":
+            if not isinstance(block, dict):
                 continue
-            image_url = (block.get("url") or "").strip()
-            if image_url and self._is_external_article_image_url(image_url):
-                return True
+            if block.get("type") == "image":
+                image_url = (block.get("url") or "").strip()
+                if image_url and self._is_external_article_image_url(image_url):
+                    return True
+            elif block.get("type") == "html":
+                html = block.get("html") or ""
+                for m in re.findall(r'<img[^>]+src="([^"]+)"', html):
+                    if self._is_external_article_image_url(m.strip()):
+                        return True
         return False
 
     def _is_external_article_image_url(self, image_url):
