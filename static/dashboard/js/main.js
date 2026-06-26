@@ -1590,6 +1590,49 @@ let wowArticleCategoryFilter = '';
 let secondaryStatRuleMap = null;
 let secondaryStatRulePromise = null;
 
+const TABLE_FORM_CONFIGS = {
+    VideoMonitorTarget: {
+        hiddenAddFields: ['target_url_hash', 'last_seen_bvid', 'ext_json'],
+        selectFields: {
+            tag: [
+                { value: '攻略', label: '攻略' },
+                { value: '职业', label: '职业' },
+                { value: '团本', label: '团本' },
+                { value: '大秘境', label: '大秘境' },
+                { value: '活动', label: '活动' },
+                { value: '综合', label: '综合' },
+            ],
+            platform: [
+                { value: 'bilibili', label: 'bilibili' },
+            ],
+        },
+        defaults: {
+            platform: 'bilibili',
+            is_active: true,
+        },
+    },
+};
+
+function getCurrentFormConfig() {
+    return TABLE_FORM_CONFIGS[currentTableName] || {};
+}
+
+function isAddFormHiddenField(column) {
+    const config = getCurrentFormConfig();
+    const hiddenFields = config.hiddenAddFields || [];
+    return hiddenFields.includes(column);
+}
+
+function getAddFormSelectOptions(column) {
+    const config = getCurrentFormConfig();
+    return (config.selectFields && config.selectFields[column]) || null;
+}
+
+function getAddFormDefaultValue(column) {
+    const config = getCurrentFormConfig();
+    return config.defaults ? config.defaults[column] : undefined;
+}
+
 
 /**
  * 获取表数据
@@ -3535,16 +3578,9 @@ function initAddRecord() {
         openAddRecordModal();
     });
     
-    // 关闭弹窗事件
+    // 关闭弹窗事件：只允许明确点击关闭/取消按钮，避免误点遮罩丢失已编辑内容
     closeModalBtn.addEventListener('click', closeAddRecordModal);
     cancelBtn.addEventListener('click', closeAddRecordModal);
-    
-    // 点击弹窗外部关闭
-    modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
-            closeAddRecordModal();
-        }
-    });
     
     // 表单提交事件
     addRecordForm.addEventListener('submit', function(e) {
@@ -3604,21 +3640,9 @@ function initEditRecord() {
     if (closeModalBtn) closeModalBtn.addEventListener('click', closeEditRecordModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeEditRecordModal);
     
-    modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
-            closeEditRecordModal();
-        }
-    });
-    
     editRecordForm.addEventListener('submit', function(e) {
         e.preventDefault();
         submitEditRecord();
-    });
-    
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
-            closeEditRecordModal();
-        }
     });
 }
 
@@ -3863,8 +3887,8 @@ function generateFormFields(container) {
     }
     
     currentTableColumns.forEach(column => {
-        // 跳过ID字段
-        if (column.toLowerCase() === 'id') {
+        // 跳过ID字段和当前模型新增窗口隐藏字段
+        if (column.toLowerCase() === 'id' || isAddFormHiddenField(column)) {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -3880,9 +3904,23 @@ function generateFormFields(container) {
         label.setAttribute('for', `field-${column}`);
         
         const inputType = getFieldInputType(column);
+        const selectOptions = getAddFormSelectOptions(column);
+        const defaultValue = getAddFormDefaultValue(column);
         let inputElement;
         
-        if (inputType === 'textarea') {
+        if (selectOptions) {
+            inputElement = document.createElement('select');
+            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white';
+            selectOptions.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option.value;
+                optionElement.textContent = option.label;
+                inputElement.appendChild(optionElement);
+            });
+            if (defaultValue !== undefined) {
+                inputElement.value = defaultValue;
+            }
+        } else if (inputType === 'textarea') {
             // 创建textarea元素
             inputElement = document.createElement('textarea');
             inputElement.rows = 4;
@@ -3894,7 +3932,9 @@ function generateFormFields(container) {
             inputElement.type = 'checkbox';
             inputElement.className = 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500 transition-all duration-200';
             // 为checkbox添加默认值处理
-            if (currentFieldTypes && currentFieldTypes[column] && currentFieldTypes[column].default !== null) {
+            if (defaultValue !== undefined) {
+                inputElement.checked = Boolean(defaultValue);
+            } else if (currentFieldTypes && currentFieldTypes[column] && currentFieldTypes[column].default !== null) {
                 inputElement.checked = currentFieldTypes[column].default;
             }
         } else if (isTimeField(column)) {
@@ -4207,8 +4247,8 @@ function submitAddRecord() {
     
     // 遍历所有表单字段，正确处理不同类型的输入
     currentTableColumns.forEach(column => {
-        // 跳过自动生成的字段
-        if (column === 'id') {
+        // 跳过自动生成和新增窗口隐藏字段
+        if (column === 'id' || isAddFormHiddenField(column)) {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
