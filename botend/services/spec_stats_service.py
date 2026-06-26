@@ -247,8 +247,12 @@ class SpecStatsService:
             season_id = season.id
 
         qs = PlayerSpecTopPlayer.objects.filter(
-            season_id=season_id, class_name=class_name, spec_name=spec_name
-        ).order_by('rank')
+            season_id=season_id,
+            class_name=class_name,
+            spec_name=spec_name,
+            rank__isnull=False,
+            score__isnull=False,
+        ).order_by('rank', '-score')
 
         total = qs.count()
         pages = (total + page_size - 1) // page_size

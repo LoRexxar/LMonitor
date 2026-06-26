@@ -134,20 +134,10 @@ class SpecDetailPlayerView(View):
         season_id = ctx['season'].id if ctx['season'] else None
 
         if season_id:
-            data = _load_json(season_id, class_name, spec_name, 'leaderboard.json')
-            if data:
-                if isinstance(data.get('updated_at'), str):
-                    try:
-                        data['updated_at'] = datetime.fromisoformat(data['updated_at'])
-                    except (ValueError, TypeError):
-                        data['updated_at'] = None
-                players = data.get('players') or []
-                if isinstance(players, list):
-                    data['players'] = players[:20]
-                ctx.update(data)
-                return render(request, 'portal/spec_detail/player_list.html', ctx)
+            data = SpecStatsService.get_player_list(class_name, spec_name, season_id=season_id)
+            ctx.update(data)
+            return render(request, 'portal/spec_detail/player_list.html', ctx)
 
-        # 无 JSON → 空数据，模板显示「暂时没有内容」
         ctx['players'] = []
         ctx['total'] = 0
         return render(request, 'portal/spec_detail/player_list.html', ctx)
