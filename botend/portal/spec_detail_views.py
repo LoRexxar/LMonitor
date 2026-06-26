@@ -141,6 +141,9 @@ class SpecDetailPlayerView(View):
                         data['updated_at'] = datetime.fromisoformat(data['updated_at'])
                     except (ValueError, TypeError):
                         data['updated_at'] = None
+                players = data.get('players') or []
+                if isinstance(players, list):
+                    data['players'] = players[:20]
                 ctx.update(data)
                 return render(request, 'portal/spec_detail/player_list.html', ctx)
 

@@ -238,7 +238,7 @@ class SpecStatsService:
     # ========== 人物榜 ==========
 
     @staticmethod
-    def get_player_list(class_name, spec_name, season_id=None, page=1, page_size=100):
+    def get_player_list(class_name, spec_name, season_id=None, page=1, page_size=20):
         """Top 20 玩家列表（分页）"""
         if not season_id:
             season = SeasonMeta.objects.filter(is_active=True).first()

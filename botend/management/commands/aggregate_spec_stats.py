@@ -141,9 +141,9 @@ class Command(BaseCommand):
             json.dump({'zone_groups': zone_groups}, f, cls=DecimalEncoder, ensure_ascii=False)
 
     def _aggregate_leaderboard(self, class_name, spec_name, spec_dir):
-        """聚合人物榜，获取全量玩家列表"""
+        """聚合人物榜，仅输出页面展示用 Top 20。"""
         result = SpecStatsService.get_player_list(
-            class_name, spec_name, page=1, page_size=500
+            class_name, spec_name, page=1, page_size=20
         )
 
         path = os.path.join(spec_dir, 'leaderboard.json')

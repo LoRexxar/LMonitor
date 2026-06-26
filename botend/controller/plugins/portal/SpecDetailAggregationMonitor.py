@@ -114,7 +114,7 @@ class SpecDetailAggregationMonitor(BaseScan):
 
     def _aggregate_leaderboard(self, class_name, spec_name, spec_dir):
         result = SpecStatsService.get_player_list(
-            class_name, spec_name, page=1, page_size=500
+            class_name, spec_name, page=1, page_size=20
         )
 
         path = os.path.join(spec_dir, 'leaderboard.json')
