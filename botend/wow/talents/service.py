@@ -218,12 +218,6 @@ class TalentBuildCodeService:
                             payload['talent_id'] = selected_option.get('talent_id')
             merged.append(payload)
 
-        existing_keys = {TalentBuildCodeService._build_node_key(node) for node in merged}
-        for node in selected_nodes:
-            key = TalentBuildCodeService._build_node_key(node)
-            if key and key in existing_keys:
-                continue
-            merged.append(dict(node))
         return merged
 
     @staticmethod
