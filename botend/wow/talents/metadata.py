@@ -146,9 +146,12 @@ class TalentMetadataProvider:
         grouped_by_node = {}
         for row in rows.iterator():
             row_data = self._as_dict(row)
+            # Use talent_id (DB2 TraitNode ID) as grouping key.
+            # Choice nodes have multiple entries with different node_id/spell_id
+            # but the same talent_id. Using node_id would split them into separate groups.
             node_key = (
                 row_data.get('tree_type') or 'spec',
-                row_data.get('node_id') or row_data.get('talent_id') or row_data.get('spell_id'),
+                row_data.get('talent_id') or row_data.get('node_id') or row_data.get('spell_id'),
             )
             current = grouped_by_node.get(node_key)
             if not current:
