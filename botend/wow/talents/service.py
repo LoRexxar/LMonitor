@@ -2,6 +2,7 @@
 
 import copy
 import json
+from collections import defaultdict
 from functools import lru_cache
 
 from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder
@@ -144,8 +145,43 @@ class TalentBuildCodeService:
 
         provider = TalentMetadataProvider()
         full_nodes = provider.get_full_tree_nodes(class_name, spec_name)
+
+        # --- hero subtree filtering for build code decoding ---
+        # Build code only encodes ONE hero subtree, but full_nodes may contain
+        # hero nodes from ALL subtrees. Filter to the active subtree so the
+        # decoder reads the correct number of bits.
+        if full_nodes and build_code:
+            hero_by_subtree = defaultdict(list)
+            node_id_to_subtree = {}
+            for node in full_nodes:
+                if (node.get('tree_type') or 'spec') == 'hero':
+                    subtree = node.get('db2_subtree_id') or 0
+                    hero_by_subtree[subtree].append(node)
+                    nid = node.get('node_id')
+                    if nid:
+                        node_id_to_subtree[nid] = subtree
+            if len(hero_by_subtree) > 1:
+                # Determine active subtree from selected_nodes via node_id mapping
+                subtree_points = defaultdict(int)
+                for sn in selected_nodes:
+                    if (sn.get('tree_type') or 'spec') == 'hero':
+                        nid = sn.get('node_id')
+                        subtree = node_id_to_subtree.get(nid)
+                        if subtree:
+                            subtree_points[subtree] += sn.get('points', 0) or 0
+                if subtree_points:
+                    active_subtree = max(subtree_points, key=subtree_points.get)
+                else:
+                    # Fallback: keep subtree with most nodes (likely the correct one)
+                    active_subtree = max(hero_by_subtree, key=lambda k: len(hero_by_subtree[k]))
+                full_nodes = [
+                    n for n in full_nodes
+                    if (n.get('tree_type') or 'spec') != 'hero'
+                    or (n.get('db2_subtree_id') or 0) == active_subtree
+                ]
+
         decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, full_nodes) if build_code and full_nodes else {}
-        merged_nodes = cls._merge_full_tree_nodes(full_nodes, selected_nodes, decoded_states=decoded_states) if full_nodes else selected_nodes
+        merged_nodes = cls._merge_full_tree_nodes(full_nodes, selected_nodes, decoded_states=decoded_states, has_build_code=bool(build_code)) if full_nodes else selected_nodes
         if build_code:
             merged_nodes.insert(0, {
                 'tree_type': 'build_code',
@@ -174,7 +210,7 @@ class TalentBuildCodeService:
         ).strip()
 
     @staticmethod
-    def _merge_full_tree_nodes(full_nodes, selected_nodes, decoded_states=None):
+    def _merge_full_tree_nodes(full_nodes, selected_nodes, decoded_states=None, has_build_code=False):
         if not full_nodes:
             return [dict(item) for item in selected_nodes]
 
@@ -191,31 +227,43 @@ class TalentBuildCodeService:
             key = TalentBuildCodeService._build_node_key(payload)
             selected_node = selected_lookup.get(key)
             decoded_state = decoded_states.get(key) or {}
+
+            # metadata enrichment from raw talents_json (name/icon/max_points/parents)
             if selected_node:
-                payload['points'] = selected_node.get('points', payload.get('points', 0))
-                payload['selected'] = bool(selected_node.get('selected', payload.get('points', 0) > 0))
                 if selected_node.get('display_spell_id'):
                     payload['display_spell_id'] = selected_node.get('display_spell_id')
                     payload['spell_id'] = selected_node.get('display_spell_id')
                 for field_name in ('name', 'icon', 'max_points', 'parents', 'choice_options', 'is_choice_node'):
                     if selected_node.get(field_name) not in (None, '', []):
                         payload[field_name] = selected_node.get(field_name)
-            else:
-                payload['points'] = decoded_state.get('points', payload.get('points', 0) or 0)
-                payload['selected'] = bool(decoded_state.get('selected', False))
-                if decoded_state.get('is_choice_node'):
-                    payload['is_choice_node'] = True
-                if payload.get('choice_options') and decoded_state.get('choice_selection') is not None:
-                    selected_index = int(decoded_state.get('choice_selection') or 0)
-                    options = payload.get('choice_options') or []
-                    if 0 <= selected_index < len(options):
-                        selected_option = options[selected_index]
-                        if selected_option.get('display_spell_id'):
-                            payload['display_spell_id'] = selected_option.get('display_spell_id')
-                        if selected_option.get('spell_id'):
-                            payload['spell_id'] = selected_option.get('spell_id')
-                        if selected_option.get('talent_id'):
-                            payload['talent_id'] = selected_option.get('talent_id')
+
+            # selection state priority: build code decode > raw talents_json
+            if has_build_code:
+                # build code 解码是唯一权威来源
+                if decoded_state:
+                    payload['points'] = decoded_state.get('points', 0)
+                    payload['selected'] = bool(decoded_state.get('selected', False))
+                    if decoded_state.get('is_choice_node'):
+                        payload['is_choice_node'] = True
+                    if payload.get('choice_options') and decoded_state.get('choice_selection') is not None:
+                        selected_index = int(decoded_state.get('choice_selection') or 0)
+                        options = payload.get('choice_options') or []
+                        if 0 <= selected_index < len(options):
+                            selected_option = options[selected_index]
+                            if selected_option.get('display_spell_id'):
+                                payload['display_spell_id'] = selected_option.get('display_spell_id')
+                            if selected_option.get('spell_id'):
+                                payload['spell_id'] = selected_option.get('spell_id')
+                            if selected_option.get('talent_id'):
+                                payload['talent_id'] = selected_option.get('talent_id')
+                else:
+                    # build code 可用但节点未解码 → 明确标为未选中
+                    payload['points'] = 0
+                    payload['selected'] = False
+            elif selected_node:
+                # no build code available: raw talents_json is the only source
+                payload['points'] = selected_node.get('points', payload.get('points', 0))
+                payload['selected'] = bool(selected_node.get('selected', payload.get('points', 0) > 0))
             merged.append(payload)
 
         return merged
