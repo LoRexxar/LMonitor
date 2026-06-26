@@ -168,7 +168,7 @@
                                 {% endif %}
                             </div>
                             {% if node.points %}
-                            <span class="talent-node-points">{{ node.points }}</span>
+                            <span class="talent-node-points">{% if node.max_points %}{{ node.points }}/{{ node.max_points }}{% else %}{{ node.points }}{% endif %}</span>
                             {% endif %}
                             {% if node.is_choice_node and node.choice_options %}
                             <div class="talent-choice-popup">
@@ -245,7 +245,7 @@
                             {% endif %}
                         </div>
                         {% if node.points %}
-                        <span class="talent-node-points">{{ node.points }}</span>
+                        <span class="talent-node-points">{% if node.max_points %}{{ node.points }}/{{ node.max_points }}{% else %}{{ node.points }}{% endif %}</span>
                         {% endif %}
                         {% if node.is_choice_node and node.choice_options %}
                         <div class="talent-choice-popup">
@@ -544,24 +544,24 @@
     border: none;
     opacity: .85;
 }
-.talent-node-icon { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; background: rgba(51,65,85,.9); display: flex; align-items: center; justify-content: center; color: #cbd5e1; flex-shrink: 0; }
+.talent-node-icon { width: 34px; height: 34px; border-radius: 50%; overflow: hidden; background: rgba(51,65,85,.9); display: flex; align-items: center; justify-content: center; color: #cbd5e1; flex-shrink: 0; }
 .talent-node-icon img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
 .talent-node-card--tree.is-unselected .talent-node-icon img { filter: grayscale(1) saturate(.4) brightness(.82); opacity: .92; }
 .talent-node-card--tree .talent-node-icon {
     position: relative;
-    width: 30px;
-    height: 30px;
+    width: 36px;
+    height: 36px;
     box-shadow: 0 8px 20px rgba(2,6,23,.28);
 }
 .talent-render-stage .talent-node-card--tree .talent-node-icon {
-    width: 28px;
-    height: 28px;
+    width: 34px;
+    height: 34px;
     box-shadow: none;
     border: none;
 }
 .talent-render-stage .talent-panel--hero .talent-node-card--tree .talent-node-icon {
-    width: 24px;
-    height: 24px;
+    width: 30px;
+    height: 30px;
 }
 .talent-node-info { min-width: 0; }
 .talent-node-name { display: block; color: #1e293b; font-weight: 700; margin-bottom: 4px; }
@@ -572,30 +572,33 @@
     position: absolute;
     right: -2px;
     bottom: -2px;
-    min-width: 13px;
-    height: 13px;
-    padding: 0 2px;
+    min-width: 16px;
+    height: 14px;
+    padding: 0 3px;
     border-radius: 999px;
     background: #2563eb;
     color: #eff6ff;
     font-size: 8px;
-    line-height: 13px;
+    line-height: 14px;
     font-weight: 700;
     box-shadow: 0 4px 12px rgba(37,99,235,.35);
+    white-space: nowrap;
 }
 .talent-render-stage .talent-node-points {
     right: 1px;
     bottom: 1px;
-    min-width: 12px;
-    height: 12px;
-    line-height: 12px;
+    min-width: 14px;
+    height: 13px;
+    line-height: 13px;
     font-size: 7px;
+    padding: 0 3px;
+    white-space: nowrap;
 }
 .talent-render-stage .talent-panel--hero .talent-node-points {
     right: 0;
     bottom: 0;
-    min-width: 10px;
-    height: 10px;
+    min-width: 12px;
+    height: 12px;
     font-size: 7px;
     line-height: 10px;
 }
