@@ -1,8 +1,11 @@
 from datetime import datetime, timedelta, timezone as dt_timezone
 
-from django.test import SimpleTestCase
+from unittest.mock import patch
+
+from django.test import Client, SimpleTestCase, TestCase
 from django.utils import timezone
 
+from botend.models import PortalEvent
 from botend.services.portal_event_service import PortalEventService
 
 
@@ -143,3 +146,45 @@ class PortalEventServiceWowheadTest(SimpleTestCase):
         self.assertEqual(events[0].start_at.date(), datetime(2026, 6, 18).date())
         self.assertEqual(events[0].start_at.hour, 8)
         self.assertEqual(events[0].end_at, events[0].start_at + timedelta(hours=167))
+
+
+class PortalEventsApiTest(TestCase):
+    def test_events_api_returns_events_overlapping_visible_window(self):
+        now = timezone.make_aware(datetime(2026, 7, 1, 12), timezone.get_current_timezone())
+        overlapping = PortalEvent.objects.create(
+            title="跨月活动",
+            url="https://example.com/overlap",
+            url_hash="overlap-event",
+            source="test",
+            start_at=now - timedelta(days=20),
+            end_at=now + timedelta(days=3),
+            status="进行中",
+            is_active=True,
+        )
+        PortalEvent.objects.create(
+            title="已结束活动",
+            url="https://example.com/ended",
+            url_hash="ended-event",
+            source="test",
+            start_at=now - timedelta(days=20),
+            end_at=now - timedelta(days=8),
+            is_active=True,
+        )
+        PortalEvent.objects.create(
+            title="未来活动",
+            url="https://example.com/future",
+            url_hash="future-event",
+            source="test",
+            start_at=now + timedelta(days=50),
+            end_at=now + timedelta(days=57),
+            is_active=True,
+        )
+
+        with patch("botend.portal.api.timezone.now", return_value=now):
+            response = Client().get("/portal/api/events/")
+
+        self.assertEqual(response.status_code, 200)
+        titles = [item["title"] for item in response.json()["data"]]
+        self.assertIn(overlapping.title, titles)
+        self.assertNotIn("已结束活动", titles)
+        self.assertNotIn("未来活动", titles)
