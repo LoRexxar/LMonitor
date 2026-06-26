@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -79,3 +79,67 @@ class PortalEventServiceDb2Test(SimpleTestCase):
         self.assertTrue(all(event.raw_data["is_looping"] for event in events))
         self.assertTrue(all(event.raw_data["loop_interval_hours"] == 1680 for event in events))
         self.assertTrue(all(event.end_at == event.start_at + timedelta(hours=168) for event in events))
+
+
+class PortalEventServiceWowheadTest(SimpleTestCase):
+    def test_parse_wowhead_events_shifts_to_cn_calendar_time(self):
+        original_start = int(datetime(2026, 6, 16, 15, tzinfo=dt_timezone.utc).timestamp())
+        original_end = int(datetime(2026, 6, 23, 15, tzinfo=dt_timezone.utc).timestamp())
+        html = f'''
+            <script>
+            window.__DATA__ = {{"groups":[{{"content":{{"lines":[{{
+                "name":"World Quest Bonus Event",
+                "url":"/event=592/world-quest-bonus-event",
+                "startingUt":"{original_start}",
+                "endingUt":{original_end},
+                "icon":"achievement_reputation_08"
+            }}]}},"id":"holiday","name":"World Event"}}]}};
+            </script>
+        '''
+
+        events = PortalEventService().parse_wowhead_events(html, source_url="https://www.wowhead.com/events")
+
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        self.assertEqual(event.title, "世界任务奖励活动")
+        self.assertEqual(event.source, "wowhead_cn_derived")
+        self.assertEqual(event.raw_data["time_shift_days"], 2)
+        self.assertEqual(event.raw_data["cn_start_hour"], 8)
+        self.assertEqual(event.start_at.date(), datetime(2026, 6, 18).date())
+        self.assertEqual(event.start_at.hour, 8)
+        self.assertEqual(event.end_at, event.start_at + timedelta(days=7))
+        self.assertIn("/event=592/", event.url)
+
+    def test_parse_wowhead_events_keeps_unknown_event_title(self):
+        original_start = int(datetime(2026, 7, 5, 6, tzinfo=dt_timezone.utc).timestamp())
+        html = f'''
+            <script>
+            {{"name":"Darkmoon Faire","url":"/guide/world-events/recurring/darkmoon-faire-guide","startingUt":"{original_start}"}}
+            </script>
+        '''
+
+        events = PortalEventService().parse_wowhead_events(html)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].title, "暗月马戏团")
+        self.assertEqual(events[0].start_at.date(), datetime(2026, 7, 7).date())
+
+    def test_parse_wowhead_events_expands_events_page_occurrences(self):
+        html = '''
+            <script>
+            new Listview({template:'event',data:[{
+                "id":592,
+                "name":"World Quest Bonus Event",
+                "url":"/event=592/world-quest-bonus-event",
+                "occurrences":[{"start":"2026/06/16 08:00:00","end":"2026/06/23 07:00:00"}]
+            }]});
+            </script>
+        '''
+
+        events = PortalEventService().parse_wowhead_events(html, source_url="https://www.wowhead.com/events")
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].title, "世界任务奖励活动")
+        self.assertEqual(events[0].start_at.date(), datetime(2026, 6, 18).date())
+        self.assertEqual(events[0].start_at.hour, 8)
+        self.assertEqual(events[0].end_at, events[0].start_at + timedelta(hours=167))

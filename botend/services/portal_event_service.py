@@ -4,7 +4,7 @@ import html
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from io import StringIO
 from urllib.parse import urljoin, urlparse
 
@@ -36,6 +36,35 @@ WAGO_DB2_GLOBAL_REGION = "0"
 WAGO_DB2_CN_REGION = "2"
 WAGO_DB2_ALLOWED_REGIONS = {WAGO_DB2_GLOBAL_REGION, WAGO_DB2_CN_REGION}
 WAGO_DB2_LOOPING_HORIZON_DAYS = 730
+WOWHEAD_EVENTS_URL = "https://www.wowhead.com/events"
+WOWHEAD_HOME_URL = "https://www.wowhead.com/"
+WOWHEAD_CN_SHIFT_DAYS = 2
+WOWHEAD_CN_START_HOUR = 8
+WOWHEAD_EVENT_HORIZON_DAYS = 120
+
+WOWHEAD_EVENT_TITLE_MAP = {
+    "arena skirmish bonus event": "竞技场练习赛假日活动",
+    "battleground bonus event": "战场假日活动",
+    "brewfest": "美酒节",
+    "children's week": "儿童周",
+    "darkmoon faire": "暗月马戏团",
+    "delves bonus event": "地下堡奖励活动",
+    "feast of winter veil": "冬幕节",
+    "hallow's end": "万圣节",
+    "lunar festival": "春节",
+    "midsummer fire festival": "仲夏火焰节",
+    "noblegarden": "复活节",
+    "pet battle bonus event": "宠物对战假日活动",
+    "pilgrim's bounty": "感恩节",
+    "pirates' day": "海盗日",
+    "timewalking dungeon event": "时空漫游地下城活动",
+    "world quest bonus event": "世界任务奖励活动",
+}
+
+WOWHEAD_EVENT_TITLE_PATTERNS = [
+    (re.compile(r"^(?P<name>.+) timewalking dungeon event$", re.I), "{name} 时空漫游地下城活动"),
+    (re.compile(r"^pvp brawl:\s*(?P<name>.+)$", re.I), "PvP 乱斗：{name}"),
+]
 
 EVENT_TITLE_KEYWORDS = [
     "活动",
@@ -94,8 +123,9 @@ def parse_datetime_value(value):
         if not text:
             return None
         text = text.replace("Z", "+00:00")
+        normalized = text.replace("/", "-") if re.match(r"^\d{4}/\d{2}/\d{2}", text) else text
         try:
-            dt = datetime.fromisoformat(text)
+            dt = datetime.fromisoformat(normalized)
         except Exception:
             return None
     if timezone.is_naive(dt):
@@ -155,10 +185,14 @@ class PortalEventService:
     def sync_events(self, source_url="", deactivate_missing=False):
         if source_url:
             return self.sync_news_events(source_url=source_url, deactivate_missing=deactivate_missing)
-        return self.sync_db2_events(deactivate_missing=deactivate_missing)
+        return self.sync_wowhead_events(deactivate_missing=deactivate_missing)
 
     def sync_news_events(self, source_url="", deactivate_missing=False):
         parsed = self.collect_events(source_url=source_url)
+        return self.upsert_events(parsed, deactivate_missing=deactivate_missing)
+
+    def sync_wowhead_events(self, source_url="", deactivate_missing=False):
+        parsed = self.collect_wowhead_events(source_url=source_url)
         return self.upsert_events(parsed, deactivate_missing=deactivate_missing)
 
     def sync_db2_events(self, build="", locale="zhCN", deactivate_missing=False):
@@ -222,6 +256,205 @@ class PortalEventService:
                 seen.add(key)
                 results.append(item)
         return results
+
+    def collect_wowhead_events(self, source_url=""):
+        urls = [source_url] if source_url else [WOWHEAD_EVENTS_URL, WOWHEAD_HOME_URL]
+        results = []
+        seen = set()
+        for url in urls:
+            html_text = self._fetch_html(url)
+            for item in self.parse_wowhead_events(html_text, source_url=url):
+                key = item.external_id or item.url
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append(item)
+        return self._dedupe_and_limit(sorted(results, key=lambda item: item.start_at or timezone.now()), limit=500)
+
+    def parse_wowhead_events(self, html_text, source_url=WOWHEAD_EVENTS_URL):
+        if not html_text:
+            return []
+        items = []
+        for raw_item in self._extract_wowhead_raw_events(html_text):
+            title = self._normalize_wowhead_title(raw_item.get("name") or raw_item.get("title") or "")
+            if not title or not self._looks_like_event(title):
+                continue
+            for occurrence in self._iter_wowhead_occurrences(raw_item):
+                original_start = occurrence["start_at"]
+                original_end = occurrence["end_at"]
+                if not original_start:
+                    continue
+                start_at, end_at = self._shift_wowhead_event_time(original_start, original_end)
+                now = timezone.now()
+                cutoff = now - timedelta(days=7)
+                if (end_at or start_at) < cutoff:
+                    continue
+                if start_at > now + timedelta(days=WOWHEAD_EVENT_HORIZON_DAYS):
+                    continue
+                url = urljoin(source_url, raw_item.get("url") or raw_item.get("iconUrl") or "/events")
+                raw_url = raw_item.get("url") or ""
+                event_id = self._extract_wowhead_event_id(raw_url) or raw_item.get("id") or title
+                external_source = f"wowhead-cn-{event_id}-{int(start_at.timestamp())}"
+                items.append(ParsedPortalEvent(
+                    title=title,
+                    url=url,
+                    source="wowhead_cn_derived",
+                    tag="日历活动",
+                    start_at=start_at,
+                    end_at=end_at,
+                    status=infer_status(start_at, end_at),
+                    summary="Wowhead 日历数据按国服时间平移 2 天生成。",
+                    image_url=self._normalize_wowhead_icon_url(raw_item.get("icon") or raw_item.get("wowIcon") or ""),
+                    external_id=hash_url(external_source),
+                    raw_data={
+                        "source": "wowhead",
+                        "source_url": source_url,
+                        "original_title": raw_item.get("name") or raw_item.get("title") or "",
+                        "original_start_at": original_start.isoformat(),
+                        "original_end_at": original_end.isoformat() if original_end else "",
+                        "time_shift_days": WOWHEAD_CN_SHIFT_DAYS,
+                        "cn_start_hour": WOWHEAD_CN_START_HOUR,
+                        "raw": raw_item,
+                    },
+                ))
+        return self._dedupe_and_limit(items, limit=500)
+
+    def _iter_wowhead_occurrences(self, raw_item):
+        occurrences = raw_item.get("occurrences") or []
+        if isinstance(occurrences, list) and occurrences:
+            for occurrence in occurrences:
+                if not isinstance(occurrence, dict):
+                    continue
+                start_at = parse_datetime_value(occurrence.get("start"))
+                end_at = parse_datetime_value(occurrence.get("end"))
+                if start_at:
+                    yield {"start_at": start_at, "end_at": end_at}
+            return
+        start_at = self._parse_wowhead_timestamp(raw_item.get("startingUt") or raw_item.get("start") or raw_item.get("startUt"))
+        end_at = self._parse_wowhead_timestamp(raw_item.get("endingUt") or raw_item.get("end") or raw_item.get("endUt"))
+        if start_at:
+            yield {"start_at": start_at, "end_at": end_at}
+
+    def _extract_wowhead_raw_events(self, html_text):
+        raw_items = []
+        for body in self._extract_wowhead_script_bodies(html_text):
+            raw_items.extend(self._extract_wowhead_json_items(body))
+        raw_items.extend(self._extract_wowhead_json_items(html_text))
+        return raw_items
+
+    def _extract_wowhead_script_bodies(self, html_text):
+        bodies = []
+        for match in re.finditer(r"<script[^>]*>(.*?)</script>", html_text or "", flags=re.S | re.I):
+            body = html.unescape(match.group(1) or "")
+            if any(token in body for token in ("startingUt", "endingUt", "Bonus Event", "World Event", "Darkmoon Faire")):
+                bodies.append(body)
+        return bodies
+
+    def _extract_wowhead_json_items(self, text):
+        items = []
+        for data_text in self._extract_wowhead_listview_data(text):
+            try:
+                obj = json.loads(data_text)
+            except Exception:
+                continue
+            self._collect_wowhead_event_objects(obj, items)
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"\{", text or ""):
+            try:
+                obj, _ = decoder.raw_decode(text[match.start():])
+            except Exception:
+                continue
+            self._collect_wowhead_event_objects(obj, items)
+        return items
+
+    def _extract_wowhead_listview_data(self, text):
+        results = []
+        for match in re.finditer(r"\bdata\s*:\s*\[", text or ""):
+            start = match.end() - 1
+            depth = 0
+            in_string = False
+            escape = False
+            quote = ""
+            for index in range(start, len(text)):
+                char = text[index]
+                if in_string:
+                    if escape:
+                        escape = False
+                    elif char == "\\":
+                        escape = True
+                    elif char == quote:
+                        in_string = False
+                    continue
+                if char in {'\"', "'"}:
+                    in_string = True
+                    quote = char
+                    continue
+                if char == "[":
+                    depth += 1
+                elif char == "]":
+                    depth -= 1
+                    if depth == 0:
+                        results.append(text[start:index + 1])
+                        break
+        return results
+
+    def _collect_wowhead_event_objects(self, obj, items):
+        if isinstance(obj, dict):
+            name = obj.get("name") or obj.get("title")
+            has_time = any(obj.get(key) for key in ("startingUt", "endingUt", "start", "startUt", "end", "endUt")) or bool(obj.get("occurrences"))
+            if name and has_time:
+                items.append(obj)
+            for value in obj.values():
+                self._collect_wowhead_event_objects(value, items)
+        elif isinstance(obj, list):
+            for value in obj:
+                self._collect_wowhead_event_objects(value, items)
+
+    def _parse_wowhead_timestamp(self, value):
+        if value in (None, ""):
+            return None
+        try:
+            timestamp = int(value)
+        except Exception:
+            return parse_datetime_value(value)
+        if timestamp > 100000000000:
+            timestamp = int(timestamp / 1000)
+        try:
+            return datetime.fromtimestamp(timestamp, tz=dt_timezone.utc).astimezone(timezone.get_current_timezone())
+        except Exception:
+            return None
+
+    def _shift_wowhead_event_time(self, original_start, original_end=None):
+        start_at = (original_start + timedelta(days=WOWHEAD_CN_SHIFT_DAYS)).astimezone(timezone.get_current_timezone())
+        start_at = start_at.replace(hour=WOWHEAD_CN_START_HOUR, minute=0, second=0, microsecond=0)
+        end_at = None
+        if original_end:
+            duration = original_end - original_start
+            end_at = start_at + duration
+        return start_at, end_at
+
+    def _normalize_wowhead_title(self, title):
+        value = re.sub(r"\s+", " ", html.unescape(str(title or ""))).strip()
+        lower = value.lower()
+        if lower in WOWHEAD_EVENT_TITLE_MAP:
+            return WOWHEAD_EVENT_TITLE_MAP[lower]
+        for pattern, template in WOWHEAD_EVENT_TITLE_PATTERNS:
+            match = pattern.match(value)
+            if match:
+                return template.format(**match.groupdict())
+        return value
+
+    def _extract_wowhead_event_id(self, url):
+        match = re.search(r"/event=(\d+)", str(url or ""))
+        return match.group(1) if match else ""
+
+    def _normalize_wowhead_icon_url(self, icon):
+        value = str(icon or "").strip()
+        if not value:
+            return ""
+        if value.startswith("http"):
+            return value
+        return f"https://wow.zamimg.com/images/wow/icons/large/{value}.jpg"
 
     def collect_db2_events(self, build="", locale="zhCN"):
         build = (build or "").strip() or self._fetch_current_wago_build()
