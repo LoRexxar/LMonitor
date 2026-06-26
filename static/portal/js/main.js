@@ -1311,9 +1311,8 @@ function renderEvents(items) {
   const todayKey = portalDateKey(today);
   const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
 
-  const rows = [];
-  const rowEndKeys = [];
-  const eventBars = [];
+  const weekCount = Math.ceil(visibleDayCount / 7);
+  const weekSegments = Array.from({ length: weekCount }, () => []);
   filtered.forEach((item) => {
     const rawStart = normalizePortalDay(item.startDate);
     const rawEnd = item.endDate ? normalizePortalDay(item.endDate) : rawStart;
@@ -1329,31 +1328,57 @@ function renderEvents(items) {
       const segmentEnd = clampedEnd < weekEnd ? clampedEnd : weekEnd;
       const startOffset = diffPortalDays(gridStart, cursor);
       const endOffset = diffPortalDays(gridStart, segmentEnd);
-      const colStart = (startOffset % 7) + 1;
-      const colSpan = (endOffset % 7) - (startOffset % 7) + 1;
-      let rowIndex = 0;
-      const segmentStartKey = portalDateKey(cursor);
-      while (rowEndKeys[rowIndex] && rowEndKeys[rowIndex] >= segmentStartKey) rowIndex += 1;
-      rowEndKeys[rowIndex] = portalDateKey(segmentEnd);
-      rows[rowIndex] = rows[rowIndex] || [];
-      rows[rowIndex].push({ item, weekIndex, colStart, colSpan, startsHere: portalDateKey(cursor) === portalDateKey(rawStart) });
+      weekSegments[weekIndex].push({
+        item,
+        colStart: startOffset % 7,
+        colSpan: (endOffset % 7) - (startOffset % 7) + 1,
+        startsHere: portalDateKey(cursor) === portalDateKey(rawStart),
+      });
       cursor = addPortalDays(segmentEnd, 1);
     }
   });
-  rows.forEach((segments, rowIndex) => {
-    segments.forEach((segment) => {
+
+  const weekLayouts = weekSegments.map((segments) => {
+    const rowEndCols = [];
+    const laidOut = segments.map((segment) => {
+      let rowIndex = 0;
+      while (rowEndCols[rowIndex] !== undefined && rowEndCols[rowIndex] >= segment.colStart) rowIndex += 1;
+      rowEndCols[rowIndex] = segment.colStart + segment.colSpan - 1;
+      return { ...segment, rowIndex };
+    });
+    return { segments: laidOut, rowCount: Math.max(rowEndCols.length, 1) };
+  });
+
+  const renderWeekRow = (weekStart, weekIndex) => {
+    const weekDays = Array.from({ length: 7 }, (_, dayIndex) => addPortalDays(weekStart, dayIndex));
+    const layout = weekLayouts[weekIndex] || { segments: [], rowCount: 1 };
+    const dayMinHeight = 54 + Math.min(layout.rowCount, 5) * 20;
+    const bars = layout.segments.map((segment) => {
       const title = escapeHtml(segment.item.title || "");
       const rawStatus = String(segment.item.status || "").trim();
       const active = rawStatus.includes("进行中");
       const cls = active ? "bg-emerald-500 text-white" : "bg-sky-500 text-white";
       const titleHtml = segment.startsHere ? title : `<span class="opacity-80">↳</span> ${title}`;
-      eventBars.push(`<div class="z-10 px-0.5" style="grid-row:${segment.weekIndex + 1};grid-column:${segment.colStart} / span ${segment.colSpan};align-self:start;margin-top:${32 + rowIndex * 20}px;">
+      const width = `calc(${segment.colSpan} * ((100% - 6px) / 7) + ${Math.max(segment.colSpan - 1, 0)}px)`;
+      const left = `calc(${segment.colStart} * ((100% - 6px) / 7 + 1px))`;
+      return `<div class="absolute z-10 px-0.5" style="left:${left};width:${width};top:${30 + segment.rowIndex * 20}px;">
         ${renderPortalEventLink(segment.item, `block truncate rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-4 shadow-sm ${cls}`, titleHtml)}
-      </div>`);
-    });
-  });
-  const maxBars = Math.min(Math.max(rows.length, 1), 4);
-  const dayMinHeight = 72 + maxBars * 20;
+      </div>`;
+    }).join("");
+    return `<div class="relative grid grid-cols-7 gap-px bg-slate-100 border-b border-slate-100 last:border-b-0">
+      ${weekDays.map((date) => {
+        const key = portalDateKey(date);
+        const muted = date < monthStart || date > monthEnd;
+        const isToday = key === todayKey;
+        return `<div class="bg-white p-1.5 ${muted ? "text-slate-300" : "text-slate-700"}" style="min-height:${dayMinHeight}px;">
+          <div class="flex items-center justify-between">
+            <span class="${isToday ? "inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[11px] font-extrabold text-white" : "text-[11px] font-bold"}">${date.getDate()}</span>
+          </div>
+        </div>`;
+      }).join("")}
+      ${bars}
+    </div>`;
+  };
 
   const calendarHtml = `<div class="min-w-[640px] overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
     <div class="flex items-center justify-between border-b border-emerald-100 bg-emerald-50/80 px-3 py-2.5">
@@ -1366,18 +1391,8 @@ function renderEvents(items) {
     <div class="grid grid-cols-7 border-b border-slate-100 bg-slate-50 text-center text-[11px] font-bold text-slate-500">
       ${weekdays.map((day) => `<div class="px-1.5 py-1.5">周${day}</div>`).join("")}
     </div>
-    <div class="relative grid grid-cols-7 bg-slate-100 gap-px">
-      ${visibleDays.map((date) => {
-        const key = portalDateKey(date);
-        const muted = date < monthStart || date > monthEnd;
-        const isToday = key === todayKey;
-        return `<div class="bg-white p-1.5 ${muted ? "text-slate-300" : "text-slate-700"}" style="min-height:${dayMinHeight}px;">
-          <div class="flex items-center justify-between">
-            <span class="${isToday ? "inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[11px] font-extrabold text-white" : "text-[11px] font-bold"}">${date.getDate()}</span>
-          </div>
-        </div>`;
-      }).join("")}
-      ${eventBars.join("")}
+    <div class="bg-white">
+      ${Array.from({ length: weekCount }, (_, weekIndex) => renderWeekRow(addPortalDays(gridStart, weekIndex * 7), weekIndex)).join("")}
     </div>
   </div>`;
 
