@@ -1252,6 +1252,39 @@ function portalDateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function getPortalEventHref(item) {
+  const href = sanitizeHref(item?.url || item?.source_url || "");
+  if (!href) return "";
+  if (href.startsWith("/")) return href;
+  try {
+    const host = new URL(href).hostname.replace(/^www\./, "");
+    if (host === "wowhead.com" || host === "wowdaily.cn") return href;
+  } catch (e) {}
+  return "";
+}
+
+function normalizePortalDay(date) {
+  const value = new Date(date);
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
+
+function addPortalDays(date, days) {
+  const value = new Date(date);
+  value.setDate(value.getDate() + days);
+  return value;
+}
+
+function diffPortalDays(start, end) {
+  return Math.round((normalizePortalDay(end) - normalizePortalDay(start)) / 86400000);
+}
+
+function renderPortalEventLink(item, className, innerHtml) {
+  const href = getPortalEventHref(item);
+  if (!href) return `<div class="${className}">${innerHtml}</div>`;
+  return `<a class="${className}" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${innerHtml}</a>`;
+}
+
 function renderEvents(items) {
   const el = document.getElementById(SECTION_MAP.events.listId);
   if (!el) return;
@@ -1267,84 +1300,112 @@ function renderEvents(items) {
 
   const firstDate = new Date(filtered[0].startDate);
   const monthStart = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+  const nextMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
   const gridStart = new Date(monthStart);
   gridStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
-  const visibleDays = Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(gridStart);
-    date.setDate(gridStart.getDate() + index);
-    return date;
-  });
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+  const visibleEnd = addPortalDays(nextMonthStart, 6 - ((nextMonthStart.getDay() + 6) % 7));
+  const visibleDayCount = diffPortalDays(gridStart, visibleEnd) + 1;
+  const visibleDays = Array.from({ length: visibleDayCount }, (_, index) => addPortalDays(gridStart, index));
   const today = new Date();
+  const todayKey = portalDateKey(today);
   const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
-  const dayItems = new Map();
-  filtered.forEach((item) => {
-    const key = portalDateKey(item.startDate);
-    if (!dayItems.has(key)) dayItems.set(key, []);
-    dayItems.get(key).push(item);
-  });
 
-  const calendarHtml = `<div class="min-w-[760px] overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
-    <div class="flex items-center justify-between border-b border-emerald-100 bg-emerald-50/80 px-4 py-3">
+  const rows = [];
+  const rowEndKeys = [];
+  const eventBars = [];
+  filtered.forEach((item) => {
+    const rawStart = normalizePortalDay(item.startDate);
+    const rawEnd = item.endDate ? normalizePortalDay(item.endDate) : rawStart;
+    const eventEnd = rawEnd < rawStart ? rawStart : rawEnd;
+    const clampedStart = rawStart < gridStart ? gridStart : rawStart;
+    const clampedEnd = eventEnd > visibleEnd ? visibleEnd : eventEnd;
+    if (clampedEnd < gridStart || clampedStart > visibleEnd) return;
+
+    let cursor = clampedStart;
+    while (cursor <= clampedEnd) {
+      const weekIndex = Math.floor(diffPortalDays(gridStart, cursor) / 7);
+      const weekEnd = addPortalDays(gridStart, weekIndex * 7 + 6);
+      const segmentEnd = clampedEnd < weekEnd ? clampedEnd : weekEnd;
+      const startOffset = diffPortalDays(gridStart, cursor);
+      const endOffset = diffPortalDays(gridStart, segmentEnd);
+      const colStart = (startOffset % 7) + 1;
+      const colSpan = (endOffset % 7) - (startOffset % 7) + 1;
+      let rowIndex = 0;
+      const segmentStartKey = portalDateKey(cursor);
+      while (rowEndKeys[rowIndex] && rowEndKeys[rowIndex] >= segmentStartKey) rowIndex += 1;
+      rowEndKeys[rowIndex] = portalDateKey(segmentEnd);
+      rows[rowIndex] = rows[rowIndex] || [];
+      rows[rowIndex].push({ item, weekIndex, colStart, colSpan, startsHere: portalDateKey(cursor) === portalDateKey(rawStart) });
+      cursor = addPortalDays(segmentEnd, 1);
+    }
+  });
+  rows.forEach((segments, rowIndex) => {
+    segments.forEach((segment) => {
+      const title = escapeHtml(segment.item.title || "");
+      const rawStatus = String(segment.item.status || "").trim();
+      const active = rawStatus.includes("进行中");
+      const cls = active ? "bg-emerald-500 text-white" : "bg-sky-500 text-white";
+      const titleHtml = segment.startsHere ? title : `<span class="opacity-80">↳</span> ${title}`;
+      eventBars.push(`<div class="z-10 px-0.5" style="grid-row:${segment.weekIndex + 1};grid-column:${segment.colStart} / span ${segment.colSpan};align-self:start;margin-top:${32 + rowIndex * 20}px;">
+        ${renderPortalEventLink(segment.item, `block truncate rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-4 shadow-sm ${cls}`, titleHtml)}
+      </div>`);
+    });
+  });
+  const maxBars = Math.min(Math.max(rows.length, 1), 4);
+  const dayMinHeight = 72 + maxBars * 20;
+
+  const calendarHtml = `<div class="min-w-[640px] overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
+    <div class="flex items-center justify-between border-b border-emerald-100 bg-emerald-50/80 px-3 py-2.5">
       <div>
-        <div class="text-base font-extrabold text-slate-950">${formatMonthTitle(monthStart)}</div>
-        <div class="mt-0.5 text-xs text-emerald-700">Wowhead 数据源 · 国服时间 +2 天 · 08:00 对齐</div>
+        <div class="text-sm font-extrabold text-slate-950">${formatMonthTitle(monthStart)}</div>
+        <div class="mt-0.5 text-[11px] text-emerald-700">Wowhead 数据源 · 国服时间 +2 天</div>
       </div>
-      <div class="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-800">未来 45 天</div>
+      <div class="rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-800">未来 45 天</div>
     </div>
-    <div class="grid grid-cols-7 border-b border-slate-100 bg-slate-50 text-center text-xs font-bold text-slate-500">
-      ${weekdays.map((day) => `<div class="px-2 py-2">周${day}</div>`).join("")}
+    <div class="grid grid-cols-7 border-b border-slate-100 bg-slate-50 text-center text-[11px] font-bold text-slate-500">
+      ${weekdays.map((day) => `<div class="px-1.5 py-1.5">周${day}</div>`).join("")}
     </div>
-    <div class="grid grid-cols-7 bg-slate-100 gap-px">
+    <div class="relative grid grid-cols-7 bg-slate-100 gap-px">
       ${visibleDays.map((date) => {
         const key = portalDateKey(date);
-        const events = dayItems.get(key) || [];
-        const muted = date.getMonth() !== monthStart.getMonth();
-        const isToday = portalDateKey(date) === portalDateKey(today);
-        return `<div class="min-h-[112px] bg-white p-2 ${muted ? "text-slate-300" : "text-slate-700"}">
-          <div class="mb-1 flex items-center justify-between">
-            <span class="${isToday ? "inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-xs font-extrabold text-white" : "text-xs font-bold"}">${date.getDate()}</span>
-          </div>
-          <div class="space-y-1">
-            ${events.slice(0, 3).map((it) => {
-              const title = escapeHtml(it.title || "");
-              const url = escapeHtml(sanitizeHref(it.url || "#"));
-              const rawStatus = String(it.status || "").trim();
-              const active = rawStatus.includes("进行中");
-              const cls = active ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-sky-100 bg-sky-50 text-sky-900";
-              const time = formatEventTime(it.start_at);
-              return `<a class="block rounded-lg border px-2 py-1 text-[11px] leading-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${cls}" href="${url}" target="_blank" rel="noreferrer">
-                <span class="block truncate font-bold">${title}</span>
-                ${time ? `<span class="mt-0.5 block text-[10px] opacity-75">${escapeHtml(time)}</span>` : ""}
-              </a>`;
-            }).join("")}
-            ${events.length > 3 ? `<div class="text-[10px] font-semibold text-slate-400">+${events.length - 3} 个活动</div>` : ""}
+        const muted = date < monthStart || date > monthEnd;
+        const isToday = key === todayKey;
+        return `<div class="bg-white p-1.5 ${muted ? "text-slate-300" : "text-slate-700"}" style="min-height:${dayMinHeight}px;">
+          <div class="flex items-center justify-between">
+            <span class="${isToday ? "inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[11px] font-extrabold text-white" : "text-[11px] font-bold"}">${date.getDate()}</span>
           </div>
         </div>`;
       }).join("")}
+      ${eventBars.join("")}
     </div>
   </div>`;
 
-  const upcomingHtml = `<div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-    ${filtered.slice(0, 9).map((it) => {
+  const upcomingHtml = `<div class="space-y-2">
+    ${filtered.slice(0, 10).map((it) => {
       const title = escapeHtml(it.title || "");
-      const url = escapeHtml(sanitizeHref(it.url || "#"));
       const start = escapeHtml(it.start_at || "");
       const end = escapeHtml(it.end_at || "");
       const rawStatus = String(it.status || "").trim();
       const status = escapeHtml(rawStatus);
       const range = end ? `${start} - ${end}` : start;
       const badgeCls = rawStatus.includes("进行中") ? "bg-emerald-100 text-emerald-800 border-emerald-200" : "bg-sky-100 text-sky-800 border-sky-200";
-      return `<a class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md" href="${url}" target="_blank" rel="noreferrer">
-        <div class="flex items-start justify-between gap-2">
+      const card = `<div class="flex items-start justify-between gap-2">
           <div class="font-semibold leading-5 text-slate-900 portal-line-clamp-2">${title}</div>
           ${status ? `<span class="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${badgeCls}">${status}</span>` : ""}
         </div>
-        ${range ? `<div class="mt-2 text-xs text-slate-500 portal-line-clamp-1">${range}</div>` : ""}
-      </a>`;
+        ${range ? `<div class="mt-1.5 text-xs text-slate-500 portal-line-clamp-1">${range}</div>` : ""}`;
+      return renderPortalEventLink(it, "block rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md", card);
     }).join("")}
   </div>`;
 
-  el.innerHTML = `<div class="overflow-x-auto pb-1">${calendarHtml}</div>${upcomingHtml}`;
+  el.innerHTML = `<div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(260px,0.9fr)_minmax(620px,1.6fr)] xl:items-start">
+    <div>
+      <div class="mb-2 text-xs font-bold text-slate-500">近期活动</div>
+      ${upcomingHtml}
+    </div>
+    <div class="overflow-x-auto pb-1">${calendarHtml}</div>
+  </div>`;
 }
 
 function renderWowSkillDiffList(containerId, items) {
