@@ -32,7 +32,10 @@ DEFAULT_EVENT_SOURCES = [
 WAGO_DB2_INDEX_URL = "https://wago.tools/db2"
 WAGO_DB2_CSV_URL = "https://wago.tools/db2/{table}/csv?build={build}&locale={locale}"
 WAGO_DB2_EVENT_TABLES = ("Holidays", "HolidayNames", "HolidayDescriptions")
+WAGO_DB2_GLOBAL_REGION = "0"
 WAGO_DB2_CN_REGION = "2"
+WAGO_DB2_ALLOWED_REGIONS = {WAGO_DB2_GLOBAL_REGION, WAGO_DB2_CN_REGION}
+WAGO_DB2_LOOPING_HORIZON_DAYS = 730
 
 EVENT_TITLE_KEYWORDS = [
     "活动",
@@ -241,26 +244,26 @@ class PortalEventService:
         events = []
         for row in holiday_rows:
             region = str(row.get("Region") or "").strip()
-            if region != WAGO_DB2_CN_REGION:
+            if region not in WAGO_DB2_ALLOWED_REGIONS:
                 continue
             holiday_id = str(row.get("ID") or "").strip()
             title = names.get(str(row.get("HolidayNameID") or ""), "").strip()
             if not holiday_id or not title:
                 continue
             summary = descriptions.get(str(row.get("HolidayDescriptionID") or ""), "").strip()
-            durations = self._extract_db2_durations(row)
-            dates = self._extract_db2_dates(row)
-            if not dates and not durations:
+            occurrences = self._extract_db2_occurrences(row)
+            if not occurrences:
                 continue
             texture_ids = [
                 int(row.get(f"TextureFileDataID_{index}") or 0)
                 for index in range(3)
                 if int(row.get(f"TextureFileDataID_{index}") or 0)
             ]
-            for index, start_at in enumerate(dates):
-                duration_hours = durations[min(index, len(durations) - 1)] if durations else 0
+            for occurrence_index, occurrence in enumerate(occurrences):
+                start_at = occurrence["start_at"]
+                duration_hours = occurrence["duration_hours"]
                 end_at = start_at + timedelta(hours=duration_hours) if duration_hours else None
-                external_id = f"db2-holiday-{holiday_id}-{index}-{int(start_at.timestamp())}"
+                external_id = f"db2-holiday-{holiday_id}-{occurrence_index}-{int(start_at.timestamp())}"
                 events.append(ParsedPortalEvent(
                     title=title,
                     url=f"https://wago.tools/db2/Holidays?build={build}&locale={locale}&filter%5BID%5D=exact%3A{holiday_id}",
@@ -278,7 +281,11 @@ class PortalEventService:
                         "table": "Holidays",
                         "holiday_id": holiday_id,
                         "region": region,
-                        "date_index": index,
+                        "region_scope": "global" if region == WAGO_DB2_GLOBAL_REGION else "cn",
+                        "date_index": occurrence["date_index"],
+                        "occurrence_index": occurrence_index,
+                        "is_looping": occurrence["is_looping"],
+                        "loop_interval_hours": occurrence["loop_interval_hours"],
                         "duration_hours": duration_hours,
                         "texture_file_data_ids": texture_ids,
                         "row": row,
@@ -324,6 +331,40 @@ class PortalEventService:
             if value > 0:
                 durations.append(value)
         return durations
+
+    def _extract_db2_occurrences(self, row):
+        dates = self._extract_db2_dates(row)
+        if not dates:
+            return []
+        durations = self._extract_db2_durations(row)
+        duration_hours = durations[0] if durations else 0
+        loop_interval_hours = durations[1] if len(durations) > 1 else 0
+        is_looping = self._is_truthy_db2_value(row.get("Looping")) and loop_interval_hours > 0
+        horizon_end = timezone.now() + timedelta(days=WAGO_DB2_LOOPING_HORIZON_DAYS)
+        occurrences = []
+        seen_starts = set()
+        for date_index, base_start in enumerate(dates):
+            start_at = base_start
+            while True:
+                if start_at not in seen_starts:
+                    seen_starts.add(start_at)
+                    occurrences.append({
+                        "start_at": start_at,
+                        "date_index": date_index,
+                        "duration_hours": duration_hours,
+                        "is_looping": is_looping,
+                        "loop_interval_hours": loop_interval_hours if is_looping else 0,
+                    })
+                if not is_looping:
+                    break
+                start_at = start_at + timedelta(hours=loop_interval_hours)
+                if start_at > horizon_end:
+                    break
+        occurrences.sort(key=lambda item: item["start_at"])
+        return occurrences
+
+    def _is_truthy_db2_value(self, value):
+        return str(value or "").strip().lower() in {"1", "true", "yes"}
 
     def _extract_db2_dates(self, row):
         dates = []
