@@ -164,17 +164,16 @@ class Command(BaseCommand):
             850: 'Warrior',
         }
 
-        # 预取现有数据库节点 {(class_name, spec_name, tree_type, node_id, spell_id): id}
-        existing = set()
-        qs = WowTalentNodeMetadata.objects.values_list(
-            'class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id'
-        )
+        # 预取现有数据库节点。唯一键不含 source；如果旧玩家/排名采样行已存在，
+        # DB2 回填必须升级并补齐该行，而不是跳过，否则完整树会缺共享节点。
+        existing_by_key = {}
+        qs = WowTalentNodeMetadata.objects.all()
         if class_name:
             qs = qs.filter(class_name=class_name)
         for row in qs.iterator():
-            existing.add(row)
+            existing_by_key[(row.class_name, row.spec_name, row.tree_type, row.node_id, row.spell_id)] = row
 
-        self.stdout.write(f'\n现有数据库节点: {len(existing)}')
+        self.stdout.write(f'\n现有数据库节点: {len(existing_by_key)}')
 
         # 处理每个职业
         targets = list(tree_to_class.items())
@@ -198,6 +197,7 @@ class Command(BaseCommand):
 
             for spec_name in specs:
                 to_create = []
+                to_update = []
 
                 for trait_node_id, node_info in tree_trait_nodes.items():
                     # 基础分类必须按 TraitNode 重新计算；不要在 entry 循环里复用/污染。
@@ -269,11 +269,6 @@ class Command(BaseCommand):
 
                         # 检查是否已存在 (用实际 spell_id)
                         check_key = (cls_name, spec_name, tree_type, entry_id, resolved_spell_id)
-                        if check_key in existing:
-                            skipped += 1
-                            continue
-
-                        # 解析 parents
                         parent_entry_ids = []
                         parent_node_ids = edges_by_right.get(trait_node_id, [])
                         for parent_nid in parent_node_ids:
@@ -289,33 +284,56 @@ class Command(BaseCommand):
                                 name_zh = subtree_name
 
                         now = timezone.now()
+                        values = {
+                            'talent_id': trait_node_id,
+                            'name': name[:255] if name else '',
+                            'name_zh': name_zh[:255] if name_zh else '',
+                            'icon': icon[:255] if icon else '',
+                            'row': node_info['pos_y'] if node_info['pos_y'] else None,
+                            'column': node_info['pos_x'] if node_info['pos_x'] else None,
+                            'max_points': max_points,
+                            'parents_json': sorted(parent_entry_ids),
+                            'source': 'db2_backfill',
+                            'db2_subtree_id': subtree_id,
+                            'db2_tree_id': db2_tree_id,
+                            'db2_component_id': db2_component_id,
+                            'display_spell_id': display_spell_id,
+                            'last_updated': now,
+                        }
+                        existing_row = existing_by_key.get(check_key)
+                        if existing_row:
+                            for field_name, value in values.items():
+                                if value in ('', None) and field_name in ('name', 'name_zh', 'icon', 'display_spell_id'):
+                                    continue
+                                setattr(existing_row, field_name, value)
+                            to_update.append(existing_row)
+                            skipped += 1
+                            continue
+
                         obj = WowTalentNodeMetadata(
                             class_name=cls_name,
                             spec_name=spec_name,
                             tree_type=tree_type,
                             node_id=entry_id,
                             spell_id=resolved_spell_id,
-                            talent_id=trait_node_id,
-                            name=name[:255] if name else '',
-                            name_zh=name_zh[:255] if name_zh else '',
-                            icon=icon[:255] if icon else '',
-                            row=node_info['pos_y'] if node_info['pos_y'] else None,
-                            column=node_info['pos_x'] if node_info['pos_x'] else None,
-                            max_points=max_points,
-                            parents_json=sorted(parent_entry_ids),
-                            source='db2_backfill',
-                            db2_subtree_id=subtree_id,
-                            db2_tree_id=db2_tree_id,
-                            db2_component_id=db2_component_id,
-                            display_spell_id=display_spell_id,
-                            last_updated=now,
+                            **values,
                         )
                         to_create.append(obj)
-                        existing.add(check_key)
+                        existing_by_key[check_key] = obj
 
                 if to_create and not dry_run:
                     WowTalentNodeMetadata.objects.bulk_create(
                         to_create, batch_size=500, ignore_conflicts=True
+                    )
+                if to_update and not dry_run:
+                    WowTalentNodeMetadata.objects.bulk_update(
+                        to_update,
+                        [
+                            'talent_id', 'name', 'name_zh', 'icon', 'row', 'column',
+                            'max_points', 'parents_json', 'source', 'db2_subtree_id',
+                            'db2_tree_id', 'db2_component_id', 'display_spell_id', 'last_updated',
+                        ],
+                        batch_size=500,
                     )
                 created += len(to_create)
 

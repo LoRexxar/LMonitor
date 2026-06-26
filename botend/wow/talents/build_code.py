@@ -70,17 +70,26 @@ class TalentBuildCodeDecoder:
 
     @staticmethod
     def _ordered_nodes(full_nodes):
+        """对节点列表去重并按 Blizzard canonical ordering 排序。
+
+        Build code 按 talent_id（DB2 TraitNode ID）顺序编码每个节点。
+        对于 choice 节点，整个 TraitNode 只占一个 decode 位（不是每个 entry 一个位）。
+        """
+
         def _sort_key(node):
             return (
-                int(node.get('node_id') or 0),
                 int(node.get('talent_id') or 0),
-                int(node.get('spell_id') or 0),
+                int(node.get('node_id') or 0),
             )
 
+        # 按 talent_id 去重 — choice 节点的多个 entry 应合并为一个
         dedup = {}
         for node in full_nodes:
-            key = _build_node_key(node)
-            if not key or key in dedup:
+            tid = node.get('talent_id')
+            if not tid:
+                continue
+            key = str(tid)
+            if key in dedup:
                 continue
             dedup[key] = dict(node)
         return sorted(dedup.values(), key=_sort_key)

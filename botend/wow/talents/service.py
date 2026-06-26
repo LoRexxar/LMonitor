@@ -5,7 +5,7 @@ import json
 from collections import defaultdict
 from functools import lru_cache
 
-from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder
+from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder, _build_node_key
 from botend.wow.talents.metadata import TalentMetadataProvider
 from botend.wow.talents.parser import normalize_talent_payload
 from botend.wow.talents.view_model import build_talent_view_model
@@ -146,42 +146,63 @@ class TalentBuildCodeService:
         provider = TalentMetadataProvider()
         full_nodes = provider.get_full_tree_nodes(class_name, spec_name)
 
-        # --- hero subtree filtering for build code decoding ---
-        # Build code only encodes ONE hero subtree, but full_nodes may contain
-        # hero nodes from ALL subtrees. Filter to the active subtree so the
-        # decoder reads the correct number of bits.
-        if full_nodes and build_code:
+        # --- build code decoding uses ALL nodes (all hero subtrees + hero_anchor) ---
+        # Blizzard build code encodes the entire class tree (one bit per TraitNode),
+        # sorted by talent_id (TraitNode ID). We need the full node list for correct
+        # bit alignment.
+        decoder_nodes = provider.get_decoder_node_list(class_name) if build_code else []
+        decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if build_code and decoder_nodes else {}
+
+        # --- hero subtree filtering for RENDERING (not decoding) ---
+        # The rendering only shows the active hero subtree's nodes.
+        # When build_code is available, use decoded states to determine active subtree
+        # (more reliable than old talents_json which may have stale subtree_id=0).
+        render_nodes = full_nodes
+        if render_nodes:
             hero_by_subtree = defaultdict(list)
-            node_id_to_subtree = {}
-            for node in full_nodes:
+            for node in render_nodes:
                 if (node.get('tree_type') or 'spec') == 'hero':
                     subtree = node.get('db2_subtree_id') or 0
                     hero_by_subtree[subtree].append(node)
-                    nid = node.get('node_id')
-                    if nid:
-                        node_id_to_subtree[nid] = subtree
             if len(hero_by_subtree) > 1:
-                # Determine active subtree from selected_nodes via node_id mapping
-                subtree_points = defaultdict(int)
-                for sn in selected_nodes:
-                    if (sn.get('tree_type') or 'spec') == 'hero':
-                        nid = sn.get('node_id')
-                        subtree = node_id_to_subtree.get(nid)
-                        if subtree:
-                            subtree_points[subtree] += sn.get('points', 0) or 0
-                if subtree_points:
-                    active_subtree = max(subtree_points, key=subtree_points.get)
-                else:
-                    # Fallback: keep subtree with most nodes (likely the correct one)
+                active_subtree = None
+                if decoded_states:
+                    # Determine active subtree from decoded states
+                    subtree_points = defaultdict(int)
+                    for node in decoder_nodes:
+                        if (node.get('tree_type') or 'spec') == 'hero':
+                            key = _build_node_key(node)
+                            state = decoded_states.get(key)
+                            if state and state.get('selected'):
+                                subtree_points[node.get('db2_subtree_id', 0)] += state.get('points', 0)
+                    if subtree_points:
+                        active_subtree = max(subtree_points, key=subtree_points.get)
+                if active_subtree is None and selected_nodes:
+                    # Fallback to selected_nodes from talents_json
+                    node_id_to_subtree = {}
+                    for node in render_nodes:
+                        if (node.get('tree_type') or 'spec') == 'hero':
+                            nid = node.get('node_id')
+                            if nid:
+                                node_id_to_subtree[nid] = node.get('db2_subtree_id') or 0
+                    subtree_points = defaultdict(int)
+                    for sn in selected_nodes:
+                        if (sn.get('tree_type') or 'spec') == 'hero':
+                            nid = sn.get('node_id')
+                            subtree = node_id_to_subtree.get(nid)
+                            if subtree:
+                                subtree_points[subtree] += sn.get('points', 0) or 0
+                    if subtree_points:
+                        active_subtree = max(subtree_points, key=subtree_points.get)
+                if active_subtree is None:
                     active_subtree = max(hero_by_subtree, key=lambda k: len(hero_by_subtree[k]))
-                full_nodes = [
-                    n for n in full_nodes
+                render_nodes = [
+                    n for n in render_nodes
                     if (n.get('tree_type') or 'spec') != 'hero'
                     or (n.get('db2_subtree_id') or 0) == active_subtree
                 ]
 
-        decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, full_nodes) if build_code and full_nodes else {}
-        merged_nodes = cls._merge_full_tree_nodes(full_nodes, selected_nodes, decoded_states=decoded_states, has_build_code=bool(build_code)) if full_nodes else selected_nodes
+        merged_nodes = cls._merge_full_tree_nodes(render_nodes, selected_nodes, decoded_states=decoded_states, has_build_code=bool(build_code)) if render_nodes else selected_nodes
         if build_code:
             merged_nodes.insert(0, {
                 'tree_type': 'build_code',

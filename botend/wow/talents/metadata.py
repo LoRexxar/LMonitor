@@ -190,6 +190,65 @@ class TalentMetadataProvider:
         self._spec_cache[cache_key] = [dict(node) for node in nodes]
         return [dict(node) for node in nodes]
 
+    def get_decoder_node_list(self, class_name):
+        """返回 build code 解码所需的完整节点列表。
+
+        与 get_full_tree_nodes 不同，此方法：
+        - 包含所有 spec 的节点（build code 编码整棵职业树）
+        - 包含 hero_anchor 节点
+        - 按 talent_id（DB2 TraitNode ID）分组，每个 talent_id 一条
+        - 按 talent_id 排序（Blizzard build code 的 canonical ordering）
+        - 不做 spell_id 去重（每个 TraitNode 独立占一个 decode 位）
+        """
+        cache_key = (class_name or '', '', 'decoder_nodes')
+        if cache_key in self._spec_cache:
+            return [dict(node) for node in self._spec_cache[cache_key]]
+
+        rows = WowTalentNodeMetadata.objects.filter(
+            class_name=class_name or '',
+            source__in=AUTHORITATIVE_TALENT_SOURCES,
+        ).order_by('talent_id', 'node_id', 'spell_id')
+
+        grouped = {}
+        for row in rows.iterator():
+            row_data = self._as_dict(row)
+            tid = row_data.get('talent_id')
+            if not tid:
+                continue
+            if tid not in grouped:
+                grouped[tid] = row_data
+            else:
+                current = grouped[tid]
+                if row_data.get('tree_type') == 'hero_anchor':
+                    current['tree_type'] = 'hero_anchor'
+                opts = current.setdefault('choice_options', [])
+                current['is_choice_node'] = True
+                if row_data not in opts:
+                    opts.append(row_data)
+
+        nodes = []
+        for tid in sorted(grouped.keys()):
+            node = grouped[tid]
+            opts = node.get('choice_options', [])
+            if opts:
+                deduped = dedupe_talent_option_nodes([node] + opts)
+                node = dict(deduped[0])
+                if len(deduped) > 1:
+                    node['choice_options'] = [
+                        self._build_choice_option(o) for o in deduped
+                    ]
+                    node['is_choice_node'] = True
+                else:
+                    node['choice_options'] = []
+                    node['is_choice_node'] = False
+            else:
+                node['choice_options'] = []
+                node['is_choice_node'] = False
+            nodes.append(node)
+
+        self._spec_cache[cache_key] = nodes
+        return [dict(n) for n in nodes]
+
     def _get_spec_indexes(self, class_name, spec_name):
         cache_key = (class_name or '', spec_name or '')
         if cache_key in self._spec_cache:
