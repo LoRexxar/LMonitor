@@ -1222,10 +1222,12 @@ function renderVideos(payload) {
         ${coverHtml}
         ${titleHtml}
         <div class="mt-1.5 flex items-center gap-1 text-[11px] leading-4 text-slate-500">
-          <span class="min-w-0 flex-1 truncate">${authorHtml}</span>
+          <span class="min-w-0 flex-1">${tagBadge}</span>
           ${time ? `<span class="shrink-0 text-slate-400">${time}</span>` : ""}
         </div>
-        ${tagBadge ? `<div class="mt-1 flex">${tagBadge}</div>` : ""}
+        <div class="mt-1 flex items-center text-[11px] leading-4 text-slate-500">
+          <span class="min-w-0 flex-1 truncate">${authorHtml}</span>
+        </div>
       </div>`;
     })
     .join("")}</div>`;
