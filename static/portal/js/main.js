@@ -1208,7 +1208,7 @@ function renderVideos(payload) {
         ? `<img src="${cover}" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" loading="lazy" />`
         : `<div class="w-full h-full portal-skeleton"></div>`;
       const sourceBadge = source ? `<span class="rounded-full bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 shadow-sm">${source}</span>` : "";
-      const tagBadge = tag ? `<span class="rounded-full bg-fuchsia-50 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700 border border-fuchsia-100 portal-line-clamp-1">${tag}</span>` : "";
+      const tagText = tag ? `<span class="truncate text-[11px] font-medium text-fuchsia-700">${tag}</span>` : "";
       const coverHtml = url
         ? `<a class="group relative block aspect-video overflow-hidden rounded-lg border border-slate-200 bg-slate-100" href="${url}" target="_blank" rel="noreferrer">${coverBox}<span class="absolute left-1.5 top-1.5">${sourceBadge}</span></a>`
         : `<div class="relative aspect-video overflow-hidden rounded-lg border border-slate-200 bg-slate-100">${coverBox}<span class="absolute left-1.5 top-1.5">${sourceBadge}</span></div>`;
@@ -1221,11 +1221,12 @@ function renderVideos(payload) {
       return `<div class="rounded-xl border border-slate-200/80 bg-white p-2 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
         ${coverHtml}
         ${titleHtml}
-        <div class="mt-1.5 flex items-center gap-1 text-[11px] leading-4 text-slate-500">
-          <span class="min-w-0 flex-1">${tagBadge}</span>
+        <div class="mt-1.5 flex items-center gap-2 text-[11px] leading-4 text-slate-500">
+          <span class="min-w-0 flex-1 truncate">${tagText}</span>
           ${time ? `<span class="shrink-0 text-slate-400">${time}</span>` : ""}
         </div>
-        <div class="mt-1 flex items-center text-[11px] leading-4 text-slate-500">
+        <div class="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] leading-4 text-slate-400">
+          ${svgIcon("icon-user", "w-3 h-3 shrink-0 text-slate-300")}
           <span class="min-w-0 flex-1 truncate">${authorHtml}</span>
         </div>
       </div>`;
