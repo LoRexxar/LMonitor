@@ -32,6 +32,7 @@ DEFAULT_EVENT_SOURCES = [
 WAGO_DB2_INDEX_URL = "https://wago.tools/db2"
 WAGO_DB2_CSV_URL = "https://wago.tools/db2/{table}/csv?build={build}&locale={locale}"
 WAGO_DB2_EVENT_TABLES = ("Holidays", "HolidayNames", "HolidayDescriptions")
+WAGO_DB2_CN_REGION = "2"
 
 EVENT_TITLE_KEYWORDS = [
     "活动",
@@ -239,6 +240,9 @@ class PortalEventService:
         }
         events = []
         for row in holiday_rows:
+            region = str(row.get("Region") or "").strip()
+            if region != WAGO_DB2_CN_REGION:
+                continue
             holiday_id = str(row.get("ID") or "").strip()
             title = names.get(str(row.get("HolidayNameID") or ""), "").strip()
             if not holiday_id or not title:
@@ -273,6 +277,7 @@ class PortalEventService:
                         "locale": locale,
                         "table": "Holidays",
                         "holiday_id": holiday_id,
+                        "region": region,
                         "date_index": index,
                         "duration_hours": duration_hours,
                         "texture_file_data_ids": texture_ids,
