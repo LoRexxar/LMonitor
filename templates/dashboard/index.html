@@ -102,7 +102,7 @@
         .wow-md-content pre code { background: transparent; padding: 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260627_form_cleanup" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260627_modal_layout" defer></script>
 </head>
 <body class="bg-gray-50 font-sans">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -1026,10 +1026,10 @@
     </div>
     
     <!-- 新增记录弹窗 -->
-    <div id="add-record-modal" class="fixed inset-0 bg-black bg-opacity-60 overflow-y-auto h-full w-full hidden z-50 flex items-center justify-center p-4">
-        <div class="relative w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden">
+    <div id="add-record-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden z-[1000] items-start justify-center overflow-y-auto p-2">
+        <div class="relative w-full max-w-2xl my-1 bg-white rounded-2xl shadow-2xl overflow-hidden">
             <!-- 弹窗头部 -->
-            <div class="bg-gradient-to-r from-blue-500 to-purple-600 px-8 py-6">
+            <div class="bg-gradient-to-r from-blue-500 to-purple-600 px-6 py-3 flex-shrink-0">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center space-x-3">
                         <div class="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
@@ -1044,10 +1044,10 @@
             </div>
             
             <!-- 弹窗内容 -->
-            <div class="overflow-y-auto max-h-[calc(90vh-140px)]">
-                <div class="px-8 py-6">
+            <div>
+                <div class="px-6 py-4">
                     <form id="add-record-form">
-                        <div id="form-fields" class="space-y-6">
+                        <div id="form-fields" class="space-y-3">
                             <!-- 表单字段将由JavaScript动态生成 -->
                         </div>
                     </form>
@@ -1055,12 +1055,12 @@
             </div>
             
             <!-- 弹窗底部 -->
-            <div class="bg-gray-50 px-8 py-6 border-t border-gray-200">
+            <div class="bg-gray-50 px-6 py-3 border-t border-gray-200">
                 <div class="flex justify-end space-x-4">
-                    <button type="button" id="cancel-btn" class="px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 font-medium">
+                    <button type="button" id="cancel-btn" class="px-6 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 font-medium">
                         <i class="fas fa-times mr-2"></i>取消
                     </button>
-                    <button type="submit" form="add-record-form" id="submit-btn" class="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl">
+                    <button type="submit" form="add-record-form" id="submit-btn" class="px-6 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl">
                         <i class="fas fa-save mr-2"></i>保存
                     </button>
                 </div>
@@ -1069,9 +1069,9 @@
     </div>
 
     <!-- 编辑记录弹窗 -->
-    <div id="edit-record-modal" class="fixed inset-0 bg-black bg-opacity-60 overflow-y-auto h-full w-full hidden z-50 flex items-center justify-center p-4">
-        <div class="relative w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div class="bg-gradient-to-r from-emerald-500 to-teal-600 px-8 py-6">
+    <div id="edit-record-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden z-[1000] items-start justify-center overflow-y-auto p-2">
+        <div class="relative w-full max-w-2xl my-1 bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div class="bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-3 flex-shrink-0">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center space-x-3">
                         <div class="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
@@ -1085,21 +1085,21 @@
                 </div>
             </div>
 
-            <div class="overflow-y-auto max-h-[calc(90vh-140px)]">
-                <div class="px-8 py-6">
+            <div>
+                <div class="px-6 py-4">
                     <form id="edit-record-form">
                         <input type="hidden" id="edit-row-id" />
-                        <div id="edit-form-fields" class="space-y-6"></div>
+                        <div id="edit-form-fields" class="space-y-3"></div>
                     </form>
                 </div>
             </div>
 
-            <div class="bg-gray-50 px-8 py-6 border-t border-gray-200">
+            <div class="bg-gray-50 px-6 py-3 border-t border-gray-200">
                 <div class="flex justify-end space-x-4">
-                    <button type="button" id="cancel-edit-btn" class="px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 font-medium">
+                    <button type="button" id="cancel-edit-btn" class="px-6 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 font-medium">
                         <i class="fas fa-times mr-2"></i>取消
                     </button>
-                    <button type="submit" form="edit-record-form" id="submit-edit-btn" class="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl">
+                    <button type="submit" form="edit-record-form" id="submit-edit-btn" class="px-6 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl">
                         <i class="fas fa-save mr-2"></i>保存
                     </button>
                 </div>

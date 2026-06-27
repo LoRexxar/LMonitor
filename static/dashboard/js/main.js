@@ -3686,8 +3686,9 @@ function openAddRecordModal() {
     // 生成表单字段
     generateFormFields(formFields);
     
-    // 显示弹窗
     modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
 }
 
 /**
@@ -3699,6 +3700,8 @@ function closeAddRecordModal() {
     
     // 隐藏弹窗
     modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.body.style.overflow = '';
     
     // 重置表单
     addRecordForm.reset();
@@ -3745,6 +3748,8 @@ function openEditRecordModal(rowId) {
     
     generateEditFormFields(formFields, rowData);
     modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
 }
 
 function closeEditRecordModal() {
@@ -3753,7 +3758,11 @@ function closeEditRecordModal() {
     const fields = document.getElementById('edit-form-fields');
     const idInput = document.getElementById('edit-row-id');
     
-    if (modal) modal.classList.add('hidden');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+    document.body.style.overflow = '';
     if (form) form.reset();
     if (fields) fields.innerHTML = '';
     if (idInput) idInput.value = '';
@@ -3774,7 +3783,7 @@ function generateEditFormFields(container, rowData) {
         }
         if (column.toLowerCase().endsWith('_hash')) {
             const fieldDiv = document.createElement('div');
-            fieldDiv.className = 'space-y-2';
+            fieldDiv.className = 'space-y-1';
             const label = document.createElement('label');
             label.className = 'block text-sm font-semibold text-gray-700';
             label.textContent = getFieldDisplayName(column);
@@ -3784,7 +3793,7 @@ function generateEditFormFields(container, rowData) {
             input.id = `edit-field-${column}`;
             input.name = column;
             input.readOnly = true;
-            input.className = 'w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 font-mono text-xs text-gray-700';
+            input.className = 'w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 font-mono text-xs text-gray-700';
             input.value = rowData && rowData[column] !== null && rowData[column] !== undefined ? String(rowData[column]) : '';
             fieldDiv.appendChild(label);
             fieldDiv.appendChild(input);
@@ -3793,7 +3802,7 @@ function generateEditFormFields(container, rowData) {
         }
         
         const fieldDiv = document.createElement('div');
-        fieldDiv.className = 'space-y-2';
+        fieldDiv.className = 'space-y-1';
         
         const label = document.createElement('label');
         label.className = 'block text-sm font-semibold text-gray-700';
@@ -3807,7 +3816,7 @@ function generateEditFormFields(container, rowData) {
             inputElement = document.createElement('textarea');
             inputElement.rows = 4;
             inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
-            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 resize-none';
+            inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 resize-none';
             inputElement.value = rowData && rowData[column] !== null && rowData[column] !== undefined ? String(rowData[column]) : '';
         } else if (inputType === 'checkbox') {
             inputElement = document.createElement('input');
@@ -3818,7 +3827,7 @@ function generateEditFormFields(container, rowData) {
         } else if (isTimeField(column)) {
             inputElement = document.createElement('input');
             inputElement.type = 'datetime-local';
-            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200';
+            inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200';
             const raw = rowData && rowData[column] !== null && rowData[column] !== undefined ? rowData[column] : '';
             const parsed = parseDateTimeForInput(String(raw));
             if (parsed) {
@@ -3828,7 +3837,7 @@ function generateEditFormFields(container, rowData) {
             inputElement = document.createElement('input');
             inputElement.type = inputType;
             inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
-            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200';
+            inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200';
             if (inputType === 'number') {
                 if (currentFieldTypes && currentFieldTypes[column]) {
                     const fieldType = currentFieldTypes[column].type;
@@ -3860,7 +3869,7 @@ function generateEditFormFields(container, rowData) {
         
         if (inputType === 'checkbox') {
             const checkboxWrapper = document.createElement('div');
-            checkboxWrapper.className = 'bg-gray-50 p-4 rounded-lg';
+            checkboxWrapper.className = 'bg-gray-50 p-3 rounded-lg';
             const checkboxDiv = document.createElement('div');
             checkboxDiv.className = 'flex items-center';
             checkboxDiv.appendChild(inputElement);
@@ -3970,7 +3979,7 @@ function generateFormFields(container) {
         }
         
         const fieldDiv = document.createElement('div');
-        fieldDiv.className = 'space-y-2';
+        fieldDiv.className = 'space-y-1';
         
         const label = document.createElement('label');
         label.className = 'block text-sm font-semibold text-gray-700';
@@ -3984,7 +3993,7 @@ function generateFormFields(container) {
         
         if (selectOptions) {
             inputElement = document.createElement('select');
-            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white';
+            inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white';
             selectOptions.forEach(option => {
                 const optionElement = document.createElement('option');
                 optionElement.value = option.value;
@@ -3999,7 +4008,7 @@ function generateFormFields(container) {
             inputElement = document.createElement('textarea');
             inputElement.rows = 4;
             inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
-            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none';
+            inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none';
         } else if (inputType === 'checkbox') {
             // 创建checkbox元素
             inputElement = document.createElement('input');
@@ -4014,13 +4023,13 @@ function generateFormFields(container) {
         } else if (isTimeField(column)) {
             inputElement = document.createElement('input');
             inputElement.type = 'datetime-local';
-            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200';
+            inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200';
         } else {
             // 创建普通input元素
             inputElement = document.createElement('input');
             inputElement.type = inputType;
             inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
-            inputElement.className = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200';
+            inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200';
             // 为数字类型设置step属性
             if (inputType === 'number') {
                 if (currentFieldTypes && currentFieldTypes[column]) {
@@ -4051,7 +4060,7 @@ function generateFormFields(container) {
         // 为checkbox创建特殊布局
         if (inputType === 'checkbox') {
             const checkboxWrapper = document.createElement('div');
-            checkboxWrapper.className = 'bg-gray-50 p-4 rounded-lg';
+            checkboxWrapper.className = 'bg-gray-50 p-3 rounded-lg';
             const checkboxDiv = document.createElement('div');
             checkboxDiv.className = 'flex items-center';
             checkboxDiv.appendChild(inputElement);
@@ -4077,6 +4086,7 @@ function getFieldDisplayName(column) {
     const rawLabel = (currentFieldLabels && currentFieldLabels[column]) ? String(currentFieldLabels[column]).trim() : '';
     if (rawLabel && !isProbablyEnglishLabel(rawLabel)) return rawLabel;
     const fieldNames = {
+        platform: '平台',
         apl_keyword: 'APL关键字',
         cn_keyword: '中文关键字',
         id: '编号',
