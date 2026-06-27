@@ -404,6 +404,8 @@ const PORTAL_STATE = {
   dataBySection: {},
   videoTags: [],
   activeVideoTag: "",
+  activeVideoIndex: 0,
+  videoAutoTimer: null,
   activeDungeon: "",
   mplusCutoffsMeta: { season: "", updated_at: "" },
   activeMythicstatsDungeon: 0,
@@ -1150,10 +1152,111 @@ function renderMythicstatsTables() {
   `;
 }
 
+function stopVideoAutoRotate() {
+  if (PORTAL_STATE.videoAutoTimer) {
+    window.clearInterval(PORTAL_STATE.videoAutoTimer);
+    PORTAL_STATE.videoAutoTimer = null;
+  }
+}
+
+function getFilteredVideos() {
+  const items = PORTAL_STATE.dataBySection.videos || [];
+  const active = PORTAL_STATE.activeVideoTag || "";
+  const q = getSearchQuery();
+  const filteredByTag = active ? items.filter((x) => (x.tag || "") === active) : items;
+  return filterItems(filteredByTag, q).slice(0, 24);
+}
+
+function renderVideoHero(container, videos) {
+  if (!container || !videos.length) return;
+  if (PORTAL_STATE.activeVideoIndex >= videos.length) PORTAL_STATE.activeVideoIndex = 0;
+  const it = videos[PORTAL_STATE.activeVideoIndex] || videos[0];
+  const title = escapeHtml(it.title || "");
+  const urlHref = sanitizeHref(it.url || "");
+  const url = escapeHtml(urlHref);
+  const coverHref = getBilibiliThumbnailUrl(it.cover_url || it.cover || "");
+  const cover = escapeHtml(coverHref);
+  const author = escapeHtml(it.author || "未知 UP");
+  const authorHref = sanitizeHref(it.author_url || "");
+  const authorUrl = escapeHtml(authorHref);
+  const time = escapeHtml((it.published_at || "").replaceAll("\n", " ").trim());
+  const tag = escapeHtml(it.tag || "");
+  const source = escapeHtml(it.source || "Bilibili");
+  const progress = videos.length > 1 ? `${PORTAL_STATE.activeVideoIndex + 1} / ${videos.length}` : "";
+  const coverHtml = cover
+    ? `<img src="${cover}" alt="" class="portal-video-hero-img" loading="lazy" />`
+    : `<div class="portal-video-hero-img portal-skeleton"></div>`;
+  const authorHtml = authorUrl
+    ? `<a class="portal-video-hero-author" href="${escapeHtml(authorHref)}" target="_blank" rel="noreferrer">${author}</a>`
+    : `<span class="portal-video-hero-author">${author}</span>`;
+  const titleHtml = url
+    ? `<a class="portal-video-hero-title" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
+    : `<span class="portal-video-hero-title">${title}</span>`;
+  const playHtml = url
+    ? `<a class="portal-video-play" href="${url}" target="_blank" rel="noreferrer" aria-label="打开视频">▶</a>`
+    : `<span class="portal-video-play" aria-hidden="true">▶</span>`;
+  container.innerHTML = `
+    <div class="portal-video-hero-frame">
+      ${coverHtml}
+      <div class="portal-video-hero-shade"></div>
+      <div class="portal-video-hero-top">
+        ${tag ? `<span class="portal-video-chip">${tag}</span>` : ""}
+        <span class="portal-video-chip portal-video-chip-dark">${source}</span>
+        ${progress ? `<span class="portal-video-counter">${progress}</span>` : ""}
+      </div>
+      ${playHtml}
+      <div class="portal-video-hero-body">
+        ${titleHtml}
+        <div class="portal-video-hero-meta">
+          ${svgIcon("icon-user", "w-3.5 h-3.5")}
+          ${authorHtml}
+          ${time ? `<span class="portal-video-dot"></span><span>${time}</span>` : ""}
+        </div>
+      </div>
+    </div>`;
+}
+
+function bindVideoShowcase(root, videos) {
+  const heroEl = root.querySelector("[data-video-hero]");
+  const listEl = root.querySelector("[data-video-list]");
+  if (!heroEl || !listEl) return;
+  const update = () => {
+    renderVideoHero(heroEl, videos);
+    listEl.querySelectorAll("[data-video-index]").forEach((node) => {
+      const on = Number(node.getAttribute("data-video-index")) === PORTAL_STATE.activeVideoIndex;
+      node.classList.toggle("is-active", on);
+      if (on) node.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  };
+  listEl.querySelectorAll("[data-video-index]").forEach((node) => {
+    node.addEventListener("click", () => {
+      PORTAL_STATE.activeVideoIndex = Number(node.getAttribute("data-video-index")) || 0;
+      update();
+    });
+  });
+  update();
+
+  stopVideoAutoRotate();
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (videos.length > 1 && !reduceMotion) {
+    const start = () => {
+      stopVideoAutoRotate();
+      PORTAL_STATE.videoAutoTimer = window.setInterval(() => {
+        PORTAL_STATE.activeVideoIndex = (PORTAL_STATE.activeVideoIndex + 1) % videos.length;
+        update();
+      }, 4000);
+    };
+    root.addEventListener("mouseenter", stopVideoAutoRotate);
+    root.addEventListener("mouseleave", start);
+    start();
+  }
+}
+
 function renderVideos(payload) {
   const tagsEl = document.getElementById(SECTION_MAP.videos.tagsId);
   const listEl = document.getElementById(SECTION_MAP.videos.listId);
   if (!listEl) return;
+  stopVideoAutoRotate();
   const tags = payload?.tags || [];
   const items = payload?.items || [];
   PORTAL_STATE.dataBySection.videos = items;
@@ -1178,60 +1281,58 @@ function renderVideos(payload) {
       b.addEventListener("click", async () => {
         const tag = b.getAttribute("data-video-tag") || "";
         PORTAL_STATE.activeVideoTag = tag;
+        PORTAL_STATE.activeVideoIndex = 0;
         await loadSection("videos");
       });
     });
   }
 
-  const q = getSearchQuery();
-  const filteredByTag = active ? items.filter((x) => (x.tag || "") === active) : items;
-  const filtered = filterItems(filteredByTag, q);
+  const filtered = getFilteredVideos();
+  PORTAL_STATE.activeVideoIndex = Math.min(PORTAL_STATE.activeVideoIndex || 0, Math.max(filtered.length - 1, 0));
   if (!filtered.length) {
     listEl.innerHTML = `<div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-sm text-slate-500">无匹配视频</div>`;
     return;
   }
-  listEl.innerHTML = `<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5">${filtered
-    .slice(0, 18)
-    .map((it) => {
-      const title = escapeHtml(it.title || "");
-      const urlHref = sanitizeHref(it.url || "");
-      const url = escapeHtml(urlHref);
-      const coverHref = getBilibiliThumbnailUrl(it.cover_url || it.cover || "");
-      const cover = escapeHtml(coverHref);
-      const author = escapeHtml(it.author || "");
-      const authorHref = sanitizeHref(it.author_url || "");
-      const authorUrl = escapeHtml(authorHref);
-      const time = escapeHtml((it.published_at || "").replaceAll("\n", " ").trim());
-      const tag = escapeHtml(it.tag || "");
-      const source = escapeHtml(it.source || "");
-      const coverBox = cover
-        ? `<img src="${cover}" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" loading="lazy" />`
-        : `<div class="w-full h-full portal-skeleton"></div>`;
-      const sourceBadge = source ? `<span class="rounded-full bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 shadow-sm">${source}</span>` : "";
-      const tagText = tag ? `<span class="truncate text-[11px] font-medium text-fuchsia-700">${tag}</span>` : "";
-      const coverHtml = url
-        ? `<a class="group relative block aspect-video overflow-hidden rounded-lg border border-slate-200 bg-slate-100" href="${url}" target="_blank" rel="noreferrer">${coverBox}<span class="absolute left-1.5 top-1.5">${sourceBadge}</span></a>`
-        : `<div class="relative aspect-video overflow-hidden rounded-lg border border-slate-200 bg-slate-100">${coverBox}<span class="absolute left-1.5 top-1.5">${sourceBadge}</span></div>`;
-      const titleHtml = url
-        ? `<a class="mt-1.5 block min-h-[2.25rem] text-xs font-semibold leading-[1.15rem] text-slate-900 hover:text-fuchsia-700 portal-line-clamp-2" href="${url}" target="_blank" rel="noreferrer">${title}</a>`
-        : `<span class="mt-1.5 block min-h-[2.25rem] text-xs font-semibold leading-[1.15rem] text-slate-900 portal-line-clamp-2">${title}</span>`;
-      const authorHtml = author && authorUrl
-        ? `<a class="truncate text-slate-600 hover:text-fuchsia-700" href="${authorUrl}" target="_blank" rel="noreferrer">${author}</a>`
-        : `<span class="truncate">${author || "未知 UP"}</span>`;
-      return `<div class="rounded-xl border border-slate-200/80 bg-white p-2 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-        ${coverHtml}
-        ${titleHtml}
-        <div class="mt-1.5 flex items-center gap-2 text-[11px] leading-4 text-slate-500">
-          <span class="min-w-0 flex-1 truncate">${tagText}</span>
-          ${time ? `<span class="shrink-0 text-slate-400">${time}</span>` : ""}
+  listEl.innerHTML = `
+    <div class="portal-video-showcase">
+      <div class="portal-video-hero" data-video-hero></div>
+      <div class="portal-video-side">
+        <div class="portal-video-side-head">
+          <div>
+            <div class="text-xs font-semibold text-slate-500">攻略播放队列</div>
+            <div class="text-[11px] text-slate-400">自动滚动 · 点击切换大屏</div>
+          </div>
+          <span class="rounded-full bg-fuchsia-50 px-2 py-1 text-[11px] font-semibold text-fuchsia-700">${filtered.length} 条</span>
         </div>
-        <div class="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] leading-4 text-slate-400">
-          ${svgIcon("icon-user", "w-3 h-3 shrink-0 text-slate-300")}
-          <span class="min-w-0 flex-1 truncate">${authorHtml}</span>
+        <div class="portal-video-list" data-video-list>
+          ${filtered
+            .map((it, idx) => {
+              const title = escapeHtml(it.title || "");
+              const coverHref = getBilibiliThumbnailUrl(it.cover_url || it.cover || "");
+              const cover = escapeHtml(coverHref);
+              const author = escapeHtml(it.author || "未知 UP");
+              const time = escapeHtml((it.published_at || "").replaceAll("\n", " ").trim());
+              const tag = escapeHtml(it.tag || "");
+              const coverBox = cover
+                ? `<img src="${cover}" alt="" class="h-full w-full object-cover" loading="lazy" />`
+                : `<div class="h-full w-full portal-skeleton"></div>`;
+              return `<button type="button" class="portal-video-row" data-video-index="${idx}">
+                <span class="portal-video-row-cover">${coverBox}</span>
+                <span class="portal-video-row-body">
+                  <span class="portal-video-row-title">${title}</span>
+                  <span class="portal-video-row-meta">
+                    ${tag ? `<span class="portal-video-row-tag">${tag}</span>` : ""}
+                    <span class="truncate">${author}</span>
+                    ${time ? `<span class="shrink-0 text-slate-400">${time}</span>` : ""}
+                  </span>
+                </span>
+              </button>`;
+            })
+            .join("")}
         </div>
-      </div>`;
-    })
-    .join("")}</div>`;
+      </div>
+    </div>`;
+  bindVideoShowcase(listEl.querySelector(".portal-video-showcase"), filtered);
 }
 
 function parsePortalDateTime(value) {
@@ -1695,6 +1796,7 @@ function bindSearch() {
               items: PORTAL_STATE.dataBySection[key] || [],
             });
           } else if (key === "videos") {
+            PORTAL_STATE.activeVideoIndex = 0;
             renderVideos({ tags: PORTAL_STATE.videoTags, items: PORTAL_STATE.dataBySection.videos || [] });
           } else if (key === "events") {
             renderEvents(PORTAL_STATE.dataBySection[key]);
