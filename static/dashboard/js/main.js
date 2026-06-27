@@ -1589,9 +1589,36 @@ let wowArticleSourceFilter = '';
 let wowArticleCategoryFilter = '';
 let secondaryStatRuleMap = null;
 let secondaryStatRulePromise = null;
+let tableFetchRequestSeq = 0;
+
+const MANAGED_DATA_ADD_DISABLED_MESSAGE = '该表数据来自采集/聚合任务，不支持手工新增';
+const COMMON_ADD_FORM_HIDDEN_FIELDS = new Set([
+    'id',
+    'created_at',
+    'updated_at',
+    'create_time',
+    'update_time',
+    'last_updated',
+    'last_seen_at',
+    'last_scan_time',
+    'raw_data',
+    'raw_json',
+    'ext_json',
+    'extra_json',
+    'gear_json',
+    'talents_json',
+    'stats_json',
+    'stats_crawl_status',
+    'last_seen_bvid',
+    'achievement_points',
+    'item_level',
+    'avatar_url',
+    'profile_url',
+]);
 
 const TABLE_FORM_CONFIGS = {
     VideoMonitorTarget: {
+        addFields: ['name', 'tag', 'platform', 'target_url', 'is_active'],
         hiddenAddFields: ['target_url_hash', 'last_seen_bvid', 'ext_json'],
         selectFields: {
             tag: [
@@ -1611,6 +1638,34 @@ const TABLE_FORM_CONFIGS = {
             is_active: true,
         },
     },
+    PortalEvent: {
+        addFields: ['title', 'url', 'source', 'tag', 'start_at', 'end_at', 'status', 'summary', 'image_url', 'external_id', 'is_active'],
+        hiddenAddFields: ['raw_data', 'last_seen_at'],
+        defaults: {
+            is_active: true,
+            status: 'active',
+        },
+    },
+    PortalToolLink: {
+        addFields: ['name', 'url', 'desc', 'source', 'sort_order', 'is_topbar', 'topbar_order', 'icon_path', 'is_active'],
+        hiddenAddFields: ['url_hash'],
+        defaults: {
+            is_active: true,
+            is_topbar: false,
+            sort_order: 0,
+            topbar_order: 0,
+        },
+    },
+    PlayerSpecTopPlayer: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
+    SpecDungeonRanking: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
+    SpecRaidRanking: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
+    PortalMythicstatsDpsRow: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
+    WowSpellSnapshot: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
+    WowSpellEffectSnapshot: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
+    WowSpecSpellMapSnapshot: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
+    WowSkillDiffReport: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
+    WowHotfixReport: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
+    WowDailyReport: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
 };
 
 function getCurrentFormConfig() {
@@ -1619,6 +1674,13 @@ function getCurrentFormConfig() {
 
 function isAddFormHiddenField(column) {
     const config = getCurrentFormConfig();
+    if (config.addFields && !config.addFields.includes(column)) {
+        return true;
+    }
+    const normalizedColumn = column.toLowerCase();
+    if (COMMON_ADD_FORM_HIDDEN_FIELDS.has(normalizedColumn) || normalizedColumn.endsWith('_hash')) {
+        return true;
+    }
     const hiddenFields = config.hiddenAddFields || [];
     return hiddenFields.includes(column);
 }
@@ -1648,6 +1710,8 @@ function fetchTableData(tableName, page = 1) {
     // 保存当前表名和页码
     currentTableName = tableName;
     currentPage = page;
+    const requestSeq = ++tableFetchRequestSeq;
+    const requestTableName = tableName;
     if (tableName === 'SimcSecondaryStatRule') {
         secondaryStatRuleMap = null;
         secondaryStatRulePromise = null;
@@ -1710,6 +1774,9 @@ function fetchTableData(tableName, page = 1) {
         return response.json();
     })
     .then(data => {
+        if (requestSeq !== tableFetchRequestSeq || currentTableName !== requestTableName) {
+            return;
+        }
         updateSimcProfileFilterBar();
         updateWowArticleFilterBar();
         if (data.status === 'success') {
@@ -1731,11 +1798,11 @@ function fetchTableData(tableName, page = 1) {
                     }
                 }
 
-                if (currentTableName === 'WowArticle' && data.wow_filter_options) {
+                if (requestTableName === 'WowArticle' && data.wow_filter_options) {
                     updateWowArticleFilterOptions(data.wow_filter_options);
                 }
                 
-                displayTableData(data.data, data.fields);
+                displayTableData(data.data, data.fields, requestTableName);
                 updatePagination();
             } else {
                 console.error('返回的数据格式不正确:', data);
@@ -1753,6 +1820,9 @@ function fetchTableData(tableName, page = 1) {
         }
     })
     .catch(error => {
+        if (requestSeq !== tableFetchRequestSeq || currentTableName !== requestTableName) {
+            return;
+        }
         console.error('获取表数据时发生错误:', error);
         const tableBody = document.getElementById('table-body');
         if (tableBody) {
@@ -1778,7 +1848,8 @@ function updateWowArticleFilterBar() {
 /**
  * 显示表数据
  */
-function displayTableData(data, fields) {
+function displayTableData(data, fields, tableName = currentTableName) {
+    const renderTableName = tableName;
     const tableHeader = document.getElementById('table-header');
     const tableBody = document.getElementById('table-body');
     
@@ -1813,7 +1884,7 @@ function displayTableData(data, fields) {
     // 过滤掉ID字段，所有表格都不显示数据库ID
     displayFields = allFields.filter(field => field !== 'id');
 
-    if (currentTableName === 'PortalToolLink') {
+    if (renderTableName === 'PortalToolLink') {
         const orderedFields = [
             'name',
             'url',
@@ -1830,7 +1901,7 @@ function displayTableData(data, fields) {
     }
     
     // 针对WechatArticle表的特殊处理：显示序号、title、author和时间字段
-    if (currentTableName === 'WechatArticle') {
+    if (renderTableName === 'WechatArticle') {
         displayFields = fields.filter(field => 
             field === 'title' || 
             field === 'author' || 
@@ -1844,22 +1915,22 @@ function displayTableData(data, fields) {
     }
     
     // 针对WowArticle表的特殊处理：显示序号、title、source、category、author、publish_time
-    else if (currentTableName === 'WowArticle') {
+    else if (renderTableName === 'WowArticle') {
         const orderedFields = ['title', 'source', 'category', 'author', 'publish_time'];
         displayFields = orderedFields.filter(field => allFields.includes(field));
     }
     
     // 针对RssArticle表的特殊处理：不显示rss_id、url、content_html，限制title长度并可点击跳转
-    else if (currentTableName === 'RssArticle') {
+    else if (renderTableName === 'RssArticle') {
         displayFields = allFields.filter(field => 
             !['rss_id', 'url', 'content_html'].includes(field)
         );
     }
     // SimcProfile表只显示指定字段
-    else if (currentTableName === 'SimcProfile') {
+    else if (renderTableName === 'SimcProfile') {
         displayFields = ['name', 'spec', 'fight_style', 'time', 'target_count'];
     }
-    else if (currentTableName === 'SimcSecondaryStatRule') {
+    else if (renderTableName === 'SimcSecondaryStatRule') {
         displayFields = [
             'spec',
             'crit_per_percent',
@@ -1924,7 +1995,7 @@ function displayTableData(data, fields) {
         headerRow.appendChild(th);
     });
     // 添加操作列（WechatArticle和RssArticle表不显示操作列）
-    if (currentTableName !== 'WechatArticle' && currentTableName !== 'RssArticle') {
+    if (renderTableName !== 'WechatArticle' && renderTableName !== 'RssArticle') {
         const actionTh = document.createElement('th');
         actionTh.className = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32 action-col-header';
         actionTh.id = 'action-col-header';
@@ -2038,7 +2109,7 @@ function displayTableData(data, fields) {
                 statusBadge.textContent = statusConfig.text;
                 td.appendChild(statusBadge);
             }
-            else if ((currentTableName === 'WechatArticle' || currentTableName === 'WowArticle' || currentTableName === 'RssArticle') && field === 'title') {
+            else if ((renderTableName === 'WechatArticle' || renderTableName === 'WowArticle' || renderTableName === 'RssArticle') && field === 'title') {
                 // WechatArticle、WowArticle和RssArticle表的title字段特殊处理
                 const url = row['url'] || '';
                 if (url) {
@@ -2054,10 +2125,10 @@ function displayTableData(data, fields) {
                     td.title = cellText;
                 }
             }
-            else if (currentTableName === 'SimcProfile' && field === 'spec') {
+            else if (renderTableName === 'SimcProfile' && field === 'spec') {
                 td.innerHTML = renderSpecBadgeHtml(cellText);
             }
-            else if (currentTableName === 'SimcProfile' && field === 'fight_style') {
+            else if (renderTableName === 'SimcProfile' && field === 'fight_style') {
                 // SimcProfile表的战斗风格字段特殊处理
                 const fightStyleMap = {
                     'Patchwerk': '木桩战斗',
@@ -2074,12 +2145,12 @@ function displayTableData(data, fields) {
                 badge.title = cellText;
                 td.appendChild(badge);
             }
-            else if (currentTableName === 'SimcProfile' && (field === 'gear_strength' || field === 'gear_crit' || field === 'gear_haste' || field === 'gear_mastery' || field === 'gear_versatility')) {
+            else if (renderTableName === 'SimcProfile' && (field === 'gear_strength' || field === 'gear_crit' || field === 'gear_haste' || field === 'gear_mastery' || field === 'gear_versatility')) {
                 // SimcProfile表的装备属性字段右对齐并添加样式
                 td.className += ' text-right font-mono';
                 td.textContent = cellText || '0';
             }
-            else if (currentTableName === 'SimcProfile' && field === 'action_list') {
+            else if (renderTableName === 'SimcProfile' && field === 'action_list') {
                 // SimcProfile表的动作列表字段截断显示
                 td.textContent = truncateText(cellText, 30);
                 td.title = cellText;
@@ -2108,12 +2179,12 @@ function displayTableData(data, fields) {
         });
         
         // 添加操作列（WechatArticle和RssArticle表不显示操作列）
-        if (currentTableName !== 'WechatArticle' && currentTableName !== 'RssArticle') {
+        if (renderTableName !== 'WechatArticle' && renderTableName !== 'RssArticle') {
             const actionTd = document.createElement('td');
             actionTd.className = 'px-4 py-4 whitespace-nowrap text-sm font-medium w-32 action-col';
             
             // SimcProfile表使用特殊的操作按钮
-            if (currentTableName === 'SimcProfile') {
+            if (renderTableName === 'SimcProfile') {
                 actionTd.innerHTML = `
                     <div class="flex space-x-1">
                         <button class="simc-profile-edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-profile-id="${rowId}">
@@ -2133,7 +2204,7 @@ function displayTableData(data, fields) {
                         </button>
                     </div>
                 `;
-            } else if (currentTableName === 'WowArticle') {
+            } else if (renderTableName === 'WowArticle') {
                 actionTd.innerHTML = `
                     <div class="flex space-x-2">
                         <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
@@ -2141,7 +2212,7 @@ function displayTableData(data, fields) {
                         </button>
                     </div>
                 `;
-            } else if (currentTableName === 'MonitorTask') {
+            } else if (renderTableName === 'MonitorTask') {
                 actionTd.innerHTML = `
                     <div class="flex space-x-2">
                         <button class="edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-row-id="${rowId}">
@@ -3593,6 +3664,12 @@ function initAddRecord() {
  * 打开新增记录弹窗
  */
 function openAddRecordModal() {
+    const config = getCurrentFormConfig();
+    if (config.disableAdd) {
+        showMessage(config.disableAddMessage || '该表不支持手工新增', 'warning');
+        return;
+    }
+
     // SimcProfile表使用专门的模态框
     if (currentTableName === 'SimcProfile') {
         openAddSimcProfileModal();
@@ -3889,9 +3966,6 @@ function generateFormFields(container) {
     currentTableColumns.forEach(column => {
         // 跳过ID字段和当前模型新增窗口隐藏字段
         if (column.toLowerCase() === 'id' || isAddFormHiddenField(column)) {
-            return;
-        }
-        if (column.toLowerCase().endsWith('_hash')) {
             return;
         }
         
@@ -4249,9 +4323,6 @@ function submitAddRecord() {
     currentTableColumns.forEach(column => {
         // 跳过自动生成和新增窗口隐藏字段
         if (column === 'id' || isAddFormHiddenField(column)) {
-            return;
-        }
-        if (column.toLowerCase().endsWith('_hash')) {
             return;
         }
         
