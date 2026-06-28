@@ -357,17 +357,36 @@ class DashboardView(View):
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'WowArticle':
-                    queryset = model.objects.values(
+                    base_queryset = model.objects.values(
                         'id', 'title', 'title_cn', 'url', 'author', 'publish_time', 'description',
                         'source', 'category', 'reply_count'
                     ).order_by('-id')
                     if wow_source_filter:
-                        queryset = queryset.filter(source=wow_source_filter)
+                        base_queryset = base_queryset.filter(source=wow_source_filter)
                     if wow_category_filter:
-                        queryset = queryset.filter(category=wow_category_filter)
-                    queryset = apply_search_filter(queryset, ['title', 'title_cn', 'description', 'author', 'url'])
-                    total_count = queryset.count()
-                    items = list(queryset[offset:offset + page_size])
+                        base_queryset = base_queryset.filter(category=wow_category_filter)
+                    base_queryset = apply_search_filter(base_queryset, ['title', 'title_cn', 'description', 'author', 'url'])
+                    total_count = base_queryset.count()
+                    if str(data.get('wow_preview', '')).strip() == '1' and not wow_source_filter and not wow_category_filter:
+                        def take_group(group_filter, limit=8):
+                            return list(base_queryset.filter(group_filter)[:limit])
+
+                        preview_groups = {
+                            'blueposts': take_group(Q(source='blizzard_tracker') | Q(category='bluepost')),
+                            'news': take_group(Q(source__in=['exwind', 'nga', 'blizzard_cn']) | Q(category__in=['news', 'nga', 'hot'])),
+                            'wowhead': take_group(Q(source='wowhead') | Q(url__icontains='wowhead')),
+                        }
+                        seen_ids = set()
+                        items = []
+                        for group_items in preview_groups.values():
+                            for article in group_items:
+                                article_id = article.get('id')
+                                if article_id in seen_ids:
+                                    continue
+                                seen_ids.add(article_id)
+                                items.append(article)
+                    else:
+                        items = list(base_queryset[offset:offset + page_size])
                 elif table_name == 'GeWechatAuth':
                     queryset = model.objects.values('id', 'appId', 'uuid', 'create_time', 'login_status').order_by('create_time')
                     queryset = apply_search_filter(queryset, ['appId', 'uuid'])

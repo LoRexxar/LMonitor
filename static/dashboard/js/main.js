@@ -558,6 +558,7 @@ function loadNewsWowArticles(page = 1) {
     if (newsWowState.search) requestData.search = newsWowState.search;
     if (newsWowState.source) requestData.wow_source = newsWowState.source;
     if (newsWowState.category) requestData.wow_category = newsWowState.category;
+    if (!newsWowState.source && !newsWowState.category && page === 1) requestData.wow_preview = '1';
 
     fetch('/dashboard/', {
         method: 'POST',
@@ -576,6 +577,8 @@ function loadNewsWowArticles(page = 1) {
         }
         updateNewsWowFilterOptions(data.wow_filter_options || {});
         const items = data.data || [];
+        newsWowState.previewMode = requestData.wow_preview === '1';
+        newsWowState.previewCount = items.length;
         newsWowState.page = data.page || page;
         newsWowState.totalPages = data.total_pages || 1;
         newsWowState.totalCount = data.total_count || items.length;
@@ -621,9 +624,71 @@ function updateNewsWowSummary() {
     if (newsWowState.search) filters.push(`搜索“${newsWowState.search}”`);
     if (newsWowState.source) filters.push(`来源：${newsWowState.source}`);
     if (newsWowState.category) filters.push(`分类：${newsWowState.category}`);
+    if (newsWowState.previewMode) {
+        summary.textContent = `${filters.length ? filters.join(' / ') + '，' : ''}前台预览 ${newsWowState.previewCount || 0} 条，共 ${newsWowState.totalCount} 条`;
+        return;
+    }
     const start = newsWowState.totalCount ? (newsWowState.page - 1) * newsWowState.pageSize + 1 : 0;
     const end = Math.min(newsWowState.page * newsWowState.pageSize, newsWowState.totalCount);
     summary.textContent = `${filters.length ? filters.join(' / ') + '，' : ''}显示 ${start}-${end} 条，共 ${newsWowState.totalCount} 条`;
+}
+
+function getNewsWowSection(item) {
+    const source = String(item.source || '').toLowerCase();
+    const category = String(item.category || '').toLowerCase();
+    const url = String(item.url || '').toLowerCase();
+    if (source.includes('wowhead') || url.includes('wowhead')) return 'wowhead';
+    if (source === 'blizzard_tracker' || category.includes('blue')) return 'blueposts';
+    if (source.includes('nga') || category.includes('nga')) return 'nga';
+    return 'news';
+}
+
+function renderNewsWowCompactItem(item, idx) {
+    const titleCn = item.title_cn || '';
+    const title = item.title || titleCn || '未命名新闻';
+    const displayTitle = titleCn || title;
+    const url = item.url || '';
+    const safeUrl = url ? escapeHtml(url) : '#';
+    const author = item.author || '';
+    const source = item.source || '';
+    const replies = Number(item.reply_count || 0);
+    const time = item.publish_time ? formatDateTime(item.publish_time) : '';
+    const divider = idx === 0 ? '' : 'border-t border-slate-100';
+    const originalTitle = titleCn && title && titleCn !== title
+        ? `<a class="block hover:text-indigo-700 text-xs text-slate-500 mt-0.5 line-clamp-1" href="${safeUrl}" target="_blank" rel="noopener">${escapeHtml(title)}</a>`
+        : '';
+    const replyBadge = replies > 0
+        ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${replies >= 500 ? 'bg-rose-100 text-rose-800 border-rose-200' : replies >= 200 ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-sky-100 text-sky-800 border-sky-200'}">${replies} 回复</span>`
+        : '';
+    const metaParts = [];
+    if (source) metaParts.push(`<span><i class="fas fa-globe mr-1 text-slate-400"></i>${escapeHtml(source)}</span>`);
+    if (author) metaParts.push(`<span><i class="fas fa-user mr-1 text-slate-400"></i>${escapeHtml(author)}</span>`);
+    if (time) metaParts.push(`<span><i class="fas fa-clock mr-1 text-slate-400"></i>${escapeHtml(time)}</span>`);
+    if (replyBadge) metaParts.push(replyBadge);
+    return `
+        <div class="py-2 ${divider}">
+            <div class="flex items-start gap-1 min-w-0">
+                ${url ? `<a class="min-w-0 flex-1 font-medium text-slate-900 hover:text-indigo-700 line-clamp-2" href="${safeUrl}" target="_blank" rel="noopener" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</a>` : `<span class="min-w-0 flex-1 font-medium text-slate-900 line-clamp-2">${escapeHtml(displayTitle)}</span>`}
+                ${url ? `<a href="${safeUrl}" target="_blank" rel="noopener" class="shrink-0 inline-flex items-center text-slate-400 hover:text-indigo-600" title="查看原文"><i class="fas fa-arrow-up-right-from-square text-xs"></i></a>` : ''}
+            </div>
+            ${originalTitle}
+            ${metaParts.length ? `<div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">${metaParts.join('')}</div>` : ''}
+        </div>`;
+}
+
+function renderNewsWowSectionCard(title, icon, accentClass, items, emptyText) {
+    const body = items.length
+        ? items.map((item, idx) => renderNewsWowCompactItem(item, idx)).join('')
+        : `<div class="py-8 text-center text-sm text-slate-400">${escapeHtml(emptyText || '暂无内容')}</div>`;
+    return `
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200/70 p-4 border-t-4 ${accentClass}">
+            <div class="flex items-center gap-2 font-semibold text-slate-900">
+                <i class="fas ${icon} text-sm text-slate-500"></i>
+                <span>${escapeHtml(title)}</span>
+                <span class="ml-auto text-xs font-normal text-slate-400">${items.length} 条</span>
+            </div>
+            <div class="mt-3 text-sm">${body}</div>
+        </section>`;
 }
 
 function displayNewsWowArticles(items) {
@@ -631,48 +696,24 @@ function displayNewsWowArticles(items) {
     if (!container) return;
     if (!items.length) {
         container.innerHTML = `
-            <div class="p-12 text-center text-gray-500">
+            <div class="p-12 text-center text-gray-500 bg-white rounded-2xl border border-slate-200">
                 <i class="fas fa-newspaper text-4xl text-gray-300 mb-3"></i>
                 <p class="text-lg font-medium">没有匹配的新闻</p>
                 <p class="text-sm text-gray-400 mt-1">换个关键词或清空筛选再试。</p>
             </div>`;
         return;
     }
-    const html = items.map(item => {
-        const title = item.title || item.title_cn || '未命名新闻';
-        const url = item.url || '';
-        const safeUrl = url ? escapeHtml(url) : '#';
-        const description = item.description || '';
-        const author = item.author || '';
-        const source = item.source || 'unknown';
-        const category = item.category || 'unknown';
-        const replies = Number(item.reply_count || 0);
-        const time = item.publish_time ? formatDateTime(item.publish_time) : '未标注时间';
-        return `
-        <article class="group p-5 hover:bg-slate-50 transition-colors duration-200">
-            <div class="flex flex-col lg:flex-row lg:items-start gap-4">
-                <div class="flex-1 min-w-0">
-                    <div class="flex flex-wrap items-center gap-2 mb-2">
-                        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">${escapeHtml(source)}</span>
-                        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-100">${escapeHtml(category)}</span>
-                        ${replies ? `<span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-100"><i class="fas fa-comment-dots mr-1"></i>${replies}</span>` : ''}
-                    </div>
-                    <h3 class="text-lg font-bold text-gray-900 leading-snug group-hover:text-blue-700 transition-colors duration-200">
-                        ${url ? `<a href="${safeUrl}" target="_blank" rel="noopener" title="${escapeHtml(title)}">${escapeHtml(title)}</a>` : escapeHtml(title)}
-                    </h3>
-                    ${description ? `<p class="mt-2 text-sm text-gray-600 leading-6 line-clamp-2">${escapeHtml(truncateText(description, 180))}</p>` : ''}
-                    <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                        <span><i class="fas fa-clock mr-1 text-gray-400"></i>${escapeHtml(time)}</span>
-                        <span><i class="fas fa-user mr-1 text-gray-400"></i>${escapeHtml(author || '未知作者')}</span>
-                    </div>
-                </div>
-                <div class="flex lg:flex-col items-center lg:items-end gap-2 shrink-0">
-                    ${url ? `<a href="${safeUrl}" target="_blank" rel="noopener" class="inline-flex items-center px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors duration-200"><i class="fas fa-arrow-up-right-from-square mr-2"></i>原文</a>` : ''}
-                </div>
-            </div>
-        </article>`;
-    }).join('');
-    container.innerHTML = html;
+    const groups = { blueposts: [], news: [], wowhead: [], nga: [] };
+    items.forEach(item => {
+        const section = getNewsWowSection(item);
+        groups[section].push(item);
+    });
+    container.innerHTML = `
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            ${renderNewsWowSectionCard('蓝帖速递', 'fa-bullhorn', 'border-t-sky-400', groups.blueposts, '本页没有蓝帖')}
+            ${renderNewsWowSectionCard('魔兽世界新闻', 'fa-newspaper', 'border-t-violet-400', groups.news.concat(groups.nga), '本页没有综合新闻')}
+            ${renderNewsWowSectionCard('Wowhead 新闻', 'fa-globe', 'border-t-indigo-400', groups.wowhead, '本页没有 Wowhead 新闻')}
+        </div>`;
 }
 
 function displayNewsWowPagination(currentPage, totalPages, totalCount) {
