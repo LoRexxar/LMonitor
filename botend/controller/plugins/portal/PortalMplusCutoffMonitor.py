@@ -1,5 +1,5 @@
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 
 import requests
 
@@ -53,9 +53,26 @@ class PortalMplusCutoffMonitor(BaseScan):
                 return "season-mn-1"
             payload = resp.json() or {}
             seasons = payload.get("seasons") or []
-            if seasons:
-                slug = (seasons[0].get("slug") or "").strip()
-                if slug:
+            now = datetime.now(timezone.utc)
+
+            # Raider.IO may list a future season first before its cutoffs exist.
+            # Pick the newest season that has already started, not blindly seasons[0].
+            for season in seasons:
+                slug = (season.get("slug") or "").strip()
+                if not slug:
+                    continue
+                starts = season.get("starts") or {}
+                start_values = [v for v in starts.values() if v]
+                if not start_values:
+                    return slug
+                try:
+                    earliest_start = min(
+                        datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+                        for v in start_values
+                    )
+                except Exception:
+                    return slug
+                if earliest_start <= now:
                     return slug
         except Exception:
             return "season-mn-1"
