@@ -358,14 +358,14 @@ class DashboardView(View):
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'WowArticle':
                     queryset = model.objects.values(
-                        'id', 'title', 'url', 'author', 'publish_time', 'description',
-                        'source', 'category'
+                        'id', 'title', 'title_cn', 'url', 'author', 'publish_time', 'description',
+                        'source', 'category', 'reply_count'
                     ).order_by('-id')
                     if wow_source_filter:
                         queryset = queryset.filter(source=wow_source_filter)
                     if wow_category_filter:
                         queryset = queryset.filter(category=wow_category_filter)
-                    queryset = apply_search_filter(queryset, ['title', 'author', 'url'])
+                    queryset = apply_search_filter(queryset, ['title', 'title_cn', 'description', 'author', 'url'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'GeWechatAuth':
