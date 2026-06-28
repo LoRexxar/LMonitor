@@ -100,6 +100,16 @@ class wowheadMonitor(BaseScan):
         """
         cookies = ""
 
+        # Wowhead 首页新闻列表是静态 HTML/JSON 数据，requests 路径更轻、更稳定；
+        # 浏览器路径容易在 DOM.getOuterHTML 上超时或断连，因此作为备用。
+        _, _, ok = self._request_fallback_posts(cookies, limit=10, reason="primary_requests")
+        if ok:
+            self.last_error_detail = ""
+            return True
+
+        requests_error_detail = self.last_error_detail
+        logger.warning("[wowheadMonitor] Primary requests path failed, fallback to browser. {}".format(requests_error_detail))
+
         driver = None
         try:
             driver = self.req.get(self.target_url, 'RespByChrome', 0, cookies, is_origin=1)
@@ -115,19 +125,19 @@ class wowheadMonitor(BaseScan):
 
         if not driver or not hasattr(driver, 'eles'):
             logger.error("[wowheadMonitor] Browser request failed.")
-            # 最后再尝试 requests 直连 HTML，哪怕不稳定，也至少保留退路
-            _, _, ok = self._request_fallback_posts(cookies, limit=10, reason="browser_unavailable")
-            return ok
+            self.last_error_detail = requests_error_detail or self.last_error_detail
+            return False
 
         post_count, _ = self.resolve_data(driver, "wowhead", 10)
         if int(post_count or 0) <= 0:
             html_text = (getattr(driver, "html", "") or "")
             detail = self._html_debug_summary(html_text, prefix="browser")
             self._set_error_detail("wowhead browser parsed no posts", **detail)
-            logger.warning("[wowheadMonitor] Browser parsed no posts, fallback to requests. {}".format(self.last_error_detail))
-            _, _, ok = self._request_fallback_posts(cookies, limit=10, reason="browser_parsed_no_posts")
-            return ok
+            if requests_error_detail:
+                self.last_error_detail = "{}; browser_detail={}".format(requests_error_detail, self.last_error_detail)[:1000]
+            return False
 
+        self.last_error_detail = ""
         return True
 
     def resolve_data(self, driver, title="", limit=10):
