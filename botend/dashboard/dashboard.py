@@ -227,6 +227,8 @@ class DashboardView(View):
             # 根据操作类型处理请求
             if action == 'get_table_data':
                 return self.get_table_data(data)
+            elif action == 'get_wow_article_detail':
+                return self.get_wow_article_detail(data)
             elif action == 'update_table_row':
                 return self.update_table_row(data)
             elif action == 'delete_table_row':
@@ -367,26 +369,7 @@ class DashboardView(View):
                         base_queryset = base_queryset.filter(category=wow_category_filter)
                     base_queryset = apply_search_filter(base_queryset, ['title', 'title_cn', 'description', 'author', 'url'])
                     total_count = base_queryset.count()
-                    if str(data.get('wow_preview', '')).strip() == '1' and not wow_source_filter and not wow_category_filter:
-                        def take_group(group_filter, limit=8):
-                            return list(base_queryset.filter(group_filter)[:limit])
-
-                        preview_groups = {
-                            'blueposts': take_group(Q(source='blizzard_tracker') | Q(category='bluepost')),
-                            'news': take_group(Q(source__in=['exwind', 'nga', 'blizzard_cn']) | Q(category__in=['news', 'nga', 'hot'])),
-                            'wowhead': take_group(Q(source='wowhead') | Q(url__icontains='wowhead')),
-                        }
-                        seen_ids = set()
-                        items = []
-                        for group_items in preview_groups.values():
-                            for article in group_items:
-                                article_id = article.get('id')
-                                if article_id in seen_ids:
-                                    continue
-                                seen_ids.add(article_id)
-                                items.append(article)
-                    else:
-                        items = list(base_queryset[offset:offset + page_size])
+                    items = list(base_queryset[offset:offset + page_size])
                 elif table_name == 'GeWechatAuth':
                     queryset = model.objects.values('id', 'appId', 'uuid', 'create_time', 'login_status').order_by('create_time')
                     queryset = apply_search_filter(queryset, ['appId', 'uuid'])
@@ -479,6 +462,35 @@ class DashboardView(View):
             logger.error(f"获取表数据异常: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({"status": "error", "message": f"获取表数据异常: {str(e)}"})
     
+
+    def get_wow_article_detail(self, data):
+        """返回后台新闻详情阅读所需字段，避免列表接口携带大块正文。"""
+        try:
+            article_id = data.get('id')
+            if not article_id:
+                return JsonResponse({"status": "error", "message": "缺少文章ID"})
+            article = WowArticle.objects.filter(id=article_id).values(
+                'id', 'title', 'title_cn', 'url', 'author', 'publish_time', 'description',
+                'content', 'content_cn', 'content_blocks', 'content_blocks_cn',
+                'source', 'category', 'reply_count'
+            ).first()
+            if not article:
+                return JsonResponse({"status": "error", "message": "文章不存在"})
+            for key, value in list(article.items()):
+                if isinstance(value, datetime.datetime):
+                    dt = value
+                    if timezone.is_naive(dt):
+                        dt = timezone.make_aware(dt, timezone.get_default_timezone())
+                    article[key] = timezone.localtime(dt).strftime('%Y-%m-%d %H:%M:%S')
+                elif isinstance(value, (datetime.date, datetime.time)):
+                    article[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+            if article.get('author') == 'LMonitor':
+                article['author'] = ''
+            return JsonResponse({"status": "success", "data": article})
+        except Exception as e:
+            logger.error(f"获取魔兽文章详情异常: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({"status": "error", "message": f"获取文章详情异常: {str(e)}"})
+
     def update_table_row(self, data):
         """
         更新表格行数据

@@ -100,9 +100,23 @@
         .wow-md-content code { background: #e2e8f0; padding: 2px 5px; border-radius: 6px; }
         .wow-md-content pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 12px; overflow: auto; }
         .wow-md-content pre code { background: transparent; padding: 0; }
+        .news-wow-article-content h1,
+        .news-wow-article-content h2,
+        .news-wow-article-content h3 { color: #0f172a; font-weight: 800; line-height: 1.25; margin: 1.2rem 0 0.65rem; }
+        .news-wow-article-content h1 { font-size: 1.75rem; }
+        .news-wow-article-content h2 { font-size: 1.45rem; padding-top: 0.35rem; border-top: 1px solid #e2e8f0; }
+        .news-wow-article-content h3 { font-size: 1.15rem; }
+        .news-wow-article-content p { margin: 0.75rem 0; }
+        .news-wow-article-content a { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; }
+        .news-wow-article-content ul,
+        .news-wow-article-content ol { padding-left: 1.35rem; margin: 0.75rem 0; }
+        .news-wow-article-content li { margin: 0.25rem 0; }
+        .news-wow-article-content img { max-width: 100%; height: auto; border-radius: 0.75rem; margin: 0.75rem auto; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12); }
+        .news-wow-article-content .quote-box,
+        .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260628_news_portal_preview" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260628_news_list_detail" defer></script>
 </head>
 <body class="bg-gray-50 font-sans">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -110,6 +124,11 @@
         {% csrf_token %}
     </form>
     <div id="toast-root"></div>
+    <div id="news-wow-detail-modal" class="fixed inset-0 z-[1000] bg-black/65 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden border border-slate-200">
+            <div id="news-wow-detail-body" class="max-h-[92vh] overflow-y-auto"></div>
+        </div>
+    </div>
     <div id="system-alert-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
         <div class="flex items-center justify-center min-h-screen p-4">
             <div class="bg-white rounded-xl shadow-lg w-full max-w-3xl max-h-[85vh] overflow-hidden">
