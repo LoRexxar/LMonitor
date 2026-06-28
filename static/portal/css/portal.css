@@ -466,6 +466,7 @@ body {
     grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
     gap: 1rem;
     align-items: stretch;
+    overflow-anchor: none;
 }
 
 .portal-video-hero-frame {

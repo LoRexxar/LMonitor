@@ -1216,6 +1216,12 @@ function renderVideoHero(container, videos) {
     </div>`;
 }
 
+function isElementNearViewport(el, margin = 80) {
+  if (!el) return false;
+  const rect = el.getBoundingClientRect();
+  return rect.bottom >= -margin && rect.top <= window.innerHeight + margin;
+}
+
 function bindVideoShowcase(root, videos) {
   const heroEl = root.querySelector("[data-video-hero]");
   const listEl = root.querySelector("[data-video-list]");
@@ -1225,7 +1231,6 @@ function bindVideoShowcase(root, videos) {
     listEl.querySelectorAll("[data-video-index]").forEach((node) => {
       const on = Number(node.getAttribute("data-video-index")) === PORTAL_STATE.activeVideoIndex;
       node.classList.toggle("is-active", on);
-      if (on) node.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
   };
   listEl.querySelectorAll("[data-video-index]").forEach((node) => {
@@ -1242,6 +1247,7 @@ function bindVideoShowcase(root, videos) {
     const start = () => {
       stopVideoAutoRotate();
       PORTAL_STATE.videoAutoTimer = window.setInterval(() => {
+        if (!isElementNearViewport(root)) return;
         PORTAL_STATE.activeVideoIndex = (PORTAL_STATE.activeVideoIndex + 1) % videos.length;
         update();
       }, 4000);
