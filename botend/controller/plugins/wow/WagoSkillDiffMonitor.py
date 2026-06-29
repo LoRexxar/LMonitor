@@ -4246,6 +4246,22 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                     class_to_spec_to_spells.setdefault(cid, {}).setdefault(0, set()).add(spell_id)
 
         class_count = len(class_to_spec_to_spells)
+        class_spell_counts = {}
+        class_spec_counts = {}
+        changed_table_counts = {}
+        for cid, spec_map in (class_to_spec_to_spells or {}).items():
+            class_spells = set()
+            spec_total = 0
+            for _spec_id, sids in (spec_map or {}).items():
+                spell_set = set(sids or [])
+                if spell_set:
+                    spec_total += 1
+                    class_spells.update(spell_set)
+            class_spell_counts[cid] = len(class_spells)
+            class_spec_counts[cid] = spec_total
+        for entry in (spell_changes or {}).values():
+            for tkey in ((entry or {}).get('diffs') or {}).keys():
+                changed_table_counts[tkey] = int(changed_table_counts.get(tkey) or 0) + 1
 
         parts = []
         parts.append('<!DOCTYPE html>')
@@ -4257,47 +4273,59 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         title_to = display_to_build or to_build
         parts.append(f"<title>{html.escape(server_title)} 职业技能变更报告：{html.escape(title_from)} → {html.escape(title_to)}</title>")
         parts.append('<style>')
-        parts.append('body{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;line-height:1.55;background:#f1f5f9;color:#0f172a}')
-        parts.append('.card{max-width:1200px;margin:0 auto;background:#ffffff;border:1px solid rgba(148,163,184,.35);border-radius:14px;padding:18px}')
-        parts.append('.meta{color:#475569;font-size:12px;margin-top:6px;display:flex;flex-wrap:wrap;gap:10px}')
-        parts.append('.toc{margin-top:12px;padding:10px 12px;background:#f8fafc;border:1px solid rgba(226,232,240,1);border-radius:12px}')
-        parts.append('.toc a{color:#1d4ed8;text-decoration:none}')
-        parts.append('.toc a:hover{text-decoration:underline}')
-        parts.append('h2{margin:18px 0 8px 0;font-size:18px}')
-        parts.append('h3{margin:12px 0 6px 0;font-size:15px;color:#0f172a}')
-        parts.append('.spell{margin-top:12px;padding:10px 12px;background:#f8fafc;border:1px solid rgba(226,232,240,1);border-radius:12px}')
-        parts.append('.spell-head{display:flex;gap:6px;align-items:flex-start;font-weight:800}')
-        parts.append('.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-top:6px;flex:0 0 auto}')
-        parts.append('.spell-title{font-weight:800}')
-        parts.append('.subtle{color:#64748b;font-size:12px;font-weight:500}')
-        parts.append('.line{margin-top:6px;color:#0f172a;font-size:13px}')
-        parts.append('.hash{color:#2563eb;font-weight:800;margin-right:4px}')
-        parts.append('.k{color:#334155;font-weight:800}')
-        parts.append(".ins{color:#16a34a;font-weight:800}")
-        parts.append(".del{color:#dc2626;font-weight:800;text-decoration:line-through}")
-        parts.append('.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}')
+        parts.append('body{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;line-height:1.55;background:#eef2f7;color:#0f172a}')
+        parts.append('.card{max-width:1320px;margin:0 auto;background:#ffffff;border:1px solid rgba(148,163,184,.35);border-radius:18px;padding:20px;box-shadow:0 18px 48px rgba(15,23,42,.08)}')
+        parts.append('.hero{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:1px solid #e2e8f0;padding-bottom:14px;margin-bottom:14px}')
+        parts.append('.hero h1{margin:0;font-size:22px;line-height:1.25;letter-spacing:-.02em}')
+        parts.append('.meta{color:#475569;font-size:12px;margin-top:6px;display:flex;flex-wrap:wrap;gap:8px 12px}')
+        parts.append('.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}')
+        parts.append('.metric{border:1px solid #e2e8f0;background:linear-gradient(180deg,#f8fafc,#fff);border-radius:14px;padding:11px 12px}')
+        parts.append('.metric span{display:block;color:#64748b;font-size:12px}.metric strong{display:block;font-size:18px;margin-top:2px}')
+        parts.append('.controls{position:sticky;top:0;z-index:5;margin:12px 0;padding:10px;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border:1px solid #e2e8f0;border-radius:14px;display:flex;gap:10px;align-items:center}')
+        parts.append('.controls input{width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:9px 11px;font-size:14px}.controls .count{white-space:nowrap;color:#64748b;font-size:12px}')
+        parts.append('.toc{margin-top:12px;padding:12px;background:#f8fafc;border:1px solid rgba(226,232,240,1);border-radius:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}')
+        parts.append('.toc-title{grid-column:1/-1;font-weight:800;margin-bottom:2px}.toc a{color:#1d4ed8;text-decoration:none}.toc a:hover{text-decoration:underline}')
+        parts.append('.toc-item{padding:8px 10px;border:1px solid #e2e8f0;border-radius:12px;background:#fff}.toc-spec{display:inline-block;margin:4px 8px 0 0;font-size:12px;color:#475569}')
+        parts.append('h2{margin:0 0 8px 0;font-size:20px}.class-section{margin-top:18px;padding:14px;border:1px solid #dbeafe;border-radius:16px;background:#f8fbff}.class-head{display:flex;justify-content:space-between;gap:12px;align-items:baseline}')
+        parts.append('h3{margin:14px 0 8px 0;font-size:15px;color:#0f172a}.spec-section{border-top:1px dashed #cbd5e1;margin-top:10px;padding-top:8px}')
+        parts.append('.spell{margin-top:10px;padding:11px 13px;background:#fff;border:1px solid rgba(226,232,240,1);border-radius:12px;box-shadow:0 1px 2px rgba(15,23,42,.04)}')
+        parts.append('.spell-head{display:flex;gap:8px;align-items:flex-start;font-weight:800}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#22c55e;margin-top:7px;flex:0 0 auto}')
+        parts.append('.spell-title{font-weight:800}.subtle{color:#64748b;font-size:12px;font-weight:500}.line{margin-top:7px;color:#0f172a;font-size:13px;padding-left:17px}')
+        parts.append('.hash{color:#2563eb;font-weight:800;margin-right:4px}.k{color:#334155;font-weight:800}.ins{color:#16a34a;font-weight:800}.del{color:#dc2626;font-weight:800;text-decoration:line-through}')
+        parts.append('.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.hidden{display:none!important}@media(max-width:720px){body{padding:8px}.card{padding:14px}.hero{display:block}.controls{top:0}}')
         parts.append('</style>')
         parts.append('</head>')
         parts.append('<body>')
         parts.append('<div class="card">')
-        parts.append(f"<h1 style='margin:0;font-size:18px'>{html.escape(server_title)} 职业技能变更报告：{html.escape(title_from)} → {html.escape(title_to)}</h1>")
-        parts.append(f"<div class='meta'><span>技能数：{len(spell_changes)}</span><span>职业数：{class_count}</span><span>语言：{html.escape(self.locale)}</span></div>")
-        if display_from_build or display_to_build:
-            parts.append(f"<div class='meta'><span class='subtle'>数据版本：{html.escape(from_build)} → {html.escape(to_build)}</span></div>")
+        parts.append('<div class="hero">')
+        parts.append(f"<div><h1>{html.escape(server_title)} 职业技能变更报告：{html.escape(title_from)} → {html.escape(title_to)}</h1>")
+        parts.append(f"<div class='meta'><span>语言：{html.escape(self.locale)}</span><span>数据版本：{html.escape(from_build)} → {html.escape(to_build)}</span></div></div>")
         if wowhead_url:
             parts.append(f"<div class='meta'><a href='{html.escape(wowhead_url)}' target='_blank' rel='noopener noreferrer'>Wowhead 参考链接</a></div>")
+        parts.append('</div>')
+        parts.append('<div class="summary">')
+        parts.append(f"<div class='metric'><span>变更技能</span><strong>{len(spell_changes)}</strong></div>")
+        parts.append(f"<div class='metric'><span>涉及职业</span><strong>{class_count}</strong></div>")
+        parts.append(f"<div class='metric'><span>涉及专精</span><strong>{sum(class_spec_counts.values())}</strong></div>")
+        parts.append(f"<div class='metric'><span>DB2 表</span><strong>{len(changed_table_counts)}</strong></div>")
+        parts.append('</div>')
+        if changed_table_counts:
+            table_summary = '、'.join([f"{k} {v}" for k, v in sorted(changed_table_counts.items(), key=lambda x: (-x[1], x[0]))[:8]])
+            parts.append(f"<div class='meta'><span>主要变更表：{html.escape(table_summary)}</span></div>")
+        parts.append("<div class='controls'><input id='spellFilter' type='search' placeholder='筛选技能名、ID、职业、专精或 DB2 表…' autocomplete='off'><span class='count' id='filterCount'>全部显示</span></div>")
 
-        parts.append("<div class='toc'><div style='font-weight:800'>目录</div>")
+        parts.append("<div class='toc'><div class='toc-title'>目录</div>")
         for cid in sorted(class_to_spec_to_spells.keys()):
             cname = (display_class_names or {}).get(cid) or str(cid)
-            parts.append(f"<div style='margin-top:6px'><a href='#class-{cid}'>{html.escape(cname)}</a></div>")
+            parts.append(f"<div class='toc-item'><a href='#class-{cid}'>{html.escape(cname)}</a> <span class='subtle'>{class_spell_counts.get(cid, 0)} 技能 / {class_spec_counts.get(cid, 0)} 专精</span>")
             spec_map = class_to_spec_to_spells.get(cid) or {}
             for spec_id in sorted(spec_map.keys()):
                 if spec_id == 0:
                     spec_name = '通用'
                 else:
                     spec_name = ((display_spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id)
-                parts.append(f"<div style='margin-left:14px;margin-top:4px'><a href='#class-{cid}-spec-{spec_id}'>{html.escape(spec_name)}</a></div>")
+                parts.append(f"<a class='toc-spec' href='#class-{cid}-spec-{spec_id}'>{html.escape(spec_name)}({len(spec_map.get(spec_id) or [])})</a>")
+            parts.append('</div>')
         parts.append("</div>")
 
         table_title = {
@@ -4370,14 +4398,15 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
 
         for cid in sorted(class_to_spec_to_spells.keys()):
             cname = (display_class_names or {}).get(cid) or str(cid)
-            parts.append(f"<h2 id='class-{cid}'>{html.escape(cname)} <span class='subtle'>职业 {cid}</span></h2>")
+            parts.append(f"<section class='class-section' id='class-{cid}' data-class='{html.escape(str(cname).lower())}'>")
+            parts.append(f"<div class='class-head'><h2>{html.escape(cname)}</h2><span class='subtle'>职业 {cid} ｜ {class_spell_counts.get(cid, 0)} 技能</span></div>")
             spec_map = class_to_spec_to_spells.get(cid) or {}
             for spec_id in sorted(spec_map.keys()):
                 if spec_id == 0:
                     spec_name = '通用'
                 else:
                     spec_name = ((display_spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id)
-                parts.append(f"<h3 id='class-{cid}-spec-{spec_id}'>{html.escape(spec_name)} <span class='subtle'>专精 {spec_id}</span></h3>")
+                parts.append(f"<section class='spec-section' id='class-{cid}-spec-{spec_id}'><h3>{html.escape(spec_name)} <span class='subtle'>专精 {spec_id} ｜ {len(spec_map.get(spec_id) or [])} 技能</span></h3>")
                 for spell_id in sorted(spec_map.get(spec_id) or []):
                     sname = (zh_name_cache.get(spell_id) or '').strip() or (name_cache.get(spell_id) or '').strip() or str(spell_id)
                     wowhead_spell_url = f"https://www.wowhead.com/spell={spell_id}"
@@ -4468,11 +4497,42 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                 f = fd.get('field') or ''
                                 lines.append(f"<div class='line'><span class='k'>{html.escape(title)}</span> {html.escape(field_title.get(f, f))}：{fmt_change(fd.get('before'), fd.get('after'))}</div>")
 
-                    parts.append(f"<div class='spell' id='spell-{spell_id}'>")
-                    parts.append(f"<div class='spell-head'><span class='dot'></span><div><span class='spell-title'>{html.escape(sname)}({spell_id})</span>：{desc_primary} <a class='subtle' href='{html.escape(wowhead_spell_url)}' target='_blank' rel='noopener noreferrer'>Wowhead</a></div></div>")
+                    search_text = ' '.join([str(sname), str(spell_id), str(cname), str(spec_name), ' '.join(diffs_by_table.keys())]).lower()
+                    parts.append(f"<div class='spell' id='spell-{spell_id}' data-search='{html.escape(str(search_text), quote=True)}'>")
+                    parts.append(f"<div class='spell-head'><span class='dot'></span><div><span class='spell-title'>{html.escape(sname)} <span class='subtle mono'>#{spell_id}</span></span>：{desc_primary} <a class='subtle' href='{html.escape(wowhead_spell_url)}' target='_blank' rel='noopener noreferrer'>Wowhead</a></div></div>")
                     for ln in lines:
                         parts.append(ln)
                     parts.append("</div>")
+                parts.append('</section>')
+            parts.append('</section>')
+        parts.append("""<script>
+(function(){
+  var input=document.getElementById('spellFilter');
+  var count=document.getElementById('filterCount');
+  if(!input){return;}
+  function apply(){
+    var q=(input.value||'').trim().toLowerCase();
+    var total=0, visible=0;
+    document.querySelectorAll('.spell').forEach(function(el){
+      total++;
+      var ok=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
+      el.classList.toggle('hidden', !ok);
+      if(ok){visible++;}
+    });
+    document.querySelectorAll('.spec-section').forEach(function(sec){
+      var has=!!sec.querySelector('.spell:not(.hidden)');
+      sec.classList.toggle('hidden', !has);
+    });
+    document.querySelectorAll('.class-section').forEach(function(sec){
+      var has=!!sec.querySelector('.spell:not(.hidden)');
+      sec.classList.toggle('hidden', !has);
+    });
+    if(count){count.textContent=q ? ('显示 '+visible+' / '+total) : ('全部 '+total+' 个技能');}
+  }
+  input.addEventListener('input', apply);
+  apply();
+})();
+</script>""")
         parts.append('</div></body></html>')
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(parts))
