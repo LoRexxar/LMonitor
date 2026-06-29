@@ -53,7 +53,7 @@ class PortalWowSkillDiffReportViewTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         html = response.content.decode('utf-8')
-        self.assertIn('HTML 报告文件不存在，已直接生成 HTML 摘要视图。', html)
+        self.assertIn('HTML 报告文件不存在，已直接用数据库中保存的报告正文生成 HTML 视图。', html)
         self.assertIn('wow-skill-diff-fallback-html', html)
         self.assertIn('SpellEffect', html)
         self.assertNotIn('wow-skill-diff-md', html)
@@ -128,3 +128,42 @@ class PortalWowSkillDiffReportViewTests(SimpleTestCase):
         self.assertIn('overflow-wrap:anywhere', html)
         self.assertIn('word-break:break-word', html)
         self.assertIn('minmax(220px,1fr)', html)
+
+    def test_inline_html_summary_renders_saved_spell_changes(self):
+        report = SimpleNamespace(
+            id=5,
+            branch='wowt',
+            from_build='12.1.0.68209',
+            to_build='12.1.0.68301',
+            display_from_build='',
+            display_to_build='',
+            content_md=(
+                '# PTR(测试服) 职业技能变更报告：12.1.0.68209 → 12.1.0.68301\n'
+                '- 技能数：2\n'
+                '- 职业数：1\n\n'
+                '## 战士 （职业 1）\n\n'
+                '### 通用 （专精 0）\n\n'
+                '无视苦痛(1277297) ：\n\n'
+                '# 应用光环（攻强系数： 16 → 20 ）\n\n'
+                'Warrior Fury 12.1 Class Set 2pc(1296645) ：Raging Blow damage increased.\n\n'
+                '技能名称 名称： Old Name → New Name\n'
+            ),
+            content_html_path='',
+            changed_tables_json='["SpellEffect", "SpellName"]',
+            spell_count=2,
+            class_count=1,
+        )
+
+        html = build_wow_skill_diff_fallback_html(report, page_title='', server_title='PTR')
+
+        self.assertIn('技能变更内容', html)
+        self.assertIn('class-section', html)
+        self.assertIn('战士 （职业 1）', html)
+        self.assertIn('通用 （专精 0）', html)
+        self.assertIn('无视苦痛', html)
+        self.assertIn('#1277297', html)
+        self.assertIn('应用光环（攻强系数： 16 → 20 ）', html)
+        self.assertIn('Warrior Fury 12.1 Class Set 2pc', html)
+        self.assertIn('#1296645', html)
+        self.assertIn('Raging Blow damage increased.', html)
+        self.assertIn('技能名称 名称： Old Name → New Name', html)

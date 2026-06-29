@@ -54,7 +54,7 @@
             {% else %}
                 {% if report.content_html_path and not html_exists %}
                     <div class="mt-5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
-                        HTML 报告文件不存在，已直接生成 HTML 摘要视图。
+                        HTML 报告文件不存在，已直接用数据库中保存的报告正文生成 HTML 视图。
                     </div>
                 {% endif %}
                 <div class="mt-5">{{ fallback_html|safe }}</div>
