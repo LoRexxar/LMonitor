@@ -300,60 +300,33 @@ class WagoSkillDiffMonitor(BaseScan):
                 'last_attempt_at': now,
             },
         )
+        fallback_status = ''
+        fallback_error = ''
         try:
             report = self._generate_hotfix_full_report(branch, current_build, from_push, latest_push, locale=hotfix_locale)
         except Exception as e:
-            self._mark_event(hotfix_event, status='generate_failed', report=None, error_message=e)
-            st.hotfix_last_event_at = now
-            st.hotfix_last_event_status = 'failed'
-            st.hotfix_report_url = ''
-            st.hotfix_wago_url = hotfix_wago_url
-            st.hotfix_spell_count = 0
-            st.hotfix_class_count = 0
-            st.hotfix_summary_title = ''
-            st.save(
-                update_fields=[
-                    'hotfix_last_event_at',
-                    'hotfix_last_event_status',
-                    'hotfix_report_url',
-                    'hotfix_wago_url',
-                    'hotfix_spell_count',
-                    'hotfix_class_count',
-                    'hotfix_summary_title',
-                ]
+            fallback_status = 'generate_failed_fallback_report'
+            fallback_error = str(e)
+            report = self._build_hotfix_fallback_report(
+                branch=branch,
+                current_build=current_build,
+                from_push=from_push,
+                to_push=latest_push,
+                locale=hotfix_locale,
+                reason=f'Hotfix 明细报告生成失败，已生成 fallback 报告：{e}',
             )
-            return False
 
         if not report or int(report.get('entry_count') or 0) <= 0:
-            self._mark_event(
-                hotfix_event,
-                status='no_data',
-                report=None,
-                table_count=int((report or {}).get('table_count') or 0),
-                entry_count=int((report or {}).get('entry_count') or 0),
-                changed_tables_json=(report or {}).get('changed_tables_json') or '',
-                summary_title=((report or {}).get('summary_title') or '')[:255],
+            fallback_status = fallback_status or 'no_data_fallback_report'
+            report = self._build_hotfix_fallback_report(
+                branch=branch,
+                current_build=current_build,
+                from_push=from_push,
+                to_push=latest_push,
+                locale=hotfix_locale,
+                reason='Wago 已检测到新的 hotfix push，但明细接口暂未返回可汇总数据，已生成 fallback 报告。',
+                source_report=report,
             )
-            # 没拿到数据时不要推进 push_id，保证下次会重试
-            st.hotfix_last_event_at = now
-            st.hotfix_last_event_status = 'no_data'
-            st.hotfix_report_url = ''
-            st.hotfix_wago_url = hotfix_wago_url
-            st.hotfix_spell_count = 0
-            st.hotfix_class_count = 0
-            st.hotfix_summary_title = ''
-            st.save(
-                update_fields=[
-                    'hotfix_last_event_at',
-                    'hotfix_last_event_status',
-                    'hotfix_report_url',
-                    'hotfix_wago_url',
-                    'hotfix_spell_count',
-                    'hotfix_class_count',
-                    'hotfix_summary_title',
-                ]
-            )
-            return False
 
         row = None
         try:
@@ -399,7 +372,7 @@ class WagoSkillDiffMonitor(BaseScan):
 
         self._mark_event(
             hotfix_event,
-            status='report_generated',
+            status=fallback_status or 'report_generated',
             report=row,
             build_num=report.get('build_num') or '',
             build_str=report.get('build_str') or '',
@@ -407,31 +380,37 @@ class WagoSkillDiffMonitor(BaseScan):
             entry_count=int(report.get('entry_count') or 0),
             changed_tables_json=report.get('changed_tables_json') or '',
             summary_title=(report.get('summary_title') or '')[:255],
-            error_message='',
+            error_message=fallback_error,
         )
 
-        # 仅在成功生成/落库报告后推进 push_id
-        st.hotfix_push_id = latest_push
+        # 完整报告成功落库后才推进 push 游标；fallback 报告只保证 Dashboard 有可追溯报告，
+        # 但保留下一轮自动重试完整明细报告的机会。WowHotfixReport 使用 update_or_create，
+        # 因此重复 fallback/retry 会覆盖同一个 to_push 报告，不会堆重复记录。
+        state_update_fields = [
+            'hotfix_last_event_at',
+            'hotfix_last_event_status',
+            'hotfix_report_url',
+            'hotfix_wago_url',
+            'hotfix_spell_count',
+            'hotfix_class_count',
+            'hotfix_summary_title',
+        ]
+        if not fallback_status:
+            st.hotfix_push_id = latest_push
+            state_update_fields.insert(0, 'hotfix_push_id')
         st.hotfix_last_event_at = now
-        st.hotfix_last_event_status = 'init_has_update' if is_init else 'has_update'
+        st.hotfix_last_event_status = (
+            ('init_has_update_fallback' if is_init else 'has_update_fallback')
+            if fallback_status else
+            ('init_has_update' if is_init else 'has_update')
+        )
         st.hotfix_report_url = (report.get('report_url') or '') if report else ''
         st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
         # 兼容旧字段：保留 0，避免误导（全量信息请看 WowHotfixReport 表）
         st.hotfix_spell_count = 0
         st.hotfix_class_count = 0
         st.hotfix_summary_title = (report.get('summary_title') or '')[:255]
-        st.save(
-            update_fields=[
-                'hotfix_push_id',
-                'hotfix_last_event_at',
-                'hotfix_last_event_status',
-                'hotfix_report_url',
-                'hotfix_wago_url',
-                'hotfix_spell_count',
-                'hotfix_class_count',
-                'hotfix_summary_title',
-            ]
-        )
+        st.save(update_fields=state_update_fields)
         return True
 
     def _hotfix_day_key(self, dt):
@@ -472,6 +451,123 @@ class WagoSkillDiffMonitor(BaseScan):
             params.append(f"filter%5Blocale%5D={locale}")
         qs = '&'.join(params)
         return f"https://wago.tools/hotfixes?{qs}" if qs else 'https://wago.tools/hotfixes'
+
+    def _build_hotfix_fallback_report(
+        self,
+        *,
+        branch,
+        current_build,
+        from_push,
+        to_push,
+        locale='',
+        reason='',
+        source_report=None,
+    ):
+        """
+        Wago 已确认出现新 push，但明细抓取/汇总暂时不可用时，仍生成一份可追溯报告。
+
+        这样 Dashboard 不会只看到状态变化却没有报告链接；报告里明确标记这是 fallback，
+        并保留 Wago 原始筛选链接，后续可人工复核或由下一轮监控重新生成更完整内容。
+        """
+        locale = (locale or '').strip() or self.locale
+        from_push = int(from_push or 0)
+        to_push = int(to_push or 0)
+        current_build = str(current_build or '').strip()
+        source_report = source_report if isinstance(source_report, dict) else {}
+        wago_url = self._hotfix_url(push_id=to_push, locale=locale)
+        summary_title = f"Hotfix 更新已检测：push {from_push}→{to_push}（fallback 报告）"
+        reason = str(reason or '').strip() or 'Wago 已检测到新的 hotfix push，但暂时无法生成完整明细报告。'
+        now_text = timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S %Z')
+        table_count = int(source_report.get('table_count') or 0)
+        entry_count = int(source_report.get('entry_count') or 0)
+        changed_tables_json = source_report.get('changed_tables_json') or '[]'
+
+        md_lines = [
+            f"# {summary_title}",
+            "",
+            f"- 分支：{branch}",
+            f"- 区域/语言：{locale}",
+            f"- Build：{current_build}",
+            f"- Push：{from_push} → {to_push}",
+            f"- 生成时间：{now_text}",
+            f"- Wago：{wago_url}",
+            "",
+            "## 状态说明",
+            "",
+            reason,
+            "",
+            "这说明监控已经确认 hotfix push 有更新；若当前报告缺少表级明细，优先以 Wago 链接作为原始数据源复核。",
+        ]
+        content_md = "\n".join(md_lines).strip() + "\n"
+
+        rel_path = f"portal/reports/wow_hotfix_fallback_{branch}_{locale}_{to_push}.html"
+        base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
+        static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
+        full_path = os.path.join(static_dir, rel_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+        def esc(v):
+            return html.escape(str(v or ''))
+
+        html_text = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{esc(summary_title)}</title>
+  <style>
+    body {{ font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,'Noto Sans',sans-serif; margin: 24px; color:#0f172a; }}
+    a {{ color:#2563eb; }}
+    .box {{ border:1px solid #fde68a; background:#fffbeb; border-radius:8px; padding:14px 16px; margin:16px 0; }}
+    .meta {{ color:#475569; line-height:1.8; }}
+    code {{ background:#f1f5f9; padding:1px 6px; border-radius:4px; }}
+  </style>
+</head>
+<body>
+  <h1>{esc(summary_title)}</h1>
+  <div class="meta">
+    <div>分支：{esc(branch)} ｜ 区域/语言：{esc(locale)} ｜ Build：{esc(current_build)} ｜ Push：{from_push} → {to_push}</div>
+    <div>生成时间：{esc(now_text)}</div>
+    <div>Wago 链接：<a href="{esc(wago_url)}" target="_blank" rel="noreferrer">{esc(wago_url)}</a></div>
+  </div>
+  <div class="box">
+    <h2>Fallback 状态说明</h2>
+    <p>{esc(reason)}</p>
+    <p>监控已确认 hotfix push 有更新，因此仍生成本报告并记录本次事件；如果明细为空，请优先打开上方 Wago 链接复核原始更新。</p>
+  </div>
+  <h2>当前可用统计</h2>
+  <ul>
+    <li>表数量：<code>{table_count}</code></li>
+    <li>记录数量：<code>{entry_count}</code></li>
+  </ul>
+</body>
+</html>
+"""
+        try:
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(html_text)
+            content_html_path = rel_path
+            report_url = f"/static/{rel_path}"
+        except Exception:
+            content_html_path = ''
+            report_url = ''
+
+        return {
+            'branch': branch,
+            'locale': locale,
+            'build_num': current_build,
+            'build_str': current_build,
+            'from_push': from_push,
+            'to_push': to_push,
+            'summary_title': summary_title,
+            'content_md': content_md,
+            'content_html_path': content_html_path,
+            'report_url': report_url,
+            'wago_url': wago_url,
+            'changed_tables_json': changed_tables_json,
+            'table_count': table_count,
+            'entry_count': entry_count,
+        }
 
     def _extract_build_number(self, build_str):
         build_str = str(build_str or '').strip()
