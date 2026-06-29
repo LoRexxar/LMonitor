@@ -8193,11 +8193,30 @@ function initLogFilePage() {
     const pageButtonsEl = document.getElementById('log-file-page-buttons');
     const refreshBtn = document.getElementById('log-file-refresh');
     const readRefreshBtn = document.getElementById('log-file-read-refresh');
+    const sidebarEl = document.getElementById('log-file-sidebar');
+    const collapsedRailEl = document.getElementById('log-file-collapsed-rail');
+    const collapseBtn = document.getElementById('log-file-sidebar-toggle');
+    const expandBtn = document.getElementById('log-file-sidebar-expand');
+    let isSidebarCollapsed = false;
 
     function getLogPageSize() {
         const value = parseInt(pageSizeSelect ? pageSizeSelect.value : '300', 10);
         if (Number.isNaN(value)) return 300;
         return Math.max(1, Math.min(value, 1000));
+    }
+
+    function setLogSidebarCollapsed(collapsed) {
+        isSidebarCollapsed = collapsed;
+        if (!sidebarEl || !collapsedRailEl) return;
+        sidebarEl.classList.toggle('hidden', collapsed);
+        collapsedRailEl.classList.toggle('hidden', !collapsed);
+        collapsedRailEl.classList.toggle('xl:flex', collapsed);
+        if (collapseBtn) {
+            collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+        }
+        if (expandBtn) {
+            expandBtn.setAttribute('aria-expanded', String(!collapsed));
+        }
     }
 
     async function postDashboard(payload) {
@@ -8338,6 +8357,10 @@ function initLogFilePage() {
     if (refreshBtn) refreshBtn.addEventListener('click', () => loadLogFiles(true));
     if (readRefreshBtn) readRefreshBtn.addEventListener('click', () => readLogFile(currentFilename, currentPage));
     if (pageSizeSelect) pageSizeSelect.addEventListener('change', () => readLogFile(currentFilename, 1));
+    if (collapseBtn) collapseBtn.addEventListener('click', () => setLogSidebarCollapsed(true));
+    if (expandBtn) expandBtn.addEventListener('click', () => setLogSidebarCollapsed(false));
+
+    setLogSidebarCollapsed(false);
 
     window.loadLogFilesGlobal = () => loadLogFiles(false);
     window.readLogFileGlobal = readLogFile;
