@@ -140,7 +140,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260629_log_files_collapse" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260629_hotfix_reports" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -248,6 +248,12 @@
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-book mr-3"></i>
                             WoW 日报
+                        </a>
+                    </li>
+                    <li class="nav-item" data-section="wago-hotfix-reports">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-fire mr-3"></i>
+                            Hotfix 报告
                         </a>
                     </li>
                     <li class="nav-item" data-section="error-logs">
@@ -551,6 +557,40 @@
                             <div class="p-5 wow-md-content" id="wow-daily-report-preview"></div>
                             <textarea id="wow-daily-report-raw" class="hidden"></textarea>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-section" id="wago-hotfix-reports" style="display: none;">
+                <div class="mb-6">
+                    <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                        <div>
+                            <h2 class="text-3xl font-bold text-gray-800 mb-2">Hotfix 报告</h2>
+                            <p class="text-gray-600">查看 Wago Hotfix 监控状态、最近事件和已生成报告，支持直接打开报告或 Wago 原始页面。</p>
+                        </div>
+                        <button id="wago-hotfix-refresh" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700 transition-colors duration-200">
+                            <i class="fas fa-rotate-right mr-2"></i>刷新
+                        </button>
+                    </div>
+                </div>
+
+                <div id="wago-hotfix-hint" class="mb-4 text-sm text-gray-600"></div>
+                <div id="wago-hotfix-states" class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6"></div>
+
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
+                        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-gray-800">最近 Hotfix 报告</h3>
+                            <span id="wago-hotfix-report-count" class="text-xs text-gray-500"></span>
+                        </div>
+                        <div id="wago-hotfix-report-list" class="divide-y divide-gray-100"></div>
+                    </div>
+                    <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
+                        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-gray-800">最近 Hotfix 事件</h3>
+                            <span id="wago-hotfix-event-count" class="text-xs text-gray-500"></span>
+                        </div>
+                        <div id="wago-hotfix-event-list" class="divide-y divide-gray-100"></div>
                     </div>
                 </div>
             </div>

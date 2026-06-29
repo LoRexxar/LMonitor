@@ -276,7 +276,22 @@ class WagoSkillDiffMonitor(BaseScan):
         st.hotfix_last_run_at = now
         st.hotfix_last_run_status = 'success' if latest_push > 0 else 'no_data'
         st.save(update_fields=['hotfix_last_run_at', 'hotfix_last_run_status'])
-        if latest_push <= 0 or latest_push <= last_push:
+        if latest_push <= 0:
+            return True
+        if last_push > latest_push:
+            logger.warning(
+                "[WagoSkillDiffMonitor] hotfix cursor is ahead of Wago latest push, "
+                "recover as initial scan: branch=%s locale=%s last_push=%s latest_push=%s",
+                branch,
+                hotfix_locale,
+                last_push,
+                latest_push,
+            )
+            st.hotfix_push_id = 0
+            st.hotfix_last_event_status = 'hotfix_cursor_recovered'
+            st.save(update_fields=['hotfix_push_id', 'hotfix_last_event_status'])
+            last_push = 0
+        if latest_push <= last_push:
             return True
 
         report = None

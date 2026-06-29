@@ -34,7 +34,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport
+from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
 from botend.alerting import upsert_system_alert
 from django.db import models
 from core.glm import GLMClient
@@ -199,6 +199,95 @@ class PortalPeakSpecRankRefreshAPIView(View):
             logger.error(f"刷新巅峰榜失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({'success': False, 'error': f'刷新巅峰榜失败: {str(e)}'})
 
+
+
+@method_decorator([csrf_exempt], name='dispatch')
+class WagoHotfixReportListAPIView(View):
+    def get(self, request):
+        try:
+            if not getattr(request, 'user', None) or not request.user.is_authenticated:
+                return JsonResponse({'success': False, 'error': '请先登录 Dashboard 后查看 Hotfix 报告'}, status=401)
+
+            limit_raw = request.GET.get('limit', '20')
+            try:
+                limit = max(1, min(100, int(limit_raw)))
+            except Exception:
+                limit = 20
+
+            state_rows = WowWagoMonitorState.objects.filter(branch='wow').order_by('locale', 'id')
+            latest_known_push = max(
+                WowHotfixReport.objects.filter(branch='wow').aggregate(v=models.Max('to_push')).get('v') or 0,
+                WowWagoHotfixEvent.objects.filter(branch='wow').aggregate(v=models.Max('to_push')).get('v') or 0,
+            )
+            states = [
+                {
+                    'id': st.id,
+                    'branch': st.branch,
+                    'locale': st.locale,
+                    'build': st.build,
+                    'hotfix_push_id': st.hotfix_push_id,
+                    'hotfix_last_run_at': _fmt_dt(st.hotfix_last_run_at),
+                    'hotfix_last_run_status': st.hotfix_last_run_status,
+                    'hotfix_last_event_at': _fmt_dt(st.hotfix_last_event_at),
+                    'hotfix_last_event_status': st.hotfix_last_event_status,
+                    'hotfix_report_url': st.hotfix_report_url,
+                    'hotfix_wago_url': st.hotfix_wago_url,
+                    'hotfix_summary_title': st.hotfix_summary_title,
+                    'latest_known_push': latest_known_push,
+                    'cursor_is_ahead_of_known': bool(latest_known_push and st.hotfix_push_id and st.hotfix_push_id > latest_known_push),
+                }
+                for st in state_rows
+            ]
+
+            reports = [
+                {
+                    'id': r.id,
+                    'branch': r.branch,
+                    'locale': r.locale,
+                    'build_num': r.build_num,
+                    'build_str': r.build_str,
+                    'from_push': r.from_push,
+                    'to_push': r.to_push,
+                    'summary_title': r.summary_title,
+                    'report_url': r.report_url,
+                    'wago_url': r.wago_url,
+                    'table_count': r.table_count,
+                    'entry_count': r.entry_count,
+                    'created_at': _fmt_dt(r.created_at),
+                    'updated_at': _fmt_dt(r.updated_at),
+                }
+                for r in WowHotfixReport.objects.filter(branch='wow').order_by('-created_at')[:limit]
+            ]
+
+            events = [
+                {
+                    'id': e.id,
+                    'branch': e.branch,
+                    'locale': e.locale,
+                    'from_push': e.from_push,
+                    'to_push': e.to_push,
+                    'push_id': e.push_id,
+                    'build_num': e.build_num,
+                    'build_str': e.build_str,
+                    'status': e.status,
+                    'wago_url': e.wago_url,
+                    'report_id': e.report_id,
+                    'report_url': e.report.report_url if e.report_id and e.report else '',
+                    'table_count': e.table_count,
+                    'entry_count': e.entry_count,
+                    'summary_title': e.summary_title,
+                    'error_message': e.error_message,
+                    'detected_at': _fmt_dt(e.detected_at),
+                    'last_attempt_at': _fmt_dt(e.last_attempt_at),
+                    'updated_at': _fmt_dt(e.updated_at),
+                }
+                for e in WowWagoHotfixEvent.objects.filter(branch='wow').select_related('report').order_by('-created_at')[:limit]
+            ]
+
+            return JsonResponse({'success': True, 'states': states, 'reports': reports, 'events': events})
+        except Exception as e:
+            logger.error(f"获取 Wago Hotfix 报告列表失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'获取 Wago Hotfix 报告列表失败: {str(e)}'})
 
 
 @method_decorator([csrf_exempt], name='dispatch')

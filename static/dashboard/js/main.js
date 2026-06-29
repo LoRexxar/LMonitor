@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initSimcProfileFilters();
     initWowArticleFilters();
     initWowDailyReportPage();
+    initWagoHotfixReportPage();
     initNewsWowPage();
     initErrorLogPage();
     initLogFilePage();
@@ -297,6 +298,9 @@ function initNavigation() {
                 }
                 if (sectionId === 'wow-daily-reports') {
                     loadWowDailyReports();
+                }
+                if (sectionId === 'wago-hotfix-reports') {
+                    loadWagoHotfixReports();
                 }
                 if (sectionId === 'log-files' && window.loadLogFilesGlobal) {
                     window.loadLogFilesGlobal();
@@ -998,6 +1002,141 @@ function downloadWowDailyReport() {
     const id = wowDailyReportState.selectedId;
     const url = id ? `/api/wow-daily-report/download/?id=${encodeURIComponent(id)}` : `/api/wow-daily-report/download/?date=${encodeURIComponent(date)}`;
     downloadFileByFetch(url, date);
+}
+
+
+function initWagoHotfixReportPage() {
+    const refreshBtn = document.getElementById('wago-hotfix-refresh');
+    if (refreshBtn) {
+        refreshBtn.onclick = () => loadWagoHotfixReports();
+    }
+}
+
+async function loadWagoHotfixReports() {
+    const hintEl = document.getElementById('wago-hotfix-hint');
+    const statesEl = document.getElementById('wago-hotfix-states');
+    const reportsEl = document.getElementById('wago-hotfix-report-list');
+    const eventsEl = document.getElementById('wago-hotfix-event-list');
+    const reportCountEl = document.getElementById('wago-hotfix-report-count');
+    const eventCountEl = document.getElementById('wago-hotfix-event-count');
+    if (!reportsEl || !eventsEl) return;
+    if (hintEl) hintEl.textContent = '加载 Hotfix 报告中...';
+    if (statesEl) statesEl.innerHTML = '';
+    reportsEl.innerHTML = '<div class="p-5 text-sm text-gray-500">加载中...</div>';
+    eventsEl.innerHTML = '<div class="p-5 text-sm text-gray-500">加载中...</div>';
+    try {
+        const resp = await fetch('/api/wago-hotfix-reports/?limit=30', { method: 'GET' });
+        const data = await resp.json();
+        if (!data || !data.success) {
+            throw new Error((data && data.error) || '加载失败');
+        }
+        const states = data.states || [];
+        const reports = data.reports || [];
+        const events = data.events || [];
+        if (reportCountEl) reportCountEl.textContent = `共 ${reports.length} 条`;
+        if (eventCountEl) eventCountEl.textContent = `共 ${events.length} 条`;
+        renderWagoHotfixStates(states);
+        renderWagoHotfixReports(reports);
+        renderWagoHotfixEvents(events);
+        if (hintEl) hintEl.textContent = states.length ? 'Hotfix 游标只在完整报告成功后推进；fallback 报告会保留重试机会。' : '暂无 Hotfix 监控状态';
+    } catch (e) {
+        const msg = `加载失败：${String(e.message || e)}`;
+        if (hintEl) hintEl.textContent = msg;
+        reportsEl.innerHTML = `<div class="p-5 text-sm text-red-600">${escapeHtml(msg)}</div>`;
+        eventsEl.innerHTML = `<div class="p-5 text-sm text-red-600">${escapeHtml(msg)}</div>`;
+    }
+}
+
+function renderWagoHotfixStates(states) {
+    const el = document.getElementById('wago-hotfix-states');
+    if (!el) return;
+    if (!states || !states.length) {
+        el.innerHTML = '<div class="bg-white rounded-xl shadow p-5 text-sm text-gray-500">暂无 Hotfix 监控状态</div>';
+        return;
+    }
+    el.innerHTML = states.map(st => {
+        const reportUrl = st.hotfix_report_url || '';
+        const wagoUrl = st.hotfix_wago_url || '';
+        const cursorWarning = st.cursor_is_ahead_of_known ? `<div class="mt-3 rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-xs text-red-700">游标高于最近已知 push（${escapeHtml(st.latest_known_push || 0)}），监控下次扫描会自动重置并重新检测。</div>` : '';
+        return `
+            <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-5 border-l-4 border-orange-500">
+                <div class="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                        <div class="text-xs uppercase tracking-wide text-gray-500">${escapeHtml(st.branch || 'wow')} / ${escapeHtml(st.locale || '-')}</div>
+                        <div class="text-xl font-bold text-gray-900 mt-1">Push ${escapeHtml(st.hotfix_push_id || 0)}</div>
+                    </div>
+                    <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-50 text-orange-700">${escapeHtml(st.hotfix_last_event_status || st.hotfix_last_run_status || 'unknown')}</span>
+                </div>
+                <div class="text-sm text-gray-600 space-y-1">
+                    <div>Build：<span class="font-medium text-gray-800">${escapeHtml(st.build || '-')}</span></div>
+                    <div>最近运行：${escapeHtml(st.hotfix_last_run_at || '-')}</div>
+                    <div>最近事件：${escapeHtml(st.hotfix_last_event_at || '-')}</div>
+                    <div class="line-clamp-2">${escapeHtml(st.hotfix_summary_title || '暂无摘要')}</div>
+                </div>
+                ${cursorWarning}
+                <div class="mt-4 flex flex-wrap gap-2">
+                    ${reportUrl ? `<a class="px-3 py-1.5 rounded-lg bg-orange-600 text-white text-sm hover:bg-orange-700" target="_blank" href="${escapeHtml(reportUrl)}"><i class="fas fa-external-link-alt mr-1"></i>打开报告</a>` : ''}
+                    ${wagoUrl ? `<a class="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-sm hover:bg-gray-200" target="_blank" href="${escapeHtml(wagoUrl)}">Wago 原始页</a>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderWagoHotfixReports(reports) {
+    const el = document.getElementById('wago-hotfix-report-list');
+    if (!el) return;
+    if (!reports || !reports.length) {
+        el.innerHTML = '<div class="p-5 text-sm text-gray-500">暂无 Hotfix 报告</div>';
+        return;
+    }
+    el.innerHTML = reports.map(r => `
+        <div class="p-5 hover:bg-orange-50/40 transition-colors duration-200">
+            <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <div class="font-semibold text-gray-900 break-words">${escapeHtml(r.summary_title || `Hotfix ${r.from_push} → ${r.to_push}`)}</div>
+                    <div class="mt-1 text-xs text-gray-500">${escapeHtml(r.locale || '-')} · build ${escapeHtml(r.build_num || r.build_str || '-')} · push ${escapeHtml(r.from_push)} → ${escapeHtml(r.to_push)}</div>
+                    <div class="mt-1 text-xs text-gray-500">${escapeHtml(r.created_at || '')} · ${escapeHtml(r.table_count || 0)} 表 / ${escapeHtml(r.entry_count || 0)} 项</div>
+                </div>
+                <div class="flex flex-col gap-2 shrink-0">
+                    ${r.report_url ? `<a class="text-sm text-orange-600 hover:text-orange-800" target="_blank" href="${escapeHtml(r.report_url)}">报告</a>` : ''}
+                    ${r.wago_url ? `<a class="text-sm text-blue-600 hover:text-blue-800" target="_blank" href="${escapeHtml(r.wago_url)}">Wago</a>` : ''}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderWagoHotfixEvents(events) {
+    const el = document.getElementById('wago-hotfix-event-list');
+    if (!el) return;
+    if (!events || !events.length) {
+        el.innerHTML = '<div class="p-5 text-sm text-gray-500">暂无 Hotfix 事件</div>';
+        return;
+    }
+    el.innerHTML = events.map(ev => {
+        const status = ev.status || 'unknown';
+        const warn = status.includes('failed') || status.includes('fallback');
+        return `
+            <div class="p-5 hover:bg-gray-50 transition-colors duration-200">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-semibold text-gray-900">Push ${escapeHtml(ev.from_push)} → ${escapeHtml(ev.to_push)}</span>
+                            <span class="px-2 py-0.5 rounded-full text-xs ${warn ? 'bg-yellow-50 text-yellow-700' : 'bg-emerald-50 text-emerald-700'}">${escapeHtml(status)}</span>
+                        </div>
+                        <div class="mt-1 text-xs text-gray-500">${escapeHtml(ev.locale || '-')} · build ${escapeHtml(ev.build_num || ev.build_str || '-')} · ${escapeHtml(ev.detected_at || '')}</div>
+                        <div class="mt-1 text-xs text-gray-500">${escapeHtml(ev.summary_title || '')}</div>
+                        ${ev.error_message ? `<div class="mt-2 text-xs text-red-600 break-words">${escapeHtml(ev.error_message)}</div>` : ''}
+                    </div>
+                    <div class="flex flex-col gap-2 shrink-0">
+                        ${ev.report_url ? `<a class="text-sm text-orange-600 hover:text-orange-800" target="_blank" href="${escapeHtml(ev.report_url)}">报告</a>` : ''}
+                        ${ev.wago_url ? `<a class="text-sm text-blue-600 hover:text-blue-800" target="_blank" href="${escapeHtml(ev.wago_url)}">Wago</a>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 function escapeHtml(str) {
