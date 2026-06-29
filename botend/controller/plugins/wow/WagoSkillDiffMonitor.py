@@ -14,7 +14,7 @@ from django.db.utils import NotSupportedError
 from django.utils import timezone
 
 from botend.controller.BaseScan import BaseScan
-from botend.models import WowSkillDiffReport, WowHotfixReport, WowSpellEffectSnapshot, WowSpellSnapshot, WowSpellSnapshotState, WowSpecSpellMapSnapshot, WowWagoMonitorState
+from botend.models import WowSkillDiffReport, WowHotfixReport, WowSpellEffectSnapshot, WowSpellSnapshot, WowSpellSnapshotState, WowSpecSpellMapSnapshot, WowWagoBuildEvent, WowWagoHotfixEvent, WowWagoMonitorState
 from utils.log import logger
 from botend.controller.plugins.wow.wago_regions import wago_region_id, wago_region_name
 
@@ -73,6 +73,16 @@ class WagoSkillDiffMonitor(BaseScan):
             'traitnode',
             'traittree',
         }
+
+    def _mark_event(self, event, **fields):
+        if not event:
+            return
+        for key, value in fields.items():
+            if key == 'error_message' and value:
+                value = str(value)[:4000]
+            setattr(event, key, value)
+        update_fields = list(fields.keys()) + ['updated_at']
+        event.save(update_fields=update_fields)
 
     def _bulk_upsert_snapshots(self, model, objs, unique_fields, update_fields, batch_size=None):
         if not objs:
@@ -275,13 +285,29 @@ class WagoSkillDiffMonitor(BaseScan):
         if is_init:
             prev_push = self._fetch_prev_hotfix_push_id(latest_push, locale=hotfix_locale)
             from_push = prev_push if prev_push > 0 else max(0, latest_push - 1)
+
+        hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
+        hotfix_event, _ = WowWagoHotfixEvent.objects.update_or_create(
+            branch=branch,
+            locale=hotfix_locale,
+            to_push=latest_push,
+            defaults={
+                'from_push': from_push,
+                'push_id': latest_push,
+                'status': 'detected',
+                'wago_url': hotfix_wago_url,
+                'error_message': '',
+                'last_attempt_at': now,
+            },
+        )
         try:
             report = self._generate_hotfix_full_report(branch, current_build, from_push, latest_push, locale=hotfix_locale)
         except Exception as e:
+            self._mark_event(hotfix_event, status='generate_failed', report=None, error_message=e)
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
             st.hotfix_report_url = ''
-            st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
+            st.hotfix_wago_url = hotfix_wago_url
             st.hotfix_spell_count = 0
             st.hotfix_class_count = 0
             st.hotfix_summary_title = ''
@@ -299,11 +325,20 @@ class WagoSkillDiffMonitor(BaseScan):
             return False
 
         if not report or int(report.get('entry_count') or 0) <= 0:
+            self._mark_event(
+                hotfix_event,
+                status='no_data',
+                report=None,
+                table_count=int((report or {}).get('table_count') or 0),
+                entry_count=int((report or {}).get('entry_count') or 0),
+                changed_tables_json=(report or {}).get('changed_tables_json') or '',
+                summary_title=((report or {}).get('summary_title') or '')[:255],
+            )
             # 没拿到数据时不要推进 push_id，保证下次会重试
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'no_data'
             st.hotfix_report_url = ''
-            st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
+            st.hotfix_wago_url = hotfix_wago_url
             st.hotfix_spell_count = 0
             st.hotfix_class_count = 0
             st.hotfix_summary_title = ''
@@ -341,10 +376,11 @@ class WagoSkillDiffMonitor(BaseScan):
                 }
             )
         except Exception as e:
+            self._mark_event(hotfix_event, status='save_report_failed', report=None, error_message=e)
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
             st.hotfix_report_url = ''
-            st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
+            st.hotfix_wago_url = hotfix_wago_url
             st.hotfix_spell_count = 0
             st.hotfix_class_count = 0
             st.hotfix_summary_title = ''
@@ -360,6 +396,19 @@ class WagoSkillDiffMonitor(BaseScan):
                 ]
             )
             return False
+
+        self._mark_event(
+            hotfix_event,
+            status='report_generated',
+            report=row,
+            build_num=report.get('build_num') or '',
+            build_str=report.get('build_str') or '',
+            table_count=int(report.get('table_count') or 0),
+            entry_count=int(report.get('entry_count') or 0),
+            changed_tables_json=report.get('changed_tables_json') or '',
+            summary_title=(report.get('summary_title') or '')[:255],
+            error_message='',
+        )
 
         # 仅在成功生成/落库报告后推进 push_id
         st.hotfix_push_id = latest_push
@@ -1189,10 +1238,23 @@ class WagoSkillDiffMonitor(BaseScan):
         now = timezone.now()
         branch = (st.branch or '').strip() or self.default_branch
         wago_diff_url = f"https://wago.tools/builds-diff?to={to_build}&from={from_build}"
+        build_event, _ = WowWagoBuildEvent.objects.update_or_create(
+            branch=branch,
+            locale=self.locale,
+            from_build=from_build,
+            to_build=to_build,
+            defaults={
+                'status': 'detected',
+                'wago_diff_url': wago_diff_url,
+                'error_message': '',
+                'last_attempt_at': now,
+            },
+        )
         report = None
         try:
             report = self._generate_report(branch, from_build, to_build)
         except Exception as e:
+            self._mark_event(build_event, status='generate_failed', report=None, error_message=e)
             st.last_event_at = now
             st.last_event_status = 'failed'
             st.wago_diff_url = wago_diff_url
@@ -1201,6 +1263,15 @@ class WagoSkillDiffMonitor(BaseScan):
             return False
 
         if not report or int(report.get('spell_count') or 0) <= 0:
+            self._mark_event(
+                build_event,
+                status='no_class_change',
+                report=None,
+                spell_count=int((report or {}).get('spell_count') or 0),
+                class_count=int((report or {}).get('class_count') or 0),
+                changed_tables_json=(report or {}).get('changed_tables_json') or '',
+                summary_title=((report or {}).get('summary_title') or '')[:255],
+            )
             st.build = to_build
             st.last_event_at = now
             st.last_event_status = 'init_no_class_change' if is_init else 'build_changed_no_class_change'
@@ -1235,12 +1306,24 @@ class WagoSkillDiffMonitor(BaseScan):
                 }
             )
         except Exception as e:
+            self._mark_event(build_event, status='save_report_failed', report=None, error_message=e)
             st.last_event_at = now
             st.last_event_status = 'failed'
             st.wago_diff_url = wago_diff_url
             st.ext = f"save_report_failed: {e}"
             st.save(update_fields=['last_event_at', 'last_event_status', 'wago_diff_url', 'ext'])
             return False
+
+        self._mark_event(
+            build_event,
+            status='report_generated',
+            report=row,
+            spell_count=int(report.get('spell_count') or 0),
+            class_count=int(report.get('class_count') or 0),
+            changed_tables_json=report.get('changed_tables_json') or '',
+            summary_title=(report.get('summary_title') or '')[:255],
+            error_message='',
+        )
 
         st.build = to_build
         st.last_event_at = now

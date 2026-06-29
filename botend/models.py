@@ -283,6 +283,76 @@ class WowWagoMonitorState(models.Model):
         ]
 
 
+class WowWagoBuildEvent(models.Model):
+    """Wago build diff interval event for traceable processing."""
+    id = models.BigAutoField(primary_key=True)
+    branch = models.CharField(max_length=32, default="wow")
+    locale = models.CharField(max_length=8, default="enUS")
+    from_build = models.CharField(max_length=64)
+    to_build = models.CharField(max_length=64)
+    status = models.CharField(max_length=64, default="detected")
+    wago_diff_url = models.CharField(max_length=500, default="", blank=True)
+    report = models.ForeignKey(WowSkillDiffReport, null=True, blank=True, on_delete=models.SET_NULL)
+    spell_count = models.IntegerField(default=0)
+    class_count = models.IntegerField(default=0)
+    changed_tables_json = models.TextField(default="", blank=True)
+    summary_title = models.CharField(max_length=255, default="", blank=True)
+    error_message = models.TextField(default="", blank=True)
+    ext = models.TextField(default="", blank=True)
+    detected_at = models.DateTimeField(default=timezone.now)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_wago_build_event'
+        unique_together = (('branch', 'locale', 'from_build', 'to_build'),)
+        indexes = [
+            models.Index(fields=['branch', 'locale']),
+            models.Index(fields=['to_build']),
+            models.Index(fields=['status']),
+            models.Index(fields=['detected_at']),
+            models.Index(fields=['updated_at']),
+        ]
+
+
+class WowWagoHotfixEvent(models.Model):
+    """Wago hotfix push event for traceable processing."""
+    id = models.BigAutoField(primary_key=True)
+    branch = models.CharField(max_length=32, default="wow")
+    locale = models.CharField(max_length=8, default="enUS")
+    from_push = models.BigIntegerField(default=0)
+    to_push = models.BigIntegerField(default=0)
+    push_id = models.BigIntegerField(default=0)
+    build_num = models.CharField(max_length=32, default="", blank=True)
+    build_str = models.CharField(max_length=64, default="", blank=True)
+    status = models.CharField(max_length=64, default="detected")
+    wago_url = models.CharField(max_length=500, default="", blank=True)
+    report = models.ForeignKey(WowHotfixReport, null=True, blank=True, on_delete=models.SET_NULL)
+    table_count = models.IntegerField(default=0)
+    entry_count = models.IntegerField(default=0)
+    changed_tables_json = models.TextField(default="", blank=True)
+    summary_title = models.CharField(max_length=255, default="", blank=True)
+    error_message = models.TextField(default="", blank=True)
+    ext = models.TextField(default="", blank=True)
+    detected_at = models.DateTimeField(default=timezone.now)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_wago_hotfix_event'
+        unique_together = (('branch', 'locale', 'to_push'),)
+        indexes = [
+            models.Index(fields=['branch', 'locale']),
+            models.Index(fields=['to_push']),
+            models.Index(fields=['push_id']),
+            models.Index(fields=['status']),
+            models.Index(fields=['detected_at']),
+            models.Index(fields=['updated_at']),
+        ]
+
+
 class WowSpellSnapshotState(models.Model):
     branch = models.CharField(max_length=32, default="wow")
     locale = models.CharField(max_length=8, default="enUS")
