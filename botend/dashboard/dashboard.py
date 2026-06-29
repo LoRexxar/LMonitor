@@ -362,7 +362,7 @@ class DashboardView(View):
                     base_queryset = model.objects.values(
                         'id', 'title', 'title_cn', 'url', 'author', 'publish_time', 'description',
                         'source', 'category', 'reply_count'
-                    ).order_by('-id')
+                    ).order_by('-publish_time', '-id')
                     if wow_source_filter:
                         base_queryset = base_queryset.filter(source=wow_source_filter)
                     if wow_category_filter:
