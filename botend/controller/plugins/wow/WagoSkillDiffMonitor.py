@@ -1419,6 +1419,70 @@ class WagoSkillDiffMonitor(BaseScan):
         finally:
             self.locale = old_locale
 
+    def rerun_build_event(self, event_id):
+        """按 WowWagoBuildEvent 记录重跑 build diff。
+
+        只更新 event 和 WowSkillDiffReport，不推进 WowWagoMonitorState.build。
+        """
+        try:
+            event_id = int(event_id or 0)
+        except (TypeError, ValueError):
+            return {'success': False, 'error': 'event_id 无效'}
+        if event_id <= 0:
+            return {'success': False, 'error': '缺少 event_id'}
+
+        try:
+            event = WowWagoBuildEvent.objects.get(id=event_id)
+        except WowWagoBuildEvent.DoesNotExist:
+            return {'success': False, 'error': f'Wago build event 不存在: {event_id}', 'event_id': event_id}
+
+        now = timezone.now()
+        self._mark_event(event, last_attempt_at=now, error_message='')
+
+        result = self.rerun_build_diff(
+            branch=event.branch,
+            from_build=event.from_build,
+            to_build=event.to_build,
+            locale=event.locale,
+        )
+
+        if not result.get('success'):
+            self._mark_event(
+                event,
+                status='rerun_failed',
+                error_message=result.get('error') or 'event 重跑失败',
+                last_attempt_at=now,
+            )
+            result.update({'event_id': event.id, 'status': 'rerun_failed'})
+            return result
+
+        report_id = result.get('report_id')
+        report_row = None
+        if report_id:
+            report_row = WowSkillDiffReport.objects.filter(id=report_id).first()
+
+        spell_count = int(result.get('spell_count') or 0)
+        status = 'report_generated'
+        self._mark_event(
+            event,
+            status=status,
+            report=report_row,
+            spell_count=spell_count,
+            class_count=int(result.get('class_count') or 0),
+            changed_tables_json=(report_row.changed_tables_json if report_row else '') or '[]',
+            summary_title='',
+            error_message='',
+            last_attempt_at=now,
+        )
+
+        result.update({
+            'event_id': event.id,
+            'status': status,
+            'report_id': report_id,
+            'report_url': result.get('report_url') or (f'/portal/wow-skill-diff/{report_id}/' if report_id else ''),
+        })
+        return result
+
     def _heuristic_summary_title(self, class_spell_counts, spell_count, changed_tables, samples=None):
         cn = {
             1: '战士',

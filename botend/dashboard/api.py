@@ -209,13 +209,14 @@ class WagoSkillDiffRerunAPIView(View):
                 return JsonResponse({'success': False, 'error': '请先登录 Dashboard 后再执行 Wago 指定版本重跑'}, status=401)
 
             payload = json.loads(request.body or '{}')
+            event_id = payload.get('event_id')
             branch = (payload.get('branch') or 'wow').strip()
             from_build = (payload.get('from_build') or '').strip()
             to_build = (payload.get('to_build') or '').strip()
             locale = (payload.get('locale') or 'enUS').strip()
 
-            if not from_build or not to_build:
-                return JsonResponse({'success': False, 'error': '请填写 from_build 和 to_build'})
+            if not event_id and (not from_build or not to_build):
+                return JsonResponse({'success': False, 'error': '请填写 event_id 或 from_build/to_build'})
 
             from LMonitor.config import Monitor_Type_BaseObject_List
             from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
@@ -231,7 +232,10 @@ class WagoSkillDiffRerunAPIView(View):
                 return JsonResponse({'success': False, 'error': '未找到 WagoSkillDiffMonitor 任务，请先同步 MonitorTask'})
 
             monitor = WagoSkillDiffMonitor(None, task)
-            result = monitor.rerun_build_diff(branch=branch, from_build=from_build, to_build=to_build, locale=locale)
+            if event_id:
+                result = monitor.rerun_build_event(event_id=event_id)
+            else:
+                result = monitor.rerun_build_diff(branch=branch, from_build=from_build, to_build=to_build, locale=locale)
             return JsonResponse(result)
         except Exception as e:
             logger.error(f"Wago指定版本重跑失败: {str(e)}\n{traceback.format_exc()}")
