@@ -42,8 +42,9 @@ def build_wow_skill_diff_fallback_html(report, page_title='', server_title=''):
     .wow-skill-diff-fallback-html .metric span {{ display:block; color:#64748b; font-size:12px; margin-bottom:4px; }}
     .wow-skill-diff-fallback-html .metric strong {{ display:block; color:#0f172a; font-size:15px; word-break:break-word; }}
     .wow-skill-diff-fallback-html .panel {{ border:1px solid #e2e8f0; border-radius:12px; background:#fff; padding:14px 16px; }}
-    .wow-skill-diff-fallback-html .tables {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px 16px; padding-left:18px; }}
-    .wow-skill-diff-fallback-html code {{ background:#f1f5f9; border-radius:6px; padding:2px 6px; }}
+    .wow-skill-diff-fallback-html .tables {{ list-style:none; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; padding-left:0; margin:0; }}
+    .wow-skill-diff-fallback-html .tables li {{ min-width:0; }}
+    .wow-skill-diff-fallback-html code {{ display:block; background:#f1f5f9; border-radius:6px; padding:5px 7px; white-space:normal; overflow-wrap:anywhere; word-break:break-word; }}
     .wow-skill-diff-fallback-html .muted {{ color:#64748b; }}
   </style>
   <div class="notice">静态 HTML 文件暂不可用；此处直接用报告元数据初始化 HTML 展示，不再经过 Markdown 渲染。</div>

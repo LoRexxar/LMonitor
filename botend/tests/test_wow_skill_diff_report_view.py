@@ -105,3 +105,26 @@ class PortalWowSkillDiffReportViewTests(SimpleTestCase):
         self.assertIn('Spell&lt;script&gt;', html)
         self.assertNotIn('<script>alert(1)</script>', html)
         self.assertNotIn('<img src=x', html)
+
+    def test_inline_html_summary_wraps_long_table_names(self):
+        report = SimpleNamespace(
+            id=4,
+            branch='wowt',
+            from_build='12.1.0.68209',
+            to_build='12.1.0.68301',
+            display_from_build='',
+            display_to_build='',
+            content_md='# PTR(测试服) 职业技能变更报告\n',
+            content_html_path='',
+            changed_tables_json='["collectablesourcevendorsparse", "creaturedisplayinfogeosetdata"]',
+            spell_count=117,
+            class_count=12,
+        )
+
+        html = build_wow_skill_diff_fallback_html(report, page_title='', server_title='PTR')
+
+        self.assertIn('collectablesourcevendorsparse', html)
+        self.assertIn('creaturedisplayinfogeosetdata', html)
+        self.assertIn('overflow-wrap:anywhere', html)
+        self.assertIn('word-break:break-word', html)
+        self.assertIn('minmax(220px,1fr)', html)
