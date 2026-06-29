@@ -138,7 +138,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260628_news_list_detail" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260629_log_files" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -252,6 +252,12 @@
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-bell mr-3"></i>
                             系统报警
+                        </a>
+                    </li>
+                    <li class="nav-item" data-section="log-files">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-file-lines mr-3"></i>
+                            日志文件
                         </a>
                     </li>
                     <li class="nav-item has-submenu" data-section="tools">
@@ -597,6 +603,63 @@
                         <div class="flex items-center justify-between">
                             <div id="error-log-page-info" class="text-sm text-gray-700">显示 0 条，共 0 条记录</div>
                             <div id="error-log-page-buttons" class="flex items-center space-x-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 日志文件内容区域 -->
+            <div class="content-section" id="log-files" style="display: none;">
+                <div class="mb-6">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2">日志文件</h2>
+                    <p class="text-gray-600">按修改时间倒序监控 logs 目录，点开后按文件原始顺序正序读取</p>
+                </div>
+
+                <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 min-h-[calc(100vh-220px)]">
+                    <div class="xl:col-span-4 bg-white rounded-xl shadow-lg overflow-hidden flex flex-col min-h-[520px]">
+                        <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between gap-3">
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-800">日志列表</h3>
+                                <p id="log-file-list-hint" class="text-xs text-gray-500 mt-1">按文件修改时间倒序</p>
+                            </div>
+                            <button id="log-file-refresh" class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 text-sm flex items-center">
+                                <i class="fas fa-sync-alt mr-2"></i>刷新
+                            </button>
+                        </div>
+                        <div id="log-file-list" class="divide-y divide-gray-200 overflow-y-auto flex-1"></div>
+                        <div id="log-file-empty" class="text-center py-12 hidden">
+                            <i class="fas fa-file-circle-xmark text-gray-300 text-4xl mb-4"></i>
+                            <p class="text-gray-500 text-lg">暂无日志文件</p>
+                            <p class="text-gray-400 text-sm">logs 目录下没有 .log 文件</p>
+                        </div>
+                    </div>
+
+                    <div class="xl:col-span-8 bg-white rounded-xl shadow-lg overflow-hidden flex flex-col min-h-[520px]">
+                        <div class="px-5 py-4 border-b border-gray-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                            <div class="min-w-0">
+                                <h3 id="log-file-current-name" class="text-lg font-semibold text-gray-800 truncate">请选择日志文件</h3>
+                                <p id="log-file-current-meta" class="text-xs text-gray-500 mt-1">内容按文件原始顺序正序读取</p>
+                            </div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <select id="log-file-page-size" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                    <option value="100">每页 100 行</option>
+                                    <option value="300" selected>每页 300 行</option>
+                                    <option value="500">每页 500 行</option>
+                                    <option value="1000">每页 1000 行</option>
+                                </select>
+                                <button id="log-file-read-refresh" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200 text-sm">
+                                    <i class="fas fa-rotate-right mr-1"></i>重读
+                                </button>
+                            </div>
+                        </div>
+                        <div id="log-file-content" class="flex-1 overflow-auto bg-slate-950 text-slate-100 font-mono text-xs leading-5 p-0"></div>
+                        <div id="log-file-content-empty" class="text-center py-12 hidden">
+                            <i class="fas fa-file-lines text-gray-300 text-4xl mb-4"></i>
+                            <p class="text-gray-500 text-lg">请选择左侧日志文件</p>
+                        </div>
+                        <div class="px-5 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-3">
+                            <div id="log-file-page-info" class="text-sm text-gray-700">显示 0 行，共 0 行</div>
+                            <div id="log-file-page-buttons" class="flex items-center space-x-2"></div>
                         </div>
                     </div>
                 </div>

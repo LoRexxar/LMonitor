@@ -235,6 +235,10 @@ class DashboardView(View):
                 return self.delete_table_row(data)
             elif action == 'create_table_row':
                 return self.create_table_row(data)
+            elif action == 'list_log_files':
+                return self.list_log_files(data)
+            elif action == 'read_log_file':
+                return self.read_log_file(data)
             elif action == 'force_run_task':
                 task_id = data.get('task_id')
                 if not task_id:
@@ -715,6 +719,167 @@ class DashboardView(View):
         except Exception as e:
             logger.error(f"创建表数据错误: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({"status": "error", "message": f"创建数据错误: {str(e)}"})
+
+    def _get_logs_dir(self):
+        return os.path.realpath(os.path.join(settings.BASE_DIR, 'logs'))
+
+    def _resolve_log_path(self, filename):
+        filename = (filename or '').strip()
+        if not filename:
+            raise ValueError('缺少 filename 参数')
+        if not filename.endswith('.log'):
+            raise ValueError('只允许读取 .log 文件')
+        if os.path.basename(filename) != filename:
+            raise ValueError('文件名不合法')
+
+        logs_dir = self._get_logs_dir()
+        file_path = os.path.realpath(os.path.join(logs_dir, filename))
+        if not file_path.startswith(logs_dir + os.sep):
+            raise ValueError('文件路径不合法')
+        if not os.path.exists(file_path):
+            raise FileNotFoundError('文件不存在')
+        if not os.path.isfile(file_path):
+            raise ValueError('不是有效的文件')
+        return logs_dir, file_path
+
+    @staticmethod
+    def _count_file_lines(file_path):
+        count = 0
+        last_byte = b''
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                count += chunk.count(b'\n')
+                last_byte = chunk[-1:]
+        if os.path.getsize(file_path) > 0 and last_byte != b'\n':
+            count += 1
+        return count
+
+    def list_log_files(self, data):
+        """
+        列出 logs 目录下的 .log 文件，按文件修改时间倒序返回。
+        """
+        try:
+            logs_dir = self._get_logs_dir()
+            if not os.path.isdir(logs_dir):
+                return JsonResponse({"status": "success", "data": [], "count": 0})
+
+            log_files = []
+            for filename in os.listdir(logs_dir):
+                if not filename.endswith('.log'):
+                    continue
+                try:
+                    _, file_path = self._resolve_log_path(filename)
+                    stat_info = os.stat(file_path)
+                    file_size = stat_info.st_size
+                    mtime = stat_info.st_mtime
+                    mtime_dt = datetime.datetime.fromtimestamp(mtime)
+
+                    # 行数用于展示，不读取文本内容；超大文件也用二进制块计数，避免一次性载入内存。
+                    try:
+                        line_count = self._count_file_lines(file_path)
+                    except Exception:
+                        line_count = -1
+
+                    log_files.append({
+                        'filename': filename,
+                        'size': file_size,
+                        'size_human': self._format_size(file_size),
+                        'mtime': mtime,
+                        'mtime_human': mtime_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                        'line_count': line_count,
+                    })
+                except Exception as e:
+                    logger.warning(f"获取日志文件信息失败 {filename}: {str(e)}")
+                    continue
+
+            log_files.sort(key=lambda x: x['mtime'], reverse=True)
+            return JsonResponse({"status": "success", "data": log_files, "count": len(log_files)})
+
+        except Exception as e:
+            logger.error(f"列出日志文件失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({"status": "error", "message": f"列出日志文件失败: {str(e)}"})
+
+    def read_log_file(self, data):
+        """
+        正序读取指定日志文件内容，支持分页。
+        """
+        try:
+            filename = data.get('filename', '').strip()
+            try:
+                page = int(data.get('page', 1) or 1)
+            except (TypeError, ValueError):
+                page = 1
+            try:
+                page_size = int(data.get('page_size', 300) or 300)
+            except (TypeError, ValueError):
+                page_size = 300
+
+            page = max(page, 1)
+            page_size = max(1, min(page_size, 1000))
+
+            try:
+                _, file_path = self._resolve_log_path(filename)
+            except FileNotFoundError as e:
+                return JsonResponse({"status": "error", "message": str(e)})
+            except ValueError as e:
+                return JsonResponse({"status": "error", "message": str(e)})
+
+            total_lines = self._count_file_lines(file_path)
+            total_pages = max(1, (total_lines + page_size - 1) // page_size)
+            if page > total_pages:
+                page = total_pages
+
+            start_line = (page - 1) * page_size + 1
+            end_line = min(page * page_size, total_lines)
+            selected_lines = []
+
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    for line_no, line in enumerate(f, start=1):
+                        if line_no < start_line:
+                            continue
+                        if line_no > end_line:
+                            break
+                        selected_lines.append({
+                            'line_no': line_no,
+                            'text': line.rstrip('\n\r'),
+                        })
+            except Exception as e:
+                logger.error(f"读取日志文件失败 {filename}: {str(e)}\n{traceback.format_exc()}")
+                return JsonResponse({"status": "error", "message": f"读取文件失败: {str(e)}"})
+
+            stat_info = os.stat(file_path)
+            mtime_dt = datetime.datetime.fromtimestamp(stat_info.st_mtime)
+
+            return JsonResponse({
+                "status": "success",
+                "data": {
+                    "lines": selected_lines,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_lines": total_lines,
+                    "total_pages": total_pages,
+                    "filename": filename,
+                    "size": stat_info.st_size,
+                    "size_human": self._format_size(stat_info.st_size),
+                    "mtime_human": mtime_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                }
+            })
+
+        except Exception as e:
+            logger.error(f"读取日志文件异常: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({"status": "error", "message": f"读取日志文件异常: {str(e)}"})
+
+    @staticmethod
+    def _format_size(size_bytes):
+        """格式化文件大小"""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        if size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.2f} KB"
+        if size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.2f} MB"
+        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
 
 @method_decorator(login_required, name='dispatch')

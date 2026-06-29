@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initWowDailyReportPage();
     initNewsWowPage();
     initErrorLogPage();
+    initLogFilePage();
     
     // 初始化页面大小选择器
     initPageSizeSelector();
@@ -296,6 +297,9 @@ function initNavigation() {
                 }
                 if (sectionId === 'wow-daily-reports') {
                     loadWowDailyReports();
+                }
+                if (sectionId === 'log-files' && window.loadLogFilesGlobal) {
+                    window.loadLogFilesGlobal();
                 }
             }
         });
@@ -8166,4 +8170,175 @@ function initErrorLogPage() {
     if (navItem) {
         navItem.addEventListener('click', () => loadErrorLogs(1));
     }
+}
+
+
+function initLogFilePage() {
+    const section = document.getElementById('log-files');
+    if (!section) return;
+
+    let currentFilename = '';
+    let currentPage = 1;
+    let filesLoaded = false;
+
+    const listEl = document.getElementById('log-file-list');
+    const emptyEl = document.getElementById('log-file-empty');
+    const listHintEl = document.getElementById('log-file-list-hint');
+    const contentEl = document.getElementById('log-file-content');
+    const contentEmptyEl = document.getElementById('log-file-content-empty');
+    const currentNameEl = document.getElementById('log-file-current-name');
+    const currentMetaEl = document.getElementById('log-file-current-meta');
+    const pageSizeSelect = document.getElementById('log-file-page-size');
+    const pageInfoEl = document.getElementById('log-file-page-info');
+    const pageButtonsEl = document.getElementById('log-file-page-buttons');
+    const refreshBtn = document.getElementById('log-file-refresh');
+    const readRefreshBtn = document.getElementById('log-file-read-refresh');
+
+    function getLogPageSize() {
+        const value = parseInt(pageSizeSelect ? pageSizeSelect.value : '300', 10);
+        if (Number.isNaN(value)) return 300;
+        return Math.max(1, Math.min(value, 1000));
+    }
+
+    async function postDashboard(payload) {
+        const csrfToken = getCSRFToken();
+        const resp = await fetch('/dashboard/', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify(payload)
+        });
+        return await resp.json();
+    }
+
+    function renderLogFileList(files) {
+        if (!listEl) return;
+        if (!files.length) {
+            listEl.innerHTML = '';
+            if (emptyEl) emptyEl.classList.remove('hidden');
+            return;
+        }
+        if (emptyEl) emptyEl.classList.add('hidden');
+        listEl.innerHTML = files.map(file => {
+            const activeCls = file.filename === currentFilename ? 'bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-gray-50 border-l-4 border-transparent';
+            const lineCount = file.line_count >= 0 ? `${file.line_count} 行` : '行数未知';
+            return `
+                <button type="button" data-log-filename="${escapeHtml(file.filename)}" class="w-full text-left px-5 py-4 transition-colors duration-150 ${activeCls}">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="font-mono text-sm font-semibold text-gray-900 truncate">${escapeHtml(file.filename)}</div>
+                            <div class="text-xs text-gray-500 mt-1 flex items-center gap-3 flex-wrap">
+                                <span><i class="fas fa-clock mr-1"></i>${escapeHtml(file.mtime_human || '')}</span>
+                                <span><i class="fas fa-weight-hanging mr-1"></i>${escapeHtml(file.size_human || '')}</span>
+                                <span><i class="fas fa-list-ol mr-1"></i>${escapeHtml(lineCount)}</span>
+                            </div>
+                        </div>
+                        <i class="fas fa-chevron-right text-gray-300 mt-1"></i>
+                    </div>
+                </button>`;
+        }).join('');
+        listEl.querySelectorAll('[data-log-filename]').forEach(btn => {
+            btn.addEventListener('click', () => readLogFile(btn.getAttribute('data-log-filename'), 1));
+        });
+    }
+
+    async function loadLogFiles(forceReload = false) {
+        if (filesLoaded && !forceReload) return;
+        filesLoaded = true;
+        if (listEl) listEl.innerHTML = '<div class="px-5 py-8 text-center text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>加载日志列表...</div>';
+        if (emptyEl) emptyEl.classList.add('hidden');
+        try {
+            const data = await postDashboard({ action: 'list_log_files' });
+            if (data.status !== 'success') {
+                if (listEl) listEl.innerHTML = `<div class="px-5 py-8 text-center text-red-600">${escapeHtml(data.message || '加载失败')}</div>`;
+                return;
+            }
+            const files = data.data || [];
+            if (listHintEl) listHintEl.textContent = `按修改时间倒序，共 ${files.length} 个日志文件`;
+            renderLogFileList(files);
+            if (files.length && !currentFilename) {
+                readLogFile(files[0].filename, 1);
+            } else if (!files.length && contentEmptyEl) {
+                contentEmptyEl.classList.remove('hidden');
+                if (contentEl) contentEl.innerHTML = '';
+            }
+        } catch (e) {
+            if (listEl) listEl.innerHTML = '<div class="px-5 py-8 text-center text-red-600">加载日志列表失败</div>';
+        }
+    }
+
+    async function readLogFile(filename, page) {
+        if (!filename) return;
+        currentFilename = filename;
+        currentPage = page || 1;
+        if (contentEmptyEl) contentEmptyEl.classList.add('hidden');
+        if (contentEl) contentEl.innerHTML = '<div class="px-5 py-8 text-center text-slate-400"><i class="fas fa-spinner fa-spin mr-2"></i>读取日志...</div>';
+        if (currentNameEl) currentNameEl.textContent = filename;
+        if (currentMetaEl) currentMetaEl.textContent = '内容按文件原始顺序正序读取';
+
+        try {
+            const data = await postDashboard({
+                action: 'read_log_file',
+                filename,
+                page: currentPage,
+                page_size: getLogPageSize()
+            });
+            if (data.status !== 'success') {
+                if (contentEl) contentEl.innerHTML = `<div class="px-5 py-8 text-center text-red-300">${escapeHtml(data.message || '读取失败')}</div>`;
+                return;
+            }
+            renderLogContent(data.data || {});
+            loadLogFiles(true);
+        } catch (e) {
+            if (contentEl) contentEl.innerHTML = '<div class="px-5 py-8 text-center text-red-300">读取日志失败</div>';
+        }
+    }
+
+    function renderLogContent(data) {
+        const lines = data.lines || [];
+        currentPage = data.page || currentPage;
+        if (currentNameEl) currentNameEl.textContent = data.filename || currentFilename || '日志文件';
+        if (currentMetaEl) {
+            currentMetaEl.textContent = `${escapeHtml(data.size_human || '')} · 修改时间 ${escapeHtml(data.mtime_human || '')} · 正序读取`;
+        }
+        if (!lines.length) {
+            if (contentEl) contentEl.innerHTML = '<div class="px-5 py-8 text-center text-slate-400">当前页没有内容</div>';
+        } else if (contentEl) {
+            contentEl.innerHTML = `<div class="min-w-max">${lines.map(item => `
+                <div class="flex hover:bg-slate-800/80">
+                    <span class="select-none sticky left-0 bg-slate-900 text-slate-500 text-right w-16 px-3 border-r border-slate-800">${item.line_no}</span>
+                    <span class="whitespace-pre px-3 flex-1">${escapeHtml(item.text || '')}</span>
+                </div>`).join('')}</div>`;
+            contentEl.scrollTop = 0;
+            contentEl.scrollLeft = 0;
+        }
+
+        const totalLines = data.total_lines || 0;
+        const pageSize = data.page_size || getLogPageSize();
+        const start = totalLines ? (currentPage - 1) * pageSize + 1 : 0;
+        const end = Math.min(currentPage * pageSize, totalLines);
+        if (pageInfoEl) pageInfoEl.textContent = `显示 ${start}-${end} 行，共 ${totalLines} 行`;
+
+        const totalPages = data.total_pages || 1;
+        let buttons = '';
+        if (currentPage > 1) {
+            buttons += `<button onclick="readLogFileGlobal('${escapeJsString(currentFilename)}', ${currentPage - 1})" class="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50">上一页</button>`;
+        }
+        buttons += `<span class="px-3 py-1 text-sm text-gray-700">${currentPage} / ${totalPages}</span>`;
+        if (currentPage < totalPages) {
+            buttons += `<button onclick="readLogFileGlobal('${escapeJsString(currentFilename)}', ${currentPage + 1})" class="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50">下一页</button>`;
+        }
+        if (pageButtonsEl) pageButtonsEl.innerHTML = buttons;
+    }
+
+    function escapeJsString(value) {
+        return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+    }
+
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadLogFiles(true));
+    if (readRefreshBtn) readRefreshBtn.addEventListener('click', () => readLogFile(currentFilename, currentPage));
+    if (pageSizeSelect) pageSizeSelect.addEventListener('change', () => readLogFile(currentFilename, 1));
+
+    window.loadLogFilesGlobal = () => loadLogFiles(false);
+    window.readLogFileGlobal = readLogFile;
 }
