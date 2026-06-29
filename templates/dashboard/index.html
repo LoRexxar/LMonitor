@@ -26,13 +26,31 @@
         }
         .content-section.active { animation: fadeIn 0.3s ease-out; }
         
+        html, body {
+            height: 100%;
+        }
+
+        body.dashboard-page {
+            min-height: 100vh;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .dashboard-shell {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow: hidden;
+        }
+
         /* 确保侧边栏固定宽度 */
         .sidebar-fixed {
             width: 16rem !important;
             min-width: 16rem !important;
             max-width: 16rem !important;
             flex-shrink: 0 !important;
-            height: 100vh;
+            height: 100%;
             overflow-y: auto;
             overscroll-behavior: contain;
             -webkit-overflow-scrolling: touch;
@@ -55,6 +73,7 @@
             
             .main-content {
                 margin-left: 0;
+                height: 100%;
             }
             
             .sidebar-overlay {
@@ -80,7 +99,10 @@
         .main-content {
             flex: 1;
             min-width: 0;
-            overflow-x: auto;
+            height: 100%;
+            overflow: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
         }
         
         /* 防止长文本破坏布局 */
@@ -118,7 +140,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260628_news_list_detail" defer></script>
 </head>
-<body class="bg-gray-50 font-sans">
+<body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
     <form id="csrf-form" style="display:none;">
         {% csrf_token %}
@@ -198,7 +220,7 @@
         </div>
     </header>
     
-    <div class="flex min-h-screen">
+    <div class="dashboard-shell flex min-h-0">
         <!-- 侧边栏遮罩层 -->
         <div id="sidebar-overlay" class="sidebar-overlay"></div>
         
