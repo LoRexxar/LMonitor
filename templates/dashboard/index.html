@@ -140,7 +140,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260629_hotfix_reports" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260629_hotfix_entry" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -426,6 +426,51 @@
                     </div>
                 </div>
                 
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                    <button type="button" id="dashboard-hotfix-entry" class="text-left bg-gradient-to-br from-orange-500 to-amber-500 rounded-xl shadow-lg p-6 text-white hover:from-orange-600 hover:to-amber-600 transition-all duration-200 card-hover">
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <h3 class="text-lg font-semibold mb-2">Hotfix 报告</h3>
+                                <p class="text-sm text-orange-50 leading-6">查看 Wago Hotfix 监控状态、最近事件和已生成报告。</p>
+                                <div class="mt-4 inline-flex items-center text-sm font-medium">
+                                    进入报告页 <i class="fas fa-arrow-right ml-2"></i>
+                                </div>
+                            </div>
+                            <div class="bg-white/20 p-3 rounded-full shrink-0">
+                                <i class="fas fa-fire text-2xl"></i>
+                            </div>
+                        </div>
+                    </button>
+                    <button type="button" id="dashboard-wow-daily-entry" class="text-left bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:bg-blue-50 transition-all duration-200 card-hover">
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-800 mb-2">WoW 日报</h3>
+                                <p class="text-sm text-gray-600 leading-6">查看或生成每天的魔兽资讯日报。</p>
+                                <div class="mt-4 inline-flex items-center text-sm font-medium text-blue-600">
+                                    打开日报 <i class="fas fa-arrow-right ml-2"></i>
+                                </div>
+                            </div>
+                            <div class="bg-blue-100 p-3 rounded-full shrink-0">
+                                <i class="fas fa-book text-blue-600 text-2xl"></i>
+                            </div>
+                        </div>
+                    </button>
+                    <button type="button" id="dashboard-news-entry" class="text-left bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:bg-sky-50 transition-all duration-200 card-hover">
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-800 mb-2">新闻资讯</h3>
+                                <p class="text-sm text-gray-600 leading-6">查看 Blizzard Tracker、Wowhead 等新闻采集。</p>
+                                <div class="mt-4 inline-flex items-center text-sm font-medium text-sky-600">
+                                    打开新闻 <i class="fas fa-arrow-right ml-2"></i>
+                                </div>
+                            </div>
+                            <div class="bg-sky-100 p-3 rounded-full shrink-0">
+                                <i class="fas fa-newspaper text-sky-600 text-2xl"></i>
+                            </div>
+                        </div>
+                    </button>
+                </div>
+
                 <!-- 详细统计信息 -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                     <!-- RSS统计 -->

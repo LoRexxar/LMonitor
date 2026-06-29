@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 初始化导航菜单点击事件
     initNavigation();
+    initDashboardQuickEntries();
     
     // 初始化子菜单切换
     initSubmenuToggle();
@@ -232,6 +233,38 @@ function refreshData() {
     // 更新统计数据
     updateStatistics();
     fetchUnreadSystemAlerts();
+}
+
+/**
+ * 显示指定 Dashboard 内容区
+ */
+function showDashboardSection(sectionId) {
+    const navItem = document.querySelector(`.nav-item[data-section="${sectionId}"]`);
+    if (navItem) {
+        const link = navItem.querySelector('a');
+        if (link) {
+            link.click();
+        } else {
+            navItem.click();
+        }
+    }
+}
+
+/**
+ * 初始化首页快捷入口
+ */
+function initDashboardQuickEntries() {
+    const entries = [
+        ['dashboard-hotfix-entry', 'wago-hotfix-reports'],
+        ['dashboard-wow-daily-entry', 'wow-daily-reports'],
+        ['dashboard-news-entry', 'news'],
+    ];
+    entries.forEach(([buttonId, sectionId]) => {
+        const btn = document.getElementById(buttonId);
+        if (btn) {
+            btn.onclick = () => showDashboardSection(sectionId);
+        }
+    });
 }
 
 /**
