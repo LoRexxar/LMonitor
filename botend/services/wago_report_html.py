@@ -57,16 +57,30 @@ def build_wow_skill_diff_fallback_html(report, page_title='', server_title=''):
     .wow-skill-diff-fallback-html .metric strong {{ display:block; color:#0f172a; font-size:15px; word-break:break-word; }}
     .wow-skill-diff-fallback-html .panel {{ border:1px solid #e2e8f0; border-radius:12px; background:#fff; padding:14px 16px; }}
     .wow-skill-diff-fallback-html .report-content-panel {{ background:#fbfdff; }}
-    .wow-skill-diff-fallback-html .class-section {{ margin-top:18px; border:1px solid #cbd5e1; border-radius:14px; overflow:hidden; background:#fff; }}
+    .wow-skill-diff-fallback-html .class-nav {{ display:flex; flex-wrap:wrap; gap:8px; margin:2px 0 14px; }}
+    .wow-skill-diff-fallback-html .class-nav a {{ text-decoration:none; color:#0f172a; background:#e2e8f0; border:1px solid #cbd5e1; border-radius:999px; padding:5px 10px; font-size:12px; font-weight:800; }}
+    .wow-skill-diff-fallback-html .class-nav a:hover {{ background:#c7d2fe; border-color:#818cf8; }}
+    .wow-skill-diff-fallback-html .diff-legend {{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0 0 14px; font-size:12px; }}
+    .wow-skill-diff-fallback-html .legend-item {{ border-radius:999px; padding:4px 9px; font-weight:900; }}
+    .wow-skill-diff-fallback-html .legend-item.old {{ color:#991b1b; background:#fee2e2; border:1px solid #fecaca; }}
+    .wow-skill-diff-fallback-html .legend-item.new {{ color:#065f46; background:#d1fae5; border:1px solid #a7f3d0; }}
+    .wow-skill-diff-fallback-html .legend-hint {{ color:#64748b; }}
+    .wow-skill-diff-fallback-html .class-section {{ margin-top:18px; border:1px solid #cbd5e1; border-radius:14px; overflow:hidden; background:#fff; scroll-margin-top:18px; }}
     .wow-skill-diff-fallback-html .class-title {{ margin:0; padding:12px 14px; background:#0f172a; color:#fff; font-size:18px; font-weight:800; }}
     .wow-skill-diff-fallback-html .spec-section {{ padding:12px 14px 14px; border-top:1px solid #e2e8f0; }}
     .wow-skill-diff-fallback-html .spec-title {{ margin:0 0 10px; color:#334155; font-size:15px; font-weight:800; }}
     .wow-skill-diff-fallback-html .spell-card {{ border:1px solid #e2e8f0; border-radius:12px; padding:11px 12px; margin:10px 0; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.04); }}
     .wow-skill-diff-fallback-html .spell-title {{ font-weight:800; color:#111827; margin-bottom:6px; overflow-wrap:anywhere; }}
     .wow-skill-diff-fallback-html .spell-id {{ color:#64748b; font-size:12px; font-weight:700; }}
-    .wow-skill-diff-fallback-html .spell-desc {{ color:#475569; font-size:13px; line-height:1.55; margin:6px 0 8px; white-space:pre-wrap; }}
-    .wow-skill-diff-fallback-html .changes {{ margin:8px 0 0; padding-left:18px; color:#1f2937; font-size:13px; line-height:1.55; }}
-    .wow-skill-diff-fallback-html .changes li {{ margin:3px 0; overflow-wrap:anywhere; }}
+    .wow-skill-diff-fallback-html .spell-desc {{ color:#475569; font-size:13px; line-height:1.65; margin:8px 0 10px; white-space:pre-wrap; background:#f8fafc; border-left:3px solid #cbd5e1; border-radius:8px; padding:8px 10px; }}
+    .wow-skill-diff-fallback-html .changes {{ margin:8px 0 0; padding-left:0; color:#1f2937; font-size:13px; line-height:1.55; list-style:none; }}
+    .wow-skill-diff-fallback-html .changes li {{ margin:6px 0; overflow-wrap:anywhere; background:#f8fafc; border:1px solid #e2e8f0; border-radius:9px; padding:7px 9px; }}
+    .wow-skill-diff-fallback-html .change-kind {{ display:inline-flex; align-items:center; vertical-align:middle; border-radius:999px; padding:1px 7px; margin-right:6px; font-size:12px; font-weight:800; background:#e0f2fe; color:#075985; }}
+    .wow-skill-diff-fallback-html .diff-old {{ display:inline-block; color:#b91c1c; background:#fee2e2; border:1px solid #fecaca; border-radius:6px; padding:0 6px; font-weight:800; text-decoration:line-through; text-decoration-thickness:1px; margin:0 1px; }}
+    .wow-skill-diff-fallback-html .diff-old::before {{ content:'旧 '; font-size:11px; opacity:.75; text-decoration:none; }}
+    .wow-skill-diff-fallback-html .diff-new {{ display:inline-block; color:#047857; background:#d1fae5; border:1px solid #a7f3d0; border-radius:6px; padding:0 6px; font-weight:800; margin:0 1px; }}
+    .wow-skill-diff-fallback-html .diff-new::before {{ content:'新 '; font-size:11px; opacity:.75; }}
+    .wow-skill-diff-fallback-html .diff-arrow {{ color:#64748b; font-weight:800; margin:0 4px; }}
     .wow-skill-diff-fallback-html .tables {{ list-style:none; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; padding-left:0; margin:0; }}
     .wow-skill-diff-fallback-html .tables li {{ min-width:0; }}
     .wow-skill-diff-fallback-html code {{ display:block; background:#f1f5f9; border-radius:6px; padding:5px 7px; white-space:normal; overflow-wrap:anywhere; word-break:break-word; }}
@@ -92,7 +106,10 @@ def _render_markdown_report_content(content):
     sections = _parse_markdown_report(content)
     if not sections:
         return ''
-    return ''.join(_render_class_section(section) for section in sections)
+    nav = _render_class_nav(sections)
+    body = ''.join(_render_class_section(section) for section in sections)
+    legend = "<div class='diff-legend'><span class='legend-item old'>旧值/移除</span><span class='legend-item new'>新值/新增</span><span class='legend-hint'>点击浏览器搜索可按技能名/职业名定位</span></div>"
+    return nav + legend + body
 
 
 def _parse_markdown_report(content):
@@ -160,9 +177,23 @@ def _parse_markdown_report(content):
     ]
 
 
+def _render_class_nav(sections):
+    links = []
+    for section in sections:
+        title = section.get('title', '')
+        links.append(f"<a href='#{_class_anchor(title)}'>{_esc(title)}</a>")
+    return f"<nav class='class-nav' aria-label='职业目录'>{''.join(links)}</nav>" if links else ''
+
+
 def _render_class_section(section):
+    title = section.get('title', '')
     specs_html = ''.join(_render_spec_section(spec) for spec in section.get('specs', []))
-    return f"<section class='class-section'><h3 class='class-title'>{_esc(section.get('title', ''))}</h3>{specs_html}</section>"
+    return f"<section class='class-section' id='{_class_anchor(title)}'><h3 class='class-title'>{_esc(title)}</h3>{specs_html}</section>"
+
+
+def _class_anchor(title):
+    key = re.sub(r'[^0-9A-Za-z\u4e00-\u9fff_-]+', '-', str(title or '').strip()).strip('-')
+    return 'class-' + (key or 'unknown')
 
 
 def _render_spec_section(spec):
@@ -171,11 +202,11 @@ def _render_spec_section(spec):
 
 
 def _render_spell_card(spell):
-    desc = spell.get('description') or ''
-    desc_html = f"<div class='spell-desc'>{_esc(desc)}</div>" if desc else ''
+    desc = _localize_text(spell.get('description') or '')
+    desc_html = f"<div class='spell-desc'>{_render_inline_diff(desc)}</div>" if desc else ''
     changes = spell.get('changes') or []
     if changes:
-        changes_html = '<ul class="changes">' + ''.join(f"<li>{_esc(change)}</li>" for change in changes) + '</ul>'
+        changes_html = '<ul class="changes">' + ''.join(f"<li>{_render_change_line_html(change)}</li>" for change in changes) + '</ul>'
     else:
         changes_html = '<div class="muted">暂无结构化变更行</div>'
     return (
@@ -185,6 +216,129 @@ def _render_spell_card(spell):
         "</article>"
     )
 
+
+
+_CHANGE_KIND_LABELS = [
+    ('应用光环', '应用光环'),
+    ('技能效果', '技能效果'),
+    ('法术伤害', '伤害效果'),
+    ('技能名称', '技能名称'),
+    ('技能描述', '技能描述'),
+    ('技能杂项', '技能杂项'),
+    ('光环选项', '光环选项'),
+    ('技能冷却', '冷却'),
+    ('技能分类', '分类'),
+]
+
+_EXACT_TERM_MAP = {
+    'spellcategories': '技能分类',
+    'spellcooldowns': '技能冷却',
+    'CategoryRecoveryTime': '分类恢复时间',
+    'StartRecoveryTime': '公共冷却时间',
+    'StartRecoveryCategory': '公共冷却分类',
+    'ChargeCategory': '充能分类',
+    'DefenseType': '防御类型',
+    'DiminishType': '递减类型',
+    'DispelType': '驱散类型',
+    'Mechanic': '机制',
+    'PreventionType': '阻止类型',
+    'Category': '分类',
+    'ChargeRecoveryTime': '充能恢复时间',
+    'DifficultyID': '难度ID',
+    'SpellID': '技能ID',
+    'Name': '名称',
+    'Description': '描述',
+}
+
+_PHRASE_MAP = [
+    ('damage is increased by', '伤害提高'),
+    ('damage increased by', '伤害提高'),
+    ('damage is increased', '伤害提高'),
+    ('damage increased', '伤害提高'),
+    ('cooldown is reduced by', '冷却时间缩短'),
+    ('cooldowns', '冷却时间'),
+    ('extends the duration of', '延长持续时间：'),
+    ('is reduced by', '缩短'),
+    ('is reduced', '缩短'),
+    ('reduced by', '缩短'),
+    ('up to', '最多'),
+    ('increased by', '提高'),
+    ('is increased by', '提高'),
+    ('damage', '伤害'),
+    ('cooldown', '冷却时间'),
+    ('duration', '持续时间'),
+    ('sec.', '秒'),
+    (' sec', ' 秒'),
+    ('enemies', '敌人'),
+    ('enemy', '敌人'),
+    ('targets', '目标'),
+    ('target', '目标'),
+    ('critical strike', '爆击'),
+    ('effectiveness', '效果'),
+    ('additional', '额外'),
+    ('instant', '瞬发'),
+    ('free', '免费/不消耗'),
+    ('generates', '产生'),
+    ('causes', '使'),
+    ('dealing', '造成'),
+    ('over', '持续'),
+    ('within', '范围内'),
+    ('yds', '码'),
+]
+
+
+def _render_change_line_html(change):
+    text = _localize_text(_clean_change_line(change))
+    kind = _detect_change_kind(text)
+    prefix = f"<span class='change-kind'>{_esc(kind)}</span>" if kind else ''
+    return prefix + _render_inline_diff(text)
+
+
+def _detect_change_kind(text):
+    for needle, label in _CHANGE_KIND_LABELS:
+        if text.startswith(needle) or needle in text[:18]:
+            return label
+    if '→' in text:
+        return '字段变更'
+    return ''
+
+
+def _render_inline_diff(text):
+    text = str(text or '')
+    parts = []
+    last = 0
+    # Match short old/new values around an arrow. Values commonly appear after Chinese/ASCII colon,
+    # commas, brackets, or line starts. Keep the surrounding labels escaped normally.
+    pattern = re.compile(r'(?P<old>(?:(?<=：)|(?<=:)|(?<=，)|(?<=,)|(?<=\()|(?<=（)|^)[^，,（）()：:]{0,40}?\S?)\s*→\s*(?P<new>[^，,（）()]*?)(?=$|[，,）)])')
+    for match in pattern.finditer(text):
+        if match.start() < last:
+            continue
+        parts.append(_esc(text[last:match.start()]))
+        old = match.group('old').strip()
+        new = match.group('new').strip()
+        if old:
+            parts.append(f"<span class='diff-old'>{_esc(old)}</span>")
+        else:
+            parts.append("<span class='diff-old'>空</span>")
+        parts.append("<span class='diff-arrow'>→</span>")
+        if new:
+            parts.append(f"<span class='diff-new'>{_esc(new)}</span>")
+        else:
+            parts.append("<span class='diff-new'>空</span>")
+        last = match.end()
+    parts.append(_esc(text[last:]))
+    return ''.join(parts)
+
+
+def _localize_text(text):
+    text = str(text or '')
+    for src, dst in sorted(_EXACT_TERM_MAP.items(), key=lambda item: len(item[0]), reverse=True):
+        text = re.sub(rf'(?<![A-Za-z]){re.escape(src)}(?![A-Za-z])', dst, text)
+    for src, dst in _PHRASE_MAP:
+        text = re.sub(re.escape(src), dst, text, flags=re.IGNORECASE)
+    text = re.sub(r'\bAP\b', '攻强', text)
+    text = re.sub(r'\bSP\b', '法强', text)
+    return text
 
 def _clean_change_line(line):
     line = str(line or '').strip()
