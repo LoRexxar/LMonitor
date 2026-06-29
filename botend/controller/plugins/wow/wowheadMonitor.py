@@ -67,19 +67,56 @@ class wowheadMonitor(BaseScan):
             "{}_just_moment".format(prefix): "just a moment" in low,
         }
 
+    def _redact_proxy_url(self, value):
+        value = str(value or "")
+        if "@" in value:
+            scheme, rest = value.split("://", 1) if "://" in value else ("", value)
+            rest = rest.split("@", 1)[-1]
+            return "{}://***@{}".format(scheme, rest) if scheme else "***@{}".format(rest)
+        return value
+
+    def _request_debug_context(self):
+        proxies = {}
+        session_proxies = {}
+        try:
+            proxies = getattr(getattr(self.req, "s", None), "proxies", {}) or {}
+            session_proxies = {k: self._redact_proxy_url(v) for k, v in proxies.items()}
+        except Exception:
+            session_proxies = {}
+        return {
+            "task_proxy_enabled": bool(getattr(self.task, "proxy_enabled", False)),
+            "session_proxies": session_proxies,
+            "request_trust_env": bool(getattr(getattr(self.req, "s", None), "trust_env", False)),
+        }
+
     def _request_fallback_posts(self, cookies, limit=10, reason=""):
         try:
             resp = self.req.get(self.target_url, 'Response', 0, cookies)
         except Exception as e:
-            self._set_error_detail("wowhead requests fallback exception", reason=reason, error=str(e))
+            detail = self._request_debug_context()
+            detail.update({"reason": reason, "error": str(e)})
+            self._set_error_detail("wowhead requests fallback exception", **detail)
+            logger.warning("[wowheadMonitor] requests fallback exception: {}".format(self.last_error_detail))
             return 0, 0, False
         if resp is False or resp is None:
-            self._set_error_detail("wowhead requests fallback returned empty", reason=reason)
+            detail = self._request_debug_context()
+            detail.update({"reason": reason})
+            self._set_error_detail("wowhead requests fallback returned empty", **detail)
+            logger.warning("[wowheadMonitor] requests fallback returned empty: {}".format(self.last_error_detail))
             return 0, 0, False
         status_code = getattr(resp, 'status_code', 200)
         html_text = getattr(resp, "text", "") or ""
+        logger.info(
+            "[wowheadMonitor] requests fallback response reason={} status={} summary={} context={}".format(
+                reason,
+                status_code,
+                self._html_debug_summary(html_text, prefix="response"),
+                self._request_debug_context(),
+            )
+        )
         if int(status_code or 0) >= 400:
             detail = self._html_debug_summary(html_text, prefix="response")
+            detail.update(self._request_debug_context())
             detail.update({"reason": reason, "status": status_code})
             self._set_error_detail("wowhead requests fallback bad status", **detail)
             return 0, 0, False
@@ -99,6 +136,7 @@ class wowheadMonitor(BaseScan):
         :return:
         """
         cookies = ""
+        logger.info("[wowheadMonitor] scan start context={}".format(self._request_debug_context()))
 
         # Wowhead 首页新闻列表是静态 HTML/JSON 数据，requests 路径更轻、更稳定；
         # 浏览器路径容易在 DOM.getOuterHTML 上超时或断连，因此作为备用。
@@ -155,9 +193,18 @@ class wowheadMonitor(BaseScan):
                 time.sleep(1)
 
             if not posts_data:
-                logger.error("[wowheadMonitor] No posts found.")
+                page_html = (getattr(driver, "html", "") or "")
+                logger.error("[wowheadMonitor] No posts found. summary={} context={}".format(
+                    self._html_debug_summary(page_html, prefix="page"),
+                    self._request_debug_context(),
+                ))
                 return 0, 0
 
+            logger.info("[wowheadMonitor] parsed {} posts, first_url={}, context={}".format(
+                len(posts_data),
+                (posts_data[0].get("link") if posts_data else ""),
+                self._request_debug_context(),
+            ))
             new_count = 0
             translated_count = 0
             for post in posts_data[:int(limit or 10)]:
@@ -261,7 +308,11 @@ class wowheadMonitor(BaseScan):
                     blocks = self._fetch_article_blocks(post_link, cookies="", reference_title=post_title)
                     body = blocks_to_plain_text(blocks)
                     if not body:
-                        logger.warning("[wowheadMonitor] Skip new article with empty body: {} {}".format(post_title, post_link))
+                        logger.warning("[wowheadMonitor] Skip new article with empty body: title={} url={} context={}".format(
+                            post_title,
+                            post_link,
+                            self._request_debug_context(),
+                        ))
                         continue
                     obj = WowArticle(
                         title="[{}]{}".format(post_type, post_title),
@@ -738,15 +789,27 @@ class wowheadMonitor(BaseScan):
                 # 使用带重试的封装（避免偶发超时导致正文长期为空）
                 resp = self.req.get(url, "Response", 0, cookies)
                 if not resp:
+                    logger.warning("[wowheadMonitor] article requests returned empty url={} context={}".format(url, self._request_debug_context()))
                     return ""
                 status_code = getattr(resp, 'status_code', 200)
+                html_text = getattr(resp, 'text', '') or ''
+                logger.info("[wowheadMonitor] article response url={} status={} summary={} context={}".format(
+                    url,
+                    status_code,
+                    self._html_debug_summary(html_text, prefix="article"),
+                    self._request_debug_context(),
+                ))
                 if int(status_code or 0) >= 400:
                     return ""
-                html_text = getattr(resp, 'text', '') or ''
             if not html_text:
                 return ""
             return html_text
-        except Exception:
+        except Exception as e:
+            logger.warning("[wowheadMonitor] article fetch exception url={} error={} context={}".format(
+                url,
+                str(e),
+                self._request_debug_context(),
+            ))
             return ""
 
     def _extract_body_from_html(self, html_text):
