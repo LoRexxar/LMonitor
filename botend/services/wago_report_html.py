@@ -307,27 +307,50 @@ def _render_inline_diff(text):
     text = str(text or '')
     parts = []
     last = 0
-    # Match short old/new values around an arrow. Values commonly appear after Chinese/ASCII colon,
-    # commas, brackets, or line starts. Keep the surrounding labels escaped normally.
-    pattern = re.compile(r'(?P<old>(?:(?<=：)|(?<=:)|(?<=，)|(?<=,)|(?<=\()|(?<=（)|^)[^，,（）()：:]{0,40}?\S?)\s*→\s*(?P<new>[^，,（）()]*?)(?=$|[，,）)])')
-    for match in pattern.finditer(text):
-        if match.start() < last:
+    for arrow in re.finditer(r'→', text):
+        if arrow.start() < last:
             continue
-        parts.append(_esc(text[last:match.start()]))
-        old = match.group('old').strip()
-        new = match.group('new').strip()
+        old_start = _find_diff_old_start(text, arrow.start())
+        new_end = _find_diff_new_end(text, arrow.end())
+        if old_start < last:
+            old_start = last
+        parts.append(_esc(text[last:old_start]))
+        old = text[old_start:arrow.start()].strip()
+        new = text[arrow.end():new_end].strip()
         if old:
             parts.append(f"<span class='diff-old'>{_esc(old)}</span>")
         else:
-            parts.append("<span class='diff-old'>空</span>")
+            parts.append("<span class='diff-old empty'>空</span>")
         parts.append("<span class='diff-arrow'>→</span>")
         if new:
             parts.append(f"<span class='diff-new'>{_esc(new)}</span>")
         else:
-            parts.append("<span class='diff-new'>空</span>")
-        last = match.end()
+            parts.append("<span class='diff-new empty'>空</span>")
+        last = new_end
     parts.append(_esc(text[last:]))
     return ''.join(parts)
+
+
+def _find_diff_old_start(text, arrow_pos):
+    start = arrow_pos
+    while start > 0 and text[start - 1].isspace():
+        start -= 1
+    value_end = start
+    while start > 0 and text[start - 1] not in '，,（）()：:':
+        start -= 1
+    # If the old value is empty after a field colon, keep the field label and colon as plain text.
+    if start == value_end:
+        return value_end
+    return start
+
+
+def _find_diff_new_end(text, arrow_end):
+    end = arrow_end
+    while end < len(text) and text[end].isspace():
+        end += 1
+    while end < len(text) and text[end] not in '，,（）()':
+        end += 1
+    return end
 
 
 def _localize_text(text):
