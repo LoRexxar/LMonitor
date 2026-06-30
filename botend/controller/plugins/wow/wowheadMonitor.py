@@ -755,20 +755,42 @@ class wowheadMonitor(BaseScan):
         slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", slug).strip("-")
         return slug[:96] or "article"
 
+    def _is_valid_article_html(self, html_text):
+        text = html_text or ""
+        if not text.strip():
+            return False
+        lowered = text.lower()
+        return (
+            "news-post-content" in text
+            or "article-content" in text
+            or 'id="blog-post"' in lowered
+            or "id='blog-post'" in lowered
+            or 'id="news-post"' in lowered
+            or "id='news-post'" in lowered
+            or "application/ld+json" in text
+        )
+
     def _fetch_article_html(self, url, cookies=""):
         try:
             html_text = ""
-            # Wowhead 部分页面正文可能需要前端渲染，优先尝试 Chrome 渲染版本
+            # Wowhead 部分页面正文可能需要前端渲染，优先尝试 Chrome 渲染版本；
+            # 但 Chrome/反爬有时会返回非空验证码/骨架页，必须校验有效性，否则会阻断 requests fallback。
             try:
                 if self.req and getattr(self.req, 'is_chrome', False):
                     driver = self.req.get(url, 'RespByChrome', 0, cookies, is_origin=1)
                     if driver and hasattr(driver, 'html'):
-                        # 等待正文相关 DOM 出现（否则 html 可能只有骨架）
                         for _ in range(8):
                             html_text = (getattr(driver, 'html', '') or '').strip()
-                            if ('news-post-content' in html_text) or ('article-content' in html_text) or ('application/ld+json' in html_text):
+                            if self._is_valid_article_html(html_text):
                                 break
                             time.sleep(0.8)
+                        if html_text and not self._is_valid_article_html(html_text):
+                            logger.warning("[wowheadMonitor] article chrome html invalid, fallback url={} summary={} context={}".format(
+                                url,
+                                self._html_debug_summary(html_text, prefix="chrome_article"),
+                                self._request_debug_context(),
+                            ))
+                            html_text = ""
             except Exception:
                 html_text = html_text or ""
 
@@ -779,9 +801,16 @@ class wowheadMonitor(BaseScan):
                     if driver and hasattr(driver, 'html'):
                         for _ in range(8):
                             html_text = (getattr(driver, 'html', '') or '').strip()
-                            if ('news-post-content' in html_text) or ('article-content' in html_text) or ('application/ld+json' in html_text):
+                            if self._is_valid_article_html(html_text):
                                 break
                             time.sleep(0.8)
+                        if html_text and not self._is_valid_article_html(html_text):
+                            logger.warning("[wowheadMonitor] article cloak html invalid, fallback url={} summary={} context={}".format(
+                                url,
+                                self._html_debug_summary(html_text, prefix="cloak_article"),
+                                self._request_debug_context(),
+                            ))
+                            html_text = ""
             except Exception:
                 html_text = html_text or ""
 
@@ -799,7 +828,7 @@ class wowheadMonitor(BaseScan):
                     self._html_debug_summary(html_text, prefix="article"),
                     self._request_debug_context(),
                 ))
-                if int(status_code or 0) >= 400:
+                if int(status_code or 0) >= 400 or not self._is_valid_article_html(html_text):
                     return ""
             if not html_text:
                 return ""

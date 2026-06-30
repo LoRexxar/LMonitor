@@ -66,3 +66,50 @@ class WowheadMonitorParserTest(TestCase):
         self.assertEqual(before, after)
         self.assertEqual(result[0], 1)
         self.assertEqual(result[1], 0)
+
+    def test_fetch_article_html_falls_back_when_chrome_html_has_no_article_body(self):
+        class _Driver:
+            html = '<html><body><h1>Verification</h1><p>captcha placeholder</p></body></html>'
+
+        class _Resp:
+            status_code = 200
+            text = '<html><body><div id="news-post"><div class="text"><p>Real article body with enough useful text.</p></div></div></body></html>'
+
+        class _Req:
+            is_chrome = True
+            is_cloak = False
+            def __init__(self):
+                self.calls = []
+                self.s = type('S', (), {'proxies': {}, 'trust_env': True})()
+            def get(self, url, mode, *args, **kwargs):
+                self.calls.append(mode)
+                if mode == 'RespByChrome':
+                    return _Driver()
+                if mode == 'Response':
+                    return _Resp()
+                raise AssertionError(mode)
+
+        req = _Req()
+        monitor = wowheadMonitor(req, None)
+
+        html = monitor._fetch_article_html('https://www.wowhead.com/news/test-123')
+
+        self.assertIn('Real article body', html)
+        self.assertEqual(req.calls, ['RespByChrome', 'Response'])
+
+    def test_fetch_article_html_rejects_requests_html_without_article_body(self):
+        class _Resp:
+            status_code = 200
+            text = '<html><body><h1>Verification</h1><p>captcha placeholder</p></body></html>'
+
+        class _Req:
+            is_chrome = False
+            is_cloak = False
+            def __init__(self):
+                self.s = type('S', (), {'proxies': {}, 'trust_env': True})()
+            def get(self, url, mode, *args, **kwargs):
+                return _Resp()
+
+        monitor = wowheadMonitor(_Req(), None)
+
+        self.assertEqual(monitor._fetch_article_html('https://www.wowhead.com/news/test-123'), '')
