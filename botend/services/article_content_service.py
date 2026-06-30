@@ -271,12 +271,47 @@ def _html_block(root, *, base_url: str) -> Dict[str, Any]:
     for tag in cloned.select("ins, .advertisement, .ad, .heading-size, .heading-permalink"):
         tag.decompose()
     _clean_discourse_lightbox_meta(cloned)
+    _restore_empty_image_links(cloned, base_url=base_url)
     for tag in cloned.find_all(True):
         _sanitize_html_tag(tag, base_url=base_url)
     html_text = _clean_html_fragment("".join(str(child) for child in cloned.children))
     if not html_text:
         return {}
     return {"type": "html", "html": html_text}
+
+
+def _is_image_url(value: str) -> bool:
+    path = urljoin("", value or "").split("?", 1)[0].lower()
+    return bool(re.search(r"\.(?:png|jpe?g|webp|gif)$", path))
+
+
+def _restore_empty_image_links(root, *, base_url: str):
+    """Turn Wowhead-rendered empty image anchors back into visible images.
+
+    Wowhead article HTML can contain rendered ``<a href=image></a>`` anchors while the
+    original BBCode ``[img]`` remains only inside a script. Since scripts are removed
+    during sanitization, restore these anchors before image upload runs.
+    """
+    if not BeautifulSoup:
+        return
+    factory = BeautifulSoup("", "html.parser")
+    for link in list(root.find_all("a")):
+        href = (link.get("href") or "").strip()
+        if not href:
+            continue
+        has_visible_text = bool(_clean_inline_text(link.get_text(" ", strip=True)))
+        has_media = bool(link.find(["img", "picture", "video", "source"]))
+        if has_visible_text or has_media:
+            continue
+        absolute_href = urljoin(base_url, href)
+        if _is_image_url(absolute_href):
+            img = factory.new_tag("img", src=absolute_href)
+            alt = (link.get("title") or link.get("alt") or "").strip()
+            if alt:
+                img["alt"] = alt
+            link.append(img)
+        else:
+            link.decompose()
 
 
 def _clean_discourse_lightbox_meta(root):

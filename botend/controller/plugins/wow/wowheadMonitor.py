@@ -675,7 +675,10 @@ class wowheadMonitor(BaseScan):
                     return True
             elif block.get("type") == "html":
                 html = block.get("html") or ""
-                for m in re.findall(r'<img[^>]+src="([^"]+)"', html):
+                for m in re.findall(r"<img[^>]+src=[\"']([^\"']+)", html):
+                    if self._is_external_article_image_url(m.strip()):
+                        return True
+                for m in re.findall(r"<a[^>]+href=[\"']([^\"']+\.(?:png|jpe?g|webp|gif)(?:\?[^\"']*)?)[\"']", html, flags=re.I):
                     if self._is_external_article_image_url(m.strip()):
                         return True
         return False

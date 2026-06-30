@@ -264,6 +264,22 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn("Sun Festival's Painted Roc", blocks_to_plain_text(blocks))
         self.assertIn("Requires Level", blocks_to_plain_text(blocks))
 
+    def test_extract_wowhead_article_restores_empty_image_links(self):
+        html = """
+        <div id="news-post"><div class="text">
+          <p>Trading Post rewards are live.</p>
+          <a href="https://bnetcmsus-a.akamaihd.net/cms/content_entry_media/ay/IMAGE.png"></a>
+          <a href="https://www.wowhead.com/item=1"></a>
+        </div></div>
+        """
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
+        html_result = blocks[0]["html"]
+
+        self.assertIn('<img src="https://bnetcmsus-a.akamaihd.net/cms/content_entry_media/ay/IMAGE.png"/>', html_result)
+        self.assertIn('href="https://bnetcmsus-a.akamaihd.net/cms/content_entry_media/ay/IMAGE.png"', html_result)
+        self.assertNotIn('<a href="https://www.wowhead.com/item=1"></a>', html_result)
+
     def test_translate_blocks_translates_html_text_without_removing_tags(self):
         blocks = [{"type": "html", "html": '<h2>Patch Notes</h2><p>Class changes are live.</p><img src="https://example.com/a.png"/>'}]
         pairs = [
