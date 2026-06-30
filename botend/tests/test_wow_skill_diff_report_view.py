@@ -13,6 +13,7 @@ from botend.portal.views import (
 )
 from botend.services.wago_report_html import build_wow_skill_diff_fallback_html
 from botend.portal.api import _normalize_url as _normalize_portal_url
+from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
 
 
 class _FakeQuerySet:
@@ -206,6 +207,79 @@ class PortalWowSkillDiffReportViewTests(SimpleTestCase):
         self.assertNotIn("<span class='diff-old'>技能杂项 施法时间索引：</span>", html)
         self.assertIn("<span class='diff-old empty'>空</span>", html)
         self.assertIn("<span class='diff-new'>1</span>", html)
+
+
+class WagoHotfixFullHtmlReportTests(SimpleTestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.base_dir = Path(self.tmpdir.name)
+
+    def test_hotfix_full_html_enriches_records_instead_of_record_id_list(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'enUS'
+
+        def fake_fetch(table, build, record_id):
+            key = str(table).lower()
+            if key == 'spellname':
+                return {'ID': record_id, 'Name_lang': 'Arcane Surge', 'VerifiedBuild': build}
+            if key == 'spelleffect':
+                return {
+                    'ID': record_id,
+                    'SpellID': 365350,
+                    'EffectIndex': 0,
+                    'Effect': 6,
+                    'EffectAura': 13,
+                    'EffectBasePointsF': '15',
+                    'EffectBonusCoefficient': '0.42',
+                    'PvpMultiplier': '0.8',
+                    'VerifiedBuild': build,
+                }
+            return {'ID': record_id, 'Name_lang': f'{table} readable row {record_id}', 'VerifiedBuild': build}
+
+        monitor._fetch_db2_row_by_id = fake_fetch
+        def fake_extract_spell_id(table_key, row):
+            return int((row or {}).get('SpellID') or 0)
+
+        def fake_fetch_spell_names(build, spell_ids, locale_override=None):
+            return {int(i): 'Arcane Surge' for i in spell_ids}
+
+        monitor._extract_spell_id = fake_extract_spell_id
+        monitor._fetch_spell_names_concurrent = fake_fetch_spell_names
+
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            full_path, rel_path = monitor._write_hotfix_full_html(
+                branch='wow',
+                locale='enUS',
+                to_push=109505,
+                summary_title='Hotfix 全量更新：2 张表 / 3 项（push 109504→109505）',
+                wago_url='https://wago.tools/hotfixes?filter%5Bpush_id%5D=109505',
+                build_num='62706',
+                from_push=109504,
+                table_stats=[('SpellEffect', 2), ('ItemSparse', 1)],
+                by_table={
+                    'SpellEffect': [
+                        {'push_id': 109505, 'table_name': 'SpellEffect', 'record_id': 777},
+                    ],
+                    'ItemSparse': [
+                        {'push_id': 109505, 'table_name': 'ItemSparse', 'record_id': 19019},
+                    ],
+                },
+                sample_per_table=5,
+                enrich_max=20,
+            )
+
+        html = Path(full_path).read_text(encoding='utf-8')
+
+        self.assertEqual(rel_path, 'portal/reports/wow_hotfix_full_wow_enUS_109505.html')
+        self.assertIn('hotfixFilter', html)
+        self.assertIn('技能效果 / SpellEffect', html)
+        self.assertIn('Arcane Surge', html)
+        self.assertIn('基础数值F', html)
+        self.assertIn('Wago push 109505', html)
+        self.assertIn('ItemSparse readable row 19019', html)
+        self.assertIn('Hotfix 原始数据只给出 push / DB2 表 / record_id', html)
+        self.assertNotIn('<summary><b>SpellEffect</b>（2）</summary><ul><li><code>777</code></li>', html)
 
 
 @override_settings(ALLOWED_HOSTS=['testserver'])

@@ -2323,7 +2323,11 @@ class WagoSkillDiffMonitor(BaseScan):
         enrich_max: int,
     ):
         """
-        生成可读性更强的静态 HTML 报告（不依赖前端/Portal）。
+        生成 Hotfix 全量静态 HTML 报告（不依赖前端/Portal）。
+
+        Hotfix 本身不像 builds-diff 那样提供完整 before/after payload；这里把 Wago
+        返回的 table/record_id 进一步 enrich 成“能读懂的当前记录”：表级影响、重点表、
+        Spell/SpellEffect 的技能名/描述/数值字段、原始 DB2 字段快照和 Wago 原链。
         返回：(full_path, rel_path)
         """
         rel_path = f"portal/reports/wow_hotfix_full_{branch}_{locale}_{to_push}.html"
@@ -2332,64 +2336,242 @@ class WagoSkillDiffMonitor(BaseScan):
         full_path = os.path.join(static_dir, rel_path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
+        build_num = str(build_num or '').strip()
+        table_stats = list(table_stats or [])
+        by_table = by_table or {}
+        entry_count = sum(int(c or 0) for _, c in table_stats)
+        table_count = len(table_stats)
+        sample_per_table = max(1, int(sample_per_table or 20))
+        enrich_left = max(0, int(enrich_max or 0))
+        row_cache = {}
+        spell_name_cache = {}
+
+        priority_tables = [
+            'SpellName', 'SpellDescription', 'SpellEffect', 'SpellMisc', 'SpellPower',
+            'SpellCooldowns', 'SpellDuration', 'SpellRadius', 'SpellRange', 'ChrSpecialization',
+            'SkillLineAbility', 'Talent', 'TraitNode', 'TraitNodeEntry', 'TraitDefinition',
+            'Item', 'ItemSparse', 'JournalEncounter', 'JournalEncounterSection',
+        ]
+        readable_fields = [
+            'Name_lang', 'Name', 'DisplayName_lang', 'Title_lang', 'Description_lang',
+            'AuraDescription_lang', 'Text_lang', 'VerifiedBuild', 'SpellID', 'EffectIndex',
+            'Effect', 'EffectAura', 'EffectBasePointsF', 'EffectBasePoints',
+            'EffectBonusCoefficient', 'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier',
+            'ClassID', 'SpecID', 'ChrSpecializationID', 'SkillLine', 'SkillLineID',
+            'TraitNodeID', 'TraitNodeEntryID', 'TraitDefinitionID', 'ItemID', 'ID',
+        ]
+        field_labels = {
+            'Name_lang': '名称', 'Name': '名称', 'DisplayName_lang': '显示名', 'Title_lang': '标题',
+            'Description_lang': '描述', 'AuraDescription_lang': '光环描述', 'Text_lang': '文本',
+            'VerifiedBuild': '数据 build', 'SpellID': '技能 ID', 'EffectIndex': '效果序号',
+            'Effect': '效果类型', 'EffectAura': '光环类型', 'EffectBasePointsF': '基础数值F',
+            'EffectBasePoints': '基础数值', 'EffectBonusCoefficient': '法强系数',
+            'BonusCoefficientFromAP': '攻强系数', 'Coefficient': '系数', 'PvpMultiplier': 'PvP 系数',
+            'ClassID': '职业 ID', 'SpecID': '专精 ID', 'ChrSpecializationID': '专精 ID',
+            'SkillLine': '技能线', 'SkillLineID': '技能线', 'TraitNodeID': '天赋节点',
+            'TraitNodeEntryID': '天赋节点条目', 'TraitDefinitionID': '天赋定义', 'ItemID': '物品 ID',
+            'ID': '记录 ID',
+        }
+        table_labels = {
+            'spellname': '技能名称', 'spelldescription': '技能描述', 'spelleffect': '技能效果',
+            'spellmisc': '技能杂项', 'spellpower': '资源消耗', 'spellcooldowns': '冷却',
+            'spellduration': '持续时间', 'spellradius': '半径', 'spellrange': '距离',
+            'chrspecialization': '专精', 'skilllineability': '技能线关联', 'talent': '天赋',
+            'traitnode': '天赋节点', 'traitnodeentry': '天赋节点条目', 'traitdefinition': '天赋定义',
+            'item': '物品', 'itemsparse': '物品文本', 'journalencounter': '地下城/团本首领',
+            'journalencountersection': '地下城手册文本',
+        }
+
         def esc(s):
             return html.escape(str(s or ""))
 
-        # 概览表格
-        rows_html = []
-        for t, c in table_stats:
-            rows_html.append(f"<tr><td class='tbl'>{esc(t)}</td><td class='num'>{c}</td></tr>")
+        def norm_table(t):
+            return str(t or '').strip()
 
-        # 详情：每表抽样 record_id
-        detail_sections = []
-        enrich_left = int(enrich_max or 0)
+        def tkey(t):
+            return norm_table(t).lower()
 
-        def _pretty_row_brief(db2_row: dict) -> str:
-            if not isinstance(db2_row, dict):
-                return ""
-            keys = [
-                "Name_lang", "Name", "DisplayName_lang", "Title_lang",
-                "Description_lang", "Text_lang",
-            ]
-            for k in keys:
-                v = db2_row.get(k)
+        def table_label(t):
+            key = tkey(t)
+            zh = table_labels.get(key)
+            return f"{zh} / {norm_table(t)}" if zh else norm_table(t)
+
+        def hotfix_table_url(table_name='', push_id=0):
+            params = []
+            if push_id:
+                params.append(f"filter%5Bpush_id%5D={int(push_id)}")
+            if locale:
+                params.append(f"filter%5Blocale%5D={locale}")
+            if table_name:
+                params.append(f"filter%5Btable_name%5D={html.escape(str(table_name), quote=True)}")
+            return 'https://wago.tools/hotfixes?' + '&'.join(params) if params else 'https://wago.tools/hotfixes'
+
+        def fetch_row(table_name, record_id):
+            nonlocal enrich_left
+            key = (norm_table(table_name), int(record_id or 0))
+            if key in row_cache:
+                return row_cache[key]
+            if enrich_left <= 0 or not build_num or key[1] <= 0:
+                row_cache[key] = None
+                return None
+            try:
+                row = self._fetch_db2_row_by_id(key[0], build_num, key[1])
+            except Exception:
+                row = None
+            enrich_left -= 1
+            row_cache[key] = row if isinstance(row, dict) else None
+            return row_cache[key]
+
+        def first_text(row):
+            if not isinstance(row, dict):
+                return ''
+            for k in ('Name_lang', 'Name', 'DisplayName_lang', 'Title_lang'):
+                v = row.get(k)
                 if isinstance(v, str) and v.strip():
                     return v.strip()
-            return ""
+            for k in ('Description_lang', 'AuraDescription_lang', 'Text_lang'):
+                v = row.get(k)
+                if isinstance(v, str) and v.strip():
+                    txt = re.sub(r'\s+', ' ', v.strip())
+                    return txt[:220] + ('…' if len(txt) > 220 else '')
+            return ''
 
+        def spell_name(spell_id):
+            spell_id = self._to_int(spell_id or 0)
+            if spell_id <= 0:
+                return ''
+            if spell_id in spell_name_cache:
+                return spell_name_cache[spell_id]
+            name = ''
+            row = fetch_row('SpellName', spell_id)
+            if isinstance(row, dict):
+                name = str(row.get('Name_lang') or row.get('Name') or '').strip()
+            if not name:
+                try:
+                    fetched = self._fetch_spell_names_concurrent(build_num, [spell_id]) if build_num else {}
+                    name = str((fetched or {}).get(spell_id) or '').strip()
+                except Exception:
+                    name = ''
+            spell_name_cache[spell_id] = name
+            return name
+
+        def summarize_row(table_name, record_id, row):
+            key = tkey(table_name)
+            if not isinstance(row, dict):
+                return ''
+            if key == 'spelleffect':
+                sid = self._extract_spell_id('spelleffect', row)
+                sname = spell_name(sid)
+                idx = row.get('EffectIndex')
+                bits = []
+                for k in ('Effect', 'EffectAura', 'EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient', 'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier'):
+                    v = row.get(k)
+                    if v is not None and str(v) != '':
+                        bits.append(f"{field_labels.get(k, k)}={v}")
+                title = f"{sname or ('Spell ' + str(sid))} / 效果#{idx}" if sid else f"效果记录 {record_id}"
+                return title + ("：" + '，'.join(bits[:6]) if bits else '')
+            if key in ('spellname', 'spelldescription'):
+                sid = record_id
+                sname = spell_name(sid)
+                brief = first_text(row)
+                return f"{sname or ('Spell ' + str(sid))}" + (f"：{brief}" if brief else '')
+            if key.startswith('spell'):
+                sid = self._extract_spell_id(key, row) or record_id
+                sname = spell_name(sid)
+                brief = first_text(row)
+                return f"{sname or ('Spell ' + str(sid))}" + (f"：{brief}" if brief else '')
+            return first_text(row)
+
+        def row_fields_html(row):
+            if not isinstance(row, dict):
+                return "<div class='muted'>未能从 wago.tools DB2 详情读取该记录；仅展示 record_id。</div>"
+            chips = []
+            used = set()
+            for k in readable_fields:
+                if k not in row:
+                    continue
+                v = row.get(k)
+                if v is None or str(v) == '':
+                    continue
+                used.add(k)
+                text = re.sub(r'\s+', ' ', str(v).strip())
+                if len(text) > 360:
+                    text = text[:360] + '…'
+                chips.append(f"<div class='field'><span>{esc(field_labels.get(k, k))}</span><strong>{esc(text)}</strong></div>")
+            if not chips:
+                for k, v in list(row.items())[:12]:
+                    if v is None or str(v) == '':
+                        continue
+                    text = re.sub(r'\s+', ' ', str(v).strip())
+                    if len(text) > 220:
+                        text = text[:220] + '…'
+                    chips.append(f"<div class='field'><span>{esc(k)}</span><strong>{esc(text)}</strong></div>")
+            return "<div class='fields'>" + ''.join(chips) + "</div>" if chips else "<div class='muted'>该 DB2 记录没有可展示字段。</div>"
+
+        table_lookup = {tkey(t): (t, c) for t, c in table_stats}
+        priority_keys = [k.lower() for k in priority_tables if k.lower() in table_lookup]
+        other_keys = [tkey(t) for t, _ in table_stats if tkey(t) not in set(priority_keys)]
+        ordered_keys = priority_keys + other_keys
+
+        stats_rows = []
         for t, c in table_stats:
-            raw_rows = by_table.get(t) or []
-            ids = []
+            css = 'priority' if tkey(t) in set(priority_keys) else ''
+            stats_rows.append(
+                f"<tr class='{css}'><td class='tbl'><a href='#table-{esc(tkey(t))}'>{esc(table_label(t))}</a></td><td class='num'>{int(c or 0)}</td></tr>"
+            )
+
+        toc_items = []
+        for key in ordered_keys[:80]:
+            t, c = table_lookup.get(key) or (key, 0)
+            toc_items.append(f"<a href='#table-{esc(key)}'>{esc(table_label(t))}<span>{int(c or 0)}</span></a>")
+
+        detail_sections = []
+        for key in ordered_keys:
+            t, c = table_lookup.get(key) or (key, 0)
+            raw_rows = by_table.get(t) or by_table.get(norm_table(t)) or []
+            records = []
             seen = set()
             for r in raw_rows:
-                rid = self._to_int((r or {}).get("record_id") or 0)
+                rid = self._to_int((r or {}).get('record_id') or 0)
                 if rid <= 0 or rid in seen:
                     continue
                 seen.add(rid)
-                ids.append(rid)
-                if len(ids) >= int(sample_per_table or 20):
+                pid = self._to_int((r or {}).get('push_id') or to_push)
+                row = fetch_row(t, rid)
+                summary = summarize_row(t, rid, row)
+                records.append({
+                    'record_id': rid,
+                    'push_id': pid,
+                    'summary': summary,
+                    'row': row,
+                })
+                if len(records) >= sample_per_table:
                     break
-            if not ids:
+            if not records:
                 continue
-
-            li_parts = []
-            for rid in ids:
-                brief = ""
-                if enrich_left > 0 and build_num:
-                    try:
-                        db2_row = self._fetch_db2_row_by_id(t, build_num, rid)
-                        brief = _pretty_row_brief(db2_row)
-                    except Exception:
-                        brief = ""
-                    enrich_left -= 1
-                if brief:
-                    li_parts.append(f"<li><code>{rid}</code> — {esc(brief)}</li>")
-                else:
-                    li_parts.append(f"<li><code>{rid}</code></li>")
-
-            li = "".join(li_parts)
+            cards = []
+            for rec in records:
+                rid = rec['record_id']
+                pid = rec['push_id']
+                summary = rec.get('summary') or ''
+                row = rec.get('row')
+                search_text = ' '.join([norm_table(t), table_label(t), str(rid), str(pid), summary, first_text(row)]).lower()
+                row_title = summary or f"record_id {rid}"
+                wago_rec_url = hotfix_table_url(t, pid)
+                cards.append(
+                    "<article class='record' data-search='{}'>".format(esc(search_text))
+                    + f"<div class='record-head'><div><span class='record-id'>#{rid}</span><strong>{esc(row_title)}</strong></div><a href='{esc(wago_rec_url)}' target='_blank' rel='noreferrer'>Wago push {pid}</a></div>"
+                    + row_fields_html(row)
+                    + "</article>"
+                )
+            more = max(0, int(c or 0) - len(records))
+            more_html = f"<div class='muted more'>还有 {more} 条未展开；可用上方 Wago 表链接查看完整列表。</div>" if more else ''
             detail_sections.append(
-                f"<details><summary><b>{esc(t)}</b>（{c}）</summary><ul>{li}</ul></details>"
+                f"<section class='table-section {'priority' if key in set(priority_keys) else ''}' id='table-{esc(key)}' data-search='{esc((norm_table(t)+' '+table_label(t)).lower())}'>"
+                f"<div class='table-head'><div><h2>{esc(table_label(t))}</h2><p>{int(c or 0)} 项 hotfix 记录，展开 {len(records)} 项可读样例</p></div><a href='{esc(hotfix_table_url(t, to_push))}' target='_blank' rel='noreferrer'>Wago 表筛选</a></div>"
+                + ''.join(cards)
+                + more_html
+                + "</section>"
             )
 
         html_text = f"""<!doctype html>
@@ -2399,36 +2581,81 @@ class WagoSkillDiffMonitor(BaseScan):
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{esc(summary_title)}</title>
   <style>
-    body {{ font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,'Noto Sans',sans-serif; margin: 24px; color:#0f172a; }}
-    a {{ color:#2563eb; }}
-    .meta {{ color:#475569; margin: 8px 0 18px; }}
-    table {{ border-collapse: collapse; width: 100%; margin: 12px 0 22px; }}
-    th, td {{ border: 1px solid #e2e8f0; padding: 8px 10px; }}
-    th {{ background:#f8fafc; text-align:left; }}
-    td.num {{ text-align:right; width: 120px; }}
-    td.tbl {{ font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace; }}
-    details {{ border:1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; margin: 10px 0; }}
-    summary {{ cursor:pointer; }}
-    code {{ background:#f1f5f9; padding: 1px 6px; border-radius: 4px; }}
+    body {{ margin:0; padding:16px; font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,'Noto Sans',sans-serif; color:#0f172a; background:#eef2f7; line-height:1.55; }}
+    a {{ color:#2563eb; text-decoration:none; }} a:hover {{ text-decoration:underline; }}
+    .card {{ max-width:1360px; margin:0 auto; background:#fff; border:1px solid rgba(148,163,184,.35); border-radius:18px; padding:20px; box-shadow:0 18px 48px rgba(15,23,42,.08); }}
+    .hero {{ display:flex; justify-content:space-between; gap:16px; align-items:flex-start; border-bottom:1px solid #e2e8f0; padding-bottom:14px; margin-bottom:14px; }}
+    h1 {{ margin:0; font-size:24px; line-height:1.25; letter-spacing:-.02em; }}
+    .meta {{ color:#475569; font-size:12px; margin-top:7px; display:flex; flex-wrap:wrap; gap:8px 12px; }}
+    .summary {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:14px 0; }}
+    .metric {{ border:1px solid #e2e8f0; background:linear-gradient(180deg,#f8fafc,#fff); border-radius:14px; padding:11px 12px; }}
+    .metric span {{ display:block; color:#64748b; font-size:12px; }} .metric strong {{ display:block; font-size:20px; margin-top:2px; }}
+    .note {{ border:1px solid #bfdbfe; background:#eff6ff; color:#1e3a8a; border-radius:14px; padding:10px 12px; font-size:13px; margin:12px 0; }}
+    .controls {{ position:sticky; top:0; z-index:5; margin:12px 0; padding:10px; background:rgba(255,255,255,.94); backdrop-filter:blur(8px); border:1px solid #e2e8f0; border-radius:14px; display:flex; gap:10px; align-items:center; }}
+    .controls input {{ width:100%; border:1px solid #cbd5e1; border-radius:10px; padding:9px 11px; font-size:14px; }} .controls .count {{ white-space:nowrap; color:#64748b; font-size:12px; }}
+    .toc {{ margin:12px 0; padding:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; }}
+    .toc-title {{ grid-column:1/-1; font-weight:900; }} .toc a {{ display:flex; justify-content:space-between; gap:8px; color:#0f172a; background:#fff; border:1px solid #e2e8f0; border-radius:11px; padding:7px 9px; }} .toc span {{ color:#64748b; font-size:12px; }}
+    .layout {{ display:grid; grid-template-columns:minmax(260px,360px) 1fr; gap:14px; align-items:start; }}
+    .stats {{ position:sticky; top:66px; max-height:calc(100vh - 88px); overflow:auto; border:1px solid #e2e8f0; border-radius:14px; background:#fff; }}
+    table {{ border-collapse:collapse; width:100%; font-size:13px; }} th,td {{ border-bottom:1px solid #e2e8f0; padding:8px 10px; vertical-align:top; }} th {{ background:#f8fafc; text-align:left; position:sticky; top:0; }} td.num {{ text-align:right; width:72px; font-weight:900; }} td.tbl {{ overflow-wrap:anywhere; }} tr.priority td {{ background:#fff7ed; }}
+    .table-section {{ margin:0 0 14px; padding:14px; border:1px solid #dbeafe; border-radius:16px; background:#f8fbff; scroll-margin-top:72px; }} .table-section.priority {{ border-color:#fed7aa; background:#fffaf3; }}
+    .table-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:10px; }} .table-head h2 {{ margin:0; font-size:20px; }} .table-head p {{ margin:4px 0 0; color:#64748b; font-size:12px; }}
+    .record {{ margin-top:10px; padding:11px 13px; background:#fff; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }}
+    .record-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; font-size:13px; }} .record-head strong {{ display:block; margin-top:2px; overflow-wrap:anywhere; }} .record-id {{ display:inline-flex; color:#2563eb; font-weight:900; margin-right:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }}
+    .fields {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-top:9px; }} .field {{ border:1px solid #e2e8f0; background:#f8fafc; border-radius:10px; padding:7px 9px; min-width:0; }} .field span {{ display:block; color:#64748b; font-size:11px; font-weight:800; }} .field strong {{ display:block; color:#0f172a; font-size:13px; overflow-wrap:anywhere; white-space:pre-wrap; }}
+    code {{ background:#f1f5f9; padding:1px 6px; border-radius:4px; }} .muted {{ color:#64748b; font-size:13px; }} .more {{ margin-top:10px; }} .hidden {{ display:none!important; }}
+    @media(max-width:920px) {{ body{{padding:8px}} .card{{padding:14px}} .hero{{display:block}} .layout{{display:block}} .stats{{position:static; max-height:none; margin-bottom:14px}} .controls{{top:0}} }}
   </style>
 </head>
 <body>
-  <h1>{esc(summary_title)}</h1>
-  <div class="meta">
-    <div>分支：{esc(branch)} ｜ 区域/语言：{esc(locale)} ｜ Build：{esc(build_num)} ｜ Push：{esc(from_push)} → {esc(to_push)}</div>
-    <div>Wago 链接：<a href="{esc(wago_url)}" target="_blank" rel="noreferrer">{esc(wago_url)}</a></div>
-  </div>
-
-  <h2>变更概览（按表汇总）</h2>
-  <table>
-    <thead><tr><th>DB2表</th><th class="num">变更数</th></tr></thead>
-    <tbody>
-      {''.join(rows_html)}
-    </tbody>
-  </table>
-
-  <h2>变更详情（每表抽样 {int(sample_per_table or 20)} 条 record_id）</h2>
-  {''.join(detail_sections)}
+  <main class="card">
+    <div class="hero">
+      <div>
+        <h1>{esc(summary_title)}</h1>
+        <div class="meta"><span>分支：{esc(branch)}</span><span>区域/语言：{esc(locale)}</span><span>Build：{esc(build_num)}</span><span>Push：{int(from_push or 0)} → {int(to_push or 0)}</span></div>
+      </div>
+      <div class="meta"><a href="{esc(wago_url)}" target="_blank" rel="noreferrer">Wago 原始 Hotfix 列表</a></div>
+    </div>
+    <div class="summary">
+      <div class="metric"><span>Hotfix 记录</span><strong>{entry_count}</strong></div>
+      <div class="metric"><span>DB2 表</span><strong>{table_count}</strong></div>
+      <div class="metric"><span>重点表</span><strong>{len(priority_keys)}</strong></div>
+      <div class="metric"><span>每表展开</span><strong>{sample_per_table}</strong></div>
+    </div>
+    <div class="note">Hotfix 原始数据只给出 push / DB2 表 / record_id。本报告会继续读取当前 build 的 DB2 记录，把 record_id 翻译成名称、描述、技能效果数值等可读字段；完整原始列表仍可通过每个表的 Wago 链接复核。</div>
+    <div class="controls"><input id="hotfixFilter" type="search" placeholder="筛选表名、record_id、技能名、描述、字段值…" autocomplete="off"><span class="count" id="filterCount">全部显示</span></div>
+    <nav class="toc" aria-label="重点表目录"><div class="toc-title">表目录（重点表优先）</div>{''.join(toc_items)}</nav>
+    <div class="layout">
+      <aside class="stats">
+        <table><thead><tr><th>DB2 表</th><th class="num">数量</th></tr></thead><tbody>{''.join(stats_rows)}</tbody></table>
+      </aside>
+      <section class="details">{''.join(detail_sections)}</section>
+    </div>
+  </main>
+  <script>
+(function(){{
+  var input=document.getElementById('hotfixFilter');
+  var count=document.getElementById('filterCount');
+  if(!input){{return;}}
+  function apply(){{
+    var q=(input.value||'').trim().toLowerCase();
+    var total=0, visible=0;
+    document.querySelectorAll('.record').forEach(function(el){{
+      total++;
+      var ok=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
+      el.classList.toggle('hidden', !ok);
+      if(ok){{visible++;}}
+    }});
+    document.querySelectorAll('.table-section').forEach(function(sec){{
+      var ok=!q || !!sec.querySelector('.record:not(.hidden)') || (sec.getAttribute('data-search')||'').indexOf(q)>=0;
+      sec.classList.toggle('hidden', !ok);
+    }});
+    if(count){{count.textContent=q ? ('显示 '+visible+' / '+total+' 条记录') : ('全部 '+total+' 条展开记录');}}
+  }}
+  input.addEventListener('input', apply);
+  apply();
+}})();
+  </script>
 </body>
 </html>
 """
