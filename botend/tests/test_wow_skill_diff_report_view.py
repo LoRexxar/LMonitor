@@ -326,14 +326,17 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
             self.assertEqual(kwargs['by_table']['ItemCurrencyCost'][0]['record_id'], 3)
             return str(self.base_dir / 'static' / 'portal' / 'reports' / 'hotfix.html'), 'portal/reports/hotfix.html'
 
+        def fail_fetch_db2_row(table, build, record_id):
+            raise AssertionError('WAGO_HOTFIX_REPORT_ENRICH_MAX=0 should disable DB2 row enrichment')
+
         monitor._fetch_hotfix_page_data = fake_fetch_page
-        monitor._fetch_db2_row_by_id = lambda table, build, record_id: {'ID': record_id, 'Name_lang': 'Currency row'}
+        monitor._fetch_db2_row_by_id = fail_fetch_db2_row
         monitor._write_hotfix_full_html = fake_write_html
 
         with override_settings(
             BASE_DIR=str(self.base_dir),
             WAGO_HOTFIX_MAX_PAGES=3,
-            WAGO_HOTFIX_REPORT_ENRICH_MAX=2,
+            WAGO_HOTFIX_REPORT_ENRICH_MAX=0,
         ):
             result = monitor._generate_hotfix_full_report('wow', '68367', 109431, 109502, locale='enUS')
 

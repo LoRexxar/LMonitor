@@ -2136,7 +2136,8 @@ class WagoSkillDiffMonitor(BaseScan):
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         max_entries = int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 4000) or 4000)
         max_sample_per_table = int(getattr(settings, 'WAGO_HOTFIX_REPORT_SAMPLE_PER_TABLE', 20) or 20)
-        max_enrich = int(getattr(settings, 'WAGO_HOTFIX_REPORT_ENRICH_MAX', 50) or 50)
+        max_enrich_setting = getattr(settings, 'WAGO_HOTFIX_REPORT_ENRICH_MAX', 50)
+        max_enrich = 50 if max_enrich_setting is None else int(max_enrich_setting)
 
         locale = (locale or '').strip() or self.locale
         search = locale
