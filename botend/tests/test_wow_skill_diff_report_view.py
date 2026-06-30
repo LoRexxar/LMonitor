@@ -235,6 +235,15 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
                     'PvpMultiplier': '0.8',
                     'VerifiedBuild': build,
                 }
+            if key == 'questv2':
+                return {
+                    'ID': record_id,
+                    'Name_lang': 'Repair the Beacon',
+                    'QuestID': record_id,
+                    'QuestSortID': 42,
+                    'Flags': 1024,
+                    'VerifiedBuild': build,
+                }
             return {'ID': record_id, 'Name_lang': f'{table} readable row {record_id}', 'VerifiedBuild': build}
 
         monitor._fetch_db2_row_by_id = fake_fetch
@@ -256,13 +265,19 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
                 wago_url='https://wago.tools/hotfixes?filter%5Bpush_id%5D=109505',
                 build_num='62706',
                 from_push=109504,
-                table_stats=[('SpellEffect', 2), ('ItemSparse', 1)],
+                table_stats=[('SpellEffect', 2), ('ItemSparse', 1), ('QuestV2', 1), ('Map', 1)],
                 by_table={
                     'SpellEffect': [
                         {'push_id': 109505, 'table_name': 'SpellEffect', 'record_id': 777},
                     ],
                     'ItemSparse': [
                         {'push_id': 109505, 'table_name': 'ItemSparse', 'record_id': 19019},
+                    ],
+                    'QuestV2': [
+                        {'push_id': 109505, 'table_name': 'QuestV2', 'record_id': 84621},
+                    ],
+                    'Map': [
+                        {'push_id': 109505, 'table_name': 'Map', 'record_id': 2552},
                     ],
                 },
                 sample_per_table=5,
@@ -276,8 +291,15 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('技能效果 / SpellEffect', html)
         self.assertIn('Arcane Surge', html)
         self.assertIn('基础数值F', html)
+        self.assertIn('任务 / QuestV2', html)
+        self.assertIn('Repair the Beacon', html)
+        self.assertIn('QuestSortID', html)
+        self.assertIn('地图 / Map', html)
         self.assertIn('Wago push 109505', html)
         self.assertIn('ItemSparse readable row 19019', html)
+        self.assertIn('DB2 表目录（按类别分组，覆盖全部表）', html)
+        self.assertIn('技能/天赋只是其中一类', html)
+        self.assertIn('筛选类别、表名、record_id、名称、描述、字段值', html)
         self.assertIn('Hotfix 原始数据只给出 push / DB2 表 / record_id', html)
         self.assertNotIn('<summary><b>SpellEffect</b>（2）</summary><ul><li><code>777</code></li>', html)
 
