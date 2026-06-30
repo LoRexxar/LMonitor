@@ -26,7 +26,7 @@ from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplS
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
 from botend.portal.views import PortalArticleView
-from botend.portal.views import PortalWowSkillDiffReportView
+from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView
 from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView
 from botend.portal.api import (
     PortalBluepostsAPIView,
@@ -86,6 +86,8 @@ urlpatterns = [
     path('portal/api/wow-skill-diffs/', csrf_exempt(PortalWowSkillDiffListAPIView.as_view()), name="portal_wow_skill_diffs"),
     path('portal/api/wow-skill-diff/states/', csrf_exempt(PortalWowSkillDiffStatesAPIView.as_view()), name="portal_wow_skill_diff_states"),
     path('portal/api/article/<int:article_id>/', csrf_exempt(PortalArticleDetailAPIView.as_view()), name="portal_article_detail"),
+    path('portal/reports/<path:report_path>', PortalReportFileView.as_view(), name="portal_report_file"),
+    path('portal/wow-hotfix-report/<int:report_id>/', PortalWowHotfixReportView.as_view(), name="portal_wow_hotfix_report"),
     path('portal/wow-skill-diff/<int:report_id>/', PortalWowSkillDiffReportView.as_view(), name="portal_wow_skill_diff_report"),
     
     # API路由

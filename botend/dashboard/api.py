@@ -66,6 +66,21 @@ def _safe_join_static(rel_path):
     return full
 
 
+def _portal_report_url_from_path(content_html_path, fallback_url=''):
+    rel_path = str(content_html_path or '').strip().lstrip('/')
+    if rel_path.startswith('static/'):
+        rel_path = rel_path[len('static/'):]
+    if rel_path.startswith('portal/reports/'):
+        rel_path = rel_path[len('portal/reports/'):]
+    if rel_path:
+        return f'/portal/reports/{rel_path}'
+
+    url = str(fallback_url or '').strip()
+    if url.startswith('/static/portal/reports/'):
+        return '/portal/reports/' + url[len('/static/portal/reports/'):]
+    return url
+
+
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class SystemAlertAPIView(View):
     def get(self, request):
@@ -230,7 +245,7 @@ class WagoHotfixReportListAPIView(View):
                     'hotfix_last_run_status': st.hotfix_last_run_status,
                     'hotfix_last_event_at': _fmt_dt(st.hotfix_last_event_at),
                     'hotfix_last_event_status': st.hotfix_last_event_status,
-                    'hotfix_report_url': st.hotfix_report_url,
+                    'hotfix_report_url': _portal_report_url_from_path('', st.hotfix_report_url),
                     'hotfix_wago_url': st.hotfix_wago_url,
                     'hotfix_summary_title': st.hotfix_summary_title,
                     'latest_known_push': latest_known_push,
@@ -249,7 +264,7 @@ class WagoHotfixReportListAPIView(View):
                     'from_push': r.from_push,
                     'to_push': r.to_push,
                     'summary_title': r.summary_title,
-                    'report_url': r.report_url,
+                    'report_url': _portal_report_url_from_path(r.content_html_path, r.report_url),
                     'wago_url': r.wago_url,
                     'table_count': r.table_count,
                     'entry_count': r.entry_count,
@@ -272,7 +287,7 @@ class WagoHotfixReportListAPIView(View):
                     'status': e.status,
                     'wago_url': e.wago_url,
                     'report_id': e.report_id,
-                    'report_url': e.report.report_url if e.report_id and e.report else '',
+                    'report_url': _portal_report_url_from_path(e.report.content_html_path, e.report.report_url) if e.report_id and e.report else '',
                     'table_count': e.table_count,
                     'entry_count': e.entry_count,
                     'summary_title': e.summary_title,

@@ -36,6 +36,8 @@ def _normalize_url(v):
         return ''
     if s in ('-', '#'):
         return ''
+    if s.startswith('/static/portal/reports/'):
+        return '/portal/reports/' + s[len('/static/portal/reports/'):]
     return s
 
 
@@ -282,18 +284,14 @@ def _state_to_dict(s):
                         break
         if summary_title and ('职业技能变更报告' in summary_title):
             summary_title = ''
-    report_url = (getattr(s, 'report_url', '') or '').strip()
-    if report_url in ('-', '#'):
-        report_url = ''
+    report_url = _normalize_url(getattr(s, 'report_url', ''))
     wago_url = (getattr(s, 'wago_diff_url', '') or '').strip()
     if wago_url in ('-', '#'):
         wago_url = ''
 
     hotfix_status = (getattr(s, 'hotfix_last_event_status', '') or '').strip()
     hotfix_run_status = (getattr(s, 'hotfix_last_run_status', '') or '').strip()
-    hotfix_report_url = (getattr(s, 'hotfix_report_url', '') or '').strip()
-    if hotfix_report_url in ('-', '#'):
-        hotfix_report_url = ''
+    hotfix_report_url = _normalize_url(getattr(s, 'hotfix_report_url', ''))
     hotfix_wago_url = (getattr(s, 'hotfix_wago_url', '') or '').strip()
     if hotfix_wago_url in ('-', '#'):
         hotfix_wago_url = ''

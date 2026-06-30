@@ -562,7 +562,7 @@ class WagoSkillDiffMonitor(BaseScan):
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(html_text)
             content_html_path = rel_path
-            report_url = f"/static/{rel_path}"
+            report_url = f"/portal/reports/{rel_path[len('portal/reports/'):] if rel_path.startswith('portal/reports/') else rel_path}"
         except Exception:
             content_html_path = ''
             report_url = ''
@@ -2130,8 +2130,8 @@ class WagoSkillDiffMonitor(BaseScan):
 
         报告产物：
         - content_md：用于存档/检索
-        - content_html_path：静态 html（Dashboard 直接打开）
-        - report_url：/static/... 形式的可点击链接（Dashboard 会自动识别）
+        - content_html_path：源码 static/portal/reports 下的报告相对路径
+        - report_url：/portal/reports/... 形式的受限映射入口（避免依赖 collectstatic）
         """
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         max_entries = int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 4000) or 4000)
@@ -2288,7 +2288,7 @@ class WagoSkillDiffMonitor(BaseScan):
             sample_per_table=max_sample_per_table,
             enrich_max=max_enrich,
         )
-        report_url = f"/static/{html_rel_path}" if html_rel_path else ""
+        report_url = f"/portal/reports/{html_rel_path[len('portal/reports/'):] if html_rel_path.startswith('portal/reports/') else html_rel_path}" if html_rel_path else ""
 
         return {
             "branch": branch,

@@ -1,10 +1,18 @@
 from types import SimpleNamespace
 from unittest.mock import patch
+from pathlib import Path
+import tempfile
 
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
-from botend.portal.views import PortalWowSkillDiffReportView
+from botend.portal.views import (
+    PortalReportFileView,
+    PortalWowSkillDiffReportView,
+    _resolve_portal_report_html_path,
+    portal_report_url,
+)
 from botend.services.wago_report_html import build_wow_skill_diff_fallback_html
+from botend.portal.api import _normalize_url as _normalize_portal_url
 
 
 class _FakeQuerySet:
@@ -198,3 +206,65 @@ class PortalWowSkillDiffReportViewTests(SimpleTestCase):
         self.assertNotIn("<span class='diff-old'>技能杂项 施法时间索引：</span>", html)
         self.assertIn("<span class='diff-old empty'>空</span>", html)
         self.assertIn("<span class='diff-new'>1</span>", html)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver'])
+class PortalReportFileViewTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.base_dir = Path(self.tmpdir.name)
+        report_dir = self.base_dir / 'static' / 'portal' / 'reports'
+        report_dir.mkdir(parents=True)
+        (report_dir / 'ok.html').write_text('<h1>ok report</h1>', encoding='utf-8')
+        nested_dir = report_dir / 'nested'
+        nested_dir.mkdir()
+        (nested_dir / 'ok.html').write_text('<h1>nested report</h1>', encoding='utf-8')
+        (self.base_dir / 'static' / 'secret.html').write_text('secret', encoding='utf-8')
+
+    def test_report_url_maps_content_html_path_to_portal_endpoint(self):
+        self.assertEqual(
+            portal_report_url('portal/reports/wow_hotfix_full_wow_zhCN_109505.html'),
+            '/portal/reports/wow_hotfix_full_wow_zhCN_109505.html',
+        )
+        self.assertEqual(
+            portal_report_url('/static/portal/reports/wow_hotfix_full_wow_zhCN_109505.html'),
+            '/portal/reports/wow_hotfix_full_wow_zhCN_109505.html',
+        )
+        self.assertEqual(
+            _normalize_portal_url('/static/portal/reports/wow_hotfix_full_wow_zhCN_109505.html'),
+            '/portal/reports/wow_hotfix_full_wow_zhCN_109505.html',
+        )
+
+    def test_report_file_view_serves_only_allowed_html_reports(self):
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            request = self.factory.get('/portal/reports/ok.html')
+            response = PortalReportFileView.as_view()(request, report_path='ok.html')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/html; charset=utf-8')
+        self.assertIn('ok report', response.content.decode('utf-8'))
+
+    def test_report_file_view_allows_nested_report_paths(self):
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            request = self.factory.get('/portal/reports/nested/ok.html')
+            response = PortalReportFileView.as_view()(request, report_path='nested/ok.html')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('nested report', response.content.decode('utf-8'))
+
+    def test_report_file_view_rejects_path_traversal(self):
+        blocked_paths = [
+            '../secret.html',
+            'nested/../../secret.html',
+            '/etc/passwd',
+            'nested\\..\\secret.html',
+            'ok.txt',
+        ]
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            for report_path in blocked_paths:
+                self.assertIsNone(_resolve_portal_report_html_path(report_path), report_path)
+                request = self.factory.get(f'/portal/reports/{report_path}')
+                response = PortalReportFileView.as_view()(request, report_path=report_path)
+                self.assertEqual(response.status_code, 404, report_path)
