@@ -106,17 +106,11 @@ def download_and_upload_article_image(image_url, *, req=None, article_url="", so
 
 
 def _fetch_image_response(image_url, *, req=None):
-    if req:
-        try:
-            resp = req.get(image_url, "Response", 0, "")
-            if resp:
-                return resp
-        except Exception:
-            pass
     try:
         import requests
-        return requests.get(image_url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+        return requests.get(image_url, timeout=(8, 10), headers={"User-Agent": "Mozilla/5.0"})
     except Exception:
+        logger.warning("[article_image_service] Direct image request failed: {}".format(image_url))
         return None
 
 
