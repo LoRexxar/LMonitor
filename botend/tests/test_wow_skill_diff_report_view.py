@@ -303,6 +303,45 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('Hotfix 原始数据只给出 push / DB2 表 / record_id', html)
         self.assertNotIn('<summary><b>SpellEffect</b>（2）</summary><ul><li><code>777</code></li>', html)
 
+    def test_hotfix_full_report_scans_bounded_pages_even_when_pushes_are_not_monotonic(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'enUS'
+
+        pages = {
+            1: [
+                {'push_id': 109431, 'locale': 'enUS', 'table_name': 'Phase', 'record_id': 1, 'build': '68367'},
+                {'push_id': 109502, 'locale': 'esMX', 'table_name': 'SpellScriptText', 'record_id': 2, 'build': '68367'},
+            ],
+            2: [
+                {'push_id': 109502, 'locale': 'enUS', 'table_name': 'ItemCurrencyCost', 'record_id': 3, 'build': '68367'},
+            ],
+            3: [],
+        }
+
+        def fake_fetch_page(build_num='', page=1, *, search=''):
+            return pages.get(page, [])
+
+        def fake_write_html(**kwargs):
+            self.assertEqual(kwargs['table_stats'], [('ItemCurrencyCost', 1)])
+            self.assertEqual(kwargs['by_table']['ItemCurrencyCost'][0]['record_id'], 3)
+            return str(self.base_dir / 'static' / 'portal' / 'reports' / 'hotfix.html'), 'portal/reports/hotfix.html'
+
+        monitor._fetch_hotfix_page_data = fake_fetch_page
+        monitor._fetch_db2_row_by_id = lambda table, build, record_id: {'ID': record_id, 'Name_lang': 'Currency row'}
+        monitor._write_hotfix_full_html = fake_write_html
+
+        with override_settings(
+            BASE_DIR=str(self.base_dir),
+            WAGO_HOTFIX_MAX_PAGES=3,
+            WAGO_HOTFIX_REPORT_ENRICH_MAX=2,
+        ):
+            result = monitor._generate_hotfix_full_report('wow', '68367', 109431, 109502, locale='enUS')
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['entry_count'], 1)
+        self.assertEqual(result['table_count'], 1)
+        self.assertEqual(result['changed_tables_json'], '["ItemCurrencyCost"]')
+
 
 @override_settings(ALLOWED_HOSTS=['testserver'])
 class PortalReportFileViewTests(SimpleTestCase):

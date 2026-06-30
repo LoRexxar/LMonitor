@@ -2147,13 +2147,10 @@ class WagoSkillDiffMonitor(BaseScan):
             raw = self._fetch_hotfix_page_data(page=page, search=search) or []
             if not raw:
                 break
-            min_pid = 0
             for r in raw:
                 pid = self._to_int((r or {}).get('push_id') or 0)
                 if pid <= 0:
                     continue
-                if min_pid <= 0 or pid < min_pid:
-                    min_pid = pid
                 if locale and (str((r or {}).get('locale') or '').strip() or '') != locale:
                     continue
                 # (from_push, to_push]
@@ -2164,8 +2161,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 hotfix_rows.append(r)
                 if len(hotfix_rows) >= max_entries:
                     break
-            if min_pid > 0 and min_pid <= int(from_push or 0):
-                break
+            # Wago hotfix pages are not reliably monotonic when filtered/searched by locale:
+            # later pages can still contain rows for a newer push after an older push appears
+            # on page 1. Do not stop early based on min push; scan the bounded page window.
             page += 1
 
         if not hotfix_rows:
