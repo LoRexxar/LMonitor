@@ -2261,12 +2261,18 @@ class WagoSkillDiffMonitor(BaseScan):
             for rid in ids:
                 brief = ""
                 if enrich_left > 0 and build_num:
+                    old_locale = getattr(self, 'locale', None)
                     try:
+                        if locale and old_locale is not None:
+                            self.locale = locale
                         db2_row = self._fetch_db2_row_by_id(t, build_num, rid)
                         brief = _pretty_row_brief(db2_row)
                         enrich_left -= 1
                     except Exception:
                         brief = ""
+                    finally:
+                        if old_locale is not None:
+                            self.locale = old_locale
                 if brief:
                     md_lines.append(f"- `{rid}`：{brief}")
                 else:
