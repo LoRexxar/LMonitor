@@ -73,6 +73,12 @@ class WagoDB2GraphService:
             return self._resolve_item_record(ref)
         if kind == 'trait':
             return self._resolve_trait_record(ref)
+        if kind == 'mount':
+            return self._resolve_mount_record(ref)
+        if kind == 'battle_pet':
+            return self._resolve_battle_pet_record(ref)
+        if kind == 'vehicle':
+            return self._resolve_vehicle_record(ref)
         return None
 
     def _resolve_spell_record(self, ref: DB2RecordRef) -> DB2Object | None:
@@ -165,6 +171,77 @@ class WagoDB2GraphService:
             tags=[self._tag_for_table(ref.table) or '物品'],
         )
 
+    def _resolve_mount_record(self, ref: DB2RecordRef) -> DB2Object | None:
+        row = ref.row or {}
+        table_key = self.schema.table_key(ref.table)
+        mount_id = self._to_int(row.get('MountID') or row.get('ID') or ref.record_id)
+        if mount_id <= 0:
+            return None
+        mount_row = row if table_key == 'mount' else self._fetch_row('Mount', mount_id)
+        title = self._first_text(mount_row) or self._first_text(row) or f'坐骑 #{mount_id}'
+        fields = self._summary_fields_for_row(ref.table, row)
+        source_spell_id = self._to_int(row.get('SourceSpellID') or (mount_row or {}).get('SourceSpellID') or 0)
+        if source_spell_id > 0:
+            spell_name = self._first_text(self._fetch_row('SpellName', source_spell_id))
+            fields.append({'label': '来源技能', 'value': f'{spell_name or "Spell"} #{source_spell_id}'})
+        display_id = self._to_int(row.get('CreatureDisplayInfoID') or (mount_row or {}).get('CreatureDisplayInfoID') or 0)
+        if display_id > 0:
+            fields.append({'label': '生物外观 ID', 'value': str(display_id)})
+        return DB2Object(
+            kind='mount',
+            object_id=mount_id,
+            title=title,
+            category='坐骑',
+            source_records=[ref],
+            summary_fields=fields,
+            raw_fields=self._raw_fields(row),
+            tags=[self._tag_for_table(ref.table) or '坐骑'],
+        )
+
+    def _resolve_battle_pet_record(self, ref: DB2RecordRef) -> DB2Object | None:
+        row = ref.row or {}
+        table_key = self.schema.table_key(ref.table)
+        species_id = self._to_int(row.get('SpeciesID') or row.get('BattlePetSpeciesID') or row.get('ID') or ref.record_id)
+        if species_id <= 0:
+            return None
+        species_row = row if table_key == 'battlepetspecies' else self._fetch_row('BattlePetSpecies', species_id)
+        title = self._first_text(species_row) or self._first_text(row) or f'战斗宠物 #{species_id}'
+        fields = self._summary_fields_for_row(ref.table, row)
+        creature_id = self._to_int(row.get('CreatureID') or (species_row or {}).get('CreatureID') or 0)
+        if creature_id > 0:
+            fields.append({'label': '生物 ID', 'value': str(creature_id)})
+        return DB2Object(
+            kind='battle_pet',
+            object_id=species_id,
+            title=title,
+            category='战斗宠物',
+            source_records=[ref],
+            summary_fields=fields,
+            raw_fields=self._raw_fields(row),
+            tags=[self._tag_for_table(ref.table) or '战斗宠物'],
+        )
+
+    def _resolve_vehicle_record(self, ref: DB2RecordRef) -> DB2Object | None:
+        row = ref.row or {}
+        table_key = self.schema.table_key(ref.table)
+        vehicle_id = self._to_int(row.get('VehicleID') or row.get('ID') or ref.record_id)
+        if table_key == 'vehicleseat' and self._to_int(row.get('VehicleID') or 0) <= 0:
+            vehicle_id = self._to_int(row.get('VehicleSeatID') or row.get('ID') or ref.record_id)
+        if vehicle_id <= 0:
+            return None
+        title = self._first_text(row) or (f'载具 #{vehicle_id}' if table_key == 'vehicle' else f'载具座位 #{vehicle_id}')
+        fields = self._summary_fields_for_row(ref.table, row)
+        return DB2Object(
+            kind='vehicle',
+            object_id=vehicle_id,
+            title=title,
+            category='载具/交互',
+            source_records=[ref],
+            summary_fields=fields,
+            raw_fields=self._raw_fields(row),
+            tags=[self._tag_for_table(ref.table) or '载具'],
+        )
+
     def _fetch_row(self, table: str, record_id: int) -> dict[str, Any]:
         if self.max_enrich is not None and self._enrich_count >= int(self.max_enrich):
             return {}
@@ -181,6 +258,9 @@ class WagoDB2GraphService:
             'EffectIndex', 'EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient',
             'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier', 'SpellID', 'QuestID',
             'ParentItemID', 'ItemID', 'TriggerType', 'TraitDefinitionID',
+            'SourceSpellID', 'CreatureDisplayInfoID', 'CreatureID', 'SpeciesID', 'SourceTypeEnum',
+            'IconFileDataID', 'VehicleID', 'VehicleSeatID', 'Flags', 'FlagsB', 'AttachmentID',
+            'CameraEnteringDelay', 'CameraEnteringDuration',
         ]
         out: list[dict[str, str]] = []
         for key in preferred:
@@ -232,6 +312,12 @@ class WagoDB2GraphService:
             return '任务目标'
         if key == 'itemeffect':
             return '物品效果'
+        if key == 'mount':
+            return '坐骑'
+        if key == 'battlepetspecies':
+            return '战斗宠物品种'
+        if key == 'vehicleseat':
+            return '载具座位'
         label = self.schema.TABLE_LABELS.get(key, '')
         return label
 

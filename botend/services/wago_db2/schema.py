@@ -12,6 +12,9 @@ class WagoDB2Schema:
     QUEST_TABLES = {'questv2', 'questv2clitask', 'questline', 'questinfo', 'questsort'}
     ITEM_TABLES = {'item', 'itemsparse', 'itemeffect', 'itemxitemeffect', 'itemcurrencycost'}
     TRAIT_TABLES = {'traitnode', 'traitnodeentry', 'traitnodextraitnodeentry', 'traitdefinition', 'traitsubtree', 'traitedge'}
+    MOUNT_TABLES = {'mount', 'mountxdisplay', 'mountcapability'}
+    BATTLE_PET_TABLES = {'battlepetspecies', 'battlepetability', 'battlepetabilitystate', 'battlepetspeciesstate'}
+    VEHICLE_TABLES = {'vehicle', 'vehicleseat'}
 
     TABLE_LABELS = {
         'spellname': '技能名称',
@@ -41,6 +44,15 @@ class WagoDB2Schema:
         'modifiertree': '条件树',
         'currencytypes': '货币',
         'achievement': '成就',
+        'mount': '坐骑',
+        'mountxdisplay': '坐骑外观关联',
+        'mountcapability': '坐骑能力',
+        'battlepetspecies': '战斗宠物品种',
+        'battlepetability': '战斗宠物技能',
+        'battlepetabilitystate': '战斗宠物技能属性',
+        'battlepetspeciesstate': '战斗宠物品种属性',
+        'vehicle': '载具',
+        'vehicleseat': '载具座位',
     }
 
     FIELD_LABELS = {
@@ -70,6 +82,19 @@ class WagoDB2Schema:
         'ItemID': '物品 ID',
         'TriggerType': '触发类型',
         'TraitDefinitionID': '天赋定义',
+        'SourceSpellID': '来源技能 ID',
+        'CreatureDisplayInfoID': '生物外观 ID',
+        'CreatureID': '生物 ID',
+        'SpeciesID': '宠物品种 ID',
+        'SourceTypeEnum': '来源类型',
+        'IconFileDataID': '图标文件 ID',
+        'VehicleID': '载具 ID',
+        'VehicleSeatID': '载具座位 ID',
+        'Flags': '标志位',
+        'FlagsB': '标志位 B',
+        'AttachmentID': '挂点 ID',
+        'CameraEnteringDelay': '进入相机延迟',
+        'CameraEnteringDuration': '进入相机时长',
     }
 
     def normalize_table(self, table: str) -> str:
@@ -96,6 +121,12 @@ class WagoDB2Schema:
             return 'quest'
         if key in self.ITEM_TABLES:
             return 'item'
+        if key in self.MOUNT_TABLES:
+            return 'mount'
+        if key in self.BATTLE_PET_TABLES:
+            return 'battle_pet'
+        if key in self.VEHICLE_TABLES:
+            return 'vehicle'
         return ''
 
     def table_category(self, table: str) -> str:
@@ -108,6 +139,12 @@ class WagoDB2Schema:
             return '任务'
         if kind == 'item':
             return '物品/装备'
+        if kind == 'mount':
+            return '坐骑'
+        if kind == 'battle_pet':
+            return '战斗宠物'
+        if kind == 'vehicle':
+            return '载具/交互'
         key = self.table_key(table)
         if 'creature' in key:
             return '生物/NPC'

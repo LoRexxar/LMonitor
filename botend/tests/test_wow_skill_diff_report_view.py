@@ -301,10 +301,10 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('技能/天赋只是其中一类', html)
         self.assertIn('筛选类别、表名、record_id、名称、描述、字段值', html)
         self.assertIn('Hotfix 原始数据只给出 push / DB2 表 / record_id', html)
-        self.assertIn('先看影响系统', html)
-        self.assertIn('影响系统', html)
-        self.assertIn('可读解释', html)
-        self.assertIn('查看 2 条 DB2 证据', html)
+        self.assertIn('先看对象和字段', html)
+        self.assertIn('字段关系', html)
+        self.assertIn('具体游戏对象', html)
+        self.assertIn('查看 2 条 DB2 记录', html)
         self.assertNotIn('<summary><b>SpellEffect</b>（2）</summary><ul><li><code>777</code></li>', html)
 
     def test_hotfix_full_html_includes_object_graph_view(self):
@@ -358,7 +358,7 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
 
         html = Path(full_path).read_text(encoding='utf-8')
         self.assertEqual(rel_path, 'portal/reports/wow_hotfix_full_wow_zhCN_109505.html')
-        self.assertIn('按游戏对象还原', html)
+        self.assertIn('具体游戏对象', html)
         self.assertIn('技能/法术 · 奥术涌动', html)
         self.assertIn('任务 · 修复信标', html)
         self.assertIn('物品/装备 · 奥术饰品', html)
@@ -397,15 +397,61 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
             )
 
         html = Path(full_path).read_text(encoding='utf-8')
-        self.assertIn('先看影响系统', html)
+        self.assertIn('先看对象和字段', html)
         self.assertIn('载具座位 / VehicleSeat', html)
         self.assertIn('载具/交互', html)
-        self.assertIn('可能影响载具座位、乘坐交互、动作按钮', html)
+        self.assertIn('VehicleSeat.ID = 座位记录', html)
         self.assertIn('战斗宠物品种 / BattlePetSpecies', html)
         self.assertIn('条件/规则树 / ModifierTree', html)
-        self.assertIn('未能从 wago.tools DB2 详情读取该记录', html)
+        self.assertIn('未读取到当前行字段', html)
         self.assertIn('VehicleSeat #26184', html)
+        self.assertNotIn('可能影响载具座位、乘坐交互、动作按钮', html)
+        self.assertNotIn('可读解释', html)
         self.assertNotIn('该 DB2 记录没有可展示字段', html)
+
+    def test_hotfix_full_html_renders_mount_object_and_field_labels(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'zhCN'
+
+        rows = {
+            ('Mount', 1111): {
+                'ID': 1111,
+                'Name_lang': '星界水母',
+                'SourceSpellID': 2222,
+                'CreatureDisplayInfoID': 3333,
+            },
+            ('SpellName', 2222): {'ID': 2222, 'Name_lang': '召唤星界水母'},
+        }
+
+        def fake_fetch(table, build, record_id):
+            return rows.get((str(table), int(record_id))) or {}
+
+        monitor._fetch_db2_row_by_id = fake_fetch
+
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            full_path, _rel_path = monitor._write_hotfix_full_html(
+                branch='wow',
+                locale='zhCN',
+                to_push=109506,
+                summary_title='Hotfix 全量更新：坐骑对象测试',
+                wago_url='https://wago.tools/hotfixes?filter%5Bpush_id%5D=109506',
+                build_num='68367',
+                from_push=109505,
+                table_stats=[('Mount', 1)],
+                by_table={'Mount': [{'push_id': 109506, 'table_name': 'Mount', 'record_id': 1111}]},
+                sample_per_table=5,
+                enrich_max=20,
+            )
+
+        html = Path(full_path).read_text(encoding='utf-8')
+        self.assertIn('具体游戏对象', html)
+        self.assertIn('坐骑 · 星界水母', html)
+        self.assertIn('来源技能', html)
+        self.assertIn('召唤星界水母 #2222', html)
+        self.assertIn('生物外观 ID', html)
+        self.assertIn('Mount.ID = MountID', html)
+        self.assertNotIn('可读解释', html)
+        self.assertNotIn('可能影响', html)
 
     def test_hotfix_full_report_scans_bounded_pages_even_when_pushes_are_not_monotonic(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())

@@ -2351,7 +2351,7 @@ class WagoSkillDiffMonitor(BaseScan):
             ('spell', '技能/法术'), ('talent', '天赋'), ('trait', '天赋树'),
             ('item', '物品/装备'), ('journal', '地下城手册'), ('quest', '任务'),
             ('creature', '生物/NPC'), ('map', '地图/区域'), ('area', '区域'),
-            ('currency', '货币'), ('achievement', '成就'), ('mount', '坐骑'),
+            ('currency', '货币'), ('achievement', '成就'), ('mount', '坐骑'), ('vehicle', '载具/交互'),
             ('transmog', '幻化'), ('collectable', '收藏'), ('ui', '界面'),
             ('garr', '要塞/追随者'), ('battlepet', '宠物'), ('chr', '角色/职业'),
         ]
@@ -2364,6 +2364,9 @@ class WagoSkillDiffMonitor(BaseScan):
             'ClassID', 'SpecID', 'ChrSpecializationID', 'SkillLine', 'SkillLineID',
             'TraitNodeID', 'TraitNodeEntryID', 'TraitDefinitionID', 'ItemID', 'QuestID',
             'CreatureID', 'MapID', 'AreaID', 'CurrencyID', 'AchievementID', 'FileDataID',
+            'SourceSpellID', 'CreatureDisplayInfoID', 'SpeciesID', 'SourceTypeEnum', 'IconFileDataID',
+            'VehicleID', 'VehicleSeatID', 'Flags', 'FlagsB', 'AttachmentID',
+            'CameraEnteringDelay', 'CameraEnteringDuration',
         ]
         field_labels = {
             'ID': '记录 ID', 'Name_lang': '名称', 'Name': '名称', 'DisplayName_lang': '显示名', 'Title_lang': '标题',
@@ -2377,6 +2380,10 @@ class WagoSkillDiffMonitor(BaseScan):
             'TraitNodeEntryID': '天赋节点条目', 'TraitDefinitionID': '天赋定义', 'ItemID': '物品 ID',
             'QuestID': '任务 ID', 'CreatureID': '生物 ID', 'MapID': '地图 ID', 'AreaID': '区域 ID',
             'CurrencyID': '货币 ID', 'AchievementID': '成就 ID', 'FileDataID': '文件 ID',
+            'SourceSpellID': '来源技能 ID', 'CreatureDisplayInfoID': '生物外观 ID', 'SpeciesID': '宠物品种 ID',
+            'SourceTypeEnum': '来源类型', 'IconFileDataID': '图标文件 ID', 'VehicleID': '载具 ID',
+            'VehicleSeatID': '载具座位 ID', 'Flags': '标志位', 'FlagsB': '标志位 B',
+            'AttachmentID': '挂点 ID', 'CameraEnteringDelay': '进入相机延迟', 'CameraEnteringDuration': '进入相机时长',
         }
         table_labels = {
             'spellname': '技能名称', 'spelldescription': '技能描述', 'spelleffect': '技能效果',
@@ -2391,52 +2398,22 @@ class WagoSkillDiffMonitor(BaseScan):
             'currencytypes': '货币', 'achievement': '成就', 'mount': '坐骑', 'vehicleseat': '载具座位',
             'battlepetspecies': '战斗宠物品种',
         }
-        table_explanations = {
-            'vehicleseat': {
-                'system': '载具/交互',
-                'impact': '可能影响载具座位、乘坐交互、动作按钮、相机/朝向或座位规则。',
-                'reader': '这类 hotfix 通常不是技能数值，而是游戏内载具或场景交互体验的配置变化。',
-            },
-            'battlepetspecies': {
-                'system': '战斗宠物',
-                'impact': '可能影响宠物品种、宠物名称/模型/技能挂载或收藏显示。',
-                'reader': '优先按宠物系统理解；如果详情字段不可用，record_id 仍可用于回到 Wago 追踪具体宠物。',
-            },
-            'modifiertree': {
-                'system': '条件/规则树',
-                'impact': '可能影响技能、物品、任务或奖励的触发条件与判定规则。',
-                'reader': 'ModifierTree 是条件树，单独看 record_id 不直观，需要继续追父对象；详情不可用时先作为规则变化处理。',
-            },
-            'spellscripttext': {
-                'system': '技能/脚本文本',
-                'impact': '可能影响技能脚本关联文本、喊话、提示或脚本事件说明。',
-                'reader': '它不一定代表数值改动，但通常说明某个技能/事件相关文本或脚本挂载发生变化。',
-            },
-            'itemeffect': {
-                'system': '物品效果',
-                'impact': '可能影响物品触发技能、使用效果、装备效果或饰品/消耗品行为。',
-                'reader': '需要结合 ItemXItemEffect / ItemSparse / SpellName 才能完整还原到具体物品和技能。',
-            },
-            'itemxitemeffect': {
-                'system': '物品效果',
-                'impact': '连接物品与 ItemEffect，通常用于定位具体受影响物品。',
-                'reader': '这是关系表，读报告时应重点看关联的 ItemSparse 与 ItemEffect。',
-            },
-            'spelleffect': {
-                'system': '技能/法术',
-                'impact': '可能影响技能效果类型、光环、基础数值、系数或 PvP 倍率。',
-                'reader': '这是技能数值和机制最关键的 DB2 表之一。',
-            },
-            'questv2clitask': {
-                'system': '任务',
-                'impact': '可能影响任务目标、客户端显示文本或任务追踪内容。',
-                'reader': '通常需要追到 QuestV2 才能看到任务标题。',
-            },
-            'questv2': {
-                'system': '任务',
-                'impact': '可能影响任务标题、任务基础配置或任务线表现。',
-                'reader': '任务主表；比 record_id 更应该关注任务标题和目标文本。',
-            },
+        table_relationships = {
+            'spelleffect': 'SpellEffect.SpellID → SpellName.ID；EffectIndex/EffectAura/EffectBasePoints 是技能效果字段',
+            'spellname': 'SpellName.ID = SpellID；Name_lang 是技能名称',
+            'spelldescription': 'SpellDescription.ID = SpellID；Description_lang 是技能描述',
+            'spellscripttext': 'SpellScriptText.ID = record_id；Text_lang 是技能/脚本文本内容',
+            'traitnodeentry': 'TraitNodeEntry.TraitDefinitionID → TraitDefinition.ID；通常再关联 SpellID/天赋节点',
+            'traitdefinition': 'TraitDefinition.ID；SpellID/OverrideName_lang 指向天赋展示对象',
+            'itemeffect': 'ItemEffect.SpellID → SpellName.ID；ItemXItemEffect.ItemEffectID 可反查物品',
+            'itemxitemeffect': 'ItemXItemEffect.ItemID → ItemSparse.ID；ItemEffectID → ItemEffect.ID',
+            'itemsparse': 'ItemSparse.ID = ItemID；Display_lang/Name_lang 是物品名',
+            'questv2clitask': 'QuestV2CliTask.QuestID → QuestV2.ID；ObjectiveText_lang 是任务目标文本',
+            'questv2': 'QuestV2.ID = QuestID；Title_lang/Name_lang 是任务名',
+            'mount': 'Mount.ID = MountID；Name_lang 是坐骑名；SourceSpellID → SpellName.ID；CreatureDisplayInfoID 是外观',
+            'battlepetspecies': 'BattlePetSpecies.ID/SpeciesID；CreatureID 指向生物；SourceTypeEnum 是来源类型',
+            'vehicleseat': 'VehicleSeat.ID = 座位记录；VehicleID/AttachmentID/Flags 是载具座位配置字段',
+            'modifiertree': 'ModifierTree.ID = 条件节点；Parent/Operator/Amount/Type 字段组成规则树',
         }
 
         def esc(s):
@@ -2453,22 +2430,11 @@ class WagoSkillDiffMonitor(BaseScan):
             zh = table_labels.get(key)
             return f"{zh} / {norm_table(t)}" if zh else norm_table(t)
 
-        def table_explanation(t):
-            return table_explanations.get(tkey(t)) or {}
+        def table_relationship(t):
+            return table_relationships.get(tkey(t)) or f"{table_label(t)}.ID = record_id；字段含义见当前行字段标签"
 
         def table_system(t):
-            meta = table_explanation(t)
-            return str(meta.get('system') or table_category(t))
-
-        def table_impact(t):
-            meta = table_explanation(t)
-            if meta.get('impact'):
-                return str(meta.get('impact'))
-            return f"{table_label(t)} 发生 hotfix 记录变化；当前报告保留 record_id、push 和 Wago 原始链接，便于继续追踪。"
-
-        def table_reader_hint(t):
-            meta = table_explanation(t)
-            return str(meta.get('reader') or '如果 DB2 详情暂时不可读，这里仍按表语义给出影响系统和追踪入口，避免只剩裸 record_id。')
+            return table_category(t)
 
         def hotfix_table_url(table_name='', push_id=0):
             params = []
@@ -2565,14 +2531,14 @@ class WagoSkillDiffMonitor(BaseScan):
         def row_fields_html(table_name, record_id, row):
             semantic_html = (
                 "<div class='semantic-fallback'>"
-                f"<div class='semantic-line'><span>影响系统</span><strong>{esc(table_system(table_name))}</strong></div>"
-                f"<div class='semantic-line'><span>可读解释</span><strong>{esc(table_impact(table_name))}</strong></div>"
-                f"<div class='semantic-line'><span>阅读提示</span><strong>{esc(table_reader_hint(table_name))}</strong></div>"
+                f"<div class='semantic-line'><span>DB2 表</span><strong>{esc(table_label(table_name))}</strong></div>"
+                f"<div class='semantic-line'><span>类别</span><strong>{esc(table_system(table_name))}</strong></div>"
+                f"<div class='semantic-line'><span>字段关系</span><strong>{esc(table_relationship(table_name))}</strong></div>"
                 f"<div class='semantic-line'><span>追踪键</span><strong>{esc(norm_table(table_name))} #{int(record_id or 0)}</strong></div>"
                 "</div>"
             )
             if not isinstance(row, dict):
-                return semantic_html + "<div class='muted'>未能从 wago.tools DB2 详情读取该记录；上方按表语义给出影响范围，record_id 可回到 Wago 继续复核。</div>"
+                return semantic_html + "<div class='muted'>未读取到当前行字段；保留 DB2 表、record_id、push 作为追踪键。</div>"
             chips = []
             used = set()
             ordered_field_names = []
@@ -2596,7 +2562,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 chips.append(f"<div class='{css}'><span>{esc(field_labels.get(k, k))}</span><strong>{esc(text)}</strong></div>")
             if len(row.keys()) > 80:
                 chips.append(f"<div class='field raw'><span>未展开字段</span><strong>{len(row.keys()) - 80} 个字段未显示</strong></div>")
-            field_html = "<div class='fields'>" + ''.join(chips) + "</div>" if chips else "<div class='muted'>Wago DB2 详情暂时没有返回可展示字段；保留语义说明和 record_id 作为追踪入口。</div>"
+            field_html = "<div class='fields'>" + ''.join(chips) + "</div>" if chips else "<div class='muted'>当前行没有可展示字段；保留 DB2 表、字段关系和 record_id 追踪键。</div>"
             return semantic_html + field_html
 
         def table_category(t):
@@ -2646,25 +2612,24 @@ class WagoSkillDiffMonitor(BaseScan):
                 current_cat = cat
             toc_items.append(f"<a href='#table-{esc(key)}'>{esc(table_label(t))}<span>{int(c or 0)}</span></a>")
 
-        system_cards = []
+        relationship_cards = []
         for key in ordered_keys[:120]:
             t, c = table_lookup.get(key) or (key, 0)
-            impact = table_impact(t)
-            hint = table_reader_hint(t)
-            system_cards.append(
-                f"<article class='system-card' data-search='{esc((table_system(t)+' '+table_label(t)+' '+impact+' '+hint).lower())}'>"
+            relation = table_relationship(t)
+            relationship_cards.append(
+                f"<article class='system-card' data-search='{esc((table_system(t)+' '+table_label(t)+' '+relation).lower())}'>"
                 f"<div><span>{esc(table_system(t))}</span><strong>{esc(table_label(t))}</strong></div>"
-                f"<p>{esc(impact)}</p><small>{esc(hint)}</small>"
-                f"<a href='#table-{esc(key)}'>查看 {int(c or 0)} 条 DB2 证据</a>"
+                f"<p><b>字段关系：</b>{esc(relation)}</p>"
+                f"<a href='#table-{esc(key)}'>查看 {int(c or 0)} 条 DB2 记录</a>"
                 "</article>"
             )
         system_overview = (
             "<section class='systems-overview' id='systems-overview'>"
-            "<div class='table-head'><div><h2>先看影响系统</h2>"
-            "<p>把 DB2 表名先翻译成游戏内系统和可能影响范围；后面的 DB2 明细作为证据链。</p></div></div>"
-            + ''.join(system_cards)
+            "<div class='table-head'><div><h2>先看对象和字段</h2>"
+            "<p>先列 DB2 表之间的关联路径和关键字段含义；下方再展示对象卡片与原始字段。</p></div></div>"
+            + ''.join(relationship_cards)
             + "</section>"
-        ) if system_cards else ''
+        ) if relationship_cards else ''
 
         detail_sections = []
         hotfix_sample_rows = []
@@ -2723,9 +2688,9 @@ class WagoSkillDiffMonitor(BaseScan):
         object_graph_section = ""
         if object_cards:
             object_graph_section = (
-                "<section class='object-section table-section' id='object-graph' data-search='按游戏对象还原'>"
-                "<div class='table-head'><div><h2>按游戏对象还原</h2>"
-                f"<p>将 DB2 表/record_id 解析成技能、任务、物品、天赋等游戏对象；已还原 {len(object_cards)} 个对象，未识别 {unresolved_count} 条样例。</p></div>"
+                "<section class='object-section table-section' id='object-graph' data-search='具体游戏对象 字段关系'>"
+                "<div class='table-head'><div><h2>具体游戏对象</h2>"
+                f"<p>按 DB2 关系还原到技能、任务、物品、坐骑、宠物、载具等对象；已还原 {len(object_cards)} 个对象，未识别 {unresolved_count} 条样例。</p></div>"
                 "<a href='#table-list'>继续看 DB2 表明细</a></div>"
                 + ''.join(object_cards)
                 + "</section>"
