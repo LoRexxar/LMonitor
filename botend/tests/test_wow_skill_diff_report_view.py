@@ -303,6 +303,61 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('Hotfix 原始数据只给出 push / DB2 表 / record_id', html)
         self.assertNotIn('<summary><b>SpellEffect</b>（2）</summary><ul><li><code>777</code></li>', html)
 
+    def test_hotfix_full_html_includes_object_graph_view(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'zhCN'
+
+        rows = {
+            ('SpellEffect', 777): {
+                'ID': 777,
+                'SpellID': 365350,
+                'EffectIndex': 0,
+                'BonusCoefficientFromAP': '1.25',
+            },
+            ('SpellName', 365350): {'ID': 365350, 'Name_lang': '奥术涌动'},
+            ('QuestV2CliTask', 888): {
+                'ID': 888,
+                'QuestID': 84621,
+                'ObjectiveText_lang': '点亮信标',
+            },
+            ('QuestV2', 84621): {'ID': 84621, 'Title_lang': '修复信标'},
+            ('ItemEffect', 999): {'ID': 999, 'ParentItemID': 19019, 'SpellID': 365350},
+            ('ItemSparse', 19019): {'ID': 19019, 'Display_lang': '奥术饰品'},
+        }
+
+        def fake_fetch(table, build, record_id):
+            return rows.get((str(table), int(record_id))) or {}
+
+        monitor._fetch_db2_row_by_id = fake_fetch
+
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            full_path, rel_path = monitor._write_hotfix_full_html(
+                branch='wow',
+                locale='zhCN',
+                to_push=109505,
+                summary_title='Hotfix 全量更新：对象视图测试',
+                wago_url='https://wago.tools/hotfixes?filter%5Bpush_id%5D=109505',
+                build_num='68367',
+                from_push=109504,
+                table_stats=[('SpellEffect', 1), ('QuestV2CliTask', 1), ('ItemEffect', 1)],
+                by_table={
+                    'SpellEffect': [{'push_id': 109505, 'table_name': 'SpellEffect', 'record_id': 777}],
+                    'QuestV2CliTask': [{'push_id': 109505, 'table_name': 'QuestV2CliTask', 'record_id': 888}],
+                    'ItemEffect': [{'push_id': 109505, 'table_name': 'ItemEffect', 'record_id': 999}],
+                },
+                sample_per_table=5,
+                enrich_max=20,
+            )
+
+        html = Path(full_path).read_text(encoding='utf-8')
+        self.assertEqual(rel_path, 'portal/reports/wow_hotfix_full_wow_zhCN_109505.html')
+        self.assertIn('按游戏对象还原', html)
+        self.assertIn('技能/法术 · 奥术涌动', html)
+        self.assertIn('任务 · 修复信标', html)
+        self.assertIn('物品/装备 · 奥术饰品', html)
+        self.assertIn('关联技能', html)
+        self.assertIn('奥术涌动 #365350', html)
+
     def test_hotfix_full_report_scans_bounded_pages_even_when_pushes_are_not_monotonic(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         monitor.locale = 'enUS'

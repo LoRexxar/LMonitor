@@ -17,6 +17,8 @@ from botend.controller.BaseScan import BaseScan
 from botend.models import WowSkillDiffReport, WowHotfixReport, WowSpellEffectSnapshot, WowSpellSnapshot, WowSpellSnapshotState, WowSpecSpellMapSnapshot, WowWagoBuildEvent, WowWagoHotfixEvent, WowWagoMonitorState
 from utils.log import logger
 from botend.controller.plugins.wow.wago_regions import wago_region_id, wago_region_name
+from botend.services.wago_db2.client import WagoDB2Client
+from botend.services.wago_db2.graph import WagoDB2GraphService
 
 try:
     from core.glm import GLMClient
@@ -2564,6 +2566,70 @@ class WagoSkillDiffMonitor(BaseScan):
             toc_items.append(f"<a href='#table-{esc(key)}'>{esc(table_label(t))}<span>{int(c or 0)}</span></a>")
 
         detail_sections = []
+        hotfix_sample_rows = []
+        for table_name, _count in table_stats:
+            raw_rows = by_table.get(table_name) or by_table.get(norm_table(table_name)) or []
+            seen_rids = set()
+            for raw_row in raw_rows:
+                rid = self._to_int((raw_row or {}).get('record_id') or 0)
+                if rid <= 0 or rid in seen_rids:
+                    continue
+                seen_rids.add(rid)
+                hotfix_sample_rows.append(raw_row)
+                if len(seen_rids) >= sample_per_table:
+                    break
+
+        object_graph = None
+        try:
+            object_graph = WagoDB2GraphService(
+                build=build_num,
+                locale=locale,
+                client=WagoDB2Client(build=build_num, locale=locale, provider=self),
+                max_enrich=max(0, int(enrich_max or 0)),
+            ).resolve_hotfix_rows(hotfix_sample_rows)
+        except Exception:
+            object_graph = None
+
+        def object_fields_html(fields):
+            chips = []
+            for item in fields or []:
+                label = (item or {}).get('label')
+                value = (item or {}).get('value')
+                if value is None or str(value) == '':
+                    continue
+                chips.append(f"<div class='field primary'><span>{esc(label)}</span><strong>{esc(value)}</strong></div>")
+            return "<div class='fields'>" + ''.join(chips) + "</div>" if chips else ""
+
+        object_cards = []
+        for obj in list(getattr(object_graph, 'objects', []) or [])[:120]:
+            title = f"{obj.category or obj.kind} · {obj.title or obj.object_id}"
+            source_bits = []
+            for ref in (obj.source_records or [])[:8]:
+                source_bits.append(f"<code>{esc(ref.table)} #{int(ref.record_id or 0)}</code>")
+            tags = ''.join(f"<span>{esc(tag)}</span>" for tag in (obj.tags or [])[:8])
+            search_text = ' '.join([
+                obj.kind or '', str(obj.object_id or ''), obj.title or '', obj.category or '',
+                ' '.join(obj.tags or []), ' '.join(f"{r.table} {r.record_id}" for r in obj.source_records or []),
+                ' '.join(f"{(f or {}).get('label')} {(f or {}).get('value')}" for f in obj.summary_fields or []),
+            ]).lower()
+            object_cards.append(
+                f"<article class='object-card record' data-search='{esc(search_text)}'>"
+                f"<div class='record-head'><div><span class='object-kind'>{esc(obj.kind)}</span><strong>{esc(title)}</strong><div class='object-tags'>{tags}</div></div><div class='object-sources'>{''.join(source_bits)}</div></div>"
+                + object_fields_html(obj.summary_fields)
+                + "</article>"
+            )
+        unresolved_count = len(getattr(object_graph, 'unresolved_records', []) or []) if object_graph else 0
+        object_graph_section = ""
+        if object_cards:
+            object_graph_section = (
+                "<section class='object-section table-section' id='object-graph' data-search='按游戏对象还原'>"
+                "<div class='table-head'><div><h2>按游戏对象还原</h2>"
+                f"<p>将 DB2 表/record_id 解析成技能、任务、物品、天赋等游戏对象；已还原 {len(object_cards)} 个对象，未识别 {unresolved_count} 条样例。</p></div>"
+                "<a href='#table-list'>继续看 DB2 表明细</a></div>"
+                + ''.join(object_cards)
+                + "</section>"
+            )
+
         for key in ordered_keys:
             t, c = table_lookup.get(key) or (key, 0)
             raw_rows = by_table.get(t) or by_table.get(norm_table(t)) or []
@@ -2642,6 +2708,7 @@ class WagoSkillDiffMonitor(BaseScan):
     .table-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:10px; }} .table-head h2 {{ margin:0; font-size:20px; }} .table-head p {{ margin:4px 0 0; color:#64748b; font-size:12px; }}
     .record {{ margin-top:10px; padding:11px 13px; background:#fff; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }}
     .record-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; font-size:13px; }} .record-head strong {{ display:block; margin-top:2px; overflow-wrap:anywhere; }} .record-id {{ display:inline-flex; color:#2563eb; font-weight:900; margin-right:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }}
+    .object-section {{ border-color:#c7d2fe; background:#f8f7ff; }} .object-card {{ border-color:#ddd6fe; }} .object-kind {{ display:inline-flex; color:#7c3aed; font-weight:900; margin-right:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }} .object-tags {{ display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; }} .object-tags span {{ color:#4c1d95; background:#ede9fe; border:1px solid #ddd6fe; border-radius:999px; padding:1px 7px; font-size:11px; font-weight:800; }} .object-sources {{ display:flex; flex-wrap:wrap; gap:5px; justify-content:flex-end; }}
     .fields {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-top:9px; }} .field {{ border:1px solid #e2e8f0; background:#f8fafc; border-radius:10px; padding:7px 9px; min-width:0; }} .field span {{ display:block; color:#64748b; font-size:11px; font-weight:800; }} .field strong {{ display:block; color:#0f172a; font-size:13px; overflow-wrap:anywhere; white-space:pre-wrap; }}
     code {{ background:#f1f5f9; padding:1px 6px; border-radius:4px; }} .muted {{ color:#64748b; font-size:13px; }} .more {{ margin-top:10px; }} .hidden {{ display:none!important; }}
     @media(max-width:920px) {{ body{{padding:8px}} .card{{padding:14px}} .hero{{display:block}} .layout{{display:block}} .stats{{position:static; max-height:none; margin-bottom:14px}} .controls{{top:0}} }}
@@ -2667,10 +2734,10 @@ class WagoSkillDiffMonitor(BaseScan):
     <div class="controls"><input id="hotfixFilter" type="search" placeholder="筛选类别、表名、record_id、名称、描述、字段值…" autocomplete="off"><span class="count" id="filterCount">全部显示</span></div>
     <nav class="toc" aria-label="DB2 表目录"><div class="toc-title">DB2 表目录（按类别分组，覆盖全部表）</div>{''.join(toc_items)}</nav>
     <div class="layout">
-      <aside class="stats">
+      <aside class="stats" id="table-list">
         <table><thead><tr><th>DB2 表</th><th class="num">数量</th></tr></thead><tbody>{''.join(stats_rows)}</tbody></table>
       </aside>
-      <section class="details">{''.join(detail_sections)}</section>
+      <section class="details">{object_graph_section}{''.join(detail_sections)}</section>
     </div>
   </main>
   <script>
