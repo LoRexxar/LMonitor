@@ -2380,14 +2380,63 @@ class WagoSkillDiffMonitor(BaseScan):
         }
         table_labels = {
             'spellname': '技能名称', 'spelldescription': '技能描述', 'spelleffect': '技能效果',
-            'spellmisc': '技能杂项', 'spellpower': '资源消耗', 'spellcooldowns': '冷却',
+            'spellscripttext': '技能脚本文本', 'spellmisc': '技能杂项', 'spellpower': '资源消耗', 'spellcooldowns': '冷却',
             'spellduration': '持续时间', 'spellradius': '半径', 'spellrange': '距离',
             'chrspecialization': '专精', 'skilllineability': '技能线关联', 'talent': '天赋',
             'traitnode': '天赋节点', 'traitnodeentry': '天赋节点条目', 'traitdefinition': '天赋定义',
-            'item': '物品', 'itemsparse': '物品文本', 'journalencounter': '地下城/团本首领',
+            'modifiertree': '条件/规则树', 'item': '物品', 'itemsparse': '物品文本', 'itemeffect': '物品效果',
+            'itemxitemeffect': '物品-效果关联', 'journalencounter': '地下城/团本首领',
             'journalencountersection': '地下城手册文本', 'questv2': '任务', 'questline': '任务线',
             'creature': '生物/NPC', 'creaturedisplayinfo': '生物模型', 'map': '地图', 'areatable': '区域',
-            'currencytypes': '货币', 'achievement': '成就', 'mount': '坐骑',
+            'currencytypes': '货币', 'achievement': '成就', 'mount': '坐骑', 'vehicleseat': '载具座位',
+            'battlepetspecies': '战斗宠物品种',
+        }
+        table_explanations = {
+            'vehicleseat': {
+                'system': '载具/交互',
+                'impact': '可能影响载具座位、乘坐交互、动作按钮、相机/朝向或座位规则。',
+                'reader': '这类 hotfix 通常不是技能数值，而是游戏内载具或场景交互体验的配置变化。',
+            },
+            'battlepetspecies': {
+                'system': '战斗宠物',
+                'impact': '可能影响宠物品种、宠物名称/模型/技能挂载或收藏显示。',
+                'reader': '优先按宠物系统理解；如果详情字段不可用，record_id 仍可用于回到 Wago 追踪具体宠物。',
+            },
+            'modifiertree': {
+                'system': '条件/规则树',
+                'impact': '可能影响技能、物品、任务或奖励的触发条件与判定规则。',
+                'reader': 'ModifierTree 是条件树，单独看 record_id 不直观，需要继续追父对象；详情不可用时先作为规则变化处理。',
+            },
+            'spellscripttext': {
+                'system': '技能/脚本文本',
+                'impact': '可能影响技能脚本关联文本、喊话、提示或脚本事件说明。',
+                'reader': '它不一定代表数值改动，但通常说明某个技能/事件相关文本或脚本挂载发生变化。',
+            },
+            'itemeffect': {
+                'system': '物品效果',
+                'impact': '可能影响物品触发技能、使用效果、装备效果或饰品/消耗品行为。',
+                'reader': '需要结合 ItemXItemEffect / ItemSparse / SpellName 才能完整还原到具体物品和技能。',
+            },
+            'itemxitemeffect': {
+                'system': '物品效果',
+                'impact': '连接物品与 ItemEffect，通常用于定位具体受影响物品。',
+                'reader': '这是关系表，读报告时应重点看关联的 ItemSparse 与 ItemEffect。',
+            },
+            'spelleffect': {
+                'system': '技能/法术',
+                'impact': '可能影响技能效果类型、光环、基础数值、系数或 PvP 倍率。',
+                'reader': '这是技能数值和机制最关键的 DB2 表之一。',
+            },
+            'questv2clitask': {
+                'system': '任务',
+                'impact': '可能影响任务目标、客户端显示文本或任务追踪内容。',
+                'reader': '通常需要追到 QuestV2 才能看到任务标题。',
+            },
+            'questv2': {
+                'system': '任务',
+                'impact': '可能影响任务标题、任务基础配置或任务线表现。',
+                'reader': '任务主表；比 record_id 更应该关注任务标题和目标文本。',
+            },
         }
 
         def esc(s):
@@ -2403,6 +2452,23 @@ class WagoSkillDiffMonitor(BaseScan):
             key = tkey(t)
             zh = table_labels.get(key)
             return f"{zh} / {norm_table(t)}" if zh else norm_table(t)
+
+        def table_explanation(t):
+            return table_explanations.get(tkey(t)) or {}
+
+        def table_system(t):
+            meta = table_explanation(t)
+            return str(meta.get('system') or table_category(t))
+
+        def table_impact(t):
+            meta = table_explanation(t)
+            if meta.get('impact'):
+                return str(meta.get('impact'))
+            return f"{table_label(t)} 发生 hotfix 记录变化；当前报告保留 record_id、push 和 Wago 原始链接，便于继续追踪。"
+
+        def table_reader_hint(t):
+            meta = table_explanation(t)
+            return str(meta.get('reader') or '如果 DB2 详情暂时不可读，这里仍按表语义给出影响系统和追踪入口，避免只剩裸 record_id。')
 
         def hotfix_table_url(table_name='', push_id=0):
             params = []
@@ -2422,10 +2488,16 @@ class WagoSkillDiffMonitor(BaseScan):
             if enrich_left <= 0 or not build_num or key[1] <= 0:
                 row_cache[key] = None
                 return None
+            old_locale = getattr(self, 'locale', None)
             try:
+                if locale and old_locale is not None:
+                    self.locale = locale
                 row = self._fetch_db2_row_by_id(key[0], build_num, key[1])
             except Exception:
                 row = None
+            finally:
+                if old_locale is not None:
+                    self.locale = old_locale
             enrich_left -= 1
             row_cache[key] = row if isinstance(row, dict) else None
             return row_cache[key]
@@ -2490,9 +2562,17 @@ class WagoSkillDiffMonitor(BaseScan):
                 return f"{sname or ('Spell ' + str(sid))}" + (f"：{brief}" if brief else '')
             return first_text(row)
 
-        def row_fields_html(row):
+        def row_fields_html(table_name, record_id, row):
+            semantic_html = (
+                "<div class='semantic-fallback'>"
+                f"<div class='semantic-line'><span>影响系统</span><strong>{esc(table_system(table_name))}</strong></div>"
+                f"<div class='semantic-line'><span>可读解释</span><strong>{esc(table_impact(table_name))}</strong></div>"
+                f"<div class='semantic-line'><span>阅读提示</span><strong>{esc(table_reader_hint(table_name))}</strong></div>"
+                f"<div class='semantic-line'><span>追踪键</span><strong>{esc(norm_table(table_name))} #{int(record_id or 0)}</strong></div>"
+                "</div>"
+            )
             if not isinstance(row, dict):
-                return "<div class='muted'>未能从 wago.tools DB2 详情读取该记录；仅展示 record_id。</div>"
+                return semantic_html + "<div class='muted'>未能从 wago.tools DB2 详情读取该记录；上方按表语义给出影响范围，record_id 可回到 Wago 继续复核。</div>"
             chips = []
             used = set()
             ordered_field_names = []
@@ -2516,7 +2596,8 @@ class WagoSkillDiffMonitor(BaseScan):
                 chips.append(f"<div class='{css}'><span>{esc(field_labels.get(k, k))}</span><strong>{esc(text)}</strong></div>")
             if len(row.keys()) > 80:
                 chips.append(f"<div class='field raw'><span>未展开字段</span><strong>{len(row.keys()) - 80} 个字段未显示</strong></div>")
-            return "<div class='fields'>" + ''.join(chips) + "</div>" if chips else "<div class='muted'>该 DB2 记录没有可展示字段。</div>"
+            field_html = "<div class='fields'>" + ''.join(chips) + "</div>" if chips else "<div class='muted'>Wago DB2 详情暂时没有返回可展示字段；保留语义说明和 record_id 作为追踪入口。</div>"
+            return semantic_html + field_html
 
         def table_category(t):
             key = tkey(t)
@@ -2564,6 +2645,26 @@ class WagoSkillDiffMonitor(BaseScan):
                 toc_items.append(f"<div class='toc-cat'>{esc(cat)}</div>")
                 current_cat = cat
             toc_items.append(f"<a href='#table-{esc(key)}'>{esc(table_label(t))}<span>{int(c or 0)}</span></a>")
+
+        system_cards = []
+        for key in ordered_keys[:120]:
+            t, c = table_lookup.get(key) or (key, 0)
+            impact = table_impact(t)
+            hint = table_reader_hint(t)
+            system_cards.append(
+                f"<article class='system-card' data-search='{esc((table_system(t)+' '+table_label(t)+' '+impact+' '+hint).lower())}'>"
+                f"<div><span>{esc(table_system(t))}</span><strong>{esc(table_label(t))}</strong></div>"
+                f"<p>{esc(impact)}</p><small>{esc(hint)}</small>"
+                f"<a href='#table-{esc(key)}'>查看 {int(c or 0)} 条 DB2 证据</a>"
+                "</article>"
+            )
+        system_overview = (
+            "<section class='systems-overview' id='systems-overview'>"
+            "<div class='table-head'><div><h2>先看影响系统</h2>"
+            "<p>把 DB2 表名先翻译成游戏内系统和可能影响范围；后面的 DB2 明细作为证据链。</p></div></div>"
+            + ''.join(system_cards)
+            + "</section>"
+        ) if system_cards else ''
 
         detail_sections = []
         hotfix_sample_rows = []
@@ -2665,7 +2766,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 cards.append(
                     "<article class='record' data-search='{}'>".format(esc(search_text))
                     + f"<div class='record-head'><div><span class='record-id'>#{rid}</span><strong>{esc(row_title)}</strong></div><a href='{esc(wago_rec_url)}' target='_blank' rel='noreferrer'>Wago push {pid}</a></div>"
-                    + row_fields_html(row)
+                    + row_fields_html(t, rid, row)
                     + "</article>"
                 )
             more = max(0, int(c or 0) - len(records))
@@ -2709,6 +2810,8 @@ class WagoSkillDiffMonitor(BaseScan):
     .record {{ margin-top:10px; padding:11px 13px; background:#fff; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }}
     .record-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; font-size:13px; }} .record-head strong {{ display:block; margin-top:2px; overflow-wrap:anywhere; }} .record-id {{ display:inline-flex; color:#2563eb; font-weight:900; margin-right:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }}
     .object-section {{ border-color:#c7d2fe; background:#f8f7ff; }} .object-card {{ border-color:#ddd6fe; }} .object-kind {{ display:inline-flex; color:#7c3aed; font-weight:900; margin-right:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }} .object-tags {{ display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; }} .object-tags span {{ color:#4c1d95; background:#ede9fe; border:1px solid #ddd6fe; border-radius:999px; padding:1px 7px; font-size:11px; font-weight:800; }} .object-sources {{ display:flex; flex-wrap:wrap; gap:5px; justify-content:flex-end; }}
+    .systems-overview {{ margin:0 0 14px; padding:14px; border:1px solid #bbf7d0; border-radius:16px; background:#f0fdf4; }} .systems-overview h2 {{ margin:0; font-size:20px; }} .system-card {{ margin-top:10px; padding:12px 13px; background:#fff; border:1px solid #dcfce7; border-radius:13px; }} .system-card div {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }} .system-card span {{ color:#166534; background:#dcfce7; border:1px solid #bbf7d0; border-radius:999px; padding:2px 8px; font-size:12px; font-weight:900; }} .system-card strong {{ font-size:15px; }} .system-card p {{ margin:7px 0 3px; color:#0f172a; }} .system-card small {{ display:block; color:#64748b; margin-bottom:6px; }}
+    .semantic-fallback {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-top:9px; }} .semantic-line {{ border:1px solid #bbf7d0; background:#f0fdf4; border-radius:10px; padding:7px 9px; }} .semantic-line span {{ display:block; color:#166534; font-size:11px; font-weight:900; }} .semantic-line strong {{ display:block; color:#0f172a; font-size:13px; overflow-wrap:anywhere; white-space:pre-wrap; }}
     .fields {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-top:9px; }} .field {{ border:1px solid #e2e8f0; background:#f8fafc; border-radius:10px; padding:7px 9px; min-width:0; }} .field span {{ display:block; color:#64748b; font-size:11px; font-weight:800; }} .field strong {{ display:block; color:#0f172a; font-size:13px; overflow-wrap:anywhere; white-space:pre-wrap; }}
     code {{ background:#f1f5f9; padding:1px 6px; border-radius:4px; }} .muted {{ color:#64748b; font-size:13px; }} .more {{ margin-top:10px; }} .hidden {{ display:none!important; }}
     @media(max-width:920px) {{ body{{padding:8px}} .card{{padding:14px}} .hero{{display:block}} .layout{{display:block}} .stats{{position:static; max-height:none; margin-bottom:14px}} .controls{{top:0}} }}
@@ -2737,7 +2840,7 @@ class WagoSkillDiffMonitor(BaseScan):
       <aside class="stats" id="table-list">
         <table><thead><tr><th>DB2 表</th><th class="num">数量</th></tr></thead><tbody>{''.join(stats_rows)}</tbody></table>
       </aside>
-      <section class="details">{object_graph_section}{''.join(detail_sections)}</section>
+      <section class="details">{system_overview}{object_graph_section}{''.join(detail_sections)}</section>
     </div>
   </main>
   <script>

@@ -301,6 +301,10 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('技能/天赋只是其中一类', html)
         self.assertIn('筛选类别、表名、record_id、名称、描述、字段值', html)
         self.assertIn('Hotfix 原始数据只给出 push / DB2 表 / record_id', html)
+        self.assertIn('先看影响系统', html)
+        self.assertIn('影响系统', html)
+        self.assertIn('可读解释', html)
+        self.assertIn('查看 2 条 DB2 证据', html)
         self.assertNotIn('<summary><b>SpellEffect</b>（2）</summary><ul><li><code>777</code></li>', html)
 
     def test_hotfix_full_html_includes_object_graph_view(self):
@@ -325,7 +329,10 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
             ('ItemSparse', 19019): {'ID': 19019, 'Display_lang': '奥术饰品'},
         }
 
+        fetch_locales = []
+
         def fake_fetch(table, build, record_id):
+            fetch_locales.append(monitor.locale)
             return rows.get((str(table), int(record_id))) or {}
 
         monitor._fetch_db2_row_by_id = fake_fetch
@@ -357,6 +364,48 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('物品/装备 · 奥术饰品', html)
         self.assertIn('关联技能', html)
         self.assertIn('奥术涌动 #365350', html)
+        self.assertTrue(fetch_locales)
+        self.assertEqual(set(fetch_locales), {'zhCN'})
+        self.assertEqual(monitor.locale, 'zhCN')
+
+    def test_hotfix_full_html_explains_tables_when_db2_details_missing(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'zhCN'
+
+        def fail_fetch(table, build, record_id):
+            raise AssertionError('enrich disabled should not fetch DB2 detail')
+
+        monitor._fetch_db2_row_by_id = fail_fetch
+
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            full_path, _rel_path = monitor._write_hotfix_full_html(
+                branch='wow',
+                locale='zhCN',
+                to_push=109484,
+                summary_title='Hotfix 全量更新：语义兜底测试',
+                wago_url='https://wago.tools/hotfixes?filter%5Bpush_id%5D=109484',
+                build_num='68367',
+                from_push=109452,
+                table_stats=[('VehicleSeat', 5), ('BattlePetSpecies', 2), ('ModifierTree', 1)],
+                by_table={
+                    'VehicleSeat': [{'push_id': 109484, 'table_name': 'VehicleSeat', 'record_id': 26184}],
+                    'BattlePetSpecies': [{'push_id': 109484, 'table_name': 'BattlePetSpecies', 'record_id': 4602}],
+                    'ModifierTree': [{'push_id': 109452, 'table_name': 'ModifierTree', 'record_id': 457185}],
+                },
+                sample_per_table=5,
+                enrich_max=0,
+            )
+
+        html = Path(full_path).read_text(encoding='utf-8')
+        self.assertIn('先看影响系统', html)
+        self.assertIn('载具座位 / VehicleSeat', html)
+        self.assertIn('载具/交互', html)
+        self.assertIn('可能影响载具座位、乘坐交互、动作按钮', html)
+        self.assertIn('战斗宠物品种 / BattlePetSpecies', html)
+        self.assertIn('条件/规则树 / ModifierTree', html)
+        self.assertIn('未能从 wago.tools DB2 详情读取该记录', html)
+        self.assertIn('VehicleSeat #26184', html)
+        self.assertNotIn('该 DB2 记录没有可展示字段', html)
 
     def test_hotfix_full_report_scans_bounded_pages_even_when_pushes_are_not_monotonic(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
