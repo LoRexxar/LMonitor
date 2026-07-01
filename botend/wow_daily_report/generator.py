@@ -9,6 +9,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from botend.models import PortalMplusSeasonCutoff, PortalVideo, WowArticle, WowDailyReport
+from botend.wow_daily_report.html_design import render_daily_html_with_skill
 
 try:
     from core.glm import GLMClient
@@ -72,6 +73,47 @@ def _truncate(value: Any, max_chars: int = 500) -> str:
 
 def _safe_html(value: Any) -> str:
     return html.escape(str(value or ""), quote=True)
+
+
+_ALLOWED_BODY_TAGS = {
+    "a", "abbr", "b", "blockquote", "br", "caption", "code", "del", "div", "em", "figcaption", "figure",
+    "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "ins", "li", "ol", "p", "pre", "s", "small",
+    "span", "strong", "sub", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "u", "ul",
+}
+_ALLOWED_BODY_ATTRS = {"href", "src", "alt", "title", "class", "style", "colspan", "rowspan", "width", "height", "target", "rel"}
+
+
+def _sanitize_body_html(value: Any) -> str:
+    text = str(value or "")
+    if not text.strip():
+        return ""
+    text = re.sub(r"<\s*(script|iframe|object|embed|form|input|button)[^>]*>[\s\S]*?<\s*/\s*\1\s*>", "", text, flags=re.I)
+    text = re.sub(r"<\s*/?\s*(script|iframe|object|embed|form|input|button)[^>]*>", "", text, flags=re.I)
+
+    def clean_tag(match):
+        slash, tag, attrs = match.group(1), (match.group(2) or "").lower(), match.group(3) or ""
+        if tag not in _ALLOWED_BODY_TAGS:
+            return ""
+        if slash:
+            return f"</{tag}>"
+        cleaned_attrs = []
+        for attr_match in re.finditer(r"([:\w-]+)(?:\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s\"'=<>`]+))?", attrs):
+            name = (attr_match.group(1) or "").lower()
+            raw_value = attr_match.group(2) or ""
+            if name.startswith("on") or name not in _ALLOWED_BODY_ATTRS:
+                continue
+            value = raw_value.strip().strip('"\'')
+            if name in {"href", "src"} and re.match(r"\s*(javascript:|data:(?!image/))", value, flags=re.I):
+                continue
+            if name == "target" and value not in {"_blank", "_self"}:
+                continue
+            if name == "rel" and not value:
+                continue
+            cleaned_attrs.append(f'{name}="{_safe_html(value)}"')
+        attr_text = (" " + " ".join(cleaned_attrs)) if cleaned_attrs else ""
+        return f"<{tag}{attr_text}>"
+
+    return re.sub(r"<\s*(/?)\s*([a-zA-Z0-9]+)([^>]*)>", clean_tag, text)
 
 
 def _date_range(local_date: datetime.date):
@@ -162,6 +204,45 @@ def _extract_text_from_blocks(raw: Any) -> str:
         if text:
             parts.append(text)
     return _collapse_space(" ".join(parts))
+
+
+def _extract_html_from_blocks(raw: Any) -> str:
+    if not raw:
+        return ""
+    try:
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        return ""
+    if isinstance(payload, dict):
+        payload = [payload]
+    if not isinstance(payload, list):
+        return ""
+    parts: List[str] = []
+    for block in payload:
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type") or ""
+        if block_type == "html" and block.get("html"):
+            parts.append(str(block.get("html") or ""))
+        elif block_type in ("text", "paragraph") and (block.get("text") or block.get("html")):
+            parts.append(f"<p>{_safe_html(block.get('text') or block.get('html') or '')}</p>")
+    return "\n".join([p for p in parts if p.strip()])
+
+
+def _article_body_html(article: WowArticle) -> str:
+    for raw in (
+        getattr(article, "content_blocks_cn", "") or "",
+        getattr(article, "content_blocks", "") or "",
+    ):
+        html_body = _extract_html_from_blocks(raw)
+        if html_body.strip():
+            return html_body
+    for raw in (getattr(article, "content_cn", "") or "", getattr(article, "content", "") or ""):
+        if raw and not _looks_like_json(raw):
+            text = _strip_html(raw)
+            if text:
+                return f"<p>{_safe_html(_truncate(text, 1000))}</p>"
+    return ""
 
 
 def _article_text(article: WowArticle, max_chars: int = 800) -> str:
@@ -257,6 +338,7 @@ def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
             "url": a.url or "",
             "publish_time": a.publish_time,
             "body": _article_text(a),
+            "body_html": _article_body_html(a),
         }
         for a in rows
     ]
@@ -276,6 +358,7 @@ def collect_nga_section(report_date: datetime.date) -> Dict[str, Any]:
             "url": a.url or "",
             "publish_time": a.publish_time,
             "body": _article_text(a, max_chars=600),
+            "body_html": _article_body_html(a),
         }
         for a in rows
     ]
@@ -357,7 +440,9 @@ def _section_payload(section: Dict[str, Any]) -> Dict[str, Any]:
     for item in section.get("items") or []:
         clean = {}
         for key, value in item.items():
-            if hasattr(value, "isoformat"):
+            if key == "body_html":
+                clean[key] = _sanitize_body_html(value)
+            elif hasattr(value, "isoformat"):
                 clean[key] = value.isoformat()
             else:
                 clean[key] = value
@@ -375,8 +460,12 @@ def _render_news_items(items: List[Dict[str, Any]]) -> str:
         out.append(
             f'<div class="meta"><span>{_safe_html(item.get("source"))}</span><span>{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
         )
-        body = item.get("body") or "（暂无正文片段）"
-        out.append(f'<p class="body-text">{_safe_html(body)}</p>')
+        body_html = _sanitize_body_html(item.get("body_html") or "")
+        if body_html:
+            out.append(f'<div class="body-html">{body_html}</div>')
+        else:
+            body = item.get("body") or "（暂无正文片段）"
+            out.append(f'<p class="body-text">{_safe_html(body)}</p>')
         out.append('</article>')
     out.append('</div>')
     return "\n".join(out)
@@ -392,7 +481,11 @@ def _render_nga_items(items: List[Dict[str, Any]]) -> str:
         out.append(
             f'<div class="meta"><span>回复 {_safe_html(item.get("reply_count"))}</span><span>{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
         )
-        out.append(f'<p class="body-text">{_safe_html(item.get("body") or "（暂无正文片段）")}</p>')
+        body_html = _sanitize_body_html(item.get("body_html") or "")
+        if body_html:
+            out.append(f'<div class="body-html">{body_html}</div>')
+        else:
+            out.append(f'<p class="body-text">{_safe_html(item.get("body") or "（暂无正文片段）")}</p>')
         out.append('</article>')
     out.append('</div>')
     return "\n".join(out)
@@ -493,7 +586,13 @@ def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]
     .daily-card {{ border:1px solid var(--line); background:rgba(255,255,255,.04); border-radius:14px; padding:16px; }}
     .daily-card h3 {{ margin:0 0 8px; font-size:18px; }}
     .meta {{ display:flex; gap:12px; flex-wrap:wrap; font-size:13px; margin-bottom:8px; }}
-    .body-text {{ margin:8px 0 0; color:#d7deea; }}
+    .body-text, .body-html {{ margin:8px 0 0; color:#d7deea; }}
+    .body-html {{ overflow-x:auto; }}
+    .body-html p {{ margin:8px 0; }}
+    .body-html ul,.body-html ol {{ margin:8px 0 8px 22px; padding:0; }}
+    .body-html blockquote {{ margin:10px 0; padding:8px 12px; border-left:3px solid var(--accent); background:rgba(247,185,85,.07); }}
+    .body-html img {{ max-width:100%; height:auto; border-radius:10px; }}
+    .body-html table {{ margin:10px 0; min-width:520px; }}
     .video-grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }}
     .video-card img {{ width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:12px; margin-bottom:10px; background:#000; }}
     table {{ width:100%; border-collapse:collapse; overflow:hidden; border-radius:12px; }}
@@ -562,7 +661,14 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                     "source_updated_at": item.get("source_updated_at"),
                 }
 
-    html_content = render_daily_html(report_date, sections)
+    design_sections = []
+    for section in sections:
+        design_section = dict(section)
+        design_section["items"] = (_section_payload(section).get("items") or [])
+        design_sections.append(design_section)
+    html_content, design_meta = render_daily_html_with_skill(report_date, design_sections, use_llm=use_llm)
+    if not html_content:
+        html_content = render_daily_html(report_date, sections)
     rel_path, full_path = _static_report_path(report_date)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     with open(full_path, "w", encoding="utf-8") as f:
@@ -573,6 +679,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
         "generated_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S"),
         "llm_enabled": bool(use_llm),
         "llm_errors": list(_LLM_RUN_ERRORS),
+        "html_renderer": design_meta.get("renderer") or "fallback_static",
+        **({"html_design_error": design_meta.get("error")} if design_meta.get("error") and design_meta.get("renderer") == "fallback_static" else {}),
         "sections": ext_sections,
         "cutoffs": {"by_region": cutoff_snapshot},
     }

@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 from datetime import date, datetime, time, timedelta
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -146,13 +147,58 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
                     {"type": "html", "html": "<p>Hello <strong>adventurers</strong>.</p>"},
                 ], ensure_ascii=False),
                 content_blocks_cn=json.dumps([
-                    {"type": "html", "html": "<p>你好，冒险者。</p>"},
+                    {"type": "html", "html": "<p>你好，<strong>冒险者</strong>。</p><ul><li>保留列表格式</li></ul>"},
                 ], ensure_ascii=False),
             )
 
             meta = generate_wow_daily_report(report_date=self.report_date, use_llm=False)
             html = open(meta["full_path"], encoding="utf-8").read()
 
-            self.assertIn("你好，冒险者。", html)
+            self.assertIn("你好，", html)
+            self.assertIn("<strong>冒险者</strong>", html)
+            self.assertIn("<ul><li>保留列表格式</li></ul>", html)
             self.assertNotIn("&quot;original&quot;", html)
             self.assertNotIn("&quot;translated&quot;", html)
+
+    def test_ai_design_renderer_receives_structured_html_not_markdown(self):
+        designed_html = "<!DOCTYPE html><html><body><main>DESIGNED <strong>冒险者</strong></main></body></html>"
+        with override_settings(BASE_DIR=self.base_dir):
+            self._article(
+                title="格式新闻",
+                source="blizzard_tracker",
+                category="news",
+                description="",
+                content_blocks_cn=json.dumps([
+                    {"type": "html", "html": "<p>你好，<strong>冒险者</strong>。</p><table><tr><td>数值</td></tr></table>"},
+                ], ensure_ascii=False),
+            )
+            with patch("botend.wow_daily_report.html_design.GLMClient") as mock_client:
+                instance = mock_client.return_value
+                instance.client = object()
+                instance.send_message.return_value = designed_html
+
+                meta = generate_wow_daily_report(report_date=self.report_date, use_llm=True)
+
+            prompt = instance.send_message.call_args.args[0]
+            self.assertIn('"body_html"', prompt)
+            self.assertIn("<strong>冒险者</strong>", prompt)
+            self.assertIn("<table><tr><td>数值</td></tr></table>", prompt)
+            self.assertNotIn("【输入格式】: markdown", prompt)
+            html = open(meta["full_path"], encoding="utf-8").read()
+            self.assertIn("DESIGNED", html)
+            self.assertEqual(meta["ext"]["html_renderer"], "ai_html_skill")
+
+    def test_ai_design_renderer_falls_back_when_llm_returns_invalid_html(self):
+        with override_settings(BASE_DIR=self.base_dir):
+            self._article(title="Fallback 新闻", source="wowhead", category="news")
+            with patch("botend.wow_daily_report.html_design.GLMClient") as mock_client:
+                instance = mock_client.return_value
+                instance.client = object()
+                instance.send_message.return_value = "不是 HTML"
+
+                meta = generate_wow_daily_report(report_date=self.report_date, use_llm=True)
+
+            html = open(meta["full_path"], encoding="utf-8").read()
+            self.assertIn("Fallback 新闻", html)
+            self.assertEqual(meta["ext"]["html_renderer"], "fallback_static")
+            self.assertIn("html_design_error", meta["ext"])
