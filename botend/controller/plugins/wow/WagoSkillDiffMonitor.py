@@ -1419,6 +1419,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     'branch': branch,
                     'from_build': from_build,
                     'to_build': to_build,
+                    'status': 'diff_unavailable',
                     'error': err,
                 }, ensure_ascii=False)
                 st.save(update_fields=['last_event_at', 'last_event_status', 'wago_diff_url', 'ext'])
