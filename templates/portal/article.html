@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260608_2">
     <style>
-        .article-content { line-height: 1.8; }
+        .article-content { line-height: 1.8; overflow-x: auto; }
         .article-content p { margin-bottom: 1rem; }
         .article-content h2 { margin: 1.6rem 0 0.75rem; font-size: 1.15rem; font-weight: 700; color: #0f172a; }
         .article-content blockquote { margin: 1rem 0; padding: 0.75rem 1rem; border-left: 3px solid #818cf8; background: #f8fafc; color: #334155; }
@@ -26,7 +26,7 @@
         .article-content code { background: #f1f5f9; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-family: 'Courier New', monospace; font-size: 0.9em; }
         .article-content pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 1rem 0; }
         .article-content pre code { background: transparent; padding: 0; color: inherit; }
-        .article-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; overflow-x: auto; display: block; max-width: 100%; }
+        .article-content table { width: auto; min-width: 100%; border-collapse: collapse; margin: 1rem 0; max-width: none; }
         .article-content thead { background: #f8fafc; }
         .article-content th, .article-content td { border: 1px solid #e2e8f0; padding: 0.6rem 0.8rem; text-align: left; }
         .article-content th { font-weight: 600; color: #0f172a; }

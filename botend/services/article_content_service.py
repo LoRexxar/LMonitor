@@ -117,6 +117,8 @@ def extract_structured_article(html_text: str, *, base_url: str = "", source: st
     if not html_text or not BeautifulSoup:
         return []
     soup = BeautifulSoup(html_text, "html.parser")
+    if source == "wowhead":
+        _restore_wowhead_markup_spell_table_cells(soup, base_url=base_url)
     for tag in soup(["script", "style", "nav", "header", "footer", "aside", "iframe", "form"]):
         tag.decompose()
 
@@ -312,6 +314,57 @@ def _restore_empty_image_links(root, *, base_url: str):
             link.append(img)
         else:
             link.decompose()
+
+
+def _restore_wowhead_markup_spell_table_cells(soup, *, base_url: str):
+    """Restore Wowhead BBCode spell tokens that noscript renders as empty table cells.
+
+    Datamining posts often keep the real spell names only in
+    ``WH.markup.printHtml("...[td][spell=123 tempname=\"Name\"][/td]...")`` while
+    the sanitized noscript fallback contains matching ``<td></td>`` cells. If we
+    remove scripts first those spell cells become permanent empty table cells.
+    """
+    if not BeautifulSoup:
+        return
+    spell_cells = []
+    for script in soup.find_all("script"):
+        text = script.string or script.get_text("", strip=False) or ""
+        if "WH.markup.printHtml" not in text or "[spell=" not in text:
+            continue
+        for cell_markup in re.findall(r"\[td\](.*?)\[\\?/td\]", text, re.I | re.S):
+            spell_match = re.search(r"\[spell=(\d+)([^\]]*)\]", cell_markup, re.I)
+            if not spell_match:
+                continue
+            spell_id = spell_match.group(1)
+            attrs = spell_match.group(2) or ""
+            name_match = re.search(r"\btempname=\\?\"(.*?)\\?\"", attrs, re.I)
+            name = _decode_wowhead_markup_string(name_match.group(1) if name_match else "") or "Spell {}".format(spell_id)
+            spell_cells.append((spell_id, name))
+    if not spell_cells:
+        return
+
+    factory = BeautifulSoup("", "html.parser")
+    cell_index = 0
+    for cell in soup.find_all("td"):
+        if cell_index >= len(spell_cells):
+            break
+        if _clean_inline_text(cell.get_text(" ", strip=True)) or cell.find(["a", "img", "span"]):
+            continue
+        spell_id, name = spell_cells[cell_index]
+        cell_index += 1
+        link = factory.new_tag("a", href=urljoin(base_url, "/spell={}".format(spell_id)))
+        link.string = name
+        cell.append(link)
+
+
+def _decode_wowhead_markup_string(value: str) -> str:
+    value = value or ""
+    value = value.replace('\\"', '"').replace("\\/", "/")
+    try:
+        value = bytes(value, "utf-8").decode("unicode_escape")
+    except Exception:
+        pass
+    return html.unescape(value).strip()
 
 
 def _clean_discourse_lightbox_meta(root):

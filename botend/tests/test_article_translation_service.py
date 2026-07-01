@@ -280,6 +280,24 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn('href="https://bnetcmsus-a.akamaihd.net/cms/content_entry_media/ay/IMAGE.png"', html_result)
         self.assertNotIn('<a href="https://www.wowhead.com/item=1"></a>', html_result)
 
+    def test_extract_wowhead_article_restores_spell_table_cells_from_markup_script(self):
+        html = r'''
+        <div id="news-post"><div class="text">
+          <p>Datamined class tuning changes.</p>
+          <script>WH.markup.printHtml("[table][tr][td][spell=162243 tempname=\"Demon's Bite\"][\/td][td][spell=179057 tempname=\"Chaos Nova\"][\/td][\/tr][\/table]");</script>
+          <noscript><table><tr><td></td><td></td></tr></table></noscript>
+        </div></div>
+        '''
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
+        html_result = blocks[0]["html"]
+
+        self.assertIn('href="https://www.wowhead.com/spell=162243"', html_result)
+        self.assertIn("Demon's Bite", blocks_to_plain_text(blocks))
+        self.assertIn('href="https://www.wowhead.com/spell=179057"', html_result)
+        self.assertIn("Chaos Nova", blocks_to_plain_text(blocks))
+        self.assertNotIn("<td></td>", html_result)
+
     def test_translate_blocks_translates_html_text_without_removing_tags(self):
         blocks = [{"type": "html", "html": '<h2>Patch Notes</h2><p>Class changes are live.</p><img src="https://example.com/a.png"/>'}]
         pairs = [
