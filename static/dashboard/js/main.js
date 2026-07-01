@@ -927,13 +927,11 @@ async function loadWowDailyReports() {
             const id = it.id;
             const btn = document.createElement('button');
             const active = (wowDailyReportState.selectedDate && wowDailyReportState.selectedDate === date) || (!wowDailyReportState.selectedDate && idx === 0);
-            btn.className = `w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-blue-50 transition-colors duration-200 ${active ? 'bg-blue-50' : ''}`;
+            btn.className = `w-full text-left px-3 py-2.5 border-b border-gray-100 hover:bg-blue-50 transition-colors duration-200 ${active ? 'bg-blue-50' : ''}`;
             btn.innerHTML = `
-                <div class="flex items-center justify-between gap-2">
-                    <div class="font-semibold text-gray-900">${date || '-'}</div>
-                    <div class="text-xs text-gray-500">${updated || ''}</div>
-                </div>
-                <div class="text-xs text-gray-500 mt-1">点击预览</div>
+                <div class="font-semibold text-gray-900 leading-5">${date || '-'}</div>
+                <div class="text-xs text-gray-500 mt-1 leading-4">${updated || ''}</div>
+                <div class="text-xs text-gray-400 mt-1">点击预览</div>
             `;
             btn.onclick = () => previewWowDailyReport({ id, date });
             listEl.appendChild(btn);

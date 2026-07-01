@@ -103,12 +103,16 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
             self.assertEqual(ext["sections"]["nga"]["count"], 2)
             self.assertEqual(ext["sections"]["videos"]["count"], 1)
             self.assertEqual(ext["sections"]["cutoffs"]["count"], 3)
+            self.assertFalse(ext["sections"]["cutoffs"]["summary_llm_ok"])
+            self.assertEqual(ext["sections"]["cutoffs"]["summary_error"], "summary_disabled")
 
             html = open(meta["full_path"], encoding="utf-8").read()
             self.assertIn("魔兽世界当天新闻", html)
             self.assertIn("NGA 热议", html)
             self.assertIn("当前更新的 WoW 视频列表", html)
             self.assertIn("大秘境分数线汇总", html)
+            cutoff_section = html.split('大秘境分数线汇总', 1)[1]
+            self.assertNotIn('section-summary', cutoff_section)
             self.assertIn("Wowhead 新闻", html)
             self.assertIn("暴雪蓝贴", html)
             self.assertIn("来源：wowhead", html)

@@ -628,12 +628,13 @@ def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]
     for section in sections:
         key = section["key"]
         renderer = body_renderers[key]
+        summary_html = f'<p class="section-summary">{_safe_html(section.get("summary") or "")}</p>' if section.get("summary") else ""
         section_html.append(
             "\n".join(
                 [
                     f'<section class="daily-section daily-{_safe_html(key)}">',
                     f'<h2>{_safe_html(section["title"])}</h2>',
-                    f'<p class="section-summary">{_safe_html(section.get("summary") or "")}</p>',
+                    summary_html,
                     '<div class="section-body">',
                     renderer(section.get("items") or []),
                     "</div>",
@@ -733,7 +734,10 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                 item["summary_error"] = item_summary.get("error") or ""
         fallback = _section_fallback_summary(key, section.get("items") or [])
         payload = _section_payload(section)
-        summary_result = _summarize_section(key, section["title"], payload, fallback, use_llm=use_llm)
+        if key == "cutoffs":
+            summary_result = {"text": "", "llm_ok": False, "error": "summary_disabled"}
+        else:
+            summary_result = _summarize_section(key, section["title"], payload, fallback, use_llm=use_llm)
         section["summary"] = summary_result["text"]
         ext_sections[key] = {
             "title": section["title"],
