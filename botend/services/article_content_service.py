@@ -464,18 +464,41 @@ def _clean_discourse_lightbox_meta(root):
 
 
 def _sanitize_html_tag(tag, *, base_url: str):
-    allowed_attrs = {"href", "src", "alt", "title", "class", "id", "colspan", "rowspan"}
+    """Preserve source article formatting while stripping executable behavior.
+
+    Article bodies should stay visually close to the source.  Do not use a small
+    formatting whitelist here: Wowhead/Discourse markup relies on classes,
+    styles, data-* attributes, table attributes, and inline media metadata.
+    The sanitizer's job is only to remove execution/binding capability and
+    normalize safe URL attributes.
+    """
+    url_attrs = {"href", "src", "poster", "data-source-src"}
     for attr in list(tag.attrs.keys()):
-        if attr not in allowed_attrs:
-            del tag.attrs[attr]
-    for attr in ["href", "src"]:
-        value = (tag.get(attr) or "").strip()
-        if not value:
-            continue
-        if value.startswith(("javascript:", "data:")):
+        attr_lower = attr.lower()
+        value = tag.get(attr)
+        if attr_lower.startswith("on"):
             del tag.attrs[attr]
             continue
-        tag.attrs[attr] = urljoin(base_url, value)
+        if attr_lower in {"srcdoc"}:
+            del tag.attrs[attr]
+            continue
+        if attr_lower in url_attrs:
+            raw_value = " ".join(value) if isinstance(value, list) else str(value or "")
+            normalized = raw_value.strip()
+            if not normalized:
+                continue
+            lowered = normalized.lower().lstrip()
+            if lowered.startswith(("javascript:", "vbscript:")):
+                del tag.attrs[attr]
+                continue
+            if lowered.startswith("data:") and not lowered.startswith(("data:image/", "data:video/", "data:audio/")):
+                del tag.attrs[attr]
+                continue
+            # Keep data-source-src as source metadata for the image upload stage;
+            # it may intentionally be relative and should not become the visible
+            # URL until the uploader rewrites it.
+            if attr_lower != "data-source-src":
+                tag.attrs[attr] = urljoin(base_url, normalized)
     if tag.name == "a" and tag.get("href"):
         tag.attrs["target"] = "_blank"
         tag.attrs["rel"] = "noreferrer"

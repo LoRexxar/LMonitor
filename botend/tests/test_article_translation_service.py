@@ -264,6 +264,36 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn("Sun Festival's Painted Roc", blocks_to_plain_text(blocks))
         self.assertIn("Requires Level", blocks_to_plain_text(blocks))
 
+    def test_extract_article_preserves_format_attributes_but_removes_execution(self):
+        html = """
+        <article>
+          <table class="diff-table" data-source="wowhead" style="width: 100%">
+            <tr onclick="evil()"><td colspan="2" style="color: red" data-stat="haste">Value</td></tr>
+          </table>
+          <p class="note" style="font-weight: bold" data-kind="body">Keep <del>old</del><ins>new</ins></p>
+          <a class="safe-link" href="/spell=1" onmouseover="evil()">Spell</a>
+          <a class="bad-link" href="javascript:evil()">Bad</a>
+          <img src="/image.png" onerror="evil()" data-source-src="/source.png" style="max-width: 100%">
+        </article>
+        """
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
+        html_result = blocks[0]["html"]
+
+        self.assertIn('class="diff-table"', html_result)
+        self.assertIn('data-source="wowhead"', html_result)
+        self.assertIn('style="width: 100%"', html_result)
+        self.assertIn('colspan="2"', html_result)
+        self.assertIn('data-stat="haste"', html_result)
+        self.assertIn('<del>old</del>', html_result)
+        self.assertIn('<ins>new</ins>', html_result)
+        self.assertIn('href="https://www.wowhead.com/spell=1"', html_result)
+        self.assertIn('data-source-src="/source.png"', html_result)
+        self.assertNotIn('onclick', html_result)
+        self.assertNotIn('onmouseover', html_result)
+        self.assertNotIn('onerror', html_result)
+        self.assertNotIn('javascript:evil', html_result)
+
     def test_extract_wowhead_article_restores_empty_image_links(self):
         html = """
         <div id="news-post"><div class="text">
