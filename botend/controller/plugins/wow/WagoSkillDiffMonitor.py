@@ -2688,8 +2688,53 @@ class WagoSkillDiffMonitor(BaseScan):
             )
             if not isinstance(row, dict):
                 return semantic_html + "<div class='muted'>未读取到当前行字段；保留 DB2 表、record_id、push 作为追踪键。</div>"
-            chips = []
-            used = set()
+
+            key = tkey(table_name)
+            text_fields = {
+                'Name_lang', 'Name', 'DisplayName_lang', 'Title_lang',
+                'Description_lang', 'AuraDescription_lang', 'Text_lang', 'ObjectiveText_lang',
+                'OverrideName_lang', 'Display_lang',
+            }
+            id_fields = {
+                'SpellID', 'EffectIndex', 'ClassID', 'SpecID', 'ChrSpecializationID',
+                'TraitNodeID', 'TraitNodeEntryID', 'TraitDefinitionID', 'ItemID', 'QuestID',
+                'CreatureID', 'MapID', 'AreaID', 'CurrencyID', 'AchievementID', 'SourceSpellID',
+                'CreatureDisplayInfoID', 'SpeciesID', 'VehicleID', 'VehicleSeatID',
+            }
+            metadata_noise_fields = {'ID', 'VerifiedBuild'}
+            default_one_fields = {'PvpMultiplier', 'GroupSizeBasePointsCoefficient', 'EffectChainAmplitude'}
+
+            def compact_value(v, max_len=260):
+                text = re.sub(r'\s+', ' ', str(v).strip())
+                return text[:max_len] + ('…' if len(text) > max_len else '')
+
+            def is_zeroish(v):
+                s = str(v).strip()
+                if s in ('', '0', '0.0', '0.00', '0.000000', '0.0000000', '0.00000000'):
+                    return True
+                try:
+                    return float(s) == 0.0
+                except Exception:
+                    return False
+
+            def is_default_noise(field, v):
+                if v is None or str(v).strip() == '':
+                    return True
+                if field in metadata_noise_fields:
+                    return True
+                if is_zeroish(v):
+                    return True
+                if field in default_one_fields:
+                    try:
+                        return float(str(v).strip()) == 1.0
+                    except Exception:
+                        return str(v).strip() == '1'
+                # 大量 Flag/坐标/相机字段只有在非零时才有阅读价值；零值进折叠详情。
+                low = field.lower()
+                if (low.startswith('flags') or 'camera' in low or 'pos_' in low) and is_zeroish(v):
+                    return True
+                return False
+
             ordered_field_names = []
             for k in readable_fields:
                 if k in row and k not in ordered_field_names:
@@ -2697,22 +2742,68 @@ class WagoSkillDiffMonitor(BaseScan):
             for k in row.keys():
                 if k not in ordered_field_names:
                     ordered_field_names.append(k)
-            for k in ordered_field_names[:80]:
+
+            primary_names = []
+            for k in ordered_field_names:
                 if k not in row:
                     continue
                 v = row.get(k)
-                if v is None or str(v) == '':
+                if v is None or str(v).strip() == '':
                     continue
-                used.add(k)
-                text = re.sub(r'\s+', ' ', str(v).strip())
-                if len(text) > 520:
-                    text = text[:520] + '…'
-                css = 'field primary' if k in readable_fields else 'field raw'
+                if k in text_fields:
+                    primary_names.append(k)
+                    continue
+                if k in id_fields:
+                    primary_names.append(k)
+                    continue
+                if k in readable_fields and not is_default_noise(k, v):
+                    primary_names.append(k)
+                    continue
+                if k not in readable_fields and not is_default_noise(k, v):
+                    # 非白名单字段只展示少量真正有值的字段，避免内部字段淹没正文。
+                    primary_names.append(k)
+
+            # 去重并限制主卡片字段数量；完整原始字段放到折叠区。
+            seen = set()
+            primary_names = [k for k in primary_names if not (k in seen or seen.add(k))]
+            if key == 'spelleffect':
+                priority = ['SpellID', 'EffectIndex', 'Effect', 'EffectAura', 'EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient', 'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier']
+            else:
+                priority = list(text_fields) + list(id_fields)
+            primary_names = sorted(primary_names, key=lambda k: (priority.index(k) if k in priority else 999, ordered_field_names.index(k) if k in ordered_field_names else 9999))[:14]
+
+            chips = []
+            for k in primary_names:
+                v = row.get(k)
+                text = compact_value(v)
+                css = 'field primary' if k in readable_fields or k in text_fields or k in id_fields else 'field raw important'
                 chips.append(f"<div class='{css}'><span>{esc(field_labels.get(k, k))}</span><strong>{esc(text)}</strong></div>")
-            if len(row.keys()) > 80:
-                chips.append(f"<div class='field raw'><span>未展开字段</span><strong>{len(row.keys()) - 80} 个字段未显示</strong></div>")
-            field_html = "<div class='fields'>" + ''.join(chips) + "</div>" if chips else "<div class='muted'>当前行没有可展示字段；保留 DB2 表、字段关系和 record_id 追踪键。</div>"
-            return semantic_html + field_html
+
+            field_html = "<div class='fields important-fields'>" + ''.join(chips) + "</div>" if chips else "<div class='muted'>当前行没有非默认字段可展示；完整 DB2 原始字段已收起。</div>"
+
+            raw_chips = []
+            raw_count = 0
+            for k in ordered_field_names:
+                if k not in row:
+                    continue
+                v = row.get(k)
+                if v is None or str(v).strip() == '':
+                    continue
+                raw_count += 1
+                text = compact_value(v, max_len=520)
+                raw_chips.append(f"<div class='field raw'><span>{esc(field_labels.get(k, k))}</span><strong>{esc(text)}</strong></div>")
+                if raw_count >= 120:
+                    break
+            if raw_chips:
+                if raw_count < sum(1 for _k, _v in row.items() if _v is not None and str(_v).strip() != ''):
+                    raw_chips.append("<div class='field raw'><span>更多字段</span><strong>超过 120 个原始字段未展开</strong></div>")
+                raw_html = (
+                    "<details class='raw-fields'><summary>查看完整 DB2 原始字段（含 0 / 默认值 / 内部字段）</summary>"
+                    "<div class='fields raw-grid'>" + ''.join(raw_chips) + "</div></details>"
+                )
+            else:
+                raw_html = ''
+            return semantic_html + field_html + raw_html
 
         def table_category(t):
             key = tkey(t)
@@ -2926,7 +3017,7 @@ class WagoSkillDiffMonitor(BaseScan):
     .object-section {{ border-color:#c7d2fe; background:#f8f7ff; }} .object-card {{ border-color:#ddd6fe; }} .object-kind {{ display:inline-flex; color:#7c3aed; font-weight:900; margin-right:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }} .object-tags {{ display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; }} .object-tags span {{ color:#4c1d95; background:#ede9fe; border:1px solid #ddd6fe; border-radius:999px; padding:1px 7px; font-size:11px; font-weight:800; }} .object-sources {{ display:flex; flex-wrap:wrap; gap:5px; justify-content:flex-end; }}
     .systems-overview {{ margin:0 0 14px; padding:14px; border:1px solid #bbf7d0; border-radius:16px; background:#f0fdf4; }} .systems-overview h2 {{ margin:0; font-size:20px; }} .system-card {{ margin-top:10px; padding:12px 13px; background:#fff; border:1px solid #dcfce7; border-radius:13px; }} .system-card div {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }} .system-card span {{ color:#166534; background:#dcfce7; border:1px solid #bbf7d0; border-radius:999px; padding:2px 8px; font-size:12px; font-weight:900; }} .system-card strong {{ font-size:15px; }} .system-card p {{ margin:7px 0 3px; color:#0f172a; }} .system-card small {{ display:block; color:#64748b; margin-bottom:6px; }}
     .semantic-fallback {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-top:9px; }} .semantic-line {{ border:1px solid #bbf7d0; background:#f0fdf4; border-radius:10px; padding:7px 9px; }} .semantic-line span {{ display:block; color:#166534; font-size:11px; font-weight:900; }} .semantic-line strong {{ display:block; color:#0f172a; font-size:13px; overflow-wrap:anywhere; white-space:pre-wrap; }}
-    .fields {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-top:9px; }} .field {{ border:1px solid #e2e8f0; background:#f8fafc; border-radius:10px; padding:7px 9px; min-width:0; }} .field span {{ display:block; color:#64748b; font-size:11px; font-weight:800; }} .field strong {{ display:block; color:#0f172a; font-size:13px; overflow-wrap:anywhere; white-space:pre-wrap; }}
+    .fields {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-top:9px; }} .important-fields {{ grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }} .field {{ border:1px solid #e2e8f0; background:#f8fafc; border-radius:10px; padding:7px 9px; min-width:0; }} .field.primary {{ border-color:#bfdbfe; background:#eff6ff; }} .field.important {{ border-color:#fde68a; background:#fffbeb; }} .field span {{ display:block; color:#64748b; font-size:11px; font-weight:800; }} .field strong {{ display:block; color:#0f172a; font-size:13px; overflow-wrap:anywhere; white-space:pre-wrap; }} .raw-fields {{ margin-top:9px; border:1px dashed #cbd5e1; border-radius:10px; background:#f8fafc; padding:7px 9px; }} .raw-fields summary {{ cursor:pointer; color:#64748b; font-size:12px; font-weight:900; }} .raw-grid {{ grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }} .raw-grid .field {{ background:#fff; opacity:.82; }}
     code {{ background:#f1f5f9; padding:1px 6px; border-radius:4px; }} .muted {{ color:#64748b; font-size:13px; }} .more {{ margin-top:10px; }} .hidden {{ display:none!important; }}
     @media(max-width:920px) {{ body{{padding:8px}} .card{{padding:14px}} .hero{{display:block}} .layout{{display:block}} .stats{{position:static; max-height:none; margin-bottom:14px}} .controls{{top:0}} }}
   </style>

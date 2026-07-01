@@ -234,6 +234,8 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
                     'EffectBasePointsF': '15',
                     'EffectBonusCoefficient': '0.42',
                     'PvpMultiplier': '0.8',
+                    'Flags': 0,
+                    'CameraEnteringDelay': 0,
                     'VerifiedBuild': build,
                 }
             if key == 'questv2':
@@ -305,6 +307,10 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('先看对象和字段', html)
         self.assertIn('字段关系', html)
         self.assertIn('具体游戏对象', html)
+        self.assertIn('查看完整 DB2 原始字段（含 0 / 默认值 / 内部字段）', html)
+        self.assertIn('class=\'fields important-fields\'', html)
+        self.assertNotIn("<div class='field primary'><span>标志位</span><strong>0</strong></div>", html)
+        self.assertNotIn("<div class='field primary'><span>进入相机延迟</span><strong>0</strong></div>", html)
         self.assertIn('查看 2 条 DB2 记录', html)
         self.assertNotIn('<summary><b>SpellEffect</b>（2）</summary><ul><li><code>777</code></li>', html)
 

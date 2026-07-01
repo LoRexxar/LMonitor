@@ -267,10 +267,30 @@ class WagoDB2GraphService:
             if key not in row:
                 continue
             value = row.get(key)
-            if value is None or str(value) == '':
+            if self._is_summary_noise_field(key, value):
                 continue
             out.append({'label': self.schema.field_label(key), 'value': self._stringify(value)})
         return out
+
+    def _is_summary_noise_field(self, key: str, value: Any) -> bool:
+        if value is None or str(value).strip() == '':
+            return True
+        text = str(value).strip()
+        try:
+            numeric = float(text)
+        except (TypeError, ValueError):
+            numeric = None
+        if numeric == 0.0:
+            # EffectIndex=0 是第一个效果位，有阅读价值；其他 0 大多是默认/内部占位。
+            return key != 'EffectIndex'
+        if key in {'PvpMultiplier'} and numeric == 1.0:
+            return True
+        low = key.lower()
+        if low.startswith('flags') and numeric == 0.0:
+            return True
+        if 'camera' in low and numeric == 0.0:
+            return True
+        return False
 
     def _raw_fields(self, row: dict[str, Any]) -> list[dict[str, str]]:
         out: list[dict[str, str]] = []
