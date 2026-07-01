@@ -247,6 +247,7 @@ class WagoSkillDiffMonitor(BaseScan):
     def _scan_state(self, st):
         now = timezone.now()
         branch = (st.branch or '').strip() or self.default_branch
+
         current_build = self._fetch_current_build(branch)
         if not current_build:
             st.last_run_at = now
@@ -261,36 +262,90 @@ class WagoSkillDiffMonitor(BaseScan):
         st.last_run_status = 'success'
         st.save(update_fields=['last_run_at', 'last_run_status'])
 
+        pending_ok = self._process_pending_build_events(st, limit=1)
+
         last_build = (st.build or '').strip()
-        if not last_build:
+        discovered_build = self._latest_discovered_build(st) or last_build
+        if not last_build and not discovered_build:
             prev_build = self._fetch_prev_build(branch, current_build)
             from_build = prev_build or current_build
-            return self._handle_build_change(st, from_build, current_build, is_init=True)
+            self._record_build_event(st, from_build, current_build, is_init=True)
+            return pending_ok
 
-        pending_to_build = self._pending_diff_unavailable_to_build(st, last_build)
-        if pending_to_build and pending_to_build != last_build:
-            return self._handle_build_change(st, last_build, pending_to_build, is_init=False)
+        if discovered_build and discovered_build != current_build:
+            self._record_build_event(st, discovered_build, current_build, is_init=not bool(last_build))
+            return pending_ok
 
         if last_build == current_build:
             self._repair_state_if_needed(st, current_build)
             self._scan_hotfix_if_needed(st, branch, current_build)
-            return True
-        return self._handle_build_change(st, last_build, current_build, is_init=False)
+            return pending_ok
 
-    def _pending_diff_unavailable_to_build(self, st, last_build):
-        if (getattr(st, 'last_event_status', '') or '') != 'diff_unavailable':
-            return ''
-        try:
-            data = json.loads(getattr(st, 'ext', '') or '{}')
-        except Exception:
-            return ''
-        if (data.get('status') or '') != 'diff_unavailable':
-            return ''
-        from_build = (data.get('from_build') or '').strip()
-        to_build = (data.get('to_build') or '').strip()
-        if from_build and from_build != last_build:
-            return ''
-        return to_build
+        return pending_ok
+
+    def _latest_discovered_build(self, st):
+        branch = (st.branch or '').strip() or self.default_branch
+        event = WowWagoBuildEvent.objects.filter(
+            branch=branch,
+            locale=self.locale,
+        ).order_by('-detected_at', '-id').first()
+        return (event.to_build or '').strip() if event else ''
+
+    def _record_build_event(self, st, from_build, to_build, is_init=False):
+        now = timezone.now()
+        branch = (st.branch or '').strip() or self.default_branch
+        from_build = (from_build or '').strip()
+        to_build = (to_build or '').strip()
+        if not from_build or not to_build:
+            return None
+
+        wago_diff_url = f"https://wago.tools/builds-diff?to={to_build}&from={from_build}"
+        event, created = WowWagoBuildEvent.objects.get_or_create(
+            branch=branch,
+            locale=self.locale,
+            from_build=from_build,
+            to_build=to_build,
+            defaults={
+                'status': 'detected',
+                'wago_diff_url': wago_diff_url,
+                'error_message': '',
+            },
+        )
+        if not created and event.wago_diff_url != wago_diff_url:
+            event.wago_diff_url = wago_diff_url
+            event.save(update_fields=['wago_diff_url', 'updated_at'])
+
+        st.last_event_at = now
+        st.last_event_status = 'init_build_detected' if is_init else 'build_detected'
+        st.wago_diff_url = wago_diff_url
+        st.ext = json.dumps({
+            'branch': branch,
+            'from_build': from_build,
+            'to_build': to_build,
+            'status': event.status or 'detected',
+            'event_id': event.id,
+            'processing': 'queued',
+        }, ensure_ascii=False)
+        st.save(update_fields=['last_event_at', 'last_event_status', 'wago_diff_url', 'ext'])
+        return event
+
+    def _process_pending_build_events(self, st, limit=1):
+        branch = (st.branch or '').strip() or self.default_branch
+        retryable = ['detected', 'diff_unavailable', 'generate_failed', 'save_report_failed', 'rerun_failed']
+        qs = WowWagoBuildEvent.objects.filter(
+            branch=branch,
+            locale=self.locale,
+            status__in=retryable,
+        ).order_by('detected_at', 'id')
+        last_build = (st.build or '').strip()
+        if last_build:
+            qs = qs.filter(from_build=last_build)
+        ok = True
+        count = 0
+        for event in qs[:max(1, int(limit or 1))]:
+            ok = self._process_build_event(st, event) and ok
+            count += 1
+        return ok if count else True
 
     def _scan_hotfix_if_needed(self, st, branch, current_build):
         if (branch or '').strip().lower() != 'wow':
@@ -1372,26 +1427,26 @@ class WagoSkillDiffMonitor(BaseScan):
         }
 
     def _handle_build_change(self, st, from_build, to_build, is_init=False):
+        """Backward-compatible wrapper: record a build event, then process it once."""
+        event = self._record_build_event(st, from_build, to_build, is_init=is_init)
+        if not event:
+            return False
+        return self._process_build_event(st, event, is_init=is_init)
+
+    def _process_build_event(self, st, event, is_init=False):
         now = timezone.now()
-        branch = (st.branch or '').strip() or self.default_branch
-        wago_diff_url = f"https://wago.tools/builds-diff?to={to_build}&from={from_build}"
-        build_event, _ = WowWagoBuildEvent.objects.update_or_create(
-            branch=branch,
-            locale=self.locale,
-            from_build=from_build,
-            to_build=to_build,
-            defaults={
-                'status': 'detected',
-                'wago_diff_url': wago_diff_url,
-                'error_message': '',
-                'last_attempt_at': now,
-            },
-        )
+        branch = (event.branch or getattr(st, 'branch', '') or '').strip() or self.default_branch
+        from_build = (event.from_build or '').strip()
+        to_build = (event.to_build or '').strip()
+        wago_diff_url = (event.wago_diff_url or '').strip() or f"https://wago.tools/builds-diff?to={to_build}&from={from_build}"
+
+        self._mark_event(event, last_attempt_at=now, error_message='')
+
         report = None
         try:
             report = self._generate_report(branch, from_build, to_build)
         except Exception as e:
-            self._mark_event(build_event, status='generate_failed', report=None, error_message=e)
+            self._mark_event(event, status='generate_failed', report=None, error_message=e)
             st.last_event_at = now
             st.last_event_status = 'failed'
             st.wago_diff_url = wago_diff_url
@@ -1403,7 +1458,7 @@ class WagoSkillDiffMonitor(BaseScan):
             if report and report.get('diff_unavailable'):
                 err = report.get('error') or 'Wago build diff is not available yet; keep cursor for retry.'
                 self._mark_event(
-                    build_event,
+                    event,
                     status='diff_unavailable',
                     report=None,
                     spell_count=0,
@@ -1420,19 +1475,21 @@ class WagoSkillDiffMonitor(BaseScan):
                     'from_build': from_build,
                     'to_build': to_build,
                     'status': 'diff_unavailable',
+                    'event_id': event.id,
                     'error': err,
                 }, ensure_ascii=False)
                 st.save(update_fields=['last_event_at', 'last_event_status', 'wago_diff_url', 'ext'])
                 return False
 
             self._mark_event(
-                build_event,
+                event,
                 status='no_class_change',
                 report=None,
                 spell_count=int((report or {}).get('spell_count') or 0),
                 class_count=int((report or {}).get('class_count') or 0),
                 changed_tables_json=(report or {}).get('changed_tables_json') or '',
                 summary_title=((report or {}).get('summary_title') or '')[:255],
+                error_message='',
             )
             st.build = to_build
             st.last_event_at = now
@@ -1443,6 +1500,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 'branch': branch,
                 'from_build': from_build,
                 'to_build': to_build,
+                'event_id': event.id,
                 'spell_count': int((report or {}).get('spell_count') or 0),
                 'class_count': int((report or {}).get('class_count') or 0),
                 'summary_title': (report or {}).get('summary_title') or '',
@@ -1468,7 +1526,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 }
             )
         except Exception as e:
-            self._mark_event(build_event, status='save_report_failed', report=None, error_message=e)
+            self._mark_event(event, status='save_report_failed', report=None, error_message=e)
             st.last_event_at = now
             st.last_event_status = 'failed'
             st.wago_diff_url = wago_diff_url
@@ -1477,7 +1535,7 @@ class WagoSkillDiffMonitor(BaseScan):
             return False
 
         self._mark_event(
-            build_event,
+            event,
             status='report_generated',
             report=row,
             spell_count=int(report.get('spell_count') or 0),
@@ -1496,6 +1554,7 @@ class WagoSkillDiffMonitor(BaseScan):
             'branch': branch,
             'from_build': from_build,
             'to_build': to_build,
+            'event_id': event.id,
             'spell_count': int(report.get('spell_count') or 0),
             'class_count': int(report.get('class_count') or 0),
             'summary_title': report.get('summary_title') or '',

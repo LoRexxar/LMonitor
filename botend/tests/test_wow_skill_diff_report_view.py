@@ -592,31 +592,34 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
         self.assertNotIn('report_id', result)
         self.assertIn('not available', result.get('error', ''))
 
-    def test_scan_state_retries_pending_diff_unavailable_interval_before_newer_build(self):
+    def test_scan_state_processes_pending_and_records_next_interval_without_skipping_build(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         monitor.default_branch = 'wowt'
         monitor._fetch_current_build = lambda branch: '12.1.0.68500'
+        monitor._latest_discovered_build = lambda st: '12.1.0.68412'
         calls = []
 
-        def fake_handle(st, from_build, to_build, is_init=False):
-            calls.append((from_build, to_build, is_init))
+        def fake_process_pending(st, limit=1):
+            calls.append(('process_pending', st.build, limit))
             return False
 
-        monitor._handle_build_change = fake_handle
+        def fake_record(st, from_build, to_build, is_init=False):
+            calls.append(('record_event', from_build, to_build, is_init))
+            return SimpleNamespace(id=1)
+
+        monitor._process_pending_build_events = fake_process_pending
+        monitor._record_build_event = fake_record
         state = SimpleNamespace(
             branch='wowt',
             build='12.1.0.68301',
-            last_event_status='diff_unavailable',
-            ext=json.dumps({
-                'status': 'diff_unavailable',
-                'from_build': '12.1.0.68301',
-                'to_build': '12.1.0.68412',
-            }),
             save=lambda *args, **kwargs: None,
         )
 
         result = monitor._scan_state(state)
 
         self.assertFalse(result)
-        self.assertEqual(calls, [('12.1.0.68301', '12.1.0.68412', False)])
+        self.assertEqual(calls, [
+            ('process_pending', '12.1.0.68301', 1),
+            ('record_event', '12.1.0.68412', '12.1.0.68500', False),
+        ])
 
