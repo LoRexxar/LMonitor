@@ -111,6 +111,11 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
             self.assertIn("大秘境分数线汇总", html)
             self.assertIn("Wowhead 新闻", html)
             self.assertIn("暴雪蓝贴", html)
+            self.assertIn("来源：wowhead", html)
+            self.assertIn("原文链接", html)
+            self.assertIn("AI 总结：", html)
+            self.assertIn("新闻原文", html)
+            self.assertIn("这是一段新闻原文内容，应该出现在日报模块中。", html)
             self.assertNotIn("昨天旧闻", html)
             self.assertIn("NGA 高楼", html)
             self.assertIn("NGA 次高楼", html)
@@ -159,6 +164,28 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
             self.assertIn("<ul><li>保留列表格式</li></ul>", html)
             self.assertNotIn("&quot;original&quot;", html)
             self.assertNotIn("&quot;translated&quot;", html)
+
+    def test_news_body_falls_back_to_full_description_without_truncation(self):
+        long_description = "正文开始 " + ("完整正文内容 " * 160) + " 正文结束"
+        with override_settings(BASE_DIR=self.base_dir):
+            self._article(
+                title="只有描述的中文源新闻",
+                source="exwind",
+                category="news",
+                content="",
+                content_cn="",
+                content_blocks="",
+                content_blocks_cn="",
+                description=long_description,
+            )
+
+            meta = generate_wow_daily_report(report_date=self.report_date, use_llm=False)
+            html = open(meta["full_path"], encoding="utf-8").read()
+
+            self.assertIn("只有描述的中文源新闻", html)
+            self.assertIn("正文开始", html)
+            self.assertIn("正文结束", html)
+            self.assertNotIn("暂无正文片段", html)
 
     def test_ai_design_renderer_receives_structured_html_not_markdown(self):
         designed_html = "<!DOCTYPE html><html><body><main>DESIGNED <strong>冒险者</strong></main></body></html>"

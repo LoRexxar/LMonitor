@@ -76,12 +76,13 @@ def build_daily_report_design_prompt(payload: Dict[str, Any]) -> str:
 1. 只能做格式美化和排版，不要改写事实，不要总结，不要新增或删除条目。
 2. 输入里的新闻正文使用 body_html 字段；这些是已经清洗过的文章 HTML 片段。必须尽量原样保留内部格式，例如 strong、em、ul/ol/li、table、a、img、blockquote、code、pre、ins、del。
 3. 如果同时存在 body_text 和 body_html，以 body_html 为正文展示依据；body_text 只可用于摘要/无 HTML 兜底。
-4. 所有 title、url、source、publish_time、reply_count、cover_url、cutoff 数值必须来自输入，不得编造。
-5. 输出必须是完整 HTML 文档：以 <!DOCTYPE html> 开头，包含 <html>、<head>、<body>，以 </html> 结束。
-6. 输出纯 HTML，不要 markdown 围栏，不要解释文字。
-7. CSS 写在 <style> 内；可以使用系统字体和内联 SVG/CSS，不要依赖不稳定外部图片。已有 cover_url/img src 可以保留。
-8. 页面风格：暗色魔兽情报板；顶部紧凑横向指标条；新闻/NGA/视频/大秘境分数线四块清晰分区；表格可横向滚动；移动端可读。
-9. 不使用 scroll snap、滚轮劫持、右侧圆点导航。
+4. 每条新闻必须逐条展示：新闻标题、来源、链接、AI 总结（summary 字段）、新闻原文（body_html 字段，若没有则用 body 字段）。不得只展示模块摘要，也不得把多条新闻合并成一段。
+5. 所有 title、url、source、publish_time、reply_count、cover_url、cutoff 数值必须来自输入，不得编造。
+6. 输出必须是完整 HTML 文档：以 <!DOCTYPE html> 开头，包含 <html>、<head>、<body>，以 </html> 结束。
+7. 输出纯 HTML，不要 markdown 围栏，不要解释文字。
+8. CSS 写在 <style> 内；可以使用系统字体和内联 SVG/CSS，不要依赖不稳定外部图片。已有 cover_url/img src 可以保留。
+9. 页面风格：暗色魔兽情报板；顶部紧凑横向指标条；新闻/NGA/视频/大秘境分数线四块清晰分区；表格可横向滚动；移动端可读。
+10. 不使用 scroll snap、滚轮劫持、右侧圆点导航。
 
 【结构化日报 JSON】
 """ + json.dumps(payload, ensure_ascii=False, indent=2)

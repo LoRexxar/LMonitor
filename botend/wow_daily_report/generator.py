@@ -229,6 +229,19 @@ def _extract_html_from_blocks(raw: Any) -> str:
     return "\n".join([p for p in parts if p.strip()])
 
 
+def _plain_text_to_html(text: str) -> str:
+    text = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", text) if p.strip()]
+    if not paragraphs:
+        return ""
+    html_parts = []
+    for paragraph in paragraphs:
+        html_parts.append(f"<p>{_safe_html(paragraph).replace(chr(10), '<br>')}</p>")
+    return "\n".join(html_parts)
+
+
 def _article_body_html(article: WowArticle) -> str:
     for raw in (
         getattr(article, "content_blocks_cn", "") or "",
@@ -237,11 +250,11 @@ def _article_body_html(article: WowArticle) -> str:
         html_body = _extract_html_from_blocks(raw)
         if html_body.strip():
             return html_body
-    for raw in (getattr(article, "content_cn", "") or "", getattr(article, "content", "") or ""):
+    for raw in (getattr(article, "content_cn", "") or "", getattr(article, "content", "") or "", getattr(article, "description", "") or ""):
         if raw and not _looks_like_json(raw):
-            text = _strip_html(raw)
-            if text:
-                return f"<p>{_safe_html(_truncate(text, 1000))}</p>"
+            text = str(raw or "").strip()
+            if _strip_html(text):
+                return _plain_text_to_html(text)
     return ""
 
 
@@ -261,6 +274,62 @@ def _article_text(article: WowArticle, max_chars: int = 800) -> str:
         if text and text not in parts:
             parts.append(text)
     return _truncate(" ".join(parts), max_chars)
+
+
+def _article_full_text(article: WowArticle) -> str:
+    candidates = [
+        _extract_text_from_blocks(getattr(article, "content_blocks_cn", "") or ""),
+        _extract_text_from_blocks(getattr(article, "content_blocks", "") or ""),
+        getattr(article, "content_cn", "") or "",
+        getattr(article, "content", "") or "",
+        getattr(article, "description", "") or "",
+    ]
+    for raw in candidates:
+        if not raw or _looks_like_json(raw):
+            continue
+        text = _strip_html(raw)
+        if text:
+            return text
+    return ""
+
+
+def _fallback_item_summary(item: Dict[str, Any]) -> str:
+    text = _collapse_space(item.get("body") or _strip_html(item.get("body_html") or ""))
+    if not text:
+        return "暂无可用正文，建议打开原文链接查看。"
+    return _truncate(text, 180)
+
+
+def _summarize_news_item(item: Dict[str, Any], *, use_llm: bool) -> Dict[str, Any]:
+    fallback = _fallback_item_summary(item)
+    if not use_llm:
+        return {"text": fallback, "llm_ok": False, "error": "llm_disabled"}
+    if not GLMClient:
+        return {"text": fallback, "llm_ok": False, "error": "GLMClient 不可用"}
+    source_text = _truncate(_strip_html(item.get("body_html") or item.get("body") or ""), 1600)
+    if not source_text:
+        return {"text": fallback, "llm_ok": False, "error": "empty_body"}
+    try:
+        glm = GLMClient()
+        if not (getattr(glm, "client", None) or getattr(glm, "coding_client", None) or (getattr(glm, "api_key", "") and (getattr(glm, "base_url", "") or getattr(glm, "coding_base_url", "")))):
+            return {"text": fallback, "llm_ok": False, "error": "GLM client 未初始化"}
+        prompt = (
+            "你是魔兽世界日报编辑。请只基于下面这条新闻原文，写一段 120 字以内中文总结。"
+            "要求：讲清楚这条新闻具体发生了什么；不要编造；不要输出标题、项目符号或换行。\n"
+            + json.dumps({
+                "title": item.get("title") or "",
+                "source": item.get("source") or "",
+                "url": item.get("url") or "",
+                "body": source_text,
+            }, ensure_ascii=False)
+        )
+        out = glm.send_message(prompt, max_tokens=180, thinking_type="disabled")
+        text = _collapse_space(out)
+        if not text:
+            return {"text": fallback, "llm_ok": False, "error": getattr(glm, "last_error", "") or "empty"}
+        return {"text": _truncate(text, 160), "llm_ok": True, "error": ""}
+    except Exception as exc:
+        return {"text": fallback, "llm_ok": False, "error": str(exc)}
 
 
 def _section_fallback_summary(section_key: str, items: List[Dict[str, Any]]) -> str:
@@ -337,7 +406,7 @@ def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
             "category": a.category or "unknown",
             "url": a.url or "",
             "publish_time": a.publish_time,
-            "body": _article_text(a),
+            "body": _article_full_text(a),
             "body_html": _article_body_html(a),
         }
         for a in rows
@@ -456,10 +525,13 @@ def _render_news_items(items: List[Dict[str, Any]]) -> str:
     out = ['<div class="article-list">']
     for item in items:
         out.append('<article class="daily-card news-card">')
-        out.append(f'<h3><a href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">{_safe_html(item.get("title"))}</a></h3>')
+        out.append(f'<h3 class="news-title"><a href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">{_safe_html(item.get("title"))}</a></h3>')
         out.append(
-            f'<div class="meta"><span>{_safe_html(item.get("source"))}</span><span>{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
+            f'<div class="meta"><span>来源：{_safe_html(item.get("source"))}</span><span>时间：{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
         )
+        out.append(f'<a class="original-link" href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">原文链接</a>')
+        out.append(f'<div class="item-summary"><strong>AI 总结：</strong>{_safe_html(item.get("summary") or _fallback_item_summary(item))}</div>')
+        out.append('<div class="original-label">新闻原文</div>')
         body_html = _sanitize_body_html(item.get("body_html") or "")
         if body_html:
             out.append(f'<div class="body-html">{body_html}</div>')
@@ -586,6 +658,9 @@ def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]
     .daily-card {{ border:1px solid var(--line); background:rgba(255,255,255,.04); border-radius:14px; padding:16px; }}
     .daily-card h3 {{ margin:0 0 8px; font-size:18px; }}
     .meta {{ display:flex; gap:12px; flex-wrap:wrap; font-size:13px; margin-bottom:8px; }}
+    .original-link {{ display:inline-flex; align-items:center; gap:6px; margin:2px 0 8px; padding:5px 10px; border:1px solid rgba(143,199,255,.35); border-radius:999px; background:rgba(143,199,255,.08); font-size:13px; font-weight:700; }}
+    .item-summary {{ margin:10px 0; padding:10px 12px; border:1px solid rgba(247,185,85,.22); background:rgba(247,185,85,.08); border-radius:10px; color:#f4e5c0; }}
+    .original-label {{ margin:12px 0 6px; color:var(--muted); font-size:13px; font-weight:700; letter-spacing:.04em; }}
     .body-text, .body-html {{ margin:8px 0 0; color:#d7deea; }}
     .body-html {{ overflow-x:auto; }}
     .body-html p {{ margin:8px 0; }}
@@ -642,6 +717,12 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
     cutoff_snapshot: Dict[str, Any] = {}
     for section in sections:
         key = section["key"]
+        if key == "news":
+            for item in section.get("items") or []:
+                item_summary = _summarize_news_item(item, use_llm=use_llm)
+                item["summary"] = item_summary["text"]
+                item["summary_llm_ok"] = bool(item_summary.get("llm_ok"))
+                item["summary_error"] = item_summary.get("error") or ""
         fallback = _section_fallback_summary(key, section.get("items") or [])
         payload = _section_payload(section)
         summary_result = _summarize_section(key, section["title"], payload, fallback, use_llm=use_llm)

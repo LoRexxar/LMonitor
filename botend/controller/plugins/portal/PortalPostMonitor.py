@@ -433,9 +433,23 @@ class PortalPostMonitor(BaseScan):
 
     def _extract_exwind_body(self, html_text):
         t = html_text or ""
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(t, "html.parser")
+            el = soup.select_one(".EXWIND_content") or soup.select_one("#EXWIND_capture_area .EXWIND_content")
+            if el:
+                for tag in el(["script", "style", "noscript", "button", "svg"]):
+                    tag.decompose()
+                text = el.get_text(separator="\n", strip=True)
+                text = re.sub(r"\n{3,}", "\n\n", text).strip()
+                if text:
+                    return text
+        except Exception:
+            pass
+
         blocks = []
         for pat in (
-            r'<div[^>]+class="[^"]*(?:entry-content|post-content|content)[^"]*"[^>]*>([\s\S]*?)</div>',
+            r'<div[^>]+class="[^"]*(?:EXWIND_content|entry-content|post-content|content)[^"]*"[^>]*>([\s\S]*?)</div>',
             r'<article[^>]*>([\s\S]*?)</article>',
         ):
             m = re.search(pat, t, flags=re.I)
