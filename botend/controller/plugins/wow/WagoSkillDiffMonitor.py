@@ -1505,6 +1505,16 @@ class WagoSkillDiffMonitor(BaseScan):
         try:
             self.locale = target_locale
             report = self._generate_report(branch, from_build, to_build)
+            if report and report.get('diff_unavailable'):
+                return {
+                    'success': False,
+                    'status': 'diff_unavailable',
+                    'error': report.get('error') or 'Wago build diff is not available yet',
+                    'from_build': from_build,
+                    'to_build': to_build,
+                    'branch': branch,
+                    'locale': target_locale,
+                }
             if not report:
                 server_title = self._branch_title(branch)
                 empty_html = self._write_empty_html_report(

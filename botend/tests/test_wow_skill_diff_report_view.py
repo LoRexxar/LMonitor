@@ -573,3 +573,21 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
         self.assertEqual(report.get('spell_count'), 0)
         self.assertIn('not available', report.get('error', ''))
 
+    def test_manual_rerun_diff_unavailable_does_not_create_empty_report(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'enUS'
+        monitor._generate_report = lambda branch, from_build, to_build, *args, **kwargs: {
+            'diff_unavailable': True,
+            'error': 'Wago builds-diff is not available yet',
+            'spell_count': 0,
+            'class_count': 0,
+            'changed_tables_json': '[]',
+        }
+
+        result = monitor.rerun_build_diff('wowt', '12.1.0.68301', '12.1.0.68412', 'enUS')
+
+        self.assertFalse(result.get('success'))
+        self.assertEqual(result.get('status'), 'diff_unavailable')
+        self.assertNotIn('report_id', result)
+        self.assertIn('not available', result.get('error', ''))
+
