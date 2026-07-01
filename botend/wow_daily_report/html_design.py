@@ -96,13 +96,16 @@ def render_daily_html_with_skill(report_date, sections: List[Dict[str, Any]], *,
     prompt = build_daily_report_design_prompt(payload)
     try:
         glm = GLMClient()
-        if not getattr(glm, "client", None):
-            return None, {"renderer": "fallback_static", "error": "GLM client not initialized"}
+        if not (getattr(glm, "client", None) or getattr(glm, "coding_client", None) or (getattr(glm, "api_key", "") and (getattr(glm, "base_url", "") or getattr(glm, "coding_base_url", "")))):
+            return None, {"renderer": "fallback_static", "error": "GLM client not initialized and HTTP fallback not configured"}
         raw = glm.send_message(prompt, max_tokens=12000, thinking_type="disabled")
+        if not raw:
+            return None, {"renderer": "fallback_static", "error": getattr(glm, "last_error", "") or "empty model response"}
         html = extract_html(raw)
         ok, err = validate_html_document(html)
         if not ok:
-            return None, {"renderer": "fallback_static", "error": err}
+            detail = getattr(glm, "last_error", "") or err
+            return None, {"renderer": "fallback_static", "error": detail}
         return html, {"renderer": "ai_html_skill", "error": ""}
     except Exception as exc:
         return None, {"renderer": "fallback_static", "error": str(exc)[:500]}

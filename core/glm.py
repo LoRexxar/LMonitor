@@ -10,9 +10,12 @@ from django.conf import settings as django_settings
 ZHIYU_API_CONFIG = getattr(django_settings, 'ZHIYU_API_CONFIG', {}) or {}
 
 try:
-    from zai import ZhipuAiClient
+    from zhipuai import ZhipuAI as ZhipuAiClient
 except Exception:
-    ZhipuAiClient = None
+    try:
+        from zai import ZhipuAiClient
+    except Exception:
+        ZhipuAiClient = None
 
 class GLMClient:
     def __init__(self):
