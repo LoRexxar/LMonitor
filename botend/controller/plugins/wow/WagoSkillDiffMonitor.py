@@ -26,6 +26,10 @@ except Exception:
     GLMClient = None
 
 
+class WagoDiffUnavailable(RuntimeError):
+    """Raised when Wago has exposed a build before diff pages are ready."""
+
+
 class WagoSkillDiffMonitor(BaseScan):
     def __init__(self, req, task):
         super().__init__(req, task)
@@ -1376,6 +1380,30 @@ class WagoSkillDiffMonitor(BaseScan):
             return False
 
         if not report or int(report.get('spell_count') or 0) <= 0:
+            if report and report.get('diff_unavailable'):
+                err = report.get('error') or 'Wago build diff is not available yet; keep cursor for retry.'
+                self._mark_event(
+                    build_event,
+                    status='diff_unavailable',
+                    report=None,
+                    spell_count=0,
+                    class_count=0,
+                    changed_tables_json=report.get('changed_tables_json') or '',
+                    summary_title='',
+                    error_message=err,
+                )
+                st.last_event_at = now
+                st.last_event_status = 'diff_unavailable'
+                st.wago_diff_url = wago_diff_url
+                st.ext = json.dumps({
+                    'branch': branch,
+                    'from_build': from_build,
+                    'to_build': to_build,
+                    'error': err,
+                }, ensure_ascii=False)
+                st.save(update_fields=['last_event_at', 'last_event_status', 'wago_diff_url', 'ext'])
+                return False
+
             self._mark_event(
                 build_event,
                 status='no_class_change',
@@ -1810,11 +1838,29 @@ class WagoSkillDiffMonitor(BaseScan):
         wowhead_spell_ids = set()
         if wowhead_url:
             wowhead_spell_ids = self._fetch_wowhead_spell_ids(wowhead_url)
-        changed_tables = set(self._fetch_changed_db2_tables(from_build, to_build) or [])
+        try:
+            changed_tables = set(self._fetch_changed_db2_tables(from_build, to_build) or [])
+        except WagoDiffUnavailable as e:
+            return {
+                'diff_unavailable': True,
+                'error': str(e),
+                'changed_tables_json': '[]',
+                'spell_count': 0,
+                'class_count': 0,
+            }
         relevant_tables = [t for t in sorted(changed_tables) if (t or '').lower() in self.core_tables]
         if not relevant_tables:
             for t in sorted(self.core_tables):
-                diff_rows = self._fetch_db2_diff_rows(t, from_build, to_build)
+                try:
+                    diff_rows = self._fetch_db2_diff_rows(t, from_build, to_build)
+                except WagoDiffUnavailable as e:
+                    return {
+                        'diff_unavailable': True,
+                        'error': str(e),
+                        'changed_tables_json': json.dumps(sorted(changed_tables), ensure_ascii=False),
+                        'spell_count': 0,
+                        'class_count': 0,
+                    }
                 if diff_rows:
                     relevant_tables.append(t)
                     changed_tables.add(t)
@@ -3290,7 +3336,9 @@ class WagoSkillDiffMonitor(BaseScan):
             visited.add(next_url)
             text = self._http_get_text(next_url)
             if not text:
-                break
+                raise WagoDiffUnavailable(
+                    f'Wago builds-diff is not available for {from_build} -> {to_build}: {next_url}'
+                )
             props = self._extract_inertia_props(text)
             payload = props.get('items') or {}
             items = payload.get('data') if isinstance(payload, dict) else payload
@@ -3323,7 +3371,9 @@ class WagoSkillDiffMonitor(BaseScan):
             visited.add(next_url)
             text = self._http_get_text(next_url)
             if not text:
-                break
+                raise WagoDiffUnavailable(
+                    f'Wago DB2 diff is not available for {table} {from_build} -> {to_build}: {next_url}'
+                )
             props = self._extract_inertia_props(text)
             entries = props.get('entries') or {}
             data = []

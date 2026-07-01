@@ -556,3 +556,20 @@ class PortalReportFileViewTests(SimpleTestCase):
                 request = self.factory.get(f'/portal/reports/{report_path}')
                 response = PortalReportFileView.as_view()(request, report_path=report_path)
                 self.assertEqual(response.status_code, 404, report_path)
+
+class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
+    def test_diff_unavailable_report_is_explicit_not_empty_no_change(self):
+        from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoDiffUnavailable
+
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'enUS'
+        monitor._fetch_changed_db2_tables = lambda from_build, to_build: (_ for _ in ()).throw(
+            WagoDiffUnavailable('Wago builds-diff is not available yet')
+        )
+
+        report = monitor._generate_report('wowt', '12.1.0.68301', '12.1.0.68412')
+
+        self.assertTrue(report.get('diff_unavailable'))
+        self.assertEqual(report.get('spell_count'), 0)
+        self.assertIn('not available', report.get('error', ''))
+
