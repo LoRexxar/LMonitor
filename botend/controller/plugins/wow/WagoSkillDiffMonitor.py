@@ -266,11 +266,31 @@ class WagoSkillDiffMonitor(BaseScan):
             prev_build = self._fetch_prev_build(branch, current_build)
             from_build = prev_build or current_build
             return self._handle_build_change(st, from_build, current_build, is_init=True)
+
+        pending_to_build = self._pending_diff_unavailable_to_build(st, last_build)
+        if pending_to_build and pending_to_build != last_build:
+            return self._handle_build_change(st, last_build, pending_to_build, is_init=False)
+
         if last_build == current_build:
             self._repair_state_if_needed(st, current_build)
             self._scan_hotfix_if_needed(st, branch, current_build)
             return True
         return self._handle_build_change(st, last_build, current_build, is_init=False)
+
+    def _pending_diff_unavailable_to_build(self, st, last_build):
+        if (getattr(st, 'last_event_status', '') or '') != 'diff_unavailable':
+            return ''
+        try:
+            data = json.loads(getattr(st, 'ext', '') or '{}')
+        except Exception:
+            return ''
+        if (data.get('status') or '') != 'diff_unavailable':
+            return ''
+        from_build = (data.get('from_build') or '').strip()
+        to_build = (data.get('to_build') or '').strip()
+        if from_build and from_build != last_build:
+            return ''
+        return to_build
 
     def _scan_hotfix_if_needed(self, st, branch, current_build):
         if (branch or '').strip().lower() != 'wow':

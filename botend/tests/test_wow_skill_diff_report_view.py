@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
+import json
 import tempfile
 
 from django.test import RequestFactory, SimpleTestCase, override_settings
@@ -590,4 +591,32 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
         self.assertEqual(result.get('status'), 'diff_unavailable')
         self.assertNotIn('report_id', result)
         self.assertIn('not available', result.get('error', ''))
+
+    def test_scan_state_retries_pending_diff_unavailable_interval_before_newer_build(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.default_branch = 'wowt'
+        monitor._fetch_current_build = lambda branch: '12.1.0.68500'
+        calls = []
+
+        def fake_handle(st, from_build, to_build, is_init=False):
+            calls.append((from_build, to_build, is_init))
+            return False
+
+        monitor._handle_build_change = fake_handle
+        state = SimpleNamespace(
+            branch='wowt',
+            build='12.1.0.68301',
+            last_event_status='diff_unavailable',
+            ext=json.dumps({
+                'status': 'diff_unavailable',
+                'from_build': '12.1.0.68301',
+                'to_build': '12.1.0.68412',
+            }),
+            save=lambda *args, **kwargs: None,
+        )
+
+        result = monitor._scan_state(state)
+
+        self.assertFalse(result)
+        self.assertEqual(calls, [('12.1.0.68301', '12.1.0.68412', False)])
 
