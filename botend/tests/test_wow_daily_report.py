@@ -139,6 +139,42 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
             self.assertNotIn("NGA 不应进入新闻", news_section)
             self.assertNotIn("旧视频文章不应进入新闻", news_section)
 
+    def test_news_section_includes_wowhead_and_excludes_exwind(self):
+        with override_settings(BASE_DIR=self.base_dir):
+            self._article(title="Wowhead 应展示", source="wowhead", category="news")
+            self._article(title="Exwind 不展示", source="exwind", category="news")
+            self._article(title="暴雪追踪也展示", source="blizzard_tracker", category="bluepost")
+
+            meta = generate_wow_daily_report(report_date=self.report_date, use_llm=False)
+            html = open(meta["full_path"], encoding="utf-8").read()
+            news_section = html.split('魔兽世界当天新闻', 1)[1].split('NGA 热议', 1)[0]
+
+            self.assertIn("Wowhead 应展示", news_section)
+            self.assertIn("暴雪追踪也展示", news_section)
+            self.assertNotIn("Exwind 不展示", news_section)
+
+    def test_video_section_hidden_when_no_today_videos(self):
+        with override_settings(BASE_DIR=self.base_dir):
+            self._article(title="Wowhead 新闻", source="wowhead", category="news")
+            PortalVideo.objects.create(
+                title="昨天视频",
+                url="https://www.bilibili.com/video/BV1old",
+                bvid="BV1old",
+                published_at=self.yesterday,
+                author_name="劳瑞",
+                tag="wow",
+                is_active=True,
+            )
+
+            meta = generate_wow_daily_report(report_date=self.report_date, use_llm=False)
+            html = open(meta["full_path"], encoding="utf-8").read()
+            ext = meta["ext"]
+
+            self.assertNotIn("videos", ext["sections"])
+            self.assertNotIn("当前更新的 WoW 视频列表", html)
+            self.assertNotIn("今日暂无新视频", html)
+            self.assertNotIn("昨天视频", html)
+
     def test_article_body_uses_html_blocks_without_dumping_json_payloads(self):
         with override_settings(BASE_DIR=self.base_dir):
             self._article(
@@ -169,8 +205,8 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
         long_description = "正文开始 " + ("完整正文内容 " * 160) + " 正文结束"
         with override_settings(BASE_DIR=self.base_dir):
             self._article(
-                title="只有描述的中文源新闻",
-                source="exwind",
+                title="只有描述的 Wowhead 新闻",
+                source="wowhead",
                 category="news",
                 content="",
                 content_cn="",
@@ -182,7 +218,7 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
             meta = generate_wow_daily_report(report_date=self.report_date, use_llm=False)
             html = open(meta["full_path"], encoding="utf-8").read()
 
-            self.assertIn("只有描述的中文源新闻", html)
+            self.assertIn("只有描述的 Wowhead 新闻", html)
             self.assertIn("正文开始", html)
             self.assertIn("正文结束", html)
             self.assertNotIn("暂无正文片段", html)

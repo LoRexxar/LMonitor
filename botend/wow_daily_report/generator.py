@@ -389,14 +389,20 @@ def _summarize_section(section_key: str, title: str, payload: Dict[str, Any], fa
     return {"text": text, "llm_ok": True, "error": ""}
 
 
+NEWS_SECTION_SOURCES = ("wowhead", "blizzard_tracker")
+
+
 def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
     start, end = _date_range(report_date)
     rows = (
-        WowArticle.objects.filter(is_active=True, publish_time__gte=start, publish_time__lt=end)
-        .exclude(source="nga")
+        WowArticle.objects.filter(
+            is_active=True,
+            publish_time__gte=start,
+            publish_time__lt=end,
+            source__in=NEWS_SECTION_SOURCES,
+        )
         .exclude(category="nga")
         .exclude(category="video")
-        .exclude(source="bilibili")
         .order_by("-publish_time", "-id")
     )
     items = [
@@ -709,9 +715,11 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
     sections = [
         collect_news_section(report_date),
         collect_nga_section(report_date),
-        collect_video_section(report_date),
         collect_cutoff_section(report_date, previous_ext=previous_ext),
     ]
+    video_section = collect_video_section(report_date)
+    if video_section.get("items"):
+        sections.insert(2, video_section)
 
     ext_sections: Dict[str, Any] = {}
     cutoff_snapshot: Dict[str, Any] = {}

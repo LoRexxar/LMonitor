@@ -81,7 +81,7 @@ def build_daily_report_design_prompt(payload: Dict[str, Any]) -> str:
 6. 输出必须是完整 HTML 文档：以 <!DOCTYPE html> 开头，包含 <html>、<head>、<body>，以 </html> 结束。
 7. 输出纯 HTML，不要 markdown 围栏，不要解释文字。
 8. CSS 写在 <style> 内；可以使用系统字体和内联 SVG/CSS，不要依赖不稳定外部图片。已有 cover_url/img src 可以保留。
-9. 页面风格：暗色魔兽情报板；顶部紧凑横向指标条；新闻/NGA/视频/大秘境分数线四块清晰分区；表格可横向滚动；移动端可读。
+9. 页面风格：暗色魔兽情报板；顶部紧凑横向指标条；只渲染输入 JSON 中实际存在的 sections；新闻/NGA/视频/大秘境分数线等模块清晰分区；如果没有 videos section，不要生成视频模块或“暂无视频”占位；表格可横向滚动；移动端可读。
 10. 不使用 scroll snap、滚轮劫持、右侧圆点导航。
 
 【结构化日报 JSON】
