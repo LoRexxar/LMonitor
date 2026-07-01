@@ -119,6 +119,7 @@ def extract_structured_article(html_text: str, *, base_url: str = "", source: st
     soup = BeautifulSoup(html_text, "html.parser")
     if source == "wowhead":
         _restore_wowhead_markup_spell_table_cells(soup, base_url=base_url)
+        _restore_wowhead_markup_diff_marks(soup)
     for tag in soup(["script", "style", "nav", "header", "footer", "aside", "iframe", "form"]):
         tag.decompose()
 
@@ -270,7 +271,7 @@ def _html_block(root, *, base_url: str) -> Dict[str, Any]:
         tag.decompose()
     for tag in cloned.find_all("noscript"):
         tag.unwrap()
-    for tag in cloned.select("ins, .advertisement, .ad, .heading-size, .heading-permalink"):
+    for tag in cloned.select(".advertisement, .ad, .heading-size, .heading-permalink"):
         tag.decompose()
     _clean_discourse_lightbox_meta(cloned)
     _restore_empty_image_links(cloned, base_url=base_url)
@@ -317,13 +318,7 @@ def _restore_empty_image_links(root, *, base_url: str):
 
 
 def _restore_wowhead_markup_spell_table_cells(soup, *, base_url: str):
-    """Restore Wowhead BBCode spell tokens that noscript renders as empty table cells.
-
-    Datamining posts often keep the real spell names only in
-    ``WH.markup.printHtml("...[td][spell=123 tempname=\"Name\"][/td]...")`` while
-    the sanitized noscript fallback contains matching ``<td></td>`` cells. If we
-    remove scripts first those spell cells become permanent empty table cells.
-    """
+    """Restore Wowhead BBCode spell tokens that noscript renders as empty table cells."""
     if not BeautifulSoup:
         return
     spell_cells = []
@@ -331,13 +326,13 @@ def _restore_wowhead_markup_spell_table_cells(soup, *, base_url: str):
         text = script.string or script.get_text("", strip=False) or ""
         if "WH.markup.printHtml" not in text or "[spell=" not in text:
             continue
-        for cell_markup in re.findall(r"\[td\](.*?)\[\\?/td\]", text, re.I | re.S):
+        for cell_markup in re.findall(r"\[td[^\]]*\](.*?)\[\\?/td\]", text, re.I | re.S):
             spell_match = re.search(r"\[spell=(\d+)([^\]]*)\]", cell_markup, re.I)
             if not spell_match:
                 continue
             spell_id = spell_match.group(1)
-            attrs = spell_match.group(2) or ""
-            name_match = re.search(r"\btempname=\\?\"(.*?)\\?\"", attrs, re.I)
+            attrs = _decode_wowhead_markup_string(spell_match.group(2) or "")
+            name_match = re.search(r"\btempname=\"(.*?)\"", attrs, re.I)
             name = _decode_wowhead_markup_string(name_match.group(1) if name_match else "") or "Spell {}".format(spell_id)
             spell_cells.append((spell_id, name))
     if not spell_cells:
@@ -355,6 +350,82 @@ def _restore_wowhead_markup_spell_table_cells(soup, *, base_url: str):
         link = factory.new_tag("a", href=urljoin(base_url, "/spell={}".format(spell_id)))
         link.string = name
         cell.append(link)
+
+
+def _restore_wowhead_markup_diff_marks(soup):
+    """Restore Wowhead [del]/[ins] diff markers from markup scripts onto fallback text.
+
+    Wowhead's fallback HTML often contains only flattened text like ``Value: -5-1``
+    while the script markup records ``Value: [del]-5[/del][ins]-1[/ins]``. Match
+    those changed value runs by text and replace only the affected text node with
+    ``<del>``/``<ins>`` markup before scripts are removed.
+    """
+    if not BeautifulSoup:
+        return
+    segments = []
+    for script in soup.find_all("script"):
+        text = script.string or script.get_text("", strip=False) or ""
+        if "WH.markup.printHtml" not in text or ("[del]" not in text and "[ins]" not in text):
+            continue
+        decoded = _decode_wowhead_markup_string(text)
+        for match in re.finditer(r"([^\r\n\[]*?)(?:\[del\]([\s\S]*?)\[/del\])(?:\[ins\]([\s\S]*?)\[/ins\])?", decoded, re.I):
+            old = _clean_inline_text(match.group(2) or "")
+            new = _clean_inline_text(match.group(3) or "")
+            prefix = _clean_inline_text(match.group(1) or "")
+            if not old:
+                continue
+            # Keep a short label such as "Value:" or "Duration:" to avoid
+            # matching unrelated occurrences of the same numeric value.
+            label_match = re.search(r"([A-Za-z #/%()]+:\s*)$", prefix)
+            label = _clean_inline_text(label_match.group(1) if label_match else "")
+            plain = _clean_inline_text("{} {} {}".format(label, old, new))
+            if len(plain.replace(" ", "")) < 2:
+                continue
+            segments.append({"label": label, "old": old, "new": new, "plain": plain})
+    if not segments:
+        return
+
+    for seg in segments:
+        wanted = seg["plain"].replace(" ", "")
+        for text_node in list(soup.find_all(string=True)):
+            parent = getattr(text_node, "parent", None)
+            if not parent or parent.name in {"script", "style", "del", "ins"}:
+                continue
+            current = _clean_inline_text(str(text_node))
+            if not current or wanted not in current.replace(" ", ""):
+                continue
+            restored = _build_diff_marked_fragment(str(text_node), seg)
+            if not restored:
+                continue
+            fragment = BeautifulSoup(restored, "html.parser")
+            text_node.replace_with(*list(fragment.contents))
+            break
+
+
+def _build_diff_marked_fragment(text: str, seg: Dict[str, str]) -> str:
+    label = re.escape(seg.get("label") or "")
+    old = re.escape(seg.get("old") or "")
+    new = re.escape(seg.get("new") or "")
+    if not old:
+        return ""
+    if seg.get("new"):
+        pattern = r"({}\s*)({})(\s*)({})".format(label, old, new) if label else r"({})(\s*)({})".format(old, new)
+    else:
+        pattern = r"({}\s*)({})".format(label, old) if label else r"({})".format(old)
+    match = re.search(pattern, text)
+    if not match:
+        return ""
+    if seg.get("new"):
+        if label:
+            repl = "{}<del>{}</del>{}<ins>{}</ins>".format(html.escape(match.group(1)), html.escape(match.group(2)), html.escape(match.group(3)), html.escape(match.group(4)))
+        else:
+            repl = "<del>{}</del>{}<ins>{}</ins>".format(html.escape(match.group(1)), html.escape(match.group(2)), html.escape(match.group(3)))
+    else:
+        if label:
+            repl = "{}<del>{}</del>".format(html.escape(match.group(1)), html.escape(match.group(2)))
+        else:
+            repl = "<del>{}</del>".format(html.escape(match.group(1)))
+    return html.escape(text[:match.start()]) + repl + html.escape(text[match.end():])
 
 
 def _decode_wowhead_markup_string(value: str) -> str:
@@ -431,7 +502,7 @@ def _clean_inline_text(text: str) -> str:
 
 
 def _normalize_wowhead_inline_breaks(root):
-    for tag in root.select("ins, .advertisement, .ad, .heading-size, .heading-permalink"):
+    for tag in root.select(".advertisement, .ad, .heading-size, .heading-permalink"):
         tag.decompose()
 
 

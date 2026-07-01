@@ -298,6 +298,26 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn("Chaos Nova", blocks_to_plain_text(blocks))
         self.assertNotIn("<td></td>", html_result)
 
+    def test_extract_wowhead_article_restores_del_markup_from_script(self):
+        html = r'''
+        <div id="news-post"><div class="text">
+          <p>Datamined class tuning changes.</p>
+          <script>WH.markup.printHtml("[table][tr][td]Value: [del]36[\/del][ins]30[\/ins][\/td][td]Duration: [del]8 sec[\/del][ins]6 sec[\/ins][\/td][\/tr][\/table]");</script>
+          <noscript><table><tr><td>Value: 36 30</td><td>Duration: 8 sec 6 sec</td></tr></table></noscript>
+        </div></div>
+        '''
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
+        html_result = blocks[0]["html"]
+
+        self.assertIn("<del>36</del>", html_result)
+        self.assertIn("<ins>30</ins>", html_result)
+        self.assertIn("<del>8 sec</del>", html_result)
+        self.assertIn("<ins>6 sec</ins>", html_result)
+        self.assertIn("Value:", blocks_to_plain_text(blocks))
+        self.assertIn("36", blocks_to_plain_text(blocks))
+        self.assertIn("30", blocks_to_plain_text(blocks))
+
     def test_translate_blocks_translates_html_text_without_removing_tags(self):
         blocks = [{"type": "html", "html": '<h2>Patch Notes</h2><p>Class changes are live.</p><img src="https://example.com/a.png"/>'}]
         pairs = [
