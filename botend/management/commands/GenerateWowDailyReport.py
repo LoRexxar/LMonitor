@@ -26,5 +26,5 @@ class Command(BaseCommand):
             use_llm = True
         meta = generate_wow_daily_report(report_date=report_date, use_llm=use_llm)
         self.stdout.write(f"date={report_date.isoformat()}")
-        self.stdout.write(f"md_path={meta.get('md_path')}")
+        self.stdout.write(f"report_path={meta.get('md_path')}")
         self.stdout.write(f"full_path={meta.get('full_path')}")

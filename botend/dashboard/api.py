@@ -491,6 +491,7 @@ class WowDailyReportContentAPIView(View):
                 return JsonResponse({"success": False, "error": "日报文件不存在"})
             with open(full, "r", encoding="utf-8") as f:
                 content = f.read()
+            report_format = "html" if md_path.lower().endswith(".html") else "markdown"
             return JsonResponse(
                 {
                     "success": True,
@@ -498,6 +499,7 @@ class WowDailyReportContentAPIView(View):
                         "id": row.id,
                         "report_date": getattr(row, "report_date", None).isoformat() if getattr(row, "report_date", None) else "",
                         "md_path": md_path,
+                        "format": report_format,
                         "updated_at": _fmt_dt(getattr(row, "updated_at", None)),
                         "content": content,
                     },

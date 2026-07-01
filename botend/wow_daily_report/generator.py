@@ -3,1027 +3,581 @@ import html
 import json
 import os
 import re
-from urllib.parse import urlparse
+from typing import Any, Dict, List, Optional
 
 from django.conf import settings
-from django.db.models import Max, Q
 from django.utils import timezone
 
-from botend.models import (
-    PortalMplusRun,
-    PortalMplusSeasonCutoff,
-    PortalMythicstatsDpsRow,
-    PortalPeakSpecRankRow,
-    TargetAuth,
-    WowArticle,
-    WowDailyReport,
-    WowSkillDiffReport,
-    WowWagoMonitorState,
-)
-from botend.wow_i18n import cn_class_spec, cn_dungeon_from_slug, cn_mythicstats_spec_display
+from botend.models import PortalMplusSeasonCutoff, PortalVideo, WowArticle, WowDailyReport
 
 try:
     from core.glm import GLMClient
-except Exception:
+except Exception:  # pragma: no cover - optional runtime dependency
     GLMClient = None
 
 try:
     from utils.log import logger
-except Exception:
+except Exception:  # pragma: no cover
     logger = None
 
-try:
-    from utils.LReq import LReq
-except Exception:
-    LReq = None
+
+_LLM_RUN_ERRORS: List[Dict[str, str]] = []
 
 
-_LLM_RUN_ERRORS = []
-_NGA_REQ = None
+REGION_LABELS = {
+    "cn": "国服",
+    "eu": "欧服",
+    "us": "美服",
+    "kr": "韩服",
+    "tw": "台服",
+    "world": "全球",
+}
 
 
-def _llm_note(kind, err):
-    try:
-        s = _collapse_space(err)
-    except Exception:
-        s = str(err or "").strip()
-    if not s:
+SECTION_TITLES = {
+    "news": "魔兽世界当天新闻",
+    "nga": "NGA 热议",
+    "videos": "当前更新的 WoW 视频列表",
+    "cutoffs": "大秘境分数线汇总",
+}
+
+
+def _llm_note(kind: str, err: Any) -> None:
+    text = _collapse_space(err)[:500]
+    if not text:
         return
-    _LLM_RUN_ERRORS.append({"type": str(kind or ""), "error": s[:500]})
+    _LLM_RUN_ERRORS.append({"type": str(kind or "llm"), "error": text})
     if logger:
         try:
-            logger.warning(f"[WowDailyReport][LLM] {kind}: {s}")
+            logger.warning(f"[WowDailyReport][LLM] {kind}: {text}")
         except Exception:
             pass
 
 
-def _date_range(local_date):
+def _collapse_space(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _strip_html(value: Any) -> str:
+    text = re.sub(r"<[^>]+>", " ", str(value or ""))
+    return html.unescape(_collapse_space(text))
+
+
+def _truncate(value: Any, max_chars: int = 500) -> str:
+    text = _collapse_space(value)
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "…"
+
+
+def _safe_html(value: Any) -> str:
+    return html.escape(str(value or ""), quote=True)
+
+
+def _date_range(local_date: datetime.date):
     tz = timezone.get_current_timezone()
     start = timezone.make_aware(datetime.datetime.combine(local_date, datetime.time.min), tz)
     end = start + datetime.timedelta(days=1)
     return start, end
 
 
-def _safe_url(u):
-    s = (u or "").strip()
-    if not s or s in {"-", "#"}:
+def _fmt_dt(dt) -> str:
+    if not dt:
+        return ""
+    try:
+        return timezone.localtime(dt).strftime("%H:%M")
+    except Exception:
+        return str(dt)
+
+
+def _fmt_num(value) -> str:
+    if value is None or value == "":
         return "-"
-    return s
-
-
-def _collapse_space(s):
-    return re.sub(r"\s+", " ", str(s or "")).strip()
-
-
-def _sanitize_title(s):
-    t = _collapse_space(s)
-    if not t:
-        return ""
-    t = re.sub(r"^[\"“”']+|[\"“”']+$", "", t).strip()
-    t = re.sub(r"^系统.*?(?:标题为|标题：)\s*", "", t).strip()
-    return _collapse_space(t)
-
-
-_SUMMARY_BAN_WORDS = ("入库", "采集", "数据库")
-
-
-def _has_ban_word(s):
-    t = str(s or "")
-    return any(w in t for w in _SUMMARY_BAN_WORDS)
-
-
-def _sanitize_summary(s):
-    t = _collapse_space(s)
-    if not t:
-        return ""
-    t = re.sub(r"^[\"“”']+|[\"“”']+$", "", t).strip()
-    t = re.sub(r"^系统.*?(?:标题为|标题：)\s*", "", t).strip()
-    parts = re.split(r"[。！？；;]\s*", t)
-    parts = [p.strip() for p in parts if p and not _has_ban_word(p)]
-    t = "。".join(parts).strip("。").strip()
-    return _collapse_space(t)
-
-
-def _normalize_body(s):
-    t = str(s or "").replace("\r\n", "\n").replace("\r", "\n")
-    t = t.strip()
-    if not t:
-        return ""
-    lines = [ln.rstrip() for ln in t.split("\n")]
-    out = []
-    blank = 0
-    for ln in lines:
-        if not ln.strip():
-            blank += 1
-            if blank <= 1:
-                out.append("")
-            continue
-        blank = 0
-        out.append(ln)
-    return "\n".join(out).strip()
-
-
-def _get_nga_req():
-    global _NGA_REQ
-    if _NGA_REQ is not None:
-        return _NGA_REQ
-    if not LReq:
-        _NGA_REQ = None
-        return None
     try:
-        _NGA_REQ = LReq(is_chrome=False)
+        num = float(value)
+        if num.is_integer():
+            return str(int(num))
+        return f"{num:.1f}".rstrip("0").rstrip(".")
     except Exception:
-        _NGA_REQ = None
-    return _NGA_REQ
+        return str(value)
 
 
-def _get_cookie_for_url(url):
+def _fmt_delta(current, previous) -> str:
+    if current is None or previous is None:
+        return "-"
     try:
-        domain = urlparse(str(url or "")).netloc
+        delta = float(current) - float(previous)
     except Exception:
-        domain = ""
-    if not domain:
+        return "-"
+    if abs(delta) < 0.05:
+        return "0"
+    prefix = "+" if delta > 0 else ""
+    if float(delta).is_integer():
+        return f"{prefix}{int(delta)}"
+    return f"{prefix}{delta:.1f}".rstrip("0").rstrip(".")
+
+
+def _fmt_source_time(value) -> str:
+    if not value:
         return ""
-    try:
-        auth = TargetAuth.objects.filter(domain=domain).first()
-    except Exception:
-        auth = None
-    return (getattr(auth, "cookie", "") or "").strip() if auth else ""
-
-
-def _strip_html_text(raw_html):
-    t = raw_html or ""
-    t = re.sub(r"<(script|style|noscript)[^>]*>[\s\S]*?</\1>", "", t, flags=re.I)
-    t = re.sub(r"(?i)<br\s*/?>", "\n", t)
-    t = re.sub(r"(?i)</p\s*>", "\n\n", t)
-    t = re.sub(r"(?i)</div\s*>", "\n\n", t)
-    t = re.sub(r"(?i)</li\s*>", "\n", t)
-    t = re.sub(r"<[^>]+>", "", t)
-    t = html.unescape(t)
-    t = t.replace("\r\n", "\n").replace("\r", "\n")
-    lines = [ln.strip() for ln in t.split("\n")]
-    out = []
-    blank = 0
-    for ln in lines:
-        if not ln:
-            blank += 1
-            if blank <= 1:
-                out.append("")
-            continue
-        blank = 0
-        out.append(ln)
-    return "\n".join(out).strip()
-
-
-def _extract_nga_material(html_text):
-    t = html_text or ""
-    blocks = []
-    for pat in (
-        r'id="postcontent\d*"\s*[^>]*>([\s\S]*?)</span>',
-        r'class="postcontent[^"]*"\s*[^>]*>([\s\S]*?)</td>',
-        r'class="postcontent[^"]*"\s*[^>]*>([\s\S]*?)</div>',
-    ):
-        blocks = re.findall(pat, t, flags=re.I)
-        if blocks:
-            break
-    if not blocks:
-        return ""
-    first = _strip_html_text(blocks[0] or "")
-    second = _strip_html_text(blocks[1] or "") if len(blocks) > 1 else ""
-    first = _collapse_space(first)
-    second = _collapse_space(second)
-    parts = []
-    if first:
-        parts.append(first[:380])
-    if second:
-        parts.append(second[:220])
-    return _collapse_space(" ".join([p for p in parts if p]))
-
-
-def _fetch_nga_material(url):
-    req = _get_nga_req()
-    if not req:
-        return ""
-    cookies = _get_cookie_for_url(url)
-    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://nga.178.com/"}
-    try:
-        resp = req.get(url, "Response", 0, cookies, headers=headers)
-    except Exception:
-        resp = None
-    if not resp or getattr(resp, "status_code", 0) != 200:
-        return ""
-    html_text = getattr(resp, "text", "") or ""
-    if not html_text:
+    if hasattr(value, "isoformat"):
         try:
-            html_text = (getattr(resp, "content", b"") or b"").decode("utf-8", "ignore")
+            return timezone.localtime(value).strftime("%Y-%m-%d %H:%M")
         except Exception:
-            html_text = ""
-    return _extract_nga_material(html_text)
+            return value.strftime("%Y-%m-%d %H:%M")
+    text = str(value).strip()
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S", "%a %b %d %Y %H:%M:%S"):
+        try:
+            source = text[:24] if fmt.startswith("%a ") else text
+            return datetime.datetime.strptime(source, fmt).strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            continue
+    return text
 
 
-def _ensure_zh_len(text, *, min_len=100, max_len=200, pad=""):
-    s = _collapse_space(text)
-    if len(s) > max_len:
-        return s[:max_len].rstrip()
-    if len(s) >= min_len:
-        return s
-    tail = _collapse_space(pad)
-    if not tail:
-        tail = "更多细节请查看链接原文。"
-    need = min_len - len(s)
-    if need > 0:
-        if s and s[-1] not in "。！？；;.!?":
-            s = s + "。"
-        s = (s + tail[:need]).strip()
-    if len(s) > max_len:
-        s = s[:max_len].rstrip()
-    return s
+def _looks_like_json(value: Any) -> bool:
+    text = str(value or "").strip()
+    return (text.startswith("[") and text.endswith("]")) or (text.startswith("{") and text.endswith("}"))
 
 
-def _fmt_seconds(sec):
-    try:
-        sec = int(sec or 0)
-    except Exception:
-        sec = 0
-    if sec <= 0:
-        return "--"
-    m = sec // 60
-    s = sec % 60
-    return f"{m}:{s:02d}"
-
-
-def _load_prev_ext(report_date):
-    prev = (
-        WowDailyReport.objects.filter(report_date__lt=report_date)
-        .order_by("-report_date", "-updated_at", "-id")
-        .first()
-    )
-    if not prev:
-        return {}
-    raw = (getattr(prev, "ext_json", "") or "").strip()
+def _extract_text_from_blocks(raw: Any) -> str:
     if not raw:
-        return {}
-    try:
-        obj = json.loads(raw)
-    except Exception:
-        return {}
-    return obj if isinstance(obj, dict) else {}
-
-
-def _glm_summarize(*, title, desc, max_chars=160):
-    if not GLMClient:
-        _llm_note("glm_init", "GLMClient 不可用")
         return ""
     try:
-        glm = GLMClient()
+        payload = json.loads(raw) if isinstance(raw, str) else raw
     except Exception:
-        _llm_note("glm_init", "GLMClient 初始化失败")
         return ""
-    if not getattr(glm, "client", None):
-        _llm_note("glm_init", "GLM client 未初始化")
+    if isinstance(payload, dict):
+        payload = [payload]
+    if not isinstance(payload, list):
         return ""
-    prompt = (
-        "你是一名日报编辑。请严格基于给定信息生成 100-160 字中文摘要："
-        "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
-        + json.dumps({"title": title or "", "desc": desc or ""}, ensure_ascii=False)
-    )
-    out = glm.send_message(prompt, max_tokens=220, thinking_type="disabled")
-    if not out:
-        _llm_note("glm_send", getattr(glm, "last_error", "") or "empty")
-        return ""
-    out = _collapse_space(out)
-    out = _sanitize_summary(out)
-    if not out:
-        return ""
-    if len(out) > int(max_chars or 160):
-        out = out[: int(max_chars or 160)].rstrip()
-    return out
-
-
-def _glm_summarize_payload(*, payload, min_chars=100, max_chars=200):
-    if not GLMClient:
-        _llm_note((payload or {}).get("type") if isinstance(payload, dict) else "glm_init", "GLMClient 不可用")
-        return ""
-    try:
-        glm = GLMClient()
-    except Exception:
-        _llm_note((payload or {}).get("type") if isinstance(payload, dict) else "glm_init", "GLMClient 初始化失败")
-        return ""
-    if not getattr(glm, "client", None):
-        _llm_note((payload or {}).get("type") if isinstance(payload, dict) else "glm_init", "GLM client 未初始化")
-        return ""
-    payload_type = (payload or {}).get("type") if isinstance(payload, dict) else ""
-    if payload_type == "peak_new_player":
-        prompt = (
-            "你是一名魔兽世界大秘境日报编辑。请严格基于给定信息生成 100-200 字中文摘要："
-            "先用 1 句把变化讲清楚（专精/名次/新旧玩家/分数）；"
-            "再用 1 句给出基于信息的解读，但不要泛化推测、不要写空话；"
-            "最后用 1 句给出可操作的关注点（比如去链接里看其近期钥石副本、层数、队伍构成与路线）。"
-            "禁止使用模板化句式：不要出现“这类变动通常意味着”“建议重点关注”“用于快速判断”“反映当前环境”等；"
-            "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
-            + json.dumps(payload, ensure_ascii=False)
-        )
-    elif payload_type == "mythicstats_dps":
-        prompt = (
-            "你是一名魔兽世界大秘境日报编辑。请严格基于给定信息生成 100-200 字中文摘要："
-            "不要复述表格/列表原文，优先提炼前五专精透露出的趋势（如偏DOT/爆发/近战占比等，仅限从名字本身做轻量归纳）；"
-            "给出 1-2 条面向玩家的决策提示（换专精/配装/队伍搭配/本周词缀适配），避免空话。"
-            "禁止使用模板化句式：不要出现“反映当前环境”“可用于决定”等；"
-            "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
-            + json.dumps(payload, ensure_ascii=False)
-        )
-    elif payload_type == "nga_hot":
-        prompt = (
-            "你是一名魔兽世界社区热议日报编辑。请严格基于给定信息生成 80-160 字中文摘要："
-            "先提炼讨论主题与核心分歧点/共识点（若信息不足就明确写“根据已抓取内容只能确认话题方向”）；"
-            "再给读者一个阅读建议（先看楼主论点/再看高赞回复/关注数据或实测等）。"
-            "不要出现模板句：不要写“该帖为当日热议贴之一”“建议先定位楼主主张与结论”等固定句；"
-            "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
-            + json.dumps(payload, ensure_ascii=False)
-        )
-    else:
-        prompt = (
-            "你是一名日报编辑。请严格基于给定信息生成 100-200 字中文摘要："
-            "输出需要有分析视角，优先说明“发生了什么/变化幅度/可能原因或影响/玩家可关注点”；"
-            "不要出现“系统/入库/数据库/采集”等无效措辞；不要虚构未提供的事实；不要换行；不要加标题。\n"
-            + json.dumps(payload, ensure_ascii=False)
-        )
-    out = glm.send_message(prompt, max_tokens=260, thinking_type="disabled")
-    if not out:
-        _llm_note(payload_type or "glm_send", getattr(glm, "last_error", "") or "empty")
-        return ""
-    out = _collapse_space(out)
-    out = _sanitize_summary(out)
-    if not out:
-        return ""
-    if _has_ban_word(out):
-        _llm_note(payload_type or "glm_filter", "命中禁用词过滤")
-        return ""
-    if len(out) > int(max_chars or 200):
-        out = out[: int(max_chars or 200)].rstrip()
-    if len(out) < int(min_chars or 100):
-        out = _ensure_zh_len(out, min_len=int(min_chars or 100), max_len=int(max_chars or 200))
-    return out
-
-
-def _md_item(title, url, intro, *, ensure_len=True, pad=""):
-    title = _sanitize_title(title) or "（无标题）"
-    intro = _sanitize_summary(intro) or ""
-    if ensure_len:
-        intro = _ensure_zh_len(intro, pad=pad)
-    return "\n".join(
-        [
-            f"### {title}",
-            f"- 链接：{_safe_url(url)}",
-            intro,
-            "",
-        ]
-    )
-
-
-def _md_news_item(title, url, body):
-    title = _sanitize_title(title) or "（无标题）"
-    body = _normalize_body(body)
-    if not body:
-        body = "（正文为空或抓取失败）"
-    return "\n".join(
-        [
-            f"### {title}",
-            f"- 链接：{_safe_url(url)}",
-            "",
-            body,
-            "",
-        ]
-    )
-
-
-def _render_news_section(title, items):
-    out = [f"## {title}", ""]
-    if not items:
-        out.append("今日无新增。")
-        out.append("")
-        return "\n".join(out)
-    for it in items:
-        out.append(_md_news_item(it.get("title"), it.get("url"), it.get("body")))
-    return "\n".join(out)
-
-
-def _render_cutoff_section(*, title, items, snapshot):
-    out = [f"## {title}", ""]
-    if not items or not snapshot:
-        out.append("今日无新增。")
-        out.append("")
-        return "\n".join(out)
-
-    url = (items[0].get("url") if items else "") or "-"
-    out.append(f"- 链接：{_safe_url(url)}")
-    out.append("")
-    out.append("| 区域 | 0.1% | Δ0.1% | 1% | Δ1% |")
-    out.append("| --- | ---: | ---: | ---: | ---: |")
-    for reg in ("cn", "eu", "us"):
-        cur = (snapshot or {}).get(reg) if isinstance(snapshot, dict) else None
-        if not isinstance(cur, dict):
+    parts: List[str] = []
+    for block in payload:
+        if not isinstance(block, dict):
             continue
-        c01 = cur.get("cutoff_0_1")
-        c1 = cur.get("cutoff_1")
-        d01 = cur.get("delta_0_1")
-        d1 = cur.get("delta_1")
-        def _fmt_num(x):
-            try:
-                return f"{float(x):.2f}"
-            except Exception:
-                return "--"
-        def _fmt_delta(x):
-            try:
-                v = float(x)
-                sign = "+" if v >= 0 else ""
-                return f"{sign}{v:.2f}"
-            except Exception:
-                return "--"
-        out.append(f"| {reg.upper()} | {_fmt_num(c01)} | {_fmt_delta(d01)} | {_fmt_num(c1)} | {_fmt_delta(d1)} |")
-    out.append("")
-    return "\n".join(out)
+        block_type = block.get("type") or ""
+        if block_type not in ("html", "text", "paragraph"):
+            continue
+        text = _strip_html(block.get("html") or block.get("text") or "")
+        if text:
+            parts.append(text)
+    return _collapse_space(" ".join(parts))
 
 
-def _md_mythicstats_item(*, title, url, season, period, top5, summary):
-    title = _sanitize_title(title) or "（无标题）"
-    season = _sanitize_title(season)
-    period = _sanitize_title(period)
-    top5 = top5 or []
-    summary = _sanitize_summary(summary)
-    if not summary:
-        summary = (
-            "从前五专精可以快速判断当前周期的强势梯队与环境倾向。"
-            "建议结合自身队伍构成、词缀与目标副本选择，关注这些专精在关键窗口的爆发与稳定性差异。"
-        )
-    summary = _ensure_zh_len(summary, pad="更多细节可在链接中查看样本与统计口径。")
-    out = [
-        f"### {title}",
-        f"- 链接：{_safe_url(url)}",
+def _article_text(article: WowArticle, max_chars: int = 800) -> str:
+    candidates = [
+        getattr(article, "description", "") or "",
+        _extract_text_from_blocks(getattr(article, "content_blocks_cn", "") or ""),
+        _extract_text_from_blocks(getattr(article, "content_blocks", "") or ""),
+        getattr(article, "content_cn", "") or "",
+        getattr(article, "content", "") or "",
     ]
-    if season or period:
-        out.append(f"- 赛季/周期：{season or '--'} / {period or '--'}")
-    if top5:
-        out.append("- 前五：")
-        for i, name in enumerate(top5[:5], start=1):
-            out.append(f"  - #{i} {name}")
-    out.append(summary)
-    out.append("")
-    return "\n".join(out)
-
-
-def _render_mythicstats_section(*, title, items):
-    out = [f"## {title}", ""]
-    if not items:
-        out.append("今日无新增。")
-        out.append("")
-        return "\n".join(out)
-    for it in items:
-        out.append(
-            _md_mythicstats_item(
-                title=it.get("title"),
-                url=it.get("url"),
-                season=it.get("season"),
-                period=it.get("period"),
-                top5=it.get("top5"),
-                summary=it.get("summary"),
-            )
-        )
-    return "\n".join(out)
-
-def _topruns_record_fallback_intro(*, slug, old_row, cur, url):
-    try:
-        new_sec = int(cur.get("time_seconds") or 0)
-    except Exception:
-        new_sec = 0
-    try:
-        old_sec = int((old_row or {}).get("time_seconds") or 0)
-    except Exception:
-        old_sec = 0
-    delta = old_sec - new_sec if (new_sec > 0 and old_sec > 0) else 0
-    delta_txt = f"（提升 {delta} 秒）" if delta > 0 else ""
-    dungeon_cn = cn_dungeon_from_slug(slug, slug)
-    base = (
-        f"{dungeon_cn} 出现新的最快限时记录：{_fmt_seconds(new_sec)}（{int(cur.get('level') or 0)}层），"
-        f"对比上次日报 { _fmt_seconds(old_sec) }{delta_txt}。"
-        "这类提升通常来自路线微调、爆发窗口安排更集中、关键怪处理更干净或更少的失误。"
-        "建议重点对照队伍构成、词缀与拉怪节奏，提炼可复用的路线节点与控场细节。"
-    )
-    return _ensure_zh_len(base, pad="更多细节可在链接中查看队伍配置、路线与关键节点处理。")
-
-
-def _peak_new_player_fallback_intro(*, class_name, spec_name, rank, new_player, old_player, score):
-    score_txt = str(score) if score is not None else "--"
-    base = (
-        f"{class_name}-{spec_name} 的巅峰榜 Top{int(rank or 0)} 出现新上榜：{new_player}，替换 {old_player}。"
-        f"当前分数 {score_txt}。"
-        "这种变动更像是该专精在这一档位的冲榜解法发生了更新：要么有人打出了更稳定的高层成绩，要么有人在热门副本里做出了更高效的路线与节奏。"
-        "如果你也在冲该专精榜单，可以点开链接对照其近期最高层记录的副本、层数、队伍职业构成与路线细节，找出最值得复用的节点处理。"
-    )
-    return _ensure_zh_len(base, pad="更多细节可在链接中查看角色近期大秘境记录与队伍构成。")
-
-
-def _render_section(title, items):
-    out = [f"## {title}", ""]
-    if not items:
-        out.append("今日无新增。")
-        out.append("")
-        return "\n".join(out)
-    for it in items:
-        out.append(
-            _md_item(
-                it.get("title"),
-                it.get("url"),
-                it.get("intro"),
-                ensure_len=bool(it.get("ensure_len", True)),
-                pad=it.get("pad") or "",
-            )
-        )
-    return "\n".join(out)
-
-
-def generate_wow_daily_report(*, report_date=None, use_llm=True):
-    global _LLM_RUN_ERRORS
-    _LLM_RUN_ERRORS = []
-    if report_date is None:
-        report_date = timezone.localdate()
-    today_start, today_end = _date_range(report_date)
-    prev_ext = _load_prev_ext(report_date)
-
-    news_rows = list(
-        WowArticle.objects.filter(is_active=True, category="news")
-        .filter(publish_time__gte=today_start, publish_time__lt=today_end)
-        .order_by("-publish_time", "-id")[:20]
-    )
-    news_items = []
-    for a in news_rows[:10]:
-        title = (a.title or "").strip()
-        url = (a.url or "").strip()
-        body = (a.description or "").strip()
-        news_items.append({"title": title, "url": url, "body": body})
-
-    nga_rows = list(
-        WowArticle.objects.filter(is_active=True, source="nga")
-        .filter(publish_time__gte=today_start, publish_time__lt=today_end)
-        .order_by("-reply_count", "-publish_time", "-id")[:10]
-    )
-    nga_items = []
-    for a in nga_rows[:3]:
-        title = (a.title or "").strip()
-        url = (a.url or "").strip()
-        reply = int(getattr(a, "reply_count", 0) or 0)
-        desc = _sanitize_summary((a.description or "").strip())
-        material = desc
-        if not material or len(material) < 60:
-            fetched = _fetch_nga_material(url)
-            fetched = _sanitize_summary(fetched)
-            if fetched:
-                material = fetched
-                try:
-                    a.description = fetched
-                    a.save(update_fields=["description"])
-                except Exception:
-                    pass
-
-        intro = ""
-        used_llm = False
-        if use_llm and material:
-            intro = _glm_summarize_payload(
-                payload={
-                    "type": "nga_hot",
-                    "title": title,
-                    "reply_count": reply,
-                    "material": material,
-                    "url": url,
-                },
-                min_chars=80,
-                max_chars=160,
-            )
-            used_llm = bool(intro)
-
-        if not intro:
-            intro = material or ""
-
-        nga_items.append(
-            {
-                "title": title,
-                "url": url,
-                "intro": intro,
-                "ensure_len": bool(used_llm),
-            }
-        )
-
-    wago_states = list(
-        WowWagoMonitorState.objects.filter(
-            is_active=True,
-            last_event_at__gte=today_start,
-            last_event_at__lt=today_end,
-            last_event_status__icontains="has_class_change",
-        ).order_by("-last_event_at", "-id")
-    )
-    wago_items = []
-    for st in wago_states:
-        ext_raw = (getattr(st, "ext", "") or "").strip()
-        ext = {}
-        if ext_raw:
-            try:
-                ext = json.loads(ext_raw)
-            except Exception:
-                ext = {}
-        summary_title = (ext.get("summary_title") if isinstance(ext, dict) else "") or ""
-        summary_title = (summary_title or "").strip()
-        branch = (getattr(st, "branch", "") or "").strip()
-        locale = (getattr(st, "locale", "") or "").strip()
-        report_url = (getattr(st, "report_url", "") or "").strip()
-        wago_url = (getattr(st, "wago_diff_url", "") or "").strip()
-        title = summary_title or f"Wago 变更：{branch} {locale}".strip()
-        intro = ""
-        if use_llm:
-            intro = _glm_summarize_payload(
-                payload={
-                    "type": "wago_diff",
-                    "title": title,
-                    "branch": branch,
-                    "locale": locale,
-                    "report_url": report_url,
-                    "wago_diff_url": wago_url,
-                }
-            )
-        if not intro:
-            intro = "该条为职业技能/数据表差异变动汇总，建议点开报告查看变更表与受影响职业概览，并结合补丁/热修语境判断实际影响。"
-        url = report_url or wago_url
-        if not url:
+    parts: List[str] = []
+    for raw in candidates:
+        if not raw or _looks_like_json(raw):
             continue
-        wago_items.append({"title": title, "url": url, "intro": intro})
-        if len(wago_items) >= 6:
-            break
+        text = _strip_html(raw)
+        if text and text not in parts:
+            parts.append(text)
+    return _truncate(" ".join(parts), max_chars)
 
-    cutoff_latest = PortalMplusSeasonCutoff.objects.all().order_by("-updated_at", "-id").first()
-    cutoff_items = []
-    cutoff_snapshot = {}
-    cutoff_table_snapshot = {}
-    if cutoff_latest:
-        season = (getattr(cutoff_latest, "season", "") or "").strip() or "unknown"
-        regions = ["cn", "eu", "us"]
-        rows = list(
-            PortalMplusSeasonCutoff.objects.filter(season=season, region__in=regions)
-            .order_by("region", "-updated_at", "-id")
-        )
-        by_region = {}
-        for r in rows:
-            key = (getattr(r, "region", "") or "").strip().lower()
-            if key and key not in by_region:
-                by_region[key] = r
-        old = (((prev_ext.get("cutoffs") or {}) if isinstance(prev_ext, dict) else {}) or {}).get("by_region") or {}
-        parts = []
-        for reg in regions:
-            row = by_region.get(reg)
-            if not row:
-                continue
-            c01 = getattr(row, "cutoff_0_1", None)
-            c1 = getattr(row, "cutoff_1", None)
-            cutoff_snapshot[reg] = {"cutoff_0_1": c01, "cutoff_1": c1}
-            old_reg = old.get(reg) if isinstance(old, dict) else None
-            d01 = None
-            d1 = None
-            if isinstance(old_reg, dict):
-                try:
-                    if c01 is not None and old_reg.get("cutoff_0_1") is not None:
-                        d01 = float(c01) - float(old_reg.get("cutoff_0_1"))
-                except Exception:
-                    d01 = None
-                try:
-                    if c1 is not None and old_reg.get("cutoff_1") is not None:
-                        d1 = float(c1) - float(old_reg.get("cutoff_1"))
-                except Exception:
-                    d1 = None
-            cutoff_table_snapshot[reg] = {
-                "cutoff_0_1": c01,
-                "cutoff_1": c1,
-                "delta_0_1": d01,
-                "delta_1": d1,
+
+def _section_fallback_summary(section_key: str, items: List[Dict[str, Any]]) -> str:
+    title = SECTION_TITLES.get(section_key, "日报模块")
+    if not items:
+        if section_key == "videos":
+            return "今天暂时没有新的 WoW 视频更新。"
+        return f"今天暂无新的{title}内容。"
+    if section_key == "news":
+        names = "、".join([i.get("title", "") for i in items[:3] if i.get("title")])
+        return f"今天共有 {len(items)} 条魔兽世界新闻，重点包括{names}。"
+    if section_key == "nga":
+        names = "、".join([i.get("title", "") for i in items[:2] if i.get("title")])
+        return f"今天 NGA 回复量最高的讨论集中在{names}，适合优先查看楼主观点和高回复分歧。"
+    if section_key == "videos":
+        names = "、".join([i.get("title", "") for i in items[:3] if i.get("title")])
+        return f"今天更新了 {len(items)} 个 WoW 视频，包含{names}。"
+    if section_key == "cutoffs":
+        changes = [f"{i.get('region_label')} 0.1% {_fmt_delta(i.get('cutoff_0_1'), i.get('cutoff_0_1_prev'))}" for i in items]
+        return "大秘境分数线今日更新，" + "，".join(changes[:3]) + "。"
+    return f"今天共有 {len(items)} 条{title}内容。"
+
+
+def _summarize_section(section_key: str, title: str, payload: Dict[str, Any], fallback: str, use_llm: bool) -> Dict[str, Any]:
+    if not use_llm:
+        return {"text": fallback, "llm_ok": False, "error": "llm_disabled"}
+    if not GLMClient:
+        _llm_note(section_key, "GLMClient 不可用")
+        return {"text": fallback, "llm_ok": False, "error": "GLMClient 不可用"}
+    try:
+        glm = GLMClient()
+    except Exception as exc:
+        _llm_note(section_key, exc)
+        return {"text": fallback, "llm_ok": False, "error": str(exc)}
+    if not getattr(glm, "client", None):
+        _llm_note(section_key, "GLM client 未初始化")
+        return {"text": fallback, "llm_ok": False, "error": "GLM client 未初始化"}
+
+    prompt = (
+        "你是魔兽世界日报编辑。请只基于下面这个模块的原始材料，写一段 200 字以内的中文摘要。"
+        "要求：简单易懂，第一句话讲清楚这个模块发生了什么；不要虚构，不要提数据库/采集/系统；"
+        "不要输出标题、项目符号或换行。日报稍后会在摘要后展示原文/列表/表格，所以你只负责概括。\n"
+        + json.dumps({"section": title, "payload": payload}, ensure_ascii=False)
+    )
+    try:
+        out = glm.send_message(prompt, max_tokens=260, thinking_type="disabled")
+    except Exception as exc:
+        _llm_note(section_key, exc)
+        return {"text": fallback, "llm_ok": False, "error": str(exc)}
+    text = _collapse_space(out)
+    if not text:
+        err = getattr(glm, "last_error", "") or "empty"
+        _llm_note(section_key, err)
+        return {"text": fallback, "llm_ok": False, "error": str(err)}
+    if len(text) > 200:
+        text = text[:200].rstrip()
+    return {"text": text, "llm_ok": True, "error": ""}
+
+
+def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
+    start, end = _date_range(report_date)
+    rows = (
+        WowArticle.objects.filter(is_active=True, publish_time__gte=start, publish_time__lt=end)
+        .exclude(source="nga")
+        .exclude(category="nga")
+        .exclude(category="video")
+        .exclude(source="bilibili")
+        .order_by("-publish_time", "-id")
+    )
+    items = [
+        {
+            "title": _collapse_space(a.title_cn or a.title) or "（无标题）",
+            "source": a.source or "unknown",
+            "category": a.category or "unknown",
+            "url": a.url or "",
+            "publish_time": a.publish_time,
+            "body": _article_text(a),
+        }
+        for a in rows
+    ]
+    return {"key": "news", "title": SECTION_TITLES["news"], "items": items}
+
+
+def collect_nga_section(report_date: datetime.date) -> Dict[str, Any]:
+    start, end = _date_range(report_date)
+    rows = (
+        WowArticle.objects.filter(is_active=True, source="nga", publish_time__gte=start, publish_time__lt=end)
+        .order_by("-reply_count", "-publish_time", "-id")[:2]
+    )
+    items = [
+        {
+            "title": _collapse_space(a.title_cn or a.title) or "（无标题）",
+            "reply_count": int(a.reply_count or 0),
+            "url": a.url or "",
+            "publish_time": a.publish_time,
+            "body": _article_text(a, max_chars=600),
+        }
+        for a in rows
+    ]
+    return {"key": "nga", "title": SECTION_TITLES["nga"], "items": items}
+
+
+def collect_video_section(report_date: datetime.date) -> Dict[str, Any]:
+    start, end = _date_range(report_date)
+    rows = (
+        PortalVideo.objects.filter(is_active=True, tag="wow", published_at__gte=start, published_at__lt=end)
+        .order_by("-published_at", "-id")
+    )
+    items = [
+        {
+            "title": _collapse_space(v.title) or "（无标题）",
+            "url": v.url or "",
+            "bvid": v.bvid or "",
+            "cover_url": v.cover_url or "",
+            "author_name": v.author_name or "",
+            "author_url": v.author_url or "",
+            "published_at": v.published_at,
+        }
+        for v in rows
+    ]
+    return {"key": "videos", "title": SECTION_TITLES["videos"], "items": items}
+
+
+def _latest_cutoff_season() -> str:
+    row = PortalMplusSeasonCutoff.objects.order_by("-updated_at", "-id").first()
+    return getattr(row, "season", "") or "unknown"
+
+
+def collect_cutoff_section(report_date: datetime.date, previous_ext: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    season = _latest_cutoff_season()
+    rows = list(
+        PortalMplusSeasonCutoff.objects.filter(season=season).order_by("region")
+        if season != "unknown"
+        else PortalMplusSeasonCutoff.objects.none()
+    )
+    previous_by_region = (((previous_ext or {}).get("cutoffs") or {}).get("by_region") or {})
+    items = []
+    for row in rows:
+        prev_snapshot = previous_by_region.get(row.region) or {}
+        cutoff_0_1_prev = row.cutoff_0_1_prev
+        cutoff_1_prev = row.cutoff_1_prev
+        if cutoff_0_1_prev is None:
+            cutoff_0_1_prev = prev_snapshot.get("cutoff_0_1")
+        if cutoff_1_prev is None:
+            cutoff_1_prev = prev_snapshot.get("cutoff_1")
+        items.append(
+            {
+                "season": row.season,
+                "region": row.region,
+                "region_label": REGION_LABELS.get(row.region, row.region.upper()),
+                "cutoff_0_1": row.cutoff_0_1,
+                "cutoff_0_1_prev": cutoff_0_1_prev,
+                "cutoff_0_1_delta": _fmt_delta(row.cutoff_0_1, cutoff_0_1_prev),
+                "cutoff_1": row.cutoff_1,
+                "cutoff_1_prev": cutoff_1_prev,
+                "cutoff_1_delta": _fmt_delta(row.cutoff_1, cutoff_1_prev),
+                "source_updated_at": _fmt_source_time(row.source_updated_at),
             }
-            delta_txt = ""
-            if d01 is not None or d1 is not None:
-                delta_txt = f"（较上次日报：0.1% {('+' if (d01 or 0) >= 0 else '')}{(round(d01, 2) if d01 is not None else '--')}，1% {('+' if (d1 or 0) >= 0 else '')}{(round(d1, 2) if d1 is not None else '--')}）"
-            parts.append(
-                f"{reg.upper()} 0.1%：{(round(float(c01), 2) if c01 is not None else '--')}，1%：{(round(float(c1), 2) if c1 is not None else '--')}{delta_txt}"
-            )
-        if parts:
-            intro_base = " | ".join(parts)
-            intro = ""
-            if use_llm:
-                intro = _glm_summarize_payload(
-                    payload={
-                        "type": "mplus_cutoff",
-                        "season": season,
-                        "regions": intro_base,
-                    }
-                )
-            if not intro:
-                intro = f"赛季：{season}。{intro_base}。用于快速判断 0.1%/1% 门槛是否上升或回落，辅助规划冲分节奏。"
-            cutoff_items.append(
-                {
-                    "title": f"大秘境分数线变动（{season}）",
-                    "url": f"https://raider.io/cn/mythic-plus/cutoffs/{season}/cn",
-                    "intro": intro,
-                }
-            )
-
-    run_latest = PortalMplusRun.objects.exclude(season__isnull=True).exclude(season="").order_by("-id").first()
-    run_items = []
-    run_snapshot = {}
-    if run_latest:
-        season = (getattr(run_latest, "season", "") or "").strip() or "unknown"
-        region = (getattr(run_latest, "region", "") or "").strip() or "world"
-        qs = PortalMplusRun.objects.filter(season=season, region=region, rank=1).exclude(dungeon_slug__isnull=True).exclude(dungeon_slug="")
-        slugs = list(qs.values_list("dungeon_slug", flat=True).distinct())
-        old = (((prev_ext.get("topruns") or {}) if isinstance(prev_ext, dict) else {}) or {}).get("by_dungeon") or {}
-        new_records = []
-        for slug in slugs:
-            row = qs.filter(dungeon_slug=slug).order_by("time_seconds", "-level", "-id").first()
-            if not row:
-                continue
-            cur = {
-                "time_seconds": int(getattr(row, "time_seconds", 0) or 0),
-                "level": int(getattr(row, "level", 0) or 0),
-                "run_url": (getattr(row, "run_url", "") or "").strip(),
-            }
-            run_snapshot[slug] = cur
-            old_row = old.get(slug) if isinstance(old, dict) else None
-            if not isinstance(old_row, dict):
-                continue
-            try:
-                if int(cur["time_seconds"] or 0) > 0 and int(old_row.get("time_seconds") or 0) > 0 and int(cur["time_seconds"]) < int(old_row.get("time_seconds")):
-                    new_records.append((slug, old_row, cur))
-            except Exception:
-                continue
-
-        if new_records:
-            new_records.sort(key=lambda x: x[2].get("time_seconds") or 0)
-            for slug, old_row, cur in new_records[:5]:
-                title = f"TopRuns 新纪录：{slug}"
-                dungeon_cn = cn_dungeon_from_slug(slug, slug)
-                title = f"TopRuns 新纪录：{dungeon_cn}"
-                url = cur.get("run_url") or f"https://raider.io/mythic-plus-runs/season-{season}"
-                intro = (
-                    f"该地下城出现新的最快限时记录：{_fmt_seconds(cur.get('time_seconds'))}（{cur.get('level')}层）。"
-                    f"上次日报记录为 {_fmt_seconds(old_row.get('time_seconds'))}。建议点开原链接核对队伍构成与路线细节。"
-                )
-                if use_llm:
-                    s = _glm_summarize_payload(
-                        payload={
-                            "type": "topruns_record",
-                            "dungeon_slug": slug,
-                            "dungeon_cn": dungeon_cn,
-                            "new_time": _fmt_seconds(cur.get("time_seconds")),
-                            "new_level": cur.get("level"),
-                            "old_time": _fmt_seconds(old_row.get("time_seconds")),
-                            "url": url,
-                        }
-                    )
-                    if s:
-                        intro = s
-                if not intro:
-                    intro = _topruns_record_fallback_intro(slug=slug, old_row=old_row, cur=cur, url=url)
-                run_items.append({"title": title, "url": url, "intro": intro})
-        else:
-            intro = (
-                "与上一份日报快照相比，未检测到更快的限时成绩出现。"
-                "若你在冲榜，可以继续关注各地下城的路线优化、阵容搭配与关键怪处理。"
-                "多数排名提升来自更稳定的拉怪节奏、更少的死亡与更高效的爆发窗口利用；也建议对照本周词缀与热门路线的细节变化来做微调。"
-            )
-            if use_llm:
-                s = _glm_summarize_payload(payload={"type": "topruns_no_change", "season": season})
-                if s:
-                    intro = s
-            run_items.append(
-                {
-                    "title": f"TopRuns 无新最快记录（{season}）",
-                    "url": "https://raider.io/mythic-plus-runs",
-                    "intro": intro,
-                    "pad": "更多细节可在链接中查看各地下城的榜单与队伍配置。",
-                }
-            )
-
-    peak_latest = PortalPeakSpecRankRow.objects.filter(is_active=True).order_by("-updated_at", "-id").first()
-    peak_items = []
-    peak_snapshot = {}
-    if peak_latest:
-        season = (getattr(peak_latest, "season", "") or "").strip() or "unknown"
-        region = (getattr(peak_latest, "region", "") or "").strip() or "world"
-        rows = list(
-            PortalPeakSpecRankRow.objects.filter(season=season, region=region, is_active=True)
-            .exclude(character_name="")
-            .order_by("class_slug", "spec_slug", "rank")
         )
-        old = (((prev_ext.get("peak") or {}) if isinstance(prev_ext, dict) else {}) or {}).get("rows") or {}
-        old_by_spec = {}
-        if isinstance(old, dict):
-            for k, v in old.items():
-                try:
-                    parts = str(k).split("|")
-                    if len(parts) != 3:
-                        continue
-                    cslug = (parts[0] or "").strip()
-                    sslug = (parts[1] or "").strip()
-                    rk = int(parts[2] or 0)
-                except Exception:
-                    continue
-                if not cslug or not sslug or rk not in (1, 2, 3):
-                    continue
-                spec_key = f"{cslug}|{sslug}"
-                old_by_spec.setdefault(spec_key, {})[rk] = (str(v or "")).strip()
+    return {"key": "cutoffs", "title": SECTION_TITLES["cutoffs"], "season": season, "items": items}
 
-        new_by_spec = {}
-        candidates = []
-        for r in rows:
-            try:
-                rk = int(getattr(r, "rank", 0) or 0)
-            except Exception:
-                rk = 0
-            if rk not in (1, 2, 3):
-                continue
-            cslug = (r.class_slug or "").strip()
-            sslug = (r.spec_slug or "").strip()
-            name = (getattr(r, "character_name", "") or "").strip()
-            if not cslug or not sslug or not name:
-                continue
-            key = f"{cslug}|{sslug}|{rk}"
-            peak_snapshot[key] = name
-            spec_key = f"{cslug}|{sslug}"
-            new_by_spec.setdefault(spec_key, {})[rk] = name
-            old_name = None
-            try:
-                old_name = old.get(key) if isinstance(old, dict) else None
-            except Exception:
-                old_name = None
-            if old_name and str(old_name).strip() != name:
-                candidates.append((spec_key, str(old_name).strip(), name, r, rk))
 
-        swap_only_specs = set()
-        for spec_key, new_map in new_by_spec.items():
-            old_map = old_by_spec.get(spec_key) or {}
-            old_set = {n for n in (old_map.values() or []) if (n or "").strip()}
-            new_set = {n for n in (new_map.values() or []) if (n or "").strip()}
-            if old_set and old_set == new_set:
-                swap_only_specs.add(spec_key)
+def _load_previous_ext(report_date: datetime.date) -> Dict[str, Any]:
+    row = WowDailyReport.objects.filter(report_date__lt=report_date).order_by("-report_date").first()
+    if not row or not row.ext_json:
+        return {}
+    try:
+        return json.loads(row.ext_json)
+    except Exception:
+        return {}
 
-        new_people = []
-        for spec_key, old_name, name, r, rk in candidates:
-            if spec_key in swap_only_specs:
-                continue
-            old_set = {n for n in ((old_by_spec.get(spec_key) or {}).values() or []) if (n or "").strip()}
-            if not old_set:
-                continue
-            if name in old_set:
-                continue
-            new_people.append((spec_key, old_name, name, r, rk))
 
-        if new_people:
-            for _spec_key, old_name, name, r, rk in new_people[:8]:
-                class_name = (r.class_name or r.class_slug)
-                spec_name = (r.spec_name or r.spec_slug)
-                cs = cn_class_spec(class_slug=r.class_slug, spec_slug=r.spec_slug, class_name=class_name, spec_name=spec_name)
-                title = f"巅峰榜新玩家：{cs}"
-                profile = (getattr(r, "character_path", "") or "").strip()
-                url = "https://raider.io" + (profile if profile.startswith("/") else f"/{profile}") if profile else "https://raider.io"
-                score = getattr(r, "score", None)
-                class_cn = cn_class_spec(class_slug=r.class_slug, spec_slug="", class_name=class_name, spec_name="") or class_name
-                spec_cn = cn_class_spec(class_slug=r.class_slug, spec_slug=r.spec_slug, class_name="", spec_name=spec_name)
-                intro = _peak_new_player_fallback_intro(
-                    class_name=class_cn,
-                    spec_name=spec_cn or spec_name,
-                    rank=rk,
-                    new_player=name,
-                    old_player=old_name,
-                    score=score,
-                )
-                if use_llm:
-                    old_map = old_by_spec.get(_spec_key) or {}
-                    new_map = new_by_spec.get(_spec_key) or {}
-                    old_top3 = [old_map.get(i) for i in (1, 2, 3)]
-                    new_top3 = [new_map.get(i) for i in (1, 2, 3)]
-                    s = _glm_summarize_payload(
-                        payload={
-                            "type": "peak_new_player",
-                            "season": season,
-                            "region": region,
-                            "class": class_cn,
-                            "spec": spec_cn or spec_name,
-                            "rank": int(rk or 0),
-                            "new_player": name,
-                            "old_player": old_name,
-                            "score": score,
-                            "old_top3": old_top3,
-                            "new_top3": new_top3,
-                            "url": url,
-                        }
-                    )
-                    if s:
-                        intro = s
-                peak_items.append({"title": title, "url": url, "intro": intro})
-        else:
-            intro = (
-                "与上一份日报快照相比，未检测到各专精 Top3 名单出现新的角色名。"
-                "如果你在追榜，建议重点对照当前分数、钥石路线与队伍配置的变化，观察是否出现适配本周词缀的主流打法迁移。"
-            )
-            if use_llm:
-                s = _glm_summarize_payload(payload={"type": "peak_no_change", "season": season})
-                if s:
-                    intro = s
-            peak_items.append({"title": f"巅峰榜未出现新玩家（{season}）", "url": "https://raider.io", "intro": intro})
+def _section_payload(section: Dict[str, Any]) -> Dict[str, Any]:
+    items = []
+    for item in section.get("items") or []:
+        clean = {}
+        for key, value in item.items():
+            if hasattr(value, "isoformat"):
+                clean[key] = value.isoformat()
+            else:
+                clean[key] = value
+        items.append(clean)
+    return {"key": section.get("key"), "title": section.get("title"), "items": items}
 
-    ms_latest = PortalMythicstatsDpsRow.objects.all().order_by("-updated_at", "-id").first()
-    ms_items = []
-    ms_snapshot = {}
-    if ms_latest:
-        season = (getattr(ms_latest, "season", "") or "").strip() or "unknown"
-        pid = (
-            PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=0, role="damage")
-            .aggregate(Max("period_id"))
-            .get("period_id__max")
+
+def _render_news_items(items: List[Dict[str, Any]]) -> str:
+    if not items:
+        return '<p class="empty">今日暂无相关新闻。</p>'
+    out = ['<div class="article-list">']
+    for item in items:
+        out.append('<article class="daily-card news-card">')
+        out.append(f'<h3><a href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">{_safe_html(item.get("title"))}</a></h3>')
+        out.append(
+            f'<div class="meta"><span>{_safe_html(item.get("source"))}</span><span>{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
         )
-        period_label = ""
-        if pid:
-            any_row = (
-                PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=0, role="damage", period_id=pid)
-                .order_by("rank")
-                .first()
-            )
-            period_label = (getattr(any_row, "period_label", "") or "").strip() if any_row else ""
-        rows = []
-        if pid:
-            rows = list(
-                PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=0, role="damage", period_id=pid)
-                .order_by("rank")[:10]
-            )
-        if rows:
-            top_names = [
-                cn_mythicstats_spec_display(getattr(r, "spec_slug", ""), getattr(r, "spec_name", ""))
-                for r in rows[:5]
-            ]
-            ms_snapshot = {"season": season, "period_id": int(pid or 0), "top10": [r.spec_slug for r in rows if r.spec_slug]}
-            summary = ""
-            if use_llm:
-                summary = _glm_summarize_payload(
-                    payload={
-                        "type": "mythicstats_dps",
-                        "season": season,
-                        "period": period_label or pid,
-                        "top5": [f"#{i+1} {n}" for i, n in enumerate(top_names[:5])],
-                    }
-                )
-            ms_items.append(
-                {
-                    "title": f"Mythicstats DPS 榜单通报（{period_label or pid}）",
-                    "url": "https://mythicstats.com/dps",
-                    "season": season,
-                    "period": str(period_label or pid),
-                    "top5": top_names[:5],
-                    "summary": summary,
-                }
-            )
+        body = item.get("body") or "（暂无正文片段）"
+        out.append(f'<p class="body-text">{_safe_html(body)}</p>')
+        out.append('</article>')
+    out.append('</div>')
+    return "\n".join(out)
 
-    ext = {
-        "generated_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S"),
-        "llm_enabled": bool(use_llm),
-        "llm_errors": list(_LLM_RUN_ERRORS) if _LLM_RUN_ERRORS else [],
-        "cutoffs": {"by_region": cutoff_snapshot},
-        "topruns": {"by_dungeon": run_snapshot},
-        "peak": {"rows": peak_snapshot},
-        "mythicstats": ms_snapshot,
+
+def _render_nga_items(items: List[Dict[str, Any]]) -> str:
+    if not items:
+        return '<p class="empty">今日暂无 NGA 热议记录。</p>'
+    out = ['<div class="article-list">']
+    for item in items:
+        out.append('<article class="daily-card nga-card">')
+        out.append(f'<h3><a href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">{_safe_html(item.get("title"))}</a></h3>')
+        out.append(
+            f'<div class="meta"><span>回复 {_safe_html(item.get("reply_count"))}</span><span>{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
+        )
+        out.append(f'<p class="body-text">{_safe_html(item.get("body") or "（暂无正文片段）")}</p>')
+        out.append('</article>')
+    out.append('</div>')
+    return "\n".join(out)
+
+
+def _render_video_items(items: List[Dict[str, Any]]) -> str:
+    if not items:
+        return '<p class="empty">今日暂无新视频。</p>'
+    out = ['<div class="video-grid">']
+    for item in items:
+        out.append('<article class="daily-card video-card">')
+        cover = item.get("cover_url") or ""
+        if cover:
+            out.append(f'<a href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener"><img src="{_safe_html(cover)}" alt="{_safe_html(item.get("title"))}"></a>')
+        out.append(f'<h3><a href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">{_safe_html(item.get("title"))}</a></h3>')
+        author_url = item.get("author_url") or ""
+        author = _safe_html(item.get("author_name") or "未知 UP")
+        if author_url:
+            author_html = f'<a href="{_safe_html(author_url)}" target="_blank" rel="noopener">{author}</a>'
+        else:
+            author_html = author
+        out.append(f'<div class="meta"><span>{author_html}</span><span>{_safe_html(_fmt_dt(item.get("published_at")))}</span></div>')
+        out.append('</article>')
+    out.append('</div>')
+    return "\n".join(out)
+
+
+def _render_cutoff_items(items: List[Dict[str, Any]]) -> str:
+    if not items:
+        return '<p class="empty">今日暂无大秘境分数线数据。</p>'
+    rows = [
+        "<table>",
+        "<thead><tr><th>区域</th><th>0.1%</th><th>上次 0.1%</th><th>变化</th><th>1%</th><th>上次 1%</th><th>变化</th><th>数据更新时间</th></tr></thead>",
+        "<tbody>",
+    ]
+    for item in items:
+        rows.append(
+            "<tr>"
+            f"<td>{_safe_html(item.get('region_label'))}</td>"
+            f"<td>{_safe_html(_fmt_num(item.get('cutoff_0_1')))}</td>"
+            f"<td>{_safe_html(_fmt_num(item.get('cutoff_0_1_prev')))}</td>"
+            f"<td class=\"delta\">{_safe_html(item.get('cutoff_0_1_delta'))}</td>"
+            f"<td>{_safe_html(_fmt_num(item.get('cutoff_1')))}</td>"
+            f"<td>{_safe_html(_fmt_num(item.get('cutoff_1_prev')))}</td>"
+            f"<td class=\"delta\">{_safe_html(item.get('cutoff_1_delta'))}</td>"
+            f"<td>{_safe_html(item.get('source_updated_at'))}</td>"
+            "</tr>"
+        )
+    rows.append("</tbody></table>")
+    return "\n".join(rows)
+
+
+def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]) -> str:
+    generated_at = timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S")
+    section_html = []
+    body_renderers = {
+        "news": _render_news_items,
+        "nga": _render_nga_items,
+        "videos": _render_video_items,
+        "cutoffs": _render_cutoff_items,
     }
+    for section in sections:
+        key = section["key"]
+        renderer = body_renderers[key]
+        section_html.append(
+            "\n".join(
+                [
+                    f'<section class="daily-section daily-{_safe_html(key)}">',
+                    f'<h2>{_safe_html(section["title"])}</h2>',
+                    f'<p class="section-summary">{_safe_html(section.get("summary") or "")}</p>',
+                    '<div class="section-body">',
+                    renderer(section.get("items") or []),
+                    "</div>",
+                    "</section>",
+                ]
+            )
+        )
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>魔兽世界日报 - {_safe_html(report_date.strftime('%Y-%m-%d'))}</title>
+  <style>
+    :root {{ color-scheme: dark; --bg:#0b1020; --card:#151b2f; --muted:#9aa7bd; --text:#e7ecf6; --accent:#f7b955; --line:rgba(255,255,255,.1); }}
+    * {{ box-sizing:border-box; }}
+    body {{ margin:0; background:linear-gradient(180deg,#0b1020,#111827); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.7; }}
+    a {{ color:#8fc7ff; text-decoration:none; }}
+    a:hover {{ text-decoration:underline; }}
+    .daily-report {{ max-width:1180px; margin:0 auto; padding:28px 20px 48px; }}
+    .daily-hero {{ padding:26px 28px; border:1px solid var(--line); border-radius:18px; background:rgba(21,27,47,.86); box-shadow:0 20px 50px rgba(0,0,0,.22); }}
+    .daily-hero h1 {{ margin:0 0 6px; font-size:30px; }}
+    .daily-hero p,.meta {{ color:var(--muted); margin:0; }}
+    .daily-section {{ margin-top:22px; padding:22px; border:1px solid var(--line); border-radius:18px; background:rgba(21,27,47,.72); }}
+    .daily-section h2 {{ margin:0 0 10px; color:var(--accent); font-size:22px; }}
+    .section-summary {{ margin:0 0 18px; padding:12px 14px; border-left:4px solid var(--accent); background:rgba(247,185,85,.08); border-radius:10px; }}
+    .article-list {{ display:grid; grid-template-columns:1fr; gap:14px; }}
+    .daily-card {{ border:1px solid var(--line); background:rgba(255,255,255,.04); border-radius:14px; padding:16px; }}
+    .daily-card h3 {{ margin:0 0 8px; font-size:18px; }}
+    .meta {{ display:flex; gap:12px; flex-wrap:wrap; font-size:13px; margin-bottom:8px; }}
+    .body-text {{ margin:8px 0 0; color:#d7deea; }}
+    .video-grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }}
+    .video-card img {{ width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:12px; margin-bottom:10px; background:#000; }}
+    table {{ width:100%; border-collapse:collapse; overflow:hidden; border-radius:12px; }}
+    th,td {{ border-bottom:1px solid var(--line); padding:10px 12px; text-align:left; }}
+    th {{ color:#fff; background:rgba(255,255,255,.07); }}
+    .delta {{ font-weight:700; color:#f7d48a; }}
+    .empty {{ color:var(--muted); margin:0; }}
+  </style>
+</head>
+<body>
+  <main class="daily-report">
+    <header class="daily-hero">
+      <h1>魔兽世界日报</h1>
+      <p>{_safe_html(report_date.strftime('%Y-%m-%d'))} · 生成时间 {_safe_html(generated_at)}</p>
+    </header>
+    {' '.join(section_html)}
+  </main>
+</body>
+</html>
+"""
 
-    md_parts = []
-    md_parts.append(f"# 魔兽世界日报（{report_date.strftime('%Y-%m-%d')}）")
-    md_parts.append("")
-    md_parts.append(f"- 更新时间：{timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S')}")
-    md_parts.append("")
-    md_parts.append(_render_news_section("魔兽世界新闻", news_items))
-    md_parts.append(_render_section("NGA 热议追踪", nga_items))
-    md_parts.append(_render_section("魔兽世界更新数据挖掘", wago_items))
-    md_parts.append(_render_cutoff_section(title="大秘境分数线变动", items=cutoff_items, snapshot=cutoff_table_snapshot))
-    md_parts.append(_render_section("大秘境 TopRuns 新最快记录", run_items))
-    md_parts.append(_render_section("大秘境巅峰榜新玩家", peak_items))
-    md_parts.append(_render_mythicstats_section(title="Mythicstats DPS 榜单通报", items=ms_items))
 
-    md_content = "\n".join(md_parts).rstrip() + "\n"
-
-    rel_path = f"portal/reports/wow_daily_report_{report_date.strftime('%Y-%m-%d')}.md"
+def _static_report_path(report_date: datetime.date):
+    rel_path = f"portal/reports/wow_daily_report_{report_date.strftime('%Y-%m-%d')}.html"
     base_dir = str(getattr(settings, "BASE_DIR", "") or "")
     static_dir = os.path.join(base_dir, "static") if base_dir else os.path.join(os.getcwd(), "static")
     full_path = os.path.join(static_dir, rel_path)
+    return rel_path, full_path
+
+
+def generate_wow_daily_report(*, report_date=None, use_llm=True):
+    _LLM_RUN_ERRORS.clear()
+    if report_date is None:
+        report_date = timezone.localdate()
+    if isinstance(report_date, str):
+        report_date = datetime.date.fromisoformat(report_date)
+
+    previous_ext = _load_previous_ext(report_date)
+    sections = [
+        collect_news_section(report_date),
+        collect_nga_section(report_date),
+        collect_video_section(report_date),
+        collect_cutoff_section(report_date, previous_ext=previous_ext),
+    ]
+
+    ext_sections: Dict[str, Any] = {}
+    cutoff_snapshot: Dict[str, Any] = {}
+    for section in sections:
+        key = section["key"]
+        fallback = _section_fallback_summary(key, section.get("items") or [])
+        payload = _section_payload(section)
+        summary_result = _summarize_section(key, section["title"], payload, fallback, use_llm=use_llm)
+        section["summary"] = summary_result["text"]
+        ext_sections[key] = {
+            "title": section["title"],
+            "count": len(section.get("items") or []),
+            "summary_llm_ok": bool(summary_result.get("llm_ok")),
+            "summary_error": summary_result.get("error") or "",
+        }
+        if key == "cutoffs":
+            for item in section.get("items") or []:
+                cutoff_snapshot[item["region"]] = {
+                    "season": item.get("season"),
+                    "cutoff_0_1": item.get("cutoff_0_1"),
+                    "cutoff_1": item.get("cutoff_1"),
+                    "source_updated_at": item.get("source_updated_at"),
+                }
+
+    html_content = render_daily_html(report_date, sections)
+    rel_path, full_path = _static_report_path(report_date)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     with open(full_path, "w", encoding="utf-8") as f:
-        f.write(md_content)
+        f.write(html_content)
 
+    ext = {
+        "format": "html",
+        "generated_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S"),
+        "llm_enabled": bool(use_llm),
+        "llm_errors": list(_LLM_RUN_ERRORS),
+        "sections": ext_sections,
+        "cutoffs": {"by_region": cutoff_snapshot},
+    }
     WowDailyReport.objects.update_or_create(
         report_date=report_date,
-        defaults={
-            "md_path": rel_path,
-            "ext_json": json.dumps(ext, ensure_ascii=False),
-        },
+        defaults={"md_path": rel_path, "ext_json": json.dumps(ext, ensure_ascii=False)},
     )
-
     return {"md_path": rel_path, "full_path": full_path, "ext": ext}

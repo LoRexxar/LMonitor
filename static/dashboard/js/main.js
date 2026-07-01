@@ -972,7 +972,8 @@ async function previewWowDailyReport({ id, date }) {
         wowDailyReportState.selectedDate = payload.report_date || (date || '');
         wowDailyReportState.selectedId = payload.id || id || null;
         wowDailyReportState.rawMd = payload.content || '';
-        renderWowDailyReportPreview(wowDailyReportState.selectedDate, wowDailyReportState.rawMd);
+        wowDailyReportState.format = payload.format || (String(payload.md_path || '').toLowerCase().endsWith('.html') ? 'html' : 'markdown');
+        renderWowDailyReportPreview(wowDailyReportState.selectedDate, wowDailyReportState.rawMd, wowDailyReportState.format);
         setWowDailyReportActions(true);
         if (hintEl) hintEl.textContent = payload.updated_at ? `更新时间：${payload.updated_at}` : '';
     } catch (e) {
@@ -982,22 +983,32 @@ async function previewWowDailyReport({ id, date }) {
     }
 }
 
-function renderWowDailyReportPreview(date, md) {
+function renderWowDailyReportPreview(date, content, format) {
     const previewEl = document.getElementById('wow-daily-report-preview');
     const rawEl = document.getElementById('wow-daily-report-raw');
-    if (rawEl) rawEl.value = md || '';
+    if (rawEl) rawEl.value = content || '';
     if (!previewEl) return;
-    if (!md) {
+    if (!content) {
         previewEl.innerHTML = '<div class="text-sm text-gray-500">请选择一条日报进行预览</div>';
+        return;
+    }
+    if (format === 'html') {
+        previewEl.innerHTML = '';
+        const iframe = document.createElement('iframe');
+        iframe.className = 'wow-daily-report-frame';
+        iframe.setAttribute('title', `WoW 日报预览 ${date || ''}`);
+        iframe.setAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox');
+        iframe.srcdoc = content;
+        previewEl.appendChild(iframe);
         return;
     }
     try {
         if (window.marked && typeof window.marked.parse === 'function') {
-            previewEl.innerHTML = window.marked.parse(md);
+            previewEl.innerHTML = window.marked.parse(content);
             return;
         }
     } catch (e) {}
-    previewEl.innerHTML = renderSimpleMarkdown(md);
+    previewEl.innerHTML = renderSimpleMarkdown(content);
 }
 
 function setWowDailyReportActions(enabled) {
