@@ -2308,7 +2308,10 @@ class WagoSkillDiffMonitor(BaseScan):
         if not hotfix_rows:
             return None
 
-        # build number 取众数（理论上同一次 hotfix 推送应在同一个 build）
+        # build number 取众数（理论上同一次 hotfix 推送应在同一个 build）。
+        # 注意：Wago hotfix 列表里的 build 常是短号（如 68275），但 DB2 页面查询
+        # 需要完整 build 字符串（如 12.0.7.68367）。报告展示保留短号，DB2 enrich
+        # 优先用 current_build，避免查 /db2/...?...build=68275 导致字段展开为空。
         build_counts = {}
         for r in hotfix_rows:
             b = str((r or {}).get('build') or '').strip()
@@ -2318,6 +2321,7 @@ class WagoSkillDiffMonitor(BaseScan):
         build_num = ''
         if build_counts:
             build_num = sorted(build_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
+        db2_build = str(current_build or '').strip() or build_num
 
         # group by table
         by_table = {}
@@ -2401,7 +2405,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     try:
                         if locale and old_locale is not None:
                             self.locale = locale
-                        db2_row = self._fetch_db2_row_by_id(t, build_num, rid)
+                        db2_row = self._fetch_db2_row_by_id(t, db2_build, rid)
                         brief = _pretty_row_brief(db2_row)
                         enrich_left -= 1
                     except Exception:
@@ -2425,6 +2429,7 @@ class WagoSkillDiffMonitor(BaseScan):
             summary_title=summary_title,
             wago_url=wago_url,
             build_num=build_num or current_build,
+            db2_build=db2_build,
             from_push=int(from_push or 0),
             table_stats=table_stats,
             by_table=by_table,
@@ -2464,6 +2469,7 @@ class WagoSkillDiffMonitor(BaseScan):
         by_table: dict,
         sample_per_table: int,
         enrich_max: int,
+        db2_build: str = '',
     ):
         """
         生成 Hotfix 全量静态 HTML 报告（不依赖前端/Portal）。
@@ -2480,6 +2486,7 @@ class WagoSkillDiffMonitor(BaseScan):
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
         build_num = str(build_num or '').strip()
+        db2_build = str(db2_build or '').strip() or build_num
         table_stats = list(table_stats or [])
         by_table = by_table or {}
         entry_count = sum(int(c or 0) for _, c in table_stats)
@@ -2593,14 +2600,14 @@ class WagoSkillDiffMonitor(BaseScan):
             key = (norm_table(table_name), int(record_id or 0))
             if key in row_cache:
                 return row_cache[key]
-            if enrich_left <= 0 or not build_num or key[1] <= 0:
+            if enrich_left <= 0 or not db2_build or key[1] <= 0:
                 row_cache[key] = None
                 return None
             old_locale = getattr(self, 'locale', None)
             try:
                 if locale and old_locale is not None:
                     self.locale = locale
-                row = self._fetch_db2_row_by_id(key[0], build_num, key[1])
+                row = self._fetch_db2_row_by_id(key[0], db2_build, key[1])
             except Exception:
                 row = None
             finally:
@@ -2636,7 +2643,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 name = str(row.get('Name_lang') or row.get('Name') or '').strip()
             if not name:
                 try:
-                    fetched = self._fetch_spell_names_concurrent(build_num, [spell_id]) if build_num else {}
+                    fetched = self._fetch_spell_names_concurrent(db2_build, [spell_id]) if db2_build else {}
                     name = str((fetched or {}).get(spell_id) or '').strip()
                 except Exception:
                     name = ''
@@ -2790,9 +2797,9 @@ class WagoSkillDiffMonitor(BaseScan):
         object_graph = None
         try:
             object_graph = WagoDB2GraphService(
-                build=build_num,
+                build=db2_build,
                 locale=locale,
-                client=WagoDB2Client(build=build_num, locale=locale, provider=self),
+                client=WagoDB2Client(build=db2_build, locale=locale, provider=self),
                 max_enrich=max(0, int(enrich_max or 0)),
             ).resolve_hotfix_rows(hotfix_sample_rows)
         except Exception:

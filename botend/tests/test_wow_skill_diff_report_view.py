@@ -308,6 +308,50 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('查看 2 条 DB2 记录', html)
         self.assertNotIn('<summary><b>SpellEffect</b>（2）</summary><ul><li><code>777</code></li>', html)
 
+    def test_hotfix_full_report_uses_current_build_for_db2_enrichment(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'enUS'
+
+        pages = {
+            1: [
+                {
+                    'push_id': 109522,
+                    'locale': 'enUS',
+                    'table_name': 'SpellEffect',
+                    'record_id': 267,
+                    'build': '68275',
+                },
+            ],
+            2: [],
+        }
+
+        def fake_fetch_page(build_num='', page=1, *, search=''):
+            return pages.get(page, [])
+
+        def fake_write_html(**kwargs):
+            self.assertEqual(kwargs['build_num'], '68275')
+            self.assertEqual(kwargs['db2_build'], '12.0.7.68367')
+            return str(self.base_dir / 'static' / 'portal' / 'reports' / 'hotfix.html'), 'portal/reports/hotfix.html'
+
+        def fake_fetch_db2_row(table, build, record_id):
+            self.assertEqual(build, '12.0.7.68367')
+            return {'ID': record_id, 'SpellID': 686, 'Name_lang': 'Shadow Bolt'}
+
+        monitor._fetch_hotfix_page_data = fake_fetch_page
+        monitor._write_hotfix_full_html = fake_write_html
+        monitor._fetch_db2_row_by_id = fake_fetch_db2_row
+
+        with override_settings(
+            BASE_DIR=str(self.base_dir),
+            WAGO_HOTFIX_MAX_PAGES=2,
+            WAGO_HOTFIX_REPORT_ENRICH_MAX=5,
+        ):
+            result = monitor._generate_hotfix_full_report('wow', '12.0.7.68367', 109506, 109522, locale='enUS')
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['build_num'], '68275')
+        self.assertEqual(result['build_str'], '12.0.7.68367')
+
     def test_hotfix_full_html_includes_object_graph_view(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         monitor.locale = 'zhCN'
