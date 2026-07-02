@@ -70,7 +70,16 @@ class PortalWowSkillDiffReportViewTests(SimpleTestCase):
         self.assertNotIn('marked.min.js', html)
         self.assertNotIn('<iframe', html)
 
-    def test_existing_html_report_uses_iframe(self):
+    def test_existing_html_report_embeds_report_body_without_iframe(self):
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        base_dir = Path(tmpdir.name)
+        report_dir = base_dir / 'static' / 'portal' / 'reports'
+        report_dir.mkdir(parents=True)
+        (report_dir / 'wow_skill_diff_wowt_enUS_12_0_5_67235.html').write_text(
+            '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><h1>PTR(测试服) 职业技能变更报告</h1><div class="spell">ok</div></body></html>',
+            encoding='utf-8',
+        )
         report = SimpleNamespace(
             id=2,
             branch='wowt',
@@ -86,11 +95,14 @@ class PortalWowSkillDiffReportViewTests(SimpleTestCase):
             created_at=None,
         )
 
-        response = self._get(report)
+        with override_settings(BASE_DIR=str(base_dir)):
+            response = self._get(report)
 
         self.assertEqual(response.status_code, 200)
         html = response.content.decode('utf-8')
-        self.assertIn('<iframe', html)
+        self.assertIn('wow-skill-diff-embedded-html', html)
+        self.assertIn('PTR(测试服) 职业技能变更报告', html)
+        self.assertNotIn('<iframe', html)
         self.assertNotIn('HTML 报告文件不存在', html)
 
     def test_inline_html_summary_escapes_report_values(self):
@@ -208,6 +220,66 @@ class PortalWowSkillDiffReportViewTests(SimpleTestCase):
         self.assertNotIn("<span class='diff-old'>技能杂项 施法时间索引：</span>", html)
         self.assertIn("<span class='diff-old empty'>空</span>", html)
         self.assertIn("<span class='diff-new'>1</span>", html)
+
+
+class WagoSkillDiffHtmlReportTests(SimpleTestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.base_dir = Path(self.tmpdir.name)
+
+    def test_html_report_repairs_utf8_mojibake_names(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'enUS'
+        monitor.name_locale = 'zhCN'
+        mojibake_name = '知识宝典'.encode('utf-8').decode('latin1')
+        monitor._fetch_spell_names_concurrent = lambda build, spell_ids, locale_override=None: {473909: mojibake_name}
+        monitor._ensure_spell_names_zh = lambda branch, build, spell_ids: {473909: mojibake_name}
+        monitor._load_chr_classes = lambda build, locale_override=None: {11: '德鲁伊'}
+        monitor._load_chr_specialization_meta = lambda build, locale_override=None: {0: {'name': '通用', 'class_id': 11}}
+        monitor._render_spell_primary_description = lambda *args, **kwargs: ''
+        monitor._render_spell_text_plain = lambda build, spell_id, text: (str(text or ''), [])
+        monitor._filter_diff_fields = lambda _tkey, fields: fields
+
+        class _EmptyValues:
+            def exclude(self, **kwargs):
+                return self
+            def values(self, *args):
+                return []
+        class _EmptySnapshotManager:
+            def filter(self, **kwargs):
+                return _EmptyValues()
+
+        spell_changes = {
+            473909: {
+                'diffs': {
+                    'spellname': [
+                        {'id': 473909, 'action': 'changed', 'fields': [{'field': 'Name_lang', 'before': mojibake_name, 'after': mojibake_name}]},
+                    ]
+                }
+            }
+        }
+
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects', _EmptySnapshotManager()):
+                meta = monitor._write_html_report(
+                    branch='wowt',
+                    server_title='PTR(测试服)',
+                    from_build='12.1.0.68301',
+                    to_build='12.1.0.68412',
+                    display_from_build='',
+                    display_to_build='',
+                    class_names={11: 'Druid'},
+                    spec_meta={0: {'name': 'General', 'class_id': 11}},
+                    spell_to_specs={473909: {0}},
+                    spec_to_class={0: 11},
+                    spell_changes=spell_changes,
+                    data_build='12.1.0.68412',
+                )
+
+        html = (self.base_dir / 'static' / meta['path']).read_text(encoding='utf-8')
+        self.assertIn('知识宝典', html)
+        self.assertNotIn('çŸ¥è¯†å¤æ', html)
 
 
 class WagoHotfixFullHtmlReportTests(SimpleTestCase):

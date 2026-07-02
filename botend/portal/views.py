@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path, PurePosixPath
 
 from django.conf import settings
@@ -103,6 +104,14 @@ class PortalWowHotfixReportView(View):
         except Exception:
             return HttpResponse('Not Found', status=404)
 
+def _extract_portal_report_embedded_html(html_text):
+    """Extract style/body content from a generated standalone report for safe inline display."""
+    text = str(html_text or '')
+    styles = '\n'.join(re.findall(r'<style\b[^>]*>.*?</style>', text, flags=re.I | re.S))
+    body_match = re.search(r'<body\b[^>]*>(.*?)</body>', text, flags=re.I | re.S)
+    body = body_match.group(1) if body_match else text
+    return f"{styles}\n{body}".strip()
+
 
 class PortalWowSkillDiffReportView(View):
     def get(self, request, report_id):
@@ -141,6 +150,14 @@ class PortalWowSkillDiffReportView(View):
             title = f"{server_title}：{summary}（{from_build} → {to_build}）".strip()
         else:
             title = f"{server_title} 职业技能变更报告：{from_build} → {to_build}".strip()
+        embedded_html = ''
+        if html_exists:
+            try:
+                full_html_path = _resolve_portal_report_html_path(html_path)
+                embedded_html = _extract_portal_report_embedded_html(full_html_path.read_text(encoding='utf-8')) if full_html_path else ''
+            except Exception:
+                embedded_html = ''
+                html_exists = False
         fallback_html = ''
         if not html_exists:
             fallback_html = build_wow_skill_diff_fallback_html(row, page_title=title, server_title=server_title)
@@ -149,6 +166,7 @@ class PortalWowSkillDiffReportView(View):
             'page_title': title,
             'server_title': server_title,
             'html_exists': html_exists,
+            'embedded_html': embedded_html,
             'fallback_html': fallback_html,
             'report_file_url': portal_report_url(html_path),
         })

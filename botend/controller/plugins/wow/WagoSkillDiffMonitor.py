@@ -80,6 +80,53 @@ class WagoSkillDiffMonitor(BaseScan):
             'traittree',
         }
 
+    @staticmethod
+    def _repair_utf8_mojibake_text(value):
+        """Repair UTF-8 text that was decoded as cp1252/latin1 before rendering reports."""
+        if not isinstance(value, str) or not value:
+            return value
+        # Keep normal English/Chinese text untouched.  These characters are common in
+        # UTF-8 mojibake produced from Chinese names (e.g. çŸ¥è¯†å¤æ -> 知识宝典).
+        if not re.search(r'[\x80-\x9fÃÂâäåçèéêëìíîïðñòóôõöùúûüýÿŸœŽŠš€™“”]', value):
+            return value
+        candidates = []
+        for enc in ('cp1252', 'latin1'):
+            try:
+                repaired = value.encode(enc).decode('utf-8')
+            except Exception:
+                continue
+            candidates.append(repaired)
+        if not candidates:
+            for enc in ('cp1252', 'latin1'):
+                try:
+                    repaired = value.encode(enc, errors='ignore').decode('utf-8', errors='ignore')
+                except Exception:
+                    continue
+                if repaired:
+                    candidates.append(repaired)
+        if not candidates:
+            return value
+
+        def score(text):
+            cjk = sum(1 for ch in text if '\u4e00' <= ch <= '\u9fff')
+            mojibake = len(re.findall(r'[\x80-\x9fÃÂâäåçèéêëìíîïðñòóôõöùúûüýÿŸœŽŠš€™“”]', text))
+            return (cjk * 8) - (mojibake * 3) + len(text)
+
+        best = max(candidates, key=score)
+        return best if score(best) > score(value) else value
+
+    @classmethod
+    def _repair_utf8_mojibake_obj(cls, value):
+        if isinstance(value, str):
+            return cls._repair_utf8_mojibake_text(value)
+        if isinstance(value, list):
+            return [cls._repair_utf8_mojibake_obj(v) for v in value]
+        if isinstance(value, tuple):
+            return tuple(cls._repair_utf8_mojibake_obj(v) for v in value)
+        if isinstance(value, dict):
+            return {k: cls._repair_utf8_mojibake_obj(v) for k, v in value.items()}
+        return value
+
     def _mark_event(self, event, **fields):
         if not event:
             return
@@ -4865,6 +4912,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
         name_cache = {}
+        spell_changes = self._repair_utf8_mojibake_obj(spell_changes or {})
         spell_ids = sorted(set(int(x) for x in spell_changes.keys()))
         snap_names = {
             int(r['spell_id']): (r.get('name') or '')
@@ -4875,12 +4923,13 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         name_cache.update(snap_names)
         missing = [sid for sid in spell_ids if not (name_cache.get(sid) or '').strip()]
         if missing:
-            fetched = self._fetch_spell_names_concurrent(data_build, missing)
+            fetched = self._repair_utf8_mojibake_obj(self._fetch_spell_names_concurrent(data_build, missing))
             name_cache.update(fetched)
 
-        zh_name_cache = self._ensure_spell_names_zh(branch, data_build, spell_ids)
-        zh_class_names = self._load_chr_classes(data_build, locale_override=self.name_locale)
-        zh_spec_meta = self._load_chr_specialization_meta(data_build, locale_override=self.name_locale)
+        name_cache = self._repair_utf8_mojibake_obj(name_cache)
+        zh_name_cache = self._repair_utf8_mojibake_obj(self._ensure_spell_names_zh(branch, data_build, spell_ids))
+        zh_class_names = self._repair_utf8_mojibake_obj(self._load_chr_classes(data_build, locale_override=self.name_locale))
+        zh_spec_meta = self._repair_utf8_mojibake_obj(self._load_chr_specialization_meta(data_build, locale_override=self.name_locale))
         display_class_names = dict(class_names or {})
         for cid, nm in (zh_class_names or {}).items():
             if (nm or '').strip():
