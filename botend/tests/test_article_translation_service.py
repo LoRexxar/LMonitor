@@ -310,6 +310,26 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn('href="https://bnetcmsus-a.akamaihd.net/cms/content_entry_media/ay/IMAGE.png"', html_result)
         self.assertNotIn('<a href="https://www.wowhead.com/item=1"></a>', html_result)
 
+    def test_extract_wowhead_article_restores_screenshot_markup_from_script(self):
+        html = r'''
+        <script>WH.Gatherer.addData(91, 1, {"1290351":{"id":1290351,"imageType":3,"width":1024,"height":768},"1290356":{"id":1290356,"imageType":2,"width":1280,"height":720}});</script>
+        <div class="news-post news-post-style-full" id="news-post-382066">
+          <div class="news-post-content text">
+            Raid maps for The Venomous Abyss have been updated on the Patch 12.1 PTR.
+          </div>
+        </div>
+        <script>WH.markup.printHtml("Raid maps for The Venomous Abyss have been updated on the Patch 12.1 PTR.\r\n\r\n[center][screenshot id=1290351 width=800 size=normal alt=\"The Venomous Abyss raid map\"][\/screenshot][\/center]\r\n\r\n[screenshot id=1290356 width=400 size=normal alt=\"Second map\"][\/screenshot]");</script>
+        '''
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/382066", source="wowhead")
+        html_result = blocks[0]["html"]
+
+        self.assertIn('src="https://wow.zamimg.com/uploads/screenshots/normal/1290351.png"', html_result)
+        self.assertIn('href="https://wow.zamimg.com/uploads/screenshots/normal/1290351.png"', html_result)
+        self.assertIn('alt="The Venomous Abyss raid map"', html_result)
+        self.assertIn('src="https://wow.zamimg.com/uploads/screenshots/normal/1290356.jpg"', html_result)
+        self.assertIn("Raid maps for The Venomous Abyss", blocks_to_plain_text(blocks))
+
     def test_extract_wowhead_article_restores_spell_table_cells_from_markup_script(self):
         html = r'''
         <div id="news-post"><div class="text">

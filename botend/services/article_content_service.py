@@ -118,6 +118,7 @@ def extract_structured_article(html_text: str, *, base_url: str = "", source: st
         return []
     soup = BeautifulSoup(html_text, "html.parser")
     if source == "wowhead":
+        _restore_wowhead_markup_screenshots(soup, base_url=base_url)
         _restore_wowhead_markup_spell_table_cells(soup, base_url=base_url)
         _restore_wowhead_markup_diff_marks(soup)
     for tag in soup(["script", "style", "nav", "header", "footer", "aside", "iframe", "form"]):
@@ -315,6 +316,95 @@ def _restore_empty_image_links(root, *, base_url: str):
             link.append(img)
         else:
             link.decompose()
+
+
+def _restore_wowhead_markup_screenshots(soup, *, base_url: str):
+    """Restore Wowhead ``[screenshot id=...]`` BBCode into visible images.
+
+    Some Wowhead articles keep screenshots only in ``WH.markup.printHtml`` markup.
+    The rendered ``.news-post-content`` fallback may contain only text, so removing
+    scripts without first materializing screenshots makes Portal articles lose all
+    images.  Build the canonical Wowhead screenshot URL and insert the images near
+    matching text positions before scripts are stripped.
+    """
+    if not BeautifulSoup:
+        return
+    screenshot_extensions = _wowhead_screenshot_extensions_by_id(soup)
+    screenshots = []
+    seen = set()
+    for script in soup.find_all("script"):
+        text = script.string or script.get_text("", strip=False) or ""
+        if "WH.markup.printHtml" not in text or "[screenshot" not in text:
+            continue
+        decoded = _decode_wowhead_markup_string(text)
+        for match in re.finditer(r"\[screenshot\b([^\]]*)\](?:\[/screenshot\])?", decoded, re.I):
+            attrs = match.group(1) or ""
+            id_match = re.search(r"\bid\s*=\s*([0-9]+)", attrs, re.I)
+            if not id_match:
+                continue
+            screenshot_id = id_match.group(1)
+            if screenshot_id in seen:
+                continue
+            seen.add(screenshot_id)
+            alt_match = re.search(r"\balt\s*=\s*\"(.*?)\"", attrs, re.I | re.S)
+            width_match = re.search(r"\bwidth\s*=\s*([0-9]+)", attrs, re.I)
+            screenshots.append({
+                "id": screenshot_id,
+                "alt": _decode_wowhead_markup_string(alt_match.group(1) if alt_match else ""),
+                "width": width_match.group(1) if width_match else "",
+                "ext": screenshot_extensions.get(screenshot_id, "png"),
+            })
+    if not screenshots:
+        return
+
+    root = _select_article_root(soup, source="wowhead") or soup
+    factory = BeautifulSoup("", "html.parser")
+    first_text_node = None
+    for text_node in root.find_all(string=True):
+        parent = getattr(text_node, "parent", None)
+        if any(getattr(ancestor, "name", None) in {"script", "style"} for ancestor in getattr(text_node, "parents", [])):
+            continue
+        if _clean_inline_text(str(text_node)):
+            first_text_node = text_node
+            break
+
+    previous = None
+    for item in screenshots:
+        image_url = "https://wow.zamimg.com/uploads/screenshots/normal/{}.{}".format(item["id"], item.get("ext") or "png")
+        link = factory.new_tag("a", href=image_url)
+        link["class"] = "article-image-link"
+        img = factory.new_tag("img", src=image_url)
+        if item.get("alt"):
+            img["alt"] = item["alt"]
+            link["title"] = item["alt"]
+        if item.get("width"):
+            img["width"] = item["width"]
+        link.append(img)
+        wrapper = factory.new_tag("div")
+        wrapper["class"] = "wowhead-screenshot"
+        wrapper.append(link)
+        if previous is not None:
+            previous.insert_after(wrapper)
+        elif first_text_node is not None:
+            first_text_node.insert_after(wrapper)
+        else:
+            root.append(wrapper)
+        previous = wrapper
+
+
+def _wowhead_screenshot_extensions_by_id(soup) -> Dict[str, str]:
+    """Infer Wowhead screenshot file extensions from Gatherer imageType data."""
+    result = {}
+    image_type_to_ext = {"2": "jpg", "3": "png"}
+    for script in soup.find_all("script"):
+        text = script.string or script.get_text("", strip=False) or ""
+        if "WH.Gatherer.addData(91" not in text or "imageType" not in text:
+            continue
+        for match in re.finditer(r'"(\d+)"\s*:\s*\{[^{}]*?"imageType"\s*:\s*(\d+)', text):
+            ext = image_type_to_ext.get(match.group(2))
+            if ext:
+                result[match.group(1)] = ext
+    return result
 
 
 def _restore_wowhead_markup_spell_table_cells(soup, *, base_url: str):
