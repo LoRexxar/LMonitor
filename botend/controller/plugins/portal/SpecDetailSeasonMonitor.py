@@ -64,13 +64,16 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         wcl_partition = self._fetch_wcl_partition(mplus_zone['id']) if mplus_zone else 1
 
         # 7. 更新 SeasonMeta
-        SeasonMeta.objects.filter(is_active=True).update(is_active=False)
-
+        # 只同步/暂存新赛季元数据，不自动切换当前活跃赛季。
+        # 新赛季必须由后台手动设置 is_active=1 后，专精详情页才会切换过去；
+        # 否则刚发现的新赛季在 ranking/player 数据尚未采集完成时会让页面整体变空。
+        existing = SeasonMeta.objects.filter(season_key=season_key).first()
+        keep_active = bool(existing and existing.is_active)
         obj, created = SeasonMeta.objects.update_or_create(
             season_key=season_key,
             defaults={
                 'season_name': mplus_name,
-                'is_active': True,
+                'is_active': keep_active,
                 'rio_season': rio_season,
                 'wcl_partition': wcl_partition,
                 'mplus_zone_id': mplus_zone['id'] if mplus_zone else 0,
@@ -85,7 +88,7 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
 
         action = "创建" if created else "更新"
         logger.info(f"[SpecDetailSeason] {action} SeasonMeta: {season_key}, "
-                     f"M+ {len(mplus_encounters)} 副本, Raid {len(raid_zones)} 区域 {len(all_raid_encounters)} Boss")
+                     f"active={obj.is_active}, M+ {len(mplus_encounters)} 副本, Raid {len(raid_zones)} 区域 {len(all_raid_encounters)} Boss")
 
         self.task.flag = f"{season_key}@{int(time.time())}"
         self.task.save()

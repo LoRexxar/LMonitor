@@ -75,19 +75,21 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         return None
 
     def _collect_dungeon_rankings(self, season):
-        """采集 M+ 副本排名：保留更多原始日志，聚合阶段再筛选 100 人样本。"""
+        """采集 M+ 副本排名：按副本成功后替换，失败保留旧数据。"""
         logger.info(f"[SpecDetailRanking] 采集 M+ 排名: {len(season.mplus_encounters)} 副本 x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
         target_per_spec = 300
         total = 0
         empty_talent_total = 0
         now = timezone.now()
-        records = []
         combatant_cache = {}
+        ok = True
 
         for encounter in season.mplus_encounters:
             enc_id = encounter['id']
             enc_name = encounter['name']
+            records = []
+            encounter_failed = False
 
             for class_name, specs in CLASS_SPEC_MAP.items():
                 for spec_name in specs:
@@ -97,6 +99,10 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
                     while collected < target_per_spec:
                         rankings = self._fetch_rankings_with_retry(enc_id, class_name, spec_name, 'dps', page=page)
+                        if rankings is None:
+                            encounter_failed = True
+                            time.sleep(0.3)
+                            break
                         if not rankings:
                             time.sleep(0.3)
                             break
@@ -162,19 +168,27 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     logger.info(f"[SpecDetailRanking] M+ {enc_id}/{class_name}/{spec_name}: 拉取 {collected} 条")
                     time.sleep(0.3)  # 限速
 
-        try:
-            with transaction.atomic():
-                # 全量覆盖：删除该赛季旧数据
-                SpecDungeonRanking.objects.filter(season_id=season.id).delete()
-                if records:
+            if encounter_failed:
+                ok = False
+                logger.error(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}) 采集失败，保留旧数据不覆盖")
+                continue
+            if not records:
+                ok = False
+                logger.warning(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}) 0 条数据，保留旧数据不覆盖")
+                continue
+
+            try:
+                with transaction.atomic():
+                    SpecDungeonRanking.objects.filter(season_id=season.id, dungeon_id=enc_id).delete()
                     SpecDungeonRanking.objects.bulk_create(records, batch_size=500)
-            total = len(records)
-        except Exception as e:
-            logger.error(f"[SpecDetailRanking] M+ 排名写入失败: {e}")
-            return False
+                total += len(records)
+                logger.info(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}): 写入 {len(records)} 条")
+            except Exception as e:
+                ok = False
+                logger.error(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}) 写入失败: {e}")
 
         logger.info(f"[SpecDetailRanking] M+ 排名采集完成: {total} 条, 空天赋 {empty_talent_total} 条")
-        return True
+        return ok
 
     def _parse_rank_talents(self, ranking, combatant_cache):
         """优先使用 ranking 自带 talents，缺失时再尝试 report CombatantInfo.talentTree。"""
@@ -218,6 +232,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         total = 0
         now = timezone.now()
         combatant_cache = {}
+        ok = True
 
         # Build encounter→zone mapping from raid_zones (if available)
         enc_zone_map = {}
@@ -236,11 +251,16 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
             # Phase 1: 先收集该 boss 所有数据（无事务）
             records = []
+            encounter_failed = False
             for class_name, specs in CLASS_SPEC_MAP.items():
                 for spec_name in specs:
                     rankings = self._fetch_rankings_with_retry(
                         enc_id, class_name, spec_name, 'dps', difficulty=5
                     )
+                    if rankings is None:
+                        encounter_failed = True
+                        time.sleep(0.3)
+                        continue
                     if not rankings:
                         time.sleep(0.3)
                         continue
@@ -285,7 +305,10 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     time.sleep(0.3)  # 限速
 
             # Phase 2: 独立事务写入该 boss 的数据
-            if records:
+            if encounter_failed:
+                ok = False
+                logger.error(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}) 采集失败，保留旧数据不覆盖")
+            elif records:
                 try:
                     with transaction.atomic():
                         SpecRaidRanking.objects.filter(
@@ -295,9 +318,11 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     total += len(records)
                     logger.info(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}): {len(records)} 条")
                 except Exception as e:
+                    ok = False
                     logger.error(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}) 写入失败: {e}")
             else:
+                ok = False
                 logger.warning(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}): 0 条数据")
 
         logger.info(f"[SpecDetailRanking] 团本排名采集完成: {total} 条")
-        return True
+        return ok

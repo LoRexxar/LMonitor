@@ -6,6 +6,7 @@
 
 import json
 import os
+import tempfile
 from decimal import Decimal
 
 from botend.controller.BaseScan import BaseScan
@@ -24,6 +25,25 @@ class DecimalEncoder(json.JSONEncoder):
         if isinstance(o, Decimal):
             return float(o)
         return super().default(o)
+
+
+def atomic_dump_json(path, payload, **dump_kwargs):
+    """原子写 JSON：写入失败或进程中断时保留旧文件。"""
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix='.tmp-', suffix='.json', dir=directory)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, **dump_kwargs)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 class SpecDetailAggregationMonitor(BaseScan):
@@ -70,8 +90,7 @@ class SpecDetailAggregationMonitor(BaseScan):
             dungeons.append(stats)
 
         path = os.path.join(spec_dir, 'dungeon.json')
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump({'dungeons': dungeons}, f, cls=DecimalEncoder, ensure_ascii=False)
+        atomic_dump_json(path, {'dungeons': dungeons}, cls=DecimalEncoder, ensure_ascii=False)
 
     def _aggregate_raid(self, season, class_name, spec_name, spec_dir):
         if not season.raid_encounters:
@@ -109,8 +128,7 @@ class SpecDetailAggregationMonitor(BaseScan):
             zone_groups = [{'zone_id': 0, 'zone_name': '', 'zone_cn': '', 'bosses': bosses}]
 
         path = os.path.join(spec_dir, 'raid.json')
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump({'zone_groups': zone_groups}, f, cls=DecimalEncoder, ensure_ascii=False)
+        atomic_dump_json(path, {'zone_groups': zone_groups}, cls=DecimalEncoder, ensure_ascii=False)
 
     def _aggregate_leaderboard(self, class_name, spec_name, spec_dir):
         result = SpecStatsService.get_player_list(
@@ -118,5 +136,4 @@ class SpecDetailAggregationMonitor(BaseScan):
         )
 
         path = os.path.join(spec_dir, 'leaderboard.json')
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, cls=DecimalEncoder, ensure_ascii=False, default=str)
+        atomic_dump_json(path, result, cls=DecimalEncoder, ensure_ascii=False, default=str)

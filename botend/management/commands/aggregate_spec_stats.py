@@ -17,6 +17,7 @@ from django.core.management.base import BaseCommand
 
 from botend.models import SeasonMeta
 from botend.constants.wow import CLASS_SPEC_MAP, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN
+from botend.controller.plugins.portal.SpecDetailAggregationMonitor import atomic_dump_json
 from botend.services.spec_stats_service import (
     SpecStatsService,
     _lookup_dungeon_cn,
@@ -94,8 +95,7 @@ class Command(BaseCommand):
             dungeons.append(stats)
 
         path = os.path.join(spec_dir, 'dungeon.json')
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump({'dungeons': dungeons}, f, cls=DecimalEncoder, ensure_ascii=False)
+        atomic_dump_json(path, {'dungeons': dungeons}, cls=DecimalEncoder, ensure_ascii=False)
 
     def _aggregate_raid(self, season, class_name, spec_name, spec_dir):
         """聚合团本统计，按区域分组，每个 boss full=True（含 top5）"""
@@ -137,8 +137,7 @@ class Command(BaseCommand):
             zone_groups = [{'zone_id': 0, 'zone_name': '', 'zone_cn': '', 'bosses': bosses}]
 
         path = os.path.join(spec_dir, 'raid.json')
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump({'zone_groups': zone_groups}, f, cls=DecimalEncoder, ensure_ascii=False)
+        atomic_dump_json(path, {'zone_groups': zone_groups}, cls=DecimalEncoder, ensure_ascii=False)
 
     def _aggregate_leaderboard(self, class_name, spec_name, spec_dir):
         """聚合人物榜，仅输出页面展示用 Top 20。"""
@@ -147,5 +146,4 @@ class Command(BaseCommand):
         )
 
         path = os.path.join(spec_dir, 'leaderboard.json')
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, cls=DecimalEncoder, ensure_ascii=False, default=str)
+        atomic_dump_json(path, result, cls=DecimalEncoder, ensure_ascii=False, default=str)
