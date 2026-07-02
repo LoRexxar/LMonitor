@@ -739,12 +739,19 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
         else:
             summary_result = _summarize_section(key, section["title"], payload, fallback, use_llm=use_llm)
         section["summary"] = summary_result["text"]
-        ext_sections[key] = {
+        ext_section = {
             "title": section["title"],
             "count": len(section.get("items") or []),
             "summary_llm_ok": bool(summary_result.get("llm_ok")),
             "summary_error": summary_result.get("error") or "",
         }
+        if key == "news":
+            source_counts: Dict[str, int] = {}
+            for item in section.get("items") or []:
+                source = str(item.get("source") or "unknown")
+                source_counts[source] = source_counts.get(source, 0) + 1
+            ext_section["source_counts"] = source_counts
+        ext_sections[key] = ext_section
         if key == "cutoffs":
             for item in section.get("items") or []:
                 cutoff_snapshot[item["region"]] = {
