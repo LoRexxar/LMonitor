@@ -1,7 +1,7 @@
 import json
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from botend.services.article_content_service import (
     article_blocks_match_reference,
@@ -11,7 +11,7 @@ from botend.services.article_content_service import (
     loads_blocks,
     translate_blocks,
 )
-from botend.services.article_image_service import upload_article_html_images, upload_article_images_in_blocks
+from botend.services.article_image_service import _fetch_image_response, upload_article_html_images, upload_article_images_in_blocks
 from botend.services.article_translation_service import (
     ArticleTranslationService,
     FallbackTranslationEngine,
@@ -478,6 +478,31 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertNotIn("wow.zamimg.com", result[0]["original_html"])
         self.assertIn("oss.wowdaily.cn", result[0]["original_html"])
         self.assertEqual(mocked_upload.call_count, 1)
+
+    @override_settings(PROXY_CONFIG={"http": "http://proxy.example:8883", "https": "http://proxy.example:8883"})
+    def test_fetch_image_response_uses_configured_proxy_with_request_session(self):
+        class FakeSession:
+            proxies = {}
+
+            def __init__(self):
+                self.calls = []
+
+            def get(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                return object()
+
+        class FakeReq:
+            def __init__(self):
+                self.s = FakeSession()
+
+            def get_header(self, url, cookies, ext=None):
+                return {"User-Agent": "Fake", **(ext or {})}
+
+        req = FakeReq()
+        _fetch_image_response("https://wow.zamimg.com/uploads/screenshots/normal/1.png", req=req)
+
+        self.assertEqual(req.s.calls[0][1]["proxies"]["https"], "http://proxy.example:8883")
+        self.assertIn("image/", req.s.calls[0][1]["headers"]["Accept"])
 
     def test_extract_structured_article_normalizes_discourse_lightbox_images(self):
         html = """

@@ -145,9 +145,35 @@ def download_and_upload_article_image(image_url, *, req=None, article_url="", so
 def _fetch_image_response(image_url, *, req=None):
     try:
         import requests
-        return requests.get(image_url, timeout=(8, 10), headers={"User-Agent": "Mozilla/5.0"})
+        headers = {"User-Agent": "Mozilla/5.0"}
+        session = getattr(req, "s", None) if req else None
+        if session is not None:
+            try:
+                get_header = getattr(req, "get_header", None)
+                if callable(get_header):
+                    headers = get_header(image_url, "", {"Accept": "image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.8"})
+            except Exception:
+                headers = {"User-Agent": "Mozilla/5.0"}
+            proxies = getattr(session, "proxies", None) or _get_configured_proxies()
+            return session.get(image_url, timeout=(8, 20), headers=headers, proxies=proxies or None)
+
+        proxies = _get_configured_proxies()
+        return requests.get(image_url, timeout=(8, 20), headers=headers, proxies=proxies or None)
     except Exception:
         logger.warning("[article_image_service] Direct image request failed: {}".format(image_url))
+        return None
+
+
+def _get_configured_proxies():
+    try:
+        from django.conf import settings as django_settings
+        proxies = getattr(django_settings, "PROXY_CONFIG", None)
+        if isinstance(proxies, dict) and proxies:
+            return proxies
+        req_cfg = getattr(django_settings, "REQUEST_CONFIG", {}) or {}
+        proxies = req_cfg.get("proxies") if isinstance(req_cfg, dict) else None
+        return proxies if isinstance(proxies, dict) and proxies else None
+    except Exception:
         return None
 
 
