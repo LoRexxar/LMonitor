@@ -437,6 +437,16 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn('src="https://oss.wowdaily.cn/portal/articles/a.jpg"', result)
         self.assertNotIn("data-source-src", result)
 
+    def test_upload_article_html_images_removes_external_source_attr_when_src_is_already_oss(self):
+        html = '<img data-source-src="https://wow.zamimg.com/uploads/screenshots/normal/1.png" src="https://oss.wowdaily.cn/portal/articles/wowhead/1.png"/>'
+
+        with patch("botend.services.article_image_service.download_and_upload_article_image") as mocked_upload:
+            result = upload_article_html_images(html, article_url="https://www.wowhead.com/news/test", source="wowhead")
+
+        self.assertIn('src="https://oss.wowdaily.cn/portal/articles/wowhead/1.png"', result)
+        self.assertNotIn("data-source-src", result)
+        mocked_upload.assert_not_called()
+
     def test_upload_article_images_replaces_href_only_images_and_reuses_cache(self):
         blocks = [
             {"type": "html", "html": '<a href="https://wow.zamimg.com/uploads/screenshots/normal/1.png"><img src="https://wow.zamimg.com/uploads/screenshots/normal/1.png"/></a>'},

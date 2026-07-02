@@ -69,9 +69,12 @@ def upload_article_html_images(html_text, *, req=None, article_url="", source="p
 
         for img in soup.find_all("img"):
             image_url = (img.get("src") or "").strip()
+            source_url = (img.get("data-source-src") or "").strip()
+            if source_url and _is_external_article_image_url(source_url):
+                img.attrs.pop("data-source-src", None)
+                changed = True
             uploaded_url = upload_url(image_url)
             if uploaded_url:
-                img.attrs.pop("data-source-src", None)
                 img["src"] = uploaded_url
                 parent_link = img.find_parent("a")
                 if parent_link and _is_external_article_image_url((parent_link.get("href") or "").strip()):
