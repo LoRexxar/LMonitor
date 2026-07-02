@@ -11,7 +11,7 @@ from botend.services.article_content_service import (
     loads_blocks,
     translate_blocks,
 )
-from botend.services.article_image_service import upload_article_html_images
+from botend.services.article_image_service import upload_article_html_images, upload_article_images_in_blocks
 from botend.services.article_translation_service import (
     ArticleTranslationService,
     FallbackTranslationEngine,
@@ -436,6 +436,22 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn('href="https://oss.wowdaily.cn/portal/articles/a.jpg"', result)
         self.assertIn('src="https://oss.wowdaily.cn/portal/articles/a.jpg"', result)
         self.assertNotIn("data-source-src", result)
+
+    def test_upload_article_images_replaces_href_only_images_and_reuses_cache(self):
+        blocks = [
+            {"type": "html", "html": '<a href="https://wow.zamimg.com/uploads/screenshots/normal/1.png"><img src="https://wow.zamimg.com/uploads/screenshots/normal/1.png"/></a>'},
+            {"type": "html", "html": '<a href="https://wow.zamimg.com/uploads/screenshots/normal/1.png">full image</a>'},
+        ]
+        cache = {}
+
+        with patch("botend.services.article_image_service.download_and_upload_article_image", return_value="https://oss.wowdaily.cn/portal/articles/wowhead/1.png") as mocked_upload:
+            result = upload_article_images_in_blocks(blocks, article_url="https://www.wowhead.com/news/test", source="wowhead", upload_cache=cache)
+
+        html_result = result[0]["html"] + result[1]["html"]
+        self.assertNotIn("wow.zamimg.com", html_result)
+        self.assertEqual(html_result.count("https://oss.wowdaily.cn/portal/articles/wowhead/1.png"), 3)
+        self.assertEqual(mocked_upload.call_count, 1)
+        self.assertEqual(cache["https://wow.zamimg.com/uploads/screenshots/normal/1.png"], "https://oss.wowdaily.cn/portal/articles/wowhead/1.png")
 
     def test_extract_structured_article_normalizes_discourse_lightbox_images(self):
         html = """

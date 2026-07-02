@@ -9,8 +9,9 @@ from django.conf import settings
 from utils.log import logger
 
 
-def upload_article_images_in_blocks(blocks, *, req=None, article_url="", source="portal"):
+def upload_article_images_in_blocks(blocks, *, req=None, article_url="", source="portal", upload_cache=None):
     result = []
+    upload_cache = upload_cache if isinstance(upload_cache, dict) else {}
     for block in blocks or []:
         if not isinstance(block, dict):
             continue
@@ -21,16 +22,20 @@ def upload_article_images_in_blocks(blocks, *, req=None, article_url="", source=
                 req=req,
                 article_url=article_url,
                 source=source,
+                upload_cache=upload_cache,
             )
         elif new_block.get("type") == "image":
             image_url = (new_block.get("url") or "").strip()
             if _is_external_article_image_url(image_url):
-                uploaded_url = download_and_upload_article_image(
-                    image_url,
-                    req=req,
-                    article_url=article_url,
-                    source=source,
-                )
+                uploaded_url = upload_cache.get(image_url)
+                if uploaded_url is None:
+                    uploaded_url = download_and_upload_article_image(
+                        image_url,
+                        req=req,
+                        article_url=article_url,
+                        source=source,
+                    )
+                    upload_cache[image_url] = uploaded_url or ""
                 if uploaded_url:
                     new_block["source_url"] = image_url
                     new_block["url"] = uploaded_url
@@ -38,29 +43,50 @@ def upload_article_images_in_blocks(blocks, *, req=None, article_url="", source=
     return result
 
 
-def upload_article_html_images(html_text, *, req=None, article_url="", source="portal"):
+def upload_article_html_images(html_text, *, req=None, article_url="", source="portal", upload_cache=None):
     if not html_text:
         return html_text
     try:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html_text, "html.parser")
+        upload_cache = upload_cache if isinstance(upload_cache, dict) else {}
         changed = False
+
+        def upload_url(image_url):
+            image_url = (image_url or "").strip()
+            if not _is_external_article_image_url(image_url):
+                return ""
+            uploaded_url = upload_cache.get(image_url)
+            if uploaded_url is None:
+                uploaded_url = download_and_upload_article_image(
+                    image_url,
+                    req=req,
+                    article_url=article_url,
+                    source=source,
+                )
+                upload_cache[image_url] = uploaded_url or ""
+            return uploaded_url or ""
+
         for img in soup.find_all("img"):
             image_url = (img.get("src") or "").strip()
-            if not _is_external_article_image_url(image_url):
-                continue
-            uploaded_url = download_and_upload_article_image(
-                image_url,
-                req=req,
-                article_url=article_url,
-                source=source,
-            )
+            uploaded_url = upload_url(image_url)
             if uploaded_url:
                 img.attrs.pop("data-source-src", None)
                 img["src"] = uploaded_url
                 parent_link = img.find_parent("a")
                 if parent_link and _is_external_article_image_url((parent_link.get("href") or "").strip()):
                     parent_link["href"] = uploaded_url
+                changed = True
+        for link in soup.find_all("a"):
+            href = (link.get("href") or "").strip()
+            if not _is_external_article_image_url(href):
+                continue
+            path = urlparse(href).path.lower()
+            if not re.search(r"\.(?:png|jpe?g|webp|gif)$", path):
+                continue
+            uploaded_url = upload_url(href)
+            if uploaded_url:
+                link["href"] = uploaded_url
                 changed = True
         return str(soup) if changed else html_text
     except Exception as exc:

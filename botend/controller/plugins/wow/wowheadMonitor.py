@@ -264,15 +264,30 @@ class wowheadMonitor(BaseScan):
                             existing_blocks = json.loads(getattr(wa, "content_blocks", "") or "[]")
                         except Exception:
                             existing_blocks = []
+                        existing_blocks_cn = []
+                        try:
+                            existing_blocks_cn = json.loads(getattr(wa, "content_blocks_cn", "") or "[]")
+                        except Exception:
+                            existing_blocks_cn = []
                         needs_image_blocks = not any(isinstance(b, dict) and b.get("type") == "image" for b in (existing_blocks or []))
                         needs_image_upload = self._needs_article_image_upload(existing_blocks)
-                        if needs_image_upload and not needs_image_blocks:
-                            uploaded_blocks = self._upload_article_images(existing_blocks, article_url=post_link)
-                            if uploaded_blocks != existing_blocks:
-                                wa.content_blocks = dumps_blocks(uploaded_blocks)
-                                wa.save(update_fields=["content_blocks"])
-                                existing_blocks = uploaded_blocks
-                                needs_image_upload = self._needs_article_image_upload(existing_blocks)
+                        needs_image_upload_cn = self._needs_article_image_upload(existing_blocks_cn)
+                        if (needs_image_upload and not needs_image_blocks) or needs_image_upload_cn:
+                            update_fields = []
+                            if needs_image_upload and not needs_image_blocks:
+                                uploaded_blocks = self._upload_article_images(existing_blocks, article_url=post_link)
+                                if uploaded_blocks != existing_blocks:
+                                    wa.content_blocks = dumps_blocks(uploaded_blocks)
+                                    update_fields.append("content_blocks")
+                                    existing_blocks = uploaded_blocks
+                                    needs_image_upload = self._needs_article_image_upload(existing_blocks)
+                            if needs_image_upload_cn:
+                                uploaded_blocks_cn = self._upload_article_images(existing_blocks_cn, article_url=post_link)
+                                if uploaded_blocks_cn != existing_blocks_cn:
+                                    wa.content_blocks_cn = dumps_blocks(uploaded_blocks_cn)
+                                    update_fields.append("content_blocks_cn")
+                            if update_fields:
+                                wa.save(update_fields=update_fields)
                         if not (getattr(wa, "description", "") or "").strip() or len((getattr(wa, "description", "") or "")) < 800 or needs_image_blocks or needs_image_upload:
                             blocks = self._fetch_article_blocks(post_link, cookies="", reference_text=wa.content or wa.description or "", reference_title=wa.title or "")
                             body = blocks_to_plain_text(blocks)
@@ -628,20 +643,12 @@ class wowheadMonitor(BaseScan):
         return " ".join(value.split())
 
     def _upload_article_images(self, blocks, article_url=""):
-        result = []
-        for block in blocks or []:
-            if not isinstance(block, dict):
-                continue
-            new_block = dict(block)
-            if new_block.get("type") == "html":
-                new_block["html"] = self._upload_article_html_images(new_block.get("html") or "", article_url=article_url)
-            elif self._needs_article_image_upload([new_block]):
-                uploaded_url = self._download_and_upload_image(new_block.get("url"), article_url=article_url)
-                if uploaded_url:
-                    new_block["source_url"] = new_block.get("url") or ""
-                    new_block["url"] = uploaded_url
-            result.append(new_block)
-        return result
+        return upload_article_images_in_blocks(
+            blocks,
+            req=self.req,
+            article_url=article_url,
+            source="wowhead",
+        )
 
     def _upload_article_html_images(self, html_text, article_url=""):
         if not html_text:
