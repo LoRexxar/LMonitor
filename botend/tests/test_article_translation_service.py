@@ -463,6 +463,22 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertEqual(mocked_upload.call_count, 1)
         self.assertEqual(cache["https://wow.zamimg.com/uploads/screenshots/normal/1.png"], "https://oss.wowdaily.cn/portal/articles/wowhead/1.png")
 
+    def test_upload_article_images_replaces_original_html_images(self):
+        blocks = [
+            {
+                "type": "html",
+                "html": '<img src="https://oss.wowdaily.cn/portal/articles/wowhead/1.png"/>',
+                "original_html": '<a href="https://wow.zamimg.com/uploads/screenshots/normal/1.png"><img src="https://wow.zamimg.com/uploads/screenshots/normal/1.png"/></a>',
+            }
+        ]
+
+        with patch("botend.services.article_image_service.download_and_upload_article_image", return_value="https://oss.wowdaily.cn/portal/articles/wowhead/1.png") as mocked_upload:
+            result = upload_article_images_in_blocks(blocks, article_url="https://www.wowhead.com/news/test", source="wowhead")
+
+        self.assertNotIn("wow.zamimg.com", result[0]["original_html"])
+        self.assertIn("oss.wowdaily.cn", result[0]["original_html"])
+        self.assertEqual(mocked_upload.call_count, 1)
+
     def test_extract_structured_article_normalizes_discourse_lightbox_images(self):
         html = """
         <article>

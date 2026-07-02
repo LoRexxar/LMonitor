@@ -24,6 +24,14 @@ def upload_article_images_in_blocks(blocks, *, req=None, article_url="", source=
                 source=source,
                 upload_cache=upload_cache,
             )
+            if new_block.get("original_html"):
+                new_block["original_html"] = upload_article_html_images(
+                    new_block.get("original_html") or "",
+                    req=req,
+                    article_url=article_url,
+                    source=source,
+                    upload_cache=upload_cache,
+                )
         elif new_block.get("type") == "image":
             image_url = (new_block.get("url") or "").strip()
             if _is_external_article_image_url(image_url):
