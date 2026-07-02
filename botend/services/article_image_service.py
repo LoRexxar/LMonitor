@@ -154,7 +154,7 @@ def _fetch_image_response(image_url, *, req=None):
                     headers = get_header(image_url, "", {"Accept": "image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.8"})
             except Exception:
                 headers = {"User-Agent": "Mozilla/5.0"}
-            proxies = getattr(session, "proxies", None) or _get_configured_proxies()
+            proxies = _get_request_proxies(req)
             return session.get(image_url, timeout=(8, 20), headers=headers, proxies=proxies or None)
 
         proxies = _get_configured_proxies()
@@ -175,6 +175,18 @@ def _get_configured_proxies():
         return proxies if isinstance(proxies, dict) and proxies else None
     except Exception:
         return None
+
+
+def _get_request_proxies(req):
+    session = getattr(req, "s", None) if req else None
+    session_proxies = getattr(session, "proxies", None) or None
+    if session_proxies:
+        return session_proxies
+
+    task = getattr(req, "current_task", None) if req else None
+    if bool(getattr(task, "proxy_enabled", False)):
+        return _get_configured_proxies()
+    return None
 
 
 def _is_external_article_image_url(image_url):

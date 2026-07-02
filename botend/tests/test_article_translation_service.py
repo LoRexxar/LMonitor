@@ -480,7 +480,7 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertEqual(mocked_upload.call_count, 1)
 
     @override_settings(PROXY_CONFIG={"http": "http://proxy.example:8883", "https": "http://proxy.example:8883"})
-    def test_fetch_image_response_uses_configured_proxy_with_request_session(self):
+    def test_fetch_image_response_inherits_proxy_from_enabled_monitor_task(self):
         class FakeSession:
             proxies = {}
 
@@ -491,9 +491,13 @@ class ArticleContentServiceTests(SimpleTestCase):
                 self.calls.append((url, kwargs))
                 return object()
 
+        class FakeTask:
+            proxy_enabled = True
+
         class FakeReq:
             def __init__(self):
                 self.s = FakeSession()
+                self.current_task = FakeTask()
 
             def get_header(self, url, cookies, ext=None):
                 return {"User-Agent": "Fake", **(ext or {})}
@@ -503,6 +507,31 @@ class ArticleContentServiceTests(SimpleTestCase):
 
         self.assertEqual(req.s.calls[0][1]["proxies"]["https"], "http://proxy.example:8883")
         self.assertIn("image/", req.s.calls[0][1]["headers"]["Accept"])
+
+    @override_settings(PROXY_CONFIG={"http": "http://proxy.example:8883", "https": "http://proxy.example:8883"})
+    def test_fetch_image_response_does_not_add_proxy_when_monitor_task_disabled(self):
+        class FakeSession:
+            proxies = {}
+
+            def __init__(self):
+                self.calls = []
+
+            def get(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                return object()
+
+        class FakeTask:
+            proxy_enabled = False
+
+        class FakeReq:
+            def __init__(self):
+                self.s = FakeSession()
+                self.current_task = FakeTask()
+
+        req = FakeReq()
+        _fetch_image_response("https://cdn.example.com/a.png", req=req)
+
+        self.assertIsNone(req.s.calls[0][1]["proxies"])
 
     def test_extract_structured_article_normalizes_discourse_lightbox_images(self):
         html = """
