@@ -6,7 +6,7 @@ from django.test import Client, SimpleTestCase, TestCase
 from django.utils import timezone
 
 from botend.models import PortalEvent
-from botend.services.portal_event_service import PortalEventService
+from botend.services.portal_event_service import PortalEventService, decode_response_utf8, repair_utf8_mojibake
 
 
 def _db2_calendar_time(year, month, day, hour=8, minute=0):
@@ -25,6 +25,36 @@ class PortalEventServiceDb2Test(SimpleTestCase):
             {"ID": "10", "Name_lang": "战场假日活动"},
             {"ID": "20", "Name_lang": "仲夏火焰节"},
         ]
+
+    def test_decode_response_utf8_prefers_bytes_over_wrong_text_encoding(self):
+        class FakeResponse:
+            content = "ID,Name_lang\n1,暗月马戏团\n".encode("utf-8")
+            text = content.decode("latin-1")
+            encoding = "ISO-8859-1"
+            apparent_encoding = "ISO-8859-1"
+
+        self.assertIn("暗月马戏团", decode_response_utf8(FakeResponse()))
+
+    def test_repair_utf8_mojibake_handles_cp1252_and_nbsp_space(self):
+        self.assertEqual(repair_utf8_mojibake("å® ç‰©å¯¹æˆ˜å\x81‡æ—¥æ´»åŠ¨"), "宠物对战假日活动")
+        self.assertEqual(repair_utf8_mojibake("æš—æœˆé©¬æˆ\x8få›¢"), "暗月马戏团")
+
+    def test_parse_db2_holidays_repairs_mojibake_name_and_description(self):
+        rows = [{
+            "ID": "100",
+            "Region": "2",
+            "HolidayNameID": "10",
+            "HolidayDescriptionID": "30",
+            "Date_0": str(_db2_calendar_time(2026, 6, 25)),
+            "Duration_0": "168",
+        }]
+        name_rows = [{"ID": "10", "Name_lang": "å® ç‰©å¯¹æˆ˜å\x81‡æ—¥æ´»åŠ¨"}]
+        description_rows = [{"ID": "30", "Description_lang": "åœ¨æ\xad¤æ´»åŠ¨æœŸé—´ï¼Œä½ çš„å® ç‰©å\x8f¯èŽ·å¾—å\x8fŒå€\x8dç»\x8féªŒå€¼ï¼\x81"}]
+
+        events = PortalEventService().parse_db2_holidays(rows, name_rows, description_rows, build="test-build")
+
+        self.assertEqual(events[0].title, "宠物对战假日活动")
+        self.assertEqual(events[0].summary, "在此活动期间，你的宠物可获得双倍经验值！")
 
     def test_parse_db2_holidays_keeps_cn_and_global_regions_only(self):
         rows = [

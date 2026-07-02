@@ -90,6 +90,75 @@ DATE_PATTERNS = [
     re.compile(r"(?P<m>\d{1,2})[月\-/\.](?P<d>\d{1,2})日?"),
 ]
 
+MOJIBAKE_MARKERS = ("Ã", "Â", "å", "æ", "ç", "è", "é", "ä", "ï¼")
+
+
+def decode_response_utf8(response):
+    """Decode CSV/HTML bytes as UTF-8 instead of relying on requests' text guess."""
+    content = getattr(response, "content", b"") or b""
+    if content:
+        try:
+            return content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            pass
+    encoding = getattr(response, "encoding", None) or getattr(response, "apparent_encoding", None) or "utf-8"
+    try:
+        return content.decode(encoding, errors="replace") if content else (getattr(response, "text", "") or "")
+    except Exception:
+        return getattr(response, "text", "") or ""
+
+
+def _cp1252_byte_for_mojibake_char(ch):
+    code = ord(ch)
+    if code <= 255:
+        return code
+    try:
+        encoded = ch.encode("cp1252")
+    except UnicodeEncodeError:
+        return None
+    return encoded[0] if len(encoded) == 1 else None
+
+
+def repair_utf8_mojibake(value):
+    """Repair text where UTF-8 bytes were decoded as Latin-1/Windows-1252.
+
+    Some stored DB rows have the classic `æš—æœˆ...` shape. A few UTF-8
+    continuation bytes such as 0xA0 may have been normalized to a regular
+    space, so spaces that appear while a UTF-8 sequence is expecting a
+    continuation byte are treated as NBSP (0xA0) during repair.
+    """
+    text = str(value or "")
+    if not text or not any(marker in text for marker in MOJIBAKE_MARKERS):
+        return text
+
+    raw = bytearray()
+    expected_continuations = 0
+    for ch in text:
+        byte = _cp1252_byte_for_mojibake_char(ch)
+        if byte is None:
+            return text
+        if ch == " " and expected_continuations:
+            byte = 0xA0
+        raw.append(byte)
+        if expected_continuations:
+            if 0x80 <= byte <= 0xBF:
+                expected_continuations -= 1
+            else:
+                expected_continuations = 0
+        elif 0xC2 <= byte <= 0xDF:
+            expected_continuations = 1
+        elif 0xE0 <= byte <= 0xEF:
+            expected_continuations = 2
+        elif 0xF0 <= byte <= 0xF4:
+            expected_continuations = 3
+    try:
+        repaired = bytes(raw).decode("utf-8")
+    except UnicodeDecodeError:
+        return text
+    if repaired and any("\u4e00" <= ch <= "\u9fff" for ch in repaired):
+        return repaired
+    return text
+
 
 @dataclass
 class ParsedPortalEvent:
@@ -469,9 +538,9 @@ class PortalEventService:
         )
 
     def parse_db2_holidays(self, holiday_rows, name_rows, description_rows, build="", locale="zhCN"):
-        names = {str(row.get("ID") or ""): (row.get("Name_lang") or "").strip() for row in name_rows}
+        names = {str(row.get("ID") or ""): repair_utf8_mojibake((row.get("Name_lang") or "").strip()) for row in name_rows}
         descriptions = {
-            str(row.get("ID") or ""): (row.get("Description_lang") or "").strip()
+            str(row.get("ID") or ""): repair_utf8_mojibake((row.get("Description_lang") or "").strip())
             for row in description_rows
         }
         events = []
@@ -541,7 +610,7 @@ class PortalEventService:
                 return []
         except Exception:
             return []
-        return list(csv.DictReader(StringIO(resp.text or "")))
+        return list(csv.DictReader(StringIO(decode_response_utf8(resp))))
 
     def _extract_wago_props(self, html_text):
         match = re.search(r"data-page=(?:\"([^\"]+)\"|'([^']+)')", html_text or "")
@@ -643,14 +712,14 @@ class PortalEventService:
             try:
                 resp = self.request_client.get(url, "Response", 0, "", headers=headers)
                 if resp and int(getattr(resp, "status_code", 0) or 0) == 200:
-                    return getattr(resp, "text", "") or ""
+                    return decode_response_utf8(resp)
             except Exception:
                 return ""
             return ""
         try:
             resp = requests.get(url, timeout=25, headers=headers, proxies=self._proxies)
             if resp.status_code == 200:
-                return resp.text or ""
+                return decode_response_utf8(resp)
         except Exception:
             return ""
         return ""
