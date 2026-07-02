@@ -2562,7 +2562,8 @@ class WagoSkillDiffMonitor(BaseScan):
             'CreatureID', 'MapID', 'AreaID', 'CurrencyID', 'AchievementID', 'FileDataID',
             'SourceSpellID', 'CreatureDisplayInfoID', 'SpeciesID', 'SourceTypeEnum', 'IconFileDataID',
             'VehicleID', 'VehicleSeatID', 'Flags', 'FlagsB', 'AttachmentID',
-            'CameraEnteringDelay', 'CameraEnteringDuration',
+            'CameraEnteringDelay', 'CameraEnteringDuration', 'MaxScalingLevel', 'ScalesFromItemLevel',
+            'MinScalingLevel', 'ScalingClass', 'ScalingClassRestricted',
         ]
         field_labels = {
             'ID': '记录 ID', 'Name_lang': '名称', 'Name': '名称', 'DisplayName_lang': '显示名', 'Title_lang': '标题',
@@ -2580,11 +2581,15 @@ class WagoSkillDiffMonitor(BaseScan):
             'SourceTypeEnum': '来源类型', 'IconFileDataID': '图标文件 ID', 'VehicleID': '载具 ID',
             'VehicleSeatID': '载具座位 ID', 'Flags': '标志位', 'FlagsB': '标志位 B',
             'AttachmentID': '挂点 ID', 'CameraEnteringDelay': '进入相机延迟', 'CameraEnteringDuration': '进入相机时长',
+            'MaxScalingLevel': '最高缩放等级', 'MinScalingLevel': '最低缩放等级',
+            'ScalesFromItemLevel': '随物品等级缩放', 'ScalingClass': '缩放职业',
+            'ScalingClassRestricted': '缩放职业限制',
         }
         table_labels = {
             'spellname': '技能名称', 'spelldescription': '技能描述', 'spelleffect': '技能效果',
             'spellscripttext': '技能脚本文本', 'spellmisc': '技能杂项', 'spellpower': '资源消耗', 'spellcooldowns': '冷却',
             'spellduration': '持续时间', 'spellradius': '半径', 'spellrange': '距离',
+            'spellscaling': '技能缩放', 'spellequippeditems': '技能装备限制',
             'chrspecialization': '专精', 'skilllineability': '技能线关联', 'talent': '天赋',
             'traitnode': '天赋节点', 'traitnodeentry': '天赋节点条目', 'traitdefinition': '天赋定义',
             'modifiertree': '条件/规则树', 'item': '物品', 'itemsparse': '物品文本', 'itemeffect': '物品效果',
@@ -2621,10 +2626,16 @@ class WagoSkillDiffMonitor(BaseScan):
         def tkey(t):
             return norm_table(t).lower()
 
+        def bilingual_label(label_map, raw):
+            raw_text = str(raw or '').strip()
+            zh = label_map.get(raw_text) or label_map.get(raw_text.lower())
+            return f"{zh} / {raw_text}" if zh and zh != raw_text else raw_text
+
         def table_label(t):
-            key = tkey(t)
-            zh = table_labels.get(key)
-            return f"{zh} / {norm_table(t)}" if zh else norm_table(t)
+            return bilingual_label(table_labels, norm_table(t))
+
+        def field_label(f):
+            return bilingual_label(field_labels, str(f or '').strip())
 
         def table_relationship(t):
             return table_relationships.get(tkey(t)) or f"{table_label(t)}.ID = record_id；字段含义见当前行字段标签"
@@ -2709,7 +2720,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 for k in ('Effect', 'EffectAura', 'EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient', 'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier'):
                     v = row.get(k)
                     if v is not None and str(v) != '':
-                        bits.append(f"{field_labels.get(k, k)}={v}")
+                        bits.append(f"{field_label(k)}={v}")
                 title = f"{sname or ('Spell ' + str(sid))} / 效果#{idx}" if sid else f"效果记录 {record_id}"
                 return title + ("：" + '，'.join(bits[:6]) if bits else '')
             if key in ('spellname', 'spelldescription'):
@@ -2824,7 +2835,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 v = row.get(k)
                 text = compact_value(v)
                 css = 'field primary' if k in readable_fields or k in text_fields or k in id_fields else 'field raw important'
-                chips.append(f"<div class='{css}'><span>{esc(field_labels.get(k, k))}</span><strong>{esc(text)}</strong></div>")
+                chips.append(f"<div class='{css}'><span>{esc(field_label(k))}</span><strong>{esc(text)}</strong></div>")
 
             field_html = "<div class='fields important-fields'>" + ''.join(chips) + "</div>" if chips else "<div class='muted'>当前行没有非默认字段可展示；完整 DB2 原始字段已收起。</div>"
 
@@ -2838,7 +2849,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     continue
                 raw_count += 1
                 text = compact_value(v, max_len=520)
-                raw_chips.append(f"<div class='field raw'><span>{esc(field_labels.get(k, k))}</span><strong>{esc(text)}</strong></div>")
+                raw_chips.append(f"<div class='field raw'><span>{esc(field_label(k))}</span><strong>{esc(text)}</strong></div>")
                 if raw_count >= 120:
                     break
             if raw_chips:
@@ -5053,6 +5064,14 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             'spellprocsperminute': '每分钟触发',
             'spellcastingtimes': '施法时间',
             'spellranges': '距离',
+            'spellrange': '距离',
+            'spellscaling': '技能缩放',
+            'spellequippeditems': '技能装备限制',
+            'specializationspells': '专精技能关联',
+            'traitdefinition': '天赋定义',
+            'traitnodeentry': '天赋节点条目',
+            'traitnode': '天赋节点',
+            'traittree': '天赋树',
             'spellduration': '持续时间',
             'spellradius': '半径',
         }
@@ -5092,7 +5111,26 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             'ChannelInterruptFlags_0': '引导中断标记0',
             'ChannelInterruptFlags_1': '引导中断标记1',
             'InterruptFlags': '中断标记',
+            'MaxScalingLevel': '最高缩放等级',
+            'MinScalingLevel': '最低缩放等级',
+            'ScalesFromItemLevel': '随物品等级缩放',
+            'ScalingClass': '缩放职业',
+            'ScalingClassRestricted': '缩放职业限制',
+            'TraitDefinitionID': '天赋定义 ID',
+            'TraitNodeID': '天赋节点 ID',
+            'TraitNodeEntryID': '天赋节点条目 ID',
         }
+
+        def label_with_key(label_map, key):
+            raw = str(key or '').strip()
+            label = label_map.get(raw) or label_map.get(raw.lower())
+            return f"{label} / {raw}" if label and label != raw else raw
+
+        def table_change_label(key):
+            return label_with_key(table_title, key)
+
+        def field_change_label(key):
+            return label_with_key(field_title, key)
 
         def fmt_change(b, a):
             b = '' if b is None else str(b)
@@ -5182,7 +5220,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                     b, a = merged.get(fk) or ('', '')
                                     if str(b) == str(a):
                                         continue
-                                    changes.append(f"{field_title.get(fk, fk)}：{fmt_change(b, a)}")
+                                    changes.append(f"{field_change_label(fk)}：{fmt_change(b, a)}")
                                 if changes:
                                     label = f"{eff_cn}{idx_part}" if eff_cn else f"技能效果{idx_part}"
                                     lines.append(f"<div class='line'><span class='hash'>#</span>{html.escape(label)}（{'，'.join(changes)}）</div>")
@@ -5195,18 +5233,18 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                     atxt, a_removed = self._render_spell_text_plain(to_build, spell_id, fd.get('after'))
                                     merged = self._inline_diff_html(btxt, atxt) + fmt_removed(a_removed)
                                     f = fd.get('field') or ''
-                                    title = field_title.get(f, f) or '描述'
+                                    title = field_change_label(f) or '描述'
                                     if not desc_primary and f in ('Description_lang', 'AuraDescription_lang'):
                                         desc_primary = merged
                                     else:
-                                        lines.append(f"<div class='line'><span class='k'>{html.escape(table_title.get(tkey, tkey))}</span> {html.escape(title)}：{merged}</div>")
+                                        lines.append(f"<div class='line'><span class='k'>{html.escape(table_change_label(tkey))}</span> {html.escape(title)}：{merged}</div>")
                             continue
 
-                        title = table_title.get(tkey, tkey)
+                        title = table_change_label(tkey)
                         for it in filtered_items:
                             for fd in it.get('fields') or []:
                                 f = fd.get('field') or ''
-                                lines.append(f"<div class='line'><span class='k'>{html.escape(title)}</span> {html.escape(field_title.get(f, f))}：{fmt_change(fd.get('before'), fd.get('after'))}</div>")
+                                lines.append(f"<div class='line'><span class='k'>{html.escape(title)}</span> {html.escape(field_change_label(f))}：{fmt_change(fd.get('before'), fd.get('after'))}</div>")
 
                     search_text = ' '.join([str(sname), str(spell_id), str(cname), str(spec_name), ' '.join(diffs_by_table.keys())]).lower()
                     parts.append(f"<div class='spell' id='spell-{spell_id}' data-search='{html.escape(str(search_text), quote=True)}'>")

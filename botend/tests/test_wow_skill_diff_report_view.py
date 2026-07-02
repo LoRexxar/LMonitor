@@ -280,6 +280,62 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         html = (self.base_dir / 'static' / meta['path']).read_text(encoding='utf-8')
         self.assertIn('知识宝典', html)
         self.assertNotIn('çŸ¥è¯†å¤æ', html)
+    def test_html_report_keeps_db2_keys_with_chinese_labels(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'enUS'
+        monitor.name_locale = 'zhCN'
+        monitor._fetch_spell_names_concurrent = lambda build, spell_ids, locale_override=None: {12345: 'Scaling Spell'}
+        monitor._ensure_spell_names_zh = lambda branch, build, spell_ids: {12345: '缩放技能'}
+        monitor._load_chr_classes = lambda build, locale_override=None: {1: '战士'}
+        monitor._load_chr_specialization_meta = lambda build, locale_override=None: {0: {'name': '通用', 'class_id': 1}}
+        monitor._render_spell_primary_description = lambda *args, **kwargs: ''
+        monitor._render_spell_text_plain = lambda build, spell_id, text: (str(text or ''), [])
+        monitor._filter_diff_fields = lambda _tkey, fields: fields
+
+        class _EmptyValues:
+            def exclude(self, **kwargs):
+                return self
+            def values(self, *args):
+                return []
+        class _EmptySnapshotManager:
+            def filter(self, **kwargs):
+                return _EmptyValues()
+
+        spell_changes = {
+            12345: {
+                'diffs': {
+                    'spellscaling': [
+                        {'id': 12345, 'action': 'changed', 'fields': [{'field': 'MaxScalingLevel', 'before': '70', 'after': '80'}]},
+                    ],
+                    'traitdefinition': [
+                        {'id': 987, 'action': 'changed', 'fields': [{'field': 'TraitDefinitionID', 'before': '987', 'after': '988'}]},
+                    ],
+                }
+            }
+        }
+
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects', _EmptySnapshotManager()):
+                meta = monitor._write_html_report(
+                    branch='wowt',
+                    server_title='PTR(测试服)',
+                    from_build='12.1.0.68301',
+                    to_build='12.1.0.68412',
+                    display_from_build='',
+                    display_to_build='',
+                    class_names={1: 'Warrior'},
+                    spec_meta={0: {'name': 'General', 'class_id': 1}},
+                    spell_to_specs={12345: {0}},
+                    spec_to_class={0: 1},
+                    spell_changes=spell_changes,
+                    data_build='12.1.0.68412',
+                )
+
+        html = (self.base_dir / 'static' / meta['path']).read_text(encoding='utf-8')
+        self.assertIn('技能缩放 / spellscaling', html)
+        self.assertIn('最高缩放等级 / MaxScalingLevel', html)
+        self.assertIn('天赋定义 / traitdefinition', html)
+        self.assertIn('天赋定义 ID / TraitDefinitionID', html)
 
 
 class WagoHotfixFullHtmlReportTests(SimpleTestCase):
@@ -308,6 +364,14 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
                     'PvpMultiplier': '0.8',
                     'Flags': 0,
                     'CameraEnteringDelay': 0,
+                    'VerifiedBuild': build,
+                }
+            if key == 'spellscaling':
+                return {
+                    'ID': record_id,
+                    'SpellID': 365350,
+                    'MaxScalingLevel': 80,
+                    'ScalesFromItemLevel': 1,
                     'VerifiedBuild': build,
                 }
             if key == 'questv2':
@@ -340,10 +404,13 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
                 wago_url='https://wago.tools/hotfixes?filter%5Bpush_id%5D=109505',
                 build_num='62706',
                 from_push=109504,
-                table_stats=[('SpellEffect', 2), ('ItemSparse', 1), ('QuestV2', 1), ('Map', 1)],
+                table_stats=[('SpellEffect', 2), ('SpellScaling', 1), ('ItemSparse', 1), ('QuestV2', 1), ('Map', 1)],
                 by_table={
                     'SpellEffect': [
                         {'push_id': 109505, 'table_name': 'SpellEffect', 'record_id': 777},
+                    ],
+                    'SpellScaling': [
+                        {'push_id': 109505, 'table_name': 'SpellScaling', 'record_id': 778},
                     ],
                     'ItemSparse': [
                         {'push_id': 109505, 'table_name': 'ItemSparse', 'record_id': 19019},
@@ -365,7 +432,10 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('hotfixFilter', html)
         self.assertIn('技能效果 / SpellEffect', html)
         self.assertIn('Arcane Surge', html)
-        self.assertIn('基础数值F', html)
+        self.assertIn('基础数值F / EffectBasePointsF', html)
+        self.assertIn('技能缩放 / SpellScaling', html)
+        self.assertIn('最高缩放等级 / MaxScalingLevel', html)
+        self.assertIn('随物品等级缩放 / ScalesFromItemLevel', html)
         self.assertIn('任务 / QuestV2', html)
         self.assertIn('Repair the Beacon', html)
         self.assertIn('QuestSortID', html)
