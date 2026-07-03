@@ -437,47 +437,58 @@ function getItemUrl(it) {
   return sanitizeHref(it?.url || it?.source_url || it?.link || "");
 }
 
-function makeTodayChip(label, text, href, mutedText) {
+function makeTodayChip(label, text, targetSectionId, mutedText) {
   const safeLabel = escapeHtml(label);
   const safeText = escapeHtml(text || "");
+  const safeTarget = escapeHtml(targetSectionId || "");
   const safeMuted = mutedText ? `<span class="portal-today-chip-muted">${escapeHtml(mutedText)}</span>` : "";
-  const inner = `<span class="portal-today-chip-label">${safeLabel}</span><span class="portal-today-chip-text">${safeText}</span>${safeMuted}`;
-  if (href) {
-    return `<a class="portal-today-chip" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${inner}</a>`;
-  }
-  return `<span class="portal-today-chip">${inner}</span>`;
+  const inner = `<span class="portal-today-chip-label">${safeLabel}</span><span class="portal-today-chip-text">${safeText}</span>${safeMuted}<span class="portal-today-chip-arrow" aria-hidden="true">↓</span>`;
+  return `<button type="button" class="portal-today-chip" data-today-target="${safeTarget}">${inner}</button>`;
+}
+
+function bindTodayStripNavigation() {
+  const el = document.getElementById("portal-today-strip-items");
+  if (!el || el.dataset.boundTodayNav === "1") return;
+  el.dataset.boundTodayNav = "1";
+  el.addEventListener("click", (ev) => {
+    const chip = ev.target.closest("[data-today-target]");
+    if (!chip) return;
+    const targetId = chip.getAttribute("data-today-target") || "";
+    scrollToPortalSectionById(targetId);
+  });
 }
 
 function renderTodayStrip() {
   const el = document.getElementById("portal-today-strip-items");
   if (!el) return;
+  bindTodayStripNavigation();
   const chips = [];
 
   const bluepost = firstArrayItem("blueposts");
   if (bluepost && getItemTitle(bluepost)) {
-    chips.push(makeTodayChip("蓝帖", getItemTitle(bluepost), getItemUrl(bluepost), bluepost.published_at || bluepost.time_ago || ""));
+    chips.push(makeTodayChip("蓝帖速递", getItemTitle(bluepost), "section-news", bluepost.published_at || bluepost.time_ago || ""));
   }
 
   const news = firstArrayItem("exwind") || firstArrayItem("wowhead");
   if (news && getItemTitle(news)) {
-    chips.push(makeTodayChip("新闻", getItemTitle(news), getItemUrl(news), news.source || news.published_at || ""));
+    chips.push(makeTodayChip("新闻资讯", getItemTitle(news), "section-news", news.source || news.published_at || ""));
   }
 
   const events = PORTAL_STATE.dataBySection.events;
   const event = Array.isArray(events) ? events.find((x) => x?.is_active || x?.status === "active") || events[0] : null;
   if (event && getItemTitle(event)) {
-    chips.push(makeTodayChip("活动", getItemTitle(event), getItemUrl(event), event.date_text || event.time_text || ""));
+    chips.push(makeTodayChip("活动提醒", getItemTitle(event), "section-events", event.date_text || event.time_text || ""));
   }
 
   const videos = PORTAL_STATE.dataBySection.videos;
   const video = Array.isArray(videos) && videos.length ? videos[0] : null;
   if (video && getItemTitle(video)) {
-    chips.push(makeTodayChip("视频", getItemTitle(video), getItemUrl(video), video.author || video.up_name || ""));
+    chips.push(makeTodayChip("视频攻略", getItemTitle(video), "section-videos", video.author || video.up_name || ""));
   }
 
   const cutoffMeta = PORTAL_STATE.mplusCutoffsMeta || {};
   if (cutoffMeta.updated_at || cutoffMeta.season) {
-    chips.push(makeTodayChip("分数线", cutoffMeta.season || "大秘境 0.1% / 1%", "", cutoffMeta.updated_at ? `更新 ${cutoffMeta.updated_at}` : ""));
+    chips.push(makeTodayChip("大秘境分数", cutoffMeta.season || "0.1% / 1% 分数线", "section-mplus-cutoffs", cutoffMeta.updated_at ? `更新 ${cutoffMeta.updated_at}` : ""));
   }
 
   if (!chips.length) {
@@ -2140,10 +2151,24 @@ function setActiveSectionDot(index) {
   sectionDots.forEach((dot, dotIndex) => dot.classList.toggle("active", dotIndex === index));
 }
 
-function scrollToSectionDot(index) {
-  const section = sectionDotSections[index];
+function scrollToPortalSection(section) {
   if (!section) return;
   const headerHeight = document.querySelector(".portal-header")?.offsetHeight || 56;
   window.scrollTo({ top: section.offsetTop - headerHeight, behavior: "smooth" });
+}
+
+function scrollToPortalSectionById(sectionId) {
+  if (!sectionId) return;
+  const section = document.getElementById(sectionId);
+  if (!section) return;
+  scrollToPortalSection(section);
+  const index = sectionDotSections.indexOf(section);
+  if (index >= 0) setActiveSectionDot(index);
+}
+
+function scrollToSectionDot(index) {
+  const section = sectionDotSections[index];
+  if (!section) return;
+  scrollToPortalSection(section);
   setActiveSectionDot(index);
 }
