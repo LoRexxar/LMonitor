@@ -1514,7 +1514,10 @@ function renderEvents(items) {
         const key = portalDateKey(date);
         const muted = date < monthStart || date > monthEnd;
         const isToday = key === todayKey;
-        return `<div class="bg-white p-1.5 ${muted ? "text-slate-300" : "text-slate-700"}" style="min-height:${dayMinHeight}px;">
+        const dayCellCls = isToday
+          ? "bg-amber-50 text-amber-950 ring-1 ring-inset ring-amber-200"
+          : `bg-white ${muted ? "text-slate-300" : "text-slate-700"}`;
+        return `<div class="p-1.5 ${dayCellCls}" style="min-height:${dayMinHeight}px;">
           <div class="flex items-center justify-between">
             <span class="${isToday ? "inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[11px] font-extrabold text-white shadow-sm ring-2 ring-amber-100" : "text-[11px] font-bold"}">${date.getDate()}</span>
           </div>
