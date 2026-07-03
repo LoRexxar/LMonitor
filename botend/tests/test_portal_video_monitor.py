@@ -82,9 +82,43 @@ class PortalVideoMonitorTest(TestCase):
         target.refresh_from_db()
         self.assertEqual(target.last_seen_bvid, "BV1dQ7x65E7z")
 
-    def test_arc_search_fallback_when_dynamic_fails(self):
+    def test_dynamic_rate_limit_does_not_fallback_to_arc(self):
         target = self._target()
         dynamic_payload = {"code": -799, "message": "请求过于频繁"}
+        arc_payload = {
+            "code": 0,
+            "message": "0",
+            "data": {
+                "list": {
+                    "vlist": [
+                        {
+                            "bvid": "BV1fallback",
+                            "title": "投稿接口兜底",
+                            "pic": "https://i0.hdslb.com/fallback.jpg",
+                            "author": "劳瑞兜底",
+                            "created": 1782323000,
+                        }
+                    ]
+                }
+            },
+        }
+
+        req = _Request([
+            ("web-dynamic", dynamic_payload),
+            ("arc/search", arc_payload),
+        ])
+        monitor = PortalVideoMonitor(req, None)
+        monitor.update_target(target)
+
+        self.assertFalse(PortalVideo.objects.filter(bvid="BV1fallback").exists())
+        self.assertTrue(any("web-dynamic" in url for url in req.urls))
+        self.assertFalse(any("arc/search" in url for url in req.urls))
+        target.refresh_from_db()
+        self.assertIsNone(target.last_seen_bvid)
+
+    def test_arc_search_fallback_when_dynamic_succeeds_without_videos(self):
+        target = self._target()
+        dynamic_payload = {"code": 0, "message": "0", "data": {"items": []}}
         arc_payload = {
             "code": 0,
             "message": "0",

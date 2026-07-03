@@ -68,8 +68,8 @@ class PortalVideoMonitor(BaseScan):
         cookies = self._get_bilibili_cookies(domain)
 
         payload, fetch_error = self._fetch_bilibili_payload(dynamic_api, cookies, target.target_url, "dynamic")
-        if self._payload_has_error(payload, fetch_error, domain, dynamic_api, "dynamic", alert=False):
-            payload = None
+        if self._payload_has_error(payload, fetch_error, domain, dynamic_api, "dynamic"):
+            return
         videos = self._parse_dynamic_videos(payload)
 
         if not videos:
