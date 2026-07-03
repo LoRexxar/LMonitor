@@ -471,15 +471,6 @@ function todayFormatScore(value) {
   return Number.isFinite(n) ? n.toFixed(2) : "--";
 }
 
-function todayFormatScoreDelta(current, previous) {
-  const c = Number(current);
-  const p = Number(previous);
-  if (!Number.isFinite(c) || !Number.isFinite(p)) return "";
-  const diff = c - p;
-  if (Math.abs(diff) < 0.005) return "";
-  return `${diff > 0 ? "+" : ""}${diff.toFixed(2)}`;
-}
-
 function bindTodayStripNavigation() {
   const el = document.getElementById("portal-today-strip-items");
   if (!el || el.dataset.boundTodayNav === "1") return;
@@ -514,15 +505,12 @@ function renderTodayStrip() {
   const cutoffItems = Array.isArray(PORTAL_STATE.dataBySection.mplus_cutoffs) ? PORTAL_STATE.dataBySection.mplus_cutoffs : [];
   const cnCutoff = cutoffItems.find((it) => String(it?.region || "").toLowerCase() === "cn" || it?.region_name === "国服");
   if (cnCutoff) {
-    const delta01 = todayFormatScoreDelta(cnCutoff.cutoff_0_1, cnCutoff.cutoff_0_1_prev);
-    const delta1 = todayFormatScoreDelta(cnCutoff.cutoff_1, cnCutoff.cutoff_1_prev);
-    const hasDelta = Boolean(delta01 || delta1);
     candidates.push({
       label: "大秘境分数",
       text: `国服 0.1% ${todayFormatScore(cnCutoff.cutoff_0_1)} / 1% ${todayFormatScore(cnCutoff.cutoff_1)}`,
       target: "section-mplus-cutoffs",
-      muted: hasDelta ? `较前 ${delta01 || "0.00"} / ${delta1 || "0.00"}` : "",
-      priority: hasDelta ? 20 : 55,
+      muted: "",
+      priority: 20,
       dedupeText: "mplus-cn-cutoff",
     });
   }
