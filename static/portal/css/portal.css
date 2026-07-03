@@ -195,6 +195,102 @@ body {
     border-radius: 9999px;
 }
 
+.portal-today-strip {
+    width: min(980px, 100%);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: stretch;
+    overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 1rem;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.9));
+    color: rgb(226, 232, 240);
+    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12);
+    text-align: left;
+}
+
+.portal-today-strip-label {
+    display: flex;
+    align-items: center;
+    padding: 0.7rem 0.95rem;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+    color: rgb(254, 243, 199);
+    background: rgba(245, 158, 11, 0.16);
+    border-right: 1px solid rgba(251, 191, 36, 0.22);
+}
+
+.portal-today-strip-items {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    padding: 0.55rem 0.65rem;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.portal-today-chip {
+    flex: 0 0 auto;
+    max-width: 22rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.38rem;
+    padding: 0.35rem 0.62rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgb(241, 245, 249);
+    font-size: 0.78rem;
+    line-height: 1.2;
+    text-decoration: none;
+}
+
+.portal-today-chip:hover {
+    background: rgba(255, 255, 255, 0.13);
+    color: #fff;
+}
+
+.portal-today-chip-label {
+    color: rgb(147, 197, 253);
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.portal-today-chip-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.portal-today-chip-muted {
+    color: rgb(203, 213, 225);
+}
+
+.portal-today-strip-empty {
+    padding: 0.35rem 0.62rem;
+    font-size: 0.78rem;
+    color: rgb(203, 213, 225);
+}
+
+@media (max-width: 640px) {
+    .portal-today-strip {
+        grid-template-columns: 1fr;
+    }
+
+    .portal-today-strip-label {
+        justify-content: center;
+        border-right: 0;
+        border-bottom: 1px solid rgba(251, 191, 36, 0.2);
+    }
+
+    .portal-today-chip {
+        max-width: 18rem;
+    }
+}
+
 .portal-hero-meta {
     font-size: 0.8rem;
     color: rgb(100, 116, 139);

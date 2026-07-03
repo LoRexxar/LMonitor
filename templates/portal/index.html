@@ -47,6 +47,12 @@
                     <div class="portal-hero-tools">
                         <div id="topbar-tools" class="portal-hero-tools-inner"></div>
                     </div>
+                    <div id="portal-today-strip" class="portal-today-strip" aria-label="今日魔兽提示">
+                        <div class="portal-today-strip-label">今日艾泽拉斯</div>
+                        <div id="portal-today-strip-items" class="portal-today-strip-items">
+                            <span class="portal-today-strip-empty">正在加载今日重点...</span>
+                        </div>
+                    </div>
                     <div id="portal-search-meta" class="portal-hero-meta"></div>
                 </div>
             </div>
@@ -206,6 +212,6 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=20260703_event_calendar_today_cell_fill"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=20260703_today_strip"></script>
 </body>
 </html>
