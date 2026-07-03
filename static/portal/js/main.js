@@ -486,9 +486,14 @@ function renderTodayStrip() {
     chips.push(makeTodayChip("视频攻略", getItemTitle(video), "section-videos", video.author || video.up_name || ""));
   }
 
-  const cutoffMeta = PORTAL_STATE.mplusCutoffsMeta || {};
-  if (cutoffMeta.updated_at || cutoffMeta.season) {
-    chips.push(makeTodayChip("大秘境分数", cutoffMeta.season || "0.1% / 1% 分数线", "section-mplus-cutoffs", cutoffMeta.updated_at ? `更新 ${cutoffMeta.updated_at}` : ""));
+  const cutoffItems = Array.isArray(PORTAL_STATE.dataBySection.mplus_cutoffs) ? PORTAL_STATE.dataBySection.mplus_cutoffs : [];
+  const cnCutoff = cutoffItems.find((it) => String(it?.region || "").toLowerCase() === "cn" || it?.region_name === "国服");
+  if (cnCutoff) {
+    const fmtCutoff = (value) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n.toFixed(2) : "--";
+    };
+    chips.push(makeTodayChip("大秘境分数", `国服 0.1% ${fmtCutoff(cnCutoff.cutoff_0_1)} / 1% ${fmtCutoff(cnCutoff.cutoff_1)}`, "section-mplus-cutoffs", ""));
   }
 
   if (!chips.length) {
