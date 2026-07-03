@@ -345,6 +345,144 @@ body {
     }
 }
 
+.portal-daily-report-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem;
+    overflow: hidden;
+    border: 1px solid rgba(245, 158, 11, 0.22);
+    border-radius: 1.25rem;
+    background:
+        linear-gradient(135deg, rgba(255, 251, 235, 0.98), rgba(255, 255, 255, 0.9)),
+        radial-gradient(circle at 0% 0%, rgba(245, 158, 11, 0.2), transparent 34%),
+        radial-gradient(circle at 100% 0%, rgba(99, 102, 241, 0.12), transparent 38%);
+    box-shadow: 0 18px 44px rgba(120, 53, 15, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+    padding: 1rem 1.1rem;
+}
+
+.portal-daily-report-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 0.24rem;
+    background: linear-gradient(180deg, rgb(245, 158, 11), rgb(79, 70, 229));
+}
+
+.portal-daily-report-card-loading { opacity: 0.82; }
+
+.portal-daily-report-kicker {
+    position: relative;
+    z-index: 1;
+    white-space: nowrap;
+    border-radius: 9999px;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    background: rgba(255, 255, 255, 0.7);
+    color: rgb(146, 64, 14);
+    font-size: 0.75rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    padding: 0.42rem 0.72rem;
+}
+
+.portal-daily-report-main {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+}
+
+.portal-daily-report-title {
+    display: block;
+    color: rgb(15, 23, 42);
+    font-size: 1rem;
+    font-weight: 900;
+    line-height: 1.35;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.portal-daily-report-title:hover { color: rgb(146, 64, 14); }
+
+.portal-daily-report-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.32rem;
+    color: rgb(100, 116, 139);
+    font-size: 0.75rem;
+}
+
+.portal-daily-report-sections {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.38rem;
+    margin-top: 0.48rem;
+}
+
+.portal-daily-report-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    background: rgba(255, 255, 255, 0.72);
+    color: rgb(71, 85, 105);
+    font-size: 0.72rem;
+    font-weight: 800;
+    padding: 0.22rem 0.52rem;
+}
+
+.portal-daily-report-badge strong {
+    color: rgb(146, 64, 14);
+    font-weight: 900;
+}
+
+.portal-daily-report-actions {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.portal-daily-report-open {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    border: 1px solid rgba(146, 64, 14, 0.24);
+    background: rgb(146, 64, 14);
+    color: white;
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-decoration: none;
+    padding: 0.46rem 0.82rem;
+    box-shadow: 0 10px 22px rgba(146, 64, 14, 0.16);
+    white-space: nowrap;
+}
+
+.portal-daily-report-open:hover { background: rgb(120, 53, 15); }
+
+@media (max-width: 768px) {
+    .portal-daily-report-card {
+        grid-template-columns: 1fr;
+        gap: 0.65rem;
+        padding: 0.9rem 1rem;
+    }
+
+    .portal-daily-report-actions { justify-content: flex-start; }
+
+    .portal-daily-report-title {
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+}
+
 .portal-featured-news {
     position: relative;
     display: grid;

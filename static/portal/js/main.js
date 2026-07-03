@@ -388,6 +388,7 @@ const SECTION_MAP = {
   blueposts: { url: "/portal/api/blueposts/", listId: "blueposts-list" },
   exwind: { url: "/portal/api/exwind/latest/", listId: "exwind-list" },
   wowhead: { url: "/portal/api/wowhead/latest/", listId: "wowhead-list" },
+  daily_report: { url: "/portal/api/daily-report/latest/" },
   wow_skill_states: { url: "/portal/api/wow-skill-diff/states/", listId: "wow-skill-diff-states" },
   wow_skill_diffs: { url: "/portal/api/wow-skill-diffs/", listId: "wow-skill-diff-list" },
   nga: { url: "/portal/api/nga-hot/", listId: "nga-list" },
@@ -415,6 +416,7 @@ const PORTAL_STATE = {
   activeExwindSource: "default",
   exwindTabsBound: false,
   searchBound: false,
+  dailyReport: null,
 };
 
 function getExwindUrl() {
@@ -483,47 +485,47 @@ function bindTodayStripNavigation() {
   });
 }
 
-function renderFeaturedNewsCard() {
+function renderDailyReportCard() {
   const el = document.getElementById("featured-news-card");
   if (!el) return;
-  const sources = [
-    { label: "今日重点 · 蓝帖", badge: "暴雪蓝帖", item: firstArrayItem("blueposts"), accent: "sky" },
-    { label: "今日重点 · 国服新闻", badge: "魔兽世界中国", item: firstArrayItem("exwind"), accent: "violet" },
-    { label: "今日重点 · Wowhead", badge: "Wowhead", item: firstArrayItem("wowhead"), accent: "indigo" },
-  ];
-  const picked = sources.find((x) => x.item && getItemTitle(x.item));
-  if (!picked) {
-    el.innerHTML = "";
+  const report = PORTAL_STATE.dailyReport || PORTAL_STATE.dataBySection.daily_report || null;
+  if (!report || !report.url) {
+    el.innerHTML = `<article class="portal-daily-report-card portal-daily-report-card-loading">
+      <div class="portal-daily-report-kicker">今日日报</div>
+      <div class="portal-daily-report-main">
+        <div class="portal-daily-report-title">正在加载魔兽世界日报...</div>
+        <div class="portal-daily-report-meta">汇总新闻、NGA 热议与大秘境分数线</div>
+      </div>
+    </article>`;
     return;
   }
 
-  const it = picked.item;
-  const title = escapeHtml(it.title_cn || it.title || it.name || "");
-  const subtitle = it.title_cn && it.title ? escapeHtml(it.title) : "";
-  const articleLink = it.id ? `/portal/article/${escapeHtml(it.id)}/` : "";
-  const href = sanitizeHref(it.url || it.source_url || "");
-  const primaryUrl = articleLink || href;
-  const source = escapeHtml(it.source || picked.badge || "");
-  const author = escapeHtml(it.author || "");
-  const time = escapeHtml((it.time || it.publish_time || it.published_at || "").replaceAll("\n", " ").trim());
+  const sections = Array.isArray(report.sections) ? report.sections : [];
+  const sectionBadges = sections
+    .filter((x) => Number(x?.count || 0) > 0)
+    .slice(0, 4)
+    .map((x) => `<span class="portal-daily-report-badge"><span>${escapeHtml(x.label || x.title || x.key || "板块")}</span><strong>${escapeHtml(x.count)}</strong></span>`)
+    .join("");
+  const totalCount = sections.reduce((acc, x) => acc + (Number(x?.count || 0) || 0), 0);
+  const title = escapeHtml(report.title || "魔兽世界日报");
+  const reportDate = escapeHtml(report.report_date || "");
+  const generatedAt = escapeHtml(report.generated_at || report.updated_at || "");
+  const url = escapeHtml(sanitizeHref(report.url) || report.url || "#");
   const metaParts = [];
-  if (source) metaParts.push(`<span>${source}</span>`);
-  if (author) metaParts.push(`<span>${author}</span>`);
-  if (time) metaParts.push(`<span>${time}</span>`);
-  const meta = metaParts.join(`<span class="text-slate-300">/</span>`);
-  const safeUrl = escapeHtml(primaryUrl || "#");
-  const external = href ? `<a class="portal-featured-news-side-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">原文</a>` : "";
+  if (reportDate) metaParts.push(`<span>${reportDate}</span>`);
+  if (totalCount) metaParts.push(`<span>${totalCount} 条汇总</span>`);
+  if (generatedAt) metaParts.push(`<span>生成 ${generatedAt}</span>`);
+  const meta = metaParts.join(`<span class="portal-daily-report-dot">/</span>`);
 
-  el.innerHTML = `<article class="portal-featured-news portal-featured-news-${picked.accent}">
-    <div class="portal-featured-news-kicker">${escapeHtml(picked.label)}</div>
-    <div class="portal-featured-news-main">
-      <a class="portal-featured-news-title" href="${safeUrl}" ${articleLink ? "" : "target=\"_blank\" rel=\"noreferrer\""}>${title}</a>
-      ${subtitle ? `<a class="portal-featured-news-subtitle" href="${safeUrl}" ${articleLink ? "" : "target=\"_blank\" rel=\"noreferrer\""}>${subtitle}</a>` : ""}
-      ${meta ? `<div class="portal-featured-news-meta">${meta}</div>` : ""}
+  el.innerHTML = `<article class="portal-daily-report-card">
+    <div class="portal-daily-report-kicker">今日日报</div>
+    <div class="portal-daily-report-main">
+      <a class="portal-daily-report-title" href="${url}" target="_blank" rel="noreferrer">${title}</a>
+      ${meta ? `<div class="portal-daily-report-meta">${meta}</div>` : ""}
+      ${sectionBadges ? `<div class="portal-daily-report-sections">${sectionBadges}</div>` : ""}
     </div>
-    <div class="portal-featured-news-actions">
-      ${external}
-      <a class="portal-featured-news-open" href="${safeUrl}" ${articleLink ? "" : "target=\"_blank\" rel=\"noreferrer\""}>查看</a>
+    <div class="portal-daily-report-actions">
+      <a class="portal-daily-report-open" href="${url}" target="_blank" rel="noreferrer">打开日报</a>
     </div>
   </article>`;
 }
@@ -1942,7 +1944,11 @@ async function loadSection(key) {
       url = qs.length ? `${ep.url}?${qs.join("&")}` : ep.url;
     }
     const r = await fetchJson(url);
-    if (key === "videos") {
+    if (key === "daily_report") {
+      PORTAL_STATE.dailyReport = r.data || null;
+      PORTAL_STATE.dataBySection[key] = r.data || null;
+      renderDailyReportCard();
+    } else if (key === "videos") {
       renderVideos(r.data || {});
     } else if (key === "mplus_cutoffs") {
       const payload = r.data || {};
@@ -1990,7 +1996,7 @@ async function loadSection(key) {
       renderSimpleList(ep.listId, r.data || [], { limit: key === "nga" ? 20 : 12 });
     }
     renderTodayStrip();
-    renderFeaturedNewsCard();
+    renderDailyReportCard();
   } catch (e) {
     if (ep.listId) {
       const el = document.getElementById(ep.listId);
@@ -2132,6 +2138,7 @@ async function loadAll() {
   bindSearch();
   bindExwindSourceTabs();
   renderExwindSourceTabs();
+  await loadSection("daily_report");
   await loadSection("blueposts");
   await loadSection("exwind");
   await loadSection("wowhead");

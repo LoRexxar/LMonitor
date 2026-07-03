@@ -8,7 +8,7 @@ from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, WowArticle, WowSkillDiffReport, WowWagoMonitorState
+from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, WowArticle, WowDailyReport, WowSkillDiffReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
 from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.portal.mythicstats import (
@@ -39,6 +39,65 @@ def _normalize_url(v):
     if s.startswith('/static/portal/reports/'):
         return '/portal/reports/' + s[len('/static/portal/reports/'):]
     return s
+
+
+def _portal_report_url(path):
+    s = (path or '').strip().lstrip('/')
+    if not s:
+        return ''
+    if s.startswith('static/'):
+        s = s[len('static/'):]
+    if s.startswith('portal/reports/'):
+        return '/portal/reports/' + s[len('portal/reports/'):]
+    if s.startswith('/portal/reports/'):
+        return s
+    return '/portal/reports/' + s
+
+
+def _load_json_dict(raw):
+    if isinstance(raw, dict):
+        return raw
+    try:
+        data = json.loads(raw or '{}')
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _daily_report_to_dict(row):
+    ext = _load_json_dict(getattr(row, 'ext_json', '') or '')
+    sections_obj = ext.get('sections')
+    sections = sections_obj if isinstance(sections_obj, dict) else {}
+    section_items = []
+    for key, label in [('news', '新闻'), ('nga', 'NGA'), ('videos', '视频'), ('cutoffs', '大秘境')]:
+        info_obj = sections.get(key)
+        info = info_obj if isinstance(info_obj, dict) else {}
+        count = info.get('count')
+        try:
+            count = int(count or 0)
+        except Exception:
+            count = 0
+        if key in sections or count:
+            source_counts = info.get('source_counts')
+            section_items.append({
+                'key': key,
+                'label': label,
+                'title': info.get('title') or label,
+                'count': count,
+                'source_counts': source_counts if isinstance(source_counts, dict) else {},
+            })
+    report_date = getattr(row, 'report_date', None)
+    return {
+        'id': row.id,
+        'report_date': report_date.isoformat() if report_date else '',
+        'title': f"{report_date.strftime('%-m月%-d日') if report_date else '最新'}魔兽世界日报",
+        'url': _portal_report_url(getattr(row, 'md_path', '') or ''),
+        'md_path': getattr(row, 'md_path', '') or '',
+        'updated_at': _fmt_dt(getattr(row, 'updated_at', None)),
+        'generated_at': ext.get('generated_at') or _fmt_dt(getattr(row, 'updated_at', None)),
+        'html_renderer': ext.get('html_renderer') or '',
+        'sections': section_items,
+    }
 
 
 def _normalize_display_text(v):
@@ -353,6 +412,14 @@ class PortalWowSkillDiffStatesAPIView(View):
     def get(self, request):
         rows = list(WowWagoMonitorState.objects.filter(is_active=True).order_by('branch', 'locale', 'id'))
         return JsonResponse({'status': 'success', 'data': [_state_to_dict(x) for x in rows]})
+
+
+class PortalDailyReportLatestAPIView(View):
+    def get(self, request):
+        row = WowDailyReport.objects.all().order_by('-report_date', '-updated_at', '-id').first()
+        if not row:
+            return JsonResponse({'status': 'success', 'data': None})
+        return JsonResponse({'status': 'success', 'data': _daily_report_to_dict(row)})
 
 
 class PortalBluepostsAPIView(View):

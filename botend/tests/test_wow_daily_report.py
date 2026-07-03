@@ -205,6 +205,25 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
             self.assertNotIn("&quot;original&quot;", html)
             self.assertNotIn("&quot;translated&quot;", html)
 
+    def test_daily_report_converts_nga_img_bbcode_to_images(self):
+        with override_settings(BASE_DIR=self.base_dir):
+            self._article(
+                title="NGA 带图主楼",
+                source="nga",
+                category="nga",
+                reply_count=999,
+                description="",
+                content="开头[img]https://img.example.com/a.jpg[/img]结尾",
+            )
+
+            meta = generate_wow_daily_report(report_date=self.report_date, use_llm=False)
+            html = open(meta["full_path"], encoding="utf-8").read()
+
+            self.assertIn('src="https://img.example.com/a.jpg"', html)
+            self.assertIn('alt="NGA 图片"', html)
+            self.assertNotIn("[img]", html)
+            self.assertNotIn("[/img]", html)
+
     def test_news_body_falls_back_to_full_description_without_truncation(self):
         long_description = "正文开始 " + ("完整正文内容 " * 160) + " 正文结束"
         with override_settings(BASE_DIR=self.base_dir):

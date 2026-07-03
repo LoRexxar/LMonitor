@@ -45,6 +45,7 @@ from botend.portal.api import (
     PortalMythicstatsDpsAPIView,
     PortalWowSkillDiffListAPIView,
     PortalWowSkillDiffStatesAPIView,
+    PortalDailyReportLatestAPIView,
     PortalArticleDetailAPIView,
 )
 from django.http import HttpResponse, JsonResponse
@@ -85,6 +86,7 @@ urlpatterns = [
     path('portal/api/mythicstats/dps/', csrf_exempt(PortalMythicstatsDpsAPIView.as_view()), name="portal_mythicstats_dps"),
     path('portal/api/wow-skill-diffs/', csrf_exempt(PortalWowSkillDiffListAPIView.as_view()), name="portal_wow_skill_diffs"),
     path('portal/api/wow-skill-diff/states/', csrf_exempt(PortalWowSkillDiffStatesAPIView.as_view()), name="portal_wow_skill_diff_states"),
+    path('portal/api/daily-report/latest/', csrf_exempt(PortalDailyReportLatestAPIView.as_view()), name="portal_daily_report_latest"),
     path('portal/api/article/<int:article_id>/', csrf_exempt(PortalArticleDetailAPIView.as_view()), name="portal_article_detail"),
     path('portal/reports/<path:report_path>', PortalReportFileView.as_view(), name="portal_report_file"),
     path('portal/wow-hotfix-report/<int:report_id>/', PortalWowHotfixReportView.as_view(), name="portal_wow_hotfix_report"),

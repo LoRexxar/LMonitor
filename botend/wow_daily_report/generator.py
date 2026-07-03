@@ -87,6 +87,7 @@ def _sanitize_body_html(value: Any) -> str:
     text = str(value or "")
     if not text.strip():
         return ""
+    text = _bbcode_to_html(text)
     text = re.sub(r"<\s*(script|iframe|object|embed|form|input|button)[^>]*>[\s\S]*?<\s*/\s*\1\s*>", "", text, flags=re.I)
     text = re.sub(r"<\s*/?\s*(script|iframe|object|embed|form|input|button)[^>]*>", "", text, flags=re.I)
 
@@ -114,6 +115,19 @@ def _sanitize_body_html(value: Any) -> str:
         return f"<{tag}{attr_text}>"
 
     return re.sub(r"<\s*(/?)\s*([a-zA-Z0-9]+)([^>]*)>", clean_tag, text)
+
+
+def _bbcode_to_html(value: Any) -> str:
+    text = str(value or "")
+
+    def replace_img(match):
+        url = html.unescape((match.group(1) or "").strip())
+        if not re.match(r"https?://", url, flags=re.I):
+            return ""
+        safe_url = _safe_html(url)
+        return f'<figure><img src="{safe_url}" alt="NGA 图片"></figure>'
+
+    return re.sub(r"\[img\]\s*([^\[]+?)\s*\[/img\]", replace_img, text, flags=re.I)
 
 
 def _date_range(local_date: datetime.date):
@@ -649,39 +663,41 @@ def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>魔兽世界日报 - {_safe_html(report_date.strftime('%Y-%m-%d'))}</title>
   <style>
-    :root {{ color-scheme: dark; --bg:#0b1020; --card:#151b2f; --muted:#9aa7bd; --text:#e7ecf6; --accent:#f7b955; --line:rgba(255,255,255,.1); }}
+    :root {{ color-scheme: light; --bg:#f4f7fb; --panel:#ffffff; --soft:#f8fafc; --muted:#64748b; --text:#0f172a; --accent:#92400e; --accent-2:#4f46e5; --line:rgba(148,163,184,.28); }}
     * {{ box-sizing:border-box; }}
-    body {{ margin:0; background:linear-gradient(180deg,#0b1020,#111827); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.7; }}
-    a {{ color:#8fc7ff; text-decoration:none; }}
-    a:hover {{ text-decoration:underline; }}
-    .daily-report {{ max-width:1180px; margin:0 auto; padding:28px 20px 48px; }}
-    .daily-hero {{ padding:26px 28px; border:1px solid var(--line); border-radius:18px; background:rgba(21,27,47,.86); box-shadow:0 20px 50px rgba(0,0,0,.22); }}
-    .daily-hero h1 {{ margin:0 0 6px; font-size:30px; }}
+    body {{ margin:0; background:linear-gradient(180deg,#eef2ff 0,#f8fafc 280px,#f4f7fb 100%); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; line-height:1.72; }}
+    a {{ color:#4f46e5; text-decoration:none; }}
+    a:hover {{ color:#3730a3; text-decoration:underline; }}
+    .daily-report {{ max-width:1180px; margin:0 auto; padding:24px 18px 44px; }}
+    .daily-hero {{ position:relative; overflow:hidden; padding:24px 26px; border:1px solid rgba(245,158,11,.22); border-radius:20px; background:linear-gradient(135deg,rgba(255,251,235,.98),rgba(255,255,255,.92)),radial-gradient(circle at 100% 0%,rgba(79,70,229,.12),transparent 36%); box-shadow:0 18px 44px rgba(15,23,42,.07); }}
+    .daily-hero::before {{ content:""; position:absolute; inset:0; width:4px; background:linear-gradient(180deg,#f59e0b,#4f46e5); }}
+    .daily-hero h1 {{ margin:0 0 6px; font-size:28px; letter-spacing:-.02em; }}
     .daily-hero p,.meta {{ color:var(--muted); margin:0; }}
-    .daily-section {{ margin-top:22px; padding:22px; border:1px solid var(--line); border-radius:18px; background:rgba(21,27,47,.72); }}
-    .daily-section h2 {{ margin:0 0 10px; color:var(--accent); font-size:22px; }}
-    .section-summary {{ margin:0 0 18px; padding:12px 14px; border-left:4px solid var(--accent); background:rgba(247,185,85,.08); border-radius:10px; }}
+    .daily-section {{ margin-top:18px; padding:18px; border:1px solid var(--line); border-radius:18px; background:rgba(255,255,255,.86); box-shadow:0 14px 34px rgba(15,23,42,.05); }}
+    .daily-section h2 {{ margin:0 0 10px; color:var(--accent); font-size:21px; }}
+    .section-summary {{ margin:0 0 16px; padding:11px 13px; border-left:4px solid #f59e0b; background:rgba(245,158,11,.08); border-radius:10px; color:#78350f; }}
     .article-list {{ display:grid; grid-template-columns:1fr; gap:14px; }}
-    .daily-card {{ border:1px solid var(--line); background:rgba(255,255,255,.04); border-radius:14px; padding:16px; }}
-    .daily-card h3 {{ margin:0 0 8px; font-size:18px; }}
+    .daily-card {{ border:1px solid var(--line); background:linear-gradient(180deg,#fff,#f8fafc); border-radius:14px; padding:15px; }}
+    .daily-card h3 {{ margin:0 0 8px; font-size:18px; line-height:1.35; }}
     .meta {{ display:flex; gap:12px; flex-wrap:wrap; font-size:13px; margin-bottom:8px; }}
-    .original-link {{ display:inline-flex; align-items:center; gap:6px; margin:2px 0 8px; padding:5px 10px; border:1px solid rgba(143,199,255,.35); border-radius:999px; background:rgba(143,199,255,.08); font-size:13px; font-weight:700; }}
-    .item-summary {{ margin:10px 0; padding:10px 12px; border:1px solid rgba(247,185,85,.22); background:rgba(247,185,85,.08); border-radius:10px; color:#f4e5c0; }}
-    .original-label {{ margin:12px 0 6px; color:var(--muted); font-size:13px; font-weight:700; letter-spacing:.04em; }}
-    .body-text, .body-html {{ margin:8px 0 0; color:#d7deea; }}
+    .original-link {{ display:inline-flex; align-items:center; gap:6px; margin:2px 0 8px; padding:5px 10px; border:1px solid rgba(79,70,229,.24); border-radius:999px; background:rgba(79,70,229,.06); font-size:13px; font-weight:800; }}
+    .item-summary {{ margin:10px 0; padding:10px 12px; border:1px solid rgba(245,158,11,.22); background:rgba(245,158,11,.08); border-radius:10px; color:#78350f; }}
+    .original-label {{ margin:12px 0 6px; color:var(--muted); font-size:13px; font-weight:800; letter-spacing:.04em; }}
+    .body-text, .body-html {{ margin:8px 0 0; color:#334155; }}
     .body-html {{ overflow-x:auto; }}
     .body-html p {{ margin:8px 0; }}
     .body-html ul,.body-html ol {{ margin:8px 0 8px 22px; padding:0; }}
-    .body-html blockquote {{ margin:10px 0; padding:8px 12px; border-left:3px solid var(--accent); background:rgba(247,185,85,.07); }}
-    .body-html img {{ max-width:100%; height:auto; border-radius:10px; }}
+    .body-html blockquote {{ margin:10px 0; padding:8px 12px; border-left:3px solid #f59e0b; background:rgba(245,158,11,.07); }}
+    .body-html img {{ max-width:100%; height:auto; border-radius:10px; display:block; }}
     .body-html table {{ margin:10px 0; min-width:520px; }}
     .video-grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }}
     .video-card img {{ width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:12px; margin-bottom:10px; background:#000; }}
-    table {{ width:100%; border-collapse:collapse; overflow:hidden; border-radius:12px; }}
+    table {{ width:100%; border-collapse:collapse; overflow:hidden; border-radius:12px; background:#fff; }}
     th,td {{ border-bottom:1px solid var(--line); padding:10px 12px; text-align:left; }}
-    th {{ color:#fff; background:rgba(255,255,255,.07); }}
-    .delta {{ font-weight:700; color:#f7d48a; }}
+    th {{ color:#334155; background:#f1f5f9; }}
+    .delta {{ font-weight:800; color:#92400e; }}
     .empty {{ color:var(--muted); margin:0; }}
+    @media (max-width:700px) {{ .daily-report {{ padding:16px 12px 34px; }} .daily-hero,.daily-section {{ border-radius:16px; padding:16px; }} .daily-hero h1 {{ font-size:24px; }} .video-grid {{ grid-template-columns:1fr; }} .body-html table, table {{ min-width:560px; }} .section-body {{ overflow-x:auto; }} }}
   </style>
 </head>
 <body>
