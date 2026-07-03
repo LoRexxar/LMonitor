@@ -7,7 +7,7 @@
     <title>魔兽世界每日节奏 WowDaily.cn</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260703_today_priority_mplus_plain">
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260703_news_featured_strip">
 </head>
 <body class="portal-bg font-sans">
     <header class="portal-header">
@@ -58,7 +58,9 @@
             </div>
         </div>
 
-        <div id="section-news" class="snap-section mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div id="section-news" class="snap-section mt-6 space-y-4">
+            <div id="featured-news-card"></div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div class="portal-card portal-card-accent portal-accent-sky shadow-sm border border-slate-200/70 p-4">
                 <div class="flex items-center justify-between gap-3">
                     <div class="flex items-center gap-2">
@@ -97,6 +99,7 @@
                     </div>
                 </div>
                 <div id="wowhead-list" class="mt-3 text-sm"></div>
+            </div>
             </div>
         </div>
 
@@ -212,6 +215,6 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=20260703_today_priority_mplus_plain"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=20260703_news_featured_strip"></script>
 </body>
 </html>

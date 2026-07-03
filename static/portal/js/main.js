@@ -483,6 +483,51 @@ function bindTodayStripNavigation() {
   });
 }
 
+function renderFeaturedNewsCard() {
+  const el = document.getElementById("featured-news-card");
+  if (!el) return;
+  const sources = [
+    { label: "今日重点 · 蓝帖", badge: "暴雪蓝帖", item: firstArrayItem("blueposts"), accent: "sky" },
+    { label: "今日重点 · 国服新闻", badge: "魔兽世界中国", item: firstArrayItem("exwind"), accent: "violet" },
+    { label: "今日重点 · Wowhead", badge: "Wowhead", item: firstArrayItem("wowhead"), accent: "indigo" },
+  ];
+  const picked = sources.find((x) => x.item && getItemTitle(x.item));
+  if (!picked) {
+    el.innerHTML = "";
+    return;
+  }
+
+  const it = picked.item;
+  const title = escapeHtml(it.title_cn || it.title || it.name || "");
+  const subtitle = it.title_cn && it.title ? escapeHtml(it.title) : "";
+  const articleLink = it.id ? `/portal/article/${escapeHtml(it.id)}/` : "";
+  const href = sanitizeHref(it.url || it.source_url || "");
+  const primaryUrl = articleLink || href;
+  const source = escapeHtml(it.source || picked.badge || "");
+  const author = escapeHtml(it.author || "");
+  const time = escapeHtml((it.time || it.publish_time || it.published_at || "").replaceAll("\n", " ").trim());
+  const metaParts = [];
+  if (source) metaParts.push(`<span>${source}</span>`);
+  if (author) metaParts.push(`<span>${author}</span>`);
+  if (time) metaParts.push(`<span>${time}</span>`);
+  const meta = metaParts.join(`<span class="text-slate-300">/</span>`);
+  const safeUrl = escapeHtml(primaryUrl || "#");
+  const external = href ? `<a class="portal-featured-news-side-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">原文</a>` : "";
+
+  el.innerHTML = `<article class="portal-featured-news portal-featured-news-${picked.accent}">
+    <div class="portal-featured-news-kicker">${escapeHtml(picked.label)}</div>
+    <div class="portal-featured-news-main">
+      <a class="portal-featured-news-title" href="${safeUrl}" ${articleLink ? "" : "target=\"_blank\" rel=\"noreferrer\""}>${title}</a>
+      ${subtitle ? `<a class="portal-featured-news-subtitle" href="${safeUrl}" ${articleLink ? "" : "target=\"_blank\" rel=\"noreferrer\""}>${subtitle}</a>` : ""}
+      ${meta ? `<div class="portal-featured-news-meta">${meta}</div>` : ""}
+    </div>
+    <div class="portal-featured-news-actions">
+      ${external}
+      <a class="portal-featured-news-open" href="${safeUrl}" ${articleLink ? "" : "target=\"_blank\" rel=\"noreferrer\""}>查看</a>
+    </div>
+  </article>`;
+}
+
 function renderTodayStrip() {
   const el = document.getElementById("portal-today-strip-items");
   if (!el) return;
@@ -1945,6 +1990,7 @@ async function loadSection(key) {
       renderSimpleList(ep.listId, r.data || [], { limit: key === "nga" ? 20 : 12 });
     }
     renderTodayStrip();
+    renderFeaturedNewsCard();
   } catch (e) {
     if (ep.listId) {
       const el = document.getElementById(ep.listId);
