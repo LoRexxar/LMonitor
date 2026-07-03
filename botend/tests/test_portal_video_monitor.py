@@ -116,7 +116,7 @@ class PortalVideoMonitorTest(TestCase):
         target.refresh_from_db()
         self.assertIsNone(target.last_seen_bvid)
 
-    def test_arc_search_fallback_when_dynamic_succeeds_without_videos(self):
+    def test_dynamic_success_without_videos_does_not_fallback_to_arc(self):
         target = self._target()
         dynamic_payload = {"code": 0, "message": "0", "data": {"items": []}}
         arc_payload = {
@@ -144,15 +144,11 @@ class PortalVideoMonitorTest(TestCase):
         monitor = PortalVideoMonitor(req, None)
         monitor.update_target(target)
 
-        video = PortalVideo.objects.get(bvid="BV1fallback")
-        self.assertEqual(video.title, "投稿接口兜底")
-        self.assertEqual(video.url, "https://www.bilibili.com/video/BV1fallback")
-        self.assertEqual(video.author_name, "劳瑞兜底")
-        self.assertEqual(video.cover_url, "https://i0.hdslb.com/fallback.jpg")
+        self.assertFalse(PortalVideo.objects.filter(bvid="BV1fallback").exists())
         self.assertTrue(any("web-dynamic" in url for url in req.urls))
-        self.assertTrue(any("arc/search" in url for url in req.urls))
+        self.assertFalse(any("arc/search" in url for url in req.urls))
         target.refresh_from_db()
-        self.assertEqual(target.last_seen_bvid, "BV1fallback")
+        self.assertIsNone(target.last_seen_bvid)
 
     def test_stops_at_last_seen_bvid(self):
         target = self._target(last_seen_bvid="BV1old")

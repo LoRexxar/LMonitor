@@ -63,7 +63,6 @@ class PortalVideoMonitor(BaseScan):
             return
 
         dynamic_api = f"https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={mid}&offset=&features={BILIBILI_DYNAMIC_FEATURES}"
-        arc_api = f"https://api.bilibili.com/x/space/arc/search?mid={mid}&pn=1&ps=20&order=pubdate"
         domain = urlparse(dynamic_api).netloc
         cookies = self._get_bilibili_cookies(domain)
 
@@ -71,12 +70,6 @@ class PortalVideoMonitor(BaseScan):
         if self._payload_has_error(payload, fetch_error, domain, dynamic_api, "dynamic"):
             return
         videos = self._parse_dynamic_videos(payload)
-
-        if not videos:
-            payload, fetch_error = self._fetch_bilibili_payload(arc_api, cookies, target.target_url, "arc")
-            if self._payload_has_error(payload, fetch_error, domain, arc_api, "arc"):
-                return
-            videos = self._parse_arc_videos(payload)
 
         if not videos:
             return
