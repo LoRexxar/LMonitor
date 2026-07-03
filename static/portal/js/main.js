@@ -1395,6 +1395,32 @@ function renderPortalEventLink(item, className, innerHtml) {
   return `<a class="${className}" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${innerHtml}</a>`;
 }
 
+function portalEventStatusClasses(status) {
+  const raw = String(status || "").trim();
+  if (raw.includes("已结束")) {
+    return {
+      bar: "bg-slate-300 text-slate-700 ring-1 ring-slate-200",
+      badge: "bg-slate-100 text-slate-600 border-slate-200",
+    };
+  }
+  if (raw.includes("进行中")) {
+    return {
+      bar: "bg-emerald-500 text-white ring-1 ring-emerald-400/70",
+      badge: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    };
+  }
+  if (raw.includes("即将开始")) {
+    return {
+      bar: "bg-sky-500 text-white ring-1 ring-sky-400/70",
+      badge: "bg-sky-100 text-sky-800 border-sky-200",
+    };
+  }
+  return {
+    bar: "bg-indigo-500 text-white ring-1 ring-indigo-400/70",
+    badge: "bg-indigo-100 text-indigo-800 border-indigo-200",
+  };
+}
+
 function renderEvents(items) {
   const el = document.getElementById(SECTION_MAP.events.listId);
   if (!el) return;
@@ -1475,8 +1501,7 @@ function renderEvents(items) {
     const bars = layout.segments.map((segment) => {
       const title = escapeHtml(segment.item.title || "");
       const rawStatus = String(segment.item.status || "").trim();
-      const active = rawStatus.includes("进行中");
-      const cls = active ? "bg-emerald-500 text-white" : "bg-sky-500 text-white";
+      const cls = portalEventStatusClasses(rawStatus).bar;
       const titleHtml = segment.startsHere ? title : `<span class="opacity-80">↳</span> ${title}`;
       const width = `calc(${segment.colSpan} * ((100% - 6px) / 7) + ${Math.max(segment.colSpan - 1, 0)}px)`;
       const left = `calc(${segment.colStart} * ((100% - 6px) / 7 + 1px))`;
@@ -1491,7 +1516,7 @@ function renderEvents(items) {
         const isToday = key === todayKey;
         return `<div class="bg-white p-1.5 ${muted ? "text-slate-300" : "text-slate-700"}" style="min-height:${dayMinHeight}px;">
           <div class="flex items-center justify-between">
-            <span class="${isToday ? "inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[11px] font-extrabold text-white" : "text-[11px] font-bold"}">${date.getDate()}</span>
+            <span class="${isToday ? "inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[11px] font-extrabold text-white shadow-sm ring-2 ring-amber-100" : "text-[11px] font-bold"}">${date.getDate()}</span>
           </div>
         </div>`;
       }).join("")}
@@ -1499,13 +1524,23 @@ function renderEvents(items) {
     </div>`;
   };
 
+  const calendarLegendHtml = `<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-semibold text-slate-500">
+    <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-slate-300 ring-1 ring-slate-200"></span>已结束</span>
+    <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>进行中</span>
+    <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-sky-500"></span>即将开始</span>
+    <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>当前日</span>
+  </div>`;
+
   const calendarHtml = `<div class="min-w-[640px] overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
-    <div class="flex items-center justify-between border-b border-emerald-100 bg-emerald-50/80 px-3 py-2.5">
+    <div class="flex items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50/80 px-3 py-2.5">
       <div>
         <div class="text-sm font-extrabold text-slate-950">${formatMonthTitle(monthStart)}</div>
         <div class="mt-0.5 text-[11px] text-emerald-700">Wowhead 数据源 · 国服时间 +2 天</div>
       </div>
-      <div class="rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-800">未来 45 天</div>
+      <div class="flex flex-col items-end gap-1.5">
+        <div class="rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-800">未来 45 天</div>
+        ${calendarLegendHtml}
+      </div>
     </div>
     <div class="grid grid-cols-7 border-b border-slate-100 bg-slate-50 text-center text-[11px] font-bold text-slate-500">
       ${weekdays.map((day) => `<div class="px-1.5 py-1.5">周${day}</div>`).join("")}
@@ -1523,7 +1558,7 @@ function renderEvents(items) {
       const rawStatus = String(it.status || "").trim();
       const status = escapeHtml(rawStatus);
       const range = end ? `${start} - ${end}` : start;
-      const badgeCls = rawStatus.includes("进行中") ? "bg-emerald-100 text-emerald-800 border-emerald-200" : "bg-sky-100 text-sky-800 border-sky-200";
+      const badgeCls = portalEventStatusClasses(rawStatus).badge;
       const card = `<div class="flex items-start justify-between gap-2">
           <div class="font-semibold leading-5 text-slate-900 portal-line-clamp-2">${title}</div>
           ${status ? `<span class="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${badgeCls}">${status}</span>` : ""}
