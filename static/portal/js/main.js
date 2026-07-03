@@ -1408,8 +1408,18 @@ function renderEvents(items) {
     return;
   }
 
+  const today = new Date();
+  const todayMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const currentMonthHasEvents = filtered.some((item) => {
+    const rawStart = normalizePortalDay(item.startDate);
+    const rawEnd = item.endDate ? normalizePortalDay(item.endDate) : rawStart;
+    const eventEnd = rawEnd < rawStart ? rawStart : rawEnd;
+    const nextTodayMonthStart = new Date(todayMonthStart.getFullYear(), todayMonthStart.getMonth() + 1, 1);
+    return rawStart < nextTodayMonthStart && eventEnd >= todayMonthStart;
+  });
   const firstDate = new Date(filtered[0].startDate);
-  const monthStart = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+  const monthBase = currentMonthHasEvents ? today : firstDate;
+  const monthStart = new Date(monthBase.getFullYear(), monthBase.getMonth(), 1);
   const nextMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
   const gridStart = new Date(monthStart);
   gridStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
@@ -1417,7 +1427,6 @@ function renderEvents(items) {
   const visibleEnd = addPortalDays(nextMonthStart, 6 - ((nextMonthStart.getDay() + 6) % 7));
   const visibleDayCount = diffPortalDays(gridStart, visibleEnd) + 1;
   const visibleDays = Array.from({ length: visibleDayCount }, (_, index) => addPortalDays(gridStart, index));
-  const today = new Date();
   const todayKey = portalDateKey(today);
   const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
 
