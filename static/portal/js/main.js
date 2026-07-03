@@ -442,7 +442,7 @@ function makeTodayChip(label, text, targetSectionId, mutedText) {
   const safeText = escapeHtml(text || "");
   const safeTarget = escapeHtml(targetSectionId || "");
   const safeMuted = mutedText ? `<span class="portal-today-chip-muted">${escapeHtml(mutedText)}</span>` : "";
-  const inner = `<span class="portal-today-chip-label">${safeLabel}</span><span class="portal-today-chip-text">${safeText}</span>${safeMuted}<span class="portal-today-chip-arrow" aria-hidden="true">↓</span>`;
+  const inner = `<span class="portal-today-chip-label">${safeLabel}</span><span class="portal-today-chip-text">${safeText}</span>${safeMuted}`;
   return `<button type="button" class="portal-today-chip" data-today-target="${safeTarget}">${inner}</button>`;
 }
 

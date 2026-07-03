@@ -241,16 +241,6 @@ body {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
-.portal-today-strip-hint {
-    margin-left: 0.1rem;
-    padding-left: 0.46rem;
-    border-left: 1px solid rgba(99, 102, 241, 0.2);
-    color: rgb(100, 116, 139);
-    font-size: 0.68rem;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-}
-
 .portal-today-strip-label::before {
     content: "";
     width: 0.5rem;
@@ -322,28 +312,6 @@ body {
 .portal-today-chip-muted {
     flex: 0 0 auto;
     color: rgb(100, 116, 139);
-}
-
-.portal-today-chip-arrow {
-    flex: 0 0 auto;
-    width: 1.08rem;
-    height: 1.08rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 9999px;
-    background: rgba(99, 102, 241, 0.09);
-    color: rgb(79, 70, 229);
-    font-size: 0.76rem;
-    font-weight: 900;
-    line-height: 1;
-    transition: background 0.18s ease, transform 0.18s ease;
-}
-
-.portal-today-chip:hover .portal-today-chip-arrow,
-.portal-today-chip:focus-visible .portal-today-chip-arrow {
-    background: rgba(99, 102, 241, 0.16);
-    transform: translateY(1px);
 }
 
 .portal-today-strip-empty {

@@ -7,7 +7,7 @@
     <title>魔兽世界每日节奏 WowDaily.cn</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260703_today_strip_nav">
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260703_today_strip_clean">
 </head>
 <body class="portal-bg font-sans">
     <header class="portal-header">
@@ -48,7 +48,7 @@
                         <div id="topbar-tools" class="portal-hero-tools-inner"></div>
                     </div>
                     <div id="portal-today-strip" class="portal-today-strip" aria-label="今日魔兽提示">
-                        <div class="portal-today-strip-label"><span>今日艾泽拉斯</span><span class="portal-today-strip-hint">点击直达</span></div>
+                        <div class="portal-today-strip-label"><span>今日艾泽拉斯</span></div>
                         <div id="portal-today-strip-items" class="portal-today-strip-items">
                             <span class="portal-today-strip-empty">正在加载今日重点...</span>
                         </div>
@@ -212,6 +212,6 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=20260703_today_strip_nav"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=20260703_today_strip_clean"></script>
 </body>
 </html>
