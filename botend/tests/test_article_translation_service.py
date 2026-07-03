@@ -264,6 +264,30 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn("Sun Festival's Painted Roc", blocks_to_plain_text(blocks))
         self.assertIn("Requires Level", blocks_to_plain_text(blocks))
 
+    def test_extract_wowhead_article_trims_noisy_list_breaks(self):
+        html = """
+        <div id="news-post"><div class="text">
+          Intro line.<br><br>
+          <ul>
+            <li><br><b>July 2nd - July 6th:</b> Midnight Dungeons<br><br>The Blinding Vale<br></li>
+            <li><br>Den of Nalorakk<br></li>
+          </ul><br><br>
+          <b>Dungeon Update</b><br><br>
+          <ul><li><br><b>The Blinding Vale</b><br><br>General<br><br>Updated spawning.</li></ul>
+        </div></div>
+        """
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
+        html_result = blocks[0]["html"]
+
+        self.assertNotIn("<li><br", html_result)
+        self.assertNotIn("<br/></li>", html_result)
+        self.assertNotIn("</ul><br", html_result)
+        self.assertNotIn("<br/><ul", html_result)
+        self.assertIn("<li><b>July 2nd - July 6th:</b> Midnight Dungeons<br/>The Blinding Vale</li>", html_result)
+        self.assertIn("<b>Dungeon Update</b>", html_result)
+        self.assertIn("Updated spawning.", blocks_to_plain_text(blocks))
+
     def test_extract_article_preserves_format_attributes_but_removes_execution(self):
         html = """
         <article>

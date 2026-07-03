@@ -618,6 +618,72 @@ def _normalize_wowhead_inline_breaks(root):
     for tag in root.select(".advertisement, .ad, .heading-size, .heading-permalink"):
         tag.decompose()
 
+    block_tags = {
+        "address", "article", "aside", "blockquote", "div", "dl", "fieldset", "figcaption", "figure",
+        "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main",
+        "nav", "ol", "p", "pre", "section", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul",
+    }
+
+    # Wowhead often materializes BBCode/newline formatting as leading/trailing
+    # ``<br>`` nodes inside list items and around block nodes.  In Portal this
+    # becomes large blank gaps, especially for Blizzard quote boxes.  Keep useful
+    # inline breaks between text fragments, but remove pure block-boundary breaks.
+    for tag in root.find_all(["li", "td", "th", "blockquote", "div"]):
+        _trim_edge_breaks(tag)
+
+    changed = True
+    while changed:
+        changed = False
+        for br in list(root.find_all("br")):
+            prev_sig = _significant_sibling(br, previous=True)
+            next_sig = _significant_sibling(br, previous=False)
+            if prev_sig is not None and getattr(prev_sig, "name", None) == "br":
+                br.decompose()
+                changed = True
+                continue
+            if prev_sig is not None and getattr(prev_sig, "name", None) in block_tags:
+                br.decompose()
+                changed = True
+                continue
+            if next_sig is not None and getattr(next_sig, "name", None) in block_tags:
+                br.decompose()
+                changed = True
+                continue
+
+
+def _trim_edge_breaks(tag):
+    while True:
+        first = _significant_child(tag, first=True)
+        if first is None or getattr(first, "name", None) != "br":
+            break
+        first.decompose()
+    while True:
+        last = _significant_child(tag, first=False)
+        if last is None or getattr(last, "name", None) != "br":
+            break
+        last.decompose()
+
+
+def _significant_child(tag, *, first: bool):
+    children = list(getattr(tag, "children", []) or [])
+    if not first:
+        children = list(reversed(children))
+    for child in children:
+        if getattr(child, "name", None) is None and not str(child).strip():
+            continue
+        return child
+    return None
+
+
+def _significant_sibling(node, *, previous: bool):
+    sibling = node.previous_sibling if previous else node.next_sibling
+    while sibling is not None:
+        if getattr(sibling, "name", None) is None and not str(sibling).strip():
+            sibling = sibling.previous_sibling if previous else sibling.next_sibling
+            continue
+        return sibling
+    return None
+
 
 def _append_text_block(blocks: List[Dict[str, Any]], block_type: str, text: str, **extra):
     text = _clean_plain_text(html.unescape(text or ""))
