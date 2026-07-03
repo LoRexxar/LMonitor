@@ -25,7 +25,7 @@ class Command(BaseCommand):
         reset_translation = bool(options.get('reset_translation'))
         translate_after = bool(options.get('translate'))
         translation_service = build_translation_service() if translate_after else None
-        monitor = PortalPostMonitor(LReq(is_chrome=False, is_cloak=False), None)
+        monitor = PortalPostMonitor(LReq(is_chrome=False), None)
 
         qs = WowArticle.objects.filter(source='blizzard_tracker').exclude(url__isnull=True).exclude(url='').order_by('-publish_time', '-id')
         if ids:

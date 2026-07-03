@@ -77,7 +77,6 @@ class WowheadMonitorParserTest(TestCase):
 
         class _Req:
             is_chrome = True
-            is_cloak = False
             def __init__(self):
                 self.calls = []
                 self.s = type('S', (), {'proxies': {}, 'trust_env': True})()
@@ -104,7 +103,6 @@ class WowheadMonitorParserTest(TestCase):
 
         class _Req:
             is_chrome = False
-            is_cloak = False
             def __init__(self):
                 self.s = type('S', (), {'proxies': {}, 'trust_env': True})()
             def get(self, url, mode, *args, **kwargs):

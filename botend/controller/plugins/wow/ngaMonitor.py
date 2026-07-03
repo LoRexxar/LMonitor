@@ -53,7 +53,7 @@ class ngaMonitor(BaseScan):
 
         for title in self.target_list:
             url = self.target_list[title]["url"]
-            html = self.req.get(url, 'RespByCloak', 0, cookies)
+            html = self.req.get(url, 'Resp', 0, cookies)
             # 处理返回内容
             self.resolve_data(html, title, self.target_list[title]["limit"])
 

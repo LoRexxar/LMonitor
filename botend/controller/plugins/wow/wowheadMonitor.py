@@ -154,13 +154,6 @@ class wowheadMonitor(BaseScan):
         except Exception as e:
             logger.warning("[wowheadMonitor] Chrome request init failed: {}".format(str(e)))
 
-        # Chrome 不可用时，尝试 Cloak/Playwright 渲染
-        if not driver or not hasattr(driver, 'html'):
-            try:
-                driver = self.req.get(self.target_url, 'RespByCloak', 0, cookies, is_origin=1)
-            except Exception as e:
-                logger.warning("[wowheadMonitor] Cloak request init failed: {}".format(str(e)))
-
         if not driver or not hasattr(driver, 'eles'):
             logger.error("[wowheadMonitor] Browser request failed.")
             self.last_error_detail = requests_error_detail or self.last_error_detail
@@ -798,26 +791,6 @@ class wowheadMonitor(BaseScan):
                             logger.warning("[wowheadMonitor] article chrome html invalid, fallback url={} summary={} context={}".format(
                                 url,
                                 self._html_debug_summary(html_text, prefix="chrome_article"),
-                                self._request_debug_context(),
-                            ))
-                            html_text = ""
-            except Exception:
-                html_text = html_text or ""
-
-            # Chrome 不可用时，尝试 Cloak(Playwright) 渲染（比 requests 更稳，且能绕过部分 403）
-            try:
-                if not html_text and self.req and getattr(self.req, 'is_cloak', False):
-                    driver = self.req.get(url, 'RespByCloak', 0, cookies, is_origin=1)
-                    if driver and hasattr(driver, 'html'):
-                        for _ in range(8):
-                            html_text = (getattr(driver, 'html', '') or '').strip()
-                            if self._is_valid_article_html(html_text):
-                                break
-                            time.sleep(0.8)
-                        if html_text and not self._is_valid_article_html(html_text):
-                            logger.warning("[wowheadMonitor] article cloak html invalid, fallback url={} summary={} context={}".format(
-                                url,
-                                self._html_debug_summary(html_text, prefix="cloak_article"),
                                 self._request_debug_context(),
                             ))
                             html_text = ""

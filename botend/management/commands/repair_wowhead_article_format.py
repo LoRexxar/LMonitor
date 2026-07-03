@@ -121,7 +121,7 @@ class Command(BaseCommand):
         try:
             from utils.LReq import LReq
             from botend.controller.plugins.wow.wowheadMonitor import wowheadMonitor
-            req = LReq(is_chrome=False, is_cloak=True)
+            req = LReq(is_chrome=False)
             return wowheadMonitor(req, None)
         except Exception:
             return None
