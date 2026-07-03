@@ -446,6 +446,40 @@ function makeTodayChip(label, text, targetSectionId, mutedText) {
   return `<button type="button" class="portal-today-chip" data-today-target="${safeTarget}">${inner}</button>`;
 }
 
+function normalizeTodayTitle(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[\s\u3000\-_:：|｜/\\()[\]【】「」『』,，.。!！?？"'“”‘’]+/g, "")
+    .trim();
+}
+
+function todayTitleLooksDuplicate(a, b) {
+  const left = normalizeTodayTitle(a);
+  const right = normalizeTodayTitle(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const minLen = Math.min(left.length, right.length);
+  if (minLen < 10) return false;
+  if (left.includes(right) || right.includes(left)) return true;
+  const prefixLen = Math.min(16, minLen);
+  return left.slice(0, prefixLen) === right.slice(0, prefixLen);
+}
+
+function todayFormatScore(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : "--";
+}
+
+function todayFormatScoreDelta(current, previous) {
+  const c = Number(current);
+  const p = Number(previous);
+  if (!Number.isFinite(c) || !Number.isFinite(p)) return "";
+  const diff = c - p;
+  if (Math.abs(diff) < 0.005) return "";
+  return `${diff > 0 ? "+" : ""}${diff.toFixed(2)}`;
+}
+
 function bindTodayStripNavigation() {
   const el = document.getElementById("portal-today-strip-items");
   if (!el || el.dataset.boundTodayNav === "1") return;
@@ -462,45 +496,88 @@ function renderTodayStrip() {
   const el = document.getElementById("portal-today-strip-items");
   if (!el) return;
   bindTodayStripNavigation();
-  const chips = [];
-
-  const bluepost = firstArrayItem("blueposts");
-  if (bluepost && getItemTitle(bluepost)) {
-    chips.push(makeTodayChip("蓝帖速递", getItemTitle(bluepost), "section-news", bluepost.published_at || bluepost.time_ago || ""));
-  }
-
-  const news = firstArrayItem("exwind") || firstArrayItem("wowhead");
-  if (news && getItemTitle(news)) {
-    chips.push(makeTodayChip("新闻资讯", getItemTitle(news), "section-news", news.source || news.published_at || ""));
-  }
+  const candidates = [];
 
   const events = PORTAL_STATE.dataBySection.events;
   const event = Array.isArray(events) ? events.find((x) => x?.is_active || x?.status === "active") || events[0] : null;
   if (event && getItemTitle(event)) {
-    chips.push(makeTodayChip("活动提醒", getItemTitle(event), "section-events", event.date_text || event.time_text || ""));
-  }
-
-  const videos = PORTAL_STATE.dataBySection.videos;
-  const video = Array.isArray(videos) && videos.length ? videos[0] : null;
-  if (video && getItemTitle(video)) {
-    chips.push(makeTodayChip("视频攻略", getItemTitle(video), "section-videos", video.author || video.up_name || ""));
+    candidates.push({
+      label: "活动提醒",
+      text: getItemTitle(event),
+      target: "section-events",
+      muted: event.date_text || event.time_text || "",
+      priority: 10,
+      dedupeText: getItemTitle(event),
+    });
   }
 
   const cutoffItems = Array.isArray(PORTAL_STATE.dataBySection.mplus_cutoffs) ? PORTAL_STATE.dataBySection.mplus_cutoffs : [];
   const cnCutoff = cutoffItems.find((it) => String(it?.region || "").toLowerCase() === "cn" || it?.region_name === "国服");
   if (cnCutoff) {
-    const fmtCutoff = (value) => {
-      const n = Number(value);
-      return Number.isFinite(n) ? n.toFixed(2) : "--";
-    };
-    chips.push(makeTodayChip("大秘境分数", `国服 0.1% ${fmtCutoff(cnCutoff.cutoff_0_1)} / 1% ${fmtCutoff(cnCutoff.cutoff_1)}`, "section-mplus-cutoffs", ""));
+    const delta01 = todayFormatScoreDelta(cnCutoff.cutoff_0_1, cnCutoff.cutoff_0_1_prev);
+    const delta1 = todayFormatScoreDelta(cnCutoff.cutoff_1, cnCutoff.cutoff_1_prev);
+    const hasDelta = Boolean(delta01 || delta1);
+    candidates.push({
+      label: "大秘境分数",
+      text: `国服 0.1% ${todayFormatScore(cnCutoff.cutoff_0_1)} / 1% ${todayFormatScore(cnCutoff.cutoff_1)}`,
+      target: "section-mplus-cutoffs",
+      muted: hasDelta ? `较前 ${delta01 || "0.00"} / ${delta1 || "0.00"}` : "",
+      priority: hasDelta ? 20 : 55,
+      dedupeText: "mplus-cn-cutoff",
+    });
   }
 
-  if (!chips.length) {
+  const bluepost = firstArrayItem("blueposts");
+  if (bluepost && getItemTitle(bluepost)) {
+    candidates.push({
+      label: "蓝帖速递",
+      text: getItemTitle(bluepost),
+      target: "section-news",
+      muted: bluepost.published_at || bluepost.time_ago || "",
+      priority: 30,
+      dedupeText: getItemTitle(bluepost),
+    });
+  }
+
+  const news = firstArrayItem("exwind") || firstArrayItem("wowhead");
+  if (news && getItemTitle(news)) {
+    candidates.push({
+      label: "新闻资讯",
+      text: getItemTitle(news),
+      target: "section-news",
+      muted: news.source || news.published_at || "",
+      priority: 35,
+      dedupeText: getItemTitle(news),
+    });
+  }
+
+  const videos = PORTAL_STATE.dataBySection.videos;
+  const video = Array.isArray(videos) && videos.length ? videos[0] : null;
+  if (video && getItemTitle(video)) {
+    candidates.push({
+      label: "视频攻略",
+      text: getItemTitle(video),
+      target: "section-videos",
+      muted: video.author || video.up_name || "",
+      priority: 50,
+      dedupeText: getItemTitle(video),
+    });
+  }
+
+  const picked = [];
+  candidates
+    .sort((a, b) => a.priority - b.priority)
+    .forEach((item) => {
+      if (picked.length >= 4) return;
+      const duplicate = picked.some((existing) => todayTitleLooksDuplicate(existing.dedupeText, item.dedupeText));
+      if (!duplicate) picked.push(item);
+    });
+
+  if (!picked.length) {
     el.innerHTML = `<span class="portal-today-strip-empty">正在加载今日重点...</span>`;
     return;
   }
-  el.innerHTML = chips.slice(0, 6).join("");
+  el.innerHTML = picked.map((item) => makeTodayChip(item.label, item.text, item.target, item.muted)).join("");
 }
 
 function renderExwindSourceTabs() {

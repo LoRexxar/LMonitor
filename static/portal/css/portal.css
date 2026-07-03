@@ -339,6 +339,10 @@ body {
     .portal-today-chip {
         max-width: min(100%, 20rem);
     }
+
+    .portal-today-chip:nth-child(n+4) {
+        display: none;
+    }
 }
 
 .portal-hero-meta {
