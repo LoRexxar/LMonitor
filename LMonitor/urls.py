@@ -28,6 +28,7 @@ from botend.portal.views import PortalHomeView
 from botend.portal.views import PortalArticleView
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView
 from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView
+from botend.portal.talent_simulator import PortalTalentSimulatorAPIView, PortalTalentSimulatorEncodeAPIView, PortalTalentSimulatorView
 from botend.portal.api import (
     PortalBluepostsAPIView,
     PortalNgaHotAPIView,
@@ -55,6 +56,7 @@ urlpatterns = [
     path('favicon.ico', RedirectView.as_view(url='/static/portal/favicons/3accfdf0352f2189a3292605e1ad80f12bd5a15c605069102f42c03c3c4fceda.ico', permanent=True)),
     path('', PortalHomeView.as_view(), name='portal_home'),
     path('portal/article/<int:article_id>/', PortalArticleView.as_view(), name='portal_article'),
+    path('portal/talents/', PortalTalentSimulatorView.as_view(), name='portal_talent_simulator'),
     
     # 认证相关路由
     path('auth/login/', LoginView.as_view(), name='login'),
@@ -88,6 +90,8 @@ urlpatterns = [
     path('portal/api/wow-skill-diff/states/', csrf_exempt(PortalWowSkillDiffStatesAPIView.as_view()), name="portal_wow_skill_diff_states"),
     path('portal/api/daily-report/latest/', csrf_exempt(PortalDailyReportLatestAPIView.as_view()), name="portal_daily_report_latest"),
     path('portal/api/article/<int:article_id>/', csrf_exempt(PortalArticleDetailAPIView.as_view()), name="portal_article_detail"),
+    path('portal/api/talents/simulator/', csrf_exempt(PortalTalentSimulatorAPIView.as_view()), name="portal_talent_simulator_api"),
+    path('portal/api/talents/simulator/encode/', csrf_exempt(PortalTalentSimulatorEncodeAPIView.as_view()), name="portal_talent_simulator_encode"),
     path('portal/reports/<path:report_path>', PortalReportFileView.as_view(), name="portal_report_file"),
     path('portal/wow-hotfix-report/<int:report_id>/', PortalWowHotfixReportView.as_view(), name="portal_wow_hotfix_report"),
     path('portal/wow-skill-diff/<int:report_id>/', PortalWowSkillDiffReportView.as_view(), name="portal_wow_skill_diff_report"),

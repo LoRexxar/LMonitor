@@ -548,11 +548,22 @@ class PortalToolsAPIView(View):
             PortalToolLink.objects.filter(is_active=True)
             .order_by('sort_order', 'id')
         )
+        talent_simulator = {
+            'name': '天赋模拟器',
+            'url': '/portal/talents/',
+            'desc': '导入、编辑并导出魔兽世界天赋字符串',
+            'icon_path': '/static/portal/favicons/default.svg',
+            'sort_order': -10,
+            'is_topbar': False,
+            'topbar_order': 0,
+            'source': 'wowdaily',
+        }
+        item_dicts = [talent_simulator] + [_tool_to_dict(x) for x in items]
         return JsonResponse({
             'status': 'success',
             'data': {
                 'topbar': [_tool_to_dict(x) for x in topbar],
-                'items': [_tool_to_dict(x) for x in items],
+                'items': item_dicts,
             }
         })
 

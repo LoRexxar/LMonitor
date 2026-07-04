@@ -367,7 +367,9 @@ async function loadTools() {
                 ${desc ? `<div class="text-slate-500 text-xs mt-1">${desc}</div>` : ""}
               </div>`;
             }
-            return `<a class="block p-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors" href="${url}" target="_blank" rel="noreferrer">
+            const isInternal = href.startsWith('/');
+            const targetAttrs = isInternal ? '' : ' target="_blank" rel="noreferrer"';
+            return `<a class="block p-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors" href="${url}"${targetAttrs}>
                 <div class="flex items-center gap-2">
                   <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
                   <div class="font-medium">${name}</div>

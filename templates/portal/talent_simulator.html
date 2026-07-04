@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title>天赋模拟器 - WowDaily.cn</title>
+    {% load static %}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260703_daily_report_card">
+    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260704_talent_simulator">
+</head>
+<body class="portal-bg font-sans">
+    {{ specs_payload|json_script:"talent-specs-data" }}
+    <header class="portal-header">
+        <div class="portal-header-inner">
+            <a href="/" class="portal-header-brand no-underline">
+                <div class="portal-header-logo">
+                    <svg class="portal-logo-fallback-icon w-5 h-5 text-indigo-700" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
+                    <img class="portal-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽世界每日节奏徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
+                </div>
+                <div class="portal-header-title">魔兽世界每日节奏 WowDaily.cn</div>
+            </a>
+            <div class="portal-header-actions">
+                <a href="/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-700 hover:text-slate-900">首页</a>
+                <a href="/dashboard/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-700 hover:text-slate-900">后台</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="talent-sim-page" data-initial-class="{{ class_name }}" data-initial-spec="{{ spec_name }}">
+        <section class="talent-sim-hero portal-card portal-card-accent portal-accent-indigo">
+            <div class="talent-sim-title-block">
+                <div class="talent-sim-kicker">LMonitor Tools</div>
+                <h1>天赋模拟器</h1>
+                <p>基于站内已有 DB2 天赋树、中文描述和 Blizzard 导入字符串编码逻辑。可点击勾选、切换二选一、导入/导出分享字符串。</p>
+            </div>
+            <div class="talent-sim-actions">
+                <button type="button" id="talent-reset-btn" class="talent-sim-btn talent-sim-btn--ghost">清空当前选择</button>
+                <button type="button" id="talent-copy-url-btn" class="talent-sim-btn talent-sim-btn--ghost">复制分享链接</button>
+                <button type="button" id="talent-copy-code-btn" class="talent-sim-btn talent-sim-btn--primary">复制导入字符串</button>
+            </div>
+        </section>
+
+        <section class="talent-sim-toolbar portal-card">
+            <div class="talent-sim-field">
+                <label for="talent-class-select">职业</label>
+                <select id="talent-class-select"></select>
+            </div>
+            <div class="talent-sim-field">
+                <label for="talent-spec-select">专精</label>
+                <select id="talent-spec-select"></select>
+            </div>
+            <div class="talent-sim-field talent-sim-field--code">
+                <label for="talent-import-input">导入 / 分享字符串</label>
+                <div class="talent-import-row">
+                    <input id="talent-import-input" placeholder="粘贴 Blizzard 导入字符串，或打开带 ?code= 的分享链接" autocomplete="off">
+                    <button type="button" id="talent-import-btn" class="talent-sim-btn talent-sim-btn--ghost">导入</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="talent-sim-summary portal-card">
+            <div class="talent-spec-chip">
+                <img id="talent-spec-icon" src="" alt="" loading="lazy">
+                <div>
+                    <div id="talent-spec-title" class="talent-spec-title">-</div>
+                    <div id="talent-parse-status" class="talent-spec-subtitle">正在加载...</div>
+                </div>
+            </div>
+            <div class="talent-point-groups" aria-label="天赋点数统计">
+                <div><span id="talent-class-points">0</span><small>职业</small></div>
+                <div><span id="talent-hero-points">0</span><small>英雄</small></div>
+                <div><span id="talent-spec-points">0</span><small>专精</small></div>
+                <div><span id="talent-total-points">0</span><small>总计</small></div>
+            </div>
+            <div class="talent-code-output">
+                <label>当前导入字符串</label>
+                <code id="talent-build-code-output">暂无</code>
+            </div>
+        </section>
+
+        <section class="talent-sim-workspace">
+            <div id="talent-stage-container" class="talent-stage-scroll portal-card">
+                <div id="talent-loading" class="talent-loading">正在加载天赋树...</div>
+            </div>
+            <aside class="talent-inspector portal-card">
+                <div class="talent-inspector-empty" id="talent-inspector-empty">点击任意天赋查看详情</div>
+                <div class="talent-inspector-content" id="talent-inspector-content" hidden>
+                    <div class="talent-inspector-head">
+                        <img id="talent-inspector-icon" src="" alt="" loading="lazy">
+                        <div>
+                            <h2 id="talent-inspector-name">-</h2>
+                            <div id="talent-inspector-meta">-</div>
+                        </div>
+                    </div>
+                    <p id="talent-inspector-desc"></p>
+                    <div id="talent-inspector-options" class="talent-inspector-options"></div>
+                    <div class="talent-inspector-help">
+                        左键：增加/选中；右键：减少/取消。二选一节点可在这里切换选项。
+                    </div>
+                </div>
+            </aside>
+        </section>
+    </main>
+
+    <div id="talent-toast-root" class="talent-toast-root"></div>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20260704_talent_simulator"></script>
+</body>
+</html>
