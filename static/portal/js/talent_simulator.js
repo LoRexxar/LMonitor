@@ -193,6 +193,8 @@
             for (const path of tree.paths || []) {
                 const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 pathEl.setAttribute('d', path.svg_path || '');
+                pathEl.dataset.parentKey = path.parent_key || '';
+                pathEl.dataset.childKey = path.child_key || '';
                 pathEl.setAttribute('class', `talent-path ${pathStateClass(path)}`);
                 svg.appendChild(pathEl);
             }
@@ -275,6 +277,38 @@
         return false;
     }
 
+    function setHoverKey(key) {
+        if (state.hoverKey === key) return;
+        const previousKey = state.hoverKey;
+        state.hoverKey = key || '';
+        const relatedKeys = new Set();
+        if (state.hoverKey) {
+            relatedKeys.add(state.hoverKey);
+            for (const parentKey of parentKeysFor(state.nodes.get(state.hoverKey) || {})) relatedKeys.add(parentKey);
+            for (const childKey of childKeysFor(state.nodes.get(state.hoverKey) || {})) relatedKeys.add(childKey);
+        }
+        if (previousKey) {
+            relatedKeys.add(previousKey);
+            for (const parentKey of parentKeysFor(state.nodes.get(previousKey) || {})) relatedKeys.add(parentKey);
+            for (const childKey of childKeysFor(state.nodes.get(previousKey) || {})) relatedKeys.add(childKey);
+        }
+        document.querySelectorAll('.talent-node-card--tree.is-related').forEach(el => el.classList.remove('is-related'));
+        for (const nodeKey of relatedKeys) {
+            if (!state.hoverKey) continue;
+            document.querySelector(`[data-node-key="${cssEscape(nodeKey)}"]`)?.classList.add('is-related');
+        }
+        document.querySelectorAll('.talent-path').forEach(el => {
+            const parentKey = el.dataset.parentKey || '';
+            const childKey = el.dataset.childKey || '';
+            el.classList.toggle('is-related', Boolean(state.hoverKey && (state.hoverKey === parentKey || state.hoverKey === childKey)));
+        });
+    }
+
+    function cssEscape(value) {
+        if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(value);
+        return String(value).replace(/(["\\])/g, '\\$1');
+    }
+
     function renderNode(node) {
         const key = node.node_key;
         const btn = document.createElement('button');
@@ -292,8 +326,10 @@
         btn.style.width = `${Math.max(30, Number(node.width || 36))}px`;
         btn.style.height = `${Math.max(30, Number(node.height || 36))}px`;
         btn.innerHTML = `${iconMarkup(node)}${tooltipMarkup(node, selectable)}`;
-        btn.addEventListener('mouseenter', () => { state.hoverKey = key; renderStage(); });
-        btn.addEventListener('mouseleave', () => { if (state.hoverKey === key) { state.hoverKey = ''; renderStage(); } });
+        btn.addEventListener('mouseenter', () => setHoverKey(key));
+        btn.addEventListener('mouseleave', () => {
+            if (state.hoverKey === key) setHoverKey('');
+        });
         btn.addEventListener('click', () => selectNode(node, 1));
         btn.addEventListener('contextmenu', event => {
             event.preventDefault();
