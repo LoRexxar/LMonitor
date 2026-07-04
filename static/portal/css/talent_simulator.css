@@ -320,29 +320,25 @@
 .talent-icon-split-half img { width: 200%; max-width: none; height: 100%; object-fit: cover; filter: grayscale(1) saturate(.4) brightness(.82); }
 .talent-icon-split-half.is-right img { transform: translateX(-50%); }
 
-.talent-node-tooltip {
-    display: none;
-    position: absolute;
-    left: 50%;
-    bottom: calc(100% + 12px);
-    transform: translateX(-50%);
+.talent-floating-tooltip {
+    position: fixed;
+    z-index: 9999;
     width: max-content;
-    min-width: 170px;
-    max-width: 280px;
-    padding: 10px 12px;
+    min-width: 190px;
+    max-width: 320px;
+    padding: 11px 13px;
     border-radius: 10px;
-    background: rgba(15,23,42,.98);
-    border: 1px solid rgba(96,165,250,.4);
-    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    background: linear-gradient(180deg, rgba(15,23,42,.98), rgba(2,6,23,.98));
+    border: 1px solid rgba(250,204,21,.42);
+    box-shadow: 0 16px 36px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.08);
     color: #e2e8f0;
-    z-index: 999;
     pointer-events: none;
     text-align: left;
 }
-.talent-node-card--tree:hover .talent-node-tooltip { display: block; }
-.talent-node-tooltip-name { color: #bfdbfe; font-weight: 900; font-size: 13px; }
-.talent-node-tooltip-state { margin-top: 4px; color: #facc15; font-size: 11px; font-weight: 800; }
-.talent-node-tooltip-desc { margin-top: 6px; color: #cbd5e1; font-size: 12px; line-height: 1.45; white-space: normal; }
+.talent-floating-tooltip[hidden] { display: none; }
+.talent-floating-tooltip-name { color: #bfdbfe; font-weight: 900; font-size: 13px; }
+.talent-floating-tooltip-state { margin-top: 4px; color: #facc15; font-size: 11px; font-weight: 800; }
+.talent-floating-tooltip-desc { margin-top: 7px; color: #cbd5e1; font-size: 12px; line-height: 1.48; white-space: normal; }
 
 .talent-inspector {
     position: sticky;
@@ -383,6 +379,7 @@
 .talent-inspector-status--locked { background: #64748b; }
 .talent-inspector-meta-text { color: #64748b; }
 #talent-inspector-desc { color: #334155; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+.talent-inspector-desc-hint { color: #94a3b8 !important; font-style: italic; }
 
 .talent-inspector-options { display: grid; gap: 8px; margin-top: 14px; }
 .talent-inspector-option {

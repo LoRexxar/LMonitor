@@ -27,6 +27,7 @@
         inspectorMeta: document.getElementById('talent-inspector-meta'),
         inspectorDesc: document.getElementById('talent-inspector-desc'),
         inspectorOptions: document.getElementById('talent-inspector-options'),
+        tooltipRoot: document.getElementById('talent-tooltip-root'),
         toastRoot: document.getElementById('talent-toast-root'),
     };
 
@@ -42,6 +43,7 @@
         encodeTimer: null,
         encodeRequestSeq: 0,
         hoverKey: '',
+        tooltipNodeKey: '',
     };
 
     function nodeKey(node) {
@@ -98,6 +100,7 @@
     }
 
     async function loadTree() {
+        hideTooltip();
         els.stageContainer.innerHTML = '<div class="talent-loading">正在加载天赋树...</div>';
         const params = new URLSearchParams({class: state.className, spec: state.specName});
         if (state.buildCode) params.set('code', state.buildCode);
@@ -325,11 +328,18 @@
         btn.style.top = `${node.y}px`;
         btn.style.width = `${Math.max(30, Number(node.width || 36))}px`;
         btn.style.height = `${Math.max(30, Number(node.height || 36))}px`;
-        btn.innerHTML = `${iconMarkup(node)}${tooltipMarkup(node, selectable)}`;
-        btn.addEventListener('mouseenter', () => setHoverKey(key));
+        btn.innerHTML = iconMarkup(node);
+        btn.addEventListener('mouseenter', event => {
+            setHoverKey(key);
+            showTooltip(node, selectable, event.currentTarget);
+        });
+        btn.addEventListener('mousemove', event => positionTooltipNear(event.currentTarget));
         btn.addEventListener('mouseleave', () => {
             if (state.hoverKey === key) setHoverKey('');
+            hideTooltip(key);
         });
+        btn.addEventListener('focus', event => showTooltip(node, selectable, event.currentTarget));
+        btn.addEventListener('blur', () => hideTooltip(key));
         btn.addEventListener('click', () => selectNode(node, 1));
         btn.addEventListener('contextmenu', event => {
             event.preventDefault();
@@ -350,12 +360,41 @@
         return parents.length ? `${prefix}，前置：${parents.join('或')}` : prefix;
     }
 
-    function tooltipMarkup(node, selectable) {
+    function tooltipHtml(node, selectable) {
         const parents = parentNamesFor(node);
         const unlockText = parents.length
             ? (selectable ? `已满足前置：${parents.filter(name => name).slice(0, 3).join(' / ')}` : `需要前置：${parents.slice(0, 3).join(' / ')}`)
             : '无前置要求';
-        return `<div class="talent-node-tooltip"><div class="talent-node-tooltip-name">${escapeHtml(node.display_name)}</div><div class="talent-node-tooltip-state">${escapeHtml(nodeStateLabel(node, selectable))} · ${escapeHtml(unlockText)}</div><div class="talent-node-tooltip-desc">${escapeHtml(node.display_desc).slice(0, 260)}</div></div>`;
+        return `<div class="talent-floating-tooltip-name">${escapeHtml(node.display_name)}</div><div class="talent-floating-tooltip-state">${escapeHtml(nodeStateLabel(node, selectable))} · ${escapeHtml(unlockText)}</div><div class="talent-floating-tooltip-desc">${escapeHtml(node.display_desc || '暂无描述')}</div>`;
+    }
+
+    function showTooltip(node, selectable, anchorEl) {
+        if (!els.tooltipRoot || !anchorEl) return;
+        state.tooltipNodeKey = node.node_key || '';
+        els.tooltipRoot.innerHTML = tooltipHtml(node, selectable);
+        els.tooltipRoot.hidden = false;
+        positionTooltipNear(anchorEl);
+    }
+
+    function hideTooltip(nodeKey) {
+        if (!els.tooltipRoot) return;
+        if (nodeKey && state.tooltipNodeKey && state.tooltipNodeKey !== nodeKey) return;
+        state.tooltipNodeKey = '';
+        els.tooltipRoot.hidden = true;
+    }
+
+    function positionTooltipNear(anchorEl) {
+        if (!els.tooltipRoot || els.tooltipRoot.hidden || !anchorEl) return;
+        const rect = anchorEl.getBoundingClientRect();
+        const tooltipRect = els.tooltipRoot.getBoundingClientRect();
+        const gap = 12;
+        const viewportPadding = 10;
+        let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+        left = Math.max(viewportPadding, Math.min(left, window.innerWidth - tooltipRect.width - viewportPadding));
+        let top = rect.top - tooltipRect.height - gap;
+        if (top < viewportPadding) top = rect.bottom + gap;
+        els.tooltipRoot.style.left = `${Math.round(left)}px`;
+        els.tooltipRoot.style.top = `${Math.round(top)}px`;
     }
 
     function iconMarkup(node) {
@@ -392,6 +431,7 @@
     }
 
     function selectNode(node, delta) {
+        hideTooltip(node.node_key);
         state.selectedKey = node.node_key;
         const max = Number(node.max_points || 1);
         if (delta > 0 && !canSelect(node) && node.points <= 0) {
@@ -440,7 +480,7 @@
         const parents = parentNamesFor(node);
         const parentText = parents.length ? `<span class="talent-inspector-meta-text">前置：${escapeHtml(parents.slice(0, 2).join(' / '))}</span>` : '';
         els.inspectorMeta.innerHTML = `<span class="talent-inspector-status talent-inspector-status--${nodeStatusKey(node, selectable)}">${escapeHtml(nodeStateLabel(node, selectable))}</span><span class="talent-inspector-meta-text">${escapeHtml(treeLabel(node.tree_type))} · ${node.points || 0}/${node.max_points || 1} 点</span>${parentText}`;
-        els.inspectorDesc.textContent = node.display_desc || '暂无描述';
+        els.inspectorDesc.textContent = '技能说明请悬停天赋图标查看。';
         renderOptions(node);
     }
 
