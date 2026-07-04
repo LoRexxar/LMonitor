@@ -50,6 +50,7 @@ def normalize_talent_payload(talents, class_name='', spec_name=''):
             'node_id': node_id,
             'talent_id': talent_id,
             'spell_id': spell_id,
+            'display_spell_id': raw.get('display_spell_id') or raw.get('displaySpellID'),
             'name': name,
             'icon': raw.get('icon', ''),
             'points': points,
@@ -58,6 +59,7 @@ def normalize_talent_payload(talents, class_name='', spec_name=''):
             'column': raw.get('column'),
             'selected': bool(raw.get('selected', points > 0)),
             'is_choice_node': bool(raw.get('is_choice_node') or raw.get('isChoiceNode')),
+            'choice_selection': raw.get('choice_selection') if raw.get('choice_selection') is not None else raw.get('choiceSelection'),
             'choice_options': [dict(option) for option in (raw.get('choice_options') or raw.get('choiceOptions') or []) if isinstance(option, dict)],
             'source': raw.get('source', 'unknown'),
         })

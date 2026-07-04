@@ -26,6 +26,9 @@ from botend.wow.talents.models import (
     TalentTreeSetModel,
 )
 from botend.wow.talents.render import build_talent_render_model
+from botend.wow.talents.service import TalentBuildCodeService
+from botend.wow.talents.build_code import TalentBuildCodeDecoder
+from botend.portal.talent_simulator import _merge_nodes_for_simulator
 from botend.wow.talents.view_model import build_talent_view_model
 
 
@@ -632,6 +635,59 @@ class TalentTreeRenderTests(SimpleTestCase):
         self.assertEqual(view_model['render_model']['spec_name'], 'Frost')
         self.assertEqual(view_model['nodes'][1]['node_key'], 'spec:2002')
         self.assertEqual(view_model['trees'][1]['nodes'][0]['selected'], True)
+
+
+class TalentSimulatorBuildCodeTests(SimpleTestCase):
+    DEATH_KNIGHT_REFERENCE_CODE = 'CoPAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAA'
+    FULL_NODES = [
+        {'tree_type': 'class', 'node_id': 96200, 'talent_id': 96200, 'spell_id': 100200, 'max_points': 1},
+        {'tree_type': 'class', 'node_id': 96196, 'talent_id': 96196, 'spell_id': 100196, 'max_points': 1},
+        {
+            'tree_type': 'class',
+            'node_id': 96203,
+            'talent_id': 96203,
+            'spell_id': 391546,
+            'display_spell_id': 391546,
+            'max_points': 1,
+            'choice_options': [
+                {'talent_id': 76074, 'spell_id': 391546, 'display_spell_id': 391546, 'name': '黑暗行军'},
+                {'talent_id': 76074, 'spell_id': 212552, 'display_spell_id': 212552, 'name': '幻影步'},
+            ],
+        },
+    ]
+
+    @patch('botend.wow.talents.service.TalentMetadataProvider')
+    def test_encoder_preserves_choice_selection_for_choice_node(self, mock_provider_cls):
+        mock_provider_cls.return_value.get_full_tree_nodes.return_value = list(self.FULL_NODES)
+        selected_nodes = [
+            {'tree_type': 'class', 'node_id': 96200, 'talent_id': 96200, 'points': 1},
+            {'tree_type': 'class', 'node_id': 96196, 'talent_id': 96196, 'points': 1},
+            {'tree_type': 'class', 'node_id': 96203, 'talent_id': 96203, 'points': 1, 'choice_selection': 1},
+        ]
+
+        build_code = TalentBuildCodeService.encode_build_code_from_nodes(
+            selected_nodes,
+            class_name='DeathKnight',
+            spec_name='Blood',
+            reference_build_code=self.DEATH_KNIGHT_REFERENCE_CODE,
+        )
+        decoded = TalentBuildCodeDecoder.decode_node_states(build_code, self.FULL_NODES)
+
+        self.assertTrue(build_code)
+        self.assertEqual(decoded['class:96203']['choice_selection'], 1)
+        self.assertEqual(decoded['class:96203']['points'], 1)
+
+    def test_simulator_merge_applies_imported_choice_option_display(self):
+        merged = _merge_nodes_for_simulator(
+            self.FULL_NODES,
+            decoded_states={'class:96203': {'selected': True, 'points': 1, 'choice_selection': 1}},
+        )
+        choice_node = next(node for node in merged if node.get('node_id') == 96203)
+
+        self.assertEqual(choice_node['choice_selection'], 1)
+        self.assertEqual(choice_node['name'], '幻影步')
+        self.assertEqual(choice_node['display_spell_id'], 212552)
+        self.assertEqual(choice_node['points'], 1)
 
 
 class SpecStatsTalentRenderTests(SimpleTestCase):

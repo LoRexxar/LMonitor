@@ -262,6 +262,13 @@ def _resolve_choice_selection(base_node, selected_node):
     options = base_node.get('choice_options') or []
     if not options:
         return None
+    explicit_selection = selected_node.get('choice_selection')
+    if explicit_selection is not None:
+        try:
+            index = int(explicit_selection)
+        except (TypeError, ValueError):
+            index = 0
+        return max(0, min(len(options) - 1, index))
     selected_ids = {
         _to_int(selected_node.get('display_spell_id')),
         _to_int(selected_node.get('spell_id')),

@@ -37,8 +37,10 @@
         heroSubtree: new URLSearchParams(location.search).get('hero') || '',
         payload: null,
         nodes: new Map(),
+        parentKeysByChild: new Map(),
         selectedKey: '',
         encodeTimer: null,
+        encodeRequestSeq: 0,
     };
 
     function nodeKey(node) {
@@ -117,6 +119,7 @@
 
     function indexNodes() {
         state.nodes.clear();
+        state.parentKeysByChild.clear();
         for (const tree of state.payload.render_model?.trees || []) {
             for (const node of tree.nodes || []) {
                 const key = node.node_key || nodeKey(node);
@@ -126,6 +129,11 @@
                 node.selected = !!node.selected || node.points > 0;
                 if (node.choice_selection == null) node.choice_selection = 0;
                 state.nodes.set(key, node);
+            }
+            for (const path of tree.paths || []) {
+                if (!path.parent_key || !path.child_key) continue;
+                if (!state.parentKeysByChild.has(path.child_key)) state.parentKeysByChild.set(path.child_key, []);
+                state.parentKeysByChild.get(path.child_key).push(path.parent_key);
             }
         }
     }
@@ -184,7 +192,7 @@
             for (const path of tree.paths || []) {
                 const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 pathEl.setAttribute('d', path.svg_path || '');
-                pathEl.setAttribute('class', `talent-path ${isPathActive(path) ? 'is-active' : ''}`);
+                pathEl.setAttribute('class', `talent-path ${pathStateClass(path)}`);
                 svg.appendChild(pathEl);
             }
             for (const node of tree.nodes || []) {
@@ -215,26 +223,43 @@
         return el;
     }
 
-    function isPathActive(path) {
+    function pathStateClass(path) {
         const parent = state.nodes.get(path.parent_key);
         const child = state.nodes.get(path.child_key);
-        return !!(parent?.points > 0 && child?.points > 0);
+        if (parent?.points > 0 && child?.points > 0) return 'is-active';
+        if (parent?.points > 0) return 'is-unlocked';
+        return 'is-locked';
+    }
+
+    function parentKeysFor(node) {
+        const fromPaths = state.parentKeysByChild.get(node.node_key) || [];
+        if (fromPaths.length) return fromPaths;
+        return (node.parents || []).map(parentId => `${node.tree_type || 'spec'}:${parentId}`);
     }
 
     function canSelect(node) {
-        const parents = node.parents || [];
+        const parents = parentKeysFor(node);
         if (!parents.length) return true;
-        return parents.some(parentId => {
-            const parentKey = `${node.tree_type || 'spec'}:${parentId}`;
-            return (state.nodes.get(parentKey)?.points || 0) > 0;
-        });
+        return parents.some(parentKey => (state.nodes.get(parentKey)?.points || 0) > 0);
+    }
+
+    function hasSelectedChild(node) {
+        for (const [childKey, parentKeys] of state.parentKeysByChild.entries()) {
+            if (!parentKeys.includes(node.node_key)) continue;
+            if ((state.nodes.get(childKey)?.points || 0) > 0) return true;
+        }
+        return false;
     }
 
     function renderNode(node) {
         const key = node.node_key;
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = `talent-node-card--tree ${node.points > 0 ? 'is-selected' : 'is-unselected'} ${node.is_choice_node ? 'is-choice-node' : ''} ${canSelect(node) ? '' : 'is-blocked'}`;
+        const selectable = canSelect(node);
+        const stateClass = node.points > 0 ? 'is-selected' : (selectable ? 'is-available' : 'is-locked');
+        btn.className = `talent-node-card--tree ${stateClass} ${node.is_choice_node ? 'is-choice-node' : ''}`;
+        btn.setAttribute('aria-pressed', node.points > 0 ? 'true' : 'false');
+        btn.setAttribute('aria-disabled', selectable ? 'false' : 'true');
         btn.dataset.nodeKey = key;
         btn.style.left = `${node.x}px`;
         btn.style.top = `${node.y}px`;
@@ -260,6 +285,27 @@
         return `<span class="talent-node-icon"><img src="${escapeHtml(node.icon_url)}" alt="">${pointsMarkup}</span>`;
     }
 
+    function resetNodeSelection(node) {
+        node.points = 0;
+        node.selected = false;
+    }
+
+    function pruneInvalidSelections() {
+        let changed = false;
+        let didPrune = false;
+        do {
+            changed = false;
+            for (const node of state.nodes.values()) {
+                if (Number(node.points || 0) > 0 && !canSelect(node)) {
+                    resetNodeSelection(node);
+                    changed = true;
+                    didPrune = true;
+                }
+            }
+        } while (changed);
+        return didPrune;
+    }
+
     function selectNode(node, delta) {
         state.selectedKey = node.node_key;
         const max = Number(node.max_points || 1);
@@ -268,8 +314,12 @@
             updateInspector();
             return;
         }
+        if (delta < 0 && hasSelectedChild(node)) {
+            toast('取消前置天赋会同步清除后续天赋');
+        }
         node.points = Math.max(0, Math.min(max, Number(node.points || 0) + delta));
         node.selected = node.points > 0;
+        if (pruneInvalidSelections()) toast('已清除失去前置条件的后续天赋');
         updateInspector();
         renderStage();
         updateCounters();
@@ -370,6 +420,7 @@
     }
 
     async function encodeCurrent() {
+        const requestSeq = ++state.encodeRequestSeq;
         const selected = selectedNodesPayload();
         if (!selected.length) {
             state.buildCode = '';
@@ -388,6 +439,7 @@
             }),
         });
         const data = await res.json();
+        if (requestSeq !== state.encodeRequestSeq) return;
         if (data.success && data.build_code) {
             state.buildCode = data.build_code;
             els.codeOutput.textContent = data.build_code;
@@ -439,8 +491,7 @@
     els.resetBtn.addEventListener('click', () => {
         state.buildCode = '';
         for (const node of state.nodes.values()) {
-            node.points = 0;
-            node.selected = false;
+            resetNodeSelection(node);
         }
         renderStage();
         updateCounters();
