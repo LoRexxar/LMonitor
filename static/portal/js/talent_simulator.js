@@ -41,6 +41,7 @@
         selectedKey: '',
         encodeTimer: null,
         encodeRequestSeq: 0,
+        hoverKey: '',
     };
 
     function nodeKey(node) {
@@ -226,9 +227,13 @@
     function pathStateClass(path) {
         const parent = state.nodes.get(path.parent_key);
         const child = state.nodes.get(path.child_key);
-        if (parent?.points > 0 && child?.points > 0) return 'is-active';
-        if (parent?.points > 0) return 'is-unlocked';
-        return 'is-locked';
+        const hover = state.hoverKey && (state.hoverKey === path.parent_key || state.hoverKey === path.child_key);
+        const classes = [];
+        if (parent?.points > 0 && child?.points > 0) classes.push('is-active');
+        else if (parent?.points > 0) classes.push('is-unlocked');
+        else classes.push('is-locked');
+        if (hover) classes.push('is-related');
+        return classes.join(' ');
     }
 
     function parentKeysFor(node) {
@@ -237,10 +242,29 @@
         return (node.parents || []).map(parentId => `${node.tree_type || 'spec'}:${parentId}`);
     }
 
+    function unlockedParentKeys(node) {
+        return parentKeysFor(node).filter(parentKey => (state.nodes.get(parentKey)?.points || 0) > 0);
+    }
+
     function canSelect(node) {
         const parents = parentKeysFor(node);
         if (!parents.length) return true;
-        return parents.some(parentKey => (state.nodes.get(parentKey)?.points || 0) > 0);
+        return unlockedParentKeys(node).length > 0;
+    }
+
+    function parentNamesFor(node) {
+        return parentKeysFor(node)
+            .map(parentKey => state.nodes.get(parentKey))
+            .filter(Boolean)
+            .map(parent => parent.display_name || parent.name || parent.node_key);
+    }
+
+    function childKeysFor(node) {
+        const children = [];
+        for (const [childKey, parentKeys] of state.parentKeysByChild.entries()) {
+            if (parentKeys.includes(node.node_key)) children.push(childKey);
+        }
+        return children;
     }
 
     function hasSelectedChild(node) {
@@ -256,16 +280,20 @@
         const btn = document.createElement('button');
         btn.type = 'button';
         const selectable = canSelect(node);
+        const related = state.hoverKey && (state.hoverKey === key || parentKeysFor(node).includes(state.hoverKey) || childKeysFor(node).includes(state.hoverKey));
         const stateClass = node.points > 0 ? 'is-selected' : (selectable ? 'is-available' : 'is-locked');
-        btn.className = `talent-node-card--tree ${stateClass} ${node.is_choice_node ? 'is-choice-node' : ''}`;
+        btn.className = `talent-node-card--tree ${stateClass} ${related ? 'is-related' : ''} ${node.is_choice_node ? 'is-choice-node' : ''}`;
         btn.setAttribute('aria-pressed', node.points > 0 ? 'true' : 'false');
         btn.setAttribute('aria-disabled', selectable ? 'false' : 'true');
+        btn.setAttribute('aria-label', nodeAccessibilityLabel(node, selectable));
         btn.dataset.nodeKey = key;
         btn.style.left = `${node.x}px`;
         btn.style.top = `${node.y}px`;
         btn.style.width = `${Math.max(30, Number(node.width || 36))}px`;
         btn.style.height = `${Math.max(30, Number(node.height || 36))}px`;
-        btn.innerHTML = `${iconMarkup(node)}<div class="talent-node-tooltip"><div class="talent-node-tooltip-name">${escapeHtml(node.display_name)}</div><div class="talent-node-tooltip-desc">${escapeHtml(node.display_desc).slice(0, 260)}</div></div>`;
+        btn.innerHTML = `${iconMarkup(node)}${tooltipMarkup(node, selectable)}`;
+        btn.addEventListener('mouseenter', () => { state.hoverKey = key; renderStage(); });
+        btn.addEventListener('mouseleave', () => { if (state.hoverKey === key) { state.hoverKey = ''; renderStage(); } });
         btn.addEventListener('click', () => selectNode(node, 1));
         btn.addEventListener('contextmenu', event => {
             event.preventDefault();
@@ -274,10 +302,31 @@
         return btn;
     }
 
+    function nodeStateLabel(node, selectable) {
+        if (Number(node.points || 0) > 0) return '已选';
+        if (selectable) return '可点';
+        return '锁定';
+    }
+
+    function nodeAccessibilityLabel(node, selectable) {
+        const parents = parentNamesFor(node);
+        const prefix = `${node.display_name || '未命名天赋'}，${nodeStateLabel(node, selectable)}，${node.points || 0}/${node.max_points || 1}点`;
+        return parents.length ? `${prefix}，前置：${parents.join('或')}` : prefix;
+    }
+
+    function tooltipMarkup(node, selectable) {
+        const parents = parentNamesFor(node);
+        const unlockText = parents.length
+            ? (selectable ? `已满足前置：${parents.filter(name => name).slice(0, 3).join(' / ')}` : `需要前置：${parents.slice(0, 3).join(' / ')}`)
+            : '无前置要求';
+        return `<div class="talent-node-tooltip"><div class="talent-node-tooltip-name">${escapeHtml(node.display_name)}</div><div class="talent-node-tooltip-state">${escapeHtml(nodeStateLabel(node, selectable))} · ${escapeHtml(unlockText)}</div><div class="talent-node-tooltip-desc">${escapeHtml(node.display_desc).slice(0, 260)}</div></div>`;
+    }
+
     function iconMarkup(node) {
         const max = Number(node.max_points || 1);
         const points = Number(node.points || 0);
-        const pointsMarkup = `<span class="talent-node-points">${points}/${max}</span>`;
+        const selectable = canSelect(node);
+        const pointsMarkup = `<span class="talent-node-points">${points}/${max}</span><span class="talent-node-state-badge">${escapeHtml(nodeStateLabel(node, selectable))}</span>`;
         if (node.is_choice_node && points <= 0 && (node.choice_options || []).length >= 2) {
             const [left, right] = node.choice_options;
             return `<span class="talent-node-icon"><span class="talent-icon-split"><span class="talent-icon-split-half"><img src="${escapeHtml(left.icon_url || node.icon_url)}" alt=""></span><span class="talent-icon-split-half is-right"><img src="${escapeHtml(right.icon_url || node.icon_url)}" alt=""></span></span>${pointsMarkup}</span>`;
@@ -310,7 +359,8 @@
         state.selectedKey = node.node_key;
         const max = Number(node.max_points || 1);
         if (delta > 0 && !canSelect(node) && node.points <= 0) {
-            toast('需要先点亮前置天赋');
+            const names = parentNamesFor(node);
+            toast(names.length ? `需要先点亮前置：${names.slice(0, 2).join(' / ')}` : '需要先点亮前置天赋');
             updateInspector();
             return;
         }
@@ -350,9 +400,18 @@
         els.inspectorContent.hidden = false;
         els.inspectorIcon.src = node.icon_url || '';
         els.inspectorName.textContent = node.display_name || '未命名天赋';
-        els.inspectorMeta.textContent = `${treeLabel(node.tree_type)} · ${node.points || 0}/${node.max_points || 1} 点`;
+        const selectable = canSelect(node);
+        const parents = parentNamesFor(node);
+        const parentText = parents.length ? `<span class="talent-inspector-meta-text">前置：${escapeHtml(parents.slice(0, 2).join(' / '))}</span>` : '';
+        els.inspectorMeta.innerHTML = `<span class="talent-inspector-status talent-inspector-status--${nodeStatusKey(node, selectable)}">${escapeHtml(nodeStateLabel(node, selectable))}</span><span class="talent-inspector-meta-text">${escapeHtml(treeLabel(node.tree_type))} · ${node.points || 0}/${node.max_points || 1} 点</span>${parentText}`;
         els.inspectorDesc.textContent = node.display_desc || '暂无描述';
         renderOptions(node);
+    }
+
+    function nodeStatusKey(node, selectable) {
+        if (Number(node.points || 0) > 0) return 'selected';
+        if (selectable) return 'available';
+        return 'locked';
     }
 
     function renderOptions(node) {
@@ -379,14 +438,19 @@
         }
         const option = (node.choice_options || [])[index];
         if (!option) return;
+        const wasSelected = Number(node.points || 0) > 0;
         node.choice_selection = index;
         node.display_spell_id = option.display_spell_id || option.spell_id || node.display_spell_id;
         node.spell_id = option.spell_id || node.spell_id;
         node.icon_url = option.icon_url || node.icon_url;
         node.display_name = option.display_name || node.display_name;
         node.display_desc = option.display_desc || node.display_desc;
-        if (node.points <= 0) node.points = 1;
-        node.selected = true;
+        if (wasSelected) {
+            node.selected = true;
+        } else {
+            node.selected = false;
+            toast('已切换二选一选项；左键点亮后才计入 build');
+        }
         updateInspector();
         renderStage();
         updateCounters();

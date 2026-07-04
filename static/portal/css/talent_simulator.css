@@ -194,10 +194,11 @@
 .talent-stage-scale-wrapper { transform-origin: top left; }
 .talent-render-stage { position: relative; min-width: 100%; border-radius: 20px; transform-origin: top left; }
 .talent-stage-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
-.talent-path { fill: none; stroke: rgba(71,85,105,.22); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 4px rgba(15,23,42,.08)); transition: stroke .14s ease, opacity .14s ease, filter .14s ease; }
+.talent-path { fill: none; stroke: rgba(71,85,105,.22); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 4px rgba(15,23,42,.08)); transition: stroke .14s ease, opacity .14s ease, filter .14s ease, stroke-width .14s ease; }
 .talent-path.is-locked { opacity: .38; }
 .talent-path.is-unlocked { stroke: rgba(250,204,21,.62); opacity: .82; filter: drop-shadow(0 0 6px rgba(250,204,21,.22)); }
 .talent-path.is-active { stroke: rgba(37,99,235,.82); opacity: 1; filter: drop-shadow(0 0 7px rgba(37,99,235,.28)); }
+.talent-path.is-related { stroke-width: 7; opacity: 1; filter: drop-shadow(0 0 10px rgba(245,158,11,.32)); }
 
 .talent-panel {
     position: absolute;
@@ -234,8 +235,9 @@
 }
 
 .talent-node-card--tree:hover { transform: translateY(-2px) scale(1.04); }
-.talent-node-card--tree.is-locked { opacity: .42; cursor: not-allowed; }
-.talent-node-card--tree.is-available { opacity: .96; }
+.talent-node-card--tree.is-locked { opacity: .32; cursor: not-allowed; }
+.talent-node-card--tree.is-available { opacity: 1; }
+.talent-node-card--tree.is-related { z-index: 5; opacity: 1; }
 
 .talent-node-icon {
     position: relative;
@@ -252,9 +254,10 @@
 
 .talent-panel--hero .talent-node-icon { width: 30px; height: 30px; }
 .talent-node-icon img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
-.talent-node-card--tree.is-locked .talent-node-icon img { filter: grayscale(1) saturate(.35) brightness(.7); opacity: .9; }
-.talent-node-card--tree.is-available .talent-node-icon { box-shadow: 0 0 0 1.5px rgba(245,158,11,.82), 0 0 12px rgba(245,158,11,.32); }
+.talent-node-card--tree.is-locked .talent-node-icon img { filter: grayscale(1) saturate(.2) brightness(.58); opacity: .82; }
+.talent-node-card--tree.is-available .talent-node-icon { box-shadow: 0 0 0 2.5px rgba(245,158,11,.95), 0 0 0 6px rgba(245,158,11,.14), 0 0 16px rgba(245,158,11,.38); }
 .talent-node-card--tree.is-selected .talent-node-icon { box-shadow: 0 0 0 1.5px rgba(96,165,250,.95), 0 0 10px rgba(37,99,235,.42); }
+.talent-node-card--tree.is-related .talent-node-icon { box-shadow: 0 0 0 2px rgba(250,204,21,.95), 0 0 16px rgba(250,204,21,.42); }
 .talent-node-card--tree.is-choice-node::before,
 .talent-node-card--tree.is-choice-node::after {
     content: '';
@@ -290,6 +293,28 @@
 .talent-node-card--tree.is-locked .talent-node-points { background: #64748b; color: #e2e8f0; box-shadow: none; }
 .talent-node-card--tree.is-available .talent-node-points { background: #d97706; box-shadow: 0 4px 12px rgba(217,119,6,.32); }
 
+.talent-node-state-badge {
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 3px);
+    transform: translateX(-50%);
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: rgba(15,23,42,.78);
+    color: #cbd5e1;
+    font-size: 7px;
+    line-height: 12px;
+    font-weight: 900;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .12s ease;
+}
+.talent-node-card--tree:hover .talent-node-state-badge,
+.talent-node-card--tree.is-related .talent-node-state-badge { opacity: 1; }
+.talent-node-card--tree.is-available .talent-node-state-badge { background: rgba(217,119,6,.9); color: #fff7ed; }
+.talent-node-card--tree.is-selected .talent-node-state-badge { background: rgba(37,99,235,.9); color: #eff6ff; }
+
 .talent-icon-split { display: flex; width: 100%; height: 100%; border-radius: 50%; overflow: hidden; }
 .talent-icon-split-half { width: 50%; height: 100%; overflow: hidden; }
 .talent-icon-split-half img { width: 200%; max-width: none; height: 100%; object-fit: cover; filter: grayscale(1) saturate(.4) brightness(.82); }
@@ -316,6 +341,7 @@
 }
 .talent-node-card--tree:hover .talent-node-tooltip { display: block; }
 .talent-node-tooltip-name { color: #bfdbfe; font-weight: 900; font-size: 13px; }
+.talent-node-tooltip-state { margin-top: 4px; color: #facc15; font-size: 11px; font-weight: 800; }
 .talent-node-tooltip-desc { margin-top: 6px; color: #cbd5e1; font-size: 12px; line-height: 1.45; white-space: normal; }
 
 .talent-inspector {
@@ -350,7 +376,12 @@
     font-weight: 900;
 }
 
-#talent-inspector-meta { margin-top: 4px; color: #64748b; font-size: 12px; }
+#talent-inspector-meta { margin-top: 6px; color: #64748b; font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.talent-inspector-status { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; color: #fff; font-size: 11px; font-weight: 900; }
+.talent-inspector-status--selected { background: #2563eb; }
+.talent-inspector-status--available { background: #d97706; }
+.talent-inspector-status--locked { background: #64748b; }
+.talent-inspector-meta-text { color: #64748b; }
 #talent-inspector-desc { color: #334155; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 
 .talent-inspector-options { display: grid; gap: 8px; margin-top: 14px; }
