@@ -44,6 +44,7 @@
         encodeRequestSeq: 0,
         hoverKey: '',
         tooltipNodeKey: '',
+        tooltipHideTimer: null,
     };
 
     function nodeKey(node) {
@@ -400,22 +401,60 @@
         const unlockText = parents.length
             ? (selectable ? `已满足前置：${parents.filter(name => name).slice(0, 3).join(' / ')}` : `需要前置：${parents.slice(0, 3).join(' / ')}`)
             : '无前置要求';
-        return `<div class="talent-floating-tooltip-name">${escapeHtml(node.display_name)}</div><div class="talent-floating-tooltip-state">${escapeHtml(nodeStateLabel(node, selectable))} · ${escapeHtml(unlockText)}</div><div class="talent-floating-tooltip-desc">${escapeHtml(node.display_desc || '暂无描述')}</div>`;
+        const options = choiceOptionsTooltipHtml(node);
+        return `<div class="talent-floating-tooltip-name">${escapeHtml(node.display_name)}</div><div class="talent-floating-tooltip-state">${escapeHtml(nodeStateLabel(node, selectable))} · ${escapeHtml(unlockText)}</div><div class="talent-floating-tooltip-desc">${escapeHtml(node.display_desc || '暂无描述')}</div>${options}`;
+    }
+
+    function choiceOptionsTooltipHtml(node) {
+        const options = node.choice_options || [];
+        if (!options.length) return '';
+        return `<div class="talent-floating-tooltip-options" role="group" aria-label="二选一天赋选项">
+            ${options.map((option, index) => `
+                <button type="button" class="talent-floating-tooltip-option ${Number(node.choice_selection || 0) === index ? 'is-active' : ''}" data-option-index="${index}">
+                    <img src="${escapeHtml(option.icon_url || node.icon_url)}" alt="">
+                    <span><strong>${escapeHtml(option.display_name || '未命名选项')}</strong><small>${escapeHtml(option.display_desc || '暂无描述')}</small></span>
+                </button>
+            `).join('')}
+        </div>`;
+    }
+
+    function bindTooltipActions(node, anchorEl) {
+        if (!els.tooltipRoot) return;
+        els.tooltipRoot.querySelectorAll('[data-option-index]').forEach(btn => {
+            btn.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                chooseOption(node, Number(btn.dataset.optionIndex || 0));
+                const latestNode = state.nodes.get(node.node_key) || node;
+                const latestAnchor = els.stageContainer.querySelector(`[data-node-key="${CSS.escape(node.node_key)}"]`) || anchorEl;
+                showTooltip(latestNode, canSelect(latestNode), latestAnchor);
+            });
+        });
     }
 
     function showTooltip(node, selectable, anchorEl) {
         if (!els.tooltipRoot || !anchorEl) return;
+        clearTimeout(state.tooltipHideTimer);
         state.tooltipNodeKey = node.node_key || '';
         els.tooltipRoot.innerHTML = tooltipHtml(node, selectable);
+        bindTooltipActions(node, anchorEl);
         els.tooltipRoot.hidden = false;
         positionTooltipNear(anchorEl);
     }
 
-    function hideTooltip(nodeKey) {
+    function hideTooltip(nodeKey, immediate = false) {
         if (!els.tooltipRoot) return;
         if (nodeKey && state.tooltipNodeKey && state.tooltipNodeKey !== nodeKey) return;
-        state.tooltipNodeKey = '';
-        els.tooltipRoot.hidden = true;
+        clearTimeout(state.tooltipHideTimer);
+        const doHide = () => {
+            state.tooltipNodeKey = '';
+            els.tooltipRoot.hidden = true;
+        };
+        if (immediate) {
+            doHide();
+        } else {
+            state.tooltipHideTimer = setTimeout(doHide, 140);
+        }
     }
 
     function positionTooltipNear(anchorEl) {
@@ -501,6 +540,7 @@
     }
 
     function updateInspector() {
+        if (!els.inspectorContent || !els.inspectorEmpty) return;
         const node = state.nodes.get(state.selectedKey);
         if (!node) {
             els.inspectorEmpty.hidden = false;
@@ -526,6 +566,7 @@
     }
 
     function renderOptions(node) {
+        if (!els.inspectorOptions) return;
         const options = node.choice_options || [];
         if (!options.length) {
             els.inspectorOptions.innerHTML = '';
@@ -675,6 +716,10 @@
     });
     els.copyUrlBtn.addEventListener('click', () => copyText(location.href));
     els.copyCodeBtn.addEventListener('click', () => copyText(state.buildCode));
+    if (els.tooltipRoot) {
+        els.tooltipRoot.addEventListener('mouseenter', () => clearTimeout(state.tooltipHideTimer));
+        els.tooltipRoot.addEventListener('mouseleave', () => hideTooltip(state.tooltipNodeKey, true));
+    }
     window.addEventListener('popstate', () => {
         const params = new URLSearchParams(location.search);
         state.className = params.get('class') || state.className;

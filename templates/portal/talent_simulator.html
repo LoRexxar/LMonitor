@@ -8,7 +8,7 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260703_daily_report_card">
-    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260704_hero_subtree_choice">
+    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260704_tooltip_choice">
 </head>
 <body class="portal-bg font-sans">
     {{ specs_payload|json_script:"talent-specs-data" }}
@@ -84,28 +84,11 @@
             <div id="talent-stage-container" class="talent-stage-scroll portal-card">
                 <div id="talent-loading" class="talent-loading">正在加载天赋树...</div>
             </div>
-            <aside class="talent-inspector portal-card">
-                <div class="talent-inspector-empty" id="talent-inspector-empty">点击任意天赋查看详情</div>
-                <div class="talent-inspector-content" id="talent-inspector-content" hidden>
-                    <div class="talent-inspector-head">
-                        <img id="talent-inspector-icon" src="" alt="" loading="lazy">
-                        <div>
-                            <h2 id="talent-inspector-name">-</h2>
-                            <div id="talent-inspector-meta">-</div>
-                        </div>
-                    </div>
-                    <p id="talent-inspector-desc" class="talent-inspector-desc-hint">技能说明请悬停天赋图标查看。</p>
-                    <div id="talent-inspector-options" class="talent-inspector-options"></div>
-                    <div class="talent-inspector-help">
-                        左键：增加/选中；右键：减少/取消。二选一节点可在这里切换选项。
-                    </div>
-                </div>
-            </aside>
         </section>
     </main>
 
     <div id="talent-tooltip-root" class="talent-floating-tooltip" hidden></div>
     <div id="talent-toast-root" class="talent-toast-root"></div>
-    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20260704_hero_subtree_choice"></script>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20260704_tooltip_choice"></script>
 </body>
 </html>
