@@ -689,6 +689,23 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(choice_node['display_spell_id'], 212552)
         self.assertEqual(choice_node['points'], 1)
 
+    def test_simulator_merge_hides_hero_nodes_until_subtree_selected(self):
+        full_nodes = [
+            {'tree_type': 'class', 'node_id': 1001, 'talent_id': 1001, 'spell_id': 2001},
+            {'tree_type': 'hero', 'node_id': 3001, 'talent_id': 3001, 'spell_id': 4001, 'db2_subtree_id': 11},
+            {'tree_type': 'hero', 'node_id': 3002, 'talent_id': 3002, 'spell_id': 4002, 'db2_subtree_id': 22},
+            {'tree_type': 'spec', 'node_id': 5001, 'talent_id': 5001, 'spell_id': 6001},
+        ]
+
+        merged_without_choice = _merge_nodes_for_simulator(full_nodes, active_hero_subtree=0)
+        merged_with_choice = _merge_nodes_for_simulator(full_nodes, active_hero_subtree=22)
+
+        self.assertEqual([node['tree_type'] for node in merged_without_choice], ['class', 'spec'])
+        self.assertEqual(
+            [(node['tree_type'], node['node_id']) for node in merged_with_choice],
+            [('class', 1001), ('hero', 3002), ('spec', 5001)],
+        )
+
 
 class SpecStatsTalentRenderTests(SimpleTestCase):
     def test_enchant_popularity_groups_by_slot_and_formats_display_label(self):

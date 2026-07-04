@@ -158,7 +158,8 @@
         if (subtrees.length <= 1) return;
         const wrapper = document.createElement('div');
         wrapper.className = 'talent-hero-switcher';
-        wrapper.innerHTML = subtrees.map(item => `
+        const activeLabel = state.heroSubtree ? '已选择英雄天赋' : '先选择英雄天赋';
+        wrapper.innerHTML = `<span class="talent-hero-switcher-label">${escapeHtml(activeLabel)}</span>` + subtrees.map(item => `
             <button type="button" class="talent-sim-btn ${String(item.id) === String(state.heroSubtree) ? 'talent-sim-btn--primary' : 'talent-sim-btn--ghost'}" data-hero-subtree="${escapeHtml(item.id)}">
                 ${escapeHtml(item.title)}
             </button>
@@ -169,10 +170,15 @@
         wrapper.addEventListener('click', (event) => {
             const btn = event.target.closest('[data-hero-subtree]');
             if (!btn) return;
-            state.heroSubtree = btn.dataset.heroSubtree;
-            state.buildCode = '';
-            loadTree();
+            chooseHeroSubtree(btn.dataset.heroSubtree);
         });
+    }
+
+    function chooseHeroSubtree(subtreeId) {
+        if (!subtreeId || String(state.heroSubtree) === String(subtreeId)) return;
+        state.heroSubtree = String(subtreeId);
+        state.buildCode = '';
+        loadTree();
     }
 
     function renderStage() {
@@ -205,6 +211,7 @@
                 stage.appendChild(renderNode(node));
             }
         }
+        renderHeroChoicePanel(stage, width, height);
         const wrapper = document.createElement('div');
         wrapper.className = 'talent-stage-scale-wrapper';
         const availableWidth = Math.max(320, els.stageContainer.clientWidth - 36);
@@ -215,6 +222,34 @@
         wrapper.appendChild(stage);
         els.stageContainer.innerHTML = '';
         els.stageContainer.appendChild(wrapper);
+    }
+
+    function renderHeroChoicePanel(stage, width, height) {
+        const subtrees = state.payload.hero_subtrees || [];
+        if (subtrees.length <= 1 || state.heroSubtree) return;
+        const panel = document.createElement('div');
+        panel.className = 'talent-hero-choice-panel';
+        panel.style.left = `${Math.round(width / 2 - 180)}px`;
+        panel.style.top = `${Math.round(Math.max(96, height * 0.16))}px`;
+        panel.innerHTML = `
+            <div class="talent-hero-choice-kicker">英雄天赋</div>
+            <div class="talent-hero-choice-title">选择一棵英雄天赋树</div>
+            <div class="talent-hero-choice-desc">英雄天赋需要先在两棵大树中选择其一，然后再点亮该树内节点。</div>
+            <div class="talent-hero-choice-options">
+                ${subtrees.map(item => `
+                    <button type="button" class="talent-hero-choice-card" data-hero-subtree="${escapeHtml(item.id)}">
+                        <span>${escapeHtml(item.title)}</span>
+                        <small>${Number(item.node_count || 0)} 个节点</small>
+                    </button>
+                `).join('')}
+            </div>
+        `;
+        panel.addEventListener('click', event => {
+            const btn = event.target.closest('[data-hero-subtree]');
+            if (!btn) return;
+            chooseHeroSubtree(btn.dataset.heroSubtree);
+        });
+        stage.appendChild(panel);
     }
 
     function renderPanel(tree) {

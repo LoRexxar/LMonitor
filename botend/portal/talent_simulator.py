@@ -18,6 +18,11 @@ from django.shortcuts import render
 from django.views import View
 
 from botend.constants.wow import CLASS_CN, CLASS_SPEC_MAP, SPEC_CN, SPEC_ICON, SPEC_ROLE
+from botend.constants.hero_talents import (
+    hero_subtree_name_by_id,
+    hero_subtree_name_zh,
+    spec_hero_subtree_names,
+)
 from botend.templatetags.wow_tags import wow_icon
 from botend.wow.talents.build_code import TalentBuildCodeDecoder, _build_node_key
 from botend.wow.talents.metadata import TalentMetadataProvider
@@ -134,7 +139,7 @@ def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subt
     for node in full_nodes or []:
         if (node.get('tree_type') or 'spec') == 'hero':
             subtree = node.get('db2_subtree_id') or 0
-            if active_hero_subtree and subtree != active_hero_subtree:
+            if not active_hero_subtree or subtree != active_hero_subtree:
                 continue
         payload = dict(node)
         key = _build_node_key(payload)
@@ -166,6 +171,27 @@ def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subt
     return merged
 
 
+def _filter_hero_subtrees_for_spec(full_nodes, class_name, spec_name):
+    """只保留当前专精可选择的两棵英雄树。
+
+    DB2 元数据按职业树会带出该职业全部 hero subtree；但游戏内每个专精只能
+    在两棵英雄树中二选一。这里用常量中的专精关系按 subtree canonical name
+    过滤，避免页面出现 3 选 1。
+    """
+    allowed_names = set(spec_hero_subtree_names(class_name, spec_name))
+    if not allowed_names:
+        return list(full_nodes or [])
+    filtered = []
+    for node in full_nodes or []:
+        if (node.get('tree_type') or 'spec') != 'hero':
+            filtered.append(node)
+            continue
+        subtree_name = hero_subtree_name_by_id(node.get('db2_subtree_id'))
+        if subtree_name in allowed_names:
+            filtered.append(node)
+    return filtered
+
+
 def _hero_subtrees(full_nodes):
     groups = defaultdict(list)
     for node in full_nodes or []:
@@ -174,10 +200,12 @@ def _hero_subtrees(full_nodes):
             groups[subtree].append(node)
     payload = []
     for subtree_id, nodes in sorted(groups.items(), key=lambda item: item[0]):
+        subtree_name = hero_subtree_name_by_id(subtree_id)
         first_named = next((n for n in nodes if n.get('name')), nodes[0] if nodes else {})
         payload.append({
             'id': subtree_id,
-            'title': first_named.get('name') or f'英雄树 {subtree_id}',
+            'name': subtree_name or first_named.get('name') or f'Hero Subtree {subtree_id}',
+            'title': hero_subtree_name_zh(subtree_name) or first_named.get('name') or f'英雄树 {subtree_id}',
             'node_count': len(nodes),
         })
     return payload
@@ -199,13 +227,19 @@ def _active_hero_subtree(full_nodes, decoded_states=None, requested=None):
                 subtree_points[node.get('db2_subtree_id') or 0] += _to_int(state.get('points'), 0)
         if subtree_points:
             return max(subtree_points.items(), key=lambda item: item[1])[0]
-    return subtrees[0]['id'] if subtrees else 0
+    if len(subtrees) == 1:
+        return subtrees[0]['id']
+    return 0
 
 
 def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=None):
     _validate_spec(class_name, spec_name)
     provider = TalentMetadataProvider()
-    full_nodes = provider.get_full_tree_nodes(class_name, spec_name)
+    full_nodes = _filter_hero_subtrees_for_spec(
+        provider.get_full_tree_nodes(class_name, spec_name),
+        class_name,
+        spec_name,
+    )
     decoder_nodes = provider.get_decoder_node_list(class_name) if build_code else []
     decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if build_code and decoder_nodes else {}
     active_subtree = _active_hero_subtree(full_nodes, decoded_states=decoded_states, requested=hero_subtree)
