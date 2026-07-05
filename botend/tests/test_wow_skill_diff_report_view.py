@@ -233,13 +233,14 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         monitor.locale = 'enUS'
         monitor.name_locale = 'zhCN'
         mojibake_name = '知识宝典'.encode('utf-8').decode('latin1')
+        mojibake_spec = '元素'.encode('utf-8').decode('latin1')
         monitor._fetch_spell_names_concurrent = lambda build, spell_ids, locale_override=None: {473909: mojibake_name}
         monitor._ensure_spell_names_zh = lambda branch, build, spell_ids: {473909: mojibake_name}
         monitor._load_chr_classes = lambda build, locale_override=None: {11: '德鲁伊'}
-        monitor._load_chr_specialization_meta = lambda build, locale_override=None: {0: {'name': '通用', 'class_id': 11}}
+        monitor._load_chr_specialization_meta = lambda build, locale_override=None: {262: {'name': mojibake_spec, 'class_id': 11}}
         monitor._render_spell_primary_description = lambda *args, **kwargs: ''
         monitor._render_spell_text_plain = lambda build, spell_id, text: (str(text or ''), [])
-        monitor._filter_diff_fields = lambda _tkey, fields: fields
+        monitor._filter_diff_fields = lambda table_key, fields: fields
 
         class _EmptyValues:
             def exclude(self, **kwargs):
@@ -270,16 +271,19 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
                     display_from_build='',
                     display_to_build='',
                     class_names={11: 'Druid'},
-                    spec_meta={0: {'name': 'General', 'class_id': 11}},
-                    spell_to_specs={473909: {0}},
-                    spec_to_class={0: 11},
+                    spec_meta={262: {'name': 'Elemental', 'class_id': 11}},
+                    spell_to_specs={473909: {262}},
+                    spec_to_class={262: 11},
                     spell_changes=spell_changes,
                     data_build='12.1.0.68412',
                 )
 
         html = (self.base_dir / 'static' / meta['path']).read_text(encoding='utf-8')
         self.assertIn('知识宝典', html)
-        self.assertNotIn('çŸ¥è¯†å¤æ', html)
+        self.assertIn('元素', html)
+        self.assertIn('data-search=', html)
+        self.assertNotIn('çŸ¥è¯†', html)
+        self.assertNotIn('å…ƒç´', html)
     def test_html_report_keeps_db2_keys_with_chinese_labels(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         monitor.locale = 'enUS'
@@ -290,7 +294,7 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         monitor._load_chr_specialization_meta = lambda build, locale_override=None: {0: {'name': '通用', 'class_id': 1}}
         monitor._render_spell_primary_description = lambda *args, **kwargs: ''
         monitor._render_spell_text_plain = lambda build, spell_id, text: (str(text or ''), [])
-        monitor._filter_diff_fields = lambda _tkey, fields: fields
+        monitor._filter_diff_fields = lambda table_key, fields: fields
 
         class _EmptyValues:
             def exclude(self, **kwargs):
@@ -336,6 +340,64 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         self.assertIn('最高缩放等级 / MaxScalingLevel', html)
         self.assertIn('天赋定义 / traitdefinition', html)
         self.assertIn('天赋定义 ID / TraitDefinitionID', html)
+    def test_html_report_resolves_or_hides_unresolved_tooltip_placeholders(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'enUS'
+        monitor.name_locale = 'zhCN'
+        monitor._fetch_spell_names_concurrent = lambda build, spell_ids, locale_override=None: {1299000: 'Placeholder Spell'}
+        monitor._ensure_spell_names_zh = lambda branch, build, spell_ids: {1299000: '占位技能'}
+        monitor._load_chr_classes = lambda build, locale_override=None: {1: '战士'}
+        monitor._load_chr_specialization_meta = lambda build, locale_override=None: {0: {'name': '通用', 'class_id': 1}}
+        monitor._fetch_spelleffect_rows_by_spell = lambda build, spell_id: []
+        monitor._get_spelleffect_row_by_index = lambda build, spell_id, effect_index: {}
+        monitor._fetch_spellmisc_by_spellid = lambda build, spell_id: {}
+        monitor._filter_diff_fields = lambda table_key, fields: fields
+
+        class _EmptyValues:
+            def exclude(self, **kwargs):
+                return self
+            def values(self, *args):
+                return []
+        class _EmptySnapshotManager:
+            def filter(self, **kwargs):
+                return _EmptyValues()
+
+        spell_changes = {
+            1299000: {
+                'diffs': {
+                    'spelldescription': [
+                        {
+                            'id': 1299000,
+                            'action': 'changed',
+                            'fields': [
+                                {'field': 'Description_lang', 'before': 'Damage increased by $1299405s1%.', 'after': 'Damage increased by $1299405s1%.'}
+                            ],
+                        },
+                    ],
+                }
+            }
+        }
+
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects', _EmptySnapshotManager()):
+                meta = monitor._write_html_report(
+                    branch='wowt',
+                    server_title='PTR(测试服)',
+                    from_build='12.1.0.68301',
+                    to_build='12.1.0.68412',
+                    display_from_build='',
+                    display_to_build='',
+                    class_names={1: 'Warrior'},
+                    spec_meta={0: {'name': 'General', 'class_id': 1}},
+                    spell_to_specs={1299000: {0}},
+                    spec_to_class={0: 1},
+                    spell_changes=spell_changes,
+                    data_build='12.1.0.68412',
+                )
+
+        html = (self.base_dir / 'static' / meta['path']).read_text(encoding='utf-8')
+        self.assertIn('Damage increased by x%.', html)
+        self.assertNotIn('$1299405s1%', html)
 
 
 class WagoHotfixFullHtmlReportTests(SimpleTestCase):
@@ -455,6 +517,45 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertNotIn("<div class='field primary'><span>进入相机延迟</span><strong>0</strong></div>", html)
         self.assertIn('查看 2 条 DB2 记录', html)
         self.assertNotIn('<summary><b>SpellEffect</b>（2）</summary><ul><li><code>777</code></li>', html)
+
+    def test_hotfix_full_html_cleans_unresolved_spell_tooltip_placeholders(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'enUS'
+
+        def fake_fetch(table, build, record_id):
+            if str(table).lower() == 'spelldescription':
+                return {
+                    'ID': record_id,
+                    'SpellID': 1299000,
+                    'Description_lang': 'Damage increased by $1299405s1%.',
+                    'VerifiedBuild': build,
+                }
+            return {}
+
+        monitor._fetch_db2_row_by_id = fake_fetch
+        monitor._fetch_spelleffect_rows_by_spell = lambda build, spell_id: []
+        monitor._get_spelleffect_row_by_index = lambda build, spell_id, effect_index: {}
+        monitor._fetch_spellmisc_by_spellid = lambda build, spell_id: {}
+        monitor._fetch_spell_names_concurrent = lambda build, spell_ids, locale_override=None: {1299000: 'Placeholder Spell'}
+
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            full_path, _rel_path = monitor._write_hotfix_full_html(
+                branch='wow',
+                locale='enUS',
+                to_push=109506,
+                summary_title='Hotfix 全量更新：tooltip 占位符测试',
+                wago_url='https://wago.tools/hotfixes?filter%5Bpush_id%5D=109506',
+                build_num='68367',
+                from_push=109505,
+                table_stats=[('SpellDescription', 1)],
+                by_table={'SpellDescription': [{'push_id': 109506, 'table_name': 'SpellDescription', 'record_id': 1299000}]},
+                sample_per_table=5,
+                enrich_max=20,
+            )
+
+        html = Path(full_path).read_text(encoding='utf-8')
+        self.assertIn('Damage increased by x%.', html)
+        self.assertNotIn('$1299405s1%', html)
 
     def test_hotfix_full_report_uses_current_build_for_db2_enrichment(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())

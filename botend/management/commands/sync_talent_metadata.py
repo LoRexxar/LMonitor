@@ -12,8 +12,11 @@ from botend.models import (
     SpecRaidRanking,
     WowSpellSnapshot,
     WowTalentNodeMetadata,
+    WowTalentVersion,
 )
+from botend.wow.talents.default_versions import ensure_default_talent_versions
 from botend.wow.talents.parser import normalize_talent_payload
+from botend.wow.talents.versioning import TalentVersionResolver
 
 
 class Command(BaseCommand):
@@ -22,22 +25,32 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--class-name', default='', help='仅同步指定职业')
         parser.add_argument('--spec-name', default='', help='仅同步指定专精')
+        parser.add_argument('--version-key', default='', help='写入指定 WowTalentVersion.key；默认使用模拟器默认版本')
+        parser.add_argument('--ensure-default-versions', action='store_true', help='同步前确保内置 retail/PTR 版本存在')
         parser.add_argument('--limit', type=int, default=0, help='每个数据源限制记录数，0 表示不限制')
 
     def handle(self, *args, **options):
         class_name = options['class_name']
         spec_name = options['spec_name']
         limit = options['limit']
+        version_key = (options.get('version_key') or '').strip()
+        if options.get('ensure_default_versions'):
+            ensure_default_talent_versions(WowTalentVersion)
+        talent_version = TalentVersionResolver.resolve(version_key=version_key, usage=TalentVersionResolver.USAGE_SIMULATOR)
+        if not talent_version:
+            self.stdout.write(self.style.WARNING('未找到默认天赋版本，跳过元数据同步'))
+            return
+        self.stdout.write(f'目标天赋版本: {talent_version.key} ({talent_version.label or talent_version.branch})')
 
         total = 0
-        total += self._sync_queryset(PlayerSpecTopPlayer.objects.all(), 'top_player', class_name, spec_name, limit)
-        total += self._sync_queryset(SpecDungeonRanking.objects.all(), 'dungeon_ranking', class_name, spec_name, limit)
-        total += self._sync_queryset(SpecRaidRanking.objects.all(), 'raid_ranking', class_name, spec_name, limit)
-        self._reclassify_tree_types(class_name)
+        total += self._sync_queryset(PlayerSpecTopPlayer.objects.all(), 'top_player', class_name, spec_name, limit, talent_version)
+        total += self._sync_queryset(SpecDungeonRanking.objects.all(), 'dungeon_ranking', class_name, spec_name, limit, talent_version)
+        total += self._sync_queryset(SpecRaidRanking.objects.all(), 'raid_ranking', class_name, spec_name, limit, talent_version)
+        self._reclassify_tree_types(class_name, talent_version)
 
         self.stdout.write(self.style.SUCCESS(f'已同步/更新 {total} 条天赋元数据'))
 
-    def _sync_queryset(self, queryset, source, class_name, spec_name, limit):
+    def _sync_queryset(self, queryset, source, class_name, spec_name, limit, talent_version):
         if class_name:
             queryset = queryset.filter(class_name=class_name)
         if spec_name:
@@ -105,9 +118,10 @@ class Command(BaseCommand):
             existing_map = {}
             existing_qs = WowTalentNodeMetadata.objects.filter(
                 class_name=class_name if class_name else '',
+                talent_version=talent_version,
             ).values_list('class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id', 'id')
             if not class_name:
-                existing_qs = WowTalentNodeMetadata.objects.values_list(
+                existing_qs = WowTalentNodeMetadata.objects.filter(talent_version=talent_version).values_list(
                     'class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id', 'id')
             for cn, sn, tt, nid, sid, eid in existing_qs.iterator():
                 existing_map[(cn, sn, tt, nid, sid)] = eid
@@ -122,6 +136,7 @@ class Command(BaseCommand):
                 defaults['tree_type'] = key[2]
                 defaults['node_id'] = key[3]
                 defaults['spell_id'] = key[4]
+                defaults['talent_version'] = talent_version
                 if key in existing_map:
                     defaults['id'] = existing_map[key]
                     obj = WowTalentNodeMetadata(**defaults)
@@ -140,7 +155,7 @@ class Command(BaseCommand):
 
         return updated
 
-    def _reclassify_tree_types(self, class_name=''):
+    def _reclassify_tree_types(self, class_name='', talent_version=None):
         class_names = [class_name] if class_name else list(CLASS_SPEC_MAP.keys())
         for current_class in class_names:
             expected_specs = set(CLASS_SPEC_MAP.get(current_class, []))
@@ -148,7 +163,7 @@ class Command(BaseCommand):
                 continue
 
             rows = list(
-                WowTalentNodeMetadata.objects.filter(class_name=current_class)
+                WowTalentNodeMetadata.objects.filter(class_name=current_class, talent_version=talent_version)
                 .exclude(tree_type='hero')
                 .values('id', 'spec_name', 'node_id', 'spell_id', 'talent_id', 'tree_type')
             )
@@ -179,7 +194,7 @@ class Command(BaseCommand):
                     continue
                 if target_tree_type == 'class':
                     existing_class = WowTalentNodeMetadata.objects.filter(
-                        class_name=current_class, spec_name=row['spec_name'],
+                        class_name=current_class, spec_name=row['spec_name'], talent_version=talent_version,
                         tree_type='class',
                         node_id=row['node_id'], spell_id=row['spell_id'],
                     ).exclude(id=row['id']).first()

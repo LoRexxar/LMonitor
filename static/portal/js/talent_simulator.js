@@ -3,7 +3,9 @@
     if (!page) return;
 
     const specsPayload = JSON.parse(document.getElementById('talent-specs-data')?.textContent || '[]');
+    const versionsPayload = JSON.parse(document.getElementById('talent-versions-data')?.textContent || '[]');
     const els = {
+        versionSelect: document.getElementById('talent-version-select'),
         classSelect: document.getElementById('talent-class-select'),
         specSelect: document.getElementById('talent-spec-select'),
         importInput: document.getElementById('talent-import-input'),
@@ -32,6 +34,7 @@
     };
 
     const state = {
+        versionKey: new URLSearchParams(location.search).get('version') || page.dataset.defaultVersion || versionsPayload[0]?.key || '',
         className: page.dataset.initialClass || 'DeathKnight',
         specName: page.dataset.initialSpec || 'Blood',
         buildCode: new URLSearchParams(location.search).get('code') || '',
@@ -74,6 +77,16 @@
     }
 
     function initSelects() {
+        if (els.versionSelect) {
+            els.versionSelect.innerHTML = versionsPayload.map(item => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label || item.key)}${item.branch === 'ptr' ? '（测试）' : ''}</option>`).join('');
+            els.versionSelect.value = state.versionKey;
+            els.versionSelect.addEventListener('change', () => {
+                state.versionKey = els.versionSelect.value;
+                state.buildCode = '';
+                state.heroSubtree = '';
+                loadTree();
+            });
+        }
         els.classSelect.innerHTML = specsPayload.map(item => `<option value="${escapeHtml(item.class_name)}">${escapeHtml(item.class_cn)}</option>`).join('');
         els.classSelect.value = state.className;
         renderSpecSelect();
@@ -104,6 +117,7 @@
         hideTooltip();
         els.stageContainer.innerHTML = '<div class="talent-loading">正在加载天赋树...</div>';
         const params = new URLSearchParams({class: state.className, spec: state.specName});
+        if (state.versionKey) params.set('version', state.versionKey);
         if (state.buildCode) params.set('code', state.buildCode);
         if (state.heroSubtree) params.set('hero', state.heroSubtree);
         const res = await fetch(`/portal/api/talents/simulator/?${params.toString()}`);
@@ -146,7 +160,8 @@
     function renderHeader() {
         const spec = currentSpecPayload();
         els.specIcon.src = spec?.icon || '';
-        els.specTitle.textContent = `${state.payload.class_cn} · ${state.payload.spec_cn}`;
+        const versionLabel = state.payload.talent_version?.label || state.versionKey || '';
+        els.specTitle.textContent = `${state.payload.class_cn} · ${state.payload.spec_cn}${versionLabel ? ' · ' + versionLabel : ''}`;
         const statusMap = {success: '已导入 build code', empty: '空白模拟器', missing: '暂无天赋元数据'};
         els.parseStatus.textContent = statusMap[state.payload.parse_status] || state.payload.parse_status || '就绪';
         els.importInput.value = state.buildCode;
@@ -184,6 +199,12 @@
 
     function renderStage() {
         const model = state.payload.render_model || {};
+        const trees = model.trees || [];
+        const nodeCount = trees.reduce((total, tree) => total + (tree.nodes || []).length, 0);
+        if (!nodeCount) {
+            els.stageContainer.innerHTML = '<div class="talent-loading">当前版本暂无该专精天赋元数据，请先导入/回填对应版本的 DB2 数据。</div>';
+            return;
+        }
         const layout = model.layout || {};
         const width = Math.max(900, Number(layout.width || 1000));
         const height = Math.max(680, Number(layout.height || 700));
@@ -651,6 +672,7 @@
                 class_name: state.className,
                 spec_name: state.specName,
                 reference_build_code: state.buildCode,
+                version: state.versionKey,
                 selected_nodes: selected,
             }),
         });
@@ -667,6 +689,7 @@
 
     function updateUrl(push) {
         const params = new URLSearchParams({class: state.className, spec: state.specName});
+        if (state.versionKey) params.set('version', state.versionKey);
         if (state.heroSubtree) params.set('hero', state.heroSubtree);
         if (state.buildCode) params.set('code', state.buildCode);
         const url = `/portal/talents/?${params.toString()}`;
@@ -724,6 +747,7 @@
         const params = new URLSearchParams(location.search);
         state.className = params.get('class') || state.className;
         state.specName = params.get('spec') || state.specName;
+        state.versionKey = params.get('version') || page.dataset.defaultVersion || state.versionKey;
         state.buildCode = params.get('code') || '';
         state.heroSubtree = params.get('hero') || '';
         initSelects();

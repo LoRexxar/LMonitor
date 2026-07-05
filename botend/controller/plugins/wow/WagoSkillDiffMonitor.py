@@ -127,6 +127,17 @@ class WagoSkillDiffMonitor(BaseScan):
             return {k: cls._repair_utf8_mojibake_obj(v) for k, v in value.items()}
         return value
 
+    @classmethod
+    def _clean_external_text(cls, value):
+        """Normalize external DB2/Wago text before trimming.
+
+        UTF-8 mojibake for some Chinese characters ends with NBSP-like bytes.  If
+        callers strip first, strings such as ``元素`` become unrecoverable
+        fragments like ``å…ƒç´``.  Repair first, then trim display whitespace.
+        """
+        repaired = cls._repair_utf8_mojibake_text('' if value is None else str(value))
+        return str(repaired or '').strip()
+
     def _mark_event(self, event, **fields):
         if not event:
             return
@@ -2681,11 +2692,13 @@ class WagoSkillDiffMonitor(BaseScan):
             for k in ('Name_lang', 'Name', 'DisplayName_lang', 'Title_lang'):
                 v = row.get(k)
                 if isinstance(v, str) and v.strip():
-                    return v.strip()
+                    return self._cleanup_unresolved_tooltip_tokens(v.strip())
             for k in ('Description_lang', 'AuraDescription_lang', 'Text_lang'):
                 v = row.get(k)
                 if isinstance(v, str) and v.strip():
-                    txt = re.sub(r'\s+', ' ', v.strip())
+                    sid = self._to_int(row.get('SpellID') or row.get('ID') or 0)
+                    txt, _removed = self._render_spell_text_plain(db2_build, sid, v.strip())
+                    txt = re.sub(r'\s+', ' ', txt.strip())
                     return txt[:220] + ('…' if len(txt) > 220 else '')
             return ''
 
@@ -2698,11 +2711,11 @@ class WagoSkillDiffMonitor(BaseScan):
             name = ''
             row = fetch_row('SpellName', spell_id)
             if isinstance(row, dict):
-                name = str(row.get('Name_lang') or row.get('Name') or '').strip()
+                name = self._clean_external_text(row.get('Name_lang') or row.get('Name') or '')
             if not name:
                 try:
                     fetched = self._fetch_spell_names_concurrent(db2_build, [spell_id]) if db2_build else {}
-                    name = str((fetched or {}).get(spell_id) or '').strip()
+                    name = self._clean_external_text((fetched or {}).get(spell_id))
                 except Exception:
                     name = ''
             spell_name_cache[spell_id] = name
@@ -2762,8 +2775,13 @@ class WagoSkillDiffMonitor(BaseScan):
             metadata_noise_fields = {'ID', 'VerifiedBuild'}
             default_one_fields = {'PvpMultiplier', 'GroupSizeBasePointsCoefficient', 'EffectChainAmplitude'}
 
-            def compact_value(v, max_len=260):
-                text = re.sub(r'\s+', ' ', str(v).strip())
+            def compact_value(v, max_len=260, field_name=''):
+                text = str(v).strip()
+                if field_name in text_fields:
+                    text, _removed = self._render_spell_text_plain(db2_build, record_id, text)
+                else:
+                    text = self._cleanup_unresolved_tooltip_tokens(text)
+                text = re.sub(r'\s+', ' ', text)
                 return text[:max_len] + ('…' if len(text) > max_len else '')
 
             def is_zeroish(v):
@@ -2833,7 +2851,7 @@ class WagoSkillDiffMonitor(BaseScan):
             chips = []
             for k in primary_names:
                 v = row.get(k)
-                text = compact_value(v)
+                text = compact_value(v, field_name=k)
                 css = 'field primary' if k in readable_fields or k in text_fields or k in id_fields else 'field raw important'
                 chips.append(f"<div class='{css}'><span>{esc(field_label(k))}</span><strong>{esc(text)}</strong></div>")
 
@@ -2848,7 +2866,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 if v is None or str(v).strip() == '':
                     continue
                 raw_count += 1
-                text = compact_value(v, max_len=520)
+                text = compact_value(v, max_len=520, field_name=k)
                 raw_chips.append(f"<div class='field raw'><span>{esc(field_label(k))}</span><strong>{esc(text)}</strong></div>")
                 if raw_count >= 120:
                     break
@@ -2954,11 +2972,14 @@ class WagoSkillDiffMonitor(BaseScan):
         except Exception:
             object_graph = None
 
+        def clean_report_text(value):
+            return self._cleanup_unresolved_tooltip_tokens(str(value or ''))
+
         def object_fields_html(fields):
             chips = []
             for item in fields or []:
-                label = (item or {}).get('label')
-                value = (item or {}).get('value')
+                label = clean_report_text((item or {}).get('label'))
+                value = clean_report_text((item or {}).get('value'))
                 if value is None or str(value) == '':
                     continue
                 chips.append(f"<div class='field primary'><span>{esc(label)}</span><strong>{esc(value)}</strong></div>")
@@ -2966,19 +2987,22 @@ class WagoSkillDiffMonitor(BaseScan):
 
         object_cards = []
         for obj in list(getattr(object_graph, 'objects', []) or [])[:120]:
-            title = f"{obj.category or obj.kind} · {obj.title or obj.object_id}"
+            obj_kind = clean_report_text(obj.kind)
+            obj_category = clean_report_text(obj.category)
+            obj_title = clean_report_text(obj.title or obj.object_id)
+            title = f"{obj_category or obj_kind} · {obj_title or obj.object_id}"
             source_bits = []
             for ref in (obj.source_records or [])[:8]:
                 source_bits.append(f"<code>{esc(ref.table)} #{int(ref.record_id or 0)}</code>")
-            tags = ''.join(f"<span>{esc(tag)}</span>" for tag in (obj.tags or [])[:8])
+            tags = ''.join(f"<span>{esc(clean_report_text(tag))}</span>" for tag in (obj.tags or [])[:8])
             search_text = ' '.join([
-                obj.kind or '', str(obj.object_id or ''), obj.title or '', obj.category or '',
-                ' '.join(obj.tags or []), ' '.join(f"{r.table} {r.record_id}" for r in obj.source_records or []),
-                ' '.join(f"{(f or {}).get('label')} {(f or {}).get('value')}" for f in obj.summary_fields or []),
+                obj_kind, str(obj.object_id or ''), obj_title, obj_category,
+                ' '.join(clean_report_text(tag) for tag in (obj.tags or [])), ' '.join(f"{r.table} {r.record_id}" for r in obj.source_records or []),
+                ' '.join(f"{clean_report_text((f or {}).get('label'))} {clean_report_text((f or {}).get('value'))}" for f in obj.summary_fields or []),
             ]).lower()
             object_cards.append(
                 f"<article class='object-card record' data-search='{esc(search_text)}'>"
-                f"<div class='record-head'><div><span class='object-kind'>{esc(obj.kind)}</span><strong>{esc(title)}</strong><div class='object-tags'>{tags}</div></div><div class='object-sources'>{''.join(source_bits)}</div></div>"
+                f"<div class='record-head'><div><span class='object-kind'>{esc(obj_kind)}</span><strong>{esc(title)}</strong><div class='object-tags'>{tags}</div></div><div class='object-sources'>{''.join(source_bits)}</div></div>"
                 + object_fields_html(obj.summary_fields)
                 + "</article>"
             )
@@ -3692,7 +3716,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 continue
             if cid <= 0:
                 continue
-            name = (row.get('Name_lang') or row.get('Name_male_lang') or '').strip()
+            name = self._clean_external_text(row.get('Name_lang') or row.get('Name_male_lang') or '')
             if name:
                 out[cid] = name
         self._chr_classes_cache[key] = out
@@ -3771,7 +3795,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     break
                 except Exception:
                     continue
-            name = (row.get('Name_lang') or row.get('FemaleName_lang') or '').strip()
+            name = self._clean_external_text(row.get('Name_lang') or row.get('FemaleName_lang') or '')
             if class_id > 0:
                 out[spec_id] = {'class_id': class_id, 'name': name or str(spec_id)}
         self._chr_specialization_meta_cache[key] = out
@@ -3903,12 +3927,12 @@ class WagoSkillDiffMonitor(BaseScan):
     def _fetch_spell_name(self, build, spell_id):
         row = self._fetch_db2_row_by_id('SpellName', build, spell_id)
         if row:
-            name = (row.get('Name_lang') or '').strip()
+            name = self._clean_external_text(row.get('Name_lang'))
             if name:
                 return name
         row = self._fetch_db2_row_by_id('spellname', build, spell_id)
         if row:
-            name = (row.get('Name_lang') or '').strip()
+            name = self._clean_external_text(row.get('Name_lang'))
             if name:
                 return name
         return ''
@@ -4285,7 +4309,7 @@ class WagoSkillDiffMonitor(BaseScan):
 
         def work(spell_id):
             row = self._fetch_db2_row_by_id_requests('SpellName', build, spell_id, locale_override=locale_override)
-            name = (row.get('Name_lang') or '').strip()
+            name = self._clean_external_text(row.get('Name_lang'))
             return spell_id, name
 
         with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -4325,7 +4349,7 @@ class WagoSkillDiffMonitor(BaseScan):
         if not spell_ids:
             return {}
         existing = {
-            int(r['spell_id']): (r.get('name_zh') or '').strip()
+            int(r['spell_id']): self._clean_external_text(r.get('name_zh'))
             for r in WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
             .exclude(name_zh='')
             .values('spell_id', 'name_zh')
@@ -4334,7 +4358,7 @@ class WagoSkillDiffMonitor(BaseScan):
         fetched = {}
         if missing:
             fetched.update(self._fetch_spell_names_concurrent(build, missing, locale_override=self.name_locale))
-        still_missing = [sid for sid in missing if not (fetched.get(sid) or '').strip()]
+        still_missing = [sid for sid in missing if not self._clean_external_text(fetched.get(sid))]
         if still_missing:
             limit = 50
             for sid in still_missing[:limit]:
@@ -4345,14 +4369,15 @@ class WagoSkillDiffMonitor(BaseScan):
             now = timezone.now()
             objs = []
             for sid, name in fetched.items():
-                if not (name or '').strip():
+                name = self._clean_external_text(name)
+                if not name:
                     continue
                 objs.append(
                     WowSpellSnapshot(
                         branch=branch,
                         locale=self.locale,
                         spell_id=int(sid),
-                        name_zh=(name or '')[:255],
+                        name_zh=name[:255],
                         snapshot_build=build,
                         updated_at=now,
                     )
@@ -4366,8 +4391,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 )
         out = dict(existing)
         for sid, name in fetched.items():
-            if (name or '').strip():
-                out[int(sid)] = (name or '').strip()
+            name = self._clean_external_text(name)
+            if name:
+                out[int(sid)] = name
         return out
 
     def _expand_spell_refs(self, build, text, depth=0, visited=None):
@@ -4384,7 +4410,7 @@ class WagoSkillDiffMonitor(BaseScan):
             spell_id = int(sid or 0)
             if kind == 'spellname':
                 name_row = self._fetch_db2_row_by_id('spellname', build, spell_id)
-                rep = (name_row.get('Name_lang') or '').strip()
+                rep = self._clean_external_text(name_row.get('Name_lang'))
             else:
                 desc_row = self._fetch_db2_row_by_id('spelldescription', build, spell_id)
                 if kind == 'spelldesc':
@@ -4550,6 +4576,47 @@ class WagoSkillDiffMonitor(BaseScan):
         s = re.sub(r'\|C[0-9A-Fa-f]{8}', '', s)
         s = re.sub(r'\|R', '', s)
         s = s.replace('\r\n', '\n').replace('\r', '\n')
+        return s
+
+    def _cleanup_unresolved_tooltip_tokens(self, s):
+        """Hide unresolved Blizzard tooltip placeholders before report rendering.
+
+        Wago DB2 descriptions can contain tokens such as ``$1299405s1%``.  The
+        normal renderer resolves them when the referenced SpellEffect row is
+        available; when it is not, keep the report readable instead of exposing
+        the raw client-side placeholder syntax.
+        """
+        s = str(s or '')
+        s = re.sub(r'\$@spellicon\d+', '', s, flags=re.I)
+        s = re.sub(r'\$@spellname\d+', '技能', s, flags=re.I)
+        s = re.sub(r'\$@spelldesc\d+', '技能描述', s, flags=re.I)
+        s = re.sub(r'\$\{[^{}]+\}(?:\.\d+)?', 'x', s)
+        s = re.sub(r'\$\?[^\[]*\[([^\[\]]*)\]\[([^\[\]]*)\]', lambda m: (m.group(1) or m.group(2) or ''), s)
+        s = re.sub(r'\$\?[^\[]*\[([^\[\]]*)\]', lambda m: m.group(1) or '', s)
+        s = re.sub(r'\$\d*[swtmdaoUiL]\d*', 'x', s, flags=re.I)
+        s = re.sub(r'\$<[^>]+>', 'x', s)
+        s = re.sub(r'x\.\d+', 'x', s)
+        s = re.sub(r'\s+', ' ', s)
+        return s.strip()
+
+    def _cleanup_unresolved_tooltip_tokens_in_html(self, s):
+        """Hide unresolved tooltip placeholders after HTML diff markup is inserted.
+
+        Some spell formulas are split by ``<span class='del/ins'>`` tags during
+        inline diff rendering, so plain-text cleanup can no longer see the full
+        ``${...}`` / ``$s1`` token.  This final pass keeps the report readable by
+        degrading still-unresolved client formula syntax without changing the
+        surrounding report structure.
+        """
+        s = str(s or '')
+        s = re.sub(r'\$\{(?:(?!\$\{).){0,1200}?\}(?:\.\d+)?', 'x', s, flags=re.S)
+        s = re.sub(r'\$\?[^<\[]*?\]\[([^\[\]]*)\]\[([^\[\]]*)\]', lambda m: m.group(1) or m.group(2) or '', s)
+        s = re.sub(r'\$\?[^<\[]*?\[([^\[\]]*)\]\[([^\[\]]*)\]', lambda m: m.group(1) or m.group(2) or '', s)
+        s = re.sub(r'\$\?[^<\[]*?\[([^\[\]]*)\]', lambda m: m.group(1) or '', s)
+        s = re.sub(r'\$\d*[swtmdaoUiL]\d*', 'x', s, flags=re.I)
+        s = re.sub(r'\$<[^>]+>', 'x', s)
+        s = re.sub(r'\$@(?:spellicon|spellname|spelldesc|spellaura)\d+', 'x', s, flags=re.I)
+        s = re.sub(r'x\.\d+', 'x', s)
         return s
 
     def _strip_conditionals(self, s):
@@ -4803,6 +4870,8 @@ class WagoSkillDiffMonitor(BaseScan):
         s = re.sub(r'\$l:([^;\]\s]+);?', repl_l, s)
         s = self._replace_numeric_expressions(s)
         s, removed = self._strip_conditionals_with_removed(s)
+        s = self._cleanup_unresolved_tooltip_tokens(s)
+        removed = [self._cleanup_unresolved_tooltip_tokens(x) for x in (removed or []) if str(x or '').strip()]
         s = re.sub(r'\s+', ' ', s).strip()
         removed = [re.sub(r'\s+', ' ', x).strip() for x in (removed or []) if str(x or '').strip()]
         return s, removed
@@ -4943,14 +5012,18 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         zh_spec_meta = self._repair_utf8_mojibake_obj(self._load_chr_specialization_meta(data_build, locale_override=self.name_locale))
         display_class_names = dict(class_names or {})
         for cid, nm in (zh_class_names or {}).items():
-            if (nm or '').strip():
+            nm = self._clean_external_text(nm)
+            if nm:
                 display_class_names[int(cid)] = nm
+        display_class_names = {int(cid): self._clean_external_text(nm) for cid, nm in (display_class_names or {}).items()}
         display_spec_meta = {}
         for sid, meta in (spec_meta or {}).items():
-            zh_name = ((zh_spec_meta or {}).get(sid) or {}).get('name') or ''
-            m = dict(meta or {})
-            if (zh_name or '').strip():
+            zh_name = self._clean_external_text(((zh_spec_meta or {}).get(sid) or {}).get('name'))
+            m = self._repair_utf8_mojibake_obj(dict(meta or {}))
+            if zh_name:
                 m['name'] = zh_name
+            elif m.get('name'):
+                m['name'] = self._clean_external_text(m.get('name'))
             display_spec_meta[sid] = m
 
         class_to_spec_to_spells = {}
@@ -5146,7 +5219,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             return ' ' + ' '.join([f"<span class='del'>{html.escape(x)}</span>" for x in removed])
 
         for cid in sorted(class_to_spec_to_spells.keys()):
-            cname = (display_class_names or {}).get(cid) or str(cid)
+            cname = self._clean_external_text((display_class_names or {}).get(cid) or str(cid))
             parts.append(f"<section class='class-section' id='class-{cid}' data-class='{html.escape(str(cname).lower())}'>")
             parts.append(f"<div class='class-head'><h2>{html.escape(cname)}</h2><span class='subtle'>职业 {cid} ｜ {class_spell_counts.get(cid, 0)} 技能</span></div>")
             spec_map = class_to_spec_to_spells.get(cid) or {}
@@ -5154,10 +5227,10 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                 if spec_id == 0:
                     spec_name = '通用'
                 else:
-                    spec_name = ((display_spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id)
+                    spec_name = self._clean_external_text(((display_spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id))
                 parts.append(f"<section class='spec-section' id='class-{cid}-spec-{spec_id}'><h3>{html.escape(spec_name)} <span class='subtle'>专精 {spec_id} ｜ {len(spec_map.get(spec_id) or [])} 技能</span></h3>")
                 for spell_id in sorted(spec_map.get(spec_id) or []):
-                    sname = (zh_name_cache.get(spell_id) or '').strip() or (name_cache.get(spell_id) or '').strip() or str(spell_id)
+                    sname = self._clean_external_text((zh_name_cache.get(spell_id) or '') or (name_cache.get(spell_id) or '') or str(spell_id))
                     wowhead_spell_url = f"https://www.wowhead.com/spell={spell_id}"
                     diffs_by_table = (spell_changes.get(spell_id) or {}).get('diffs') or {}
                     if not diffs_by_table:
@@ -5283,7 +5356,8 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
 })();
 </script>""")
         parts.append('</div></body></html>')
+        html_text = self._cleanup_unresolved_tooltip_tokens_in_html("\n".join(parts))
         with open(full_path, 'w', encoding='utf-8') as f:
-            f.write("\n".join(parts))
+            f.write(html_text)
 
         return {'path': rel_path, 'class_count': class_count}

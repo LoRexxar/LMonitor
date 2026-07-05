@@ -9,6 +9,7 @@ from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCod
 from botend.wow.talents.metadata import TalentMetadataProvider
 from botend.wow.talents.parser import normalize_talent_payload
 from botend.wow.talents.view_model import build_talent_view_model
+from botend.wow.talents.versioning import TalentVersionResolver
 
 
 class TalentBuildCodeService:
@@ -34,15 +35,18 @@ class TalentBuildCodeService:
         return ''
 
     @classmethod
-    def build_api_view(cls, talent_build_code='', talents_json=None, class_name='', spec_name=''):
+    def build_api_view(cls, talent_build_code='', talents_json=None, class_name='', spec_name='', talent_version=None, version_key='', usage=TalentVersionResolver.USAGE_PLAYER_TREE):
         build_code = cls.extract_build_code(talent_build_code, talents_json)
         if not build_code and talents_json:
-            build_code = cls.encode_build_code_from_nodes(talents_json, class_name=class_name, spec_name=spec_name)
+            build_code = cls.encode_build_code_from_nodes(talents_json, class_name=class_name, spec_name=spec_name, talent_version=talent_version, version_key=version_key, usage=usage)
         payload = cls.build_full_payload(
             class_name=class_name,
             spec_name=spec_name,
             talent_build_code=build_code,
             talents_json=talents_json,
+            talent_version=talent_version,
+            version_key=version_key,
+            usage=usage,
         )
         if not payload:
             return {
@@ -57,6 +61,7 @@ class TalentBuildCodeService:
             view_model = cls._build_view_model_cached(
                 class_name or '',
                 spec_name or '',
+                cls._version_cache_key(talent_version, version_key, usage),
                 json.dumps(payload, ensure_ascii=False, sort_keys=True),
             )
         except Exception:
@@ -82,12 +87,12 @@ class TalentBuildCodeService:
         }
 
     @classmethod
-    def encode_build_code_from_nodes(cls, talents_json=None, class_name='', spec_name='', reference_build_code=''):
+    def encode_build_code_from_nodes(cls, talents_json=None, class_name='', spec_name='', reference_build_code='', talent_version=None, version_key='', usage=TalentVersionResolver.USAGE_SIMULATOR):
         selected_nodes = cls._normalize_nodes_for_encoding(talents_json, class_name=class_name, spec_name=spec_name)
         if not selected_nodes:
             return ''
 
-        provider = TalentMetadataProvider()
+        provider = TalentMetadataProvider(talent_version=talent_version, version_key=version_key, usage=usage)
         full_nodes = provider.get_full_tree_nodes(class_name, spec_name)
         if not full_nodes:
             return ''
@@ -130,10 +135,10 @@ class TalentBuildCodeService:
         return nodes
 
     @classmethod
-    def build_full_payload(cls, class_name='', spec_name='', talent_build_code='', talents_json=None):
+    def build_full_payload(cls, class_name='', spec_name='', talent_build_code='', talents_json=None, talent_version=None, version_key='', usage=TalentVersionResolver.USAGE_PLAYER_TREE):
         build_code = cls.extract_build_code(talent_build_code, talents_json)
         if not build_code and talents_json:
-            build_code = cls.encode_build_code_from_nodes(talents_json, class_name=class_name, spec_name=spec_name)
+            build_code = cls.encode_build_code_from_nodes(talents_json, class_name=class_name, spec_name=spec_name, talent_version=talent_version, version_key=version_key, usage=usage)
         payload_model = normalize_talent_payload(talents_json or [], class_name=class_name, spec_name=spec_name)
         selected_nodes = []
         for item in payload_model.get('nodes') or []:
@@ -143,7 +148,7 @@ class TalentBuildCodeService:
                 continue
             selected_nodes.append(dict(item))
 
-        provider = TalentMetadataProvider()
+        provider = TalentMetadataProvider(talent_version=talent_version, version_key=version_key, usage=usage)
         full_nodes = provider.get_full_tree_nodes(class_name, spec_name)
 
         # --- build code decoding uses ALL nodes (all hero subtrees + hero_anchor) ---
@@ -214,8 +219,14 @@ class TalentBuildCodeService:
         return merged_nodes
 
     @staticmethod
+    def _version_cache_key(talent_version=None, version_key='', usage=TalentVersionResolver.USAGE_SIMULATOR):
+        if talent_version is not None:
+            return getattr(talent_version, 'key', None) or getattr(talent_version, 'id', None) or 'provided'
+        return str(version_key or '') or str(usage or '')
+
+    @staticmethod
     @lru_cache(maxsize=256)
-    def _build_view_model_cached(class_name, spec_name, payload_key):
+    def _build_view_model_cached(class_name, spec_name, version_cache_key, payload_key):
         payload = json.loads(payload_key)
         return build_talent_view_model(payload, class_name=class_name, spec_name=spec_name)
 

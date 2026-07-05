@@ -993,8 +993,45 @@ class SpecRaidRanking(models.Model):
         return f"{self.character_name} - {self.boss_name} ({self.spec_name}) {self.dps}"
 
 
+class WowTalentVersion(models.Model):
+    """WoW 天赋元数据版本组。"""
+    key = models.CharField(max_length=64, unique=True)
+    label = models.CharField(max_length=128, default='', blank=True)
+    branch = models.CharField(max_length=16, default='retail', blank=True)
+    major_version = models.CharField(max_length=32, default='', blank=True)
+    current_build = models.CharField(max_length=32, default='', blank=True)
+    is_active = models.BooleanField(default=False)
+    is_default_simulator = models.BooleanField(default=False)
+    is_default_player_tree = models.BooleanField(default=False)
+    is_default_stats = models.BooleanField(default=False)
+    status = models.CharField(max_length=24, default='draft', blank=True)
+    source_dir = models.CharField(max_length=255, default='', blank=True)
+    notes = models.TextField(default='', blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    activated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'wow_talent_version'
+        app_label = 'botend'
+        indexes = [
+            models.Index(fields=['branch', 'major_version'], name='idx_talent_ver_branch_major'),
+            models.Index(fields=['is_active'], name='idx_talent_ver_active'),
+        ]
+
+    def __str__(self):
+        return self.label or self.key
+
+
 class WowTalentNodeMetadata(models.Model):
     """WoW 天赋节点元数据缓存，用于树形展示和名称/图标补全。"""
+    talent_version = models.ForeignKey(
+        WowTalentVersion,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='nodes',
+    )
     class_name = models.CharField(max_length=30, default="", blank=True)
     spec_name = models.CharField(max_length=30, default="", blank=True)
     tree_type = models.CharField(max_length=16, default="spec", blank=True)
@@ -1022,11 +1059,11 @@ class WowTalentNodeMetadata(models.Model):
         app_label = 'botend'
         verbose_name = 'WoW天赋节点元数据'
         verbose_name_plural = 'WoW天赋节点元数据'
-        unique_together = (('class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id'),)
+        unique_together = (('talent_version', 'class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id'),)
         indexes = [
-            models.Index(fields=['class_name', 'spec_name', 'tree_type'], name='idx_talent_meta_spec'),
+            models.Index(fields=['talent_version', 'class_name', 'spec_name', 'tree_type'], name='idx_talent_meta_ver_spec'),
             models.Index(fields=['spell_id'], name='idx_talent_meta_spell'),
-            models.Index(fields=['talent_id'], name='idx_talent_meta_talent'),
+            models.Index(fields=['talent_version', 'talent_id'], name='idx_talent_meta_ver_talent'),
         ]
 
     def __str__(self):

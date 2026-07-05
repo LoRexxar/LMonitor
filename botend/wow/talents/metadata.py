@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
 from botend.wow.spell_text import get_spell_text_resolver
+from botend.wow.talents.versioning import TalentVersionResolver
 
 STRUCTURAL_FIELDS = {'tree_type', 'row', 'column', 'max_points', 'parents', 'db2_subtree_id'}
 AUTHORITATIVE_TALENT_SOURCES = {'db2_backfill', 'db2_repair', 'db2'}
@@ -68,8 +69,28 @@ def _talent_source_priority(node):
 @dataclass
 class TalentMetadataProvider:
     locale: str = 'zhCN'
+    talent_version: object = None
+    version_key: str = ''
+    usage: str = TalentVersionResolver.USAGE_SIMULATOR
     _spec_cache: dict = field(default_factory=dict)
     _snapshot_cache: dict = field(default_factory=dict)
+
+    @property
+    def resolved_version(self):
+        if self.talent_version is not None:
+            return self.talent_version
+        self.talent_version = TalentVersionResolver.resolve(
+            version_key=self.version_key,
+            usage=self.usage,
+        )
+        return self.talent_version
+
+    @property
+    def version_cache_key(self):
+        version = self.resolved_version
+        if not version:
+            return 'missing'
+        return getattr(version, 'key', None) or getattr(version, 'id', None) or 'missing'
 
     def get_node_metadata(self, class_name, spec_name, tree_type, spell_id=None, talent_id=None, node_id=None):
         """读取单个天赋节点元数据。"""
@@ -133,7 +154,10 @@ class TalentMetadataProvider:
         return merged
 
     def get_full_tree_nodes(self, class_name, spec_name):
-        cache_key = (class_name or '', spec_name or '', 'full_nodes')
+        version = self.resolved_version
+        if not version:
+            return []
+        cache_key = (self.version_cache_key, class_name or '', spec_name or '', 'full_nodes')
         if cache_key in self._spec_cache:
             return [dict(node) for node in self._spec_cache[cache_key]]
 
@@ -141,6 +165,7 @@ class TalentMetadataProvider:
             class_name=class_name or '',
             spec_name=spec_name or '',
             source__in=AUTHORITATIVE_TALENT_SOURCES,
+            talent_version=version,
         ).exclude(tree_type='hero_anchor').order_by('tree_type', 'row', 'column', 'node_id', 'spell_id', 'talent_id')
 
         grouped_by_node = {}
@@ -200,13 +225,17 @@ class TalentMetadataProvider:
         - 按 talent_id 排序（Blizzard build code 的 canonical ordering）
         - 不做 spell_id 去重（每个 TraitNode 独立占一个 decode 位）
         """
-        cache_key = (class_name or '', '', 'decoder_nodes')
+        version = self.resolved_version
+        if not version:
+            return []
+        cache_key = (self.version_cache_key, class_name or '', '', 'decoder_nodes')
         if cache_key in self._spec_cache:
             return [dict(node) for node in self._spec_cache[cache_key]]
 
         rows = WowTalentNodeMetadata.objects.filter(
             class_name=class_name or '',
             source__in=AUTHORITATIVE_TALENT_SOURCES,
+            talent_version=version,
         ).order_by('talent_id', 'node_id', 'spell_id')
 
         grouped = {}
@@ -250,14 +279,18 @@ class TalentMetadataProvider:
         return [dict(n) for n in nodes]
 
     def _get_spec_indexes(self, class_name, spec_name):
-        cache_key = (class_name or '', spec_name or '')
+        version = self.resolved_version
+        if not version:
+            return {}
+        cache_key = (self.version_cache_key, class_name or '', spec_name or '')
         if cache_key in self._spec_cache:
             return self._spec_cache[cache_key]
 
         indexes = {}
         rows = WowTalentNodeMetadata.objects.filter(
-            class_name=cache_key[0],
-            spec_name=cache_key[1],
+            class_name=cache_key[1],
+            spec_name=cache_key[2],
+            talent_version=version,
         )
         for row in rows.iterator():
             row_data = self._as_dict(row)
@@ -282,6 +315,8 @@ class TalentMetadataProvider:
         desc_zh = getattr(row, 'description_zh', '') or ''
         resolver = get_spell_text_resolver(self.locale)
         return {
+            'talent_version_id': getattr(row, 'talent_version_id', None),
+            'talent_version_key': getattr(getattr(row, 'talent_version', None), 'key', '') or '',
             'node_id': row.node_id,
             'spell_id': row.spell_id,
             'display_spell_id': row.display_spell_id,

@@ -218,7 +218,7 @@ class SpellTextResolver:
         text = _SPELLNAME_RE.sub(lambda m: self._spell_name(_to_int(m.group(1))) or "", text)
         text = _SPELLDESC_RE.sub("", text)
         text = _SPELLICON_RE.sub("", text)
-        text = _EXPR_RE.sub("若干", text)
+        text = _EXPR_RE.sub("x", text)
         text = _VAR_RE.sub(_readable_unresolved_var, text)
         # Some Blizzard client conditionals are stored as ?c3[...][] after the
         # leading "$" was stripped by earlier resolution passes.  Clean both
@@ -230,8 +230,8 @@ class SpellTextResolver:
             prev = text
             text = bare_cond_two.sub(lambda m: (m.group(1) or m.group(2) or ""), text)
             text = bare_cond_one.sub(lambda m: m.group(1) or "", text)
-        text = _NAMED_RE.sub(lambda m: "若干" if (m.group(1) or "").strip() else "", text)
-        text = re.sub(r"若干\.\d+", "若干", text)
+        text = _NAMED_RE.sub(lambda m: "x" if (m.group(1) or "").strip() else "", text)
+        text = re.sub(r"x\.\d+", "x", text)
         text = re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", text)
         text = text.replace("..", ".")
         return self._cleanup(text)
@@ -246,12 +246,12 @@ def _readable_unresolved_var(m: re.Match[str]) -> str:
     if kind == 't':
         return '一段时间'
     if kind == 'o':
-        return '若干'
+        return 'x'
     if kind == 'u':
-        return '若干'
+        return 'x'
     if kind == 'i':
-        return '若干'
-    return '若干'
+        return 'x'
+    return 'x'
 
 
 @lru_cache(maxsize=8)

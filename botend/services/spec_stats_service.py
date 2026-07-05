@@ -16,6 +16,7 @@ from botend.constants.hero_talents import hero_subtree_name_zh
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN, RACE_CN, ENCHANT_CN, GEM_STAT_CN, QUALITY_CN
 from botend.wow.talents.parser import normalize_talent_payload
 from botend.wow.talents.metadata import TalentMetadataProvider, dedupe_talent_option_nodes, normalize_talent_option_spell_id
+from botend.wow.talents.versioning import TalentVersionResolver
 from botend.wow.talents.models import TREE_COLUMNS, TalentBuildStateModel, TalentNodeModel, TalentTreeModel, TalentTreeSetModel
 from botend.wow.talents.render import build_talent_render_model
 from botend.wow.talents.view_model import build_talent_view_model
@@ -900,6 +901,14 @@ def _hero_subtree_name_from_table(subtree_id):
     return ''
 
 
+def _stats_talent_version_filter():
+    try:
+        version = TalentVersionResolver.get_default(TalentVersionResolver.USAGE_STATS)
+    except Exception:
+        version = None
+    return {'talent_version': version} if version else {}
+
+
 def _hero_subtree_display_title(class_name, spec_name, subtree_id, hero_index=None):
     title = _hero_subtree_name_from_table(subtree_id)
     if title:
@@ -910,6 +919,7 @@ def _hero_subtree_display_title(class_name, spec_name, subtree_id, hero_index=No
             spec_name=spec_name or '',
             tree_type='hero_anchor',
             db2_subtree_id=subtree_id,
+            **_stats_talent_version_filter(),
         ).exclude(name='').values('name', 'name_zh').first()
         if anchor:
             anchor_name = anchor.get('name') or ''
@@ -946,7 +956,7 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
     """聚合统计页热门天赋所需的节点、使用率、玩家样本与父子连线。"""
     records = _valid_talent_records(records)
     total = len(records)
-    provider = TalentMetadataProvider()
+    provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
     usage = {}
     canonical_nodes = {}
     parent_edges = defaultdict(Counter)
@@ -1182,7 +1192,7 @@ def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name):
 
 def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
     """按天赋导入字符串聚合，并输出与最热门模板字符串的差异。"""
-    provider = TalentMetadataProvider()
+    provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
     build_counter = Counter()
     build_states = {}
     build_players_by_key = {}
@@ -1289,7 +1299,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
     highlighted_keys = [item['node_key'] for item in usage_list[:top_n] if item.get('node_key')]
 
     # 使用全量节点作为底板
-    provider = TalentMetadataProvider()
+    provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
     full_tree_nodes = provider.get_full_tree_nodes(class_name, spec_name)
     if not full_tree_nodes:
         return {}

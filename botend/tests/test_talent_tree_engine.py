@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.template.loader import render_to_string
 from django.test import SimpleTestCase
@@ -19,6 +19,7 @@ from botend.management.commands.normalize_talent_metadata import Command as Norm
 from botend.wow.talents.adapters import build_tree_set_from_talents
 from botend.wow.talents.layout import build_talent_tree_layout
 from botend.wow.talents.metadata import TalentMetadataProvider
+from botend.wow.talents.versioning import TalentVersionResolver
 from botend.wow.talents.models import (
     TalentBuildStateModel,
     TalentNodeModel,
@@ -59,6 +60,40 @@ class FakeRankingQuerySet:
     def first(self):
         return self._first_row
 
+
+
+
+class TalentVersionResolverTests(SimpleTestCase):
+    def test_serialize_returns_stable_payload_for_version_object(self):
+        version = SimpleNamespace(
+            key='retail-12.0.7',
+            label='正式服 12.0.7',
+            branch='retail',
+            major_version='12.0.7',
+            current_build='12.0.7.68367',
+            status='active',
+            is_active=True,
+        )
+
+        payload = TalentVersionResolver.serialize(version)
+
+        self.assertEqual(payload['key'], 'retail-12.0.7')
+        self.assertEqual(payload['label'], '正式服 12.0.7')
+        self.assertEqual(payload['branch'], 'retail')
+        self.assertEqual(payload['major_version'], '12.0.7')
+        self.assertEqual(payload['current_build'], '12.0.7.68367')
+        self.assertEqual(payload['status'], 'active')
+        self.assertTrue(payload['is_active'])
+
+    @patch('botend.wow.talents.versioning.WowTalentVersion')
+    def test_get_default_uses_usage_specific_flag_before_retail_fallback(self, version_model):
+        default_version = SimpleNamespace(key='retail-12.0.7')
+        version_model.objects.filter.return_value.order_by.return_value.first.return_value = default_version
+
+        resolved = TalentVersionResolver.get_default(TalentVersionResolver.USAGE_STATS)
+
+        self.assertIs(resolved, default_version)
+        version_model.objects.filter.assert_called_with(is_active=True, is_default_stats=True)
 
 class TalentTreeModelTests(SimpleTestCase):
     def test_talent_node_model_from_legacy_dict_normalizes_fields(self):
@@ -308,6 +343,49 @@ class TalentMetadataProviderTests(SimpleTestCase):
         self.assertEqual(merged['parents'], [9001, 9002])
         self.assertEqual(merged['name'], '运行态名称')
 
+    @patch('botend.wow.talents.metadata.TalentVersionResolver')
+    @patch('botend.wow.talents.metadata.WowTalentNodeMetadata')
+    def test_full_tree_nodes_filters_by_resolved_talent_version(self, metadata_model, resolver):
+        version = SimpleNamespace(id=7, key='retail-12.0.7')
+        resolver.resolve.return_value = version
+        query = MagicMock()
+        query.exclude.return_value.order_by.return_value.iterator.return_value = []
+        metadata_model.objects.filter.return_value = query
+
+        provider = TalentMetadataProvider(version_key='retail-12.0.7')
+        provider.get_full_tree_nodes('DeathKnight', 'Blood')
+
+        resolver.resolve.assert_called_with(
+            version_key='retail-12.0.7',
+            usage=TalentVersionResolver.USAGE_SIMULATOR,
+        )
+        metadata_model.objects.filter.assert_called_with(
+            class_name='DeathKnight',
+            spec_name='Blood',
+            source__in={'db2_backfill', 'db2_repair', 'db2'},
+            talent_version=version,
+        )
+
+    @patch('botend.wow.talents.service.TalentMetadataProvider')
+    def test_build_code_service_passes_version_to_provider(self, provider_cls):
+        provider = provider_cls.return_value
+        provider.get_full_tree_nodes.return_value = []
+
+        TalentBuildCodeService.build_full_payload(
+            class_name='DeathKnight',
+            spec_name='Blood',
+            talent_build_code='',
+            version_key='ptr-12.1.0',
+            usage=TalentVersionResolver.USAGE_PLAYER_TREE,
+        )
+
+        provider_cls.assert_called_with(
+            talent_version=None,
+            version_key='ptr-12.1.0',
+            usage=TalentVersionResolver.USAGE_PLAYER_TREE,
+        )
+
+
 
 class TalentMetadataBackfillTests(SimpleTestCase):
     def test_resolve_metadata_row_keeps_layout_coordinates_when_spell_name_resolves(self):
@@ -520,7 +598,7 @@ class TalentTreeLayoutTests(SimpleTestCase):
             [(path.parent_key, path.child_key, path.svg_path) for path in paths],
             [
                 ('spec:10', 'spec:20', 'M 160 156 L 160 276'),
-                ('spec:20', 'spec:30', 'M 160 348 L 160 360 L 352 360 L 352 372'),
+                ('spec:20', 'spec:30', 'M 160 348 L 352 372'),
             ],
         )
 
@@ -877,13 +955,15 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertEqual(result['builds'][0]['hero_talent_summary'][0]['name'], '死亡使者')
         self.assertEqual(result['builds'][1]['hero_talent_summary'][0]['name'], '萨莱因')
 
+    @patch('botend.wow.talents.metadata.TalentMetadataProvider.get_decoder_node_list')
     @patch('botend.wow.talents.metadata.TalentMetadataProvider.get_full_tree_nodes')
     @patch('botend.wow.talents.adapters.TalentMetadataProvider')
     @patch('botend.services.spec_stats_service.PlayerSpecTopPlayer.objects.filter')
-    def test_get_player_detail_returns_render_model_and_keeps_legacy_fields(self, mock_filter, mock_provider_cls, mock_full_tree_nodes):
+    def test_get_player_detail_returns_render_model_and_keeps_legacy_fields(self, mock_filter, mock_provider_cls, mock_full_tree_nodes, mock_decoder_nodes):
         mock_provider_cls.return_value.merge_into_node.side_effect = (
             lambda node, class_name='', spec_name='': node
         )
+        mock_decoder_nodes.return_value = []
         mock_full_tree_nodes.return_value = [
             {
                 'spell_id': 101,
@@ -1570,8 +1650,9 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertIn('热门节点', html)
         self.assertIn('100.0%', html)
 
+    @patch('botend.services.spec_stats_service.WowTalentNodeMetadata')
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
-    def test_raid_stats_template_renders_popularity_talent_tree(self, mock_provider_cls):
+    def test_raid_stats_template_renders_popularity_talent_tree(self, mock_provider_cls, mock_metadata_model):
         mock_provider_cls.return_value.merge_into_node.side_effect = (
             lambda node, class_name='', spec_name='': node
         )

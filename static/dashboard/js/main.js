@@ -2114,6 +2114,10 @@ const TABLE_FORM_CONFIGS = {
             topbar_order: 0,
         },
     },
+    SeasonMeta: {
+        hiddenEditFields: ['mplus_encounters', 'raid_encounters', 'raid_zones'],
+        hiddenAddFields: ['mplus_encounters', 'raid_encounters', 'raid_zones'],
+    },
     PlayerSpecTopPlayer: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
     SpecDungeonRanking: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
     SpecRaidRanking: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
@@ -2130,8 +2134,123 @@ function getCurrentFormConfig() {
     return TABLE_FORM_CONFIGS[currentTableName] || {};
 }
 
+function getFieldInfo(column) {
+    return (currentFieldTypes && currentFieldTypes[column]) ? currentFieldTypes[column] : {};
+}
+
+function getFieldType(column) {
+    return getFieldInfo(column).type || '';
+}
+
+function isJsonField(column) {
+    return getFieldType(column) === 'JSONField';
+}
+
+function isModelBooleanField(column) {
+    return getFieldType(column) === 'BooleanField';
+}
+
+function isModelNumericField(column) {
+    return ['IntegerField', 'BigIntegerField', 'SmallIntegerField', 'PositiveIntegerField', 'PositiveSmallIntegerField', 'FloatField', 'DecimalField', 'AutoField', 'BigAutoField'].includes(getFieldType(column));
+}
+
+function isModelDateField(column) {
+    return getFieldType(column) === 'DateField';
+}
+
+function isModelDateTimeField(column) {
+    return getFieldType(column) === 'DateTimeField';
+}
+
+function isModelTimeOnlyField(column) {
+    return getFieldType(column) === 'TimeField';
+}
+
+function isModelTextField(column) {
+    return ['TextField', 'JSONField'].includes(getFieldType(column));
+}
+
+function getFieldChoices(column) {
+    const choices = getFieldInfo(column).choices;
+    return Array.isArray(choices) && choices.length ? choices : null;
+}
+
+function getChoiceLabel(column, value) {
+    const choices = getFieldChoices(column);
+    if (!choices) return null;
+    const match = choices.find(option => String(option.value) === String(value));
+    return match ? match.label : null;
+}
+
+function isReadonlyModelField(column) {
+    const info = getFieldInfo(column);
+    return Boolean(info.primary_key || info.editable === false || info.auto_now || info.auto_now_add);
+}
+
+function serializeFieldValueForInput(value) {
+    if (value === null || value === undefined) {
+        return '';
+    }
+    if (typeof value === 'object') {
+        try {
+            return JSON.stringify(value, null, 2);
+        } catch (e) {
+            return String(value);
+        }
+    }
+    return String(value);
+}
+
+function normalizeDateTimeLocalValue(val) {
+    if (!val) return null;
+    return String(val).replace('T', ' ') + (String(val).length === 16 ? ':00' : '');
+}
+
+function parseFieldValueFromInput(column, element) {
+    const inputType = getFieldInputType(column);
+    if (inputType === 'checkbox') {
+        return { ok: true, value: element.checked };
+    }
+    if (isJsonField(column)) {
+        const value = element.value.trim();
+        if (value === '') return { ok: true, value: null };
+        try {
+            return { ok: true, value: JSON.parse(value) };
+        } catch (e) {
+            return { ok: false, error: 'invalid_json' };
+        }
+    }
+    if (inputType === 'number') {
+        const value = element.value.trim();
+        if (value === '') return { ok: true, value: null };
+        return { ok: true, value: isModelNumericField(column) && !['FloatField', 'DecimalField'].includes(getFieldType(column)) ? parseInt(value, 10) : parseFloat(value) };
+    }
+    if (isModelDateTimeField(column) || (isTimeField(column) && inputType === 'datetime-local')) {
+        return { ok: true, value: normalizeDateTimeLocalValue(element.value) };
+    }
+    if (isModelDateField(column) || inputType === 'date') {
+        return { ok: true, value: element.value || null };
+    }
+    if (isModelTimeOnlyField(column) || inputType === 'time') {
+        return { ok: true, value: element.value || null };
+    }
+    return { ok: true, value: element.value };
+}
+
+function isEditFormHiddenField(column) {
+    if (isReadonlyModelField(column)) {
+        return true;
+    }
+    const config = getCurrentFormConfig();
+    const hiddenFields = config.hiddenEditFields || [];
+    return hiddenFields.includes(column);
+}
+
 function isAddFormHiddenField(column) {
     const config = getCurrentFormConfig();
+    if (isReadonlyModelField(column)) {
+        return true;
+    }
     if (config.addFields && !config.addFields.includes(column)) {
         return true;
     }
@@ -2145,7 +2264,7 @@ function isAddFormHiddenField(column) {
 
 function getAddFormSelectOptions(column) {
     const config = getCurrentFormConfig();
-    return (config.selectFields && config.selectFields[column]) || null;
+    return (config.selectFields && config.selectFields[column]) || getFieldChoices(column);
 }
 
 function getAddFormDefaultValue(column) {
@@ -2507,7 +2626,15 @@ function displayTableData(data, fields, tableName = currentTableName) {
             }
             
             // 根据字段类型和名称进行特殊处理
-            if (isUrlField(field) && cellText) {
+            const choiceLabel = getChoiceLabel(field, cellValue);
+            if (choiceLabel !== null) {
+                const badge = document.createElement('span');
+                badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800';
+                badge.textContent = choiceLabel;
+                badge.title = cellText;
+                td.appendChild(badge);
+            }
+            else if (isUrlField(field) && cellText) {
                 // URL字段显示为链接
                 const link = document.createElement('a');
                 link.href = cellText;
@@ -2543,7 +2670,7 @@ function displayTableData(data, fields, tableName = currentTableName) {
                     td.className += ' text-gray-400';
                 }
             }
-            else if (isNumericField(field)) {
+            else if (isNumericField(field) && !isStatusField(field)) {
                 // 数值字段右对齐
                 td.className += ' text-right';
                 if (field === 'score' && cellText) {
@@ -2618,6 +2745,12 @@ function displayTableData(data, fields, tableName = currentTableName) {
                 td.className += ' font-mono text-xs';
                 td.textContent = truncateText(cellText, 16);
                 td.title = cellText;
+            }
+            else if (isJsonField(field)) {
+                td.className += ' font-mono text-xs truncate';
+                td.textContent = cellText ? truncateText(cellText, 80) : '-';
+                td.title = cellText;
+                if (!cellText) td.className += ' text-gray-400';
             }
             else if (isLongTextField(field) || cellText.length > 50) {
                 // 长文本字段截断显示
@@ -3612,8 +3745,9 @@ function isUrlField(field) {
  */
 function isBooleanField(field, value) {
     const booleanFields = ['is_active', 'is_login', 'is_poc', 'is_exp', 'is_verify', 'is_zombie'];
-    return booleanFields.includes(field.toLowerCase()) || 
-           typeof value === 'boolean' || 
+    return isModelBooleanField(field) ||
+           booleanFields.includes(field.toLowerCase()) ||
+           typeof value === 'boolean' ||
            value === 'true' || value === 'false';
 }
 
@@ -3621,6 +3755,9 @@ function isBooleanField(field, value) {
  * 判断是否为时间字段
  */
 function isTimeField(field) {
+    if (isModelDateTimeField(field) || isModelDateField(field) || isModelTimeOnlyField(field)) {
+        return true;
+    }
     const timeFields = ['time', 'date', 'created_at', 'updated_at', 'publish_time', 'last_scan_time', 'last_spider_time', 'last_publish_time', 'create_time'];
     // 排除wait_time，它应该显示为数值而不是时间
     if (field.toLowerCase() === 'wait_time') {
@@ -3638,7 +3775,7 @@ function isTimeField(field) {
  */
 function isNumericField(field) {
     const numericFields = ['score', 'severity', 'wait_time', 'type', 'state', 'flag', 'room_member_count', 'msg_type', 'active_type'];
-    return numericFields.includes(field.toLowerCase());
+    return isModelNumericField(field) || numericFields.includes(field.toLowerCase());
 }
 
 /**
@@ -4236,7 +4373,7 @@ function generateEditFormFields(container, rowData) {
     }
     
     currentTableColumns.forEach(column => {
-        if (column.toLowerCase() === 'id') {
+        if (column.toLowerCase() === 'id' || isEditFormHiddenField(column)) {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -4268,28 +4405,49 @@ function generateEditFormFields(container, rowData) {
         label.setAttribute('for', `edit-field-${column}`);
         
         const inputType = getFieldInputType(column);
+        const selectOptions = getAddFormSelectOptions(column);
         let inputElement;
         
-        if (inputType === 'textarea') {
+        if (selectOptions) {
+            inputElement = document.createElement('select');
+            inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 bg-white';
+            if (!isRequiredField(column)) {
+                const emptyOption = document.createElement('option');
+                emptyOption.value = '';
+                emptyOption.textContent = '（空）';
+                inputElement.appendChild(emptyOption);
+            }
+            selectOptions.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option.value;
+                optionElement.textContent = option.label;
+                inputElement.appendChild(optionElement);
+            });
+            const raw = rowData && rowData[column] !== null && rowData[column] !== undefined ? rowData[column] : '';
+            inputElement.value = String(raw);
+        }
+        else if (inputType === 'textarea' || isJsonField(column)) {
             inputElement = document.createElement('textarea');
-            inputElement.rows = 4;
-            inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
-            inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 resize-none';
-            inputElement.value = rowData && rowData[column] !== null && rowData[column] !== undefined ? String(rowData[column]) : '';
+            inputElement.rows = isJsonField(column) ? 8 : 4;
+            inputElement.placeholder = isJsonField(column) ? '请输入合法 JSON' : `请输入${getFieldDisplayName(column)}`;
+            inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 resize-none font-mono text-xs';
+            inputElement.value = rowData ? serializeFieldValueForInput(rowData[column]) : '';
         } else if (inputType === 'checkbox') {
             inputElement = document.createElement('input');
             inputElement.type = 'checkbox';
             inputElement.className = 'w-5 h-5 text-emerald-600 border-gray-300 rounded focus:ring-2 focus:ring-emerald-500 transition-all duration-200';
             const v = rowData ? rowData[column] : false;
             inputElement.checked = v === true || v === 'true' || v === 1 || v === '1';
-        } else if (isTimeField(column)) {
+        } else if (inputType === 'date' || inputType === 'datetime-local' || inputType === 'time') {
             inputElement = document.createElement('input');
-            inputElement.type = 'datetime-local';
+            inputElement.type = inputType;
             inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200';
             const raw = rowData && rowData[column] !== null && rowData[column] !== undefined ? rowData[column] : '';
-            const parsed = parseDateTimeForInput(String(raw));
-            if (parsed) {
-                inputElement.value = parsed;
+            if (inputType === 'datetime-local') {
+                const parsed = parseDateTimeForInput(String(raw));
+                if (parsed) inputElement.value = parsed;
+            } else {
+                inputElement.value = serializeFieldValueForInput(raw).slice(0, inputType === 'time' ? 8 : 10);
             }
         } else {
             inputElement = document.createElement('input');
@@ -4312,7 +4470,7 @@ function generateEditFormFields(container, rowData) {
             const raw = rowData && rowData[column] !== null && rowData[column] !== undefined ? rowData[column] : '';
             inputElement.value = inputType === 'number'
                 ? (raw === '' ? '' : String(raw))
-                : String(raw);
+                : serializeFieldValueForInput(raw);
         }
         
         inputElement.id = `edit-field-${column}`;
@@ -4354,8 +4512,9 @@ function submitEditRecord() {
     }
     
     const updateData = {};
+    let invalidJsonField = null;
     currentTableColumns.forEach(column => {
-        if (column === 'id') {
+        if (column === 'id' || isEditFormHiddenField(column)) {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -4365,22 +4524,17 @@ function submitEditRecord() {
         if (!element) {
             return;
         }
-        const inputType = getFieldInputType(column);
-        if (inputType === 'checkbox') {
-            updateData[column] = element.checked;
-        } else if (inputType === 'number') {
-            const value = element.value.trim();
-            updateData[column] = value !== '' ? parseFloat(value) : null;
-        } else if (isTimeField(column)) {
-            // datetime-local 值格式: "2026-06-12T18:30" -> "2026-06-12 18:30:00"
-            const val = element.value;
-            if (val) {
-                updateData[column] = val.replace('T', ' ') + ':00';
-            }
-        } else {
-            updateData[column] = element.value;
+        const parsedValue = parseFieldValueFromInput(column, element);
+        if (!parsedValue.ok) {
+            invalidJsonField = column;
+            return;
         }
+        updateData[column] = parsedValue.value;
     });
+    if (invalidJsonField) {
+        showMessage(`${getFieldDisplayName(invalidJsonField)} 不是合法 JSON，已取消保存`, 'error');
+        return;
+    }
     
     const csrfToken = getCSRFToken();
     if (!csrfToken) {
@@ -4478,9 +4632,9 @@ function generateFormFields(container) {
             } else if (currentFieldTypes && currentFieldTypes[column] && currentFieldTypes[column].default !== null) {
                 inputElement.checked = currentFieldTypes[column].default;
             }
-        } else if (isTimeField(column)) {
+        } else if (inputType === 'date' || inputType === 'datetime-local' || inputType === 'time') {
             inputElement = document.createElement('input');
-            inputElement.type = 'datetime-local';
+            inputElement.type = inputType;
             inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200';
         } else {
             // 创建普通input元素
@@ -4738,6 +4892,7 @@ function getFieldInputType(column) {
             case 'URLField':
                 return 'url';
             case 'TextField':
+            case 'JSONField':
                 return 'textarea';
             case 'CharField':
                 // 根据字段名进一步判断
@@ -4776,6 +4931,10 @@ function getFieldInputType(column) {
  * 判断是否为必填字段
  */
 function isRequiredField(column) {
+    const info = getFieldInfo(column);
+    if (info && info.type && !info.null && !info.blank && !info.primary_key && !info.auto_now && !info.auto_now_add) {
+        return true;
+    }
     const requiredFields = ['apl_keyword', 'cn_keyword', 'name', 'title', 'url'];
     return requiredFields.includes(column.toLowerCase());
 }
@@ -4786,6 +4945,7 @@ function isRequiredField(column) {
 function submitAddRecord() {
     const form = document.getElementById('add-record-form');
     const data = {};
+    let invalidJsonField = null;
     
     // 遍历所有表单字段，正确处理不同类型的输入
     currentTableColumns.forEach(column => {
@@ -4796,31 +4956,18 @@ function submitAddRecord() {
         
         const element = document.getElementById(`field-${column}`);
         if (element) {
-            const inputType = getFieldInputType(column);
-            
-            if (inputType === 'checkbox') {
-                // 对于checkbox，获取checked状态
-                data[column] = element.checked;
-            } else if (isTimeField(column)) {
-                // datetime-local 值格式: "2026-06-12T18:30" -> "2026-06-12 18:30:00"
-                const val = element.value;
-                if (val) {
-                    data[column] = val.replace('T', ' ') + ':00';
-                }
-            } else if (inputType === 'number') {
-                // 对于数字类型，转换为数字或保持空值
-                const value = element.value.trim();
-                if (value !== '') {
-                    data[column] = parseFloat(value);
-                } else {
-                    data[column] = null;
-                }
-            } else {
-                // 对于其他类型，直接获取值
-                data[column] = element.value;
+            const parsedValue = parseFieldValueFromInput(column, element);
+            if (!parsedValue.ok) {
+                invalidJsonField = column;
+                return;
             }
+            data[column] = parsedValue.value;
         }
     });
+    if (invalidJsonField) {
+        showMessage(`${getFieldDisplayName(invalidJsonField)} 不是合法 JSON，已取消添加`, 'error');
+        return;
+    }
     
     // 根据表名选择不同的API端点
     let apiUrl, requestData;

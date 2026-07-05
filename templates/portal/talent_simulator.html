@@ -8,10 +8,11 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260703_daily_report_card">
-    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260704_tooltip_choice">
+    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260705_versions">
 </head>
 <body class="portal-bg font-sans">
     {{ specs_payload|json_script:"talent-specs-data" }}
+    {{ talent_versions|json_script:"talent-versions-data" }}
     <header class="portal-header">
         <div class="portal-header-inner">
             <a href="/" class="portal-header-brand no-underline">
@@ -28,7 +29,7 @@
         </div>
     </header>
 
-    <main class="talent-sim-page" data-initial-class="{{ class_name }}" data-initial-spec="{{ spec_name }}">
+    <main class="talent-sim-page" data-initial-class="{{ class_name }}" data-initial-spec="{{ spec_name }}" data-default-version="{{ default_talent_version.key }}">
         <section class="talent-sim-hero portal-card portal-card-accent portal-accent-indigo">
             <div class="talent-sim-title-block">
                 <div class="talent-sim-kicker">LMonitor Tools</div>
@@ -43,6 +44,10 @@
         </section>
 
         <section class="talent-sim-toolbar portal-card">
+            <div class="talent-sim-field">
+                <label for="talent-version-select">版本</label>
+                <select id="talent-version-select"></select>
+            </div>
             <div class="talent-sim-field">
                 <label for="talent-class-select">职业</label>
                 <select id="talent-class-select"></select>
@@ -89,6 +94,6 @@
 
     <div id="talent-tooltip-root" class="talent-floating-tooltip" hidden></div>
     <div id="talent-toast-root" class="talent-toast-root"></div>
-    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20260704_tooltip_choice"></script>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20260705_versions"></script>
 </body>
 </html>

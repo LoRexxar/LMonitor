@@ -306,13 +306,17 @@ class DashboardView(View):
                     except (TypeError, ValueError):
                         default_value = None  # 不可序列化的默认值设为None
                 
-                # 处理choices，确保可以JSON序列化
-                choices = getattr(field, 'choices', None)
-                if choices is not None:
-                    try:
-                        json.dumps(choices)  # 测试是否可以序列化
-                    except (TypeError, ValueError):
-                        choices = None  # 不可序列化的choices设为None
+                # 处理 choices，统一返回前端可直接渲染的 [{value, label}]
+                choices = None
+                raw_choices = getattr(field, 'choices', None)
+                if raw_choices:
+                    choices = []
+                    for choice_value, choice_label in raw_choices:
+                        if isinstance(choice_label, (list, tuple)):
+                            for nested_value, nested_label in choice_label:
+                                choices.append({'value': nested_value, 'label': str(nested_label)})
+                        else:
+                            choices.append({'value': choice_value, 'label': str(choice_label)})
                 
                 field_types[field.name] = {
                     'type': field_type,
@@ -320,8 +324,12 @@ class DashboardView(View):
                     'blank': field.blank,
                     'max_length': getattr(field, 'max_length', None),
                     'default': default_value,
-                    'help_text': getattr(field, 'help_text', ''),
-                    'choices': choices
+                    'help_text': str(getattr(field, 'help_text', '') or ''),
+                    'choices': choices,
+                    'primary_key': getattr(field, 'primary_key', False),
+                    'editable': getattr(field, 'editable', True),
+                    'auto_now': getattr(field, 'auto_now', False),
+                    'auto_now_add': getattr(field, 'auto_now_add', False),
                 }
 
                 verbose_name = str(getattr(field, 'verbose_name', '') or '').strip()
@@ -530,21 +538,38 @@ class DashboardView(View):
                 if hasattr(instance, field_name):
                     # 获取字段类型
                     field = instance._meta.get_field(field_name)
+                    field_type = field.__class__.__name__
+
+                    if getattr(field, 'primary_key', False) or not getattr(field, 'editable', True) or getattr(field, 'auto_now', False) or getattr(field, 'auto_now_add', False):
+                        continue
                     
                     # 根据字段类型转换值
-                    if field.__class__.__name__ == 'BooleanField':
+                    if field_type == 'BooleanField':
                         if isinstance(field_value, str):
                             field_value = field_value.lower() in ('true', '1', 'yes', 'on')
                         elif isinstance(field_value, bool):
                             pass  # 已经是布尔值
                         else:
                             field_value = bool(field_value)
-                    elif field.__class__.__name__ in ['IntegerField', 'BigIntegerField', 'SmallIntegerField']:
+                    elif field_type in ['IntegerField', 'BigIntegerField', 'SmallIntegerField', 'PositiveIntegerField', 'PositiveSmallIntegerField', 'AutoField', 'BigAutoField']:
                         if field_value != '' and field_value is not None:
                             field_value = int(field_value)
-                    elif field.__class__.__name__ in ['FloatField', 'DecimalField']:
+                    elif field_type in ['FloatField', 'DecimalField']:
                         if field_value != '' and field_value is not None:
                             field_value = float(field_value)
+                    elif field_type == 'JSONField':
+                        if isinstance(field_value, str):
+                            raw_value = field_value.strip()
+                            if raw_value == '':
+                                field_value = None if field.null else field.get_default()
+                            else:
+                                try:
+                                    field_value = json.loads(raw_value)
+                                except json.JSONDecodeError:
+                                    return JsonResponse({
+                                        "status": "error",
+                                        "message": f"字段 {field_name} 不是合法 JSON，已取消更新"
+                                    })
                     
                     setattr(instance, field_name, field_value)
             
@@ -697,8 +722,31 @@ class DashboardView(View):
                 for key, value in create_data.items():
                     if value is not None and value != '':
                         # 检查字段是否存在于模型中
-                        if hasattr(model, key):
-                            filtered_data[key] = value
+                        try:
+                            field = model._meta.get_field(key)
+                        except Exception:
+                            continue
+                        if getattr(field, 'primary_key', False) or not getattr(field, 'editable', True) or getattr(field, 'auto_now', False) or getattr(field, 'auto_now_add', False):
+                            continue
+                        field_type = field.__class__.__name__
+                        if field_type == 'JSONField' and isinstance(value, str):
+                            try:
+                                value = json.loads(value)
+                            except json.JSONDecodeError:
+                                return JsonResponse({
+                                    "status": "error",
+                                    "message": f"字段 {key} 不是合法 JSON，已取消创建"
+                                })
+                        elif field_type == 'BooleanField':
+                            if isinstance(value, str):
+                                value = value.lower() in ('true', '1', 'yes', 'on')
+                            else:
+                                value = bool(value)
+                        elif field_type in ['IntegerField', 'BigIntegerField', 'SmallIntegerField', 'PositiveIntegerField', 'PositiveSmallIntegerField']:
+                            value = int(value)
+                        elif field_type in ['FloatField', 'DecimalField']:
+                            value = float(value)
+                        filtered_data[key] = value
                 
                 # 创建记录
                 instance = model.objects.create(**filtered_data)

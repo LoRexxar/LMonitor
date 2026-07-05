@@ -27,6 +27,7 @@ from botend.templatetags.wow_tags import wow_icon
 from botend.wow.talents.build_code import TalentBuildCodeDecoder, _build_node_key
 from botend.wow.talents.metadata import TalentMetadataProvider
 from botend.wow.talents.service import TalentBuildCodeService
+from botend.wow.talents.versioning import TalentVersionResolver
 from botend.wow.talents.view_model import build_talent_view_model
 
 
@@ -232,9 +233,10 @@ def _active_hero_subtree(full_nodes, decoded_states=None, requested=None):
     return 0
 
 
-def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=None):
+def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=None, version_key=''):
     _validate_spec(class_name, spec_name)
-    provider = TalentMetadataProvider()
+    talent_version = TalentVersionResolver.resolve(version_key=version_key, usage=TalentVersionResolver.USAGE_SIMULATOR)
+    provider = TalentMetadataProvider(talent_version=talent_version, version_key=version_key, usage=TalentVersionResolver.USAGE_SIMULATOR)
     full_nodes = _filter_hero_subtrees_for_spec(
         provider.get_full_tree_nodes(class_name, spec_name),
         class_name,
@@ -252,6 +254,7 @@ def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=N
         'class_cn': CLASS_CN.get(class_name, class_name),
         'spec_cn': SPEC_CN.get(spec_name, spec_name),
         'spec_icon': SPEC_ICON.get((class_name, spec_name), ''),
+        'talent_version': TalentVersionResolver.serialize(talent_version),
         'hero_subtrees': _hero_subtrees(full_nodes),
         'active_hero_subtree': active_subtree,
         'render_model': render_model,
@@ -269,6 +272,8 @@ class PortalTalentSimulatorView(View):
             'class_name': class_name,
             'spec_name': spec_name,
             'specs_payload': _build_specs_payload(),
+            'talent_versions': [TalentVersionResolver.serialize(v) for v in TalentVersionResolver.list_active()],
+            'default_talent_version': TalentVersionResolver.serialize(TalentVersionResolver.get_default(TalentVersionResolver.USAGE_SIMULATOR)),
         }
         return render(request, 'portal/talent_simulator.html', context)
 
@@ -279,10 +284,13 @@ class PortalTalentSimulatorAPIView(View):
         spec_name = request.GET.get('spec') or (CLASS_SPEC_MAP.get(class_name) or [DEFAULT_SPEC])[0]
         build_code = request.GET.get('code') or ''
         hero_subtree = request.GET.get('hero_subtree') or request.GET.get('hero') or ''
+        version_key = request.GET.get('version') or request.GET.get('version_key') or ''
         try:
-            payload = build_simulator_payload(class_name, spec_name, build_code=build_code, hero_subtree=hero_subtree)
+            payload = build_simulator_payload(class_name, spec_name, build_code=build_code, hero_subtree=hero_subtree, version_key=version_key)
         except Http404:
             return JsonResponse({'success': False, 'error': '未知职业或专精'}, status=404)
+        except ValueError as exc:
+            return JsonResponse({'success': False, 'error': str(exc)}, status=404)
         return JsonResponse({'success': True, **payload})
 
 
@@ -295,6 +303,7 @@ class PortalTalentSimulatorEncodeAPIView(View):
         class_name = body.get('class_name') or body.get('class') or DEFAULT_CLASS
         spec_name = body.get('spec_name') or body.get('spec') or (CLASS_SPEC_MAP.get(class_name) or [DEFAULT_SPEC])[0]
         reference_build_code = str(body.get('reference_build_code') or body.get('build_code') or '').strip()
+        version_key = str(body.get('version') or body.get('version_key') or '').strip()
         selected_nodes = _parse_selected_nodes(body.get('selected_nodes') or [])
         try:
             _validate_spec(class_name, spec_name)
@@ -306,6 +315,8 @@ class PortalTalentSimulatorEncodeAPIView(View):
             class_name=class_name,
             spec_name=spec_name,
             reference_build_code=reference_build_code,
+            version_key=version_key,
+            usage=TalentVersionResolver.USAGE_SIMULATOR,
         )
         return JsonResponse({
             'success': bool(build_code),

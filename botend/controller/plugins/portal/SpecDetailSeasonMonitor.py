@@ -122,10 +122,17 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         if season:
             if season.raid_zone_id:
                 zone_ids.append(season.raid_zone_id)
-            for rz in season.raid_zones or []:
-                zone_id = rz.get('id') or rz.get('zone_id')
-                if zone_id:
-                    zone_ids.append(int(zone_id))
+            if isinstance(season.raid_zones, list):
+                for rz in season.raid_zones or []:
+                    if not isinstance(rz, dict):
+                        continue
+                    zone_id = rz.get('id') or rz.get('zone_id')
+                    if zone_id:
+                        zone_ids.append(int(zone_id))
+            elif season.raid_zones:
+                logger.warning(
+                    f"[SpecDetailSeason] SeasonMeta.raid_zones 格式异常，忽略缓存并使用 raid_zone_id: {type(season.raid_zones).__name__}"
+                )
             season_key = season_key or season.season_key
 
         for zone_id in self.EXTRA_RAID_ZONE_IDS_BY_SEASON.get(season_key or '', []):

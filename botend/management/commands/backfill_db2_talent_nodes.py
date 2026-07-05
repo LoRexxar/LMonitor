@@ -10,11 +10,13 @@ import csv
 import os
 from collections import defaultdict
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from botend.constants.wow import CLASS_SPEC_MAP
-from botend.models import WowTalentNodeMetadata
+from botend.models import WowTalentNodeMetadata, WowTalentVersion
+from botend.wow.talents.default_versions import ensure_default_talent_versions
+from botend.wow.talents.versioning import TalentVersionResolver
 from botend.wow.talents.db2_components import TalentDb2ComponentResolver
 
 
@@ -22,15 +24,26 @@ class Command(BaseCommand):
     help = '从 DB2 dump 补全所有缺失的天赋节点元数据'
 
     def add_arguments(self, parser):
-        parser.add_argument('--dump-dir', default='.cache/wago_db2_dumps/latest',
-                            help='DB2 dump 目录')
+        parser.add_argument('--dump-dir', default='',
+                            help='DB2 dump 目录；默认使用 WowTalentVersion.source_dir，未配置则使用 latest')
         parser.add_argument('--class-name', default='', help='仅处理指定职业')
+        parser.add_argument('--version-key', default='', help='写入指定 WowTalentVersion.key；默认使用模拟器默认版本')
+        parser.add_argument('--ensure-default-versions', action='store_true', help='回填前确保内置 retail/PTR 版本存在')
         parser.add_argument('--dry-run', action='store_true', help='只输出统计，不写入')
 
     def handle(self, *args, **options):
-        dump_dir = options['dump_dir']
+        dump_dir = (options.get('dump_dir') or '').strip()
         class_name = options['class_name']
         dry_run = options['dry_run']
+        version_key = (options.get('version_key') or '').strip()
+
+        if options.get('ensure_default_versions'):
+            ensure_default_talent_versions(WowTalentVersion)
+        talent_version = TalentVersionResolver.resolve(version_key=version_key, usage=TalentVersionResolver.USAGE_SIMULATOR)
+        if not talent_version:
+            raise CommandError('未找到默认天赋版本，请先执行迁移创建 WowTalentVersion')
+        if not dump_dir:
+            dump_dir = talent_version.source_dir or '.cache/wago_db2_dumps/latest'
 
         if not os.path.isdir(dump_dir):
             self.stderr.write(f'DB2 dump 目录不存在: {dump_dir}')
@@ -167,13 +180,14 @@ class Command(BaseCommand):
         # 预取现有数据库节点。唯一键不含 source；如果旧玩家/排名采样行已存在，
         # DB2 回填必须升级并补齐该行，而不是跳过，否则完整树会缺共享节点。
         existing_by_key = {}
-        qs = WowTalentNodeMetadata.objects.all()
+        qs = WowTalentNodeMetadata.objects.filter(talent_version=talent_version)
         if class_name:
             qs = qs.filter(class_name=class_name)
         for row in qs.iterator():
             existing_by_key[(row.class_name, row.spec_name, row.tree_type, row.node_id, row.spell_id)] = row
 
-        self.stdout.write(f'\n现有数据库节点: {len(existing_by_key)}')
+        self.stdout.write(f'\n目标天赋版本: {talent_version.key} ({talent_version.label or talent_version.branch})')
+        self.stdout.write(f'现有数据库节点: {len(existing_by_key)}')
 
         # 处理每个职业
         targets = list(tree_to_class.items())
@@ -311,6 +325,7 @@ class Command(BaseCommand):
                             continue
 
                         obj = WowTalentNodeMetadata(
+                            talent_version=talent_version,
                             class_name=cls_name,
                             spec_name=spec_name,
                             tree_type=tree_type,
