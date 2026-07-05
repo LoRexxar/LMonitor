@@ -56,6 +56,8 @@ def sync_monitortasks_from_plugin_list(
             wait_time = 600
             if name in {"PortalPeakSpecRankMonitor", "PortalMplusCutoffMonitor"}:
                 wait_time = 3600
+            elif name == "WagoSkillDiffMonitor":
+                wait_time = 3600  # 1h，Wago build/hotfix 变更不需要 10 分钟级轮询
             elif name == "SpecDetailSeasonMonitor":
                 wait_time = 86400  # 24h
             elif name in {"SpecDetailPlayerMonitor", "SpecDetailRankingMonitor"}:
