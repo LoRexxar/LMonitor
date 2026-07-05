@@ -20,6 +20,7 @@
         classPoints: document.getElementById('talent-class-points'),
         heroPoints: document.getElementById('talent-hero-points'),
         specPoints: document.getElementById('talent-spec-points'),
+        apexPoints: document.getElementById('talent-apex-points'),
         totalPoints: document.getElementById('talent-total-points'),
         codeOutput: document.getElementById('talent-build-code-output'),
         inspectorEmpty: document.getElementById('talent-inspector-empty'),
@@ -147,6 +148,8 @@
                 node.points = Number(node.points || 0);
                 node.selected = !!node.selected || node.points > 0;
                 if (node.choice_selection == null) node.choice_selection = 0;
+                node.is_apex_talent = !!node.is_apex_talent;
+                node.point_pool = node.point_pool || (node.is_apex_talent ? 'apex' : (node.tree_type || 'spec'));
                 state.nodes.set(key, node);
             }
             for (const path of tree.paths || []) {
@@ -376,7 +379,7 @@
         const selectable = canSelect(node);
         const related = state.hoverKey && (state.hoverKey === key || parentKeysFor(node).includes(state.hoverKey) || childKeysFor(node).includes(state.hoverKey));
         const stateClass = node.points > 0 ? 'is-selected' : (selectable ? 'is-available' : 'is-locked');
-        btn.className = `talent-node-card--tree ${stateClass} ${related ? 'is-related' : ''} ${node.is_choice_node ? 'is-choice-node' : ''}`;
+        btn.className = `talent-node-card--tree ${stateClass} ${related ? 'is-related' : ''} ${node.is_choice_node ? 'is-choice-node' : ''} ${node.is_apex_talent ? 'is-apex-talent' : ''}`;
         btn.setAttribute('aria-pressed', node.points > 0 ? 'true' : 'false');
         btn.setAttribute('aria-disabled', selectable ? 'false' : 'true');
         btn.setAttribute('aria-label', nodeAccessibilityLabel(node, selectable));
@@ -548,16 +551,19 @@
     }
 
     function updateCounters() {
-        const totals = {class: 0, hero: 0, spec: 0};
+        const totals = {class: 0, hero: 0, spec: 0, apex: 0};
+        let apexMax = 0;
         for (const node of state.nodes.values()) {
-            const type = node.tree_type || 'spec';
-            if (totals[type] == null) totals[type] = 0;
-            totals[type] += Number(node.points || 0);
+            const pool = node.point_pool || (node.is_apex_talent ? 'apex' : (node.tree_type || 'spec'));
+            if (totals[pool] == null) totals[pool] = 0;
+            totals[pool] += Number(node.points || 0);
+            if (pool === 'apex') apexMax += Number(node.max_points || 1);
         }
         els.classPoints.textContent = totals.class || 0;
         els.heroPoints.textContent = totals.hero || 0;
         els.specPoints.textContent = totals.spec || 0;
-        els.totalPoints.textContent = (totals.class || 0) + (totals.hero || 0) + (totals.spec || 0);
+        if (els.apexPoints) els.apexPoints.textContent = apexMax ? `${totals.apex || 0}/${apexMax}` : '0/4';
+        els.totalPoints.textContent = (totals.class || 0) + (totals.hero || 0) + (totals.spec || 0) + (totals.apex || 0);
     }
 
     function updateInspector() {
@@ -575,7 +581,7 @@
         const selectable = canSelect(node);
         const parents = parentNamesFor(node);
         const parentText = parents.length ? `<span class="talent-inspector-meta-text">前置：${escapeHtml(parents.slice(0, 2).join(' / '))}</span>` : '';
-        els.inspectorMeta.innerHTML = `<span class="talent-inspector-status talent-inspector-status--${nodeStatusKey(node, selectable)}">${escapeHtml(nodeStateLabel(node, selectable))}</span><span class="talent-inspector-meta-text">${escapeHtml(treeLabel(node.tree_type))} · ${node.points || 0}/${node.max_points || 1} 点</span>${parentText}`;
+        els.inspectorMeta.innerHTML = `<span class="talent-inspector-status talent-inspector-status--${nodeStatusKey(node, selectable)}">${escapeHtml(nodeStateLabel(node, selectable))}</span><span class="talent-inspector-meta-text">${escapeHtml(treeLabel(node.tree_type, node.point_pool))} · ${node.points || 0}/${node.max_points || 1} 点</span>${parentText}`;
         els.inspectorDesc.textContent = '技能说明请悬停天赋图标查看。';
         renderOptions(node);
     }
@@ -630,7 +636,8 @@
         scheduleEncode();
     }
 
-    function treeLabel(type) {
+    function treeLabel(type, pool) {
+        if (pool === 'apex') return '顶峰天赋';
         return {class: '职业树', hero: '英雄树', spec: '专精树'}[type || 'spec'] || type;
     }
 
