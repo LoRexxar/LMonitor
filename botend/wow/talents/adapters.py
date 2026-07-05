@@ -181,6 +181,11 @@ def _iter_tree_types(grouped_nodes):
 def _should_merge_metadata(node, class_name='', spec_name=''):
     if not isinstance(node, dict):
         return False
+    # DB2 backfill / repair rows coming from TalentMetadataProvider are already
+    # authoritative, complete metadata. Re-merging each simulator node through
+    # provider indexes turns one page load into hundreds of redundant lookups.
+    if node.get('source') in {'db2_backfill', 'db2_repair', 'db2'}:
+        return _needs_metadata_enrichment(node)
     if not class_name or not spec_name:
         return _needs_metadata_enrichment(node)
     if node.get('node_id') or node.get('nodeID') or node.get('talent_id') or node.get('talentID') or node.get('spell_id') or node.get('spellID'):

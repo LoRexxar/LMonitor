@@ -310,6 +310,33 @@ class TalentTreeAdapterTests(SimpleTestCase):
         self.assertEqual(node.layout_row, 5100)
         self.assertEqual(node.layout_column, 10800)
 
+    def test_adapter_does_not_remerge_complete_authoritative_db2_nodes(self):
+        class Provider:
+            def merge_into_node(self, node, class_name='', spec_name=''):
+                raise AssertionError('authoritative DB2 metadata should not be merged again')
+
+        tree_set, _ = build_tree_set_from_talents(
+            [
+                {
+                    'spell_id': 101,
+                    'talent_id': 101,
+                    'name': 'DB2 节点',
+                    'tree_type': 'spec',
+                    'row': 1500,
+                    'column': 4200,
+                    'source': 'db2_backfill',
+                },
+            ],
+            class_name='Monk',
+            spec_name='Windwalker',
+            metadata_provider=Provider(),
+        )
+
+        node = tree_set.trees[0].nodes[0]
+        self.assertEqual(node.name, 'DB2 节点')
+        self.assertEqual(node.layout_row, 1500)
+        self.assertEqual(node.layout_column, 4200)
+
 
 class TalentMetadataProviderTests(SimpleTestCase):
     def test_merge_into_node_uses_metadata_as_authoritative_for_structural_fields(self):

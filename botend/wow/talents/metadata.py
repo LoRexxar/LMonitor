@@ -12,6 +12,7 @@ WoW 天赋元数据提供层
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
 from botend.wow.spell_text import get_spell_text_resolver
@@ -74,6 +75,7 @@ class TalentMetadataProvider:
     usage: str = TalentVersionResolver.USAGE_SIMULATOR
     _spec_cache: dict = field(default_factory=dict)
     _snapshot_cache: dict = field(default_factory=dict)
+    _spell_text_resolver: Any = None
 
     @property
     def resolved_version(self):
@@ -309,14 +311,25 @@ class TalentMetadataProvider:
         self._spec_cache[cache_key] = indexes
         return indexes
 
+    def _spell_resolver(self):
+        if self._spell_text_resolver is None:
+            self._spell_text_resolver = get_spell_text_resolver(self.locale)
+        return self._spell_text_resolver
+
+    def _resolve_text(self, resolver, text, spell_id):
+        text = text or ''
+        if '$' not in text:
+            return ' '.join(text.split()).strip()
+        return resolver.resolve(text, spell_id)
+
     def _as_dict(self, row):
         spell_id = row.display_spell_id or row.spell_id
         desc = getattr(row, 'description', '') or ''
         desc_zh = getattr(row, 'description_zh', '') or ''
-        resolver = get_spell_text_resolver(self.locale)
+        resolver = self._spell_resolver()
         return {
             'talent_version_id': getattr(row, 'talent_version_id', None),
-            'talent_version_key': getattr(getattr(row, 'talent_version', None), 'key', '') or '',
+            'talent_version_key': self.version_cache_key,
             'node_id': row.node_id,
             'spell_id': row.spell_id,
             'display_spell_id': row.display_spell_id,
@@ -328,8 +341,8 @@ class TalentMetadataProvider:
             'column': row.column,
             'max_points': row.max_points,
             'parents': row.parents_json or [],
-            'description': resolver.resolve(desc, spell_id),
-            'description_zh': resolver.resolve(desc_zh, spell_id),
+            'description': self._resolve_text(resolver, desc, spell_id),
+            'description_zh': self._resolve_text(resolver, desc_zh, spell_id),
             'db2_subtree_id': getattr(row, 'db2_subtree_id', 0) or 0,
             'db2_tree_id': getattr(row, 'db2_tree_id', None),
             'db2_component_id': getattr(row, 'db2_component_id', 0) or 0,
