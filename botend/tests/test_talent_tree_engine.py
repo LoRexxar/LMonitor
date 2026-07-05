@@ -318,12 +318,17 @@ class TalentTreeAdapterTests(SimpleTestCase):
         tree_set, _ = build_tree_set_from_talents(
             [
                 {
+                    'node_id': 10101,
                     'spell_id': 101,
                     'talent_id': 101,
                     'name': 'DB2 节点',
                     'tree_type': 'spec',
                     'row': 1500,
                     'column': 4200,
+                    'parents': [10001],
+                    'db2_subtree_id': 123,
+                    'description': 'original desc',
+                    'description_zh': '原始描述',
                     'source': 'db2_backfill',
                 },
             ],
@@ -336,6 +341,10 @@ class TalentTreeAdapterTests(SimpleTestCase):
         self.assertEqual(node.name, 'DB2 节点')
         self.assertEqual(node.layout_row, 1500)
         self.assertEqual(node.layout_column, 4200)
+        self.assertEqual(node.parents, [10001])
+        self.assertEqual(node.db2_subtree_id, 123)
+        self.assertEqual(node.description, 'original desc')
+        self.assertEqual(node.description_zh, '原始描述')
 
 
 class TalentMetadataProviderTests(SimpleTestCase):
