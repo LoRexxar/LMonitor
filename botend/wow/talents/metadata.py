@@ -359,9 +359,11 @@ class TalentMetadataProvider:
         resolver = get_spell_text_resolver(self.locale)
         return {
             'option_key': option_key,
+            'node_id': node.get('node_id'),
             'talent_id': node.get('talent_id'),
             'spell_id': spell_id,
             'display_spell_id': node.get('display_spell_id'),
+            'max_points': node.get('max_points') or 1,
             'name': node.get('name') or '',
             'icon': node.get('icon') or '',
             'description': resolver.resolve(node.get('description') or '', spell_id),

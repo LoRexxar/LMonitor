@@ -820,14 +820,19 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             [('class', 1001), ('hero', 3002), ('spec', 5001)],
         )
 
-    def test_render_model_marks_bottom_four_spec_points_as_apex_pool(self):
+    def test_render_model_marks_bottom_multi_entry_node_as_apex_pool(self):
         render_model = build_talent_render_model(
             [
                 {'tree_type': 'spec', 'node_id': 5001, 'talent_id': 5001, 'spell_id': 6001, 'name': '普通专精', 'row': 6000, 'column': 10200, 'max_points': 1, 'points': 1},
-                {'tree_type': 'spec', 'node_id': 5101, 'talent_id': 5101, 'spell_id': 6101, 'name': '顶峰一', 'row': 7800, 'column': 10200, 'max_points': 1, 'points': 1},
-                {'tree_type': 'spec', 'node_id': 5102, 'talent_id': 5102, 'spell_id': 6102, 'name': '顶峰二', 'row': 7800, 'column': 10800, 'max_points': 1, 'points': 1},
-                {'tree_type': 'spec', 'node_id': 5103, 'talent_id': 5103, 'spell_id': 6103, 'name': '顶峰三', 'row': 7800, 'column': 11400, 'max_points': 1, 'points': 1},
-                {'tree_type': 'spec', 'node_id': 5104, 'talent_id': 5104, 'spell_id': 6104, 'name': '顶峰四', 'row': 7800, 'column': 12000, 'max_points': 1, 'points': 1},
+                {
+                    'tree_type': 'spec', 'node_id': 5101, 'talent_id': 9001, 'spell_id': 6101,
+                    'name': '顶峰节点', 'row': 7800, 'column': 12600, 'max_points': 1, 'points': 0,
+                    'choice_options': [
+                        {'tree_type': 'spec', 'node_id': 5101, 'talent_id': 9001, 'spell_id': 6101, 'name': '顶峰一', 'row': 7800, 'column': 12600, 'max_points': 1, 'points': 0},
+                        {'tree_type': 'spec', 'node_id': 5102, 'talent_id': 9001, 'spell_id': 6102, 'name': '顶峰二', 'row': 7800, 'column': 12600, 'max_points': 2, 'points': 0},
+                        {'tree_type': 'spec', 'node_id': 5103, 'talent_id': 9001, 'spell_id': 6103, 'name': '顶峰三', 'row': 7800, 'column': 12600, 'max_points': 1, 'points': 0},
+                    ],
+                },
             ],
             class_name='DeathKnight',
             spec_name='Blood',
@@ -838,11 +843,11 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         apex_nodes = [node for node in spec_tree['nodes'] if node.get('is_apex_talent')]
         normal_nodes = [node for node in spec_tree['nodes'] if not node.get('is_apex_talent')]
 
-        self.assertEqual([node['node_id'] for node in apex_nodes], [5101, 5102, 5103, 5104])
+        self.assertEqual([node['node_id'] for node in apex_nodes], [5101])
         self.assertEqual(apex_nodes[0]['point_pool'], 'apex')
         self.assertEqual(normal_nodes[0]['point_pool'], 'spec')
         self.assertEqual(spec_tree['point_pools']['apex']['max_points'], 4)
-        self.assertEqual(spec_tree['point_pools']['apex']['points'], 4)
+        self.assertEqual(spec_tree['point_pools']['apex']['points'], 0)
         self.assertEqual(spec_tree['point_pools']['spec']['points'], 1)
 
 

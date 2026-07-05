@@ -256,8 +256,11 @@ class Command(BaseCommand):
                         if entry_id in entries_db2:
                             def_id = entries_db2[entry_id]['def_id']
                             max_points = entries_db2[entry_id]['max_ranks']
-                            # def_id=0 或 type=1+flags=264 的节点是英雄天赋锚点
-                            if def_id == 0 or (node_info['type'] == 1 and node_info['flags'] == 264):
+                            # def_id=0 的节点是英雄天赋锚点。
+                            # 注意：12.1 PTR 中 Type=1/Flags=264 的底部 multi-entry 节点
+                            # 是职业/专精树的顶峰天赋（多个 entry 的 MaxRanks 合计 4），
+                            # 不能归类为 hero_anchor，否则模拟器会直接过滤掉这些节点。
+                            if def_id == 0:
                                 tree_type = 'hero_anchor'
                             if def_id in defs:
                                 d = defs[def_id]

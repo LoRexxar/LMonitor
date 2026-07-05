@@ -178,13 +178,13 @@ def _build_node_key(node):
 
 
 def _detect_apex_node_keys(tree):
-    """识别 12.1 PTR 专精树底部的顶峰/独立 4 点节点。
+    """识别 12.1 PTR 职业/专精树底部的顶峰 4 点节点。
 
-    DB2 目前没有稳定的中文/英文字段叫“顶峰天赋”。PTR 数据里的共同结构是：
-    spec 树最后一行或最后一组同坐标 entry 的 max_points 合计为 4。
-    因此前端渲染层只做展示/点数池标记，不改 DB tree_type，避免影响 build code 顺序。
+    PTR DB2 中这类节点不是单个 TraitNodeEntry.MaxRanks=4，而是同一个
+    TraitNode 下挂多个 TraitNodeEntry（常见 1+2+1），渲染时会合成一个
+    choice/multi-entry 视觉节点；顶峰点数池应按同坐标节点的 entry 点数合计。
     """
-    if getattr(tree, 'tree_type', '') != 'spec':
+    if getattr(tree, 'tree_type', '') not in ('class', 'spec'):
         return set()
     nodes = [
         node if isinstance(node, TalentNodeModel) else TalentNodeModel.from_raw(node)
@@ -198,10 +198,32 @@ def _detect_apex_node_keys(tree):
         node for node in positioned
         if ((node.layout_row if node.layout_row is not None else node.row) or 0) == max_row
     ]
-    max_points = sum(_node_max_points(node) for node in bottom_nodes)
-    if max_points != 4:
-        return set()
-    return {_build_node_key(node) for node in bottom_nodes if _build_node_key(node)}
+    apex_keys = set()
+    for node in bottom_nodes:
+        # 真实顶峰节点是一个底部 multi-entry 节点，总可投入点数为 4。
+        # 普通底部一排多个 1 点天赋不应被整体误标成顶峰。
+        if _node_total_max_points(node) == 4:
+            key = _build_node_key(node)
+            if key:
+                apex_keys.add(key)
+    return apex_keys
+
+
+def _node_total_max_points(node):
+    options = getattr(node, 'choice_options', None) or []
+    if not options:
+        return _node_max_points(node)
+    total = 0
+    seen = set()
+    for option in options:
+        option_node = option if isinstance(option, TalentNodeModel) else TalentNodeModel.from_raw(option)
+        identity = option_node.node_id or option_node.spell_id or option_node.key
+        if identity and identity in seen:
+            continue
+        if identity:
+            seen.add(identity)
+        total += _node_max_points(option_node)
+    return total or _node_max_points(node)
 
 
 def _node_max_points(node):
@@ -220,17 +242,40 @@ def _node_points(node):
 
 def _build_point_pools(tree_type, nodes):
     pools = {}
-    if tree_type != 'spec':
+    normalized_tree_type = tree_type or 'spec'
+    if normalized_tree_type not in ('class', 'spec'):
         points = sum(_node_points(node) for node in nodes)
-        pools[tree_type or 'spec'] = {'points': points, 'max_points': None}
+        pools[normalized_tree_type] = {'points': points, 'max_points': None}
         return pools
 
-    spec_points = sum(_node_points(node) for node in nodes if not node.get('is_apex_talent'))
+    normal_points = sum(_node_points(node) for node in nodes if not node.get('is_apex_talent'))
     apex_nodes = [node for node in nodes if node.get('is_apex_talent')]
-    pools['spec'] = {'points': spec_points, 'max_points': None}
+    pools[normalized_tree_type] = {'points': normal_points, 'max_points': None}
     if apex_nodes:
         pools['apex'] = {
             'points': sum(_node_points(node) for node in apex_nodes),
-            'max_points': sum(int(node.get('max_points') or 1) for node in apex_nodes),
+            'max_points': sum(_node_total_max_points_from_payload(node) for node in apex_nodes),
         }
     return pools
+
+
+def _node_total_max_points_from_payload(node):
+    options = (node or {}).get('choice_options') or []
+    if not options:
+        try:
+            return int((node or {}).get('max_points') or 1)
+        except (TypeError, ValueError, AttributeError):
+            return 1
+    total = 0
+    seen = set()
+    for option in options:
+        identity = (option or {}).get('node_id') or (option or {}).get('spell_id') or (option or {}).get('option_key')
+        if identity and identity in seen:
+            continue
+        if identity:
+            seen.add(identity)
+        try:
+            total += int((option or {}).get('max_points') or 1)
+        except (TypeError, ValueError, AttributeError):
+            total += 1
+    return total or 1

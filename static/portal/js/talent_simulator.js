@@ -324,6 +324,20 @@
             .map(parent => parent.display_name || parent.name || parent.node_key);
     }
 
+    function nodeMaxPoints(node) {
+        const options = node?.choice_options || [];
+        if (!options.length) return Math.max(1, Number(node?.max_points || 1));
+        let total = 0;
+        const seen = new Set();
+        for (const option of options) {
+            const identity = option?.node_id || option?.spell_id || option?.option_key || '';
+            if (identity && seen.has(identity)) continue;
+            if (identity) seen.add(identity);
+            total += Number(option?.max_points || 1);
+        }
+        return Math.max(1, total || Number(node?.max_points || 1));
+    }
+
     function childKeysFor(node) {
         const children = [];
         for (const [childKey, parentKeys] of state.parentKeysByChild.entries()) {
@@ -416,7 +430,7 @@
 
     function nodeAccessibilityLabel(node, selectable) {
         const parents = parentNamesFor(node);
-        const prefix = `${node.display_name || '未命名天赋'}，${nodeStateLabel(node, selectable)}，${node.points || 0}/${node.max_points || 1}点`;
+        const prefix = `${node.display_name || '未命名天赋'}，${nodeStateLabel(node, selectable)}，${node.points || 0}/${nodeMaxPoints(node)}点`;
         return parents.length ? `${prefix}，前置：${parents.join('或')}` : prefix;
     }
 
@@ -496,7 +510,7 @@
     }
 
     function iconMarkup(node) {
-        const max = Number(node.max_points || 1);
+        const max = nodeMaxPoints(node);
         const points = Number(node.points || 0);
         const selectable = canSelect(node);
         const pointsMarkup = `<span class="talent-node-points">${points}/${max}</span><span class="talent-node-state-badge">${escapeHtml(nodeStateLabel(node, selectable))}</span>`;
@@ -531,7 +545,7 @@
     function selectNode(node, delta) {
         hideTooltip(node.node_key);
         state.selectedKey = node.node_key;
-        const max = Number(node.max_points || 1);
+        const max = nodeMaxPoints(node);
         if (delta > 0 && !canSelect(node) && node.points <= 0) {
             const names = parentNamesFor(node);
             toast(names.length ? `需要先点亮前置：${names.slice(0, 2).join(' / ')}` : '需要先点亮前置天赋');
@@ -557,7 +571,7 @@
             const pool = node.point_pool || (node.is_apex_talent ? 'apex' : (node.tree_type || 'spec'));
             if (totals[pool] == null) totals[pool] = 0;
             totals[pool] += Number(node.points || 0);
-            if (pool === 'apex') apexMax += Number(node.max_points || 1);
+            if (pool === 'apex') apexMax += nodeMaxPoints(node);
         }
         els.classPoints.textContent = totals.class || 0;
         els.heroPoints.textContent = totals.hero || 0;
@@ -581,7 +595,7 @@
         const selectable = canSelect(node);
         const parents = parentNamesFor(node);
         const parentText = parents.length ? `<span class="talent-inspector-meta-text">前置：${escapeHtml(parents.slice(0, 2).join(' / '))}</span>` : '';
-        els.inspectorMeta.innerHTML = `<span class="talent-inspector-status talent-inspector-status--${nodeStatusKey(node, selectable)}">${escapeHtml(nodeStateLabel(node, selectable))}</span><span class="talent-inspector-meta-text">${escapeHtml(treeLabel(node.tree_type, node.point_pool))} · ${node.points || 0}/${node.max_points || 1} 点</span>${parentText}`;
+        els.inspectorMeta.innerHTML = `<span class="talent-inspector-status talent-inspector-status--${nodeStatusKey(node, selectable)}">${escapeHtml(nodeStateLabel(node, selectable))}</span><span class="talent-inspector-meta-text">${escapeHtml(treeLabel(node.tree_type, node.point_pool))} · ${node.points || 0}/${nodeMaxPoints(node)} 点</span>${parentText}`;
         els.inspectorDesc.textContent = '技能说明请悬停天赋图标查看。';
         renderOptions(node);
     }
