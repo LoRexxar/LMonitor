@@ -320,7 +320,7 @@
         gatedTrees: new Set(['class', 'spec']),
         maxPointsPerTree: 34,
         earlyGateRows: 4,
-        earlyGatePoints: 10,
+        earlyGatePoints: 8,
         deepGateRows: 7,
         deepGatePoints: 20,
     };
