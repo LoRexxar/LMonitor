@@ -8,7 +8,7 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260703_daily_report_card">
-    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260706_full_width">
+    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260706_bounded_stage_fill">
 </head>
 <body class="portal-bg font-sans">
     {{ specs_payload|json_script:"talent-specs-data" }}
@@ -95,6 +95,6 @@
 
     <div id="talent-tooltip-root" class="talent-floating-tooltip" hidden></div>
     <div id="talent-toast-root" class="talent-toast-root"></div>
-    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20260706_full_width"></script>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20260706_bounded_stage_fill"></script>
 </body>
 </html>
