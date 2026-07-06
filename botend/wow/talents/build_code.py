@@ -162,6 +162,13 @@ class TalentBuildCodeEncoder:
     @staticmethod
     def _build_selected_lookup(selected_nodes, ordered_nodes):
         ordered_lookup = {_build_node_key(node): node for node in ordered_nodes}
+        alias_lookup = {}
+        for key, node in ordered_lookup.items():
+            for alias in _node_alias_keys(node):
+                alias_lookup.setdefault(alias, key)
+            for option in node.get('choice_options') or []:
+                for alias in _node_alias_keys(dict(option, tree_type=node.get('tree_type') or 'spec')):
+                    alias_lookup.setdefault(alias, key)
         lookup = {}
         for selected in selected_nodes or []:
             if not isinstance(selected, dict):
@@ -170,6 +177,12 @@ class TalentBuildCodeEncoder:
             if points <= 0:
                 continue
             key = _build_node_key(selected)
+            if not key or key not in ordered_lookup:
+                for alias in _node_alias_keys(selected):
+                    mapped_key = alias_lookup.get(alias)
+                    if mapped_key:
+                        key = mapped_key
+                        break
             if not key or key not in ordered_lookup:
                 continue
             state = {'points': points}
@@ -296,6 +309,18 @@ def _to_int(value):
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _node_alias_keys(node):
+    if not isinstance(node, dict):
+        return []
+    tree_type = node.get('tree_type') or 'spec'
+    keys = []
+    for field in ('node_id', 'nodeID', 'talent_id', 'talentID', 'spell_id', 'spellID', 'display_spell_id', 'displaySpellID'):
+        value = _to_int(node.get(field))
+        if value is not None:
+            keys.append(f'{tree_type}:{value}')
+    return keys
 
 
 def _build_node_key(node):

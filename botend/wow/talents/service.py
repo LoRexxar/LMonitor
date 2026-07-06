@@ -48,6 +48,7 @@ class TalentBuildCodeService:
             version_key=version_key,
             usage=usage,
         )
+        effective_build_code = cls._extract_build_code_from_payload(payload) or build_code
         if not payload:
             return {
                 'talent_build_code': '',
@@ -66,21 +67,21 @@ class TalentBuildCodeService:
             )
         except Exception:
             return {
-                'talent_build_code': build_code,
-                'has_talent_build_code': bool(build_code),
+                'talent_build_code': effective_build_code,
+                'has_talent_build_code': bool(effective_build_code),
                 'talent_parse_status': 'failed',
                 'talent_view_model': {},
-                'talent_render_model': {'build_code': build_code},
+                'talent_render_model': {'build_code': effective_build_code},
             }
 
         render_model = copy.deepcopy(view_model.get('render_model') or {})
-        render_model['build_code'] = build_code
+        render_model['build_code'] = effective_build_code
         response_view_model = copy.deepcopy(view_model)
-        response_view_model['build_code'] = build_code
+        response_view_model['build_code'] = effective_build_code
         response_view_model['render_model'] = render_model
         return {
-            'talent_build_code': build_code,
-            'has_talent_build_code': bool(build_code),
+            'talent_build_code': effective_build_code,
+            'has_talent_build_code': bool(effective_build_code),
             'talent_parse_status': 'success' if (build_code or response_view_model.get('nodes')) else 'missing',
             'talent_view_model': response_view_model,
             'talent_render_model': render_model,
@@ -93,14 +94,18 @@ class TalentBuildCodeService:
             return ''
 
         provider = TalentMetadataProvider(talent_version=talent_version, version_key=version_key, usage=usage)
-        full_nodes = provider.get_full_tree_nodes(class_name, spec_name)
-        if not full_nodes:
+        # Blizzard import strings encode the whole class decoder list, not only
+        # the current spec's render tree. Using get_full_tree_nodes(class/spec)
+        # shifts bits for other spec nodes / hero_anchor nodes and produces
+        # strings that import with missing hero talents or wrong point totals.
+        decoder_nodes = provider.get_decoder_node_list(class_name)
+        if not decoder_nodes:
             return ''
 
         reference = str(reference_build_code or '').strip() or cls._find_reference_build_code(class_name, spec_name)
         if not reference:
             return ''
-        return TalentBuildCodeEncoder.encode_node_states(reference, full_nodes, selected_nodes)
+        return TalentBuildCodeEncoder.encode_node_states(reference, decoder_nodes, selected_nodes)
 
     @staticmethod
     def _find_reference_build_code(class_name='', spec_name=''):
@@ -157,6 +162,14 @@ class TalentBuildCodeService:
         # bit alignment.
         decoder_nodes = provider.get_decoder_node_list(class_name) if build_code else []
         decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if build_code and decoder_nodes else {}
+        if build_code and decoded_states and selected_nodes:
+            decoded_states = cls._prefer_structured_nodes_when_build_code_looks_stale(
+                decoded_states,
+                selected_nodes,
+                decoder_nodes,
+                class_name=class_name,
+                spec_name=spec_name,
+            )
 
         # --- hero subtree filtering for RENDERING (not decoding) ---
         # The rendering only shows the active hero subtree's nodes.
@@ -208,6 +221,18 @@ class TalentBuildCodeService:
                 ]
 
         merged_nodes = cls._merge_full_tree_nodes(render_nodes, selected_nodes, decoded_states=decoded_states, has_build_code=bool(build_code)) if render_nodes else selected_nodes
+        if build_code and selected_nodes:
+            regenerated_build_code = cls.encode_build_code_from_nodes(
+                selected_nodes,
+                class_name=class_name,
+                spec_name=spec_name,
+                reference_build_code=build_code,
+                talent_version=talent_version,
+                version_key=version_key,
+                usage=usage,
+            )
+            if regenerated_build_code:
+                build_code = regenerated_build_code
         if build_code:
             merged_nodes.insert(0, {
                 'tree_type': 'build_code',
@@ -225,10 +250,69 @@ class TalentBuildCodeService:
         return str(version_key or '') or str(usage or '')
 
     @staticmethod
+    def _prefer_structured_nodes_when_build_code_looks_stale(decoded_states, selected_nodes, decoder_nodes, class_name='', spec_name=''):
+        """Fallback to structured talents when a stored build code is clearly stale.
+
+        Some historical PlayerSpecTopPlayer/Ranking rows contain Blizzard import
+        strings generated with a spec-only node list. Those strings decode with a
+        much lower point total and commonly lose the entire hero subtree. The
+        structured talents_json captured from WCL/Raider.IO still contains the
+        correct selected nodes, so use it for rendering rather than letting the
+        stale import string overwrite good data.
+        """
+        selected_lookup = {}
+        for node in selected_nodes or []:
+            key = TalentBuildCodeService._build_node_key(node)
+            points = int((node or {}).get('points') or (node or {}).get('rank') or 0)
+            if key and points > 0:
+                selected_lookup[key] = dict(node, points=points, selected=True)
+        if not selected_lookup:
+            return decoded_states
+
+        selected_total = sum(int(node.get('points') or 0) for node in selected_lookup.values())
+        decoded_total = sum(int(state.get('points') or 0) for state in (decoded_states or {}).values())
+        selected_hero = sum(
+            int(node.get('points') or 0)
+            for node in selected_lookup.values()
+            if (node.get('tree_type') or 'spec') == 'hero'
+        )
+        decoded_hero = 0
+        for node in decoder_nodes or []:
+            if (node.get('tree_type') or 'spec') != 'hero':
+                continue
+            state = (decoded_states or {}).get(_build_node_key(node)) or {}
+            decoded_hero += int(state.get('points') or 0)
+
+        # Keep valid import strings authoritative. Only fall back when the code
+        # is obviously stale: it loses a hero subtree, or decodes far fewer
+        # points than the structured payload.
+        if not ((selected_hero > 0 and decoded_hero == 0) or (selected_total and decoded_total < selected_total - 5)):
+            return decoded_states
+
+        return {
+            key: {
+                'selected': True,
+                'points': int(node.get('points') or 0),
+                'is_choice_node': bool(node.get('is_choice_node')),
+                'choice_selection': int(node.get('choice_selection') or 0) if node.get('choice_selection') is not None else 0,
+            }
+            for key, node in selected_lookup.items()
+        }
+
+    @staticmethod
     @lru_cache(maxsize=256)
     def _build_view_model_cached(class_name, spec_name, version_cache_key, payload_key):
         payload = json.loads(payload_key)
         return build_talent_view_model(payload, class_name=class_name, spec_name=spec_name)
+
+    @staticmethod
+    def _extract_build_code_from_payload(payload):
+        for node in payload or []:
+            if isinstance(node, dict):
+                value = TalentBuildCodeService._extract_build_code_from_node(node)
+                if value:
+                    return value
+        return ''
 
     @staticmethod
     def _extract_build_code_from_node(node):

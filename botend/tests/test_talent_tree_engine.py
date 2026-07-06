@@ -28,7 +28,7 @@ from botend.wow.talents.models import (
 )
 from botend.wow.talents.render import build_talent_render_model
 from botend.wow.talents.service import TalentBuildCodeService
-from botend.wow.talents.build_code import TalentBuildCodeDecoder
+from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder
 from botend.portal.talent_simulator import _merge_nodes_for_simulator
 from botend.wow.talents.view_model import build_talent_view_model
 
@@ -772,7 +772,7 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
 
     @patch('botend.wow.talents.service.TalentMetadataProvider')
     def test_encoder_preserves_choice_selection_for_choice_node(self, mock_provider_cls):
-        mock_provider_cls.return_value.get_full_tree_nodes.return_value = list(self.FULL_NODES)
+        mock_provider_cls.return_value.get_decoder_node_list.return_value = list(self.FULL_NODES)
         selected_nodes = [
             {'tree_type': 'class', 'node_id': 96200, 'talent_id': 96200, 'points': 1},
             {'tree_type': 'class', 'node_id': 96196, 'talent_id': 96196, 'points': 1},
@@ -819,6 +819,49 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             [(node['tree_type'], node['node_id']) for node in merged_with_choice],
             [('class', 1001), ('hero', 3002), ('spec', 5001)],
         )
+
+    def test_encoder_maps_entry_and_spell_aliases_to_decoder_nodes(self):
+        decoder_nodes = [
+            {'tree_type': 'spec', 'node_id': 76042, 'talent_id': 76042, 'spell_id': 108199, 'max_points': 1,
+             'is_choice_node': True, 'choice_options': [
+                 {'talent_id': 76042, 'spell_id': 108199, 'display_spell_id': 108199},
+                 {'talent_id': 136213, 'spell_id': 1263569, 'display_spell_id': 1263569},
+             ]},
+        ]
+        selected_nodes = [
+            {'tree_type': 'spec', 'node_id': 136213, 'talent_id': 136213, 'spell_id': 1263569, 'points': 1},
+        ]
+
+        lookup = TalentBuildCodeEncoder._build_selected_lookup(selected_nodes, decoder_nodes)
+
+        self.assertIn('spec:76042', lookup)
+        self.assertEqual(lookup['spec:76042']['points'], 1)
+        self.assertEqual(lookup['spec:76042']['choice_selection'], 1)
+
+    def test_build_full_payload_falls_back_to_structured_talents_when_build_code_loses_hero(self):
+        decoder_nodes = [
+            {'tree_type': 'class', 'node_id': 1001, 'talent_id': 1001, 'spell_id': 2001, 'max_points': 1},
+            {'tree_type': 'hero', 'node_id': 3001, 'talent_id': 3001, 'spell_id': 4001, 'db2_subtree_id': 11, 'max_points': 1},
+            {'tree_type': 'spec', 'node_id': 5001, 'talent_id': 5001, 'spell_id': 6001, 'max_points': 1},
+        ]
+        selected_nodes = [
+            {'tree_type': 'class', 'node_id': 1001, 'talent_id': 1001, 'points': 1},
+            {'tree_type': 'hero', 'node_id': 3001, 'talent_id': 3001, 'points': 1},
+            {'tree_type': 'spec', 'node_id': 5001, 'talent_id': 5001, 'points': 1},
+        ]
+        stale_decoded = {'class:1001': {'selected': True, 'points': 1}}
+
+        merged_states = TalentBuildCodeService._prefer_structured_nodes_when_build_code_looks_stale(
+            stale_decoded,
+            selected_nodes,
+            decoder_nodes,
+            class_name='DeathKnight',
+            spec_name='Blood',
+        )
+
+        self.assertEqual(merged_states['class:1001']['points'], 1)
+        self.assertEqual(merged_states['hero:3001']['points'], 1)
+        self.assertEqual(merged_states['spec:5001']['points'], 1)
 
     def test_render_model_marks_bottom_multi_entry_node_as_apex_pool(self):
         render_model = build_talent_render_model(
