@@ -451,6 +451,16 @@
     function choiceOptionsTooltipHtml(node) {
         const options = node.choice_options || [];
         if (!options.length) return '';
+        if (node.is_apex_talent && !node.is_choice_node) {
+            return `<div class="talent-floating-tooltip-options talent-floating-tooltip-options--apex" role="list" aria-label="顶峰天赋阶段">
+                ${options.map(option => `
+                    <div class="talent-floating-tooltip-option is-apex-entry" role="listitem">
+                        <img src="${escapeHtml(option.icon_url || node.icon_url)}" alt="">
+                        <span><strong>${escapeHtml(option.display_name || '未命名阶段')} · ${Number(option.max_points || 1)}点</strong><small>${escapeHtml(option.display_desc || '暂无描述')}</small></span>
+                    </div>
+                `).join('')}
+            </div>`;
+        }
         return `<div class="talent-floating-tooltip-options" role="group" aria-label="二选一天赋选项">
             ${options.map((option, index) => `
                 <button type="button" class="talent-floating-tooltip-option ${Number(node.choice_selection || 0) === index ? 'is-active' : ''}" data-option-index="${index}">
@@ -618,6 +628,17 @@
             els.inspectorOptions.innerHTML = '';
             return;
         }
+        if (node.is_apex_talent && !node.is_choice_node) {
+            els.inspectorOptions.innerHTML = `<div class="talent-inspector-apex-entries">
+                ${options.map(option => `
+                    <div class="talent-inspector-option is-apex-entry">
+                        <img src="${escapeHtml(option.icon_url || node.icon_url)}" alt="">
+                        <span><strong>${escapeHtml(option.display_name || '未命名阶段')} · ${Number(option.max_points || 1)}点</strong><span>${escapeHtml(option.display_desc || '').slice(0, 90)}</span></span>
+                    </div>
+                `).join('')}
+            </div>`;
+            return;
+        }
         els.inspectorOptions.innerHTML = options.map((option, index) => `
             <button type="button" class="talent-inspector-option ${Number(node.choice_selection || 0) === index ? 'is-active' : ''}" data-option-index="${index}">
                 <img src="${escapeHtml(option.icon_url)}" alt="">
@@ -664,15 +685,16 @@
         const nodes = [];
         for (const node of state.nodes.values()) {
             if (Number(node.points || 0) <= 0) continue;
-            nodes.push({
+            const payload = {
                 tree_type: node.tree_type || 'spec',
                 node_id: node.node_id || null,
                 talent_id: node.talent_id || null,
                 spell_id: node.spell_id || null,
                 display_spell_id: node.display_spell_id || null,
                 points: Number(node.points || 0),
-                choice_selection: Number(node.choice_selection || 0),
-            });
+            };
+            if (node.is_choice_node) payload.choice_selection = Number(node.choice_selection || 0);
+            nodes.push(payload);
         }
         return nodes;
     }

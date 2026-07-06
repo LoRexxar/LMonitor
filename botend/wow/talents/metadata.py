@@ -205,10 +205,18 @@ class TalentMetadataProvider:
             ])
             node = dict(choice_nodes[0]) if choice_nodes else node
             if len(choice_nodes) > 1:
-                node['choice_options'] = [
+                options = [
                     self._build_choice_option(option) for option in choice_nodes
                 ]
-                node['is_choice_node'] = True
+                if self._is_apex_entry_group(node, choice_nodes):
+                    node['choice_options'] = options
+                    node['apex_entries'] = options
+                    node['max_points'] = sum((option.get('max_points') or 1) for option in options) or 1
+                    node['is_choice_node'] = False
+                    node['is_apex_talent'] = True
+                else:
+                    node['choice_options'] = options
+                    node['is_choice_node'] = True
             else:
                 node['choice_options'] = []
                 node['is_choice_node'] = False
@@ -265,10 +273,18 @@ class TalentMetadataProvider:
                 deduped = dedupe_talent_option_nodes([node] + opts)
                 node = dict(deduped[0])
                 if len(deduped) > 1:
-                    node['choice_options'] = [
+                    options = [
                         self._build_choice_option(o) for o in deduped
                     ]
-                    node['is_choice_node'] = True
+                    if self._is_apex_entry_group(node, deduped):
+                        node['choice_options'] = options
+                        node['apex_entries'] = options
+                        node['max_points'] = sum((option.get('max_points') or 1) for option in options) or 1
+                        node['is_choice_node'] = False
+                        node['is_apex_talent'] = True
+                    else:
+                        node['choice_options'] = options
+                        node['is_choice_node'] = True
                 else:
                     node['choice_options'] = []
                     node['is_choice_node'] = False
@@ -365,10 +381,36 @@ class TalentMetadataProvider:
             'display_spell_id': node.get('display_spell_id'),
             'max_points': node.get('max_points') or 1,
             'name': node.get('name') or '',
+            'name_zh': node.get('name_zh') or '',
             'icon': node.get('icon') or '',
             'description': resolver.resolve(node.get('description') or '', spell_id),
             'description_zh': resolver.resolve(node.get('description_zh') or '', spell_id),
         }
+
+    @staticmethod
+    def _is_apex_entry_group(base_node, option_nodes):
+        """识别 PTR 顶峰多 entry 点数池，而不是普通 choice 节点。
+
+        12.1 PTR 顶峰节点在 DB2 中是同一个 TraitNode/talent_id 下多个
+        TraitNodeEntry，MaxRanks 常见为 1+2+1=4。它在 build code 中仍是
+        一个节点的点数池，不应按二选一写 choice bits。
+        """
+        if (base_node.get('tree_type') or 'spec') not in ('class', 'spec'):
+            return False
+        if len(option_nodes or []) < 3:
+            return False
+        try:
+            total = sum(int((option or {}).get('max_points') or 1) for option in option_nodes)
+        except (TypeError, ValueError):
+            return False
+        if total != 4:
+            return False
+        talent_ids = {
+            str((option or {}).get('talent_id') or '')
+            for option in option_nodes
+            if (option or {}).get('talent_id')
+        }
+        return len(talent_ids) == 1
 
     def _lookup_spell_snapshot(self, spell_id):
         if not spell_id:

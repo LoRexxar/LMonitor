@@ -91,15 +91,17 @@ def _parse_selected_nodes(raw_nodes):
         points = _to_int(item.get('points'), 0)
         if points <= 0:
             continue
-        selected.append({
+        selected_item = {
             'tree_type': item.get('tree_type') or 'spec',
             'node_id': _to_int(item.get('node_id') or item.get('nodeID')) or None,
             'talent_id': _to_int(item.get('talent_id') or item.get('talentID')) or None,
             'spell_id': _to_int(item.get('spell_id') or item.get('spellID')) or None,
             'display_spell_id': _to_int(item.get('display_spell_id') or item.get('displaySpellID')) or None,
             'points': points,
-            'choice_selection': _to_int(item.get('choice_selection'), 0),
-        })
+        }
+        if item.get('choice_selection') is not None:
+            selected_item['choice_selection'] = _to_int(item.get('choice_selection'), 0)
+        selected.append(selected_item)
     return selected
 
 
