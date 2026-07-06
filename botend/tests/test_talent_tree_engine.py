@@ -883,6 +883,7 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
                 'talent_id': 110412,
                 'spell_id': 1269310,
                 'max_points': 1,
+                'db2_subtree_id': 61,
                 'choice_options': [
                     {'node_id': 137004, 'talent_id': 110412, 'spell_id': 1269308, 'max_points': 1},
                     {'node_id': 137003, 'talent_id': 110412, 'spell_id': 1269309, 'max_points': 2},
@@ -899,6 +900,29 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         decoded = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
 
         self.assertEqual(decoded['hero_anchor:137002']['points'], 4)
+
+    def test_decoder_node_list_excludes_content_script_hero_anchor_noise(self):
+        self.assertFalse(TalentMetadataProvider._include_in_decoder_node_list({
+            'tree_type': 'hero_anchor',
+            'talent_id': 99851,
+            'node_id': 123388,
+            'name': 'Plant Scallions',
+            'db2_subtree_id': 0,
+        }))
+        self.assertTrue(TalentMetadataProvider._include_in_decoder_node_list({
+            'tree_type': 'hero_anchor',
+            'talent_id': 101235,
+            'node_id': 125051,
+            'name': '天神御师',
+            'db2_subtree_id': 64,
+        }))
+        self.assertTrue(TalentMetadataProvider._include_in_decoder_node_list({
+            'tree_type': 'spec',
+            'talent_id': 110412,
+            'node_id': 137002,
+            'name': '怒火狂战',
+            'db2_subtree_id': 0,
+        }))
 
     def test_simulator_merge_applies_imported_choice_option_display(self):
         merged = _merge_nodes_for_simulator(
