@@ -408,8 +408,9 @@
     }
 
     function nodeMaxPoints(node) {
+        const baseMax = Math.max(1, Number(node?.max_points || 1));
         const options = node?.choice_options || [];
-        if (!options.length) return Math.max(1, Number(node?.max_points || 1));
+        if (!options.length || !node?.is_apex_talent || node?.is_choice_node) return baseMax;
         let total = 0;
         const seen = new Set();
         for (const option of options) {
@@ -418,7 +419,7 @@
             if (identity) seen.add(identity);
             total += Number(option?.max_points || 1);
         }
-        return Math.max(1, total || Number(node?.max_points || 1));
+        return Math.max(baseMax, total || baseMax);
     }
 
     function childKeysFor(node) {
