@@ -1422,6 +1422,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
                     'talent_id': option_raw.get('talent_id'),
                     'spell_id': option_spell_id,
                     'display_spell_id': option_raw.get('display_spell_id') or option_spell_id,
+                    'max_points': option_raw.get('max_points') or 1,
                     'name': option_raw.get('name', ''),
                     'icon': option_raw.get('icon', ''),
                     'description': option_raw.get('description', '') or '',
@@ -1828,9 +1829,30 @@ def _filter_spec_nodes_by_usage_component(full_tree_nodes, usage_map):
             filtered.append(raw_node)
             continue
         node_id = _coerce_positive_int(raw_node.get('node_id'))
-        if node_id in kept_node_ids:
+        if node_id in kept_node_ids or _is_apex_full_tree_node(raw_node):
             filtered.append(raw_node)
     return filtered
+
+
+def _is_apex_full_tree_node(raw_node):
+    """Return True for PTR 12.1 apex nodes represented as one TraitNode with 1+2+1 entries.
+
+    These nodes are isolated spec components. If popularity samples do not contain the
+    PTR apex entries yet, component filtering would otherwise remove them from the
+    stats tree baseplate before render.py can mark the separate apex point pool.
+    """
+    if (raw_node.get('tree_type') or 'spec') != 'spec':
+        return False
+    options = raw_node.get('choice_options') or []
+    if len(options) < 3:
+        return False
+    try:
+        total_max_points = sum(int(option.get('max_points') or 1) for option in options)
+    except (TypeError, ValueError):
+        return False
+    if total_max_points != 4:
+        return False
+    return bool(raw_node.get('talent_id') and raw_node.get('row') is not None and raw_node.get('column') is not None)
 
 
 def _iter_render_tree_types(grouped_nodes):

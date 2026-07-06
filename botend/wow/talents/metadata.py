@@ -293,7 +293,7 @@ class TalentMetadataProvider:
             class_name=cache_key[1],
             spec_name=cache_key[2],
             talent_version=version,
-        )
+        ).exclude(tree_type='hero_anchor')
         for row in rows.iterator():
             row_data = self._as_dict(row)
             tree_key = row.tree_type or 'spec'

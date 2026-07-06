@@ -26,10 +26,13 @@ class TalentDb2ComponentResolver:
         self.db2_nodes = {}
         self.entry_to_node = {}
         self.node_to_entries = defaultdict(list)
+        self.node_entry_max_ranks = {}
         self.edges = defaultdict(set)
         self.tree_components = {}
         self.trait_to_component = {}
         self._spec_component_cache = {}
+        self._apex_component_cache = {}
+        self._apex_assignment_cache = {}
         self.load()
 
     def load(self):
@@ -61,6 +64,15 @@ class TalentDb2ComponentResolver:
                 trait_node_id = int(row['TraitNodeID'])
                 self.entry_to_node[entry_id] = trait_node_id
                 self.node_to_entries[trait_node_id].append(entry_id)
+
+        entry_path = self._csv_path('TraitNodeEntry.csv')
+        if os.path.exists(entry_path):
+            with open(entry_path) as f:
+                for row in csv.DictReader(f):
+                    try:
+                        self.node_entry_max_ranks[int(row['ID'])] = int(row.get('MaxRanks') or 1)
+                    except (TypeError, ValueError):
+                        continue
 
     def _load_edges(self):
         with open(self._csv_path('TraitEdge.csv')) as f:
@@ -152,6 +164,14 @@ class TalentDb2ComponentResolver:
         return set(self._spec_component_cache[cache_key])
 
     def _infer_spec_component_ids(self, class_name, spec_name, tree_id):
+        specs = CLASS_SPEC_MAP.get(class_name, [])
+        try:
+            spec_index = specs.index(spec_name)
+        except ValueError:
+            return set()
+
+        apex_component_ids = self._get_apex_component_ids(tree_id)
+
         # 先尝试从玩家样本统计
         counter = Counter()
         querysets = [
@@ -189,18 +209,19 @@ class TalentDb2ComponentResolver:
                 elif len(comp) == 1 and self.db2_nodes[comp[0]]['type'] == 1:
                     entry_comps.append(comp_id)
 
-            # 主 component + 同专精的入口 component
+            # 12.1 顶峰天赋是独立 Type=1 孤立 component（同 TraitNode 下 1+2+1=4）。
+            # 现有玩家/排名样本可能还没有顶峰数据，不能只依赖样本 counter，
+            # 否则 backfill 会把这些专精侧顶峰漏掉。按 DB2 中专精 component 顺序补上。
+            apex_comp_id = self._apex_component_for_spec(tree_id, class_name, spec_name)
+            if apex_comp_id:
+                entry_comps.append(apex_comp_id)
+
+            # 主 component + 同专精入口/顶峰 component
             if major_comps:
                 return set(major_comps + entry_comps)
-            return result
+            return result | ({apex_comp_id} if apex_comp_id else set())
 
         # Fallback：无样本时按 CLASS_SPEC_MAP 顺序分配
-        specs = CLASS_SPEC_MAP.get(class_name, [])
-        try:
-            spec_index = specs.index(spec_name)
-        except ValueError:
-            return set()
-
         all_components = self.tree_components.get(tree_id, [])
         major_components = [
             idx for idx, comp in enumerate(all_components, start=1)
@@ -208,7 +229,7 @@ class TalentDb2ComponentResolver:
         ]
         isolated_entry_components = [
             idx for idx, comp in enumerate(all_components, start=1)
-            if len(comp) == 1 and self.db2_nodes[comp[0]]['type'] == 1
+            if len(comp) == 1 and self.db2_nodes[comp[0]]['type'] == 1 and idx not in apex_component_ids
         ]
 
         # 分配主 component
@@ -220,7 +241,80 @@ class TalentDb2ComponentResolver:
         if spec_index < len(isolated_entry_components):
             result.add(isolated_entry_components[spec_index])
 
+        apex_comp_id = self._apex_component_for_spec(tree_id, class_name, spec_name)
+        if apex_comp_id:
+            result.add(apex_comp_id)
+
         return result
+
+    def _get_apex_component_ids(self, tree_id):
+        tree_id = int(tree_id or 0)
+        if tree_id in self._apex_component_cache:
+            return set(self._apex_component_cache[tree_id])
+        result = set()
+        for comp_id, comp in enumerate(self.tree_components.get(tree_id, []), start=1):
+            if len(comp) != 1:
+                continue
+            trait_node_id = comp[0]
+            info = self.db2_nodes.get(trait_node_id) or {}
+            if info.get('subtree_id') != 0 or info.get('type') != 1 or info.get('pos_x', 0) < SPEC_REGION_X:
+                continue
+            entry_ids = self.node_to_entries.get(trait_node_id, [])
+            if len(entry_ids) < 3:
+                continue
+            total_max_ranks = sum(self.node_entry_max_ranks.get(entry_id, 1) for entry_id in entry_ids)
+            if total_max_ranks == 4:
+                result.add(comp_id)
+        self._apex_component_cache[tree_id] = set(result)
+        return result
+
+    def _apex_component_for_spec(self, tree_id, class_name, spec_name):
+        assignment = self._apex_component_assignment(tree_id, class_name)
+        return assignment.get(spec_name, 0)
+
+    def _apex_component_assignment(self, tree_id, class_name):
+        cache_key = (int(tree_id or 0), class_name or '')
+        if cache_key in self._apex_assignment_cache:
+            return dict(self._apex_assignment_cache[cache_key])
+
+        specs = CLASS_SPEC_MAP.get(class_name, [])
+        apex_components = sorted(self._get_apex_component_ids(tree_id), key=lambda comp_id: (
+            self.db2_nodes[self.tree_components[tree_id][comp_id - 1][0]]['pos_x'],
+            self.db2_nodes[self.tree_components[tree_id][comp_id - 1][0]]['pos_y'],
+            self.tree_components[tree_id][comp_id - 1][0],
+        ))
+        apex_component_set = set(apex_components)
+        assignment = {}
+        used_components = set()
+
+        # 如果已有排名/玩家样本点到了顶峰，优先用样本确定真实专精归属。
+        for spec in specs:
+            counter = Counter()
+            querysets = [
+                PlayerSpecTopPlayer.objects.filter(class_name=class_name, spec_name=spec).values_list('talents_json', flat=True)[:100],
+                SpecDungeonRanking.objects.filter(class_name=class_name, spec_name=spec).values_list('talents_json', flat=True)[:100],
+                SpecRaidRanking.objects.filter(class_name=class_name, spec_name=spec).values_list('talents_json', flat=True)[:100],
+            ]
+            for qs in querysets:
+                for payload in qs:
+                    for raw_id in self._extract_node_ids(payload):
+                        trait_node_id = self.entry_to_node.get(raw_id) or raw_id
+                        comp_id = self.component_id_for_trait_node(trait_node_id)
+                        if comp_id in apex_component_set:
+                            counter[comp_id] += 1
+            if counter:
+                comp_id = counter.most_common(1)[0][0]
+                assignment[spec] = comp_id
+                used_components.add(comp_id)
+
+        # 现有样本可能还没有 12.1 顶峰；剩余专精用剩余顶峰 component 补位。
+        remaining_specs = [spec for spec in specs if spec not in assignment]
+        remaining_components = [comp_id for comp_id in apex_components if comp_id not in used_components]
+        for spec, comp_id in zip(remaining_specs, remaining_components):
+            assignment[spec] = comp_id
+
+        self._apex_assignment_cache[cache_key] = dict(assignment)
+        return assignment
 
     @staticmethod
     def _extract_node_ids(payload):
