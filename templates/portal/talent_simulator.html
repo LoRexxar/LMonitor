@@ -34,7 +34,7 @@
             <div class="talent-sim-title-block">
                 <div class="talent-sim-kicker">LMonitor Tools</div>
                 <h1>天赋模拟器</h1>
-                <p>基于站内已有 DB2 天赋树、中文描述和 Blizzard 导入字符串编码逻辑。可点击勾选、切换二选一、导入/导出分享字符串。</p>
+                <p>基于站内已有 DB2 天赋树、中文描述和 Blizzard 导入字符串编码逻辑。职业/专精树遵循前4层10点、前7层20点、各34点上限，可点击勾选、切换二选一、导入/导出分享字符串。</p>
             </div>
             <div class="talent-sim-actions">
                 <button type="button" id="talent-reset-btn" class="talent-sim-btn talent-sim-btn--ghost">清空当前选择</button>
@@ -78,7 +78,7 @@
                 <div><span id="talent-hero-points">0</span><small>英雄</small></div>
                 <div><span id="talent-spec-points">0</span><small>专精</small></div>
                 <div><span id="talent-apex-points">0/4</span><small>顶峰</small></div>
-                <div><span id="talent-total-points">0</span><small>总计</small></div>
+                <div><span id="talent-total-points">0/68</span><small>职业+专精</small></div>
             </div>
             <div class="talent-code-output">
                 <label>当前导入字符串</label>
@@ -95,6 +95,6 @@
 
     <div id="talent-tooltip-root" class="talent-floating-tooltip" hidden></div>
     <div id="talent-toast-root" class="talent-toast-root"></div>
-    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20260706_apex_pool"></script>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20260706_tree_gates"></script>
 </body>
 </html>

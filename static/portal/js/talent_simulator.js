@@ -316,10 +316,88 @@
         return parentKeysFor(node).filter(parentKey => (state.nodes.get(parentKey)?.points || 0) > 0);
     }
 
+    const TALENT_TREE_RULES = {
+        gatedTrees: new Set(['class', 'spec']),
+        maxPointsPerTree: 34,
+        earlyGateRows: 4,
+        earlyGatePoints: 10,
+        deepGateRows: 7,
+        deepGatePoints: 20,
+    };
+
+    function ruleTreeType(node) {
+        if (!node) return '';
+        const pool = node.point_pool || (node.is_apex_talent ? 'apex' : (node.tree_type || 'spec'));
+        return TALENT_TREE_RULES.gatedTrees.has(pool) ? pool : '';
+    }
+
+    function treeRows(treeType) {
+        const rows = new Set();
+        for (const candidate of state.nodes.values()) {
+            if (ruleTreeType(candidate) !== treeType) continue;
+            const row = Number(candidate.row || 0);
+            if (row) rows.add(row);
+        }
+        return Array.from(rows).sort((a, b) => a - b);
+    }
+
+    function nodeLayer(node) {
+        const treeType = ruleTreeType(node);
+        if (!treeType) return 0;
+        const row = Number(node.row || 0);
+        if (!row) return 0;
+        const rows = treeRows(treeType);
+        const index = rows.indexOf(row);
+        return index >= 0 ? index + 1 : 0;
+    }
+
+    function pointsInTree(treeType, maxLayer) {
+        let total = 0;
+        for (const candidate of state.nodes.values()) {
+            if (ruleTreeType(candidate) !== treeType) continue;
+            if (maxLayer && nodeLayer(candidate) > maxLayer) continue;
+            total += Number(candidate.points || 0);
+        }
+        return total;
+    }
+
+    function treeGateBlocker(node) {
+        const treeType = ruleTreeType(node);
+        if (!treeType) return '';
+        const layer = nodeLayer(node);
+        const treeName = treeType === 'class' ? '职业树' : '专精树';
+        if (layer > TALENT_TREE_RULES.deepGateRows && pointsInTree(treeType, TALENT_TREE_RULES.deepGateRows) < TALENT_TREE_RULES.deepGatePoints) {
+            return `${treeName}前7层需要至少 ${TALENT_TREE_RULES.deepGatePoints} 点，才能继续点第8层及以下天赋`;
+        }
+        if (layer > TALENT_TREE_RULES.earlyGateRows && pointsInTree(treeType, TALENT_TREE_RULES.earlyGateRows) < TALENT_TREE_RULES.earlyGatePoints) {
+            return `${treeName}前4层需要至少 ${TALENT_TREE_RULES.earlyGatePoints} 点，才能继续点第5层及以下天赋`;
+        }
+        return '';
+    }
+
+    function treeRuleBlocker(node, delta = 1) {
+        if (delta <= 0) return '';
+        const gateBlocker = treeGateBlocker(node);
+        if (gateBlocker && Number(node?.points || 0) <= 0) return gateBlocker;
+        const treeType = ruleTreeType(node);
+        if (!treeType) return '';
+        const treeName = treeType === 'class' ? '职业树' : '专精树';
+        if (pointsInTree(treeType) >= TALENT_TREE_RULES.maxPointsPerTree) {
+            return `${treeName}最多只能投入 ${TALENT_TREE_RULES.maxPointsPerTree} 点`;
+        }
+        return '';
+    }
+
+    function selectionIsValid(node) {
+        const parents = parentKeysFor(node);
+        if (parents.length && !unlockedParentKeys(node).length) return false;
+        return !treeGateBlocker(node);
+    }
+
     function canSelect(node) {
         const parents = parentKeysFor(node);
-        if (!parents.length) return true;
-        return unlockedParentKeys(node).length > 0;
+        if (parents.length && !unlockedParentKeys(node).length) return false;
+        return !treeRuleBlocker(node, 1);
     }
 
     function parentNamesFor(node) {
@@ -436,12 +514,17 @@
     function nodeAccessibilityLabel(node, selectable) {
         const parents = parentNamesFor(node);
         const prefix = `${node.display_name || '未命名天赋'}，${nodeStateLabel(node, selectable)}，${node.points || 0}/${nodeMaxPoints(node)}点`;
+        const blocker = treeRuleBlocker(node, 1);
+        if (blocker && Number(node.points || 0) <= 0) return `${prefix}，${blocker}`;
         return parents.length ? `${prefix}，前置：${parents.join('或')}` : prefix;
     }
 
     function tooltipHtml(node, selectable) {
         const parents = parentNamesFor(node);
-        const unlockText = parents.length
+        const blocker = treeRuleBlocker(node, 1);
+        const unlockText = blocker && Number(node.points || 0) <= 0
+            ? blocker
+            : parents.length
             ? (selectable ? `已满足前置：${parents.filter(name => name).slice(0, 3).join(' / ')}` : `需要前置：${parents.slice(0, 3).join(' / ')}`)
             : '无前置要求';
         const options = choiceOptionsTooltipHtml(node);
@@ -547,7 +630,7 @@
         do {
             changed = false;
             for (const node of state.nodes.values()) {
-                if (Number(node.points || 0) > 0 && !canSelect(node)) {
+                if (Number(node.points || 0) > 0 && !selectionIsValid(node)) {
                     resetNodeSelection(node);
                     changed = true;
                     didPrune = true;
@@ -561,6 +644,12 @@
         hideTooltip(node.node_key);
         state.selectedKey = node.node_key;
         const max = nodeMaxPoints(node);
+        const ruleBlocker = treeRuleBlocker(node, delta);
+        if (ruleBlocker) {
+            toast(ruleBlocker);
+            updateInspector();
+            return;
+        }
         if (delta > 0 && !canSelect(node) && node.points <= 0) {
             const names = parentNamesFor(node);
             toast(names.length ? `需要先点亮前置：${names.slice(0, 2).join(' / ')}` : '需要先点亮前置天赋');
@@ -592,7 +681,7 @@
         els.heroPoints.textContent = totals.hero || 0;
         els.specPoints.textContent = totals.spec || 0;
         if (els.apexPoints) els.apexPoints.textContent = apexMax ? `${totals.apex || 0}/${apexMax}` : '0/4';
-        els.totalPoints.textContent = (totals.class || 0) + (totals.hero || 0) + (totals.spec || 0) + (totals.apex || 0);
+        els.totalPoints.textContent = `${(totals.class || 0) + (totals.spec || 0)}/${TALENT_TREE_RULES.maxPointsPerTree * 2}`;
     }
 
     function updateInspector() {
@@ -610,7 +699,9 @@
         const selectable = canSelect(node);
         const parents = parentNamesFor(node);
         const parentText = parents.length ? `<span class="talent-inspector-meta-text">前置：${escapeHtml(parents.slice(0, 2).join(' / '))}</span>` : '';
-        els.inspectorMeta.innerHTML = `<span class="talent-inspector-status talent-inspector-status--${nodeStatusKey(node, selectable)}">${escapeHtml(nodeStateLabel(node, selectable))}</span><span class="talent-inspector-meta-text">${escapeHtml(treeLabel(node.tree_type, node.point_pool))} · ${node.points || 0}/${nodeMaxPoints(node)} 点</span>${parentText}`;
+        const blocker = treeRuleBlocker(node, 1);
+        const blockerText = blocker && Number(node.points || 0) <= 0 ? `<span class="talent-inspector-meta-text">${escapeHtml(blocker)}</span>` : '';
+        els.inspectorMeta.innerHTML = `<span class="talent-inspector-status talent-inspector-status--${nodeStatusKey(node, selectable)}">${escapeHtml(nodeStateLabel(node, selectable))}</span><span class="talent-inspector-meta-text">${escapeHtml(treeLabel(node.tree_type, node.point_pool))} · ${node.points || 0}/${nodeMaxPoints(node)} 点</span>${blockerText || parentText}`;
         els.inspectorDesc.textContent = '技能说明请悬停天赋图标查看。';
         renderOptions(node);
     }
