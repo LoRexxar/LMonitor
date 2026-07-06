@@ -240,7 +240,7 @@
         const wrapper = document.createElement('div');
         wrapper.className = 'talent-stage-scale-wrapper';
         const availableWidth = Math.max(320, els.stageContainer.clientWidth - 36);
-        const scale = Math.min(1, Math.max(0.72, availableWidth / width));
+        const scale = Math.min(1.35, Math.max(0.72, availableWidth / width));
         wrapper.style.width = `${Math.ceil(width * scale)}px`;
         wrapper.style.height = `${Math.ceil(height * scale)}px`;
         stage.style.transform = `scale(${scale})`;

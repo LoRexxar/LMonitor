@@ -1,6 +1,7 @@
 .talent-sim-page {
-    max-width: 1440px;
-    margin: 0 auto;
+    width: 100%;
+    max-width: none;
+    margin: 0;
     padding: 24px 16px 40px;
 }
 
