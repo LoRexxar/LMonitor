@@ -54,7 +54,10 @@ class TalentBuildCodeDecoder:
 
             max_points = cls._effective_max_points(node)
             if not is_purchased:
-                points = 1
+                # Blizzard import strings mark granted/default nodes as selected
+                # but not purchased. They should render as active prerequisites,
+                # yet they must not consume talent points.
+                points = 0
             elif is_partially_ranked:
                 points = partial_ranks
             else:
@@ -62,6 +65,7 @@ class TalentBuildCodeDecoder:
 
             states[node_key] = {
                 'selected': True,
+                'purchased': is_purchased,
                 'points': max(0, points),
                 'is_choice_node': is_choice_node,
                 'choice_selection': choice_selection,
@@ -74,8 +78,14 @@ class TalentBuildCodeDecoder:
             max_points = int(node.get('max_points') or 1)
         except (TypeError, ValueError):
             max_points = 1
+        # Apex pools are sometimes stored as render nodes with `apex_entries`,
+        # and sometimes as decoder-only `hero_anchor` nodes with `choice_options`.
+        # Regular choice nodes must keep their base max_points; only apex/anchor
+        # pools should sum entry ranks such as Fury Warrior 1+2+1=4.
+        if not (node.get('is_apex_talent') or node.get('apex_entries') or node.get('tree_type') == 'hero_anchor'):
+            return max_points
         option_points = 0
-        for option in node.get('choice_options') or []:
+        for option in node.get('apex_entries') or node.get('choice_options') or []:
             try:
                 option_points += int(option.get('max_points') or 0)
             except (TypeError, ValueError):

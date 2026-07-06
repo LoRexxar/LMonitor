@@ -28,7 +28,7 @@ from botend.wow.talents.models import (
 )
 from botend.wow.talents.render import build_talent_render_model
 from botend.wow.talents.service import TalentBuildCodeService
-from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder
+from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder, _ImportBitWriter
 from botend.portal.talent_simulator import _merge_nodes_for_simulator
 from botend.wow.talents.view_model import build_talent_view_model
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
@@ -791,6 +791,114 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertTrue(build_code)
         self.assertEqual(decoded['class:96203']['choice_selection'], 1)
         self.assertEqual(decoded['class:96203']['points'], 1)
+
+    def test_decoder_treats_selected_unpurchased_node_as_granted_zero_points(self):
+        decoder_nodes = [
+            {
+                'tree_type': 'class',
+                'node_id': 112182,
+                'talent_id': 90325,
+                'spell_id': 123000,
+                'max_points': 1,
+            }
+        ]
+        writer = _ImportBitWriter()
+        writer.write(0, TalentBuildCodeDecoder.HEADER_VERSION_BITS)
+        writer.write(0, TalentBuildCodeDecoder.SPEC_ID_BITS)
+        for _ in range(16):
+            writer.write(0, 8)
+        writer.write(1, 1)  # selected/granted by default
+        writer.write(0, 1)  # not purchased, should not consume a point
+        build_code = writer.to_string()
+
+        decoded = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
+
+        self.assertEqual(decoded['class:112182']['points'], 0)
+        self.assertTrue(decoded['class:112182']['selected'])
+        self.assertFalse(decoded['class:112182']['purchased'])
+
+    def test_decoder_does_not_sum_regular_choice_option_points(self):
+        decoder_nodes = [
+            {
+                'tree_type': 'hero',
+                'node_id': 117414,
+                'talent_id': 94817,
+                'spell_id': 123001,
+                'max_points': 1,
+                'is_choice_node': True,
+                'choice_options': [
+                    {'node_id': 117414, 'talent_id': 94817, 'spell_id': 123001, 'max_points': 1},
+                    {'node_id': 117415, 'talent_id': 94817, 'spell_id': 123002, 'max_points': 1},
+                ],
+            }
+        ]
+        writer = _ImportBitWriter()
+        writer.write(0, TalentBuildCodeDecoder.HEADER_VERSION_BITS)
+        writer.write(0, TalentBuildCodeDecoder.SPEC_ID_BITS)
+        for _ in range(16):
+            writer.write(0, 8)
+        writer.write(1, 1)  # selected
+        writer.write(1, 1)  # purchased
+        writer.write(0, 1)  # full rank, should mean max_points of the base node
+        writer.write(1, 1)  # choice node
+        writer.write(1, 2)  # second option
+        build_code = writer.to_string()
+
+        decoded = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
+
+        self.assertEqual(decoded['hero:117414']['points'], 1)
+        self.assertEqual(decoded['hero:117414']['choice_selection'], 1)
+
+    def test_decoder_sums_apex_entry_point_pool(self):
+        decoder_nodes = [
+            {
+                'tree_type': 'spec',
+                'node_id': 137002,
+                'talent_id': 110412,
+                'spell_id': 1269310,
+                'max_points': 1,
+                'is_apex_talent': True,
+                'choice_options': [
+                    {'node_id': 137004, 'talent_id': 110412, 'spell_id': 1269308, 'max_points': 1},
+                    {'node_id': 137003, 'talent_id': 110412, 'spell_id': 1269309, 'max_points': 2},
+                    {'node_id': 137002, 'talent_id': 110412, 'spell_id': 1269310, 'max_points': 1},
+                ],
+            }
+        ]
+        build_code = TalentBuildCodeEncoder.encode_node_states(
+            self.DEATH_KNIGHT_REFERENCE_CODE,
+            decoder_nodes,
+            [{'tree_type': 'spec', 'node_id': 137002, 'talent_id': 110412, 'points': 4}],
+        )
+
+        decoded = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
+
+        self.assertEqual(decoded['spec:137002']['points'], 4)
+
+    def test_decoder_sums_hero_anchor_apex_choice_options(self):
+        decoder_nodes = [
+            {
+                'tree_type': 'hero_anchor',
+                'node_id': 137002,
+                'talent_id': 110412,
+                'spell_id': 1269310,
+                'max_points': 1,
+                'choice_options': [
+                    {'node_id': 137004, 'talent_id': 110412, 'spell_id': 1269308, 'max_points': 1},
+                    {'node_id': 137003, 'talent_id': 110412, 'spell_id': 1269309, 'max_points': 2},
+                    {'node_id': 137002, 'talent_id': 110412, 'spell_id': 1269310, 'max_points': 1},
+                ],
+            }
+        ]
+        build_code = TalentBuildCodeEncoder.encode_node_states(
+            self.DEATH_KNIGHT_REFERENCE_CODE,
+            decoder_nodes,
+            [{'tree_type': 'hero_anchor', 'node_id': 137002, 'talent_id': 110412, 'points': 4}],
+        )
+
+        decoded = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
+
+        self.assertEqual(decoded['hero_anchor:137002']['points'], 4)
 
     def test_simulator_merge_applies_imported_choice_option_display(self):
         merged = _merge_nodes_for_simulator(
