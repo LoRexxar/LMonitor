@@ -971,6 +971,57 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(spec_tree['point_pools']['apex']['points'], 4)
         self.assertEqual(spec_tree['point_pools']['apex']['max_points'], 4)
 
+    @patch('botend.wow.talents.service.TalentMetadataProvider')
+    def test_build_api_view_keeps_profile_build_code_when_structured_nodes_lack_apex(self, mock_provider_cls):
+        stale_structured_nodes = [
+            {'tree_type': 'class', 'node_id': 112182, 'talent_id': 112182, 'spell_id': 386196, 'name': '狂暴姿态', 'points': 1, 'max_points': 1},
+            {'tree_type': 'spec', 'node_id': 112292, 'talent_id': 112292, 'spell_id': 383295, 'name': '熟能生巧', 'points': 2, 'max_points': 2},
+        ]
+
+        apex_render_node = {
+            'tree_type': 'spec',
+            'node_id': 137002,
+            'talent_id': 110412,
+            'spell_id': 1269310,
+            'display_spell_id': 1269310,
+            'name': 'Rampaging Berserker',
+            'row': 10000,
+            'column': 12000,
+            'max_points': 4,
+            'is_apex_talent': True,
+            'point_pool': 'apex',
+            'apex_entries': [
+                {'node_id': 137004, 'talent_id': 110412, 'spell_id': 1269308, 'max_points': 1},
+                {'node_id': 137003, 'talent_id': 110412, 'spell_id': 1269309, 'max_points': 2},
+                {'node_id': 137002, 'talent_id': 110412, 'spell_id': 1269310, 'max_points': 1},
+            ],
+        }
+        apex_decoder_node = dict(apex_render_node, tree_type='hero_anchor', max_points=1)
+        apex_decoder_node['choice_options'] = list(apex_render_node['apex_entries'])
+        build_code = TalentBuildCodeEncoder.encode_node_states(
+            self.DEATH_KNIGHT_REFERENCE_CODE,
+            [apex_decoder_node],
+            [{'tree_type': 'hero_anchor', 'node_id': 137002, 'talent_id': 110412, 'points': 4}],
+        )
+        mock_provider_cls.return_value.get_full_tree_nodes.return_value = [apex_render_node]
+        mock_provider_cls.return_value.get_decoder_node_list.return_value = [apex_decoder_node]
+        mock_provider_cls.return_value.merge_into_node.side_effect = (
+            lambda node, class_name='', spec_name='': dict(node)
+        )
+
+        payload = TalentBuildCodeService.build_full_payload(
+            class_name='Warrior',
+            spec_name='Fury',
+            talent_build_code=build_code,
+            talents_json=stale_structured_nodes,
+        )
+
+        self.assertEqual(payload[0]['talent_code'], build_code)
+        apex_node = next(node for node in payload if node.get('talent_id') == 110412)
+        self.assertTrue(apex_node['selected'])
+        self.assertEqual(apex_node['points'], 4)
+        self.assertEqual(apex_node['max_points'], 4)
+
 
 class SpecStatsTalentRenderTests(SimpleTestCase):
     def test_enchant_popularity_groups_by_slot_and_formats_display_label(self):

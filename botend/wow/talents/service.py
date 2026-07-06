@@ -5,7 +5,7 @@ import json
 from collections import defaultdict
 from functools import lru_cache
 
-from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder, _build_node_key
+from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder, _build_node_key, _node_alias_keys
 from botend.wow.talents.metadata import TalentMetadataProvider
 from botend.wow.talents.parser import normalize_talent_payload
 from botend.wow.talents.view_model import build_talent_view_model
@@ -220,19 +220,19 @@ class TalentBuildCodeService:
                     or (n.get('db2_subtree_id') or 0) == active_subtree
                 ]
 
-        merged_nodes = cls._merge_full_tree_nodes(render_nodes, selected_nodes, decoded_states=decoded_states, has_build_code=bool(build_code)) if render_nodes else selected_nodes
-        if build_code and selected_nodes:
-            regenerated_build_code = cls.encode_build_code_from_nodes(
-                selected_nodes,
-                class_name=class_name,
-                spec_name=spec_name,
-                reference_build_code=build_code,
-                talent_version=talent_version,
-                version_key=version_key,
-                usage=usage,
-            )
-            if regenerated_build_code:
-                build_code = regenerated_build_code
+        merged_nodes = cls._merge_full_tree_nodes(
+            render_nodes,
+            selected_nodes,
+            decoded_states=decoded_states,
+            has_build_code=bool(build_code),
+            decoder_nodes=decoder_nodes,
+        ) if render_nodes else selected_nodes
+        # Keep the original Raider.IO/Blizzard import string authoritative.
+        # Historical structured talents_json can lag behind new tree nodes (notably
+        # 12.1 apex pools). Re-encoding a valid profile build code from stale
+        # structured nodes drops those bits and makes player details hide apex
+        # talents after every refresh. Structured nodes are still used above as a
+        # render fallback when the build code is clearly stale or missing.
         if build_code:
             merged_nodes.insert(0, {
                 'tree_type': 'build_code',
@@ -338,7 +338,7 @@ class TalentBuildCodeService:
         ).strip()
 
     @staticmethod
-    def _merge_full_tree_nodes(full_nodes, selected_nodes, decoded_states=None, has_build_code=False):
+    def _merge_full_tree_nodes(full_nodes, selected_nodes, decoded_states=None, has_build_code=False, decoder_nodes=None):
         if not full_nodes:
             return [dict(item) for item in selected_nodes]
 
@@ -349,12 +349,23 @@ class TalentBuildCodeService:
             if key:
                 selected_lookup[key] = dict(node)
 
+        decoded_alias_lookup = {}
+        if decoded_states:
+            for node in list(full_nodes or []) + list(decoder_nodes or []):
+                state = decoded_states.get(TalentBuildCodeService._build_node_key(node))
+                if state:
+                    for alias in TalentBuildCodeService._node_alias_keys_for_matching(node):
+                        decoded_alias_lookup.setdefault(alias, state)
+                    for option in node.get('choice_options') or []:
+                        for alias in TalentBuildCodeService._node_alias_keys_for_matching(option):
+                            decoded_alias_lookup.setdefault(alias, state)
+
         merged = []
         for base_node in full_nodes:
             payload = dict(base_node)
             key = TalentBuildCodeService._build_node_key(payload)
             selected_node = selected_lookup.get(key)
-            decoded_state = decoded_states.get(key) or {}
+            decoded_state = decoded_states.get(key) or TalentBuildCodeService._find_decoded_state_by_alias(payload, decoded_alias_lookup) or {}
 
             # metadata enrichment from raw talents_json (name/icon/max_points/parents)
             if selected_node:
@@ -404,6 +415,33 @@ class TalentBuildCodeService:
             merged.append(payload)
 
         return merged
+
+    @staticmethod
+    def _find_decoded_state_by_alias(node, decoded_alias_lookup):
+        if not decoded_alias_lookup:
+            return None
+        for alias in TalentBuildCodeService._node_alias_keys_for_matching(node):
+            state = decoded_alias_lookup.get(alias)
+            if state:
+                return state
+        for option in (node or {}).get('choice_options') or []:
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(option):
+                state = decoded_alias_lookup.get(alias)
+                if state:
+                    return state
+        return None
+
+    @staticmethod
+    def _node_alias_keys_for_matching(node):
+        keys = set(_node_alias_keys(dict(node or {}, tree_type=(node or {}).get('tree_type') or 'spec')))
+        # Hero anchor apex nodes and spec render apex nodes can represent the
+        # same TraitNode/Spell while using different tree_type labels. Match
+        # across both labels so decoded build-code state is not lost during
+        # render-tree filtering/aggregation.
+        for tree_type in ('class', 'spec', 'hero', 'hero_anchor'):
+            for alias in _node_alias_keys(dict(node or {}, tree_type=tree_type)):
+                keys.add(alias)
+        return keys
 
     @staticmethod
     def _build_node_key(node):

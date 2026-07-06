@@ -52,7 +52,7 @@ class TalentBuildCodeDecoder:
             if not is_selected:
                 continue
 
-            max_points = int(node.get('max_points') or 1)
+            max_points = cls._effective_max_points(node)
             if not is_purchased:
                 points = 1
             elif is_partially_ranked:
@@ -67,6 +67,22 @@ class TalentBuildCodeDecoder:
                 'choice_selection': choice_selection,
             }
         return states
+
+    @staticmethod
+    def _effective_max_points(node):
+        try:
+            max_points = int(node.get('max_points') or 1)
+        except (TypeError, ValueError):
+            max_points = 1
+        option_points = 0
+        for option in node.get('choice_options') or []:
+            try:
+                option_points += int(option.get('max_points') or 0)
+            except (TypeError, ValueError):
+                continue
+        if option_points > max_points:
+            return option_points
+        return max_points
 
     @staticmethod
     def _ordered_nodes(full_nodes):
