@@ -4931,6 +4931,11 @@ function getFieldInputType(column) {
  * 判断是否为必填字段
  */
 function isRequiredField(column) {
+    const inputType = getFieldInputType(column);
+    if (inputType === 'checkbox' || isModelBooleanField(column)) {
+        return false;
+    }
+
     const info = getFieldInfo(column);
     if (info && info.type && !info.null && !info.blank && !info.primary_key && !info.auto_now && !info.auto_now_add) {
         return true;
