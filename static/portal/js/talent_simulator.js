@@ -240,8 +240,13 @@
         const wrapper = document.createElement('div');
         wrapper.className = 'talent-stage-scale-wrapper';
         const availableWidth = Math.max(320, els.stageContainer.clientWidth - 36);
-        const scale = Math.min(1.35, Math.max(0.72, availableWidth / width));
-        wrapper.style.width = `${Math.ceil(width * scale)}px`;
+        const panelRightEdges = trees
+            .filter(tree => tree.tree_type !== 'build_code' && tree.panel)
+            .map(tree => Number(tree.panel.x || 0) + Number(tree.panel.width || 0));
+        const panelRightEdge = panelRightEdges.length ? Math.max(...panelRightEdges) : width;
+        const scaleBaseWidth = Math.min(width, panelRightEdge);
+        const scale = Math.min(1.35, Math.max(0.72, availableWidth / scaleBaseWidth));
+        wrapper.style.width = `${Math.ceil(scaleBaseWidth * scale)}px`;
         wrapper.style.height = `${Math.ceil(height * scale)}px`;
         stage.style.transform = `scale(${scale})`;
         wrapper.appendChild(stage);
