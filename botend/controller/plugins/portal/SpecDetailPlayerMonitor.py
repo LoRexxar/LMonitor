@@ -612,14 +612,18 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
     def _parse_rio_talents_from_profile(self, char_data):
         """从 Raider.IO 角色 profile 响应中解析结构化天赋数据"""
-        # 优先使用 talentLoadout（包含 loadout_text 即天赋导入代码）
+        # 优先使用 talentLoadout。loadout_text 只适合作为导入代码保存；展示/统计仍需
+        # 解析同一对象里的结构化 loadout，因为 12.1 顶峰天赋是同一个 TraitNode
+        # 下多个 entry 的点数池（如 1+2+1=4），部分 Raider.IO loadout_text 解码会
+        # 丢失这类点池状态。
         loadout_obj = char_data.get('talentLoadout')
         if loadout_obj and isinstance(loadout_obj, dict):
             loadout_text = loadout_obj.get('loadout_text', '')
             if loadout_text:
-                # 存储 build_code 到 player 数据
                 self._pending_build_code = loadout_text
-                return []  # 返回空列表，让 build_api_view 用 build_code 解码
+            structured_loadout = self._parse_rio_talent_loadout_nodes(loadout_obj.get('loadout'))
+            if structured_loadout:
+                return structured_loadout
 
         # 回退到旧的 talents 字段
         talents_obj = char_data.get('talents')
@@ -651,6 +655,93 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             })
 
         return result if result else None
+
+    @staticmethod
+    def _parse_rio_talent_loadout_nodes(loadout_entries):
+        """解析 Raider.IO talentLoadout.loadout 结构化节点。
+
+        Raider.IO 中 node.id 是 Blizzard TraitNode ID；node.entries[*].id 才是
+        TraitNodeEntry ID。LMonitor 的 DB2 元数据里普通/顶峰渲染节点使用 entry id
+        作为 node_id、TraitNode ID 作为 talent_id，因此这里必须同时保留两者。
+        顶峰天赋（entry type=13）会以一个 TraitNode 下多个 entry 表示，总点数在
+        外层 rank 上，max_points 为各 entry maxRanks 之和。
+        """
+        if not isinstance(loadout_entries, list):
+            return []
+
+        result = []
+        for item in loadout_entries:
+            if not isinstance(item, dict):
+                continue
+            node = item.get('node') or {}
+            entries = node.get('entries') or []
+            if not isinstance(node, dict) or not isinstance(entries, list) or not entries:
+                continue
+
+            try:
+                entry_index = int(item.get('entryIndex') or 0)
+            except (TypeError, ValueError):
+                entry_index = 0
+            if entry_index < 0 or entry_index >= len(entries):
+                entry_index = 0
+            selected_entry = entries[entry_index] or {}
+            if not isinstance(selected_entry, dict):
+                continue
+
+            rank = SpecDetailPlayerMonitor._coerce_positive_int(item.get('rank'), default=1)
+            if rank <= 0:
+                continue
+            max_points = SpecDetailPlayerMonitor._coerce_positive_int(selected_entry.get('maxRanks'), default=1)
+            is_apex = any(SpecDetailPlayerMonitor._coerce_positive_int(entry.get('type'), default=0) == 13 for entry in entries if isinstance(entry, dict))
+            if is_apex:
+                max_points = sum(
+                    SpecDetailPlayerMonitor._coerce_positive_int(entry.get('maxRanks'), default=1)
+                    for entry in entries
+                    if isinstance(entry, dict)
+                ) or max_points
+
+            spell = selected_entry.get('spell') or {}
+            tree_type = SpecDetailPlayerMonitor._infer_tree_type_from_rio_node(node)
+            result.append({
+                'tree_type': tree_type,
+                'node_id': selected_entry.get('id'),
+                'talentID': node.get('id'),
+                'talent_id': node.get('id'),
+                'spellID': spell.get('id') if isinstance(spell, dict) else None,
+                'spell_id': spell.get('id') if isinstance(spell, dict) else None,
+                'display_spell_id': spell.get('id') if isinstance(spell, dict) else None,
+                'name': spell.get('name', '') if isinstance(spell, dict) else '',
+                'icon': spell.get('icon', '') if isinstance(spell, dict) else '',
+                'points': rank,
+                'max_points': max_points,
+                'row': node.get('posY') or node.get('row'),
+                'column': node.get('posX') or node.get('col'),
+                'choice_selection': entry_index if len(entries) > 1 and not is_apex else None,
+                'source': 'raiderio_loadout',
+            })
+        return result
+
+    @staticmethod
+    def _infer_tree_type_from_rio_node(node):
+        subtree_id = SpecDetailPlayerMonitor._coerce_positive_int((node or {}).get('subTreeId'), default=0)
+        if subtree_id:
+            return 'hero'
+        row = SpecDetailPlayerMonitor._coerce_positive_int((node or {}).get('row'), default=0)
+        col = SpecDetailPlayerMonitor._coerce_positive_int((node or {}).get('col'), default=0)
+        # Raider.IO 的 Warrior/Fury 等 profile 中职业树位于左侧低 col，专精树位于右侧高 col。
+        # 后续 metadata merge 会以 node_id/talent_id 修正更精确的 tree_type；这里仅用于
+        # 没有命中元数据时的合理初始分类。
+        if row >= 11 and col >= 8:
+            return 'hero_anchor'
+        return 'spec' if col >= 10 else 'class'
+
+    @staticmethod
+    def _coerce_positive_int(value, default=0):
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return default
+        return parsed if parsed >= 0 else default
 
     def _crawl_battlenet_stats(self, season_id, class_name=None, spec_name=None, retry_failed=False, limit=None):
         """补充 Battle.net 属性面板"""

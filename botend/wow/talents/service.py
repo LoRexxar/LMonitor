@@ -283,13 +283,20 @@ class TalentBuildCodeService:
             state = (decoded_states or {}).get(_build_node_key(node)) or {}
             decoded_hero += int(state.get('points') or 0)
 
+        missing_multi_point_nodes = {
+            key: node
+            for key, node in selected_lookup.items()
+            if int(node.get('points') or 0) > 1 and key not in (decoded_states or {})
+        }
+
         # Keep valid import strings authoritative. Only fall back when the code
-        # is obviously stale: it loses a hero subtree, or decodes far fewer
-        # points than the structured payload.
-        if not ((selected_hero > 0 and decoded_hero == 0) or (selected_total and decoded_total < selected_total - 5)):
+        # is obviously stale: it loses a hero subtree, decodes far fewer points
+        # than the structured payload, or omits a structured multi-rank point
+        # pool such as 12.1 apex talents from Raider.IO loadout.loadout.
+        if not ((selected_hero > 0 and decoded_hero == 0) or (selected_total and decoded_total < selected_total - 5) or missing_multi_point_nodes):
             return decoded_states
 
-        return {
+        structured_states = {
             key: {
                 'selected': True,
                 'points': int(node.get('points') or 0),
@@ -298,6 +305,11 @@ class TalentBuildCodeService:
             }
             for key, node in selected_lookup.items()
         }
+        if missing_multi_point_nodes and not ((selected_hero > 0 and decoded_hero == 0) or (selected_total and decoded_total < selected_total - 5)):
+            merged_states = dict(decoded_states or {})
+            merged_states.update({key: structured_states[key] for key in missing_multi_point_nodes})
+            return merged_states
+        return structured_states
 
     @staticmethod
     @lru_cache(maxsize=256)
@@ -349,9 +361,18 @@ class TalentBuildCodeService:
                 if selected_node.get('display_spell_id'):
                     payload['display_spell_id'] = selected_node.get('display_spell_id')
                     payload['spell_id'] = selected_node.get('display_spell_id')
-                for field_name in ('name', 'icon', 'max_points', 'parents', 'choice_options', 'is_choice_node'):
+                for field_name in ('name', 'icon', 'parents', 'choice_options', 'is_choice_node'):
                     if selected_node.get(field_name) not in (None, '', []):
                         payload[field_name] = selected_node.get(field_name)
+                if selected_node.get('max_points') not in (None, '', []):
+                    try:
+                        selected_max_points = int(selected_node.get('max_points') or 0)
+                        base_max_points = int(payload.get('max_points') or 0)
+                    except (TypeError, ValueError):
+                        selected_max_points = 0
+                        base_max_points = 0
+                    if selected_max_points > base_max_points:
+                        payload['max_points'] = selected_max_points
 
             # selection state priority: build code decode > raw talents_json
             if has_build_code:

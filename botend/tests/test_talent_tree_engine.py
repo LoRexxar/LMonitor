@@ -31,6 +31,7 @@ from botend.wow.talents.service import TalentBuildCodeService
 from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder
 from botend.portal.talent_simulator import _merge_nodes_for_simulator
 from botend.wow.talents.view_model import build_talent_view_model
+from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
 
 
 class FakeRankingQuerySet:
@@ -893,6 +894,83 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(spec_tree['point_pools']['apex']['points'], 0)
         self.assertEqual(spec_tree['point_pools']['spec']['points'], 1)
 
+    def test_raiderio_loadout_preserves_apex_rank_when_build_code_omits_it(self):
+        loadout = {
+            'loadout_text': 'CgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgGDDjZ2WmZmZmxMmZMjZmZWmZGjxsMmZGAAIMwGssZ0YGQmNMjFAzgxAgZGADzMzMMYA',
+            'loadout': [
+                {
+                    'node': {
+                        'id': 110412,
+                        'type': 1,
+                        'entries': [
+                            {'id': 137004, 'type': 13, 'maxRanks': 1, 'spell': {'id': 1269308, 'name': 'Rampaging Berserker', 'icon': 'inv12_apextalent_warrior_rampagingberserker2'}},
+                            {'id': 137003, 'type': 13, 'maxRanks': 2, 'spell': {'id': 1269309, 'name': 'Rampaging Berserker', 'icon': 'inv12_apextalent_warrior_rampagingberserker2'}},
+                            {'id': 137002, 'type': 13, 'maxRanks': 1, 'spell': {'id': 1269310, 'name': 'Rampaging Berserker', 'icon': 'inv12_apextalent_warrior_rampagingberserker2'}},
+                        ],
+                        'posX': 12000,
+                        'posY': 7050,
+                        'row': 0,
+                        'col': 14,
+                    },
+                    'entryIndex': 2,
+                    'rank': 4,
+                },
+            ],
+        }
+
+        parsed = SpecDetailPlayerMonitor._parse_rio_talent_loadout_nodes(loadout['loadout'])
+        self.assertEqual(parsed[0]['node_id'], 137002)
+        self.assertEqual(parsed[0]['talent_id'], 110412)
+        self.assertEqual(parsed[0]['points'], 4)
+        self.assertEqual(parsed[0]['max_points'], 4)
+
+        decoder_nodes = [
+            {
+                'tree_type': 'spec',
+                'node_id': 137002,
+                'talent_id': 110412,
+                'spell_id': 1269310,
+                'display_spell_id': 1269310,
+                'name': 'Rampaging Berserker',
+                'row': 7050,
+                'column': 12000,
+                'max_points': 4,
+                'choice_options': [
+                    {'node_id': 137004, 'talent_id': 110412, 'spell_id': 1269308, 'max_points': 1},
+                    {'node_id': 137003, 'talent_id': 110412, 'spell_id': 1269309, 'max_points': 2},
+                    {'node_id': 137002, 'talent_id': 110412, 'spell_id': 1269310, 'max_points': 1},
+                ],
+            },
+        ]
+        decoded_states = {}
+        merged_states = TalentBuildCodeService._prefer_structured_nodes_when_build_code_looks_stale(
+            decoded_states,
+            parsed,
+            decoder_nodes,
+            class_name='Warrior',
+            spec_name='Fury',
+        )
+        merged_nodes = TalentBuildCodeService._merge_full_tree_nodes(
+            decoder_nodes,
+            parsed,
+            decoded_states=merged_states,
+            has_build_code=True,
+        )
+        render_model = build_talent_render_model(
+            merged_nodes,
+            class_name='Warrior',
+            spec_name='Fury',
+            metadata_provider=type('Provider', (), {'merge_into_node': lambda self, node, class_name='', spec_name='': dict(node)})(),
+        ).to_dict()
+        spec_tree = next(tree for tree in render_model['trees'] if tree['tree_type'] == 'spec')
+        apex_node = next(node for node in spec_tree['nodes'] if node.get('talent_id') == 110412)
+
+        self.assertTrue(apex_node['selected'])
+        self.assertEqual(apex_node['points'], 4)
+        self.assertEqual(apex_node['max_points'], 4)
+        self.assertEqual(spec_tree['point_pools']['apex']['points'], 4)
+        self.assertEqual(spec_tree['point_pools']['apex']['max_points'], 4)
+
 
 class SpecStatsTalentRenderTests(SimpleTestCase):
     def test_enchant_popularity_groups_by_slot_and_formats_display_label(self):
@@ -1632,6 +1710,62 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             sorted(n.get('name') for n in nodes if n.get('tree_type') == 'spec'),
             ['Heart Strike', 'Marrowrend'],
         )
+
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_popularity_tree_preserves_apex_points_from_metadata_bottom_node(self, mock_provider_cls):
+        mock_provider_cls.return_value.merge_into_node.side_effect = (
+            lambda node, class_name='', spec_name='': node
+        )
+        mock_provider_cls.return_value.get_full_tree_nodes.return_value = [
+            {
+                'node_id': 137002,
+                'talent_id': 110412,
+                'spell_id': 1269310,
+                'name': '怒火狂战',
+                'icon': 'inv12_apextalent_warrior_rampagingberserker2',
+                'tree_type': 'spec',
+                'row': 10000,
+                'column': 12000,
+                'max_points': 4,
+                'is_apex_talent': True,
+                'apex_entries': [
+                    {'node_id': 137004, 'talent_id': 110412, 'spell_id': 1269308, 'max_points': 1},
+                    {'node_id': 137003, 'talent_id': 110412, 'spell_id': 1269309, 'max_points': 2},
+                    {'node_id': 137002, 'talent_id': 110412, 'spell_id': 1269310, 'max_points': 1},
+                ],
+            },
+        ]
+
+        talent_tree = _compute_talent_popularity_tree(
+            records=[{
+                'talents_json': [
+                    {
+                        'node_id': 137002,
+                        'talent_id': 110412,
+                        'spell_id': 1269310,
+                        'name': '怒火狂战',
+                        'tree_type': 'spec',
+                        'row': 10000,
+                        'column': 12000,
+                        'points': 1,
+                        'max_points': 1,
+                    },
+                ],
+                'gear_json': [],
+                'faction': 'Alliance',
+            }],
+            class_name='Warrior',
+            spec_name='Fury',
+            top_n=10,
+        )
+
+        spec_tree = next(tree for tree in talent_tree['render_model']['trees'] if tree['tree_type'] == 'spec')
+        apex_node = next(node for node in spec_tree['nodes'] if node.get('talent_id') == 110412)
+        self.assertTrue(apex_node['is_apex_talent'])
+        self.assertEqual(apex_node['points'], 4)
+        self.assertEqual(apex_node['max_points'], 4)
+        self.assertEqual(spec_tree['point_pools']['apex']['points'], 4)
+        self.assertEqual(spec_tree['point_pools']['apex']['max_points'], 4)
 
     @patch('botend.services.spec_stats_service.WowTalentNodeMetadata')
     @patch('botend.services.spec_stats_service.connection')

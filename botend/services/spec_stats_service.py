@@ -995,11 +995,15 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
                 'node_id': node.node_id,
                 'name': node.name or (f"技能ID {node.spell_id or node.talent_id or node.node_id}"),
                 'icon': node.icon or '',
+                'points': 0,
+                'max_points': node.max_points or 1,
                 'count': 0,
                 'top_players': [],
                 '_player_keys': set(),
             })
             usage_item['count'] += 1
+            usage_item['points'] = max(usage_item.get('points') or 0, node.points or 1)
+            usage_item['max_points'] = max(usage_item.get('max_points') or 1, node.max_points or 1)
             player_payload = _talent_usage_player_payload(record, record_index)
             player_key = player_payload.get('player_key')
             if player_key and player_key not in usage_item['_player_keys']:
@@ -1357,12 +1361,26 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
             has_icon = bool(raw_node.get('icon'))
             has_name = bool(raw_node.get('name'))
 
+            usage_points = usage_item.get('points') or (1 if usage_count else 0)
+            raw_apex_max_points = raw_node.get('max_points') or 1
+            is_apex_candidate = bool(raw_node.get('is_apex_talent') or raw_node.get('apex_entries'))
+            if is_apex_candidate:
+                raw_apex_max_points = sum(
+                    (entry.get('max_points') or 1)
+                    for entry in (raw_node.get('apex_entries') or raw_node.get('choice_options') or [])
+                    if isinstance(entry, dict)
+                ) or raw_apex_max_points
+            usage_max_points = max(usage_item.get('max_points') or 1, raw_apex_max_points)
+            if is_apex_candidate and usage_count:
+                usage_points = usage_max_points
             candidates.append({
                 'raw_node': raw_node,
                 'node_key': node_key,
                 'is_highlighted': is_highlighted,
                 'usage_pct': usage_pct,
                 'usage_count': usage_count,
+                'usage_points': usage_points,
+                'usage_max_points': usage_max_points,
                 'top_players': top_players,
                 'has_icon': has_icon,
                 'has_name': has_name,
@@ -1384,6 +1402,8 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         # 否则二选一或 hero 节点的 base key 未命中时会显示成全灰 0%。
         display_usage_pct = max((c['usage_pct'] or 0) for c in candidates)
         display_usage_count = max((c['usage_count'] or 0) for c in candidates)
+        display_usage_points = max((c.get('usage_points') or 0) for c in candidates)
+        display_usage_max_points = max((c.get('usage_max_points') or 1) for c in candidates)
         display_top_players = []
         for candidate in candidates:
             if candidate.get('usage_count') == display_usage_count:
@@ -1394,7 +1414,8 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         # 构建 base 节点
         node = TalentNodeModel.from_raw({
             **base_raw_node,
-            'points': 1 if base_is_highlighted else 0,
+            'points': display_usage_points if base_is_highlighted else 0,
+            'max_points': display_usage_max_points,
             'selected': base_is_highlighted,
         })
         node.count = display_usage_count
@@ -1417,21 +1438,31 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
                     usage_map,
                 )
                 option_usage_pct = option_usage.get('usage_pct', 0)
+                option_usage_count = option_usage.get('count', 0)
+                option_raw_max_points = option_raw.get('max_points') or 1
+                if option_raw.get('is_apex_talent') or option_raw.get('apex_entries'):
+                    option_raw_max_points = sum(
+                        (entry.get('max_points') or 1)
+                        for entry in (option_raw.get('apex_entries') or option_raw.get('choice_options') or [])
+                        if isinstance(entry, dict)
+                    ) or option_raw_max_points
+                option_max_points = max(option_usage.get('max_points') or 1, option_raw_max_points)
                 choice_options.append({
                     'node_id': option_raw.get('node_id'),
                     'talent_id': option_raw.get('talent_id'),
                     'spell_id': option_spell_id,
                     'display_spell_id': option_raw.get('display_spell_id') or option_spell_id,
-                    'max_points': option_raw.get('max_points') or 1,
+                    'points': option_usage.get('points') or (1 if option_usage_count else 0),
+                    'max_points': option_max_points,
                     'name': option_raw.get('name', ''),
                     'icon': option_raw.get('icon', ''),
                     'description': option_raw.get('description', '') or '',
                     'description_zh': option_raw.get('description_zh', '') or '',
-                    'count': option_usage.get('count', 0),
+                    'count': option_usage_count,
                     'usage_pct': option_usage_pct,
                     'pct': option_usage_pct,
                     'top_players': option_usage.get('top_players') or [],
-                    'is_active': (option_usage.get('count', 0) or 0) > 0,
+                    'is_active': option_usage_count > 0,
                 })
 
         # 若 option 数 > 1，设置 is_choice_node=True
