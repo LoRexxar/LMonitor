@@ -1303,14 +1303,13 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             {'tree_type': 'hero', 'node_id': 135992, 'talent_id': 109734, 'spell_id': 1265932, 'name': '致命打击'},
             {'tree_type': 'hero', 'node_id': 135991, 'talent_id': 109733, 'spell_id': 1265855, 'name': '回响狂怒'},
             {'tree_type': 'spec', 'node_id': 136916, 'talent_id': 110353, 'spell_id': 1264405, 'name': '午夜舞步', 'max_points': 2},
-            {'tree_type': 'hero', 'node_id': 117659, 'talent_id': 94801, 'spell_id': 439843, 'name': '死神印记'},
         ]
-        decoded_states = {
-            'hero:117659': {'selected': True, 'points': 10},
+        stale_decoded = {
+            'spec:136916': {'selected': True, 'points': 2},
         }
 
         merged_states = TalentBuildCodeService._prefer_structured_nodes_when_build_code_looks_stale(
-            decoded_states,
+            stale_decoded,
             structured_nodes,
             decoder_nodes,
             class_name='DeathKnight',
@@ -1329,6 +1328,28 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(selected_by_name['致命打击']['points'], 1)
         self.assertEqual(selected_by_name['回响狂怒']['points'], 1)
         self.assertEqual(selected_by_name['午夜舞步']['points'], 2)
+
+    def test_canonical_build_code_reencodes_merged_structured_fallback_state(self):
+        payload = [
+            {'tree_type': 'build_code', 'talent_code': 'RAW_STALE_CODE', 'points': 0},
+            {'tree_type': 'hero', 'node_id': 135993, 'talent_id': 109735, 'spell_id': 1265859, 'name': '冷冽决心', 'points': 1},
+            {'tree_type': 'hero', 'node_id': 135992, 'talent_id': 109734, 'spell_id': 1265932, 'name': '致命打击', 'points': 1},
+            {'tree_type': 'hero', 'node_id': 135991, 'talent_id': 109733, 'spell_id': 1265855, 'name': '回响狂怒', 'points': 1},
+        ]
+
+        with patch.object(TalentBuildCodeService, 'encode_build_code_from_nodes', return_value='CANONICAL_CODE') as encode:
+            code = TalentBuildCodeService._canonicalize_build_code_from_payload(
+                payload,
+                class_name='DeathKnight',
+                spec_name='Blood',
+                reference_build_code='RAW_STALE_CODE',
+                version_key='retail-12.0.7',
+            )
+
+        self.assertEqual(code, 'CANONICAL_CODE')
+        selected_nodes = encode.call_args.args[0]
+        self.assertEqual([node['name'] for node in selected_nodes], ['冷冽决心', '致命打击', '回响狂怒'])
+        self.assertEqual(encode.call_args.kwargs['reference_build_code'], 'RAW_STALE_CODE')
 
     def test_simulator_merge_preserves_decoded_choice_option_state(self):
         full_nodes = [

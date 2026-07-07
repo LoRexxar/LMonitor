@@ -133,6 +133,7 @@
             return;
         }
         state.payload = data;
+        if (data.build_code) state.buildCode = data.build_code;
         state.heroSubtree = String(data.active_hero_subtree || state.heroSubtree || '');
         indexNodes();
         renderHeader();

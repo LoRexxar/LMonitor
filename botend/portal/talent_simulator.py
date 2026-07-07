@@ -301,6 +301,15 @@ def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=N
         full_nodes = _filter_hero_subtrees_for_spec(merged_nodes, class_name, spec_name)
         active_subtree = _active_hero_subtree(full_nodes, decoded_states=None, requested=hero_subtree)
         merged_nodes = _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subtree=active_subtree)
+        build_code = TalentBuildCodeService._canonicalize_build_code_from_payload(
+            merged_nodes,
+            class_name=class_name,
+            spec_name=spec_name,
+            reference_build_code=build_code,
+            talent_version=talent_version,
+            version_key=version_key,
+            usage=TalentVersionResolver.USAGE_SIMULATOR,
+        ) or build_code
     else:
         active_subtree = _active_hero_subtree(full_nodes, decoded_states=decoded_states, requested=hero_subtree)
         merged_nodes = _merge_nodes_for_simulator(full_nodes, decoded_states=decoded_states, active_hero_subtree=active_subtree)

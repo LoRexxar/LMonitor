@@ -48,7 +48,15 @@ class TalentBuildCodeService:
             version_key=version_key,
             usage=usage,
         )
-        effective_build_code = cls._extract_build_code_from_payload(payload) or build_code
+        effective_build_code = cls._canonicalize_build_code_from_payload(
+            payload,
+            class_name=class_name,
+            spec_name=spec_name,
+            reference_build_code=build_code,
+            talent_version=talent_version,
+            version_key=version_key,
+            usage=usage,
+        ) or cls._extract_build_code_from_payload(payload) or build_code
         if not payload:
             return {
                 'talent_build_code': '',
@@ -106,6 +114,39 @@ class TalentBuildCodeService:
         if not reference:
             return ''
         return TalentBuildCodeEncoder.encode_node_states(reference, decoder_nodes, selected_nodes)
+
+    @classmethod
+    def _canonicalize_build_code_from_payload(cls, payload, class_name='', spec_name='', reference_build_code='', talent_version=None, version_key='', usage=TalentVersionResolver.USAGE_SIMULATOR):
+        """Re-encode the final merged selected state into a standalone import code.
+
+        Player details may render from structured Raider.IO talents when the raw
+        Blizzard import string is stale for the current DB2 decoder order. In that
+        case copying the raw code or opening the simulator without profile_id
+        loses the structured fallback. Re-encoding the merged payload makes the
+        copied/shared code reproduce exactly what the player detail page shows.
+        """
+        reference = str(reference_build_code or '').strip() or cls._extract_build_code_from_payload(payload)
+        if not reference:
+            return ''
+        selected_nodes = [
+            dict(node)
+            for node in payload or []
+            if isinstance(node, dict)
+            and not cls._extract_build_code_from_node(node)
+            and int(node.get('points') or 0) > 0
+        ]
+        if not selected_nodes:
+            return ''
+        canonical = cls.encode_build_code_from_nodes(
+            selected_nodes,
+            class_name=class_name,
+            spec_name=spec_name,
+            reference_build_code=reference,
+            talent_version=talent_version,
+            version_key=version_key,
+            usage=usage,
+        )
+        return canonical or ''
 
     @staticmethod
     def _find_reference_build_code(class_name='', spec_name=''):
