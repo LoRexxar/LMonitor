@@ -174,8 +174,9 @@ def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subt
     for node in full_nodes or []:
         if (node.get('tree_type') or 'spec') == 'hero':
             subtree = node.get('db2_subtree_id') or 0
-            # Hero apex nodes (subtree_id=0) are always included
-            if subtree != 0 and active_hero_subtree and subtree != active_hero_subtree:
+            # Hero apex nodes (subtree_id=0) are shared and always included;
+            # concrete hero subtrees require an explicit active subtree.
+            if subtree != 0 and (not active_hero_subtree or subtree != active_hero_subtree):
                 continue
         payload = dict(node)
         key = _build_node_key(payload)
