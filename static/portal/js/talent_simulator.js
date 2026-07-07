@@ -375,11 +375,11 @@
         if (!treeType) return '';
         const layer = nodeLayer(node);
         const treeName = treeType === 'class' ? '职业树' : '专精树';
-        if (layer > TALENT_TREE_RULES.deepGateRows && pointsInTree(treeType, TALENT_TREE_RULES.deepGateRows) < TALENT_TREE_RULES.deepGatePoints) {
-            return `${treeName}前7层需要至少 ${TALENT_TREE_RULES.deepGatePoints} 点，才能继续点第8层及以下天赋`;
+        if (layer >= TALENT_TREE_RULES.deepGateRows && pointsInTree(treeType, TALENT_TREE_RULES.deepGateRows - 1) < TALENT_TREE_RULES.deepGatePoints) {
+            return `${treeName}前${TALENT_TREE_RULES.deepGateRows - 1}层需要至少 ${TALENT_TREE_RULES.deepGatePoints} 点，才能继续点第${TALENT_TREE_RULES.deepGateRows}层及以下天赋`;
         }
-        if (layer > TALENT_TREE_RULES.earlyGateRows && pointsInTree(treeType, TALENT_TREE_RULES.earlyGateRows) < TALENT_TREE_RULES.earlyGatePoints) {
-            return `${treeName}前4层需要至少 ${TALENT_TREE_RULES.earlyGatePoints} 点，才能继续点第5层及以下天赋`;
+        if (layer >= TALENT_TREE_RULES.earlyGateRows && pointsInTree(treeType, TALENT_TREE_RULES.earlyGateRows - 1) < TALENT_TREE_RULES.earlyGatePoints) {
+            return `${treeName}前${TALENT_TREE_RULES.earlyGateRows - 1}层需要至少 ${TALENT_TREE_RULES.earlyGatePoints} 点，才能继续点第${TALENT_TREE_RULES.earlyGateRows}层及以下天赋`;
         }
         return '';
     }

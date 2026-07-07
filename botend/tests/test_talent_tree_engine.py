@@ -1268,12 +1268,14 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             {'tree_type': 'hero', 'node_id': 136070, 'talent_id': 109811, 'spell_id': 275336, 'name': '狂雷奔涌'},
             {'tree_type': 'hero', 'node_id': 136069, 'talent_id': 109810, 'spell_id': 1270723, 'name': '导电'},
             {'tree_type': 'hero', 'node_id': 136068, 'talent_id': 109809, 'spell_id': 1270724, 'name': '电容'},
+            {'tree_type': 'hero_anchor', 'node_id': 137002, 'talent_id': 110412, 'spell_id': 1269310, 'name': '怒火狂战', 'is_apex_talent': True},
         ]
         decoded_states = {
             'hero:117400': {'selected': True, 'points': 0},
             'hero:136070': {'selected': True, 'points': 1},
             'hero:136069': {'selected': True, 'points': 1},
             'hero:136068': {'selected': True, 'points': 1},
+            'hero_anchor:137002': {'selected': True, 'points': 4},
         }
 
         merged_states = TalentBuildCodeService._prefer_structured_nodes_when_build_code_looks_stale(
@@ -1284,8 +1286,10 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             spec_name='Fury',
         )
 
-        self.assertEqual(sum(int(state.get('points') or 0) for state in merged_states.values()), 4)
+        self.assertEqual(sum(int(state.get('points') or 0) for key, state in merged_states.items() if key.startswith('hero:')), 4)
+        self.assertEqual(sum(int(state.get('points') or 0) for state in merged_states.values()), 8)
         self.assertEqual(merged_states['hero:117400']['points'], 1)
+        self.assertEqual(merged_states['hero_anchor:137002']['points'], 4)
 
     def test_simulator_merge_preserves_decoded_choice_option_state(self):
         full_nodes = [

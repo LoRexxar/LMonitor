@@ -423,11 +423,14 @@ class TalentBuildCodeService:
             if decoded_points < node_points:
                 missing_structured_points += node_points - decoded_points
 
-        # Keep valid import strings authoritative. Only fall back when the code
-        # is obviously stale/misaligned: it loses a hero subtree, decodes far
-        # fewer points than the structured payload, omits a structured multi-rank
-        # pool such as 12.1 apex talents, or decodes a similar total while many
-        # concrete structured nodes are missing/zero by alias (node-order drift).
+        # Keep valid import strings authoritative. Only add structured states
+        # when the code is obviously stale/misaligned: it loses hero points,
+        # decodes far fewer points than the structured payload, omits a
+        # structured multi-rank pool such as 12.1 apex talents, or decodes a
+        # similar total while many concrete structured nodes are missing/zero by
+        # alias (node-order drift). For broad fallback, structured data owns the
+        # class/hero/spec trees while decoded build-code states may still supply
+        # current-only apex nodes that older talents_json does not contain.
         missing_structured_threshold = max(5, int(selected_total * 0.1)) if selected_total else 5
         has_structured_misalignment = missing_structured_points >= missing_structured_threshold
         if not ((selected_hero > 0 and decoded_hero < selected_hero) or (selected_total and decoded_total < selected_total - 5) or missing_multi_point_nodes or has_structured_misalignment):
@@ -446,7 +449,16 @@ class TalentBuildCodeService:
             merged_states = dict(decoded_states or {})
             merged_states.update({key: structured_states[key] for key in missing_multi_point_nodes})
             return merged_states
-        return structured_states
+
+        merged_states = dict(structured_states)
+        for node in decoder_nodes or []:
+            if not node.get('is_apex_talent'):
+                continue
+            key = _build_node_key(node)
+            decoded_state = (decoded_states or {}).get(key) or {}
+            if int(decoded_state.get('points') or 0) > 0:
+                merged_states[key] = decoded_state
+        return merged_states
 
     @staticmethod
     @lru_cache(maxsize=256)
