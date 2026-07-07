@@ -162,7 +162,27 @@ class TalentBuildCodeService:
         # bit alignment.
         decoder_nodes = provider.get_decoder_node_list(class_name) if build_code else []
         decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if build_code and decoder_nodes else {}
-        if build_code and decoded_states and selected_nodes:
+        if build_code and decoded_states and talent_version is None and not version_key:
+            fallback = cls._find_apex_compatible_version_payload(
+                build_code,
+                class_name=class_name,
+                spec_name=spec_name,
+                current_provider=provider,
+                current_full_nodes=full_nodes,
+                current_decoder_nodes=decoder_nodes,
+                current_decoded_states=decoded_states,
+            )
+            if fallback:
+                provider = fallback['provider']
+                full_nodes = fallback['full_nodes']
+                decoder_nodes = fallback['decoder_nodes']
+                decoded_states = fallback['decoded_states']
+        if (
+            build_code
+            and decoded_states
+            and selected_nodes
+            and not cls._decoded_states_have_spec_apex_points(full_nodes, decoder_nodes, decoded_states)
+        ):
             decoded_states = cls._prefer_structured_nodes_when_build_code_looks_stale(
                 decoded_states,
                 selected_nodes,
@@ -248,6 +268,100 @@ class TalentBuildCodeService:
         if talent_version is not None:
             return getattr(talent_version, 'key', None) or getattr(talent_version, 'id', None) or 'provided'
         return str(version_key or '') or str(usage or '')
+
+    @classmethod
+    def _find_apex_compatible_version_payload(
+        cls,
+        build_code,
+        class_name='',
+        spec_name='',
+        current_provider=None,
+        current_full_nodes=None,
+        current_decoder_nodes=None,
+        current_decoded_states=None,
+    ):
+        """Find an active talent version that can decode apex points.
+
+        12.1 import strings include bottom apex point pools. If the current
+        player-tree default still points at an older retail metadata version, the
+        decoder list is shorter/different and those apex nodes decode as 0/4.
+        When no explicit version was requested, prefer another active version
+        only if it actually decodes apex points while the current version does
+        not.
+        """
+        if not build_code or not class_name:
+            return None
+        if cls._decoded_states_have_spec_apex_points(current_full_nodes or [], current_decoder_nodes or [], current_decoded_states or {}):
+            return None
+
+        current_key = getattr(getattr(current_provider, 'version', None), 'key', '') or getattr(current_provider, 'version_cache_key', '')
+        try:
+            candidates = TalentVersionResolver.list_active()
+        except Exception:
+            return None
+
+        for version in candidates:
+            candidate_key = getattr(version, 'key', '')
+            if candidate_key and candidate_key == current_key:
+                continue
+            try:
+                candidate_provider = TalentMetadataProvider(talent_version=version)
+                candidate_decoder_nodes = candidate_provider.get_decoder_node_list(class_name)
+                if not candidate_decoder_nodes:
+                    continue
+                candidate_states = TalentBuildCodeDecoder.decode_node_states(build_code, candidate_decoder_nodes)
+                candidate_full_nodes = candidate_provider.get_full_tree_nodes(class_name, spec_name)
+                if not candidate_full_nodes:
+                    continue
+                if not cls._decoded_states_have_spec_apex_points(candidate_full_nodes, candidate_decoder_nodes, candidate_states):
+                    continue
+                return {
+                    'provider': candidate_provider,
+                    'decoder_nodes': candidate_decoder_nodes,
+                    'decoded_states': candidate_states,
+                    'full_nodes': candidate_full_nodes,
+                }
+            except Exception:
+                continue
+        return None
+
+    @staticmethod
+    def _decoded_states_have_spec_apex_points(full_nodes, decoder_nodes, decoded_states):
+        if not full_nodes or not decoder_nodes or not decoded_states:
+            return False
+        apex_aliases = set()
+        for node in full_nodes:
+            if not isinstance(node, dict) or not node.get('is_apex_talent'):
+                continue
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(node):
+                apex_aliases.add(alias)
+        if not apex_aliases:
+            return False
+
+        for node in decoder_nodes:
+            if not isinstance(node, dict):
+                continue
+            node_aliases = TalentBuildCodeService._node_alias_keys_for_matching(node)
+            if not (apex_aliases & node_aliases):
+                continue
+            state = decoded_states.get(_build_node_key(node)) or {}
+            if bool(state.get('selected')) and int(state.get('points') or 0) > 0:
+                return True
+        return False
+
+    @staticmethod
+    def _decoded_states_have_apex_points(decoder_nodes, decoded_states):
+        if not decoder_nodes or not decoded_states:
+            return False
+        for node in decoder_nodes:
+            if not isinstance(node, dict):
+                continue
+            if not node.get('is_apex_talent'):
+                continue
+            state = decoded_states.get(_build_node_key(node)) or {}
+            if bool(state.get('selected')) and int(state.get('points') or 0) > 0:
+                return True
+        return False
 
     @staticmethod
     def _prefer_structured_nodes_when_build_code_looks_stale(decoded_states, selected_nodes, decoder_nodes, class_name='', spec_name=''):

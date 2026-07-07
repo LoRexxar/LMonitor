@@ -109,6 +109,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                                 'stats_crawl_status': stats_status,
                                 'last_updated': timezone.now(),
                             }
+                            self._preserve_complete_talents_when_new_payload_is_downgrade(existing, defaults, class_name, spec_name)
                             if existing:
                                 for field, value in defaults.items():
                                     setattr(existing, field, value)
@@ -364,6 +365,48 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             profile.talents_json = self._normalize_talent_nodes(row.get('talents_json'), profile.class_name, profile.spec_name)
         if row.get('gear_json') and not profile.gear_json:
             profile.gear_json = self._normalize_gear_list(row.get('gear_json'))
+
+    @classmethod
+    def _preserve_complete_talents_when_new_payload_is_downgrade(cls, existing, defaults, class_name, spec_name):
+        """Keep older complete structured talents when a refresh payload regresses.
+
+        Raider.IO/ranking refreshes may contain a valid build code but a stale
+        structured talents list that is missing 12.1 apex nodes. If saved as-is,
+        the next render can lose the previous complete structured state. Preserve
+        the old talents_json only when it has current-spec apex points and the new
+        structured payload does not; keep the newer build code because it can be
+        decoded by the service with the compatible metadata version.
+        """
+        if not existing or not isinstance(defaults, dict):
+            return False
+        old_talents = getattr(existing, 'talents_json', None)
+        new_talents = defaults.get('talents_json')
+        if not old_talents or not new_talents:
+            return False
+        if not cls._talents_payload_has_spec_apex_points(old_talents, class_name, spec_name):
+            return False
+        if cls._talents_payload_has_spec_apex_points(new_talents, class_name, spec_name):
+            return False
+        defaults['talents_json'] = old_talents
+        return True
+
+    @staticmethod
+    def _talents_payload_has_spec_apex_points(talents_json, class_name, spec_name):
+        try:
+            payload = TalentBuildCodeService.build_full_payload(
+                class_name=class_name,
+                spec_name=spec_name,
+                talent_build_code='',
+                talents_json=talents_json,
+            )
+        except Exception:
+            return False
+        for node in payload or []:
+            if not isinstance(node, dict) or not node.get('is_apex_talent'):
+                continue
+            if int(node.get('points') or 0) > 0:
+                return True
+        return False
 
     def _enrich_profile_model_from_raiderio(self, profile):
         char_data = self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
