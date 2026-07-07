@@ -155,7 +155,14 @@
                 if (!key) continue;
                 node.node_key = key;
                 node.points = Number(node.points || 0);
-                node.selected = !!node.selected || node.points > 0;
+                // 保留后端传来的 purchased 字段（默认 true 表示普通天赋）
+                if (node.purchased === undefined) node.purchased = true;
+                // 赠送天赋（purchased=false）即使 points=0 也要保持 selected=true
+                if (node.purchased === false) {
+                    node.selected = true;
+                } else {
+                    node.selected = !!node.selected || node.points > 0;
+                }
                 if (node.choice_selection == null) node.choice_selection = 0;
                 node.is_apex_talent = !!node.is_apex_talent;
                 node.point_pool = node.point_pool || (node.is_apex_talent ? 'apex' : (node.tree_type || 'spec'));
