@@ -137,6 +137,7 @@
         indexNodes();
         renderHeader();
         renderStage();
+        activateGrantedTalents(); // 自动点亮赠送天赋
         updateInspector();
         updateUrl(false);
         if (!state.buildCode) {
@@ -179,6 +180,10 @@
                 if (grantedNodeKeys.has(key)) {
                     node.purchased = false;
                     node.selected = true;
+                    // 赠送天赋自动设置为 1 点（如果当前为 0）
+                    if (node.points === 0) {
+                        node.points = 1;
+                    }
                 } else {
                     // 保留后端传来的 purchased 字段（默认 true 表示普通天赋）
                     if (node.purchased === undefined) node.purchased = true;
@@ -199,6 +204,16 @@
                 if (!path.parent_key || !path.child_key) continue;
                 if (!state.parentKeysByChild.has(path.child_key)) state.parentKeysByChild.set(path.child_key, []);
                 state.parentKeysByChild.get(path.child_key).push(path.parent_key);
+            }
+        }
+    }
+
+    function activateGrantedTalents() {
+        // 自动为所有赠送天赋调用 selectNode() 点亮它们
+        for (const [key, node] of state.nodes.entries()) {
+            if (node.purchased === false && node.selected === true && node.points === 0) {
+                // 这是赠送天赋，自动点击它
+                selectNode(node);
             }
         }
     }
@@ -381,7 +396,17 @@
             const row = Number(candidate.row || 0);
             if (row) rows.add(row);
         }
-        return Array.from(rows).sort((a, b) => a - b);
+        const sorted = Array.from(rows).sort((a, b) => a - b);
+        
+        // 合并相邻的 row 值（差值≤10）为同一层级
+        // 例如：4500 和 4501 应该算作同一层
+        const merged = [];
+        for (const row of sorted) {
+            if (merged.length === 0 || row - merged[merged.length - 1] > 10) {
+                merged.push(row);
+            }
+        }
+        return merged;
     }
 
     function nodeLayer(node) {
@@ -390,8 +415,16 @@
         const row = Number(node.row || 0);
         if (!row) return 0;
         const rows = treeRows(treeType);
-        const index = rows.indexOf(row);
-        return index >= 0 ? index + 1 : 0;
+        
+        // 查找最接近的层级代表值
+        let layer = 0;
+        for (let i = 0; i < rows.length; i++) {
+            if (Math.abs(row - rows[i]) <= 10) {
+                layer = i + 1;
+                break;
+            }
+        }
+        return layer;
     }
 
     function pointsInTree(treeType, maxLayer) {
@@ -723,20 +756,31 @@
 
     function updateCounters() {
         const totals = {class: 0, hero: 0, spec: 0, apex: 0};
+        const granted = {class: 0, hero: 0, spec: 0}; // 赠送天赋点数（单独统计）
         let apexMax = 0;
         for (const node of state.nodes.values()) {
             const pool = node.point_pool || (node.is_apex_talent ? 'apex' : (node.tree_type || 'spec'));
             if (totals[pool] == null) totals[pool] = 0;
-            // 赠送天赋不计入点数统计
-            if (node.purchased === false) continue;
-            totals[pool] += Number(node.points || 0);
+            
+            const points = Number(node.points || 0);
+            if (points > 0) {
+                // 赠送天赋单独统计，不计入消耗的点数
+                if (node.purchased === false) {
+                    if (granted[pool] != null) granted[pool] += points;
+                } else {
+                    totals[pool] += points;
+                }
+            }
             if (pool === 'apex') apexMax += nodeMaxPoints(node);
         }
-        els.classPoints.textContent = totals.class || 0;
-        els.heroPoints.textContent = totals.hero || 0;
-        els.specPoints.textContent = totals.spec || 0;
+        // 显示时包含赠送天赋的点数
+        els.classPoints.textContent = (totals.class || 0) + (granted.class || 0);
+        els.heroPoints.textContent = (totals.hero || 0) + (granted.hero || 0);
+        els.specPoints.textContent = (totals.spec || 0) + (granted.spec || 0);
         if (els.apexPoints) els.apexPoints.textContent = apexMax ? `${totals.apex || 0}/${apexMax}` : '0/4';
-        els.totalPoints.textContent = `${(totals.class || 0) + (totals.spec || 0)}/${TALENT_TREE_RULES.maxPointsPerTree * 2}`;
+        // 总点数也包含赠送天赋
+        const totalSpent = (totals.class || 0) + (totals.spec || 0) + (granted.class || 0) + (granted.spec || 0);
+        els.totalPoints.textContent = `${totalSpent}/${TALENT_TREE_RULES.maxPointsPerTree * 2}`;
     }
 
     function updateInspector() {

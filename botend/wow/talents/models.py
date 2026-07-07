@@ -56,6 +56,7 @@ class TalentNodeModel:
     choice_options: list[dict] = field(default_factory=list)
     source: str = 'unknown'
     parents: list[int] = field(default_factory=list)
+    flags: int = 0
     layout_row: int | None = None
     layout_column: int | None = None
     db2_subtree_id: int = 0
@@ -110,6 +111,7 @@ class TalentNodeModel:
             choice_options=[dict(option) for option in (raw.get('choice_options') or raw.get('choiceOptions') or []) if isinstance(option, dict)],
             source=raw.get('source', 'unknown'),
             parents=list(raw.get('parents') or raw.get('parents_json') or []),
+            flags=int(raw.get('flags') or 0),
             layout_row=_to_optional_int(raw.get('layout_row')),
             layout_column=_to_optional_int(raw.get('layout_column')),
             db2_subtree_id=int(raw.get('db2_subtree_id') or 0),

@@ -60,6 +60,7 @@ class TalentNodeLayoutModel:
     anchor_bottom_y: int = 0
     selected: bool = False
     parents: list[int] = field(default_factory=list)
+    flags: int = 0
 
     def to_dict(self):
         return asdict(self)
@@ -380,6 +381,7 @@ def _build_tree_panel_layout(tree, panel_x, panel_y, width, height, grid_columns
             anchor_bottom_y=node_y + node_size,
             selected=bool(node_key and node_key in selected_nodes) or node.selected or node.points > 0,
             parents=list(node.parents or []),
+            flags=node.flags,
         )
         node_layouts.append(node_layout)
         _register_node_identity(identity_lookup, node, node_layout)

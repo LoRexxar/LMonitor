@@ -68,6 +68,7 @@ def normalize_talent_payload(talents, class_name='', spec_name=''):
             'description': raw.get('description') or '',
             'description_zh': raw.get('description_zh') or '',
             'source': raw.get('source', 'unknown'),
+            'flags': raw.get('flags', 0),
         })
 
     return {
