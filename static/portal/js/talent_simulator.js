@@ -149,20 +149,47 @@
     function indexNodes() {
         state.nodes.clear();
         state.parentKeysByChild.clear();
+        
+        // 步骤1: 先识别赠送天赋（只在职业树中，flags=8 且 parents=[]）
+        const grantedNodeKeys = new Set();
+        
+        for (const tree of state.payload.render_model?.trees || []) {
+            for (const node of tree.nodes || []) {
+                const treeType = node.tree_type || 'spec';
+                const parents = node.parents || [];
+                const flags = Number(node.flags || 0);
+                
+                // 赠送天赋的特征：职业树 且 flags=8 且无前置
+                if (treeType === 'class' && flags === 8 && parents.length === 0) {
+                    const key = node.node_key || nodeKey(node);
+                    if (key) grantedNodeKeys.add(key);
+                }
+            }
+        }
+        
+        // 步骤2: 索引所有节点，并自动标记赠送天赋
         for (const tree of state.payload.render_model?.trees || []) {
             for (const node of tree.nodes || []) {
                 const key = node.node_key || nodeKey(node);
                 if (!key) continue;
                 node.node_key = key;
                 node.points = Number(node.points || 0);
-                // 保留后端传来的 purchased 字段（默认 true 表示普通天赋）
-                if (node.purchased === undefined) node.purchased = true;
-                // 赠送天赋（purchased=false）即使 points=0 也要保持 selected=true
-                if (node.purchased === false) {
+                
+                // 自动识别赠送天赋
+                if (grantedNodeKeys.has(key)) {
+                    node.purchased = false;
                     node.selected = true;
                 } else {
-                    node.selected = !!node.selected || node.points > 0;
+                    // 保留后端传来的 purchased 字段（默认 true 表示普通天赋）
+                    if (node.purchased === undefined) node.purchased = true;
+                    // 赠送天赋（purchased=false）即使 points=0 也要保持 selected=true
+                    if (node.purchased === false) {
+                        node.selected = true;
+                    } else {
+                        node.selected = !!node.selected || node.points > 0;
+                    }
                 }
+                
                 if (node.choice_selection == null) node.choice_selection = 0;
                 node.is_apex_talent = !!node.is_apex_talent;
                 node.point_pool = node.point_pool || (node.is_apex_talent ? 'apex' : (node.tree_type || 'spec'));

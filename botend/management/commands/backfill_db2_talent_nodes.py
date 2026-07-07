@@ -315,6 +315,7 @@ class Command(BaseCommand):
                             'db2_tree_id': db2_tree_id,
                             'db2_component_id': db2_component_id,
                             'display_spell_id': display_spell_id,
+                            'flags': node_info['flags'],
                             'last_updated': now,
                         }
                         existing_row = existing_by_key.get(check_key)

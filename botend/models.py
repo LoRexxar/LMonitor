@@ -1053,6 +1053,7 @@ class WowTalentNodeMetadata(models.Model):
     db2_subtree_id = models.IntegerField(default=0, blank=True)
     db2_tree_id = models.IntegerField(null=True, blank=True)
     db2_component_id = models.IntegerField(default=0, blank=True)
+    flags = models.IntegerField(default=0, help_text='DB2 TraitNode.Flags；Flags=8 表示赠送天赋（默认授予，无法取消）')
 
     class Meta:
         db_table = 'wow_talent_node_metadata'

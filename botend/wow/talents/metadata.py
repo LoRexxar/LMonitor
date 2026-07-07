@@ -383,6 +383,7 @@ class TalentMetadataProvider:
             'db2_subtree_id': getattr(row, 'db2_subtree_id', 0) or 0,
             'db2_tree_id': getattr(row, 'db2_tree_id', None),
             'db2_component_id': getattr(row, 'db2_component_id', 0) or 0,
+            'flags': getattr(row, 'flags', 0) or 0,
             'source': getattr(row, 'source', '') or '',
             'selected': False,
             'points': 0,
