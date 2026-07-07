@@ -1256,6 +1256,92 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(merged[0]['name'], '天神下凡')
         self.assertEqual(merged[0]['spell_id'], 107574)
 
+    def test_prefer_structured_when_build_code_loses_some_hero_points(self):
+        structured_nodes = [
+            {'tree_type': 'hero', 'node_id': 117400, 'talent_id': 117400, 'spell_id': 434969, 'name': '闪电打击', 'points': 1},
+            {'tree_type': 'hero', 'node_id': 136070, 'talent_id': 136070, 'spell_id': 275336, 'name': '狂雷奔涌', 'points': 1},
+            {'tree_type': 'hero', 'node_id': 136069, 'talent_id': 136069, 'spell_id': 1270723, 'name': '导电', 'points': 1},
+            {'tree_type': 'hero', 'node_id': 136068, 'talent_id': 136068, 'spell_id': 1270724, 'name': '电容', 'points': 1},
+        ]
+        decoder_nodes = [
+            {'tree_type': 'hero', 'node_id': 117400, 'talent_id': 94803, 'spell_id': 434969, 'name': '闪电打击'},
+            {'tree_type': 'hero', 'node_id': 136070, 'talent_id': 109811, 'spell_id': 275336, 'name': '狂雷奔涌'},
+            {'tree_type': 'hero', 'node_id': 136069, 'talent_id': 109810, 'spell_id': 1270723, 'name': '导电'},
+            {'tree_type': 'hero', 'node_id': 136068, 'talent_id': 109809, 'spell_id': 1270724, 'name': '电容'},
+        ]
+        decoded_states = {
+            'hero:117400': {'selected': True, 'points': 0},
+            'hero:136070': {'selected': True, 'points': 1},
+            'hero:136069': {'selected': True, 'points': 1},
+            'hero:136068': {'selected': True, 'points': 1},
+        }
+
+        merged_states = TalentBuildCodeService._prefer_structured_nodes_when_build_code_looks_stale(
+            decoded_states,
+            structured_nodes,
+            decoder_nodes,
+            class_name='Warrior',
+            spec_name='Fury',
+        )
+
+        self.assertEqual(sum(int(state.get('points') or 0) for state in merged_states.values()), 4)
+        self.assertEqual(merged_states['hero:117400']['points'], 1)
+
+    def test_simulator_merge_preserves_decoded_choice_option_state(self):
+        full_nodes = [
+            {
+                'tree_type': 'class',
+                'node_id': 112210,
+                'talent_id': 90348,
+                'spell_id': 1271925,
+                'display_spell_id': 1271925,
+                'name': '无所畏惧',
+                'max_points': 1,
+                'choice_options': [
+                    {'node_id': 112210, 'talent_id': 90348, 'spell_id': 1271925, 'display_spell_id': 1271925, 'name': '无所畏惧'},
+                    {'node_id': 112211, 'talent_id': 90348, 'spell_id': 384100, 'display_spell_id': 384100, 'name': '狂暴之吼'},
+                ],
+            },
+            {
+                'tree_type': 'spec',
+                'node_id': 112284,
+                'talent_id': 90415,
+                'spell_id': 227847,
+                'display_spell_id': 227847,
+                'name': '剑刃风暴',
+                'max_points': 1,
+                'choice_options': [
+                    {'node_id': 112284, 'talent_id': 90415, 'spell_id': 227847, 'display_spell_id': 227847, 'name': '剑刃风暴'},
+                    {'node_id': 112285, 'talent_id': 90415, 'spell_id': 107574, 'display_spell_id': 107574, 'name': '天神下凡'},
+                ],
+            },
+        ]
+        decoded_states = {
+            'class:112210': {
+                'selected': True,
+                'points': 1,
+                'is_choice_node': True,
+                'choice_selection': 1,
+            },
+            'spec:112284': {
+                'selected': True,
+                'points': 1,
+                'is_choice_node': True,
+                'choice_selection': 1,
+            },
+        }
+
+        merged = _merge_nodes_for_simulator(full_nodes, decoded_states=decoded_states)
+
+        class_choice = merged[0]
+        spec_choice = merged[1]
+        self.assertEqual(class_choice['choice_selection'], 1)
+        self.assertEqual(class_choice['name'], '狂暴之吼')
+        self.assertEqual(class_choice['spell_id'], 384100)
+        self.assertEqual(spec_choice['choice_selection'], 1)
+        self.assertEqual(spec_choice['name'], '天神下凡')
+        self.assertEqual(spec_choice['spell_id'], 107574)
+
 
 class SpecStatsTalentRenderTests(SimpleTestCase):
     def test_enchant_popularity_groups_by_slot_and_formats_display_label(self):

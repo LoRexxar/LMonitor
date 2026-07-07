@@ -41,6 +41,19 @@ def _validate_spec(class_name, spec_name):
         raise Http404
 
 
+def _load_profile_for_simulator(profile_id, class_name, spec_name):
+    profile_id = _to_int(profile_id)
+    if not profile_id:
+        return None
+    from botend.models import PlayerSpecTopPlayer
+
+    return PlayerSpecTopPlayer.objects.filter(
+        id=profile_id,
+        class_name=class_name,
+        spec_name=spec_name,
+    ).first()
+
+
 def _to_int(value, default=0):
     try:
         return int(value)
@@ -131,6 +144,23 @@ def _choice_selection_for_node(node, decoded_state):
         return 0
 
 
+def _choice_selection_from_payload(node):
+    options = node.get('choice_options') or []
+    explicit = node.get('choice_selection')
+    if explicit is not None:
+        selected = _to_int(explicit, 0)
+        if 0 <= selected < len(options):
+            return selected
+    node_spell_ids = {_to_int(node.get('spell_id'), 0), _to_int(node.get('display_spell_id'), 0)}
+    node_names = {str(node.get('name') or '').strip(), str(node.get('name_zh') or '').strip()}
+    for index, option in enumerate(options):
+        option_spell_ids = {_to_int(option.get('spell_id'), 0), _to_int(option.get('display_spell_id'), 0)}
+        option_names = {str(option.get('name') or '').strip(), str(option.get('name_zh') or '').strip()}
+        if node_spell_ids.intersection(option_spell_ids) or (node_names - {''}).intersection(option_names - {''}):
+            return index
+    return 0
+
+
 def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subtree=None):
     """把完整元数据转为模拟器渲染节点。
 
@@ -146,12 +176,18 @@ def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subt
                 continue
         payload = dict(node)
         key = _build_node_key(payload)
-        state = decoded_states.get(key) or {}
-        points = _to_int(state.get('points'), 0)
-        payload['points'] = points
-        payload['selected'] = bool(state.get('selected') or points > 0)
+        state = decoded_states.get(key)
+        if state is None:
+            points = _to_int(payload.get('points'), 0)
+            payload['points'] = points
+            payload['selected'] = bool(payload.get('selected') or points > 0)
+            state = {}
+        else:
+            points = _to_int(state.get('points'), 0)
+            payload['points'] = points
+            payload['selected'] = bool(state.get('selected') or points > 0)
         if payload.get('choice_options'):
-            selected_index = _choice_selection_for_node(payload, state)
+            selected_index = _choice_selection_for_node(payload, state) if state else _choice_selection_from_payload(payload)
             payload['choice_selection'] = selected_index
             options = payload.get('choice_options') or []
             if 0 <= selected_index < len(options) and payload['selected']:
@@ -235,8 +271,13 @@ def _active_hero_subtree(full_nodes, decoded_states=None, requested=None):
     return 0
 
 
-def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=None, version_key=''):
+def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=None, version_key='', profile_id=None):
     _validate_spec(class_name, spec_name)
+    profile = _load_profile_for_simulator(profile_id, class_name, spec_name)
+    profile_talents = getattr(profile, 'talents_json', None) if profile else None
+    profile_build_code = str(getattr(profile, 'talent_build_code', '') or '').strip() if profile else ''
+    build_code = str(build_code or profile_build_code or '').strip()
+
     talent_version = TalentVersionResolver.resolve(version_key=version_key, usage=TalentVersionResolver.USAGE_SIMULATOR)
     provider = TalentMetadataProvider(talent_version=talent_version, version_key=version_key, usage=TalentVersionResolver.USAGE_SIMULATOR)
     full_nodes = _filter_hero_subtrees_for_spec(
@@ -246,8 +287,23 @@ def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=N
     )
     decoder_nodes = provider.get_decoder_node_list(class_name) if build_code else []
     decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if build_code and decoder_nodes else {}
-    active_subtree = _active_hero_subtree(full_nodes, decoded_states=decoded_states, requested=hero_subtree)
-    merged_nodes = _merge_nodes_for_simulator(full_nodes, decoded_states=decoded_states, active_hero_subtree=active_subtree)
+    if profile_talents:
+        merged_nodes = TalentBuildCodeService.build_full_payload(
+            class_name=class_name,
+            spec_name=spec_name,
+            talent_build_code=build_code,
+            talents_json=profile_talents,
+            talent_version=talent_version,
+            version_key=version_key,
+            usage=TalentVersionResolver.USAGE_SIMULATOR,
+        )
+        merged_nodes = [node for node in merged_nodes if not TalentBuildCodeService._extract_build_code_from_node(node)]
+        full_nodes = _filter_hero_subtrees_for_spec(merged_nodes, class_name, spec_name)
+        active_subtree = _active_hero_subtree(full_nodes, decoded_states=None, requested=hero_subtree)
+        merged_nodes = _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subtree=active_subtree)
+    else:
+        active_subtree = _active_hero_subtree(full_nodes, decoded_states=decoded_states, requested=hero_subtree)
+        merged_nodes = _merge_nodes_for_simulator(full_nodes, decoded_states=decoded_states, active_hero_subtree=active_subtree)
     view_model = build_talent_view_model(merged_nodes, class_name=class_name, spec_name=spec_name)
     render_model = _decorate_render_model(view_model.get('render_model') or {})
     return {
@@ -287,8 +343,16 @@ class PortalTalentSimulatorAPIView(View):
         build_code = request.GET.get('code') or ''
         hero_subtree = request.GET.get('hero_subtree') or request.GET.get('hero') or ''
         version_key = request.GET.get('version') or request.GET.get('version_key') or ''
+        profile_id = request.GET.get('profile_id') or request.GET.get('profile') or ''
         try:
-            payload = build_simulator_payload(class_name, spec_name, build_code=build_code, hero_subtree=hero_subtree, version_key=version_key)
+            payload = build_simulator_payload(
+                class_name,
+                spec_name,
+                build_code=build_code,
+                hero_subtree=hero_subtree,
+                version_key=version_key,
+                profile_id=profile_id,
+            )
         except Http404:
             return JsonResponse({'success': False, 'error': '未知职业或专精'}, status=404)
         except ValueError as exc:

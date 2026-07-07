@@ -315,6 +315,8 @@ class SpecStatsService:
             'realm': player.realm,
             'region': player.region,
             'score': player.score,
+            'class_name': player.class_name,
+            'spec_name': player.spec_name,
             'faction': player.faction,
             'faction_cn': faction_cn,
             'race': player.race,

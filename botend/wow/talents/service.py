@@ -177,12 +177,7 @@ class TalentBuildCodeService:
                 full_nodes = fallback['full_nodes']
                 decoder_nodes = fallback['decoder_nodes']
                 decoded_states = fallback['decoded_states']
-        if (
-            build_code
-            and decoded_states
-            and selected_nodes
-            and not cls._decoded_states_have_spec_apex_points(full_nodes, decoder_nodes, decoded_states)
-        ):
+        if build_code and decoded_states and selected_nodes:
             decoded_states = cls._prefer_structured_nodes_when_build_code_looks_stale(
                 decoded_states,
                 selected_nodes,
@@ -435,7 +430,7 @@ class TalentBuildCodeService:
         # concrete structured nodes are missing/zero by alias (node-order drift).
         missing_structured_threshold = max(5, int(selected_total * 0.1)) if selected_total else 5
         has_structured_misalignment = missing_structured_points >= missing_structured_threshold
-        if not ((selected_hero > 0 and decoded_hero == 0) or (selected_total and decoded_total < selected_total - 5) or missing_multi_point_nodes or has_structured_misalignment):
+        if not ((selected_hero > 0 and decoded_hero < selected_hero) or (selected_total and decoded_total < selected_total - 5) or missing_multi_point_nodes or has_structured_misalignment):
             return decoded_states
 
         structured_states = {

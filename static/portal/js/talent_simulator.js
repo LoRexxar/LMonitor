@@ -40,6 +40,7 @@
         specName: page.dataset.initialSpec || 'Blood',
         buildCode: new URLSearchParams(location.search).get('code') || '',
         heroSubtree: new URLSearchParams(location.search).get('hero') || '',
+        profileId: new URLSearchParams(location.search).get('profile_id') || new URLSearchParams(location.search).get('profile') || '',
         payload: null,
         nodes: new Map(),
         parentKeysByChild: new Map(),
@@ -85,6 +86,7 @@
                 state.versionKey = els.versionSelect.value;
                 state.buildCode = '';
                 state.heroSubtree = '';
+                state.profileId = '';
                 loadTree();
             });
         }
@@ -97,6 +99,7 @@
             state.specName = (cls?.specs || [])[0]?.spec_name || '';
             state.buildCode = '';
             state.heroSubtree = '';
+            state.profileId = '';
             renderSpecSelect();
             loadTree();
         });
@@ -104,6 +107,7 @@
             state.specName = els.specSelect.value;
             state.buildCode = '';
             state.heroSubtree = '';
+            state.profileId = '';
             loadTree();
         });
     }
@@ -121,6 +125,7 @@
         if (state.versionKey) params.set('version', state.versionKey);
         if (state.buildCode) params.set('code', state.buildCode);
         if (state.heroSubtree) params.set('hero', state.heroSubtree);
+        if (state.profileId) params.set('profile_id', state.profileId);
         const res = await fetch(`/portal/api/talents/simulator/?${params.toString()}`);
         const data = await res.json();
         if (!data.success) {
@@ -134,7 +139,11 @@
         renderStage();
         updateInspector();
         updateUrl(false);
-        scheduleEncode();
+        if (!state.buildCode) {
+            scheduleEncode();
+        } else {
+            els.codeOutput.textContent = state.buildCode;
+        }
     }
 
     function indexNodes() {
@@ -662,6 +671,7 @@
         }
         node.points = Math.max(0, Math.min(max, Number(node.points || 0) + delta));
         node.selected = node.points > 0;
+        state.profileId = '';
         if (pruneInvalidSelections()) toast('已清除失去前置条件的后续天赋');
         updateInspector();
         renderStage();
@@ -751,6 +761,7 @@
         if (!option) return;
         const wasSelected = Number(node.points || 0) > 0;
         node.choice_selection = index;
+        state.profileId = '';
         node.display_spell_id = option.display_spell_id || option.spell_id || node.display_spell_id;
         node.spell_id = option.spell_id || node.spell_id;
         node.icon_url = option.icon_url || node.icon_url;
@@ -831,6 +842,7 @@
         const params = new URLSearchParams({class: state.className, spec: state.specName});
         if (state.versionKey) params.set('version', state.versionKey);
         if (state.heroSubtree) params.set('hero', state.heroSubtree);
+        if (state.profileId) params.set('profile_id', state.profileId);
         if (state.buildCode) params.set('code', state.buildCode);
         const url = `/portal/talents/?${params.toString()}`;
         history[push ? 'pushState' : 'replaceState']({}, '', url);
@@ -859,16 +871,19 @@
 
     els.importBtn.addEventListener('click', () => {
         state.buildCode = extractCode(els.importInput.value);
+        state.profileId = '';
         loadTree();
     });
     els.importInput.addEventListener('keydown', event => {
         if (event.key === 'Enter') {
             state.buildCode = extractCode(els.importInput.value);
+            state.profileId = '';
             loadTree();
         }
     });
     els.resetBtn.addEventListener('click', () => {
         state.buildCode = '';
+        state.profileId = '';
         for (const node of state.nodes.values()) {
             resetNodeSelection(node);
         }
