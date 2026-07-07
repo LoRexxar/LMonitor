@@ -901,24 +901,6 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
 
         self.assertEqual(decoded['hero_anchor:137002']['points'], 4)
 
-    def test_metadata_marks_shared_hero_apex_as_point_pool(self):
-        base_node = {
-            'tree_type': 'hero',
-            'talent_id': 110353,
-            'node_id': 136915,
-            'db2_subtree_id': 0,
-            'max_points': 1,
-        }
-        options = [
-            {'talent_id': 110353, 'node_id': 136915, 'max_points': 1},
-            {'talent_id': 110353, 'node_id': 136916, 'max_points': 2},
-            {'talent_id': 110353, 'node_id': 136917, 'max_points': 1},
-        ]
-        concrete_hero_node = dict(base_node, db2_subtree_id=31)
-
-        self.assertTrue(TalentMetadataProvider._is_apex_entry_group(base_node, options))
-        self.assertFalse(TalentMetadataProvider._is_apex_entry_group(concrete_hero_node, options))
-
     def test_decoder_node_list_excludes_content_script_hero_anchor_noise(self):
         self.assertFalse(TalentMetadataProvider._include_in_decoder_node_list({
             'tree_type': 'hero_anchor',
@@ -933,8 +915,6 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             'node_id': 125051,
             'name': '天神御师',
             'db2_subtree_id': 64,
-            'row': 7350,
-            'column': 12600,
         }))
         self.assertTrue(TalentMetadataProvider._include_in_decoder_node_list({
             'tree_type': 'spec',
@@ -1122,45 +1102,6 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(apex_node['max_points'], 4)
         self.assertEqual(spec_tree['point_pools']['apex']['points'], 4)
         self.assertEqual(spec_tree['point_pools']['apex']['max_points'], 4)
-
-    @patch('botend.wow.talents.service.TalentMetadataProvider')
-    def test_build_full_payload_keeps_shared_hero_apex_nodes_in_active_subtree(self, mock_provider_cls):
-        full_nodes = [
-            {'tree_type': 'hero', 'node_id': 2001, 'talent_id': 2001, 'spell_id': 3001, 'name': '萨莱茵节点', 'db2_subtree_id': 31, 'points': 0, 'max_points': 1},
-            {'tree_type': 'hero', 'node_id': 2002, 'talent_id': 2002, 'spell_id': 3002, 'name': '死亡使者节点', 'db2_subtree_id': 33, 'points': 0, 'max_points': 1},
-            {'tree_type': 'hero', 'node_id': 2101, 'talent_id': 110353, 'spell_id': 1264351, 'name': '午夜舞步', 'db2_subtree_id': 0, 'points': 0, 'max_points': 1},
-            {'tree_type': 'hero', 'node_id': 2102, 'talent_id': 110354, 'spell_id': 1264352, 'name': '禁断知识', 'db2_subtree_id': 0, 'points': 0, 'max_points': 1},
-            {'tree_type': 'hero', 'node_id': 2103, 'talent_id': 110400, 'spell_id': 1264398, 'name': '霜巢之眷', 'db2_subtree_id': 0, 'points': 0, 'max_points': 1},
-        ]
-        decoder_nodes = list(full_nodes)
-        decoded_states = {
-            'hero:2001': {'selected': True, 'points': 1},
-            'hero:2002': {'selected': False, 'points': 0},
-            'hero:2101': {'selected': True, 'points': 1},
-            'hero:2102': {'selected': True, 'points': 1},
-            'hero:2103': {'selected': True, 'points': 1},
-        }
-        mock_provider_cls.return_value.get_full_tree_nodes.return_value = full_nodes
-        mock_provider_cls.return_value.get_decoder_node_list.return_value = decoder_nodes
-        mock_provider_cls.return_value.merge_into_node.side_effect = (
-            lambda node, class_name='', spec_name='': dict(node)
-        )
-
-        with patch('botend.wow.talents.service.TalentBuildCodeDecoder.decode_node_states', return_value=decoded_states):
-            payload = TalentBuildCodeService.build_full_payload(
-                class_name='DeathKnight',
-                spec_name='Blood',
-                talent_build_code='fake-build-code',
-                talents_json=[],
-            )
-
-        hero_nodes = [node for node in payload if node.get('tree_type') == 'hero']
-        self.assertEqual([node['name'] for node in hero_nodes], ['萨莱茵节点', '午夜舞步', '禁断知识', '霜巢之眷'])
-        for name in ['午夜舞步', '禁断知识', '霜巢之眷']:
-            node = next(item for item in hero_nodes if item['name'] == name)
-            self.assertEqual(node['db2_subtree_id'], 0)
-            self.assertTrue(node['selected'])
-            self.assertEqual(node['points'], 1)
 
     @patch('botend.wow.talents.service.TalentMetadataProvider')
     def test_build_api_view_keeps_profile_build_code_when_structured_nodes_lack_apex(self, mock_provider_cls):

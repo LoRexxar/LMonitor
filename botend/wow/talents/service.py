@@ -187,38 +187,27 @@ class TalentBuildCodeService:
             )
 
         # --- hero subtree filtering for RENDERING (not decoding) ---
-        # The rendering only shows the active hero subtree's nodes.  Hero apex
-        # nodes use db2_subtree_id=0 and are shared by every concrete subtree, so
-        # they must not participate in active-subtree selection and must always
-        # survive the filter.
+        # The rendering only shows the active hero subtree's nodes.
         # When build_code is available, use decoded states to determine active subtree
         # (more reliable than old talents_json which may have stale subtree_id=0).
         render_nodes = full_nodes
         if render_nodes:
             hero_by_subtree = defaultdict(list)
-            shared_hero_nodes = []
             for node in render_nodes:
                 if (node.get('tree_type') or 'spec') == 'hero':
                     subtree = node.get('db2_subtree_id') or 0
-                    if subtree > 0:
-                        hero_by_subtree[subtree].append(node)
-                    else:
-                        shared_hero_nodes.append(node)
+                    hero_by_subtree[subtree].append(node)
             if len(hero_by_subtree) > 1:
                 active_subtree = None
                 if decoded_states:
-                    # Determine active subtree from decoded states. Shared apex
-                    # nodes (subtree_id=0) are not a selectable hero subtree.
+                    # Determine active subtree from decoded states
                     subtree_points = defaultdict(int)
                     for node in decoder_nodes:
                         if (node.get('tree_type') or 'spec') == 'hero':
-                            subtree = node.get('db2_subtree_id') or 0
-                            if subtree <= 0:
-                                continue
                             key = _build_node_key(node)
                             state = decoded_states.get(key)
                             if state and state.get('selected'):
-                                subtree_points[subtree] += state.get('points', 0)
+                                subtree_points[node.get('db2_subtree_id', 0)] += state.get('points', 0)
                     if subtree_points:
                         active_subtree = max(subtree_points, key=subtree_points.get)
                 if active_subtree is None and selected_nodes:
@@ -227,9 +216,8 @@ class TalentBuildCodeService:
                     for node in render_nodes:
                         if (node.get('tree_type') or 'spec') == 'hero':
                             nid = node.get('node_id')
-                            subtree = node.get('db2_subtree_id') or 0
-                            if nid and subtree > 0:
-                                node_id_to_subtree[nid] = subtree
+                            if nid:
+                                node_id_to_subtree[nid] = node.get('db2_subtree_id') or 0
                     subtree_points = defaultdict(int)
                     for sn in selected_nodes:
                         if (sn.get('tree_type') or 'spec') == 'hero':
@@ -244,7 +232,6 @@ class TalentBuildCodeService:
                 render_nodes = [
                     n for n in render_nodes
                     if (n.get('tree_type') or 'spec') != 'hero'
-                    or (n.get('db2_subtree_id') or 0) == 0
                     or (n.get('db2_subtree_id') or 0) == active_subtree
                 ]
 

@@ -430,9 +430,7 @@ class TalentMetadataProvider:
         TraitNodeEntry，MaxRanks 常见为 1+2+1=4。它在 build code 中仍是
         一个节点的点数池，不应按二选一写 choice bits。
         """
-        if (base_node.get('tree_type') or 'spec') not in ('class', 'spec', 'hero'):
-            return False
-        if (base_node.get('tree_type') or 'spec') == 'hero' and int(base_node.get('db2_subtree_id') or 0) != 0:
+        if (base_node.get('tree_type') or 'spec') not in ('class', 'spec'):
             return False
         if len(option_nodes or []) < 3:
             return False
