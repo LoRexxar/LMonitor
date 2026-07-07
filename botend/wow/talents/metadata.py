@@ -355,7 +355,7 @@ class TalentMetadataProvider:
 
     def _resolve_text(self, resolver, text, spell_id):
         text = text or ''
-        if '$' not in text:
+        if '$' not in text and '?' not in text:
             return ' '.join(text.split()).strip()
         return resolver.resolve(text, spell_id)
 
