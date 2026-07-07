@@ -51,6 +51,7 @@ class TalentNodeModel:
     row: int | None = None
     column: int | None = None
     selected: bool = False
+    purchased: bool | None = None
     is_choice_node: bool = False
     choice_options: list[dict] = field(default_factory=list)
     source: str = 'unknown'
@@ -104,6 +105,7 @@ class TalentNodeModel:
             row=_to_optional_int(raw.get('row') if raw.get('row') is not None else raw.get('tier')),
             column=_to_optional_int(raw.get('column')),
             selected=bool(raw.get('selected', points > 0)),
+            purchased=raw.get('purchased') if 'purchased' in raw else None,
             is_choice_node=bool(raw.get('is_choice_node') or raw.get('isChoiceNode')),
             choice_options=[dict(option) for option in (raw.get('choice_options') or raw.get('choiceOptions') or []) if isinstance(option, dict)],
             source=raw.get('source', 'unknown'),
