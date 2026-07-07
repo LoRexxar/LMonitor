@@ -164,15 +164,18 @@ def _choice_selection_from_payload(node):
 def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subtree=None):
     """把完整元数据转为模拟器渲染节点。
 
-    不走角色详情的默认“只保留一棵英雄树”策略，而是由前端传入/导入串推导
+    不走角色详情的默认"只保留一棵英雄树"策略，而是由前端传入/导入串推导
     active_hero_subtree。这样页面可以在两个英雄树之间稳定切换。
+    
+    Hero apex nodes (subtree_id=0) are always included as they are shared.
     """
     decoded_states = decoded_states or {}
     merged = []
     for node in full_nodes or []:
         if (node.get('tree_type') or 'spec') == 'hero':
             subtree = node.get('db2_subtree_id') or 0
-            if not active_hero_subtree or subtree != active_hero_subtree:
+            # Hero apex nodes (subtree_id=0) are always included
+            if subtree != 0 and active_hero_subtree and subtree != active_hero_subtree:
                 continue
         payload = dict(node)
         key = _build_node_key(payload)
@@ -216,6 +219,8 @@ def _filter_hero_subtrees_for_spec(full_nodes, class_name, spec_name):
     DB2 元数据按职业树会带出该职业全部 hero subtree；但游戏内每个专精只能
     在两棵英雄树中二选一。这里用常量中的专精关系按 subtree canonical name
     过滤，避免页面出现 3 选 1。
+    
+    Hero apex nodes (db2_subtree_id=0) are always included as they are shared.
     """
     allowed_names = set(spec_hero_subtree_names(class_name, spec_name))
     if not allowed_names:
@@ -225,7 +230,12 @@ def _filter_hero_subtrees_for_spec(full_nodes, class_name, spec_name):
         if (node.get('tree_type') or 'spec') != 'hero':
             filtered.append(node)
             continue
-        subtree_name = hero_subtree_name_by_id(node.get('db2_subtree_id'))
+        # Hero apex nodes (db2_subtree_id=0) are always included
+        subtree_id = node.get('db2_subtree_id') or 0
+        if subtree_id == 0:
+            filtered.append(node)
+            continue
+        subtree_name = hero_subtree_name_by_id(subtree_id)
         if subtree_name in allowed_names:
             filtered.append(node)
     return filtered
@@ -233,10 +243,14 @@ def _filter_hero_subtrees_for_spec(full_nodes, class_name, spec_name):
 
 def _hero_subtrees(full_nodes):
     groups = defaultdict(list)
+    apex_nodes = []  # subtree_id=0 的顶峰节点，所有子树共享
     for node in full_nodes or []:
         if (node.get('tree_type') or 'spec') == 'hero':
             subtree = node.get('db2_subtree_id') or 0
-            groups[subtree].append(node)
+            if subtree > 0:
+                groups[subtree].append(node)
+            else:
+                apex_nodes.append(node)
     payload = []
     for subtree_id, nodes in sorted(groups.items(), key=lambda item: item[0]):
         subtree_name = hero_subtree_name_by_id(subtree_id)
@@ -245,7 +259,7 @@ def _hero_subtrees(full_nodes):
             'id': subtree_id,
             'name': subtree_name or first_named.get('name') or f'Hero Subtree {subtree_id}',
             'title': hero_subtree_name_zh(subtree_name) or first_named.get('name') or f'英雄树 {subtree_id}',
-            'node_count': len(nodes),
+            'node_count': len(nodes) + len(apex_nodes),  # Include shared apex nodes
         })
     return payload
 

@@ -168,12 +168,19 @@ class TalentMetadataProvider:
             spec_name=spec_name or '',
             source__in=AUTHORITATIVE_TALENT_SOURCES,
             talent_version=version,
-        ).exclude(tree_type='hero_anchor').order_by('tree_type', 'row', 'column', 'node_id', 'spell_id', 'talent_id')
+        ).order_by('tree_type', 'row', 'column', 'node_id', 'spell_id', 'talent_id')
 
         grouped_by_node = {}
         seen_spell_ids = set()
         for row in rows.iterator():
             row_data = self._as_dict(row)
+            # Filter out noise hero_anchor nodes (Ping Cho paintings, farm vegetables, etc.)
+            # but keep real hero talent apex nodes and remap them to 'hero' type
+            if row_data.get('tree_type') == 'hero_anchor':
+                if not self._include_in_decoder_node_list(row_data):
+                    continue
+                # Real hero apex nodes should be rendered as part of the hero tree
+                row_data['tree_type'] = 'hero'
             # Deduplicate by spell_id first - some nodes have different talent_id
             # but the same spell_id (e.g., multiple Battle Stance entries)
             spell_id = row_data.get('spell_id')
@@ -306,16 +313,22 @@ class TalentMetadataProvider:
         world/content scripts (farm vegetables, Ping Cho paintings, etc.). They
         share class/spec labels in the dump but are not encoded in talent import
         strings; if included, every later talent bit shifts and bottom apex nodes
-        decode as unpurchased. Keep real hero anchors only when DB2 ties them to
-        a hero subtree; normal class/spec/hero/apex nodes stay included.
+        decode as unpurchased. Keep real hero anchors only when they have valid
+        talent tree coordinates; normal class/spec/hero/apex nodes stay included.
         """
         if (node.get('tree_type') or '') != 'hero_anchor':
             return True
+        # Real hero apex talents have row/column in talent tree coordinate system.
+        # Noise hero_anchor rows (Ping Cho paintings, etc.) have out-of-range coords.
+        # Talent tree rows: 600-7500, columns: 1200-15000 (approximate valid range)
         try:
-            subtree_id = int(node.get('db2_subtree_id') or 0)
+            row = int(node.get('row') or 0)
+            col = int(node.get('column') or 0)
+            talent_id = int(node.get('talent_id') or 0)
         except (TypeError, ValueError):
-            subtree_id = 0
-        return subtree_id > 0
+            return False
+        # Valid hero apex nodes should have reasonable coordinates and talent_id
+        return (600 <= row <= 10000 and 6000 <= col <= 15000 and talent_id > 100000)
 
     def _get_spec_indexes(self, class_name, spec_name):
         version = self.resolved_version

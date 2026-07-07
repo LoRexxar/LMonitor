@@ -213,18 +213,25 @@ def _group_hero_subtrees(hero_nodes):
     """将 hero 节点按 db2_subtree_id 分组为不同子树。
 
     优先使用 db2_subtree_id，如果都是 0 则回退到 column 分组。
+    Hero apex nodes (db2_subtree_id=0) are shared across all subtrees.
     """
     if not hero_nodes:
         return {}
 
     # 优先按 db2_subtree_id 分组
     by_subtree_id = {}
+    apex_nodes = []  # db2_subtree_id=0 的顶峰节点，所有子树共享
     for node in hero_nodes:
         sid = getattr(node, 'db2_subtree_id', 0) or 0
         if sid > 0:
             by_subtree_id.setdefault(sid, []).append(node)
+        else:
+            apex_nodes.append(node)
 
     if by_subtree_id:
+        # 将顶峰节点添加到每个子树中
+        for subtree_nodes in by_subtree_id.values():
+            subtree_nodes.extend(apex_nodes)
         return by_subtree_id
 
     # 回退到 column 分组
