@@ -365,6 +365,8 @@
         for (const candidate of state.nodes.values()) {
             if (ruleTreeType(candidate) !== treeType) continue;
             if (maxLayer && nodeLayer(candidate) > maxLayer) continue;
+            // 赠送天赋（selected=true, purchased=false, points=0）不计入门槛统计
+            if (candidate.purchased === false) continue;
             total += Number(candidate.points || 0);
         }
         return total;
@@ -654,6 +656,12 @@
         hideTooltip(node.node_key);
         state.selectedKey = node.node_key;
         const max = nodeMaxPoints(node);
+        // 赠送天赋不能被取消
+        if (delta < 0 && node.purchased === false) {
+            toast('赠送天赋无法取消');
+            updateInspector();
+            return;
+        }
         const ruleBlocker = treeRuleBlocker(node, delta);
         if (ruleBlocker) {
             toast(ruleBlocker);
@@ -685,6 +693,8 @@
         for (const node of state.nodes.values()) {
             const pool = node.point_pool || (node.is_apex_talent ? 'apex' : (node.tree_type || 'spec'));
             if (totals[pool] == null) totals[pool] = 0;
+            // 赠送天赋不计入点数统计
+            if (node.purchased === false) continue;
             totals[pool] += Number(node.points || 0);
             if (pool === 'apex') apexMax += nodeMaxPoints(node);
         }
