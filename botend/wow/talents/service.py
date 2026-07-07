@@ -445,7 +445,17 @@ class TalentBuildCodeService:
             }
             for key, node in selected_lookup.items()
         }
-        if missing_multi_point_nodes and not ((selected_hero > 0 and decoded_hero == 0) or (selected_total and decoded_total < selected_total - 5)):
+        # If only a structured multi-rank/apex node is missing, keep the import
+        # string authoritative and patch just that pool. When the decoded import
+        # also loses ordinary structured points (for example single-rank hero
+        # nodes after a DB2/build-code order drift), switch to broad structured
+        # fallback so those nodes are not overwritten back to zero.
+        if (
+            missing_multi_point_nodes
+            and not (selected_hero > 0 and decoded_hero < selected_hero)
+            and not (selected_total and decoded_total < selected_total - 5)
+            and not has_structured_misalignment
+        ):
             merged_states = dict(decoded_states or {})
             merged_states.update({key: structured_states[key] for key in missing_multi_point_nodes})
             return merged_states

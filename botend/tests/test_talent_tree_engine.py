@@ -1291,6 +1291,45 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(merged_states['hero:117400']['points'], 1)
         self.assertEqual(merged_states['hero_anchor:137002']['points'], 4)
 
+    def test_prefer_structured_keeps_single_rank_hero_nodes_when_apex_is_also_missing(self):
+        structured_nodes = [
+            {'tree_type': 'hero', 'node_id': 135993, 'talent_id': 135993, 'spell_id': 1265859, 'name': '冷冽决心', 'points': 1},
+            {'tree_type': 'hero', 'node_id': 135992, 'talent_id': 135992, 'spell_id': 1265932, 'name': '致命打击', 'points': 1},
+            {'tree_type': 'hero', 'node_id': 135991, 'talent_id': 135991, 'spell_id': 1265855, 'name': '回响狂怒', 'points': 1},
+            {'tree_type': 'spec', 'node_id': 136916, 'talent_id': 136916, 'spell_id': 1264405, 'name': '午夜舞步', 'points': 2},
+        ]
+        decoder_nodes = [
+            {'tree_type': 'hero', 'node_id': 135993, 'talent_id': 109735, 'spell_id': 1265859, 'name': '冷冽决心'},
+            {'tree_type': 'hero', 'node_id': 135992, 'talent_id': 109734, 'spell_id': 1265932, 'name': '致命打击'},
+            {'tree_type': 'hero', 'node_id': 135991, 'talent_id': 109733, 'spell_id': 1265855, 'name': '回响狂怒'},
+            {'tree_type': 'spec', 'node_id': 136916, 'talent_id': 110353, 'spell_id': 1264405, 'name': '午夜舞步', 'max_points': 2},
+            {'tree_type': 'hero', 'node_id': 117659, 'talent_id': 94801, 'spell_id': 439843, 'name': '死神印记'},
+        ]
+        decoded_states = {
+            'hero:117659': {'selected': True, 'points': 10},
+        }
+
+        merged_states = TalentBuildCodeService._prefer_structured_nodes_when_build_code_looks_stale(
+            decoded_states,
+            structured_nodes,
+            decoder_nodes,
+            class_name='DeathKnight',
+            spec_name='Blood',
+        )
+        merged_nodes = TalentBuildCodeService._merge_full_tree_nodes(
+            decoder_nodes,
+            structured_nodes,
+            decoded_states=merged_states,
+            has_build_code=True,
+            decoder_nodes=decoder_nodes,
+        )
+
+        selected_by_name = {node['name']: node for node in merged_nodes}
+        self.assertEqual(selected_by_name['冷冽决心']['points'], 1)
+        self.assertEqual(selected_by_name['致命打击']['points'], 1)
+        self.assertEqual(selected_by_name['回响狂怒']['points'], 1)
+        self.assertEqual(selected_by_name['午夜舞步']['points'], 2)
+
     def test_simulator_merge_preserves_decoded_choice_option_state(self):
         full_nodes = [
             {
