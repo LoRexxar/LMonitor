@@ -1154,6 +1154,108 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(apex_node['points'], 4)
         self.assertEqual(apex_node['max_points'], 4)
 
+    def test_prefers_structured_nodes_when_build_code_decodes_wrong_nodes_with_similar_total(self):
+        decoder_nodes = [
+            {'tree_type': 'class', 'node_id': 1001, 'talent_id': 1001, 'spell_id': 2001, 'max_points': 1},
+            {'tree_type': 'class', 'node_id': 1002, 'talent_id': 1002, 'spell_id': 2002, 'max_points': 1},
+            {'tree_type': 'spec', 'node_id': 5001, 'talent_id': 5001, 'spell_id': 6001, 'max_points': 1},
+            {'tree_type': 'spec', 'node_id': 5002, 'talent_id': 5002, 'spell_id': 6002, 'max_points': 1},
+            {'tree_type': 'spec', 'node_id': 5003, 'talent_id': 5003, 'spell_id': 6003, 'max_points': 1},
+            {'tree_type': 'spec', 'node_id': 5004, 'talent_id': 5004, 'spell_id': 6004, 'max_points': 1},
+            {'tree_type': 'spec', 'node_id': 5005, 'talent_id': 5005, 'spell_id': 6005, 'max_points': 1},
+            {'tree_type': 'spec', 'node_id': 5006, 'talent_id': 5006, 'spell_id': 6006, 'max_points': 1},
+            {'tree_type': 'spec', 'node_id': 5007, 'talent_id': 5007, 'spell_id': 6007, 'max_points': 1},
+            {'tree_type': 'spec', 'node_id': 5008, 'talent_id': 5008, 'spell_id': 6008, 'max_points': 1},
+        ]
+        structured_nodes = [
+            {'tree_type': 'class', 'node_id': 1001, 'talent_id': 1001, 'spell_id': 2001, 'points': 1},
+            {'tree_type': 'class', 'node_id': 1002, 'talent_id': 1002, 'spell_id': 2002, 'points': 1},
+            {'tree_type': 'spec', 'node_id': 5001, 'talent_id': 5001, 'spell_id': 6001, 'points': 1},
+            {'tree_type': 'spec', 'node_id': 5002, 'talent_id': 5002, 'spell_id': 6002, 'points': 1},
+            {'tree_type': 'spec', 'node_id': 5003, 'talent_id': 5003, 'spell_id': 6003, 'points': 1},
+            {'tree_type': 'spec', 'node_id': 5004, 'talent_id': 5004, 'spell_id': 6004, 'points': 1},
+            {'tree_type': 'spec', 'node_id': 5005, 'talent_id': 5005, 'spell_id': 6005, 'points': 1},
+            {'tree_type': 'spec', 'node_id': 5006, 'talent_id': 5006, 'spell_id': 6006, 'points': 1},
+            {'tree_type': 'spec', 'node_id': 5007, 'talent_id': 5007, 'spell_id': 6007, 'points': 1},
+            {'tree_type': 'spec', 'node_id': 5008, 'talent_id': 5008, 'spell_id': 6008, 'points': 1},
+        ]
+        misaligned_decoded_states = {
+            'class:1001': {'selected': True, 'points': 1},
+            'class:1002': {'selected': True, 'points': 1},
+            'spec:5001': {'selected': True, 'points': 1},
+            'spec:5002': {'selected': True, 'points': 1},
+            'spec:5003': {'selected': True, 'points': 1},
+            # Same total as the structured payload, but the remaining points are
+            # shifted into nodes not present in the structured/current render tree.
+            'spec:9001': {'selected': True, 'points': 1},
+            'spec:9002': {'selected': True, 'points': 1},
+            'spec:9003': {'selected': True, 'points': 1},
+            'spec:9004': {'selected': True, 'points': 1},
+            'spec:9005': {'selected': True, 'points': 1},
+        }
+
+        merged_states = TalentBuildCodeService._prefer_structured_nodes_when_build_code_looks_stale(
+            misaligned_decoded_states,
+            structured_nodes,
+            decoder_nodes,
+            class_name='Warrior',
+            spec_name='Fury',
+        )
+
+        self.assertEqual(sum(state['points'] for state in merged_states.values()), 10)
+        self.assertIn('spec:5008', merged_states)
+        self.assertNotIn('spec:9005', merged_states)
+
+    def test_merge_maps_structured_choice_option_state_to_render_choice_node(self):
+        full_nodes = [
+            {
+                'tree_type': 'spec',
+                'node_id': 112284,
+                'talent_id': 90415,
+                'spell_id': 227847,
+                'display_spell_id': 227847,
+                'name': '剑刃风暴',
+                'max_points': 1,
+                'choice_options': [
+                    {'node_id': 112284, 'talent_id': 90415, 'spell_id': 227847, 'display_spell_id': 227847, 'name': '剑刃风暴'},
+                    {'node_id': 112285, 'talent_id': 90415, 'spell_id': 107574, 'display_spell_id': 107574, 'name': '天神下凡'},
+                ],
+            },
+        ]
+        structured_nodes = [
+            {
+                'tree_type': 'spec',
+                'node_id': 112285,
+                'talent_id': 112285,
+                'spell_id': 107574,
+                'display_spell_id': 107574,
+                'name': '天神下凡',
+                'points': 1,
+                'max_points': 1,
+            },
+        ]
+        structured_states = {
+            'spec:112285': {
+                'selected': True,
+                'points': 1,
+                'is_choice_node': False,
+                'choice_selection': 0,
+            },
+        }
+
+        merged = TalentBuildCodeService._merge_full_tree_nodes(
+            full_nodes,
+            structured_nodes,
+            decoded_states=structured_states,
+            has_build_code=True,
+            decoder_nodes=full_nodes,
+        )
+
+        self.assertEqual(merged[0]['points'], 1)
+        self.assertTrue(merged[0]['selected'])
+        self.assertEqual(merged[0]['name'], '天神下凡')
+        self.assertEqual(merged[0]['spell_id'], 107574)
+
 
 class SpecStatsTalentRenderTests(SimpleTestCase):
     def test_enchant_popularity_groups_by_slot_and_formats_display_label(self):

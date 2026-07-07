@@ -289,11 +289,39 @@ class TalentBuildCodeService:
             if int(node.get('points') or 0) > 1 and key not in (decoded_states or {})
         }
 
+        decoded_alias_lookup = {}
+        for node in decoder_nodes or []:
+            state = (decoded_states or {}).get(_build_node_key(node))
+            if not state:
+                continue
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(node):
+                decoded_alias_lookup.setdefault(alias, state)
+            for option in node.get('choice_options') or []:
+                for alias in TalentBuildCodeService._node_alias_keys_for_matching(option):
+                    decoded_alias_lookup.setdefault(alias, state)
+
+        missing_structured_points = 0
+        for node in selected_lookup.values():
+            node_points = int(node.get('points') or 0)
+            if node_points <= 0:
+                continue
+            decoded_state = None
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(node):
+                decoded_state = decoded_alias_lookup.get(alias)
+                if decoded_state:
+                    break
+            decoded_points = int((decoded_state or {}).get('points') or 0)
+            if decoded_points < node_points:
+                missing_structured_points += node_points - decoded_points
+
         # Keep valid import strings authoritative. Only fall back when the code
-        # is obviously stale: it loses a hero subtree, decodes far fewer points
-        # than the structured payload, or omits a structured multi-rank point
-        # pool such as 12.1 apex talents from Raider.IO loadout.loadout.
-        if not ((selected_hero > 0 and decoded_hero == 0) or (selected_total and decoded_total < selected_total - 5) or missing_multi_point_nodes):
+        # is obviously stale/misaligned: it loses a hero subtree, decodes far
+        # fewer points than the structured payload, omits a structured multi-rank
+        # pool such as 12.1 apex talents, or decodes a similar total while many
+        # concrete structured nodes are missing/zero by alias (node-order drift).
+        missing_structured_threshold = max(5, int(selected_total * 0.1)) if selected_total else 5
+        has_structured_misalignment = missing_structured_points >= missing_structured_threshold
+        if not ((selected_hero > 0 and decoded_hero == 0) or (selected_total and decoded_total < selected_total - 5) or missing_multi_point_nodes or has_structured_misalignment):
             return decoded_states
 
         structured_states = {
@@ -344,14 +372,18 @@ class TalentBuildCodeService:
 
         decoded_states = decoded_states or {}
         selected_lookup = {}
+        selected_alias_lookup = {}
         for node in selected_nodes:
             key = TalentBuildCodeService._build_node_key(node)
             if key:
                 selected_lookup[key] = dict(node)
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(node):
+                selected_alias_lookup.setdefault(alias, dict(node))
 
         decoded_alias_lookup = {}
         if decoded_states:
-            for node in list(full_nodes or []) + list(decoder_nodes or []):
+            alias_source_nodes = list(full_nodes or []) + list(decoder_nodes or []) + list(selected_nodes or [])
+            for node in alias_source_nodes:
                 state = decoded_states.get(TalentBuildCodeService._build_node_key(node))
                 if state:
                     for alias in TalentBuildCodeService._node_alias_keys_for_matching(node):
@@ -364,7 +396,7 @@ class TalentBuildCodeService:
         for base_node in full_nodes:
             payload = dict(base_node)
             key = TalentBuildCodeService._build_node_key(payload)
-            selected_node = selected_lookup.get(key)
+            selected_node = selected_lookup.get(key) or TalentBuildCodeService._find_selected_node_by_alias(payload, selected_alias_lookup)
             decoded_state = decoded_states.get(key) or TalentBuildCodeService._find_decoded_state_by_alias(payload, decoded_alias_lookup) or {}
 
             # metadata enrichment from raw talents_json (name/icon/max_points/parents)
@@ -372,6 +404,9 @@ class TalentBuildCodeService:
                 if selected_node.get('display_spell_id'):
                     payload['display_spell_id'] = selected_node.get('display_spell_id')
                     payload['spell_id'] = selected_node.get('display_spell_id')
+                elif selected_node.get('spell_id'):
+                    payload['display_spell_id'] = selected_node.get('spell_id')
+                    payload['spell_id'] = selected_node.get('spell_id')
                 for field_name in ('name', 'icon', 'parents', 'choice_options', 'is_choice_node'):
                     if selected_node.get(field_name) not in (None, '', []):
                         payload[field_name] = selected_node.get(field_name)
@@ -393,7 +428,7 @@ class TalentBuildCodeService:
                     payload['selected'] = bool(decoded_state.get('selected', False))
                     if decoded_state.get('is_choice_node'):
                         payload['is_choice_node'] = True
-                    if payload.get('choice_options') and decoded_state.get('choice_selection') is not None:
+                    if payload.get('choice_options') and decoded_state.get('is_choice_node') and decoded_state.get('choice_selection') is not None:
                         selected_index = int(decoded_state.get('choice_selection') or 0)
                         options = payload.get('choice_options') or []
                         if 0 <= selected_index < len(options):
@@ -415,6 +450,21 @@ class TalentBuildCodeService:
             merged.append(payload)
 
         return merged
+
+    @staticmethod
+    def _find_selected_node_by_alias(node, selected_alias_lookup):
+        if not selected_alias_lookup:
+            return None
+        for alias in TalentBuildCodeService._node_alias_keys_for_matching(node):
+            selected_node = selected_alias_lookup.get(alias)
+            if selected_node:
+                return selected_node
+        for option in (node or {}).get('choice_options') or []:
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(option):
+                selected_node = selected_alias_lookup.get(alias)
+                if selected_node:
+                    return selected_node
+        return None
 
     @staticmethod
     def _find_decoded_state_by_alias(node, decoded_alias_lookup):
