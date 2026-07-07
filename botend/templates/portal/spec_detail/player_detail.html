@@ -84,7 +84,7 @@
                         <span class="talent-copy-btn__icon">⧉</span>
                         <span class="talent-copy-btn__label">复制</span>
                     </button>
-                    <a class="talent-copy-btn" href="/portal/talents/?class={{ player_detail.class_name|urlencode }}&spec={{ player_detail.spec_name|urlencode }}&profile_id={{ player_detail.id }}&code={{ player_detail.talent_build_code|default:render_model.build_code|default:player_detail.talent_code|urlencode }}" aria-label="打开天赋模拟器" title="打开天赋模拟器">
+                    <a class="talent-copy-btn" href="/portal/talents/?class={{ player_detail.class_name|urlencode }}&spec={{ player_detail.spec_name|urlencode }}&version=retail-12.0.7&profile_id={{ player_detail.id }}&code={{ player_detail.talent_build_code|default:render_model.build_code|default:player_detail.talent_code|urlencode }}" aria-label="打开天赋模拟器" title="打开天赋模拟器">
                         <span class="talent-copy-btn__label">模拟器</span>
                     </a>
                 </div>

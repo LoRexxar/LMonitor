@@ -973,6 +973,10 @@
         state.buildCode = '';
         state.profileId = '';
         for (const node of state.nodes.values()) {
+            // 跳过赠送天赋（purchased=false, selected=true, points=0）
+            if (node.purchased === false && node.selected === true && node.points === 0) {
+                continue;
+            }
             resetNodeSelection(node);
         }
         renderStage();
