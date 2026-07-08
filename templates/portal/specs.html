@@ -49,7 +49,7 @@
                 <span class="text-xs text-slate-400 font-normal ml-2">点击专精图标查看 Top 20 人物榜 / M+ / 团本数据</span>
             </div>
         </div>
-        <div id="spec-class-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3"></div>
+        <div id="spec-class-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;"></div>
     </main>
 
     <script>
@@ -81,18 +81,18 @@
             const specsHtml = cls.specs.map(sp => {
                 const url = `/portal/spec/${cls.en}/${sp.s}/`;
                 const color = roleColor[sp.role] || "#6b7280";
-                return `<a href="${url}" class="flex flex-col items-center gap-0.5 p-1.5 rounded hover:bg-slate-100/80 transition-colors group" title="${cls.cn} · ${sp.cn}">
-                    <img src="${SPEC_ICON_BASE}${sp.icon}" alt="${sp.cn}" width="36" height="36" class="rounded ring-1 ring-transparent group-hover:ring-indigo-300 transition-shadow" loading="lazy">
-                    <span class="text-[11px] text-slate-600 group-hover:text-slate-900 text-center leading-tight truncate w-full">${sp.cn}</span>
+                return `<a href="${url}" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px;border-radius:6px;text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='rgba(241,245,249,0.8)'" onmouseout="this.style.background=''" title="${cls.cn} · ${sp.cn}">
+                    <img src="${SPEC_ICON_BASE}${sp.icon}" alt="${sp.cn}" width="36" height="36" style="border-radius:6px;border:1px solid transparent;transition:border-color 0.15s" onmouseover="this.style.borderColor='#818cf8'" onmouseout="this.style.borderColor='transparent'" loading="lazy">
+                    <span style="font-size:11px;color:#475569;text-align:center;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%">${sp.cn}</span>
                 </a>`;
             }).join("");
 
-            html += `<div class="portal-card shadow-sm border border-slate-200/70 p-3 hover:shadow-md transition-shadow">
-                <div class="flex items-center gap-2 mb-2 pb-2 border-b border-slate-100">
-                    <img src="${SPEC_ICON_BASE}${cls.icon}" alt="${cls.cn}" width="24" height="24" class="rounded" loading="lazy">
-                    <span class="text-sm font-semibold" style="color:${cls.color}">${cls.cn}</span>
+            html += `<div class="portal-card" style="padding:12px;border-radius:10px;background:#fff;border:1px solid #e2e8f0;transition:box-shadow 0.15s" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'" onmouseout="this.style.boxShadow=''">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #f1f5f9">
+                    <img src="${SPEC_ICON_BASE}${cls.icon}" alt="${cls.cn}" width="24" height="24" style="border-radius:6px" loading="lazy">
+                    <span style="font-size:14px;font-weight:600;color:${cls.color}">${cls.cn}</span>
                 </div>
-                <div class="flex flex-wrap gap-1">${specsHtml}</div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px">${specsHtml}</div>
             </div>`;
         });
 
