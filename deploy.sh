@@ -8,13 +8,21 @@ echo "=== 2. Collectstatic ==="
 python3 manage.py collectstatic --no-input
 
 echo "=== 3. 重启 lmweb ==="
-screen -S lmweb -X stuff $'\cc'
-sleep 2
-screen -S lmweb -X stuff $'python3 manage.py runserver 0.0.0.0:18000\n'
+if screen -list | grep -q '\.lmweb\b'; then
+    screen -S lmweb -X stuff $'\cc'
+    sleep 2
+    screen -S lmweb -X stuff $'python3 manage.py runserver 0.0.0.0:18000\n'
+else
+    screen -dmS lmweb bash -lc 'cd ~/LMonitor && python3 manage.py runserver 0.0.0.0:18000'
+fi
 
 echo "=== 4. 重启 lmback ==="
-screen -S lmback -X stuff $'\cc'
-sleep 2
-screen -S lmback -X stuff $'./start.sh\n'
+if screen -list | grep -q '\.lmback\b'; then
+    screen -S lmback -X stuff $'\cc'
+    sleep 2
+    screen -S lmback -X stuff $'./start.sh\n'
+else
+    screen -dmS lmback bash -lc 'cd ~/LMonitor && ./start.sh'
+fi
 
 echo "=== 部署完成 ==="
