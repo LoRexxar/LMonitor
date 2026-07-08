@@ -7,7 +7,7 @@
     <title>全职业数据 - 魔兽世界每日节奏</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_specs_v2">
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_specs_v3">
 </head>
 <body class="portal-bg font-sans">
     <header class="portal-header">
@@ -42,143 +42,37 @@
     </header>
 
     <main class="max-w-[1200px] mx-auto px-4 py-6">
-        <div class="portal-card shadow-sm border border-slate-200/70 p-5 mb-4">
-            <div class="flex items-center gap-2 font-semibold text-slate-900 mb-1">
+        <div class="portal-card shadow-sm border border-slate-200/70 p-4 mb-4">
+            <div class="flex items-center gap-2 font-semibold text-slate-900">
                 <svg class="w-5 h-5" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
                 <span class="text-lg">全职业数据</span>
+                <span class="text-xs text-slate-400 font-normal ml-2">点击专精图标查看 Top 20 人物榜 / M+ / 团本数据</span>
             </div>
-            <p class="text-sm text-slate-500">点击专精图标查看 Top 20 人物榜 / M+ / 团本数据</p>
         </div>
-        <div id="spec-class-grid" class="space-y-4"></div>
+        <div id="spec-class-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3"></div>
     </main>
 
     <script>
     (function() {
         const SPEC_ICON_BASE = "https://render.worldofwarcraft.com/us/icons/56/";
-        const CLASS_ICON_BASE = "https://render.worldofwarcraft.com/us/icons/56/";
 
         const classData = [
-            {
-                en:"DeathKnight", cn:"死亡骑士", color:"#c41e3a",
-                icon:"classicon_deathknight.jpg",
-                specs:[
-                    {s:"Blood",cn:"鲜血",icon:"spell_deathknight_bloodpresence.jpg",role:"tank"},
-                    {s:"Frost",cn:"冰霜",icon:"spell_deathknight_frostpresence.jpg",role:"dps"},
-                    {s:"Unholy",cn:"邪恶",icon:"spell_deathknight_unholypresence.jpg",role:"dps"},
-                ]
-            },
-            {
-                en:"DemonHunter", cn:"恶魔猎手", color:"#a330c9",
-                icon:"classicon_demonhunter.jpg",
-                specs:[
-                    {s:"Havoc",cn:"浩劫",icon:"ability_demonhunter_specdps.jpg",role:"dps"},
-                    {s:"Vengeance",cn:"复仇",icon:"ability_demonhunter_spectank.jpg",role:"tank"},
-                ]
-            },
-            {
-                en:"Druid", cn:"德鲁伊", color:"#ff7c0a",
-                icon:"classicon_druid.jpg",
-                specs:[
-                    {s:"Balance",cn:"平衡",icon:"spell_nature_starfall.jpg",role:"dps"},
-                    {s:"Feral",cn:"野性",icon:"ability_druid_catform.jpg",role:"dps"},
-                    {s:"Guardian",cn:"守护",icon:"ability_racial_bearform.jpg",role:"tank"},
-                    {s:"Restoration",cn:"恢复",icon:"spell_nature_healingtouch.jpg",role:"healer"},
-                ]
-            },
-            {
-                en:"Hunter", cn:"猎人", color:"#aad372",
-                icon:"classicon_hunter.jpg",
-                specs:[
-                    {s:"BeastMastery",cn:"野兽控制",icon:"ability_hunter_bestialdiscipline.jpg",role:"dps"},
-                    {s:"Marksmanship",cn:"射击",icon:"ability_hunter_focusedaim.jpg",role:"dps"},
-                    {s:"Survival",cn:"生存",icon:"ability_hunter_camouflage.jpg",role:"dps"},
-                ]
-            },
-            {
-                en:"Mage", cn:"法师", color:"#3fc7eb",
-                icon:"classicon_mage.jpg",
-                specs:[
-                    {s:"Arcane",cn:"奥术",icon:"spell_holy_magicalsentry.jpg",role:"dps"},
-                    {s:"Fire",cn:"火焰",icon:"spell_fire_firebolt02.jpg",role:"dps"},
-                    {s:"Frost",cn:"冰霜",icon:"spell_frost_frostbolt02.jpg",role:"dps"},
-                ]
-            },
-            {
-                en:"Monk", cn:"武僧", color:"#00ff98",
-                icon:"classicon_monk.jpg",
-                specs:[
-                    {s:"Brewmaster",cn:"酒仙",icon:"monk_stance_drunkenox.jpg",role:"tank"},
-                    {s:"Mistweaver",cn:"织雾",icon:"monk_stance_wiseserpent.jpg",role:"healer"},
-                    {s:"Windwalker",cn:"踏风",icon:"monk_stance_whitetiger.jpg",role:"dps"},
-                ]
-            },
-            {
-                en:"Paladin", cn:"圣骑士", color:"#f58cba",
-                icon:"classicon_paladin.jpg",
-                specs:[
-                    {s:"Holy",cn:"神圣",icon:"spell_holy_holybolt.jpg",role:"healer"},
-                    {s:"Protection",cn:"防护",icon:"ability_paladin_shieldofthetemplar.jpg",role:"tank"},
-                    {s:"Retribution",cn:"惩戒",icon:"spell_holy_auraoflight.jpg",role:"dps"},
-                ]
-            },
-            {
-                en:"Priest", cn:"牧师", color:"#ffffff",
-                icon:"classicon_priest.jpg",
-                specs:[
-                    {s:"Discipline",cn:"戒律",icon:"spell_holy_powerwordshield.jpg",role:"healer"},
-                    {s:"Holy",cn:"神圣",icon:"spell_holy_guardianspirit.jpg",role:"healer"},
-                    {s:"Shadow",cn:"暗影",icon:"spell_shadow_shadowwordpain.jpg",role:"dps"},
-                ]
-            },
-            {
-                en:"Rogue", cn:"潜行者", color:"#fff569",
-                icon:"classicon_rogue.jpg",
-                specs:[
-                    {s:"Assassination",cn:"奇袭",icon:"ability_rogue_eviscerate.jpg",role:"dps"},
-                    {s:"Outlaw",cn:"狂徒",icon:"ability_rogue_waylay.jpg",role:"dps"},
-                    {s:"Subtlety",cn:"敏锐",icon:"ability_stealth.jpg",role:"dps"},
-                ]
-            },
-            {
-                en:"Shaman", cn:"萨满祭司", color:"#0070de",
-                icon:"classicon_shaman.jpg",
-                specs:[
-                    {s:"Elemental",cn:"元素",icon:"spell_nature_lightning.jpg",role:"dps"},
-                    {s:"Enhancement",cn:"增强",icon:"spell_shaman_improvedstormstrike.jpg",role:"dps"},
-                    {s:"Restoration",cn:"恢复",icon:"spell_nature_magicimmunity.jpg",role:"healer"},
-                ]
-            },
-            {
-                en:"Warlock", cn:"术士", color:"#8788ee",
-                icon:"classicon_warlock.jpg",
-                specs:[
-                    {s:"Affliction",cn:"痛苦",icon:"spell_shadow_deathcoil.jpg",role:"dps"},
-                    {s:"Demonology",cn:"恶魔学识",icon:"spell_shadow_metamorphosis.jpg",role:"dps"},
-                    {s:"Destruction",cn:"毁灭",icon:"spell_shadow_rainoffire.jpg",role:"dps"},
-                ]
-            },
-            {
-                en:"Warrior", cn:"战士", color:"#c69b6d",
-                icon:"classicon_warrior.jpg",
-                specs:[
-                    {s:"Arms",cn:"武器",icon:"ability_warrior_savageblow.jpg",role:"dps"},
-                    {s:"Fury",cn:"狂怒",icon:"ability_warrior_innerrage.jpg",role:"dps"},
-                    {s:"Protection",cn:"防护",icon:"ability_warrior_defensivestance.jpg",role:"tank"},
-                ]
-            },
-            {
-                en:"Evoker", cn:"唤魔师", color:"#33937f",
-                icon:"classicon_evoker.jpg",
-                specs:[
-                    {s:"Augmentation",cn:"增辉",icon:"classicon_evoker_augmentation.jpg",role:"dps"},
-                    {s:"Devastation",cn:"湮灭",icon:"classicon_evoker_devastation.jpg",role:"dps"},
-                    {s:"Preservation",cn:"恩护",icon:"classicon_evoker_preservation.jpg",role:"healer"},
-                ]
-            },
+            {en:"DeathKnight",cn:"死亡骑士",color:"#c41e3a",icon:"classicon_deathknight.jpg",specs:[{s:"Blood",cn:"鲜血",icon:"spell_deathknight_bloodpresence.jpg",role:"tank"},{s:"Frost",cn:"冰霜",icon:"spell_deathknight_frostpresence.jpg",role:"dps"},{s:"Unholy",cn:"邪恶",icon:"spell_deathknight_unholypresence.jpg",role:"dps"}]},
+            {en:"DemonHunter",cn:"恶魔猎手",color:"#a330c9",icon:"classicon_demonhunter.jpg",specs:[{s:"Havoc",cn:"浩劫",icon:"ability_demonhunter_specdps.jpg",role:"dps"},{s:"Vengeance",cn:"复仇",icon:"ability_demonhunter_spectank.jpg",role:"tank"}]},
+            {en:"Druid",cn:"德鲁伊",color:"#ff7c0a",icon:"classicon_druid.jpg",specs:[{s:"Balance",cn:"平衡",icon:"spell_nature_starfall.jpg",role:"dps"},{s:"Feral",cn:"野性",icon:"ability_druid_catform.jpg",role:"dps"},{s:"Guardian",cn:"守护",icon:"ability_racial_bearform.jpg",role:"tank"},{s:"Restoration",cn:"恢复",icon:"spell_nature_healingtouch.jpg",role:"healer"}]},
+            {en:"Hunter",cn:"猎人",color:"#aad372",icon:"classicon_hunter.jpg",specs:[{s:"BeastMastery",cn:"野兽控制",icon:"ability_hunter_bestialdiscipline.jpg",role:"dps"},{s:"Marksmanship",cn:"射击",icon:"ability_hunter_focusedaim.jpg",role:"dps"},{s:"Survival",cn:"生存",icon:"ability_hunter_camouflage.jpg",role:"dps"}]},
+            {en:"Mage",cn:"法师",color:"#3fc7eb",icon:"classicon_mage.jpg",specs:[{s:"Arcane",cn:"奥术",icon:"spell_holy_magicalsentry.jpg",role:"dps"},{s:"Fire",cn:"火焰",icon:"spell_fire_firebolt02.jpg",role:"dps"},{s:"Frost",cn:"冰霜",icon:"spell_frost_frostbolt02.jpg",role:"dps"}]},
+            {en:"Monk",cn:"武僧",color:"#00ff98",icon:"classicon_monk.jpg",specs:[{s:"Brewmaster",cn:"酒仙",icon:"monk_stance_drunkenox.jpg",role:"tank"},{s:"Mistweaver",cn:"织雾",icon:"monk_stance_wiseserpent.jpg",role:"healer"},{s:"Windwalker",cn:"踏风",icon:"monk_stance_whitetiger.jpg",role:"dps"}]},
+            {en:"Paladin",cn:"圣骑士",color:"#f58cba",icon:"classicon_paladin.jpg",specs:[{s:"Holy",cn:"神圣",icon:"spell_holy_holybolt.jpg",role:"healer"},{s:"Protection",cn:"防护",icon:"ability_paladin_shieldofthetemplar.jpg",role:"tank"},{s:"Retribution",cn:"惩戒",icon:"spell_holy_auraoflight.jpg",role:"dps"}]},
+            {en:"Priest",cn:"牧师",color:"#ffffff",icon:"classicon_priest.jpg",specs:[{s:"Discipline",cn:"戒律",icon:"spell_holy_powerwordshield.jpg",role:"healer"},{s:"Holy",cn:"神圣",icon:"spell_holy_guardianspirit.jpg",role:"healer"},{s:"Shadow",cn:"暗影",icon:"spell_shadow_shadowwordpain.jpg",role:"dps"}]},
+            {en:"Rogue",cn:"潜行者",color:"#fff569",icon:"classicon_rogue.jpg",specs:[{s:"Assassination",cn:"奇袭",icon:"ability_rogue_eviscerate.jpg",role:"dps"},{s:"Outlaw",cn:"狂徒",icon:"ability_rogue_waylay.jpg",role:"dps"},{s:"Subtlety",cn:"敏锐",icon:"ability_stealth.jpg",role:"dps"}]},
+            {en:"Shaman",cn:"萨满祭司",color:"#0070de",icon:"classicon_shaman.jpg",specs:[{s:"Elemental",cn:"元素",icon:"spell_nature_lightning.jpg",role:"dps"},{s:"Enhancement",cn:"增强",icon:"spell_shaman_improvedstormstrike.jpg",role:"dps"},{s:"Restoration",cn:"恢复",icon:"spell_nature_magicimmunity.jpg",role:"healer"}]},
+            {en:"Warlock",cn:"术士",color:"#8788ee",icon:"classicon_warlock.jpg",specs:[{s:"Affliction",cn:"痛苦",icon:"spell_shadow_deathcoil.jpg",role:"dps"},{s:"Demonology",cn:"恶魔学识",icon:"spell_shadow_metamorphosis.jpg",role:"dps"},{s:"Destruction",cn:"毁灭",icon:"spell_shadow_rainoffire.jpg",role:"dps"}]},
+            {en:"Warrior",cn:"战士",color:"#c69b6d",icon:"classicon_warrior.jpg",specs:[{s:"Arms",cn:"武器",icon:"ability_warrior_savageblow.jpg",role:"dps"},{s:"Fury",cn:"狂怒",icon:"ability_warrior_innerrage.jpg",role:"dps"},{s:"Protection",cn:"防护",icon:"ability_warrior_defensivestance.jpg",role:"tank"}]},
+            {en:"Evoker",cn:"唤魔师",color:"#33937f",icon:"classicon_evoker.jpg",specs:[{s:"Augmentation",cn:"增辉",icon:"classicon_evoker_augmentation.jpg",role:"dps"},{s:"Devastation",cn:"湮灭",icon:"classicon_evoker_devastation.jpg",role:"dps"},{s:"Preservation",cn:"恩护",icon:"classicon_evoker_preservation.jpg",role:"healer"}]},
         ];
 
         const roleColor = {tank:"#3b82f6",healer:"#22c55e",dps:"#ef4444"};
-        const roleLabel = {tank:"坦克",healer:"治疗",dps:"输出"};
 
         const container = document.getElementById("spec-class-grid");
         let html = "";
@@ -187,20 +81,18 @@
             const specsHtml = cls.specs.map(sp => {
                 const url = `/portal/spec/${cls.en}/${sp.s}/`;
                 const color = roleColor[sp.role] || "#6b7280";
-                return `<a href="${url}" class="flex flex-col items-center gap-1.5 p-3 rounded-lg hover:bg-slate-100/80 transition-colors group min-w-[80px]">
-                    <img src="${SPEC_ICON_BASE}${sp.icon}" alt="${sp.cn}" width="48" height="48" class="rounded-md ring-2 ring-transparent group-hover:ring-indigo-300 transition-shadow" loading="lazy">
-                    <span class="text-sm font-medium text-slate-700 group-hover:text-slate-900 text-center leading-tight">${sp.cn}</span>
-                    <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style="background:${color}20;color:${color}">${roleLabel[sp.role] || sp.role}</span>
+                return `<a href="${url}" class="flex flex-col items-center gap-0.5 p-1.5 rounded hover:bg-slate-100/80 transition-colors group" title="${cls.cn} · ${sp.cn}">
+                    <img src="${SPEC_ICON_BASE}${sp.icon}" alt="${sp.cn}" width="36" height="36" class="rounded ring-1 ring-transparent group-hover:ring-indigo-300 transition-shadow" loading="lazy">
+                    <span class="text-[11px] text-slate-600 group-hover:text-slate-900 text-center leading-tight truncate w-full">${sp.cn}</span>
                 </a>`;
             }).join("");
 
-            html += `<div class="portal-card shadow-sm border border-slate-200/70 p-4">
-                <div class="flex items-center gap-3 mb-3 pb-3 border-b border-slate-100">
-                    <img src="${CLASS_ICON_BASE}${cls.icon}" alt="${cls.cn}" width="36" height="36" class="rounded-lg" loading="lazy">
-                    <span class="text-base font-semibold" style="color:${cls.color}">${cls.cn}</span>
-                    <span class="text-xs text-slate-400">${cls.specs.length} 专精</span>
+            html += `<div class="portal-card shadow-sm border border-slate-200/70 p-3 hover:shadow-md transition-shadow">
+                <div class="flex items-center gap-2 mb-2 pb-2 border-b border-slate-100">
+                    <img src="${SPEC_ICON_BASE}${cls.icon}" alt="${cls.cn}" width="24" height="24" class="rounded" loading="lazy">
+                    <span class="text-sm font-semibold" style="color:${cls.color}">${cls.cn}</span>
                 </div>
-                <div class="flex flex-wrap gap-2">${specsHtml}</div>
+                <div class="flex flex-wrap gap-1">${specsHtml}</div>
             </div>`;
         });
 
