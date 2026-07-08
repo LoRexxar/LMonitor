@@ -8,7 +8,7 @@ echo "=== 2. Collectstatic ==="
 python3 manage.py collectstatic --no-input
 
 echo "=== 3. 重启 lmweb ==="
-if screen -list | grep -q '\.lmweb\b'; then
+if screen -list | grep -q '[.]lmweb[[:space:]]'; then
     screen -S lmweb -X stuff $'\cc'
     sleep 2
     screen -S lmweb -X stuff $'python3 manage.py runserver 0.0.0.0:18000\n'
@@ -17,7 +17,7 @@ else
 fi
 
 echo "=== 4. 重启 lmback ==="
-if screen -list | grep -q '\.lmback\b'; then
+if screen -list | grep -q '[.]lmback[[:space:]]'; then
     screen -S lmback -X stuff $'\cc'
     sleep 2
     screen -S lmback -X stuff $'./start.sh\n'
