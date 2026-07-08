@@ -650,6 +650,12 @@ body {
     border-radius: 1.05rem;
 }
 
+.portal-action-btn--icon {
+    width: 2.45rem;
+    height: 2.45rem;
+    padding: 0;
+}
+
 .portal-card {
     border-radius: 1.125rem;
     background: rgba(241, 245, 249, 0.75);
