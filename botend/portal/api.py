@@ -1,10 +1,11 @@
 import json
 import re
 
+from django.core.paginator import EmptyPage, Paginator
 from django.http import JsonResponse
 from django.views import View
 from django.core.cache import cache
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 from datetime import timedelta
 
@@ -109,12 +110,30 @@ def _normalize_display_text(v):
     return s
 
 
+ARTICLE_SOURCE_LABELS = {
+    'blizzard_cn': '魔兽世界中国',
+    'blizzard_tracker': 'Blizzard Tracker',
+    'bilibili': 'B 站视频',
+    'exwind': 'Exwind 新闻',
+    'lhfszs': '老黄蜂说芝士',
+    'nga': 'NGA',
+    'unknown': '其他来源',
+    'wowhead': 'Wowhead',
+}
+
+
+def _article_source_label(source):
+    key = (source or 'unknown').strip() or 'unknown'
+    return ARTICLE_SOURCE_LABELS.get(key, key)
+
+
 def _article_to_dict(a):
     return {
         'id': a.id,
         'title': a.title or '',
         'title_cn': a.title_cn or '',
         'url': _normalize_url(a.url),
+        'article_url': f'/portal/article/{a.id}/',
         'author': _normalize_display_text(a.author),
         'source': a.source or '',
         'category': a.category or '',
@@ -134,6 +153,7 @@ def _nga_article_to_dict(a):
         'title': a.title or '',
         'title_cn': a.title_cn or '',
         'url': _normalize_url(a.url),
+        'article_url': f'/portal/article/{a.id}/',
         'author': _normalize_display_text(a.author),
         'source': a.source or '',
         'category': a.category or '',
@@ -466,6 +486,73 @@ class PortalWowheadLatestAPIView(View):
             .order_by('-publish_time')[:60]
         )
         return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
+
+
+class PortalNewsIndexAPIView(View):
+    def get(self, request):
+        q = (request.GET.get('q') or '').strip()
+        source = (request.GET.get('source') or '').strip()
+        exclude_source = (request.GET.get('exclude_source') or '').strip()
+        try:
+            page = max(1, int(request.GET.get('page') or 1))
+        except ValueError:
+            page = 1
+        try:
+            page_size = int(request.GET.get('page_size') or 30)
+        except ValueError:
+            page_size = 30
+        page_size = max(10, min(60, page_size))
+
+        base_qs = WowArticle.objects.filter(is_active=True).exclude(title__isnull=True).exclude(title='')
+        source_rows = list(
+            base_qs.values('source')
+            .annotate(count=Count('id'))
+            .order_by('source')
+        )
+        sources = [
+            {
+                'key': (row.get('source') or 'unknown'),
+                'label': _article_source_label(row.get('source')),
+                'count': int(row.get('count') or 0),
+            }
+            for row in source_rows
+        ]
+
+        qs = base_qs
+        if source:
+            qs = qs.filter(source=source)
+        elif exclude_source:
+            qs = qs.exclude(source=exclude_source)
+        if q:
+            qs = qs.filter(
+                Q(title__icontains=q)
+                | Q(title_cn__icontains=q)
+                | Q(author__icontains=q)
+                | Q(source__icontains=q)
+                | Q(category__icontains=q)
+            )
+
+        paginator = Paginator(qs.order_by('-publish_time', '-id'), page_size)
+        try:
+            page_obj = paginator.page(page)
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages or 1)
+
+        return JsonResponse({
+            'status': 'success',
+            'data': [_article_to_dict(x) for x in page_obj.object_list],
+            'sources': sources,
+            'meta': {
+                'q': q,
+                'source': source,
+                'page': page_obj.number,
+                'page_size': page_size,
+                'total': paginator.count,
+                'total_pages': paginator.num_pages,
+                'has_next': page_obj.has_next(),
+                'has_previous': page_obj.has_previous(),
+            },
+        })
 
 
 class PortalArticleDetailAPIView(View):

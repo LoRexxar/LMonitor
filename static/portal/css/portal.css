@@ -1227,3 +1227,311 @@ body {
         display: none;
     }
 }
+
+/* ── news index page ── */
+.portal-news-page-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-top: 1.25rem;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.portal-section-kicker {
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(99, 102, 241);
+    margin-bottom: 0.22rem;
+}
+
+.portal-news-title {
+    font-size: 1.5rem;
+    line-height: 1.1;
+    font-weight: 900;
+    color: rgb(15, 23, 42);
+    letter-spacing: -0.02em;
+}
+
+.portal-news-search {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.portal-news-search-input {
+    width: 260px;
+    border-radius: 9999px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: rgba(255, 255, 255, 0.85);
+    padding: 0.6rem 1rem;
+    font-size: 0.88rem;
+    outline: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.portal-news-search-input:focus {
+    border-color: rgba(99, 102, 241, 0.55);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
+}
+
+.portal-news-search-btn {
+    border-radius: 9999px;
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    background: rgb(79, 70, 229);
+    color: white;
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 0.6rem 1rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.portal-news-search-btn:hover { background: rgb(67, 56, 202); }
+
+.portal-news-layout {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+@media (max-width: 768px) {
+    .portal-news-layout {
+        grid-template-columns: 1fr;
+    }
+    .portal-news-sources {
+        order: 2;
+    }
+    .portal-news-search-input {
+        width: 160px;
+    }
+}
+
+.portal-news-sources {
+    position: sticky;
+    top: 4.5rem;
+}
+
+.portal-news-side-title {
+    font-size: 0.75rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    color: rgb(71, 85, 105);
+    margin-bottom: 0.6rem;
+}
+
+.portal-news-source-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.22rem;
+}
+
+.portal-news-source-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid transparent;
+    border-radius: 0.7rem;
+    background: transparent;
+    font-size: 0.82rem;
+    color: rgb(71, 85, 105);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: left;
+}
+
+.portal-news-source-btn:hover {
+    background: rgba(99, 102, 241, 0.06);
+    color: rgb(30, 41, 59);
+}
+
+.portal-news-source-btn.is-active {
+    background: rgba(99, 102, 241, 0.1);
+    border-color: rgba(99, 102, 241, 0.25);
+    color: rgb(67, 56, 202);
+    font-weight: 700;
+}
+
+.portal-news-source-btn span:last-child {
+    font-size: 0.72rem;
+    color: rgb(148, 163, 184);
+    font-weight: 600;
+}
+
+.portal-news-result-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.portal-news-result-title {
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: rgb(15, 23, 42);
+}
+
+.portal-news-result-meta {
+    font-size: 0.75rem;
+    color: rgb(100, 116, 139);
+    margin-top: 0.15rem;
+}
+
+.portal-news-clear-btn {
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.7);
+    color: rgb(100, 116, 139);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.38rem 0.82rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.portal-news-clear-btn:hover {
+    background: rgba(255, 255, 255, 0.95);
+    color: rgb(51, 65, 85);
+}
+
+.portal-news-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.portal-news-row {
+    display: block;
+    padding: 0.72rem 0.82rem;
+    border: 1px solid rgba(226, 232, 240, 0.7);
+    border-radius: 0.85rem;
+    background: rgba(255, 255, 255, 0.6);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.portal-news-row:hover {
+    border-color: rgba(99, 102, 241, 0.28);
+    box-shadow: 0 8px 20px rgba(99, 102, 241, 0.08);
+    transform: translateY(-1px);
+}
+
+.portal-news-row-main {
+    min-width: 0;
+}
+
+.portal-news-row-titleline {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.portal-news-row-title {
+    font-size: 0.92rem;
+    font-weight: 750;
+    color: rgb(15, 23, 42);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    transition: color 0.15s ease;
+}
+
+.portal-news-row-title:hover {
+    color: rgb(79, 70, 229);
+}
+
+.portal-news-external {
+    flex-shrink: 0;
+    color: rgb(148, 163, 184);
+    transition: color 0.15s ease;
+}
+
+.portal-news-external:hover {
+    color: rgb(99, 102, 241);
+}
+
+.portal-news-row-subtitle {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.78rem;
+    color: rgb(100, 116, 139);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.portal-news-row-subtitle:hover {
+    color: rgb(79, 70, 229);
+}
+
+.portal-news-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    margin-top: 0.35rem;
+    font-size: 0.72rem;
+    color: rgb(148, 163, 184);
+}
+
+.portal-news-row-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.22rem;
+}
+
+.portal-news-empty {
+    padding: 2.5rem 1rem;
+    text-align: center;
+    font-size: 0.88rem;
+    color: rgb(148, 163, 184);
+}
+
+.portal-news-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(226, 232, 240, 0.7);
+}
+
+.portal-news-page-btn {
+    border-radius: 9999px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(255, 255, 255, 0.7);
+    color: rgb(71, 85, 105);
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.4rem 0.9rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.portal-news-page-btn:hover:not(:disabled) {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.3);
+    color: rgb(67, 56, 202);
+}
+
+.portal-news-page-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.portal-news-page-info {
+    font-size: 0.78rem;
+    color: rgb(100, 116, 139);
+    font-weight: 600;
+}

@@ -7,7 +7,7 @@
     <title>魔兽世界每日节奏 WowDaily.cn</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_header_tools">
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_news_index">
 </head>
 <body class="portal-bg font-sans">
     <header class="portal-header">
@@ -22,6 +22,10 @@
                 </div>
             </div>
             <div class="portal-header-actions">
+                <a href="/portal/news/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-700 hover:text-slate-900">
+                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-newspaper"></use></svg>
+                    <span>新闻聚合</span>
+                </a>
                 <a href="/portal/talents/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-700 hover:text-slate-900">
                     <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
                     <span>天赋模拟器</span>
