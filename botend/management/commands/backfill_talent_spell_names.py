@@ -360,22 +360,14 @@ class Command(BaseCommand):
             elif existing_display_spell_id > 0:
                 resolved['display_spell_id'] = existing_display_spell_id
 
-            if row.name_zh and row.icon and row.display_spell_id and layout:
-                resolved['row'] = layout_row if layout_row is not None else resolved.get('row')
-                resolved['column'] = layout_column if layout_column is not None else resolved.get('column')
-                resolved['name'] = row.name_zh or row.name
-                resolved['name_zh'] = row.name_zh
-                resolved['icon'] = row.icon
-                return resolved
-
             if display_spell_id > 0:
-                name_zh = (row.name_zh or '').strip() or self._resolve_spell_name(monitor, build, display_spell_id)
+                name_zh = self._resolve_spell_name(monitor, build, display_spell_id) or (row.name_zh or '').strip()
                 if name_zh:
                     resolved['row'] = layout_row if layout_row is not None else resolved.get('row')
                     resolved['column'] = layout_column if layout_column is not None else resolved.get('column')
                     resolved['name'] = name_zh
                     resolved['name_zh'] = name_zh
-                    resolved['icon'] = (row.icon or '').strip() or self._resolve_spell_icon(monitor, build, display_spell_id, definition)
+                    resolved['icon'] = self._resolve_spell_icon(monitor, build, display_spell_id, definition) or (row.icon or '').strip()
                     return resolved
 
             subtree_name = self._resolve_subtree_name(monitor, build, subtree_id)
