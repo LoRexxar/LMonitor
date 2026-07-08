@@ -21,7 +21,6 @@
         heroPoints: document.getElementById('talent-hero-points'),
         specPoints: document.getElementById('talent-spec-points'),
         apexPoints: document.getElementById('talent-apex-points'),
-        totalPoints: document.getElementById('talent-total-points'),
         codeOutput: document.getElementById('talent-build-code-output'),
         inspectorEmpty: document.getElementById('talent-inspector-empty'),
         inspectorContent: document.getElementById('talent-inspector-content'),
@@ -789,9 +788,6 @@
         els.heroPoints.textContent = (totals.hero || 0) + (granted.hero || 0);
         els.specPoints.textContent = (totals.spec || 0) + (granted.spec || 0);
         if (els.apexPoints) els.apexPoints.textContent = apexMax ? `${totals.apex || 0}/${apexMax}` : '0/4';
-        // 总点数也包含赠送天赋
-        const totalSpent = (totals.class || 0) + (totals.spec || 0) + (granted.class || 0) + (granted.spec || 0);
-        els.totalPoints.textContent = `${totalSpent}/${TALENT_TREE_RULES.totalPointCap}`;
     }
 
     function updateInspector() {
