@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title>魔兽世界新闻聚合 - WowDaily.cn</title>
+    {% load static %}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_news">
+</head>
+<body class="portal-bg font-sans">
+    <header class="portal-header">
+        <div class="portal-header-inner">
+            <div class="portal-header-left">
+                <div class="portal-header-brand">
+                    <div class="portal-header-logo">
+                        <svg class="portal-logo-fallback-icon w-5 h-5 text-indigo-700" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
+                        <img class="portal-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽世界每日节奏徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
+                    </div>
+                    <a href="/" class="portal-header-title hover:text-indigo-700">魔兽世界每日节奏 WowDaily.cn</a>
+                </div>
+            </div>
+            <div class="portal-header-actions">
+                <a href="/portal/news/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-900 bg-white">
+                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-newspaper"></use></svg>
+                    <span>新闻聚合</span>
+                </a>
+                <a href="/portal/talents/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-700 hover:text-slate-900">
+                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
+                    <span>天赋模拟器</span>
+                </a>
+                <a href="/dashboard/" class="portal-pill portal-action-btn portal-action-btn--icon inline-flex items-center justify-center text-slate-700 hover:text-slate-900" aria-label="后台" title="后台">
+                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-[1200px] mx-auto px-4 py-6">
+        <section class="portal-news-page-head">
+            <div>
+                <div class="portal-section-kicker">News Index</div>
+                <h1 class="portal-news-title">魔兽世界新闻聚合</h1>
+            </div>
+            <form id="news-search-form" class="portal-news-search" autocomplete="off">
+                <input id="news-search-input" class="portal-news-search-input" type="search" placeholder="搜索标题、译名、作者、来源 ...">
+                <button type="submit" class="portal-news-search-btn">搜索</button>
+            </form>
+        </section>
+
+        <section class="portal-news-layout">
+            <aside class="portal-news-sources portal-card border border-slate-200/70 p-4">
+                <div class="portal-news-side-title">新闻来源</div>
+                <div id="news-source-list" class="portal-news-source-list"></div>
+            </aside>
+
+            <section class="portal-news-results portal-card border border-slate-200/70 p-4">
+                <div class="portal-news-result-head">
+                    <div>
+                        <div class="portal-news-result-title">全部资讯</div>
+                        <div id="news-result-meta" class="portal-news-result-meta">加载中...</div>
+                    </div>
+                    <button id="news-clear-btn" type="button" class="portal-news-clear-btn">清空筛选</button>
+                </div>
+                <div id="news-list" class="portal-news-list"></div>
+                <div class="portal-news-pager">
+                    <button id="news-prev-btn" type="button" class="portal-news-page-btn">上一页</button>
+                    <span id="news-page-info" class="portal-news-page-info">-</span>
+                    <button id="news-next-btn" type="button" class="portal-news-page-btn">下一页</button>
+                </div>
+            </section>
+        </section>
+    </main>
+
+    <script src="{% static 'portal/js/news_index.js' %}?v=20260708_news_index"></script>
+</body>
+</html>
