@@ -25,7 +25,7 @@ from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttrib
 from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, SimcBackendBinaryAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView, WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView, WowDailyReportGenerateAPIView, WagoHotfixReportListAPIView, WagoSkillDiffRerunAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
-from botend.portal.views import PortalArticleView
+from botend.portal.views import PortalArticleView, PortalNewsView
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView
 from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView
 from botend.portal.talent_simulator import PortalTalentSimulatorAPIView, PortalTalentSimulatorEncodeAPIView, PortalTalentSimulatorView
@@ -34,6 +34,7 @@ from botend.portal.api import (
     PortalNgaHotAPIView,
     PortalExwindLatestAPIView,
     PortalWowheadLatestAPIView,
+    PortalNewsIndexAPIView,
     PortalEventsAPIView,
     PortalVideosAPIView,
     PortalToolsAPIView,
@@ -55,6 +56,7 @@ urlpatterns = [
     # path('admin/', admin.site.urls),
     path('favicon.ico', RedirectView.as_view(url='/static/portal/favicons/3accfdf0352f2189a3292605e1ad80f12bd5a15c605069102f42c03c3c4fceda.ico', permanent=True)),
     path('', PortalHomeView.as_view(), name='portal_home'),
+    path('portal/news/', PortalNewsView.as_view(), name='portal_news'),
     path('portal/article/<int:article_id>/', PortalArticleView.as_view(), name='portal_article'),
     path('portal/talents/', PortalTalentSimulatorView.as_view(), name='portal_talent_simulator'),
     
@@ -76,6 +78,7 @@ urlpatterns = [
     path('portal/api/nga-hot/', csrf_exempt(PortalNgaHotAPIView.as_view()), name="portal_nga_hot"),
     path('portal/api/exwind/latest/', csrf_exempt(PortalExwindLatestAPIView.as_view()), name="portal_exwind_latest"),
     path('portal/api/wowhead/latest/', csrf_exempt(PortalWowheadLatestAPIView.as_view()), name="portal_wowhead_latest"),
+    path('portal/api/news/', csrf_exempt(PortalNewsIndexAPIView.as_view()), name="portal_news_index"),
     path('portal/api/events/', csrf_exempt(PortalEventsAPIView.as_view()), name="portal_events"),
     path('portal/api/videos/', csrf_exempt(PortalVideosAPIView.as_view()), name="portal_videos"),
     path('portal/api/tools/', csrf_exempt(PortalToolsAPIView.as_view()), name="portal_tools"),
