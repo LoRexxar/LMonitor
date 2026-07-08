@@ -72,7 +72,7 @@
 
 .talent-sim-toolbar {
     display: grid;
-    grid-template-columns: 180px 180px minmax(0, 1fr);
+    grid-template-columns: 150px 150px 120px minmax(420px, 1fr);
     gap: 14px;
     margin-top: 16px;
     padding: 16px;
@@ -100,7 +100,7 @@
     outline: none;
 }
 
-.talent-import-row input { flex: 1 1 360px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+.talent-import-row input { flex: 1 1 0; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
 
 .talent-sim-summary {
     margin-top: 16px;
