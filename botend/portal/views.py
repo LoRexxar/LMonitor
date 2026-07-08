@@ -72,6 +72,11 @@ class PortalNewsView(View):
         return render(request, 'portal/news.html')
 
 
+class PortalSpecsView(View):
+    def get(self, request):
+        return render(request, 'portal/specs.html')
+
+
 class PortalArticleView(View):
     def get(self, request, article_id):
         try:
