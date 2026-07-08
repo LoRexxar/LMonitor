@@ -1390,11 +1390,33 @@ function renderSpecBadgeHtml(specValue) {
     return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}"><span class="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${dotCls}">${escapeHtml(mark)}</span><span>${escapeHtml(text)}</span></span>`;
 }
 
+function syncSimcTaskInputMode(prefix) {
+    const rawCodeInput = document.getElementById(prefix ? `${prefix}-simc-task-raw-code` : 'simc-task-raw-code');
+    const profileSelect = document.getElementById(prefix ? `${prefix}-simc-config-select` : 'simc-config-select');
+    const taskType = document.getElementById(prefix ? `${prefix}-simc-task-type` : 'simc-task-type');
+    if (!rawCodeInput || !profileSelect) return;
+    const isAttribute = taskType && String(taskType.value) === '2';
+    const hasRaw = String(rawCodeInput.value || '').trim().length > 0;
+    if (isAttribute) {
+        rawCodeInput.value = '';
+        rawCodeInput.disabled = true;
+        profileSelect.disabled = false;
+        return;
+    }
+    rawCodeInput.disabled = false;
+    profileSelect.disabled = hasRaw;
+    if (hasRaw) {
+        profileSelect.value = '';
+    }
+}
+
 function toggleTaskTypeFields(prefix, taskType) {
     const isAttribute = String(taskType) === '2';
     const attrSelect = document.getElementById(prefix ? `${prefix}-simc-task-profile` : 'simc-task-profile');
     const regularBox = document.getElementById(prefix ? `${prefix}-simc-task-regular-options` : 'simc-task-regular-options');
     const stepBox = document.getElementById(prefix ? `${prefix}-simc-task-attribute-step-wrapper` : 'simc-task-attribute-step-wrapper');
+    const rawCodeBox = document.getElementById(prefix ? `${prefix}-simc-task-raw-code-wrapper` : 'simc-task-raw-code-wrapper');
+    const rawCodeInput = document.getElementById(prefix ? `${prefix}-simc-task-raw-code` : 'simc-task-raw-code');
 
     if (attrSelect && attrSelect.parentElement) {
         attrSelect.style.display = isAttribute ? 'block' : 'none';
@@ -1403,6 +1425,12 @@ function toggleTaskTypeFields(prefix, taskType) {
     }
     if (regularBox) regularBox.style.display = isAttribute ? 'none' : 'grid';
     if (stepBox) stepBox.style.display = isAttribute ? 'block' : 'none';
+    if (rawCodeBox) rawCodeBox.style.display = isAttribute ? 'none' : 'block';
+    if (rawCodeInput) {
+        rawCodeInput.disabled = isAttribute;
+        if (isAttribute) rawCodeInput.value = '';
+    }
+    syncSimcTaskInputMode(prefix);
 }
 
 function initSimcTaskManagement() {
@@ -1432,6 +1460,26 @@ function initSimcTaskManagement() {
             toggleTaskTypeFields('edit', this.value);
         });
     }
+
+    [
+        { raw: 'simc-task-raw-code', profile: 'simc-config-select', prefix: '' },
+        { raw: 'edit-simc-task-raw-code', profile: 'edit-simc-config-select', prefix: 'edit' }
+    ].forEach(cfg => {
+        const raw = document.getElementById(cfg.raw);
+        const profile = document.getElementById(cfg.profile);
+        if (raw && raw.dataset.boundInputMode !== '1') {
+            raw.addEventListener('input', function() { syncSimcTaskInputMode(cfg.prefix); });
+            raw.dataset.boundInputMode = '1';
+        }
+        if (profile && profile.dataset.boundInputMode !== '1') {
+            profile.addEventListener('change', function() {
+                const rawInput = document.getElementById(cfg.raw);
+                if (this.value && rawInput) rawInput.value = '';
+                syncSimcTaskInputMode(cfg.prefix);
+            });
+            profile.dataset.boundInputMode = '1';
+        }
+    });
     
     // 取消新增任务
     const cancelAddBtn = document.getElementById('cancel-add-simc-task');
@@ -1441,6 +1489,7 @@ function initSimcTaskManagement() {
             // 清空表单
             document.getElementById('simc-task-name').value = '';
             document.getElementById('simc-task-type').value = '1';
+            document.getElementById('simc-task-raw-code').value = '';
             document.getElementById('simc-task-profile').value = '';
             document.getElementById('simc-task-regular-time').value = '';
             document.getElementById('simc-task-regular-target-count').value = '';
@@ -3405,89 +3454,46 @@ function initSystemAlerts() {
 }
 
 function initSimcBackendUploadTool() {
-    const dropzone = document.getElementById('simc-upload-dropzone');
-    const fileInput = document.getElementById('simc-upload-file');
-    const selectedWrap = document.getElementById('simc-upload-selected');
-    const selectedName = document.getElementById('simc-upload-selected-name');
-    const selectedMeta = document.getElementById('simc-upload-selected-meta');
-    const submitBtn = document.getElementById('simc-upload-submit');
-    const clearBtn = document.getElementById('simc-upload-clear');
+    const submitBtn = document.getElementById('simc-compile-submit');
+    const checkBtn = document.getElementById('simc-compile-check');
+    const threadsInput = document.getElementById('simc-compile-threads');
+    const noPullCheck = document.getElementById('simc-compile-no-pull');
     const result = document.getElementById('simc-upload-result');
-    if (!dropzone || !fileInput || !submitBtn || !clearBtn || !result || !selectedWrap || !selectedName || !selectedMeta) {
+
+    if (!submitBtn || !checkBtn || !threadsInput || !noPullCheck || !result) {
         return;
     }
 
-    const setSelectedFile = (file) => {
-        simcUploadSelectedFile = file || null;
-        if (!simcUploadSelectedFile) {
-            selectedWrap.classList.add('hidden');
-            selectedName.textContent = '';
-            selectedMeta.textContent = '';
-            submitBtn.disabled = true;
-            clearBtn.disabled = true;
-            return;
-        }
-        selectedWrap.classList.remove('hidden');
-        selectedName.textContent = simcUploadSelectedFile.name || '';
-        const size = Number(simcUploadSelectedFile.size || 0);
-        const sizeText = size > 0 ? `${(size / (1024 * 1024)).toFixed(2)} MB` : '';
-        selectedMeta.textContent = [sizeText, simcUploadSelectedFile.type || ''].filter(Boolean).join(' · ');
-        submitBtn.disabled = false;
-        clearBtn.disabled = false;
-    };
-
-    const clearSelected = () => {
-        fileInput.value = '';
-        setSelectedFile(null);
-        result.textContent = '';
-    };
-
-    clearBtn.addEventListener('click', function() {
-        clearSelected();
-    });
-
-    dropzone.addEventListener('click', function() {
-        fileInput.click();
-    });
-
-    fileInput.addEventListener('change', function() {
-        const file = fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
-        setSelectedFile(file);
-    });
-
-    const stopDefaults = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-    };
-
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
-        dropzone.addEventListener(evt, stopDefaults);
-    });
-
-    dropzone.addEventListener('dragenter', function() {
-        dropzone.classList.add('border-blue-400');
-    });
-    dropzone.addEventListener('dragleave', function() {
-        dropzone.classList.remove('border-blue-400');
-    });
-    dropzone.addEventListener('drop', function(e) {
-        dropzone.classList.remove('border-blue-400');
-        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length ? e.dataTransfer.files[0] : null;
-        if (file) {
-            setSelectedFile(file);
-        }
-    });
+    let pollInterval = null;
 
     const renderBackendInfo = (data) => {
         const platform = document.getElementById('simc-upload-platform');
         const currentVersion = document.getElementById('simc-upload-current-version');
+        const sourceDir = document.getElementById('simc-upload-source-dir');
+        const buildDir = document.getElementById('simc-upload-build-dir');
         const path = document.getElementById('simc-upload-path');
         const status = document.getElementById('simc-upload-status');
         const lastError = document.getElementById('simc-upload-last-error');
+        const progressBar = document.getElementById('simc-upload-progress-bar');
+        const progressFill = document.getElementById('simc-upload-progress-fill');
+
         if (platform) platform.textContent = (data && data.platform) ? String(data.platform) : '-';
         if (currentVersion) currentVersion.textContent = (data && data.current_version) ? String(data.current_version) : '-';
-        if (path) path.textContent = (data && data.simc_path) ? String(data.simc_path) : '-';
+        if (sourceDir) sourceDir.textContent = (data && data.source_dir) ? String(data.source_dir) : '-';
+        if (buildDir) buildDir.textContent = (data && data.build_dir) ? String(data.build_dir) : '-';
+        if (path) path.textContent = (data && data.binary_path) ? String(data.binary_path) : '-';
         if (status) status.textContent = (data && data.update_status) ? String(data.update_status) : '-';
+
+        const progress = Number(data && data.update_progress) || 0;
+        if (progressBar && progressFill) {
+            if (data && data.is_updating) {
+                progressBar.classList.remove('hidden');
+                progressFill.style.width = `${progress}%`;
+            } else {
+                progressBar.classList.add('hidden');
+            }
+        }
+
         const err = (data && data.last_error) ? String(data.last_error) : '';
         if (lastError) {
             if (err) {
@@ -3497,6 +3503,18 @@ function initSimcBackendUploadTool() {
                 lastError.textContent = '';
                 lastError.classList.add('hidden');
             }
+        }
+
+        const isUpdating = data && data.is_updating;
+        submitBtn.disabled = isUpdating;
+        checkBtn.disabled = isUpdating;
+        threadsInput.disabled = isUpdating;
+        noPullCheck.disabled = isUpdating;
+
+        if (isUpdating && !pollInterval) {
+            startPolling();
+        } else if (!isUpdating && pollInterval) {
+            stopPolling();
         }
     };
 
@@ -3512,42 +3530,66 @@ function initSimcBackendUploadTool() {
         }
     };
 
-    const setUploading = (uploading) => {
-        submitBtn.disabled = uploading || !simcUploadSelectedFile;
-        clearBtn.disabled = uploading || !simcUploadSelectedFile;
-        if (uploading) {
-            result.textContent = '上传中...';
+    const startPolling = () => {
+        if (pollInterval) return;
+        pollInterval = setInterval(fetchBackendInfo, 3000);
+    };
+
+    const stopPolling = () => {
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
         }
     };
 
-    submitBtn.addEventListener('click', async function() {
-        if (!simcUploadSelectedFile) {
-            return;
-        }
-        setUploading(true);
+    const triggerUpdate = async (checkOnly) => {
+        const threads = Math.max(1, Math.min(8, parseInt(threadsInput.value) || 2));
+        const noPull = noPullCheck.checked;
+
         try {
-            const form = new FormData();
-            form.append('file', simcUploadSelectedFile);
-            const resp = await fetch('/api/simc-backend-binary/', { method: 'POST', body: form });
-            const data = await resp.json();
-            if (data && data.success) {
-                showMessage('上传成功，已开始安装/更新后端', 'success');
-                result.textContent = '上传成功，正在刷新状态...';
-                clearSelected();
-                await fetchBackendInfo();
+            const csrfToken = getCSRFToken();
+            if (!csrfToken) {
+                showMessage('无法获取CSRF令牌，请刷新页面', 'error');
                 return;
             }
-            const err = data && data.error ? String(data.error) : '上传失败';
-            showMessage(err, 'error');
-            result.textContent = err;
+
+            const payload = {
+                threads: threads,
+                no_pull: noPull,
+                check_only: checkOnly
+            };
+
+            const resp = await fetch('/api/simc-backend-binary/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await resp.json();
+            if (data && data.success) {
+                showMessage(data.message || (checkOnly ? '已开始检查' : '已开始编译更新'), 'success');
+                result.textContent = data.message || '';
+                setTimeout(fetchBackendInfo, 1000);
+                if (!checkOnly) {
+                    startPolling();
+                }
+            } else {
+                const err = data && data.error ? String(data.error) : (checkOnly ? '检查失败' : '触发编译失败');
+                showMessage(err, 'error');
+                result.textContent = err;
+            }
         } catch (e) {
-            const err = e && e.message ? e.message : '上传失败';
+            const err = e && e.message ? e.message : (checkOnly ? '检查失败' : '触发编译失败');
             showMessage(err, 'error');
             result.textContent = err;
-        } finally {
-            setUploading(false);
         }
-    });
+    };
+
+    checkBtn.addEventListener('click', () => triggerUpdate(true));
+    submitBtn.addEventListener('click', () => triggerUpdate(false));
 
     fetchBackendInfo();
 }
@@ -5754,6 +5796,7 @@ function openAddSimcTaskModal() {
     document.getElementById('simc-task-name').value = '';
     document.getElementById('simc-task-type').value = '1';
     document.getElementById('simc-config-select').value = '';
+    document.getElementById('simc-task-raw-code').value = '';
     document.getElementById('simc-task-profile').value = '';
     document.getElementById('simc-task-regular-time').value = '';
     document.getElementById('simc-task-regular-target-count').value = '';
@@ -5770,6 +5813,7 @@ function submitAddSimcTask() {
     const taskName = document.getElementById('simc-task-name').value.trim();
     const taskType = document.getElementById('simc-task-type').value;
     const simcConfigId = document.getElementById('simc-config-select').value;
+    const rawSimcCode = document.getElementById('simc-task-raw-code').value.trim();
     const regularTime = document.getElementById('simc-task-regular-time').value.trim();
     const regularTargetCount = document.getElementById('simc-task-regular-target-count').value.trim();
     const attributeStep = document.getElementById('simc-task-attribute-step').value.trim();
@@ -5784,8 +5828,13 @@ function submitAddSimcTask() {
         return;
     }
     
-    if (!simcConfigId) {
-        showMessage('请选择SimC配置', 'error');
+    if (taskType === '2' && !simcConfigId) {
+        showMessage('属性模拟任务必须选择SimC配置', 'error');
+        return;
+    }
+
+    if (taskType !== '2' && !simcConfigId && !rawSimcCode) {
+        showMessage('请选择SimC配置，或粘贴直接SimC代码', 'error');
         return;
     }
     
@@ -5794,8 +5843,11 @@ function submitAddSimcTask() {
     const requestData = {
         name: taskName,
         task_type: parseInt(taskType),
-        simc_profile_id: parseInt(simcConfigId)
+        simc_profile_id: simcConfigId ? parseInt(simcConfigId) : 0
     };
+    if (taskType !== '2' && rawSimcCode) {
+        requestData.raw_simc_code = rawSimcCode;
+    }
     
     if (taskType === '2') { // 属性模拟
         const profileSelect = document.getElementById('simc-task-profile');
@@ -5844,7 +5896,7 @@ function submitAddSimcTask() {
             document.getElementById('add-simc-task-modal').style.display = 'none';
             fetchSimcTaskData();
         } else {
-            showMessage('创建失败: ' + (data.message || '未知错误'), 'error');
+            showMessage('创建失败: ' + (data.error || data.message || '未知错误'), 'error');
         }
     })
     .catch(error => {
@@ -5906,13 +5958,14 @@ async function openEditSimcTaskModal(task) {
     // 填充表单数据
     document.getElementById('edit-simc-task-name').value = task.name || '';
     document.getElementById('edit-simc-task-type').value = task.task_type || '1';
-    document.getElementById('edit-simc-config-select').value = task.simc_profile_id || '';
+    document.getElementById('edit-simc-config-select').value = task.simc_profile_id ? task.simc_profile_id : '';
     document.getElementById('edit-simc-task-status').value = task.current_status || '0';
     document.getElementById('edit-simc-task-regular-preset').value = '300,1';
     applyRegularPreset('300,1', 'edit-simc-task-regular-time', 'edit-simc-task-regular-target-count');
     document.getElementById('edit-simc-task-attribute-step').value = '50';
 
     const extPayload = parseSimcTaskExt(task.ext || (task.ext_detail || {}));
+    document.getElementById('edit-simc-task-raw-code').value = extPayload.raw_simc_code || '';
     
     // 处理属性模拟的扩展信息 - 设置属性组合选择框
     const profileSelect = document.getElementById('edit-simc-task-profile');
@@ -5950,6 +6003,7 @@ function updateSimcTask() {
     const taskName = document.getElementById('edit-simc-task-name').value.trim();
     const taskType = document.getElementById('edit-simc-task-type').value;
     const simcConfigId = document.getElementById('edit-simc-config-select').value;
+    const rawSimcCode = document.getElementById('edit-simc-task-raw-code').value.trim();
     const currentStatus = document.getElementById('edit-simc-task-status').value;
     const regularTime = document.getElementById('edit-simc-task-regular-time').value.trim();
     const regularTargetCount = document.getElementById('edit-simc-task-regular-target-count').value.trim();
@@ -5965,8 +6019,13 @@ function updateSimcTask() {
         return;
     }
     
-    if (!simcConfigId) {
-        showMessage('请选择SimC配置', 'error');
+    if (taskType === '2' && !simcConfigId) {
+        showMessage('属性模拟任务必须选择SimC配置', 'error');
+        return;
+    }
+
+    if (taskType !== '2' && !simcConfigId && !rawSimcCode) {
+        showMessage('请选择SimC配置，或粘贴直接SimC代码', 'error');
         return;
     }
     
@@ -5988,9 +6047,12 @@ function updateSimcTask() {
         id: parseInt(taskId),
         name: taskName,
         task_type: parseInt(taskType),
-        simc_profile_id: parseInt(simcConfigId),
+        simc_profile_id: simcConfigId ? parseInt(simcConfigId) : 0,
         current_status: parseInt(currentStatus)
     };
+    if (taskType !== '2' && rawSimcCode) {
+        requestData.raw_simc_code = rawSimcCode;
+    }
     
     if (taskType === '2') {
         requestData.selected_attributes = extData;
@@ -6031,7 +6093,7 @@ function updateSimcTask() {
             modal.style.display = 'none';
             fetchSimcTaskData();
         } else {
-            showMessage('更新失败: ' + (data.message || '未知错误'), 'error');
+            showMessage('更新失败: ' + (data.error || data.message || '未知错误'), 'error');
         }
     })
     .catch(error => {
@@ -6129,6 +6191,14 @@ function openViewSimcTaskModal(task) {
     // 填充任务名称
     document.getElementById('view-simc-task-name').value = task.name || '';
     
+    // 直接 SimC 代码任务直接展示原始代码；Profile 任务再按模板生成预览。
+    const extPayload = parseSimcTaskExt(task.ext || (task.ext_detail || {}));
+    if (extPayload.raw_simc_code) {
+        document.getElementById('view-simc-task-code').value = extPayload.raw_simc_code;
+        modal.style.display = 'block';
+        return;
+    }
+
     // 生成SimC代码
     generateSimcCode(task.simc_profile_id, task.result_file, task.ext_detail || null)
         .then(simcCode => {
@@ -7383,7 +7453,7 @@ async function submitAddSimcProfile() {
                 fetchTableData('SimcProfile', currentPage);
             }
         } else {
-            showMessage('创建失败: ' + (data.message || '未知错误'), 'error');
+            showMessage('创建失败: ' + (data.error || data.message || '未知错误'), 'error');
         }
     })
     .catch(error => {
@@ -7545,7 +7615,7 @@ async function updateSimcProfile() {
                 fetchTableData('SimcProfile', currentPage);
             }
         } else {
-            showMessage('更新失败: ' + (data.message || '未知错误'), 'error');
+            showMessage('更新失败: ' + (data.error || data.message || '未知错误'), 'error');
         }
     })
     .catch(error => {

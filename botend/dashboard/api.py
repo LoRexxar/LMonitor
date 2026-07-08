@@ -627,6 +627,7 @@ class SimcTaskAPIView(View):
             data = json.loads(request.body)
             name = data.get('name', '').strip()
             simc_profile_id = data.get('simc_profile_id')
+            raw_simc_code = data.get('raw_simc_code', '').strip()
             current_status = data.get('current_status', 0)
             task_type = data.get('task_type', 1)
             ext = data.get('ext', '')
@@ -641,25 +642,34 @@ class SimcTaskAPIView(View):
                     'error': '任务名称不能为空'
                 })
             
-            if not simc_profile_id:
+            # 直接 SimC 代码模式：仅常规模拟允许不选 profile；属性模拟仍必须基于 profile。
+            if raw_simc_code and int(task_type or 1) == 2:
+                return JsonResponse({
+                    'success': False,
+                    'error': '直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟'
+                })
+            if raw_simc_code and int(task_type or 1) == 1:
+                simc_profile_id = 0  # 占位
+            elif not simc_profile_id:
                 return JsonResponse({
                     'success': False,
                     'error': 'SimC配置不能为空'
                 })
-            
-            # 验证SimC配置是否存在
-            try:
-                profile = SimcProfile.objects.get(
-                    id=simc_profile_id,
-                    user_id=request.user.id,
-                    is_active=True
-                )
-            except SimcProfile.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': '指定的SimC配置不存在'
-                })
-            
+
+            # 验证SimC配置是否存在（直接代码常规模拟跳过）
+            if not (raw_simc_code and int(task_type or 1) == 1):
+                try:
+                    profile = SimcProfile.objects.get(
+                        id=simc_profile_id,
+                        user_id=request.user.id,
+                        is_active=True
+                    )
+                except SimcProfile.DoesNotExist:
+                    return JsonResponse({
+                        'success': False,
+                        'error': '指定的SimC配置不存在'
+                    })
+
             # 生成result_file
             timestamp = str(int(time.time()))
             content_to_hash = timestamp + name + str(request.user.id)
@@ -671,7 +681,8 @@ class SimcTaskAPIView(View):
                 regular_time=regular_time,
                 regular_target_count=regular_target_count,
                 selected_attributes=selected_attributes,
-                attribute_step=attribute_step
+                attribute_step=attribute_step,
+                raw_simc_code=raw_simc_code
             )
 
             # 创建新任务
@@ -721,6 +732,7 @@ class SimcTaskAPIView(View):
             task_id = data.get('id')
             name = data.get('name', '').strip()
             simc_profile_id = data.get('simc_profile_id')
+            raw_simc_code = data.get('raw_simc_code', '').strip()
             current_status = data.get('current_status', 0)
             task_type = data.get('task_type', 1)
             ext = data.get('ext', '')
@@ -741,24 +753,33 @@ class SimcTaskAPIView(View):
                     'error': '任务名称不能为空'
                 })
             
-            if not simc_profile_id:
+            # 直接 SimC 代码模式：常规模拟不需要 profile_id；属性模拟必须基于 profile。
+            if raw_simc_code and int(task_type or 1) == 2:
+                return JsonResponse({
+                    'success': False,
+                    'error': '直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟'
+                })
+            if raw_simc_code and int(task_type or 1) == 1:
+                simc_profile_id = 0
+            elif not simc_profile_id:
                 return JsonResponse({
                     'success': False,
                     'error': 'SimC配置不能为空'
                 })
-            
-            # 验证SimC配置是否存在
-            try:
-                profile = SimcProfile.objects.get(
-                    id=simc_profile_id,
-                    user_id=request.user.id,
-                    is_active=True
-                )
-            except SimcProfile.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': '指定的SimC配置不存在'
-                })
+
+            # 验证SimC配置是否存在（直接代码常规模拟跳过）
+            if not (raw_simc_code and int(task_type or 1) == 1):
+                try:
+                    profile = SimcProfile.objects.get(
+                        id=simc_profile_id,
+                        user_id=request.user.id,
+                        is_active=True
+                    )
+                except SimcProfile.DoesNotExist:
+                    return JsonResponse({
+                        'success': False,
+                        'error': '指定的SimC配置不存在'
+                    })
             
             # 获取任务并检查权限
             try:
@@ -775,7 +796,8 @@ class SimcTaskAPIView(View):
                 regular_time=regular_time,
                 regular_target_count=regular_target_count,
                 selected_attributes=selected_attributes,
-                attribute_step=attribute_step
+                attribute_step=attribute_step,
+                raw_simc_code=raw_simc_code
             )
 
             # 更新任务
@@ -963,7 +985,7 @@ class SimcTaskAPIView(View):
                     payload['selected_attributes'] = text
         return payload
 
-    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None):
+    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None):
         ttype = int(task_type or 1)
         base = self._normalize_task_ext(ttype, ext)
 
@@ -975,6 +997,11 @@ class SimcTaskAPIView(View):
                 payload['regular_time'] = max(1, int(regular_time))
             if regular_target_count not in (None, ''):
                 payload['regular_target_count'] = max(1, int(regular_target_count))
+            raw_code = str(raw_simc_code if raw_simc_code is not None else payload.get('raw_simc_code') or '').strip()
+            if raw_code:
+                payload['raw_simc_code'] = raw_code
+            else:
+                payload.pop('raw_simc_code', None)
             return json.dumps(payload, ensure_ascii=False) if payload else ''
 
         if selected_attributes:
@@ -2369,35 +2396,6 @@ class SimcAplCandidatesAPIView(View):
             task.ext = json.dumps(ext_payload, ensure_ascii=False)
             task.save(update_fields=['current_status', 'result_file', 'ext', 'modified_time'])
 
-    def _start_simulation_async(self, user_id, task_ids):
-        ids = [int(x) for x in (task_ids or []) if str(x).isdigit()]
-        if not ids:
-            return
-
-        def _runner():
-            try:
-                from django.db import close_old_connections
-                close_old_connections()
-                from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-                monitor = SimcMonitor(None, None)
-                for task_id in ids:
-                    try:
-                        task = SimcTask.objects.filter(id=task_id, user_id=user_id, is_active=True).first()
-                        if not task:
-                            continue
-                        if int(task.current_status or 0) != 0:
-                            continue
-                        monitor.process_simc_task(task)
-                    except Exception as inner_e:
-                        logger.error(f"后台触发SimC任务失败 task_id={task_id}: {str(inner_e)}")
-                close_old_connections()
-            except Exception as e:
-                logger.error(f"后台触发SimC模拟线程异常: {str(e)}")
-
-        t = threading.Thread(target=_runner, daemon=True)
-        t.start()
-
-
 @method_decorator([csrf_exempt], name='dispatch')
 class KeywordTranslationAPIView(View):
     """
@@ -3310,16 +3308,42 @@ class SimcBackendBinaryAPIView(View):
         except Exception:
             return
 
+    def _resolve_local_build_paths(self):
+        cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
+        source_dir = str(cfg.get('simc_source_dir') or '/home/lighthouse/simc').rstrip('/')
+        build_dir = str(cfg.get('simc_build_dir') or os.path.join(source_dir, 'build-cli')).rstrip('/')
+        binary_path = str(cfg.get('simc_path') or os.path.join(build_dir, 'simc'))
+        return source_dir, build_dir, binary_path
+
+    def _json_bool(self, value, default=False):
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        text = str(value).strip().lower()
+        if text in ('1', 'true', 'yes', 'y', 'on'):
+            return True
+        if text in ('0', 'false', 'no', 'n', 'off'):
+            return False
+        return default
+
     def get(self, request):
         try:
             runtime_platform = self._get_runtime_platform()
             row = SimcBackendBinary.objects.filter(platform=runtime_platform).first()
+            source_dir, build_dir, binary_path = self._resolve_local_build_paths()
+
             if not row:
                 return JsonResponse({
                     'success': True,
                     'data': {
                         'platform': runtime_platform,
-                        'simc_path': '',
+                        'simc_path': binary_path,
+                        'source_dir': source_dir,
+                        'build_dir': build_dir,
+                        'binary_path': binary_path,
                         'current_version': '',
                         'latest_version': '',
                         'auto_update': True,
@@ -3332,11 +3356,17 @@ class SimcBackendBinaryAPIView(View):
                     }
                 })
 
+            # 方案B以本地编译配置路径为准；旧上传方案可能残留 win64 simc.exe 路径，不能继续覆盖运行路径。
+            effective_path = binary_path
             return JsonResponse({
                 'success': True,
                 'data': {
                     'platform': row.platform,
-                    'simc_path': row.simc_path,
+                    'simc_path': effective_path,
+                    'source_dir': source_dir,
+                    'build_dir': build_dir,
+                    'binary_path': effective_path,
+                    'stored_simc_path': row.simc_path,
                     'current_version': row.current_version,
                     'latest_version': row.latest_version,
                     'need_update': bool(row.latest_version) and (str(row.latest_version).strip() != str(row.current_version).strip()),
@@ -3358,32 +3388,17 @@ class SimcBackendBinaryAPIView(View):
 
     def post(self, request):
         try:
-            f = request.FILES.get('file')
-            if not f:
-                return JsonResponse({'success': False, 'error': '缺少上传文件'})
+            from django.core.management import call_command
 
-            filename = str(getattr(f, 'name', '') or '').strip()
-            if not filename:
-                return JsonResponse({'success': False, 'error': '文件名为空'})
+            data = json.loads(request.body or '{}')
+            threads = max(1, int(data.get('threads', 2) or 2))
+            no_pull = self._json_bool(data.get('no_pull'), False)
+            check_only = self._json_bool(data.get('check_only'), False)
 
-            lower = filename.lower()
-            if not (lower.endswith('.zip') or lower.endswith('.7z') or lower.endswith('.tar.gz') or lower.endswith('.tar.xz') or lower.endswith('.tgz')):
-                return JsonResponse({'success': False, 'error': '不支持的压缩格式'})
-
-            platform = self._detect_platform_from_filename(filename)
-            if platform not in ('win64', 'linux64'):
-                return JsonResponse({'success': False, 'error': '文件名需要包含 win64 或 linux64'})
-
-            if not lower.startswith('simc-'):
-                return JsonResponse({'success': False, 'error': '文件名需要以 simc- 开头'})
-
-            base_dir = os.path.join(os.getcwd(), 'bin', 'simc')
-            os.makedirs(base_dir, exist_ok=True)
-            archive_path = os.path.join(base_dir, filename)
-
-            row = SimcBackendBinary.objects.filter(platform=platform).first()
+            runtime_platform = self._get_runtime_platform()
+            row = SimcBackendBinary.objects.filter(platform=runtime_platform).first()
             if not row:
-                row = SimcBackendBinary(platform=platform)
+                row = SimcBackendBinary(platform=runtime_platform)
                 row.simc_path = ''
                 row.current_version = ''
                 row.latest_version = ''
@@ -3399,79 +3414,46 @@ class SimcBackendBinaryAPIView(View):
             if row.is_updating:
                 return JsonResponse({'success': False, 'error': '当前正在更新中，请稍后重试'})
 
-            row.is_updating = True
-            row.update_progress = 1
-            row.update_status = '接收上传文件'
-            row.last_error = ''
-            row.save(update_fields=['is_updating', 'update_progress', 'update_status', 'last_error'])
-
-            try:
-                with open(archive_path, 'wb') as fp:
-                    for chunk in f.chunks():
-                        fp.write(chunk)
-            except Exception as e:
-                row.is_updating = False
-                row.update_status = '上传失败'
-                row.last_error = str(e)
-                row.save(update_fields=['is_updating', 'update_status', 'last_error'])
-                upsert_system_alert('SIMC_UPDATE_FAILED', platform, 3, 'SimC 更新失败', f'上传失败: {str(e)}')
-                return JsonResponse({'success': False, 'error': f'上传失败: {str(e)}'})
-
-            ver = self._parse_version_from_filename(filename, platform) or filename
-            extract_dir = os.path.join(base_dir, f"simc-{ver}-{platform}")
-
-            row.update_progress = 30
-            row.update_status = '解压中'
-            row.save(update_fields=['update_progress', 'update_status'])
-
-            try:
-                if os.path.exists(extract_dir):
-                    shutil.rmtree(extract_dir, ignore_errors=True)
-                self._extract_archive(archive_path, extract_dir, platform)
-                exe_path = self._find_simc_executable(extract_dir, platform)
-                if not exe_path:
-                    raise Exception(f"未在解压目录中找到SimC可执行文件: {extract_dir}")
-                self._ensure_executable_permission(exe_path, platform)
-            except Exception as e:
-                row.is_updating = False
-                row.update_progress = 0
-                row.update_status = '安装失败'
-                row.last_error = str(e)
+            if not check_only:
+                row.is_updating = True
+                row.update_progress = 1
+                row.update_status = '已提交本地编译更新'
+                row.last_error = ''
                 row.save(update_fields=['is_updating', 'update_progress', 'update_status', 'last_error'])
-                upsert_system_alert('SIMC_UPDATE_FAILED', platform, 3, 'SimC 更新失败', f'安装失败: {str(e)}')
-                return JsonResponse({'success': False, 'error': f'安装失败: {str(e)}'})
 
-            now = timezone.now()
-            row.simc_path = exe_path
-            row.current_version = ver
-            row.latest_version = ver
-            row.last_updated_at = now
-            row.last_checked_at = now
-            row.last_error = ''
-            row.is_updating = False
-            row.update_progress = 100
-            row.update_status = f'安装完成 {ver}'
-            row.save(
-                update_fields=[
-                    'simc_path',
-                    'current_version',
-                    'latest_version',
-                    'last_updated_at',
-                    'last_checked_at',
-                    'last_error',
-                    'is_updating',
-                    'update_progress',
-                    'update_status',
-                ]
-            )
+            def _run_update():
+                from django.db import close_old_connections
+                try:
+                    call_command('update_simc_binary', threads=threads, no_pull=no_pull, check=check_only)
+                except Exception as e:
+                    close_old_connections()
+                    err_msg = str(e)[:500]
+                    try:
+                        row_inner = SimcBackendBinary.objects.filter(platform=runtime_platform).first()
+                        if row_inner:
+                            row_inner.is_updating = False
+                            row_inner.update_status = 'SimC 本地编译失败'
+                            row_inner.last_error = err_msg
+                            row_inner.save(update_fields=['is_updating', 'update_status', 'last_error'])
+                            upsert_system_alert('SIMC_UPDATE_FAILED', runtime_platform, 3, 'SimC 更新失败', f'本地编译失败: {err_msg}')
+                    except Exception:
+                        pass
+                    logger.error(f"SimC本地编译失败: {err_msg}\n{traceback.format_exc()}")
+                finally:
+                    close_old_connections()
 
-            if self._get_runtime_platform() == platform:
-                settings.SIMC_CONFIG['simc_path'] = exe_path
+            if not check_only:
+                t = threading.Thread(target=_run_update, daemon=True)
+                t.start()
+                message = '已开始本地编译更新，请稍后刷新查看进度'
+            else:
+                threading.Thread(target=_run_update, daemon=True).start()
+                message = '已开始检查当前版本'
 
-            return JsonResponse({'success': True, 'data': {'platform': platform, 'version': ver, 'simc_path': exe_path}})
+            return JsonResponse({'success': True, 'message': message})
         except Exception as e:
-            logger.error(f"上传SimC后端失败: {str(e)}\n{traceback.format_exc()}")
-            return JsonResponse({'success': False, 'error': f'上传SimC后端失败: {str(e)}'})
+            logger.error(f"触发SimC本地编译失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'触发SimC本地编译失败: {str(e)}'})
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')

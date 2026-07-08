@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260706_dashboard_bool_required_fix" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260709_simc_update_async_ui" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -284,8 +284,8 @@
                             </li>
                             <li class="submenu-item" data-tool="simc-backend-upload">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
-                                    <i class="fas fa-cloud-arrow-up mr-2 text-xs"></i>
-                                    SimC后端上传
+                                    <i class="fas fa-hammer mr-2 text-xs"></i>
+                                    SimC后端更新
                                 </a>
                             </li>
                             <li class="submenu-item" data-table="SimcAplKeywordPair">
@@ -838,10 +838,10 @@
 
                 <div class="tool-content" id="simc-backend-upload" style="display: none;">
                     <div class="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
-                        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+                        <div class="flex flex-col gap-6">
                             <div class="min-w-0">
-                                <h3 class="text-xl font-semibold text-gray-900">SimC 后端上传</h3>
-                                <p class="text-sm text-gray-600 mt-1">上传 nightly 压缩包，系统会自动解压并更新后端可执行文件路径。</p>
+                                <h3 class="text-xl font-semibold text-gray-900">SimC 后端本地编译更新</h3>
+                                <p class="text-sm text-gray-600 mt-1">维护服务器本地 simc 源码编译环境并保持更新</p>
                                 <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                                     <div class="rounded-xl bg-gray-50 border border-gray-200 p-4">
                                         <div class="text-xs text-gray-500">当前平台</div>
@@ -852,38 +852,47 @@
                                         <div id="simc-upload-current-version" class="mt-1 font-semibold text-gray-900 break-all">-</div>
                                     </div>
                                     <div class="rounded-xl bg-gray-50 border border-gray-200 p-4 sm:col-span-2">
-                                        <div class="text-xs text-gray-500">当前路径</div>
+                                        <div class="text-xs text-gray-500">源码目录</div>
+                                        <div id="simc-upload-source-dir" class="mt-1 font-semibold text-gray-900 break-all">-</div>
+                                    </div>
+                                    <div class="rounded-xl bg-gray-50 border border-gray-200 p-4 sm:col-span-2">
+                                        <div class="text-xs text-gray-500">构建目录</div>
+                                        <div id="simc-upload-build-dir" class="mt-1 font-semibold text-gray-900 break-all">-</div>
+                                    </div>
+                                    <div class="rounded-xl bg-gray-50 border border-gray-200 p-4 sm:col-span-2">
+                                        <div class="text-xs text-gray-500">二进制路径</div>
                                         <div id="simc-upload-path" class="mt-1 font-semibold text-gray-900 break-all">-</div>
                                     </div>
                                     <div class="rounded-xl bg-gray-50 border border-gray-200 p-4 sm:col-span-2">
                                         <div class="text-xs text-gray-500">更新状态</div>
                                         <div id="simc-upload-status" class="mt-1 font-semibold text-gray-900 break-all">-</div>
+                                        <div id="simc-upload-progress-bar" class="mt-2 w-full bg-gray-200 rounded-full h-2 overflow-hidden hidden">
+                                            <div id="simc-upload-progress-fill" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                                        </div>
                                         <div id="simc-upload-last-error" class="mt-2 text-xs text-red-600 whitespace-pre-wrap break-words hidden"></div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="w-full lg:w-[420px]">
-                                <div id="simc-upload-dropzone" class="group relative rounded-2xl border border-dashed border-gray-300 bg-gradient-to-b from-gray-50 to-white p-6 hover:border-blue-400 transition-colors duration-200 cursor-pointer">
-                                    <input id="simc-upload-file" type="file" class="hidden" accept=".zip,.7z,.tar.gz,.tar.xz,.tgz">
-                                    <div class="flex flex-col items-center text-center">
-                                        <div class="w-14 h-14 rounded-2xl bg-blue-50 text-blue-700 flex items-center justify-center shadow-sm">
-                                            <i class="fas fa-cloud-arrow-up text-xl"></i>
-                                        </div>
-                                        <div class="mt-4 text-base font-semibold text-gray-900">拖拽文件到这里，或点击选择</div>
-                                        <div class="mt-1 text-xs text-gray-500">支持 .zip / .7z / .tar.gz / .tar.xz / .tgz（文件名需包含 win64 或 linux64）</div>
-                                        <div id="simc-upload-selected" class="mt-4 w-full rounded-xl bg-white border border-gray-200 p-3 text-left hidden">
-                                            <div class="text-xs text-gray-500">已选择</div>
-                                            <div id="simc-upload-selected-name" class="mt-1 text-sm font-semibold text-gray-900 break-all"></div>
-                                            <div id="simc-upload-selected-meta" class="mt-1 text-xs text-gray-500"></div>
-                                        </div>
+                            <div class="border-t border-gray-200 pt-6">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">编译线程数</label>
+                                        <input type="number" id="simc-compile-threads" min="1" max="8" value="2" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                        <p class="mt-1 text-xs text-gray-500">默认 2，内存不足时降低</p>
+                                    </div>
+                                    <div>
+                                        <label class="flex items-center space-x-2 cursor-pointer mt-8">
+                                            <input type="checkbox" id="simc-compile-no-pull" class="h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                            <span class="text-sm text-gray-700">不拉取代码（仅编译当前）</span>
+                                        </label>
                                     </div>
                                 </div>
-                                <div class="mt-4 flex items-center gap-3">
-                                    <button id="simc-upload-submit" class="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                                        上传并安装
+                                <div class="flex items-center gap-3">
+                                    <button id="simc-compile-check" class="px-4 py-3 rounded-xl bg-gray-600 text-white font-semibold hover:bg-gray-700 transition-colors duration-200">
+                                        <i class="fas fa-info-circle mr-2"></i>检查当前版本
                                     </button>
-                                    <button id="simc-upload-clear" class="px-4 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200 transition-colors duration-200" disabled>
-                                        清除
+                                    <button id="simc-compile-submit" class="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors duration-200">
+                                        <i class="fas fa-hammer mr-2"></i>开始编译更新
                                     </button>
                                 </div>
                                 <div id="simc-upload-result" class="mt-3 text-xs text-gray-500"></div>
@@ -1432,10 +1441,15 @@
                     </select>
                 </div>
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">SimC配置 *</label>
-                    <select id="simc-config-select" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" required>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">SimC配置</label>
+                    <select id="simc-config-select" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                         <option value="">请选择SimC配置...</option>
                     </select>
+                    <p class="text-xs text-gray-500 mt-1">常规模拟可二选一：选择已有配置，或在下方粘贴完整 SimC 代码；属性模拟必须选择配置。</p>
+                </div>
+                <div class="mb-4" id="simc-task-raw-code-wrapper">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">直接 SimC 代码（可选，仅常规模拟）</label>
+                    <textarea id="simc-task-raw-code" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm" rows="8" placeholder="粘贴完整 .simc 配置后，将不再依赖上方 SimC 配置..."></textarea>
                 </div>
                 <div class="mb-4" style="display: none;">
                     <label class="block text-sm font-medium text-gray-700 mb-2">属性组合 *</label>
@@ -1503,10 +1517,15 @@
                     </select>
                 </div>
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">SimC配置 *</label>
-                    <select id="edit-simc-config-select" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" required>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">SimC配置</label>
+                    <select id="edit-simc-config-select" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                         <option value="">请选择SimC配置...</option>
                     </select>
+                    <p class="text-xs text-gray-500 mt-1">常规模拟可二选一：选择已有配置，或在下方粘贴完整 SimC 代码；属性模拟必须选择配置。</p>
+                </div>
+                <div class="mb-4" id="edit-simc-task-raw-code-wrapper">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">直接 SimC 代码（可选，仅常规模拟）</label>
+                    <textarea id="edit-simc-task-raw-code" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm" rows="8" placeholder="粘贴完整 .simc 配置后，将不再依赖上方 SimC 配置..."></textarea>
                 </div>
                 <div class="mb-4" style="display: none;">
                     <label class="block text-sm font-medium text-gray-700 mb-2">属性组合 *</label>

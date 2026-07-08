@@ -691,7 +691,7 @@ class SimcTask(models.Model):
     simc_profile_id = models.IntegerField(help_text="用户ID")
     result_file = models.TextField(help_text="任务结果，多个文件以逗号分割", null=True)
     task_type = models.IntegerField(default=1, help_text="任务类型：1=常规模拟，2=属性模拟")
-    ext = models.CharField(max_length=5000, null=True, blank=True, help_text="扩展信息")
+    ext = models.TextField(null=True, blank=True, help_text="扩展信息")
     modified_time = models.DateTimeField(auto_now=True, help_text="修改时间")
     current_status = models.IntegerField(default=0, help_text="当前状态")
     create_time = models.DateTimeField(auto_now_add=True, help_text="创建时间")
@@ -766,19 +766,39 @@ class SimcBackendBinary(models.Model):
     platform = models.CharField(max_length=32, default="win64", help_text="平台标识，如 win64/linux64")
     simc_path = models.CharField(max_length=500, default="", help_text="SimC可执行文件路径")
     current_version = models.CharField(max_length=128, default="", help_text="当前SimC版本号/构建标识")
-    latest_version = models.CharField(max_length=128, default="", help_text="检测到的最新版本号")
-    auto_update = models.BooleanField(default=True, help_text="是否自动更新")
-    is_updating = models.BooleanField(default=False, help_text="是否正在更新")
-    update_progress = models.IntegerField(default=0, help_text="更新进度百分比 0-100")
-    update_status = models.CharField(max_length=255, default="", blank=True, help_text="更新状态提示")
-    last_error = models.CharField(max_length=500, default="", blank=True, help_text="最近更新错误")
-    last_checked_at = models.DateTimeField(null=True, blank=True, help_text="上次检查时间")
+    latest_version = models.CharField(max_length=128, default="", blank=True, help_text="(保留)检测到的最新版本号")
+    auto_update = models.BooleanField(default=True, help_text="(保留)是否自动更新")
+    is_updating = models.BooleanField(default=False, help_text="(保留)是否正在更新")
+    update_progress = models.IntegerField(default=0, help_text="(保留)更新进度百分比 0-100")
+    update_status = models.CharField(max_length=255, default="", blank=True, help_text="(保留)更新状态提示")
+    last_error = models.CharField(max_length=500, default="", blank=True, help_text="(保留)最近更新错误")
+    last_checked_at = models.DateTimeField(null=True, blank=True, help_text="(保留)上次检查时间")
     last_updated_at = models.DateTimeField(null=True, blank=True, help_text="上次更新时间")
 
     class Meta:
         db_table = 'simc_backend_binary'
         verbose_name = 'SimC后端软件'
         verbose_name_plural = 'SimC后端软件'
+
+
+class SimcDefaultApl(models.Model):
+    """
+    SimC 默认 APL（按专精）
+    从 SimC 源码 ActionPriorityLists/default/ 导入
+    """
+    spec = models.CharField(max_length=100, unique=True, help_text="专精标识，如 warrior_fury")
+    class_name = models.CharField(max_length=50, help_text="职业英文名，如 warrior")
+    apl_content = models.TextField(help_text="完整 APL 文本")
+    is_active = models.BooleanField(default=True, help_text="是否启用")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'simc_default_apl'
+        verbose_name = 'SimC默认APL'
+        verbose_name_plural = 'SimC默认APL'
+
+    def __str__(self):
+        return f'{self.spec} ({"启用" if self.is_active else "禁用"})'
 
 
 class WclAnalysisTask(models.Model):

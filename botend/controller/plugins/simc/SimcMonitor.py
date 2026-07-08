@@ -36,7 +36,6 @@ class SimcMonitor(BaseScan):
 
     def __init__(self, req, task):
         super().__init__(req, task)
-        
         self.task = task
         self.hint = ""
         
@@ -45,6 +44,13 @@ class SimcMonitor(BaseScan):
         self.simc_path = self.simc_config.get('simc_path', '')
         self.result_path = os.path.join(os.getcwd(), self.simc_config.get('result_path', 'static/simc_results/'))
         self.simc_template_path = self.simc_config.get('simc_template', 'LMonitor/simc_template.txt')
+
+        # 如果未配置 simc_path，尝试默认服务器路径
+        if not self.simc_path:
+            default_path = '/home/lighthouse/simc/build-cli/simc'
+            if os.path.isfile(default_path):
+                self.simc_path = default_path
+                self.simc_config['simc_path'] = default_path
         
         # 确保结果目录存在
         if not os.path.exists(self.result_path):
@@ -913,26 +919,9 @@ class SimcMonitor(BaseScan):
         logger.info("[SimC Monitor] Start SimC simulation check.")
         
         try:
-            sys_name = str(py_platform.system() or '').lower()
-            if 'linux' in sys_name:
-                platform = self._get_runtime_platform()
-                try:
-                    now = timezone.now()
-                    row = SimcBackendBinary.objects.filter(platform=platform).first()
-                    if row:
-                        row.is_updating = False
-                        row.update_progress = 0
-                        row.update_status = '当前没有agent在运行'
-                        row.last_error = ''
-                        row.last_checked_at = now
-                        row.save(update_fields=['is_updating', 'update_progress', 'update_status', 'last_error', 'last_checked_at'])
-                except Exception:
-                    pass
-                return True
-            self.ensure_simc_backend_up_to_date()
             # 检查SimC路径是否正确
             if not self.simc_path:
-                logger.error(f"[SimC Monitor] SimC path not configured")
+                logger.error("[SimC Monitor] SimC path not configured")
                 self.fail_pending_tasks("SimC路径未配置，请检查系统配置")
                 return False
             if not os.path.exists(self.simc_path):
@@ -944,12 +933,14 @@ class SimcMonitor(BaseScan):
                 self.fail_pending_tasks(f"SimC路径不是文件: {self.simc_path}")
                 return False
 
-            # 获取所有活跃的SimC任务
-            simc_tasks = SimcTask.objects.filter(is_active=True, current_status=0)
-            
-            for task in simc_tasks:
-                logger.info(f"[SimC Monitor] Processing task: {task.name} (ID: {task.id})")
-                self.process_simc_task(task)
+            # 每次 MonitorTask 调度只取一个待执行 SimC 任务，避免单次 scan 长时间占用全局监控循环。
+            # 任务继续按外层 MonitorTask 的 last_scan_time/wait_time 排序进入下一轮调度。
+            simc_task = SimcTask.objects.filter(is_active=True, current_status=0).order_by('modified_time', 'id').first()
+            if simc_task:
+                logger.info(f"[SimC Monitor] Processing task: {simc_task.name} (ID: {simc_task.id})")
+                self.process_simc_task(simc_task)
+            else:
+                logger.info("[SimC Monitor] No pending SimC task.")
                 
         except Exception as e:
             logger.error(f"[SimC Monitor] Error during SimC simulation: {str(e)}")
@@ -965,23 +956,42 @@ class SimcMonitor(BaseScan):
         :return:
         """
         try:
-            # 更新任务状态为进行中
-            simc_task.current_status = 1
+            # 原子抢占待处理任务，避免多个调度进程同时执行同一个 SimC 任务。
+            claimed = SimcTask.objects.filter(
+                id=simc_task.id,
+                is_active=True,
+                current_status=0
+            ).update(current_status=1, modified_time=timezone.now())
+            if claimed != 1:
+                logger.info(f"[SimC Monitor] Task {simc_task.id} was already claimed or no longer pending, skip")
+                return False
+            simc_task.refresh_from_db()
             self.clear_simc_error_details(simc_task)
-            simc_task.save()
+            simc_task.save(update_fields=['ext', 'modified_time'])
             
-            # 获取SimC配置
+            ext_payload = self.parse_task_ext(simc_task.ext)
+            raw_simc_code = str(ext_payload.get('raw_simc_code') or '').strip()
+
+            # 直接 SimC 代码只支持常规模拟，不依赖 SimcProfile。
+            if raw_simc_code and int(simc_task.task_type or 1) == 1:
+                return self.process_regular_simulation(simc_task, None)
+
+            if raw_simc_code and int(simc_task.task_type or 1) == 2:
+                self.mark_task_failed(simc_task, "直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟")
+                return False
+
+            # Profile + 模板模式、属性模拟都需要 SimCProfile。
             simc_profile = SimcProfile.objects.filter(
                 id=simc_task.simc_profile_id,
                 user_id=simc_task.user_id,
                 is_active=True
             ).first()
-            
+
             if not simc_profile:
                 logger.error(f"[SimC Monitor] SimC profile not found for task {simc_task.id}")
                 self.mark_task_failed(simc_task, "未找到对应的SimC配置，可能已被删除或禁用")
                 return False
-            
+
             # 根据任务类型选择处理方式
             if simc_task.task_type == 2:  # 属性模拟
                 return self.process_attribute_simulation(simc_task, simc_profile)
@@ -1004,24 +1014,32 @@ class SimcMonitor(BaseScan):
         """
         try:
             ext_payload = self.parse_task_ext(simc_task.ext)
-            override_time = ext_payload.get('regular_time')
-            override_target_count = ext_payload.get('regular_target_count')
-            override_action_list = ext_payload.get('override_action_list')
-            logger.info(
-                f"[SimC Monitor] Regular overrides for task {simc_task.id}: "
-                f"time={override_time}, targets={override_target_count}"
-            )
 
-            # 生成SimC代码
-            simc_code = self.generate_simc_code(
-                simc_profile,
-                simc_task.result_file,
-                override_time=override_time,
-                override_target_count=override_target_count,
-                override_action_list=override_action_list
-            )
-            if not isinstance(simc_code, str) or not simc_code.strip():
-                raise Exception("生成SimC配置失败：模板渲染结果为空")
+            # ── 直接 SimC 代码模式 ──
+            raw_simc_code = ext_payload.get('raw_simc_code')
+            if raw_simc_code and str(raw_simc_code).strip():
+                logger.info(f"[SimC Monitor] Task {simc_task.id}: using raw simc code ({len(raw_simc_code)} chars)")
+                simc_code = str(raw_simc_code).strip()
+            else:
+                # ── Profile + 模板模式（原有逻辑） ──
+                override_time = ext_payload.get('regular_time')
+                override_target_count = ext_payload.get('regular_target_count')
+                override_action_list = ext_payload.get('override_action_list')
+                logger.info(
+                    f"[SimC Monitor] Regular overrides for task {simc_task.id}: "
+                    f"time={override_time}, targets={override_target_count}"
+                )
+
+                # 生成SimC代码
+                simc_code = self.generate_simc_code(
+                    simc_profile,
+                    simc_task.result_file,
+                    override_time=override_time,
+                    override_target_count=override_target_count,
+                    override_action_list=override_action_list
+                )
+                if not isinstance(simc_code, str) or not simc_code.strip():
+                    raise Exception("生成SimC配置失败：模板渲染结果为空")
             
             # 创建临时SimC文件
             simc_file_path = os.path.join(self.result_path, f"temp_{simc_task.id}.simc")
@@ -1151,6 +1169,39 @@ class SimcMonitor(BaseScan):
             self.mark_task_failed(simc_task, "属性模拟执行异常", e)
             return False
 
+    def _load_default_apl(self, spec):
+        """
+        从数据库加载默认 APL（按专精自动匹配）
+        :param spec: 专精标识（如 fury, arms, balance）
+        :return: APL 文本或 None
+        """
+        try:
+            from botend.models import SimcDefaultApl
+            spec_value = str(spec or '').strip().lower()
+            if not spec_value:
+                return None
+            # 精确匹配：spec 字段格式为 class_spec（如 warrior_fury）
+            apl = SimcDefaultApl.objects.filter(
+                is_active=True,
+                spec__endswith=f'_{spec_value}'
+            ).first()
+            if apl:
+                logger.info(f"[SimC Monitor] 自动加载默认 APL: {apl.spec}")
+                return apl.apl_content
+            # 回退：直接匹配 spec 字段
+            apl = SimcDefaultApl.objects.filter(
+                is_active=True,
+                spec=spec_value
+            ).first()
+            if apl:
+                logger.info(f"[SimC Monitor] 自动加载默认 APL: {apl.spec}")
+                return apl.apl_content
+            logger.warning(f"[SimC Monitor] 未找到专精 {spec_value} 的默认 APL")
+            return None
+        except Exception as e:
+            logger.error(f"[SimC Monitor] 加载默认 APL 失败: {e}")
+            return None
+
     def generate_simc_code(self, profile, result_file, override_time=None, override_target_count=None, override_action_list=None):
         """
         生成SimC代码
@@ -1159,6 +1210,10 @@ class SimcMonitor(BaseScan):
         :return: 生成的SimC代码字符串
         """
         try:
+            # ── 自动 APL：当用户未指定 override_action_list 且 profile 也没有手写 APL 时 ──
+            if not override_action_list and not (profile.action_list or '').strip():
+                override_action_list = self._load_default_apl(profile.spec)
+
             # 从数据库获取模板
             from botend.models import SimcTemplate
             template_obj = self.select_template_by_spec(profile.spec)
