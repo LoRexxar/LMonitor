@@ -47,6 +47,9 @@ class SpellTextResolver:
     _effect_cache: dict[int, dict[int, dict[str, str]]] = field(default_factory=dict)
     _missing_spells: set[int] = field(default_factory=set)
     _missing_effects: set[int] = field(default_factory=set)
+    _duration_cache: dict[int, int] | None = None
+    _radius_cache: dict[int, float] | None = None
+    _misc_index_cache: dict[int, tuple[int, int]] | None = None
 
     def resolve(self, text: str | None, spell_id: int | None = None, *, depth: int = 0) -> str:
         text = text or ""
@@ -173,6 +176,16 @@ class SpellTextResolver:
         idx = _to_int(m.group("idx"))
         if idx <= 0:
             idx = 1
+        # Handle duration / aura-range / radius via DB2 reference tables
+        if kind in ('d',):
+            val = self._duration_value(target_sid, idx)
+            if val != "":
+                return val
+        if kind in ('a', 'r'):
+            val = self._radius_value(target_sid, idx)
+            if val != "":
+                return val
+        # Fallback to SpellEffect-based resolution
         val = self._effect_value(target_sid, idx, kind)
         if val != "":
             return val
@@ -203,19 +216,119 @@ class SpellTextResolver:
         # produced wrong values (for example 5% became 0%).
         row = effects.get(idx - 1) or effects.get(idx) or {}
         raw = row.get("base_points") or ""
-        if raw == "":
+        coeff = row.get("coefficient") or ""
+        if raw == "" and coeff == "":
             return ""
         num = _num(raw)
-        if num is None:
+        if num is None and not coeff:
             return str(raw)
-        if kind in {'a', 'd', 't', 'o', 'u', 'i', 'r', 'n', 'c', 'h', 'x'}:
-            # Radius / duration / cost / stack-count / client runtime values
-            # live in other DB2 tables or game state.  Do not substitute
-            # EffectBasePointsF for them; that produces wrong text.
+        if kind in {'o', 'u', 't', 'i', 'n', 'c', 'h', 'x'}:
+            # Periodic tick (o), max stacks (u), tick count (t), targets (i),
+            # chain targets (n), cost (c), honor (h), client runtime (x)
+            # live in other DB2 tables or game state.  Return "" so
+            # _cleanup_unresolved replaces them with readable text.
             return ""
+        # When base_points is 0 but coefficient is available, the real value
+        # comes from coefficient × spell/attack power (runtime stat).
+        # Show the coefficient as a percentage instead of flat "0".
+        if num is not None and num == 0 and coeff:
+            coeff_num = _num(coeff)
+            if coeff_num is not None and coeff_num > 0:
+                return _fmt(coeff_num * 100) + "%"
         if kind in {'m', 's'}:
             num = abs(num)
         return _fmt(num)
+
+    # ── DB2 reference-table lookups (Duration / Radius) ──────────────
+
+    def _load_duration_table(self) -> dict[int, int]:
+        if self._duration_cache is not None:
+            return self._duration_cache
+        path = _dump_file('SpellDuration.csv')
+        out: dict[int, int] = {}
+        if path.exists():
+            try:
+                with path.open(encoding='utf-8') as f:
+                    for row in csv.DictReader(f):
+                        out[_to_int(row.get('ID'))] = _to_int(row.get('Duration'))
+            except Exception:
+                out = {}
+        self._duration_cache = out
+        return out
+
+    def _load_radius_table(self) -> dict[int, float]:
+        if self._radius_cache is not None:
+            return self._radius_cache
+        path = _dump_file('SpellRadius.csv')
+        out: dict[int, float] = {}
+        if path.exists():
+            try:
+                with path.open(encoding='utf-8') as f:
+                    for row in csv.DictReader(f):
+                        v = _num(row.get('Radius'))
+                        if v is not None:
+                            out[_to_int(row.get('ID'))] = v
+            except Exception:
+                out = {}
+        self._radius_cache = out
+        return out
+
+    def _load_misc_index(self) -> dict[int, tuple[int, int]]:
+        if self._misc_index_cache is not None:
+            return self._misc_index_cache
+        path = _dump_file('spell_misc_index.csv')
+        out: dict[int, tuple[int, int]] = {}
+        if path.exists():
+            try:
+                with path.open(encoding='utf-8') as f:
+                    for row in csv.DictReader(f):
+                        sid = _to_int(row.get('SpellID'))
+                        if sid:
+                            out[sid] = (_to_int(row.get('DurationIndex')), _to_int(row.get('RangeIndex')))
+            except Exception:
+                out = {}
+        self._misc_index_cache = out
+        return out
+
+    def _duration_value(self, spell_id: int, idx: int) -> str:
+        """Resolve $d (duration) via SpellMisc → SpellDuration chain.
+        Returns seconds as a plain number without unit suffix."""
+        spell_id = _to_int(spell_id)
+        if spell_id <= 0:
+            return ""
+        misc = self._load_misc_index()
+        entry = misc.get(spell_id)
+        if not entry:
+            return ""
+        duration_idx = entry[0]
+        if duration_idx <= 0:
+            return ""
+        dur_table = self._load_duration_table()
+        ms = dur_table.get(duration_idx)
+        if ms is None or ms <= 0:
+            return ""
+        # Convert milliseconds to seconds for display
+        sec = ms / 1000
+        return _fmt(sec)
+
+    def _radius_value(self, spell_id: int, idx: int) -> str:
+        """Resolve $A/$r (radius/aura range) via SpellMisc → SpellRadius chain.
+        Returns yards as a plain number without unit suffix."""
+        spell_id = _to_int(spell_id)
+        if spell_id <= 0:
+            return ""
+        misc = self._load_misc_index()
+        entry = misc.get(spell_id)
+        if not entry:
+            return ""
+        range_idx = entry[1]
+        if range_idx <= 0:
+            return ""
+        rad_table = self._load_radius_table()
+        yards = rad_table.get(range_idx)
+        if yards is None or yards <= 0:
+            return ""
+        return _fmt(yards)
 
     def _resolve_expr(self, expr: str, current_spell_id: int) -> str:
         unresolved = False
@@ -224,14 +337,13 @@ class SpellTextResolver:
             nonlocal unresolved
             val = self._resolve_var_match(m, current_spell_id)
             if not val or val.startswith('$'):
-                unresolved = True
+                # Variable unresolvable inside expression — use 0 instead
+                # of aborting, so partial evaluations still produce a number.
                 return '0'
             return val
 
         expr = re.sub(r"\$abs\s*\(", "abs(", expr or "", flags=re.IGNORECASE)
         replaced = _VAR_RE.sub(repl, expr)
-        if unresolved:
-            return '${' + expr + '}'
         replaced = replaced.replace(" ", "")
         if not re.fullmatch(r"[0-9+\-*/().absABS]+", replaced):
             return '${' + expr + '}'
@@ -269,7 +381,8 @@ class SpellTextResolver:
         text = _VAR_RE.sub(_readable_unresolved_var, text)
         text = re.sub(r"\$\?(?=\D|$)", "", text)
         text = re.sub(r"\$proccooldown", "一段时间", text, flags=re.IGNORECASE)
-        text = re.sub(r"\$[hH](?![A-Za-z0-9_])", "x", text)
+        text = re.sub(r"\$[hH](?![A-Za-z0-9_])", "点", text)
+        text = re.sub(r"\$[ef](?![A-Za-z0-9_])", "x", text, flags=re.IGNORECASE)
         text = re.sub(r"\$[nx](?![A-Za-z0-9_])", "x", text, flags=re.IGNORECASE)
         # Some Blizzard client conditionals are stored as ?c3[...][] after the
         # leading "$" was stripped by earlier resolution passes.  Clean both
@@ -303,13 +416,13 @@ def _readable_unresolved_var(m: re.Match[str]) -> str:
     if kind == 't':
         return '一段时间'
     if kind == 'o':
-        return 'x'
+        return ''
     if kind == 'u':
-        return 'x'
+        return ''
     if kind == 'i':
-        return 'x'
+        return '多'
     if kind in {'n', 'c', 'h', 'x', 'b'}:
-        return 'x'
+        return 'x' if kind != 'h' else '点'
     return 'x'
 
 

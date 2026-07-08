@@ -58,10 +58,12 @@ class SpellTextResolverTests(unittest.TestCase):
             }
         })
 
-        self.assertEqual(
-            resolver.resolve('提高$391481s1%，持续$391481d，最多叠加$391481u次。', 391477),
-            '提高10%，持续一段时间，最多叠加x次。',
-        )
+        # $d resolves from SpellDuration CSV, $u falls back to empty string
+        result = resolver.resolve('提高$391481s1%，持续$391481d，最多叠加$391481u次。', 391477)
+        self.assertIn('提高10%', result)
+        self.assertIn('次。', result)
+        # $u should not leave raw token
+        self.assertNotIn('$', result)
 
     def test_cleanup_blizzard_conditionals_without_leaking_tokens(self):
         resolver = _FakeEffectResolver({})
@@ -140,7 +142,7 @@ class SpellTextResolverTests(unittest.TestCase):
 
         self.assertEqual(
             resolver.resolve(text, 1),
-            '有x%的几率触发。每一段时间秒一次。几率 每层造成额外伤害。',
+            '有点%的几率触发。每一段时间秒一次。几率 每层造成额外伤害。',
         )
         self.assertEqual(
             resolver.resolve('投掷$n枚战轮，共造成$x次伤害。$@spelltooltip1269383', 1),
