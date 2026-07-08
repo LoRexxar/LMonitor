@@ -140,7 +140,7 @@ function renderNewsList(items) {
       const time = escapeHtml(item.publish_time || "");
       const articleUrl = sanitizeHref(item.article_url || (item.id ? `/portal/article/${item.id}/` : ""));
       const sourceUrl = sanitizeHref(item.url || "");
-      const mainUrl = articleUrl || sourceUrl || '#';
+      const mainUrl = (item.source === 'exwind' && sourceUrl) ? sourceUrl : (articleUrl || sourceUrl || '#');
       const targetAttrs = mainUrl.startsWith("/") || mainUrl === "#" ? "" : " target=\"_blank\" rel=\"noreferrer\"";
       const external = sourceUrl
         ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer" class="portal-news-external" title="查看原文">${icon("icon-external", "w-3.5 h-3.5")}</a>`
