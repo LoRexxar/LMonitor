@@ -83,18 +83,38 @@ class Command(BaseCommand):
             f'{action}完成: {imported} 成功, {skipped} 跳过, {errors} 错误'
         ))
 
+    def _parse_apl_filename(self, base):
+        """按已知专精后缀解析 APL 文件名。
+
+        SimC 默认 APL 文件名形如 class_spec.simc，但部分 spec 自身包含下划线
+        （例如 beast_mastery），所以必须优先匹配 KNOWN_SPECS 中的完整 spec 后缀。
+        """
+        for class_name, specs in KNOWN_SPECS.items():
+            prefix = f'{class_name}_'
+            if not base.startswith(prefix):
+                continue
+            suffix = base[len(prefix):]
+            for spec in sorted(specs, key=len, reverse=True):
+                if suffix == spec:
+                    return class_name, spec
+            return class_name, suffix
+
+        parts = base.rsplit('_', 1)
+        if len(parts) == 2:
+            return parts[0], parts[1]
+        return None, None
+
     def _process_file(self, source_dir, fname, dry_run):
         """处理单个 APL 文件"""
         # 解析文件名: warrior_fury.simc → class=warrior, spec=fury
+        # 注意 spec 可能包含下划线，例如 hunter_beast_mastery.simc，不能简单 rsplit('_', 1)。
         base = fname[:-5]  # 去掉 .simc
-        parts = base.rsplit('_', 1)
-        if len(parts) != 2:
+        class_name, spec = self._parse_apl_filename(base)
+        if not class_name or not spec:
             self.stdout.write(self.style.WARNING(
                 f'无法解析文件名: {fname}，跳过'
             ))
             return 'skip'
-
-        class_name, spec = parts
 
         # 验证是否已知专精
         known_specs = KNOWN_SPECS.get(class_name, [])

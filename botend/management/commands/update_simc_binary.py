@@ -13,10 +13,11 @@ import re
 import subprocess
 
 from django.conf import settings
+from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from botend.models import SimcBackendBinary
+from botend.models import SimcBackendBinary, SimcTemplate
 
 
 DEFAULT_SIMC_SOURCE_DIR = '/home/lighthouse/simc'
@@ -131,6 +132,40 @@ class Command(BaseCommand):
         self.stdout.write(f'当前版本: {version}')
         self.stdout.write(f'路径: {self.simc_binary_path}')
 
+    def _sync_default_template(self):
+        cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
+        template_path = str(cfg.get('simc_template') or 'LMonitor/simc_template.txt')
+        if not os.path.isabs(template_path):
+            template_path = os.path.join(settings.BASE_DIR, template_path)
+        if not os.path.isfile(template_path):
+            self.stdout.write(self.style.WARNING(f'默认模板文件不存在，跳过同步: {template_path}'))
+            return
+
+        with open(template_path, encoding='utf-8') as f:
+            content = f.read()
+        if not content.strip():
+            self.stdout.write(self.style.WARNING(f'默认模板文件为空，跳过同步: {template_path}'))
+            return
+
+        _, created = SimcTemplate.objects.update_or_create(
+            spec='default',
+            defaults={
+                'template_content': content,
+                'is_active': True,
+            }
+        )
+        action = '创建' if created else '更新'
+        self.stdout.write(self.style.SUCCESS(f'{action}默认 SimC 模板: spec=default'))
+
+    def _sync_default_apl(self):
+        source_dir = os.path.join(self.simc_source_dir, 'ActionPriorityLists', 'default')
+        call_command('import_simc_apl', source_dir=source_dir)
+
+    def _sync_generated_inputs(self):
+        self._set_status(progress=95, status='同步默认模板和 APL', error='', updating=True)
+        self._sync_default_template()
+        self._sync_default_apl()
+
     def _update_binary(self, do_pull=True, threads=2):
         self._set_status(progress=1, status='准备更新 SimC', error='', updating=True)
         try:
@@ -171,6 +206,8 @@ class Command(BaseCommand):
             parsed_version = self._parse_version(binary_output)
             if parsed_version:
                 version = f'{parsed_version}-{self._get_git_hash()}' if self._get_git_hash() else parsed_version
+
+            self._sync_generated_inputs()
 
             self.row.simc_path = self.simc_binary_path
             self.row.current_version = version
