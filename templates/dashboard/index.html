@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260709_simc_raw_inspect_wizard" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260709_simc_workbench" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -269,6 +269,12 @@
                             日志文件
                         </a>
                     </li>
+                    <li class="nav-item" data-section="simc-workbench">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-microchip mr-3"></i>
+                            SimC工具台
+                        </a>
+                    </li>
                     <li class="nav-item has-submenu" data-section="tools">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-tools mr-3"></i>
@@ -276,46 +282,10 @@
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
                         <ul class="submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
-                            <li class="submenu-item" data-tool="simc-apl-converter">
-                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
-                                    <i class="fas fa-exchange-alt mr-2 text-xs"></i>
-                                    SimC APL互转
-                                </a>
-                            </li>
-                            <li class="submenu-item" data-tool="simc-backend-upload">
-                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
-                                    <i class="fas fa-hammer mr-2 text-xs"></i>
-                                    SimC后端更新
-                                </a>
-                            </li>
                             <li class="submenu-item" data-table="SimcAplKeywordPair">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-key mr-2 text-xs"></i>
-                                    关键字管理
-                                </a>
-                            </li>
-                            <li class="submenu-item" data-table="SimcTask">
-                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
-                                    <i class="fas fa-tasks mr-2 text-xs"></i>
-                                    SimC任务管理
-                                </a>
-                            </li>
-                            <li class="submenu-item" data-table="SimcProfile">
-                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
-                                    <i class="fas fa-cog mr-2 text-xs"></i>
-                                    SimC配置管理
-                                </a>
-                            </li>
-                            <li class="submenu-item" data-table="SimcSecondaryStatRule">
-                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
-                                    <i class="fas fa-calculator mr-2 text-xs"></i>
-                                    绿字转换比例
-                                </a>
-                            </li>
-                            <li class="submenu-item" data-table="SimcTemplate">
-                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
-                                    <i class="fas fa-file-code mr-2 text-xs"></i>
-                                    SimC模板管理
+                                    APL关键字管理
                                 </a>
                             </li>
                             <li class="submenu-item" data-tool="wcl-analysis-entry">
@@ -760,6 +730,160 @@
                         <div class="px-5 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-3">
                             <div id="log-file-page-info" class="text-sm text-gray-700">显示 0 行，共 0 行</div>
                             <div id="log-file-page-buttons" class="flex items-center space-x-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SimC 工具台 -->
+            <div class="content-section" id="simc-workbench" style="display: none;">
+                <div class="mb-6">
+                    <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                        <div>
+                            <h2 class="text-3xl font-bold text-gray-800 mb-2">SimC工具台</h2>
+                            <p class="text-gray-600">集中管理 SimulationCraft 导入、任务发起、任务结果、配置模板、APL 翻译和后端编译。</p>
+                        </div>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                            <div class="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-3">
+                                <div class="text-xs text-gray-500">导入入口</div>
+                                <div class="font-semibold text-gray-900">Raw .simc</div>
+                            </div>
+                            <div class="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-3">
+                                <div class="text-xs text-gray-500">任务链路</div>
+                                <div class="font-semibold text-gray-900">识别 → 勾选 → 创建</div>
+                            </div>
+                            <div class="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-3">
+                                <div class="text-xs text-gray-500">后端</div>
+                                <div class="font-semibold text-gray-900">本地 Linux SimC</div>
+                            </div>
+                            <div class="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-3">
+                                <div class="text-xs text-gray-500">结果</div>
+                                <div class="font-semibold text-gray-900">任务列表直达</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden mb-6">
+                    <div class="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-blue-50">
+                        <div class="flex flex-wrap gap-2" id="simc-workbench-tabs">
+                            <button type="button" data-simc-tab="import" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-blue-600 text-white shadow-sm">
+                                <i class="fas fa-file-import mr-2"></i>导入发起任务
+                            </button>
+                            <button type="button" data-simc-tab="tasks" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
+                                <i class="fas fa-tasks mr-2"></i>任务管理
+                            </button>
+                            <button type="button" data-simc-tab="profiles" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
+                                <i class="fas fa-cog mr-2"></i>配置管理
+                            </button>
+                            <button type="button" data-simc-tab="templates" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
+                                <i class="fas fa-file-code mr-2"></i>模板管理
+                            </button>
+                            <button type="button" data-simc-tab="apl" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
+                                <i class="fas fa-exchange-alt mr-2"></i>APL互转
+                            </button>
+                            <button type="button" data-simc-tab="backend" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
+                                <i class="fas fa-hammer mr-2"></i>后端更新
+                            </button>
+                            <button type="button" data-simc-tab="rules" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
+                                <i class="fas fa-calculator mr-2"></i>绿字规则
+                            </button>
+                        </div>
+                    </div>
+                    <div class="p-5">
+                        <div class="simc-workbench-panel" id="simc-workbench-import-panel" data-simc-panel="import">
+                            <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                                <div class="xl:col-span-7">
+                                    <div class="rounded-2xl border border-blue-100 bg-blue-50/40 p-5 h-full">
+                                        <div class="flex items-start justify-between gap-4 mb-4">
+                                            <div>
+                                                <h3 class="text-xl font-bold text-gray-900">Raw SimC 导入发起任务</h3>
+                                                <p class="text-sm text-gray-600 mt-1">粘贴完整 .simc，先识别角色/职业/专精/default APL，再勾选可用方案创建任务。</p>
+                                            </div>
+                                            <span class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">首版支持常规模拟</span>
+                                        </div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Raw .simc 代码</label>
+                                        <textarea id="simc-import-raw-code" class="w-full p-3 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm bg-white" rows="18" placeholder="例如：
+mage=&quot;Arcaneone&quot;
+level=80
+spec=arcane
+...完整 SimulationCraft profile..."></textarea>
+                                        <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            <div>
+                                                <label class="block text-xs font-semibold text-gray-600 mb-1">默认场景</label>
+                                                <select id="simc-import-regular-preset" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                                    <option value="300,1">单体标准(300秒 / 1目标)</option>
+                                                    <option value="300,2">双目标(300秒 / 2目标)</option>
+                                                    <option value="40,5">AOE爆发(40秒 / 5目标)</option>
+                                                    <option value="40,10">极限AOE(40秒 / 10目标)</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-semibold text-gray-600 mb-1">战斗时长</label>
+                                                <input id="simc-import-regular-time" type="number" min="1" value="300" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-semibold text-gray-600 mb-1">目标数量</label>
+                                                <input id="simc-import-regular-target-count" type="number" min="1" value="1" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                            </div>
+                                        </div>
+                                        <div class="mt-4 flex flex-wrap gap-3">
+                                            <button type="button" id="simc-import-inspect-btn" class="px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition-colors duration-200">
+                                                <i class="fas fa-magic mr-2"></i>识别方案
+                                            </button>
+                                            <button type="button" id="simc-import-create-btn" class="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors duration-200">
+                                                <i class="fas fa-paper-plane mr-2"></i>按勾选方案创建任务
+                                            </button>
+                                            <button type="button" id="simc-import-clear-btn" class="px-4 py-2.5 rounded-xl bg-white border border-gray-300 text-gray-700 font-semibold hover:bg-gray-50 transition-colors duration-200">
+                                                <i class="fas fa-trash mr-2"></i>清空
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="xl:col-span-5">
+                                    <div class="rounded-2xl border border-gray-200 bg-white p-5 h-full">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <h3 class="text-lg font-bold text-gray-900">识别结果与方案</h3>
+                                            <button type="button" id="simc-import-refresh-tasks" class="text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
+                                                <i class="fas fa-sync-alt mr-1"></i>刷新任务
+                                            </button>
+                                        </div>
+                                        <div id="simc-import-inspect-result" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">
+                                            粘贴 raw SimC 后点击“识别方案”。
+                                        </div>
+                                        <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                            <div class="font-semibold text-gray-800 mb-2">创建逻辑</div>
+                                            <ol class="text-sm text-gray-600 space-y-1 list-decimal list-inside">
+                                                <li>解析角色名、职业、专精。</li>
+                                                <li>匹配 SimC 默认 APL，展示可用方案。</li>
+                                                <li>按勾选方案创建任务，并进入任务管理列表。</li>
+                                            </ol>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-tasks-panel" data-simc-panel="tasks"></div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-profiles-panel" data-simc-panel="profiles">
+                            <div class="rounded-2xl border border-gray-200 bg-gray-50 p-5">
+                                <h3 class="text-xl font-bold text-gray-900 mb-2">SimC配置管理</h3>
+                                <p class="text-sm text-gray-600 mb-4">配置表仍复用原 Dashboard 表格编辑能力，点击后会进入配置表并保留 SimC 工具台入口。</p>
+                                <button type="button" data-simc-table-shortcut="SimcProfile" class="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700">
+                                    <i class="fas fa-cog mr-2"></i>打开配置表
+                                </button>
+                            </div>
+                        </div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-templates-panel" data-simc-panel="templates"></div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-apl-panel" data-simc-panel="apl"></div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-backend-panel" data-simc-panel="backend"></div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-rules-panel" data-simc-panel="rules">
+                            <div class="rounded-2xl border border-gray-200 bg-gray-50 p-5">
+                                <h3 class="text-xl font-bold text-gray-900 mb-2">绿字转换比例</h3>
+                                <p class="text-sm text-gray-600 mb-4">绿字规则暂复用原 Dashboard 表格编辑能力。</p>
+                                <button type="button" data-simc-table-shortcut="SimcSecondaryStatRule" class="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700">
+                                    <i class="fas fa-calculator mr-2"></i>打开绿字规则表
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

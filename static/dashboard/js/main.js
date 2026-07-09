@@ -46,6 +46,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initUserMenu();
     initSystemAlerts();
     initSimcBackendUploadTool();
+    initSimcWorkbench();
     
     // 默认显示首页内容
     const homeMenuItem = document.querySelector('.nav-item[data-section="dashboard-home"]');
@@ -337,6 +338,9 @@ function initNavigation() {
                 }
                 if (sectionId === 'log-files' && window.loadLogFilesGlobal) {
                     window.loadLogFilesGlobal();
+                }
+                if (sectionId === 'simc-workbench') {
+                    switchSimcWorkbenchTab('import');
                 }
             }
         });
@@ -1552,6 +1556,243 @@ function initSimcTaskManagement() {
 }
 
 // 在DOMContentLoaded事件中初始化SimC任务管理
+function initSimcWorkbench() {
+    const workbench = document.getElementById('simc-workbench');
+    if (!workbench || workbench.dataset.initialized === '1') return;
+    workbench.dataset.initialized = '1';
+
+    moveSimcToolIntoWorkbench('simc-task-management', 'simc-workbench-tasks-panel');
+    moveSimcToolIntoWorkbench('simc-template-management', 'simc-workbench-templates-panel');
+    moveSimcToolIntoWorkbench('simc-apl-converter', 'simc-workbench-apl-panel');
+    moveSimcToolIntoWorkbench('simc-backend-upload', 'simc-workbench-backend-panel');
+
+    document.querySelectorAll('.simc-workbench-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            switchSimcWorkbenchTab(this.getAttribute('data-simc-tab') || 'import');
+        });
+    });
+
+    const preset = document.getElementById('simc-import-regular-preset');
+    if (preset) {
+        preset.addEventListener('change', function() {
+            applyRegularPreset(this.value, 'simc-import-regular-time', 'simc-import-regular-target-count');
+        });
+    }
+
+    const raw = document.getElementById('simc-import-raw-code');
+    if (raw) {
+        raw.addEventListener('input', resetSimcImportInspectResult);
+    }
+
+    const inspectBtn = document.getElementById('simc-import-inspect-btn');
+    if (inspectBtn) inspectBtn.addEventListener('click', inspectSimcImportRawCode);
+
+    const createBtn = document.getElementById('simc-import-create-btn');
+    if (createBtn) createBtn.addEventListener('click', createSimcImportTasks);
+
+    const clearBtn = document.getElementById('simc-import-clear-btn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+            const rawInput = document.getElementById('simc-import-raw-code');
+            if (rawInput) rawInput.value = '';
+            resetSimcImportInspectResult();
+        });
+    }
+
+    const refreshBtn = document.getElementById('simc-import-refresh-tasks');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            fetchSimcTaskData();
+            switchSimcWorkbenchTab('tasks');
+        });
+    }
+
+    document.querySelectorAll('[data-simc-table-shortcut]').forEach(btn => {
+        btn.addEventListener('click', function() {
+            openSimcTableShortcut(this.getAttribute('data-simc-table-shortcut'));
+        });
+    });
+}
+
+function moveSimcToolIntoWorkbench(toolId, targetId) {
+    const tool = document.getElementById(toolId);
+    const target = document.getElementById(targetId);
+    if (!tool || !target || tool.dataset.movedToWorkbench === '1') return;
+    tool.style.display = 'block';
+    tool.classList.remove('tool-content');
+    tool.dataset.movedToWorkbench = '1';
+    target.appendChild(tool);
+}
+
+function switchSimcWorkbenchTab(tabName) {
+    const activeTab = tabName || 'import';
+    document.querySelectorAll('.simc-workbench-tab').forEach(tab => {
+        const isActive = tab.getAttribute('data-simc-tab') === activeTab;
+        tab.classList.toggle('bg-blue-600', isActive);
+        tab.classList.toggle('text-white', isActive);
+        tab.classList.toggle('shadow-sm', isActive);
+        tab.classList.toggle('bg-white', !isActive);
+        tab.classList.toggle('text-gray-700', !isActive);
+        tab.classList.toggle('border', !isActive);
+        tab.classList.toggle('border-gray-200', !isActive);
+    });
+    document.querySelectorAll('.simc-workbench-panel').forEach(panel => {
+        const isActive = panel.getAttribute('data-simc-panel') === activeTab;
+        panel.classList.toggle('hidden', !isActive);
+    });
+    if (activeTab === 'tasks') fetchSimcTaskData();
+    if (activeTab === 'templates' && typeof loadSimcTemplate === 'function') loadSimcTemplate();
+    if (activeTab === 'backend' && typeof loadSimcBackendUploadInfo === 'function') loadSimcBackendUploadInfo();
+}
+
+function openSimcWorkbench() {
+    const item = document.querySelector('.nav-item[data-section="simc-workbench"]');
+    if (item) {
+        item.click();
+    } else {
+        const section = document.getElementById('simc-workbench');
+        if (section) section.style.display = 'block';
+    }
+}
+
+function openSimcTableShortcut(tableName) {
+    if (!tableName) return;
+    const tableItem = document.querySelector(`.submenu-item[data-table="${tableName}"]`);
+    if (tableItem) {
+        tableItem.click();
+        return;
+    }
+    if (typeof loadTableData === 'function') {
+        loadTableData(tableName);
+    }
+}
+
+let lastSimcImportInspectData = null;
+
+function resetSimcImportInspectResult() {
+    lastSimcImportInspectData = null;
+    const box = document.getElementById('simc-import-inspect-result');
+    if (box) {
+        box.className = 'rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500';
+        box.innerHTML = '粘贴 raw SimC 后点击“识别方案”。';
+    }
+}
+
+function renderSimcImportInspectResult(data) {
+    const box = document.getElementById('simc-import-inspect-result');
+    if (!box) return;
+    const warnings = Array.isArray(data && data.warnings) ? data.warnings : [];
+    const plans = Array.isArray(data && data.plans) ? data.plans : [];
+    const detected = [
+        ['角色', data && data.character_name],
+        ['职业', data && data.class],
+        ['专精', data && data.spec],
+        ['默认APL', data && data.default_apl_available ? `已匹配 (${data.default_apl_length || 0} 字符)` : '未匹配']
+    ];
+    const planHtml = plans.map(plan => {
+        const disabled = plan.enabled ? '' : 'disabled';
+        const checked = plan.enabled && plan.checked ? 'checked' : '';
+        return `
+            <label class="block rounded-xl border ${plan.enabled ? 'border-blue-200 bg-white' : 'border-gray-200 bg-gray-100 opacity-70'} p-3 mt-3">
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" data-simc-import-plan="${escapeHtml(plan.id || '')}" ${checked} ${disabled} class="h-4 w-4 text-blue-600 border-gray-300 rounded">
+                    <span class="font-semibold text-gray-900">${escapeHtml(plan.label || plan.id || '方案')}</span>
+                    <span class="text-xs px-2 py-0.5 rounded-full ${plan.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}">${plan.enabled ? '可创建' : '暂不可用'}</span>
+                </div>
+                ${plan.reason ? `<div class="text-xs text-gray-500 mt-1 ml-6">${escapeHtml(plan.reason)}</div>` : ''}
+            </label>`;
+    }).join('');
+    box.className = 'rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-gray-700';
+    box.innerHTML = `
+        <div class="font-bold text-blue-950 mb-2">识别结果</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+            ${detected.map(([k, v]) => `<div class="rounded-lg bg-white border border-blue-100 px-3 py-2"><span class="text-xs text-gray-500">${k}</span><div class="font-semibold text-gray-900">${escapeHtml(v || '未识别')}</div></div>`).join('')}
+        </div>
+        ${warnings.length ? `<div class="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-2 mb-3">${warnings.map(w => `<div>• ${escapeHtml(w)}</div>`).join('')}</div>` : ''}
+        <div class="font-bold text-gray-900">创建方案</div>
+        ${planHtml || '<div class="text-gray-500 mt-2">暂无可用方案</div>'}
+    `;
+}
+
+async function inspectSimcImportRawCode() {
+    const rawInput = document.getElementById('simc-import-raw-code');
+    const rawCode = rawInput ? rawInput.value.trim() : '';
+    if (!rawCode) {
+        showMessage('请先粘贴完整 SimC raw 代码', 'warning');
+        return null;
+    }
+    try {
+        const response = await fetch('/api/simc-profile/inspect-raw/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({ raw_simc_code: rawCode })
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || payload.message || `HTTP ${response.status}`);
+        lastSimcImportInspectData = payload.data || {};
+        renderSimcImportInspectResult(lastSimcImportInspectData);
+        showMessage('SimC raw 识别完成', 'success');
+        return lastSimcImportInspectData;
+    } catch (error) {
+        console.error('SimC import inspect failed:', error);
+        resetSimcImportInspectResult();
+        showMessage('识别失败：' + String(error.message || error), 'error');
+        return null;
+    }
+}
+
+function getSelectedSimcImportPlans() {
+    const plans = lastSimcImportInspectData && Array.isArray(lastSimcImportInspectData.plans) ? lastSimcImportInspectData.plans : [];
+    const selected = Array.from(document.querySelectorAll('[data-simc-import-plan]:checked')).map(el => el.getAttribute('data-simc-import-plan'));
+    return plans.filter(plan => plan.enabled && selected.includes(plan.id));
+}
+
+async function createSimcImportTasks() {
+    try {
+        const rawInput = document.getElementById('simc-import-raw-code');
+        const rawCode = rawInput ? rawInput.value.trim() : '';
+        if (!rawCode) {
+            showMessage('请先粘贴完整 SimC raw 代码', 'warning');
+            return;
+        }
+        const inspectData = lastSimcImportInspectData || await inspectSimcImportRawCode();
+        if (!inspectData) return;
+        const selectedPlans = getSelectedSimcImportPlans();
+        if (!selectedPlans.length) {
+            showMessage('请至少勾选一个可创建方案', 'warning');
+            return;
+        }
+        const regularTime = parseInt(document.getElementById('simc-import-regular-time')?.value || '300', 10) || 300;
+        const targetCount = parseInt(document.getElementById('simc-import-regular-target-count')?.value || '1', 10) || 1;
+        let createdCount = 0;
+        for (const plan of selectedPlans) {
+            if (plan.id !== 'regular') continue;
+            const taskName = plan.task_name || `${inspectData.character_name || 'Raw SimC'} ${inspectData.spec || ''} 常规模拟`.trim();
+            const response = await fetch('/api/simc-task/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+                body: JSON.stringify({
+                    name: taskName,
+                    task_type: 1,
+                    simc_profile_id: 0,
+                    raw_simc_code: rawCode,
+                    regular_time: regularTime,
+                    regular_target_count: targetCount
+                })
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) throw new Error(payload.error || payload.message || `创建 ${plan.label || plan.id} 失败`);
+            createdCount += 1;
+        }
+        showMessage(`已创建 ${createdCount} 个 SimC 任务`, 'success');
+        fetchSimcTaskData();
+        switchSimcWorkbenchTab('tasks');
+    } catch (error) {
+        console.error('Create SimC import tasks failed:', error);
+        showMessage('创建 SimC 任务失败：' + String(error.message || error), 'error');
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     initSimcTaskManagement();
     startSimcBackendUpdatePolling();
