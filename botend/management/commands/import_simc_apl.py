@@ -23,7 +23,9 @@ DEFAULT_SOURCE_DIR = '/home/lighthouse/simc/ActionPriorityLists/default'
 # 文件格式: {class}_{spec}.simc
 KNOWN_SPECS = {
     'death_knight': ['blood', 'frost', 'unholy'],
+    'deathknight': ['blood', 'frost', 'unholy'],
     'demon_hunter': ['havoc', 'vengeance'],
+    'demonhunter': ['devourer', 'havoc', 'vengeance'],
     'druid': ['balance', 'feral', 'guardian', 'restoration'],
     'evoker': ['devastation', 'preservation', 'augmentation'],
     'hunter': ['beast_mastery', 'marksmanship', 'survival'],
