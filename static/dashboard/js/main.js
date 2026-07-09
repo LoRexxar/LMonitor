@@ -1641,13 +1641,13 @@ function loadSimcWorkbenchProfiles(page) {
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
         body: JSON.stringify(requestData)
     }).then(r => r.json()).then(data => {
-        if (data.status !== 'success' || !data.data) {
+        if (data.status !== 'success') {
             tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-red-500">加载失败</td></tr>';
             return;
         }
-        const rows = data.data.rows || [];
-        const total = data.data.total || 0;
-        simcWbProfileTotalPages = Math.max(1, Math.ceil(total / 20));
+        const rows = Array.isArray(data.data) ? data.data : (data.data?.rows || []);
+        const total = data.total_count || rows.length;
+        simcWbProfileTotalPages = data.total_pages || Math.max(1, Math.ceil(total / 20));
 
         if (!rows.length) {
             tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-400">暂无配置</td></tr>';
@@ -1765,13 +1765,13 @@ function loadSimcWorkbenchRules(page) {
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
         body: JSON.stringify({ action: 'get_table_data', table_name: 'SimcSecondaryStatRule', page: page, page_size: 50 })
     }).then(r => r.json()).then(data => {
-        if (data.status !== 'success' || !data.data) {
+        if (data.status !== 'success') {
             tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-red-500">加载失败</td></tr>';
             return;
         }
-        const rows = data.data.rows || [];
-        const total = data.data.total || 0;
-        simcWbRulesTotalPages = Math.max(1, Math.ceil(total / 50));
+        const rows = Array.isArray(data.data) ? data.data : (data.data?.rows || []);
+        const total = data.total_count || rows.length;
+        simcWbRulesTotalPages = data.total_pages || Math.max(1, Math.ceil(total / 50));
 
         if (!rows.length) {
             tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-gray-400">暂无绿字规则</td></tr>';
@@ -1853,6 +1853,253 @@ function renderSimcWbPagination(containerId, currentPage, totalPages, loadFn) {
             if (p && typeof loadFn === 'function') loadFn(p);
         });
     });
+}
+
+/* ===== SimC 工具台 — 内联 CRUD ===== */
+let simcWbProfileFormMode = 'create'; // 'create' | 'edit'
+let simcWbProfileFormEditId = null;
+let simcWbRuleFormMode = 'create';
+let simcWbRuleFormEditId = null;
+
+/* --- Profile CRUD --- */
+function simcWbToggleProfileForm(mode, profileData) {
+    const formWrap = document.getElementById('simc-wb-profile-form');
+    if (!formWrap) return;
+    simcWbProfileFormMode = mode;
+    if (mode === 'create') {
+        simcWbProfileFormEditId = null;
+        formWrap.querySelector('.simc-wb-form-title').textContent = '新增配置';
+        formWrap.querySelector('input[name="name"]').value = '';
+        formWrap.querySelector('select[name="spec"]').value = 'fury';
+        formWrap.querySelector('select[name="fight_style"]').value = 'Patchwerk';
+        formWrap.querySelector('input[name="time"]').value = '40';
+        formWrap.querySelector('input[name="target_count"]').value = '1';
+        formWrap.querySelector('input[name="talent"]').value = '';
+        formWrap.querySelector('textarea[name="action_list"]').value = '';
+        formWrap.querySelector('input[name="gear_strength"]').value = '93330';
+        formWrap.querySelector('input[name="gear_crit"]').value = '8730';
+        formWrap.querySelector('input[name="gear_haste"]').value = '20141';
+        formWrap.querySelector('input[name="gear_mastery"]').value = '21785';
+        formWrap.querySelector('input[name="gear_versatility"]').value = '7257';
+    } else {
+        simcWbProfileFormEditId = profileData.id;
+        formWrap.querySelector('.simc-wb-form-title').textContent = '编辑配置 #' + profileData.id;
+        formWrap.querySelector('input[name="name"]').value = profileData.name || '';
+        const specSel = formWrap.querySelector('select[name="spec"]');
+        specSel.value = profileData.spec || 'fury';
+        formWrap.querySelector('select[name="fight_style"]').value = profileData.fight_style || 'Patchwerk';
+        formWrap.querySelector('input[name="time"]').value = profileData.time || 40;
+        formWrap.querySelector('input[name="target_count"]').value = profileData.target_count || 1;
+        formWrap.querySelector('input[name="talent"]').value = profileData.talent || '';
+        formWrap.querySelector('textarea[name="action_list"]').value = profileData.action_list || '';
+        formWrap.querySelector('input[name="gear_strength"]').value = profileData.gear_strength || 0;
+        formWrap.querySelector('input[name="gear_crit"]').value = profileData.gear_crit || 0;
+        formWrap.querySelector('input[name="gear_haste"]').value = profileData.gear_haste || 0;
+        formWrap.querySelector('input[name="gear_mastery"]').value = profileData.gear_mastery || 0;
+        formWrap.querySelector('input[name="gear_versatility"]').value = profileData.gear_versatility || 0;
+    }
+    formWrap.classList.remove('hidden');
+    formWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function simcWbCloseProfileForm() {
+    const f = document.getElementById('simc-wb-profile-form');
+    if (f) f.classList.add('hidden');
+    simcWbProfileFormEditId = null;
+}
+async function simcWbSaveProfile() {
+    const formWrap = document.getElementById('simc-wb-profile-form');
+    if (!formWrap) return;
+    const gv = n => formWrap.querySelector('[name="' + n + '"]').value.trim();
+    const payload = {
+        name: gv('name'),
+        spec: gv('spec'),
+        fight_style: gv('fight_style'),
+        time: parseInt(gv('time')) || 40,
+        target_count: parseInt(gv('target_count')) || 1,
+        talent: gv('talent'),
+        action_list: gv('action_list'),
+        gear_strength: parseInt(gv('gear_strength')) || 0,
+        gear_crit: parseInt(gv('gear_crit')) || 0,
+        gear_haste: parseInt(gv('gear_haste')) || 0,
+        gear_mastery: parseInt(gv('gear_mastery')) || 0,
+        gear_versatility: parseInt(gv('gear_versatility')) || 0,
+    };
+    if (!payload.name) { showMessage('请输入配置名称', 'error'); return; }
+    if (!payload.spec) { showMessage('请输入专精', 'error'); return; }
+    const csrf = getCSRFToken();
+    const btn = formWrap.querySelector('.simc-wb-form-save');
+    const oldHtml = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>保存中…';
+    try {
+        let resp;
+        if (simcWbProfileFormMode === 'edit' && simcWbProfileFormEditId) {
+            resp = await fetch('/dashboard/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+                body: JSON.stringify({ action: 'update_table_row', table_name: 'SimcProfile', row_id: simcWbProfileFormEditId, update_data: payload })
+            });
+        } else {
+            resp = await fetch('/dashboard/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+                body: JSON.stringify({ action: 'create_table_row', table_name: 'SimcProfile', create_data: payload })
+            });
+        }
+        const data = await resp.json();
+        if (data.status === 'success' || data.success) {
+            showMessage(simcWbProfileFormMode === 'edit' ? '配置已更新' : '配置已创建', 'success');
+            simcWbCloseProfileForm();
+            loadSimcWorkbenchProfiles(simcWbProfilePage);
+        } else {
+            showMessage('保存失败: ' + (data.message || data.error || '未知错误'), 'error');
+        }
+    } catch (e) {
+        showMessage('保存失败: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false; btn.innerHTML = oldHtml;
+    }
+}
+async function simcWbDeleteProfile(id) {
+    if (!confirm('确定要删除配置 #' + id + ' 吗？')) return;
+    try {
+        const resp = await fetch('/dashboard/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({ action: 'delete_table_row', table_name: 'SimcProfile', row_id: id })
+        });
+        const data = await resp.json();
+        if (data.status === 'success' || data.success) {
+            showMessage('配置已删除', 'success');
+            loadSimcWorkbenchProfiles(simcWbProfilePage);
+        } else {
+            showMessage('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (e) { showMessage('删除失败: ' + e.message, 'error'); }
+}
+async function simcWbEditProfile(id) {
+    try {
+        const resp = await fetch('/dashboard/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({ action: 'get_table_data', table_name: 'SimcProfile', page: 1, page_size: 500 })
+        });
+        const data = await resp.json();
+        const rows = Array.isArray(data.data) ? data.data : (data.data?.rows || []);
+        const profile = rows.find(r => r.id == id);
+        if (profile) simcWbToggleProfileForm('edit', profile);
+        else showMessage('未找到配置', 'error');
+    } catch (e) { showMessage('加载配置失败', 'error'); }
+}
+
+/* --- Rule CRUD --- */
+function simcWbToggleRuleForm(mode, ruleData) {
+    const formWrap = document.getElementById('simc-wb-rule-form');
+    if (!formWrap) return;
+    simcWbRuleFormMode = mode;
+    if (mode === 'create') {
+        simcWbRuleFormEditId = null;
+        formWrap.querySelector('.simc-wb-form-title').textContent = '新增绿字规则';
+        formWrap.querySelector('select[name="spec"]').value = 'arms';
+        formWrap.querySelector('input[name="crit_per_percent"]').value = '';
+        formWrap.querySelector('input[name="haste_per_percent"]').value = '';
+        formWrap.querySelector('input[name="mastery_per_percent"]').value = '';
+        formWrap.querySelector('input[name="mastery_coefficient"]').value = '1.4';
+        formWrap.querySelector('input[name="versatility_per_percent"]').value = '';
+        formWrap.querySelector('input[name="notes"]').value = '';
+    } else {
+        simcWbRuleFormEditId = ruleData.id;
+        formWrap.querySelector('.simc-wb-form-title').textContent = '编辑绿字规则 #' + ruleData.id;
+        formWrap.querySelector('select[name="spec"]').value = ruleData.spec || 'arms';
+        formWrap.querySelector('input[name="crit_per_percent"]').value = ruleData.crit_per_percent || '';
+        formWrap.querySelector('input[name="haste_per_percent"]').value = ruleData.haste_per_percent || '';
+        formWrap.querySelector('input[name="mastery_per_percent"]').value = ruleData.mastery_per_percent || '';
+        formWrap.querySelector('input[name="mastery_coefficient"]').value = ruleData.mastery_coefficient || '1.4';
+        formWrap.querySelector('input[name="versatility_per_percent"]').value = ruleData.versatility_per_percent || '';
+        formWrap.querySelector('input[name="notes"]').value = ruleData.notes || '';
+    }
+    formWrap.classList.remove('hidden');
+    formWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function simcWbCloseRuleForm() {
+    const f = document.getElementById('simc-wb-rule-form');
+    if (f) f.classList.add('hidden');
+    simcWbRuleFormEditId = null;
+}
+async function simcWbSaveRule() {
+    const formWrap = document.getElementById('simc-wb-rule-form');
+    if (!formWrap) return;
+    const gv = n => formWrap.querySelector('[name="' + n + '"]').value.trim();
+    const payload = {
+        spec: gv('spec'),
+        crit_per_percent: parseFloat(gv('crit_per_percent')) || 0,
+        haste_per_percent: parseFloat(gv('haste_per_percent')) || 0,
+        mastery_per_percent: parseFloat(gv('mastery_per_percent')) || 0,
+        mastery_coefficient: parseFloat(gv('mastery_coefficient')) || 1.4,
+        versatility_per_percent: parseFloat(gv('versatility_per_percent')) || 0,
+        notes: gv('notes'),
+    };
+    if (!payload.spec) { showMessage('请选择专精', 'error'); return; }
+    const csrf = getCSRFToken();
+    const btn = formWrap.querySelector('.simc-wb-form-save');
+    const oldHtml = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>保存中…';
+    try {
+        let resp;
+        if (simcWbRuleFormMode === 'edit' && simcWbRuleFormEditId) {
+            resp = await fetch('/dashboard/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+                body: JSON.stringify({ action: 'update_table_row', table_name: 'SimcSecondaryStatRule', row_id: simcWbRuleFormEditId, update_data: payload })
+            });
+        } else {
+            resp = await fetch('/dashboard/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+                body: JSON.stringify({ action: 'create_table_row', table_name: 'SimcSecondaryStatRule', create_data: payload })
+            });
+        }
+        const data = await resp.json();
+        if (data.status === 'success' || data.success) {
+            showMessage(simcWbRuleFormMode === 'edit' ? '规则已更新' : '规则已创建', 'success');
+            simcWbCloseRuleForm();
+            loadSimcWorkbenchRules(simcWbRulesPage);
+        } else {
+            showMessage('保存失败: ' + (data.message || data.error || '未知错误'), 'error');
+        }
+    } catch (e) {
+        showMessage('保存失败: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false; btn.innerHTML = oldHtml;
+    }
+}
+async function simcWbDeleteRule(id) {
+    if (!confirm('确定要删除绿字规则 #' + id + ' 吗？')) return;
+    try {
+        const resp = await fetch('/dashboard/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({ action: 'delete_table_row', table_name: 'SimcSecondaryStatRule', row_id: id })
+        });
+        const data = await resp.json();
+        if (data.status === 'success' || data.success) {
+            showMessage('规则已删除', 'success');
+            loadSimcWorkbenchRules(simcWbRulesPage);
+        } else {
+            showMessage('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (e) { showMessage('删除失败: ' + e.message, 'error'); }
+}
+async function simcWbEditRule(id) {
+    try {
+        const resp = await fetch('/dashboard/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({ action: 'get_table_data', table_name: 'SimcSecondaryStatRule', page: 1, page_size: 500 })
+        });
+        const data = await resp.json();
+        const rows = Array.isArray(data.data) ? data.data : (data.data?.rows || []);
+        const rule = rows.find(r => r.id == id);
+        if (rule) simcWbToggleRuleForm('edit', rule);
+        else showMessage('未找到规则', 'error');
+    } catch (e) { showMessage('加载规则失败', 'error'); }
 }
 
 function openSimcWorkbench() {

@@ -209,6 +209,8 @@ class DashboardView(View):
         处理POST请求，用于接收Dashboard的数据提交和AJAX请求
         """
         try:
+            # 存储 request 以便子方法访问
+            self.request = request
             # 记录请求信息，便于调试
             logger.info(f"Dashboard POST请求: {request.body.decode('utf-8')[:200]}")
             
@@ -747,6 +749,10 @@ class DashboardView(View):
                         elif field_type in ['FloatField', 'DecimalField']:
                             value = float(value)
                         filtered_data[key] = value
+                
+                # 自动填充 user_id（如果模型有该字段且请求已登录）
+                if 'user_id' not in filtered_data and hasattr(model, 'user_id') and hasattr(self.request, 'user') and self.request.user.is_authenticated:
+                    filtered_data['user_id'] = self.request.user.id
                 
                 # 创建记录
                 instance = model.objects.create(**filtered_data)

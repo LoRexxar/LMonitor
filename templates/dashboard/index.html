@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260709_simc_wb_profiles_rules" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260709_profiles_rules_fix" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -872,6 +872,9 @@ spec=arcane
                                         <p class="text-sm text-gray-500 mt-1">管理 SimC 角色配置（profile）：专精、战斗风格、装备属性、天赋、APL。</p>
                                     </div>
                                     <div class="flex items-center gap-2">
+                                        <button type="button" id="simc-wb-profile-add" onclick="simcWbToggleProfileForm('create')" class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+                                            <i class="fas fa-plus mr-1"></i>新增配置
+                                        </button>
                                         <select id="simc-wb-profile-spec-filter" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                                             <option value="">全部专精</option>
                                         </select>
@@ -881,6 +884,53 @@ spec=arcane
                                         <button type="button" id="simc-wb-profile-refresh" class="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
                                             <i class="fas fa-sync-alt mr-1"></i>刷新
                                         </button>
+                                    </div>
+                                </div>
+                                <!-- 内联新增/编辑配置表单 -->
+                                <div id="simc-wb-profile-form" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <h4 class="simc-wb-form-title text-base font-semibold text-blue-800">新增配置</h4>
+                                        <button type="button" onclick="simcWbCloseProfileForm()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                                    </div>
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                        <label class="block"><span class="text-gray-600">名称 *</span><input name="name" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="配置名"></label>
+                                        <label class="block"><span class="text-gray-600">专精 *</span>
+                                            <select name="spec" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                                <option value="arms">arms</option><option value="fury">fury</option><option value="protection">protection</option>
+                                                <option value="havoc">havoc</option><option value="vengeance">vengeance</option>
+                                                <option value="balance">balance</option><option value="feral">feral</option><option value="guardian">guardian</option><option value="restoration">restoration (druid)</option>
+                                                <option value="devastation">devastation</option><option value="preservation">preservation</option><option value="augmentation">augmentation</option>
+                                                <option value="beast_mastery">beast_mastery</option><option value="marksmanship">marksmanship</option><option value="survival">survival</option>
+                                                <option value="arcane">arcane</option><option value="fire">fire</option><option value="frost">frost</option>
+                                                <option value="brewmaster">brewmaster</option><option value="mistweaver">mistweaver</option><option value="windwalker">windwalker</option>
+                                                <option value="holy">holy</option><option value="discipline">discipline</option><option value="shadow">shadow</option>
+                                                <option value="retribution">retribution</option>
+                                                <option value="assassination">assassination</option><option value="outlaw">outlaw</option><option value="subtlety">subtlety</option>
+                                                <option value="elemental">elemental</option><option value="enhancement">enhancement</option><option value="restoration_shaman">restoration (shaman)</option>
+                                                <option value="affliction">affliction</option><option value="demonology">demonology</option><option value="destruction">destruction</option>
+                                                <option value="blood">blood</option><option value="unholy">unholy</option>
+                                            </select>
+                                        </label>
+                                        <label class="block"><span class="text-gray-600">战斗风格</span>
+                                            <select name="fight_style" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                                <option value="Patchwerk">Patchwerk</option><option value="HecticAddCleave">HecticAddCleave</option><option value="Cleave">Cleave</option><option value="AE">AE</option>
+                                            </select>
+                                        </label>
+                                        <label class="block"><span class="text-gray-600">时长(s)</span><input name="time" type="number" value="40" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
+                                        <label class="block"><span class="text-gray-600">目标数</span><input name="target_count" type="number" value="1" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
+                                        <label class="block"><span class="text-gray-600">天赋码</span><input name="talent" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" placeholder="可选"></label>
+                                        <label class="block"><span class="text-gray-600">力量</span><input name="gear_strength" type="number" value="93330" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
+                                        <label class="block"><span class="text-gray-600">暴击</span><input name="gear_crit" type="number" value="8730" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
+                                        <label class="block"><span class="text-gray-600">急速</span><input name="gear_haste" type="number" value="20141" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
+                                        <label class="block"><span class="text-gray-600">精通</span><input name="gear_mastery" type="number" value="21785" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
+                                        <label class="block"><span class="text-gray-600">全能</span><input name="gear_versatility" type="number" value="7257" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
+                                    </div>
+                                    <label class="block mt-3 text-sm"><span class="text-gray-600">APL 动作列表</span>
+                                        <textarea name="action_list" rows="4" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs font-mono" placeholder="actions.thane=odyns_fury&#10;actions.thane+=/recklessness&#10;..."></textarea>
+                                    </label>
+                                    <div class="flex items-center gap-2 mt-3">
+                                        <button type="button" onclick="simcWbSaveProfile()" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
+                                        <button type="button" onclick="simcWbCloseProfileForm()" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
                                     </div>
                                 </div>
                                 <div class="overflow-x-auto">
@@ -914,9 +964,50 @@ spec=arcane
                                         <h3 class="text-xl font-bold text-gray-900">绿字转换比例</h3>
                                         <p class="text-sm text-gray-500 mt-1">管理次级属性的绿字转换比例规则，用于 SimC 属性模拟。</p>
                                     </div>
-                                    <button type="button" id="simc-wb-rules-refresh" class="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
-                                        <i class="fas fa-sync-alt mr-1"></i>刷新
-                                    </button>
+                                    <div class="flex items-center gap-2">
+                                        <button type="button" onclick="simcWbToggleRuleForm('create')" class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+                                            <i class="fas fa-plus mr-1"></i>新增规则
+                                        </button>
+                                        <button type="button" id="simc-wb-rules-refresh" class="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
+                                            <i class="fas fa-sync-alt mr-1"></i>刷新
+                                        </button>
+                                    </div>
+                                </div>
+                                <!-- 内联新增/编辑绿字规则表单 -->
+                                <div id="simc-wb-rule-form" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <h4 class="simc-wb-form-title text-base font-semibold text-blue-800">新增绿字规则</h4>
+                                        <button type="button" onclick="simcWbCloseRuleForm()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                                    </div>
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                        <label class="block"><span class="text-gray-600">专精 *</span>
+                                            <select name="spec" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                                <option value="arms">arms</option><option value="fury">fury</option><option value="protection">protection</option>
+                                                <option value="havoc">havoc</option><option value="vengeance">vengeance</option>
+                                                <option value="balance">balance</option><option value="feral">feral</option><option value="guardian">guardian</option><option value="restoration_druid">restoration (druid)</option>
+                                                <option value="devastation">devastation</option><option value="preservation">preservation</option><option value="augmentation">augmentation</option>
+                                                <option value="beast_mastery">beast_mastery</option><option value="marksmanship">marksmanship</option><option value="survival">survival</option>
+                                                <option value="arcane">arcane</option><option value="fire">fire</option><option value="frost_mage">frost (mage)</option>
+                                                <option value="brewmaster">brewmaster</option><option value="mistweaver">mistweaver</option><option value="windwalker">windwalker</option>
+                                                <option value="holy_paladin">holy (paladin)</option><option value="discipline">discipline</option><option value="shadow">shadow</option>
+                                                <option value="retribution">retribution</option>
+                                                <option value="assassination">assassination</option><option value="outlaw">outlaw</option><option value="subtlety">subtlety</option>
+                                                <option value="elemental">elemental</option><option value="enhancement">enhancement</option><option value="restoration_shaman">restoration (shaman)</option>
+                                                <option value="affliction">affliction</option><option value="demonology">demonology</option><option value="destruction">destruction</option>
+                                                <option value="blood">blood</option><option value="frost_dk">frost (dk)</option><option value="unholy">unholy</option>
+                                            </select>
+                                        </label>
+                                        <label class="block"><span class="text-gray-600">暴击/%</span><input name="crit_per_percent" type="number" step="0.1" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="如 46"></label>
+                                        <label class="block"><span class="text-gray-600">急速/%</span><input name="haste_per_percent" type="number" step="0.1" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="如 44"></label>
+                                        <label class="block"><span class="text-gray-600">精通/%</span><input name="mastery_per_percent" type="number" step="0.1" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="如 46"></label>
+                                        <label class="block"><span class="text-gray-600">精通系数</span><input name="mastery_coefficient" type="number" step="0.01" value="1.4" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
+                                        <label class="block"><span class="text-gray-600">全能/%</span><input name="versatility_per_percent" type="number" step="0.1" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="如 54"></label>
+                                        <label class="block col-span-2"><span class="text-gray-600">说明</span><input name="notes" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="可选备注"></label>
+                                    </div>
+                                    <div class="flex items-center gap-2 mt-3">
+                                        <button type="button" onclick="simcWbSaveRule()" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
+                                        <button type="button" onclick="simcWbCloseRuleForm()" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
+                                    </div>
                                 </div>
                                 <div class="overflow-x-auto">
                                     <table class="min-w-full text-sm">
