@@ -453,8 +453,12 @@ class SimcMonitor(BaseScan):
                         'fight_style': ext_payload.get('fight_style', 'Patchwerk'),
                         'time': ext_payload.get('time', 300),
                         'target_count': ext_payload.get('target_count', 1),
-                        'player_config_mode': ext_payload.get('player_config_mode', 'equipment'),
+                        'player_config_mode': ext_payload.get('player_config_mode'),
+                        'player_import_mode': ext_payload.get('player_import_mode') or ext_payload.get('player_config_mode'),
                         'player_equipment': ext_payload.get('player_equipment', ''),
+                        'battlenet_region': ext_payload.get('battlenet_region', ''),
+                        'battlenet_realm': ext_payload.get('battlenet_realm', ''),
+                        'battlenet_character': ext_payload.get('battlenet_character', ''),
                         'gear_crit': ext_payload.get('gear_crit', 10730),
                         'gear_haste': ext_payload.get('gear_haste', 18641),
                         'gear_mastery': ext_payload.get('gear_mastery', 21785),
@@ -771,8 +775,8 @@ class SimcMonitor(BaseScan):
                             target_result_file = html_files[0][1]
                             logger.warning(f"[SimC Monitor] No new HTML detected, using latest: {target_result_file}")
                 
-                # 回写 result_file 到数据库
-                if target_result_file and not simc_task.result_file:
+                # 回写 result_file 到数据库：空值或文件名不一致时更新
+                if target_result_file and target_result_file != simc_task.result_file:
                     simc_task.result_file = target_result_file
                     simc_task.save(update_fields=['result_file'])
                     logger.info(f"[SimC Monitor] Saved result_file={target_result_file} for task {simc_task.id}")
@@ -1002,6 +1006,26 @@ class SimcMonitor(BaseScan):
                 return tpl
         return rows[0]
 
+    def _get_class_by_spec(self, spec):
+        """Return SimC class slug by spec slug used in the dashboard selector."""
+        spec = str(spec or '').strip().lower()
+        spec_to_class = {
+            'arms': 'warrior', 'fury': 'warrior', 'protection': 'warrior', 'protection_warrior': 'warrior',
+            'havoc': 'demonhunter', 'vengeance': 'demonhunter',
+            'balance': 'druid', 'feral': 'druid', 'guardian': 'druid', 'restoration': 'druid',
+            'devastation': 'evoker', 'preservation': 'evoker', 'augmentation': 'evoker',
+            'beast_mastery': 'hunter', 'marksmanship': 'hunter', 'survival': 'hunter',
+            'arcane': 'mage', 'fire': 'mage', 'frost': 'mage',
+            'brewmaster': 'monk', 'mistweaver': 'monk', 'windwalker': 'monk',
+            'holy': 'priest', 'discipline': 'priest', 'shadow': 'priest',
+            'retribution': 'paladin',
+            'assassination': 'rogue', 'outlaw': 'rogue', 'subtlety': 'rogue',
+            'elemental': 'shaman', 'enhancement': 'shaman', 'restoration_shaman': 'shaman',
+            'affliction': 'warlock', 'demonology': 'warlock', 'destruction': 'warlock',
+            'blood': 'deathknight', 'frost_dk': 'deathknight', 'unholy': 'deathknight',
+        }
+        return spec_to_class.get(spec, '')
+
     def apply_template(self, template_content, task_config):
         """
         新版模板渲染：接收模板内容和任务配置字典，生成SimC代码。
@@ -1024,10 +1048,33 @@ class SimcMonitor(BaseScan):
         simc_code = simc_code.replace('{spec}', str(task_config.get('spec', 'fury')))
         simc_code = simc_code.replace('{talent}', str(task_config.get('talent', '')))
         
-        # 处理 {player_config} 占位符
-        player_config_mode = task_config.get('player_config_mode', 'equipment')
+        # 处理 {player_config} 占位符：这里只拼“玩家信息块”，不接受完整 simc
+        player_config_mode = task_config.get('player_import_mode') or task_config.get('player_config_mode', 'manual_equipment')
         if player_config_mode == 'equipment':
-            # equipment 模式：插入装备代码，清除 gear_* 占位符（装备自带属性）
+            player_config_mode = 'manual_equipment'
+
+        if player_config_mode == 'battlenet':
+            region = str(task_config.get('battlenet_region', '')).strip().lower()
+            realm = str(task_config.get('battlenet_realm', '')).strip()
+            character = str(task_config.get('battlenet_character', '')).strip()
+            spec = str(task_config.get('spec', '')).strip()
+            if not region or not realm or not character:
+                raise ValueError('Battle.net 导入缺少 region/realm/character')
+            class_name = self._get_class_by_spec(spec) or 'player'
+            safe_character = re.sub(r'[^A-Za-z0-9_]+', '_', character).strip('_') or 'battlenet_player'
+            player_config = "\n".join([
+                f'{class_name}="{safe_character}"',
+                f'armory={region},{realm},{character}',
+                'role=attack',
+                f'spec={spec}',
+            ])
+            simc_code = simc_code.replace('{player_config}', player_config)
+            simc_code = simc_code.replace('{gear_crit}', '')
+            simc_code = simc_code.replace('{gear_haste}', '')
+            simc_code = simc_code.replace('{gear_mastery}', '')
+            simc_code = simc_code.replace('{gear_versatility}', '')
+        elif player_config_mode == 'manual_equipment':
+            # 手动装备模式：插入用户提供的玩家装备/天赋信息块，战斗/APL 仍由模板和选项控制
             player_equipment = str(task_config.get('player_equipment', '')).strip()
             simc_code = simc_code.replace('{player_config}', player_equipment)
             simc_code = simc_code.replace('{gear_crit}', '')
@@ -1035,12 +1082,7 @@ class SimcMonitor(BaseScan):
             simc_code = simc_code.replace('{gear_mastery}', '')
             simc_code = simc_code.replace('{gear_versatility}', '')
         else:
-            # stats 模式：替换 gear_* 占位符为绿字值
-            simc_code = simc_code.replace('{player_config}', '')
-            simc_code = simc_code.replace('{gear_crit}', str(task_config.get('gear_crit', 0)))
-            simc_code = simc_code.replace('{gear_haste}', str(task_config.get('gear_haste', 0)))
-            simc_code = simc_code.replace('{gear_mastery}', str(task_config.get('gear_mastery', 0)))
-            simc_code = simc_code.replace('{gear_versatility}', str(task_config.get('gear_versatility', 0)))
+            raise ValueError(f'不支持的玩家信息导入方式: {player_config_mode}')
         
         # 处理 {action_list} 占位符
         override_action_list = str(task_config.get('override_action_list', '')).strip()

@@ -98,3 +98,181 @@ spec=beast_mastery
         self.assertFalse(payload['success'])
         self.assertIn('不支持属性模拟', payload['error'])
         self.assertFalse(SimcTask.objects.exists())
+
+
+class SimcNewConfigModeTests(TestCase):
+    """测试新版工作台任务配置：只输入玩家信息，战斗/APL 由选项控制。"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='newmode_user', password='pwd')
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_create_task_with_manual_equipment_mode(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'Fury Manual Equipment',
+                'task_type': 1,
+                'player_import_mode': 'manual_equipment',
+                'player_equipment': 'talents=TEST\nhead=,id=212048',
+                'fight_style': 'Patchwerk',
+                'time': 300,
+                'target_count': 1,
+                'spec': 'fury',
+                'talent': 'TEST',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        task = SimcTask.objects.get(id=payload['data']['id'])
+        self.assertEqual(task.result_file, '')
+        ext = json.loads(task.ext)
+        self.assertEqual(ext['player_config_mode'], 'manual_equipment')
+        self.assertEqual(ext['player_import_mode'], 'manual_equipment')
+        self.assertEqual(ext['player_equipment'], 'talents=TEST\nhead=,id=212048')
+        self.assertEqual(ext['fight_style'], 'Patchwerk')
+        self.assertEqual(ext['time'], 300)
+        self.assertEqual(ext['target_count'], 1)
+
+    def test_create_task_with_legacy_equipment_alias_maps_to_manual_equipment(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'Legacy Equipment Alias',
+                'task_type': 1,
+                'player_config_mode': 'equipment',
+                'player_equipment': 'talents=TEST\nneck=,id=224433',
+                'spec': 'fury',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        task = SimcTask.objects.get(id=payload['data']['id'])
+        ext = json.loads(task.ext)
+        self.assertEqual(ext['player_config_mode'], 'manual_equipment')
+        self.assertEqual(ext['player_import_mode'], 'manual_equipment')
+
+    def test_create_task_with_battlenet_mode(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'Fury Battle.net Import',
+                'task_type': 1,
+                'player_import_mode': 'battlenet',
+                'battlenet_region': 'EU',
+                'battlenet_realm': 'Kazzak',
+                'battlenet_character': 'Bloodmastêr',
+                'fight_style': 'Patchwerk',
+                'time': 300,
+                'target_count': 1,
+                'spec': 'fury',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        task = SimcTask.objects.get(id=payload['data']['id'])
+        self.assertEqual(task.result_file, '')
+        ext = json.loads(task.ext)
+        self.assertEqual(ext['player_config_mode'], 'battlenet')
+        self.assertEqual(ext['player_import_mode'], 'battlenet')
+        self.assertEqual(ext['battlenet_region'], 'eu')
+        self.assertEqual(ext['battlenet_realm'], 'Kazzak')
+        self.assertEqual(ext['battlenet_character'], 'Bloodmastêr')
+
+    def test_manual_equipment_requires_player_block(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'No Equipment',
+                'task_type': 1,
+                'player_import_mode': 'manual_equipment',
+                'player_equipment': '',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload['success'])
+        self.assertIn('玩家装备配置不能为空', payload['error'])
+
+    def test_battlenet_requires_region_realm_character(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'Bad Battlenet',
+                'task_type': 1,
+                'player_import_mode': 'battlenet',
+                'battlenet_region': 'eu',
+                'battlenet_realm': '',
+                'battlenet_character': 'Bloodmastêr',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload['success'])
+        self.assertIn('Battle.net 导入需要提供', payload['error'])
+
+    def test_stats_mode_is_rejected_in_new_workbench(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'Stats Not Allowed',
+                'task_type': 1,
+                'player_config_mode': 'stats',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload['success'])
+        self.assertIn('玩家信息导入方式必须是', payload['error'])
+
+    def test_apply_template_builds_battlenet_armory_player_block(self):
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+        monitor = object.__new__(SimcMonitor)
+        rendered = monitor.apply_template(
+            'fight_style={fight_style}\n{player_config}\n{action_list}',
+            {
+                'fight_style': 'Patchwerk',
+                'player_import_mode': 'battlenet',
+                'battlenet_region': 'eu',
+                'battlenet_realm': 'Kazzak',
+                'battlenet_character': 'Bloodmastêr',
+                'spec': 'fury',
+                'override_action_list': 'actions=auto_attack',
+            },
+        )
+        self.assertIn('warrior="Bloodmast_r"', rendered)
+        self.assertIn('armory=eu,Kazzak,Bloodmastêr', rendered)
+        self.assertIn('spec=fury', rendered)
+        self.assertIn('actions=auto_attack', rendered)
+
+    def test_apply_template_inserts_manual_equipment_player_block(self):
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+        monitor = object.__new__(SimcMonitor)
+        rendered = monitor.apply_template(
+            'fight_style={fight_style}\n{player_config}\n{action_list}',
+            {
+                'fight_style': 'Patchwerk',
+                'player_import_mode': 'manual_equipment',
+                'player_equipment': 'talents=TEST\nhead=,id=212048',
+                'override_action_list': 'actions=auto_attack',
+            },
+        )
+        self.assertIn('talents=TEST', rendered)
+        self.assertIn('head=,id=212048', rendered)
+        self.assertIn('actions=auto_attack', rendered)

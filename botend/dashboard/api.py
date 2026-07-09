@@ -633,12 +633,18 @@ class SimcTaskAPIView(View):
             attribute_step = data.get('attribute_step')
             selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
             
-            # 新版字段
+            # 新版字段：SimC 工作台只接收“玩家信息块”，完整 simc 由后端模板拼装
             fight_style = data.get('fight_style')
             fight_time = data.get('time')
             target_count = data.get('target_count')
-            player_config_mode = data.get('player_config_mode')
+            player_import_mode = data.get('player_import_mode') or data.get('player_config_mode')
+            if player_import_mode == 'equipment':
+                player_import_mode = 'manual_equipment'
+            player_config_mode = player_import_mode
             player_equipment = data.get('player_equipment', '').strip()
+            battlenet_region = data.get('battlenet_region', '').strip().lower()
+            battlenet_realm = data.get('battlenet_realm', '').strip()
+            battlenet_character = data.get('battlenet_character', '').strip()
             gear_crit = data.get('gear_crit')
             gear_haste = data.get('gear_haste')
             gear_mastery = data.get('gear_mastery')
@@ -652,27 +658,24 @@ class SimcTaskAPIView(View):
                     'error': '任务名称不能为空'
                 })
             
-            # 验证 player_config_mode
-            if player_config_mode and player_config_mode not in ('equipment', 'stats'):
+            # 验证玩家信息导入方式：新工作台只允许 Battle.net 角色导入或手动装备块
+            if player_config_mode and player_config_mode not in ('battlenet', 'manual_equipment'):
                 return JsonResponse({
                     'success': False,
-                    'error': 'player_config_mode 必须是 "equipment" 或 "stats"'
+                    'error': '玩家信息导入方式必须是 battlenet 或 manual_equipment'
                 })
             
-            # 验证 equipment 模式
-            if player_config_mode == 'equipment' and not player_equipment:
+            if player_config_mode == 'manual_equipment' and not player_equipment:
                 return JsonResponse({
                     'success': False,
-                    'error': 'equipment 模式下 player_equipment 不能为空'
+                    'error': '手动装备模式下玩家装备配置不能为空'
                 })
             
-            # 验证 stats 模式
-            if player_config_mode == 'stats':
-                has_gear = any(v not in (None, '') for v in [gear_crit, gear_haste, gear_mastery, gear_versatility])
-                if not has_gear:
+            if player_config_mode == 'battlenet':
+                if battlenet_region not in ('us', 'eu', 'kr', 'tw', 'cn') or not battlenet_realm or not battlenet_character:
                     return JsonResponse({
                         'success': False,
-                        'error': 'stats 模式下至少提供一个 gear 值'
+                        'error': 'Battle.net 导入需要提供 region、realm 和 character'
                     })
             
             # 如果提供了 simc_profile_id，用 profile 填充缺失字段
@@ -717,11 +720,15 @@ class SimcTaskAPIView(View):
                         'error': 'SimC配置不能为空'
                     })
 
-            # 生成result_file
-            timestamp = str(int(time.time()))
-            content_to_hash = timestamp + name + str(request.user.id)
-            result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
-            
+            # 生成result_file：player_config_mode 新流程由 SimC 执行后自动检测，
+            # 不预生成，避免预生成的文件名与 SimC 实际输出不一致。
+            if player_config_mode:
+                result_file = ''
+            else:
+                timestamp = str(int(time.time()))
+                content_to_hash = timestamp + name + str(request.user.id)
+                result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
+
             normalized_ext = self._build_task_ext(
                 task_type=task_type,
                 ext=ext,
@@ -742,7 +749,10 @@ class SimcTaskAPIView(View):
                 gear_mastery=gear_mastery,
                 gear_versatility=gear_versatility,
                 talent=talent,
-                spec=spec
+                spec=spec,
+                battlenet_region=battlenet_region,
+                battlenet_realm=battlenet_realm,
+                battlenet_character=battlenet_character
             )
 
             # 创建新任务
@@ -1049,7 +1059,8 @@ class SimcTaskAPIView(View):
 
     def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None, selected_apl_id=None,
                         fight_style=None, time=None, target_count=None, player_config_mode=None, player_equipment=None,
-                        gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None, talent=None, spec=None):
+                        gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None, talent=None, spec=None,
+                        battlenet_region=None, battlenet_realm=None, battlenet_character=None):
         ttype = int(task_type or 1)
         base = self._normalize_task_ext(ttype, ext)
 
@@ -1082,20 +1093,24 @@ class SimcTaskAPIView(View):
             else:
                 payload.pop('raw_simc_code', None)
             
-            # 新版字段
+            # 新版字段：只保存玩家信息导入方式和由表单选择的战斗/APL 配置
             if player_config_mode:
                 payload['player_config_mode'] = player_config_mode
-                if player_config_mode == 'equipment' and player_equipment:
+                payload['player_import_mode'] = player_config_mode
+                if player_config_mode == 'manual_equipment' and player_equipment:
                     payload['player_equipment'] = player_equipment
-                elif player_config_mode == 'stats':
-                    if gear_crit not in (None, ''):
-                        payload['gear_crit'] = gear_crit
-                    if gear_haste not in (None, ''):
-                        payload['gear_haste'] = gear_haste
-                    if gear_mastery not in (None, ''):
-                        payload['gear_mastery'] = gear_mastery
-                    if gear_versatility not in (None, ''):
-                        payload['gear_versatility'] = gear_versatility
+                elif player_config_mode == 'battlenet':
+                    payload['battlenet_region'] = str(battlenet_region or '').lower()
+                    payload['battlenet_realm'] = str(battlenet_realm or '').strip()
+                    payload['battlenet_character'] = str(battlenet_character or '').strip()
+                if gear_crit not in (None, ''):
+                    payload['gear_crit'] = gear_crit
+                if gear_haste not in (None, ''):
+                    payload['gear_haste'] = gear_haste
+                if gear_mastery not in (None, ''):
+                    payload['gear_mastery'] = gear_mastery
+                if gear_versatility not in (None, ''):
+                    payload['gear_versatility'] = gear_versatility
                 if fight_style:
                     payload['fight_style'] = fight_style
                 if time not in (None, ''):

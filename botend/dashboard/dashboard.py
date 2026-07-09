@@ -54,7 +54,8 @@ MODEL_DESCRIPTIONS = {
     'SimcAplKeywordPair': '关键字管理',
     'SimcTask': 'SimC任务管理',
     'SimcProfile': 'SimC配置管理',
-    'SimcSecondaryStatRule': '绿字转换比例',
+    'SimcSecondaryStatRule': '绿字转换比例（按职业）',
+    'SimcMasteryCoefficient': '精通系数（按专精）',
     'PortalEvent': '活动信息',
     'PortalToolLink': '工具链接',
     'PortalMplusRun': '大秘境记录',
@@ -396,21 +397,28 @@ class DashboardView(View):
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'SimcProfile':
                     queryset = model.objects.values(
-                        'id', 'name', 'spec', 'fight_style', 'time', 'target_count',
-                        'talent', 'action_list', 'gear_strength', 'gear_crit',
+                        'id', 'name', 'spec',
+                        'talent', 'gear_strength', 'gear_crit',
                         'gear_haste', 'gear_mastery', 'gear_versatility', 'is_active'
                     ).filter(is_active=True).order_by('-id')
-                    queryset = apply_search_filter(queryset, ['name', 'spec', 'fight_style', 'talent'])
+                    queryset = apply_search_filter(queryset, ['name', 'spec', 'talent'])
                     if simc_spec_filter:
                         queryset = queryset.filter(spec__icontains=simc_spec_filter)
-                    if simc_fight_style_filter:
-                        queryset = queryset.filter(fight_style__icontains=simc_fight_style_filter)
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
                 elif table_name == 'SimcSecondaryStatRule':
-                    queryset = model.objects.values(
-                        'id', 'spec', 'crit_per_percent', 'haste_per_percent',
-                        'mastery_per_percent', 'mastery_coefficient', 'versatility_per_percent'
+                    from botend.models import SimcSecondaryStatRule as RuleModel
+                    queryset = RuleModel.objects.values(
+                        'id', 'class_name', 'crit_per_percent', 'haste_per_percent',
+                        'mastery_per_percent', 'versatility_per_percent'
+                    ).order_by('class_name')
+                    queryset = apply_search_filter(queryset, ['class_name'])
+                    total_count = queryset.count()
+                    items = list(queryset[offset:offset + page_size])
+                elif table_name == 'SimcMasteryCoefficient':
+                    from botend.models import SimcMasteryCoefficient as McModel
+                    queryset = McModel.objects.values(
+                        'id', 'spec', 'mastery_coefficient'
                     ).order_by('spec')
                     queryset = apply_search_filter(queryset, ['spec'])
                     total_count = queryset.count()
