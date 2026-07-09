@@ -705,16 +705,12 @@ class SimcTask(models.Model):
     
 class SimcProfile(models.Model):
     """
-    SimC配置模型
+    SimC配置模型 - 简化为玩家配置预设（只保留 spec + talent + gear stats）
     """
     user_id = models.IntegerField(help_text="用户ID")
     name = models.CharField(max_length=200, help_text="配置名称")
     spec = models.CharField(max_length=100, default="fury", help_text="专精标识，如 fury/arms/fire")
-    fight_style = models.CharField(max_length=200, default="Patchwerk")
-    time = models.IntegerField(default="40")
-    target_count = models.IntegerField(default=1)
     talent = models.CharField(max_length=2000, default="")
-    action_list = models.TextField(default="", null=True)
     gear_strength = models.IntegerField(default=93330)
     gear_crit = models.IntegerField(default=10730)
     gear_haste = models.IntegerField(default=18641)
