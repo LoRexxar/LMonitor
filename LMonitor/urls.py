@@ -22,7 +22,7 @@ from django.views.generic.base import RedirectView
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
-from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, SimcBackendBinaryAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView, WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView, WowDailyReportGenerateAPIView, WagoHotfixReportListAPIView, WagoSkillDiffRerunAPIView
+from botend.dashboard.api import ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView, SimcTaskAPIView, SimcProfileAPIView, SimcRawInspectAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView, OssConfigAPIView, SimcResultProxyAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView, SimcBackendBinaryAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView, WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView, WowDailyReportGenerateAPIView, WagoHotfixReportListAPIView, WagoSkillDiffRerunAPIView
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
 from botend.portal.views import PortalArticleView, PortalNewsView, PortalSpecsView
@@ -107,6 +107,7 @@ urlpatterns = [
     path('api/apl-storage/<int:apl_id>/', csrf_exempt(AplDetailAPIView.as_view()), name="apl_detail"),
     path('api/simc-task/', csrf_exempt(SimcTaskAPIView.as_view()), name="simc_task"),
     path('api/simc-profile/', csrf_exempt(SimcProfileAPIView.as_view()), name="simc_profile"),
+    path('api/simc-profile/inspect-raw/', csrf_exempt(SimcRawInspectAPIView.as_view()), name="simc_profile_inspect_raw"),
     path('api/simc-profile/<int:profile_id>/', csrf_exempt(SimcProfileAPIView.as_view()), name="simc_profile_detail"),
     path('api/simc-apl-candidates/', csrf_exempt(SimcAplCandidatesAPIView.as_view()), name="simc_apl_candidates"),
     path('api/simc-template/', csrf_exempt(SimcTemplateAPIView.as_view()), name="simc_template"),

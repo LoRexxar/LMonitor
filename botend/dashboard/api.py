@@ -30,7 +30,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
+from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, SimcDefaultApl, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
 from botend.alerting import upsert_system_alert
 from django.db import models
 from core.glm import GLMClient
@@ -1010,6 +1010,143 @@ class SimcTaskAPIView(View):
         if step_value not in (None, ''):
             payload['attribute_step'] = max(1, int(step_value))
         return json.dumps(payload, ensure_ascii=False)
+
+
+WOW_SIMC_CLASS_NAMES = {
+    'deathknight', 'death_knight', 'demonhunter', 'demon_hunter', 'druid', 'evoker',
+    'hunter', 'mage', 'monk', 'paladin', 'priest', 'rogue', 'shaman', 'warlock', 'warrior'
+}
+
+WOW_SIMC_CLASS_ALIASES = {
+    'deathknight': 'death_knight',
+    'demonhunter': 'demon_hunter',
+}
+
+
+def _normalize_simc_token(value):
+    return re.sub(r'[^a-z0-9_]+', '_', str(value or '').strip().lower()).strip('_')
+
+
+def inspect_raw_simc_code(raw_simc_code):
+    """Parse a pasted SimulationCraft profile enough for dashboard task creation."""
+    text = str(raw_simc_code or '').replace('\r\n', '\n').replace('\r', '\n').strip()
+    if not text:
+        raise ValueError('SimC代码不能为空')
+
+    result = {
+        'character_name': '',
+        'class': '',
+        'spec': '',
+        'spec_key': '',
+        'role': '',
+        'level': '',
+        'race': '',
+        'default_apl_available': False,
+        'default_apl_length': 0,
+        'warnings': [],
+        'plans': [],
+    }
+
+    profile_line_re = re.compile(r'^\s*([a-zA-Z_]+)\s*=\s*(?:"([^"]+)"|([^\s#]+))')
+    kv_re = re.compile(r'^\s*([a-zA-Z_]+)\s*=\s*([^#\s]+)')
+
+    for raw_line in text.split('\n'):
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        profile_match = profile_line_re.match(line)
+        if profile_match:
+            class_token = _normalize_simc_token(profile_match.group(1))
+            normalized_class = WOW_SIMC_CLASS_ALIASES.get(class_token, class_token)
+            if normalized_class in WOW_SIMC_CLASS_NAMES:
+                result['class'] = normalized_class
+                result['character_name'] = (profile_match.group(2) or profile_match.group(3) or '').strip()
+                continue
+        kv_match = kv_re.match(line)
+        if not kv_match:
+            continue
+        key = kv_match.group(1).strip().lower()
+        value = kv_match.group(2).strip().strip('"')
+        if key == 'spec' and not result['spec']:
+            result['spec'] = _normalize_simc_token(value)
+        elif key == 'role' and not result['role']:
+            result['role'] = value
+        elif key == 'level' and not result['level']:
+            result['level'] = value
+        elif key == 'race' and not result['race']:
+            result['race'] = _normalize_simc_token(value)
+
+    class_name = result['class']
+    spec = result['spec']
+    if class_name and spec:
+        result['spec_key'] = f'{class_name}_{spec}'
+        apl = SimcDefaultApl.objects.filter(is_active=True, spec=result['spec_key']).first()
+        if not apl:
+            apl = SimcDefaultApl.objects.filter(is_active=True, class_name=class_name, spec__endswith=f'_{spec}').first()
+        if apl:
+            result['default_apl_available'] = True
+            result['default_apl_length'] = len(apl.apl_content or '')
+    else:
+        if not class_name:
+            result['warnings'].append('未识别到职业行，例如 hunter="角色名"')
+        if not spec:
+            result['warnings'].append('未识别到 spec= 专精字段')
+
+    if class_name and spec and not result['default_apl_available']:
+        result['warnings'].append(f'未找到 {result["spec_key"]} 的默认APL记录；直接代码仍可运行常规模拟')
+
+    plan_name_parts = [result['character_name'] or 'Raw SimC']
+    if spec:
+        plan_name_parts.append(spec)
+    result['plans'] = [
+        {
+            'id': 'regular',
+            'label': '常规模拟',
+            'enabled': True,
+            'checked': True,
+            'task_type': 1,
+            'default_time': 300,
+            'default_target_count': 1,
+            'task_name': ' '.join(plan_name_parts) + ' 常规模拟',
+            'reason': '',
+        },
+        {
+            'id': 'attribute',
+            'label': '属性模拟',
+            'enabled': False,
+            'checked': False,
+            'task_type': 2,
+            'reason': '属性模拟需要先保存为 SimC 配置，再基于配置生成属性变体',
+        },
+        {
+            'id': 'apl_compare',
+            'label': 'APL候选对比',
+            'enabled': False,
+            'checked': False,
+            'task_type': 1,
+            'reason': 'APL候选对比需要配置化 Profile 和可替换 action_list，raw 代码首版仅开放常规模拟',
+        },
+    ]
+    return result
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class SimcRawInspectAPIView(View):
+    """Inspect pasted raw SimulationCraft code and return safe task plans."""
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body or '{}')
+            raw_simc_code = data.get('raw_simc_code', '')
+            payload = inspect_raw_simc_code(raw_simc_code)
+            return JsonResponse({'success': True, 'data': payload})
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': '无效的JSON数据'})
+        except ValueError as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+        except Exception as e:
+            logger.error(f"解析SimC原始代码失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'解析SimC代码失败: {str(e)}'})
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')

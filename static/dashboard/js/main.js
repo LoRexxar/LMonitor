@@ -1468,7 +1468,10 @@ function initSimcTaskManagement() {
         const raw = document.getElementById(cfg.raw);
         const profile = document.getElementById(cfg.profile);
         if (raw && raw.dataset.boundInputMode !== '1') {
-            raw.addEventListener('input', function() { syncSimcTaskInputMode(cfg.prefix); });
+            raw.addEventListener('input', function() {
+                if (cfg.prefix === '') resetRawSimcInspectResult();
+                syncSimcTaskInputMode(cfg.prefix);
+            });
             raw.dataset.boundInputMode = '1';
         }
         if (profile && profile.dataset.boundInputMode !== '1') {
@@ -1502,6 +1505,11 @@ function initSimcTaskManagement() {
     const confirmAddBtn = document.getElementById('confirm-add-simc-task');
     if (confirmAddBtn) {
         confirmAddBtn.addEventListener('click', submitAddSimcTask);
+    }
+
+    const inspectRawBtn = document.getElementById('inspect-raw-simc-code');
+    if (inspectRawBtn) {
+        inspectRawBtn.addEventListener('click', inspectRawSimcCode);
     }
     
     // 取消编辑任务
@@ -5388,6 +5396,108 @@ function initUserMenu() {
 
 // SimcTask 相关函数
 let selectedRegularSimcTaskIds = new Set();
+let lastRawSimcInspectData = null;
+
+function resetRawSimcInspectResult() {
+    lastRawSimcInspectData = null;
+    const box = document.getElementById('simc-raw-inspect-result');
+    if (box) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+    }
+}
+
+function renderRawSimcInspectResult(data) {
+    const box = document.getElementById('simc-raw-inspect-result');
+    if (!box) return;
+    if (!data) {
+        resetRawSimcInspectResult();
+        return;
+    }
+    const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+    const plans = Array.isArray(data.plans) ? data.plans : [];
+    const detectedParts = [
+        data.character_name ? `角色：${escapeHtml(data.character_name)}` : '角色：未识别',
+        data.class ? `职业：${escapeHtml(data.class)}` : '职业：未识别',
+        data.spec ? `专精：${escapeHtml(data.spec)}` : '专精：未识别',
+        data.default_apl_available ? `默认APL：已匹配 (${data.default_apl_length || 0} 字符)` : '默认APL：未匹配'
+    ];
+    const planHtml = plans.map(plan => {
+        const disabled = plan.enabled ? '' : 'disabled';
+        const checked = plan.enabled && plan.checked ? 'checked' : '';
+        const reason = plan.reason ? `<div class="text-xs text-gray-500 mt-1">${escapeHtml(plan.reason)}</div>` : '';
+        const disabledClass = plan.enabled ? 'bg-white border-indigo-100' : 'bg-gray-50 border-gray-200 opacity-70';
+        return `
+            <label class="block border ${disabledClass} rounded-md p-2 mt-2">
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" data-raw-simc-plan="${escapeHtml(plan.id || '')}" ${checked} ${disabled} class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <span class="font-medium text-gray-800">${escapeHtml(plan.label || plan.id || '方案')}</span>
+                    ${plan.enabled ? '<span class="text-xs text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">可创建</span>' : '<span class="text-xs text-gray-600 bg-gray-200 px-2 py-0.5 rounded-full">暂不可用</span>'}
+                </div>
+                ${reason}
+            </label>`;
+    }).join('');
+    const warningHtml = warnings.length ? `
+        <div class="mt-2 p-2 bg-amber-50 border border-amber-100 text-amber-800 rounded">
+            ${warnings.map(w => `<div>• ${escapeHtml(w)}</div>`).join('')}
+        </div>` : '';
+    box.innerHTML = `
+        <div class="font-semibold text-indigo-900 mb-1">识别结果</div>
+        <div class="text-xs text-indigo-800 flex flex-wrap gap-x-3 gap-y-1">${detectedParts.map(p => `<span>${p}</span>`).join('')}</div>
+        ${warningHtml}
+        <div class="mt-3">
+            <div class="font-semibold text-gray-800">可创建方案</div>
+            ${planHtml || '<div class="text-gray-500 mt-2">暂无可创建方案</div>'}
+        </div>`;
+    box.classList.remove('hidden');
+}
+
+async function inspectRawSimcCode() {
+    const rawInput = document.getElementById('simc-task-raw-code');
+    const rawCode = rawInput ? rawInput.value.trim() : '';
+    if (!rawCode) {
+        showMessage('请先粘贴完整 SimC 代码', 'warning');
+        return null;
+    }
+    try {
+        const response = await fetch('/api/simc-profile/inspect-raw/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({ raw_simc_code: rawCode })
+        });
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return null;
+        }
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+            throw new Error(payload.error || payload.message || `HTTP ${response.status}`);
+        }
+        lastRawSimcInspectData = payload.data || {};
+        renderRawSimcInspectResult(lastRawSimcInspectData);
+        const nameInput = document.getElementById('simc-task-name');
+        const regularPlan = (lastRawSimcInspectData.plans || []).find(plan => plan.id === 'regular' && plan.task_name);
+        if (nameInput && !nameInput.value.trim() && regularPlan) {
+            nameInput.value = regularPlan.task_name;
+        }
+        showMessage('SimC代码识别完成', 'success');
+        return lastRawSimcInspectData;
+    } catch (error) {
+        console.error('Inspect raw SimC code failed:', error);
+        resetRawSimcInspectResult();
+        showMessage(`识别SimC代码失败：${String(error.message || error)}`, 'error');
+        return null;
+    }
+}
+
+function getSelectedRawSimcPlans() {
+    const plans = lastRawSimcInspectData && Array.isArray(lastRawSimcInspectData.plans) ? lastRawSimcInspectData.plans : [];
+    const selectedIds = Array.from(document.querySelectorAll('[data-raw-simc-plan]:checked')).map(el => el.getAttribute('data-raw-simc-plan'));
+    return plans.filter(plan => plan.enabled && selectedIds.includes(plan.id));
+}
 
 function setSimcRegularCompareButtonEnabled(enabled) {
     const btn = document.getElementById('compare-simc-regular-tasks-btn');
@@ -5803,13 +5913,14 @@ function openAddSimcTaskModal() {
     document.getElementById('simc-task-regular-preset').value = '300,1';
     applyRegularPreset('300,1', 'simc-task-regular-time', 'simc-task-regular-target-count');
     document.getElementById('simc-task-attribute-step').value = '50';
+    resetRawSimcInspectResult();
     
     toggleTaskTypeFields('', '1');
     
     modal.style.display = 'block';
 }
 
-function submitAddSimcTask() {
+async function submitAddSimcTask() {
     const taskName = document.getElementById('simc-task-name').value.trim();
     const taskType = document.getElementById('simc-task-type').value;
     const simcConfigId = document.getElementById('simc-config-select').value;
@@ -5837,16 +5948,32 @@ function submitAddSimcTask() {
         showMessage('请选择SimC配置，或粘贴直接SimC代码', 'error');
         return;
     }
+
+    if (taskType !== '2' && rawSimcCode) {
+        if (!lastRawSimcInspectData) {
+            const inspected = await inspectRawSimcCode();
+            if (!inspected) return;
+        }
+        const selectedPlans = getSelectedRawSimcPlans();
+        if (!selectedPlans.length) {
+            showMessage('请至少勾选一个可创建方案', 'error');
+            return;
+        }
+        const unsupportedPlan = selectedPlans.find(plan => parseInt(plan.task_type || 1) !== 1);
+        if (unsupportedPlan) {
+            showMessage('直接SimC代码当前只支持常规模拟', 'error');
+            return;
+        }
+    }
     
     const csrfToken = getCSRFToken();
-    
-    const requestData = {
+    const baseRequestData = {
         name: taskName,
         task_type: parseInt(taskType),
         simc_profile_id: simcConfigId ? parseInt(simcConfigId) : 0
     };
     if (taskType !== '2' && rawSimcCode) {
-        requestData.raw_simc_code = rawSimcCode;
+        baseRequestData.raw_simc_code = rawSimcCode;
     }
     
     if (taskType === '2') { // 属性模拟
@@ -5858,51 +5985,59 @@ function submitAddSimcTask() {
             return;
         }
         
-        requestData.selected_attributes = extData;
+        baseRequestData.selected_attributes = extData;
         if (attributeStep) {
-            requestData.attribute_step = parseInt(attributeStep);
+            baseRequestData.attribute_step = parseInt(attributeStep);
         }
     } else {
         if (regularTime) {
-            requestData.regular_time = parseInt(regularTime);
+            baseRequestData.regular_time = parseInt(regularTime);
         }
         if (regularTargetCount) {
-            requestData.regular_target_count = parseInt(regularTargetCount);
+            baseRequestData.regular_target_count = parseInt(regularTargetCount);
         }
     }
-    
-    fetch('/api/simc-task/', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify(requestData)
-    })
-    .then(response => {
-        if (response.status === 302 || response.redirected) {
-            window.location.href = '/auth/login/';
-            return;
+
+    const rawPlans = (taskType !== '2' && rawSimcCode) ? getSelectedRawSimcPlans() : [];
+    const requests = rawPlans.length
+        ? rawPlans.map(plan => ({
+            ...baseRequestData,
+            name: (plan.task_name || taskName).trim(),
+            task_type: parseInt(plan.task_type || 1),
+            regular_time: plan.default_time || baseRequestData.regular_time,
+            regular_target_count: plan.default_target_count || baseRequestData.regular_target_count,
+        }))
+        : [baseRequestData];
+
+    try {
+        const results = [];
+        for (const requestData of requests) {
+            const response = await fetch('/api/simc-task/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify(requestData)
+            });
+            if (response.status === 302 || response.redirected) {
+                window.location.href = '/auth/login/';
+                return;
+            }
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || data.message || `HTTP ${response.status}`);
+            }
+            results.push(data);
         }
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (!data) return;
-        if (data.success) {
-            showMessage('SimC任务创建成功', 'success');
-            document.getElementById('add-simc-task-modal').style.display = 'none';
-            fetchSimcTaskData();
-        } else {
-            showMessage('创建失败: ' + (data.error || data.message || '未知错误'), 'error');
-        }
-    })
-    .catch(error => {
+        showMessage(requests.length > 1 ? `已创建 ${requests.length} 个SimC任务` : 'SimC任务创建成功', 'success');
+        document.getElementById('add-simc-task-modal').style.display = 'none';
+        resetRawSimcInspectResult();
+        fetchSimcTaskData();
+    } catch (error) {
         console.error('Error creating SimC task:', error);
-        showMessage('创建SimC任务时发生错误', 'error');
-    });
+        showMessage(`创建失败: ${String(error.message || error)}`, 'error');
+    }
 }
 
 function editSimcTask(taskId) {
