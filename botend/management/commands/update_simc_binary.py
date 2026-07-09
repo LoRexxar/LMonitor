@@ -17,7 +17,7 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from botend.models import SimcBackendBinary, SimcTemplate
+from botend.models import SimcBackendBinary, SimcContentTemplate
 
 
 DEFAULT_SIMC_SOURCE_DIR = '/home/lighthouse/simc'
@@ -152,15 +152,20 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f'默认模板文件为空，跳过同步: {template_path}'))
             return
 
-        _, created = SimcTemplate.objects.update_or_create(
+        _, created = SimcContentTemplate.objects.update_or_create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='default',
+            name='基础模板 default',
             defaults={
-                'template_content': content,
+                'class_name': '',
+                'content': content,
                 'is_active': True,
+                'is_selectable': False,
             }
         )
         action = '创建' if created else '更新'
-        self.stdout.write(self.style.SUCCESS(f'{action}默认 SimC 模板: spec=default'))
+        self.stdout.write(self.style.SUCCESS(f'{action}默认 SimC 基础模板: spec=default'))
 
     def _sync_default_apl(self):
         source_dir = os.path.join(self.simc_source_dir, 'ActionPriorityLists', 'default')

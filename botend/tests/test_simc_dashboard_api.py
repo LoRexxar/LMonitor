@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
 from botend.dashboard.api import inspect_raw_simc_code
-from botend.models import SimcDefaultApl, SimcTask
+from botend.models import SimcContentTemplate, SimcTask
 
 
 class SimcRawInspectTests(TestCase):
@@ -14,11 +14,15 @@ class SimcRawInspectTests(TestCase):
         self.client.force_login(self.user)
 
     def test_inspect_raw_simc_code_detects_profile_and_default_apl(self):
-        SimcDefaultApl.objects.create(
+        SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='hunter_beast_mastery',
             class_name='hunter',
-            apl_content='actions+=/kill_command',
+            name='默认APL hunter_beast_mastery',
+            content='actions+=/kill_command',
             is_active=True,
+            is_selectable=True,
         )
         payload = inspect_raw_simc_code('''
 hunter="Bloodmastêr"

@@ -30,7 +30,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcTemplate, SimcBackendBinary, SimcDefaultApl, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
+from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
 from botend.alerting import upsert_system_alert
 from django.db import models
 from core.glm import GLMClient
@@ -631,6 +631,7 @@ class SimcTaskAPIView(View):
             regular_target_count = data.get('regular_target_count')
             selected_attributes = data.get('selected_attributes')
             attribute_step = data.get('attribute_step')
+            selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
             
             if not name:
                 return JsonResponse({
@@ -678,7 +679,8 @@ class SimcTaskAPIView(View):
                 regular_target_count=regular_target_count,
                 selected_attributes=selected_attributes,
                 attribute_step=attribute_step,
-                raw_simc_code=raw_simc_code
+                raw_simc_code=raw_simc_code,
+                selected_apl_id=selected_apl_id
             )
 
             # 创建新任务
@@ -736,6 +738,7 @@ class SimcTaskAPIView(View):
             regular_target_count = data.get('regular_target_count')
             selected_attributes = data.get('selected_attributes')
             attribute_step = data.get('attribute_step')
+            selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
             
             if not task_id:
                 return JsonResponse({
@@ -793,7 +796,8 @@ class SimcTaskAPIView(View):
                 regular_target_count=regular_target_count,
                 selected_attributes=selected_attributes,
                 attribute_step=attribute_step,
-                raw_simc_code=raw_simc_code
+                raw_simc_code=raw_simc_code,
+                selected_apl_id=selected_apl_id
             )
 
             # 更新任务
@@ -981,9 +985,24 @@ class SimcTaskAPIView(View):
                     payload['selected_attributes'] = text
         return payload
 
-    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None):
+    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None, selected_apl_id=None):
         ttype = int(task_type or 1)
         base = self._normalize_task_ext(ttype, ext)
+
+        if selected_apl_id not in (None, ''):
+            apl_obj = _get_simc_content_by_id(
+                selected_apl_id,
+                allowed_types=[SimcContentTemplate.TYPE_DEFAULT_APL, SimcContentTemplate.TYPE_CUSTOM_APL],
+            )
+            if not apl_obj:
+                raise Exception('选择的 APL 不存在或已禁用')
+            base['selected_apl_id'] = apl_obj.id
+            base['override_action_list'] = apl_obj.content
+            base['override_action_list_name'] = apl_obj.name or apl_obj.spec
+            base['override_action_list_type'] = apl_obj.template_type
+        elif 'selected_apl_id' in base:
+            # 保留旧任务 ext 中的 APL 选择，不主动清除。
+            pass
 
         if ttype == 1:
             payload = {}
@@ -1006,6 +1025,10 @@ class SimcTaskAPIView(View):
         if not selected:
             raise Exception('属性模拟任务缺少属性组合')
         payload = {'selected_attributes': selected}
+        for key in ('selected_apl_id', 'override_action_list', 'override_action_list_name', 'override_action_list_type'):
+            value = base.get(key)
+            if value not in (None, ''):
+                payload[key] = value
         step_value = attribute_step if attribute_step not in (None, '') else base.get('attribute_step')
         if step_value not in (None, ''):
             payload['attribute_step'] = max(1, int(step_value))
@@ -1027,6 +1050,67 @@ def _normalize_simc_token(value):
     return re.sub(r'[^a-z0-9_]+', '_', str(value or '').strip().lower()).strip('_')
 
 
+def _get_active_simc_content(template_type, spec=None, source=None, class_name=None, selectable=None):
+    qs = SimcContentTemplate.objects.filter(template_type=template_type, is_active=True)
+    if source:
+        qs = qs.filter(source=source)
+    if selectable is not None:
+        qs = qs.filter(is_selectable=selectable)
+    if class_name:
+        qs = qs.filter(class_name=class_name)
+    if spec:
+        spec_value = str(spec or '').strip().lower()
+        exact = qs.filter(spec=spec_value).order_by('id').first()
+        if exact:
+            return exact
+        if '_' not in spec_value:
+            suffix = qs.filter(spec__endswith=f'_{spec_value}').order_by('id').first()
+            if suffix:
+                return suffix
+    return qs.order_by('id').first()
+
+
+def _list_selectable_apl_for_spec(spec_key='', class_name='', spec=''):
+    qs = SimcContentTemplate.objects.filter(
+        template_type__in=[SimcContentTemplate.TYPE_DEFAULT_APL, SimcContentTemplate.TYPE_CUSTOM_APL],
+        is_active=True,
+        is_selectable=True,
+    )
+    specs = [v for v in [spec_key, spec] if v]
+    if specs:
+        filters = models.Q(spec__in=specs)
+        if spec and '_' not in spec:
+            filters |= models.Q(spec__endswith=f'_{spec}')
+        qs = qs.filter(filters)
+    if class_name:
+        qs = qs.filter(models.Q(class_name='') | models.Q(class_name=class_name))
+    rows = []
+    for item in qs.order_by('template_type', 'source', 'name', 'id')[:50]:
+        rows.append({
+            'id': item.id,
+            'name': item.name or item.spec,
+            'template_type': item.template_type,
+            'source': item.source,
+            'spec': item.spec,
+            'class_name': item.class_name,
+            'content_length': len(item.content or ''),
+            'is_default': item.template_type == SimcContentTemplate.TYPE_DEFAULT_APL,
+        })
+    return rows
+
+
+def _get_simc_content_by_id(content_id, allowed_types=None):
+    if not content_id:
+        return None
+    try:
+        qs = SimcContentTemplate.objects.filter(id=int(content_id), is_active=True)
+    except (TypeError, ValueError):
+        return None
+    if allowed_types:
+        qs = qs.filter(template_type__in=allowed_types)
+    return qs.first()
+
+
 def inspect_raw_simc_code(raw_simc_code):
     """Parse a pasted SimulationCraft profile enough for dashboard task creation."""
     text = str(raw_simc_code or '').replace('\r\n', '\n').replace('\r', '\n').strip()
@@ -1041,8 +1125,10 @@ def inspect_raw_simc_code(raw_simc_code):
         'role': '',
         'level': '',
         'race': '',
+        'default_apl_id': None,
         'default_apl_available': False,
         'default_apl_length': 0,
+        'available_apls': [],
         'warnings': [],
         'plans': [],
     }
@@ -1080,12 +1166,22 @@ def inspect_raw_simc_code(raw_simc_code):
     spec = result['spec']
     if class_name and spec:
         result['spec_key'] = f'{class_name}_{spec}'
-        apl = SimcDefaultApl.objects.filter(is_active=True, spec=result['spec_key']).first()
-        if not apl:
-            apl = SimcDefaultApl.objects.filter(is_active=True, class_name=class_name, spec__endswith=f'_{spec}').first()
+        apl = _get_active_simc_content(
+            SimcContentTemplate.TYPE_DEFAULT_APL,
+            spec=result['spec_key'],
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            class_name=class_name,
+            selectable=True,
+        )
         if apl:
+            result['default_apl_id'] = apl.id
             result['default_apl_available'] = True
-            result['default_apl_length'] = len(apl.apl_content or '')
+            result['default_apl_length'] = len(apl.content or '')
+        result['available_apls'] = _list_selectable_apl_for_spec(
+            spec_key=result['spec_key'],
+            class_name=class_name,
+            spec=spec,
+        )
     else:
         if not class_name:
             result['warnings'].append('未识别到职业行，例如 hunter="角色名"')
@@ -3188,32 +3284,44 @@ class SimcTemplateAPIView(View):
             if template_id:
                 # 获取单个模板的完整内容
                 try:
-                    template = SimcTemplate.objects.get(id=template_id)
+                    template = SimcContentTemplate.objects.get(id=template_id)
                     return JsonResponse({
                         'success': True,
                         'id': template.id,
-                        'template_content': template.template_content,
+                        'template_content': template.content,
+                        'content': template.content,
                         'spec': template.spec,
-                        'is_active': template.is_active
+                        'class_name': template.class_name,
+                        'name': template.name,
+                        'template_type': template.template_type,
+                        'source': template.source,
+                        'is_active': template.is_active,
+                        'is_selectable': template.is_selectable,
                     })
-                except SimcTemplate.DoesNotExist:
+                except SimcContentTemplate.DoesNotExist:
                     return JsonResponse({
                         'success': False,
                         'error': '模板不存在'
                     })
             else:
-                # 获取所有模板的列表
-                templates = SimcTemplate.objects.all().order_by('-id')
+                # 获取所有模板/APL列表
+                templates = SimcContentTemplate.objects.all().order_by('template_type', 'source', 'spec', '-id')
                 template_list = []
                 
                 for template in templates:
-                    # 获取模板内容的前100个字符作为预览
-                    preview = template.template_content[:100] + '...' if len(template.template_content) > 100 else template.template_content
+                    preview = template.content[:100] + '...' if len(template.content) > 100 else template.content
                     template_list.append({
                         'id': template.id,
-                        'template_content': template.template_content,
+                        'template_content': template.content,
+                        'content': template.content,
+                        'preview': preview,
                         'spec': template.spec,
-                        'is_active': template.is_active
+                        'class_name': template.class_name,
+                        'name': template.name,
+                        'template_type': template.template_type,
+                        'source': template.source,
+                        'is_active': template.is_active,
+                        'is_selectable': template.is_selectable,
                     })
                 
                 return JsonResponse({
@@ -3234,8 +3342,12 @@ class SimcTemplateAPIView(View):
             # 解析请求数据
             data = json.loads(request.body)
             template_id = request.GET.get('id') or data.get('id')
-            template_content = data.get('template_content', '') or data.get('template', '')
+            template_content = data.get('template_content', '') or data.get('content', '') or data.get('template', '')
             template_spec = (str(data.get('spec') or '').strip().lower() or None)
+            template_name = str(data.get('name') or '').strip()
+            template_type = data.get('template_type') or data.get('type')
+            source = data.get('source')
+            is_selectable = data.get('is_selectable')
             
             if not template_id:
                 return JsonResponse({
@@ -3251,19 +3363,27 @@ class SimcTemplateAPIView(View):
             
             # 获取并更新模板
             try:
-                template = SimcTemplate.objects.get(id=template_id)
-                template.template_content = template_content
+                template = SimcContentTemplate.objects.get(id=template_id)
+                template.content = template_content
                 if template_spec is not None:
                     template.spec = template_spec
+                if template_name:
+                    template.name = template_name
+                if template_type in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
+                    template.template_type = template_type
+                if source in dict(SimcContentTemplate.SOURCE_CHOICES):
+                    template.source = source
+                if is_selectable is not None:
+                    template.is_selectable = bool(is_selectable)
                 template.save()
                 
-                logger.info(f"SimC模板已更新: ID {template.id}")
+                logger.info(f"SimC模板/APL已更新: ID {template.id}")
                 
                 return JsonResponse({
                     'success': True,
                     'message': '模板更新成功'
                 })
-            except SimcTemplate.DoesNotExist:
+            except SimcContentTemplate.DoesNotExist:
                 return JsonResponse({
                     'success': False,
                     'error': '模板不存在'
@@ -3298,18 +3418,20 @@ class SimcTemplateAPIView(View):
             
             # 获取并更新模板状态
             try:
-                template = SimcTemplate.objects.get(id=template_id)
+                template = SimcContentTemplate.objects.get(id=template_id)
                 template.is_active = is_active
+                if 'is_selectable' in data:
+                    template.is_selectable = bool(data.get('is_selectable'))
                 template.save()
                 
                 status_text = '启用' if is_active else '禁用'
-                logger.info(f"SimC模板已{status_text}: ID {template.id}")
+                logger.info(f"SimC模板/APL已{status_text}: ID {template.id}")
                 
                 return JsonResponse({
                     'success': True,
                     'message': f'模板{status_text}成功'
                 })
-            except SimcTemplate.DoesNotExist:
+            except SimcContentTemplate.DoesNotExist:
                 return JsonResponse({
                     'success': False,
                     'error': '模板不存在'
@@ -3327,8 +3449,17 @@ class SimcTemplateAPIView(View):
         try:
             # 解析请求数据
             data = json.loads(request.body)
-            template_content = data.get('template_content', '')
+            template_content = data.get('template_content', '') or data.get('content', '') or data.get('template', '')
             template_spec = (str(data.get('spec') or '').strip().lower() or 'default')
+            template_type = data.get('template_type') or data.get('type') or SimcContentTemplate.TYPE_BASE_TEMPLATE
+            if template_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
+                template_type = SimcContentTemplate.TYPE_BASE_TEMPLATE
+            source = data.get('source') or SimcContentTemplate.SOURCE_USER
+            if source not in dict(SimcContentTemplate.SOURCE_CHOICES):
+                source = SimcContentTemplate.SOURCE_USER
+            template_name = str(data.get('name') or '').strip() or ('个人APL' if template_type == SimcContentTemplate.TYPE_CUSTOM_APL else '基础模板')
+            class_name = str(data.get('class_name') or '').strip().lower()
+            is_selectable = data.get('is_selectable')
             
             if not template_content:
                 return JsonResponse({
@@ -3336,14 +3467,19 @@ class SimcTemplateAPIView(View):
                     'error': '模板内容不能为空'
                 })
             
-            # 创建新模板
-            template = SimcTemplate.objects.create(
-                template_content=template_content,
+            # 创建新模板/APL
+            template = SimcContentTemplate.objects.create(
+                name=template_name,
+                template_type=template_type,
+                source=source,
                 spec=template_spec,
-                is_active=False  # 新创建的模板默认为禁用状态
+                class_name=class_name,
+                content=template_content,
+                is_active=False,  # 新创建的模板默认为禁用状态
+                is_selectable=True if is_selectable is None else bool(is_selectable),
             )
             
-            logger.info(f"SimC模板已创建: ID {template.id}")
+            logger.info(f"SimC模板/APL已创建: ID {template.id}")
             
             return JsonResponse({
                 'success': True,

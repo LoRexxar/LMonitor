@@ -745,21 +745,49 @@ class SimcSecondaryStatRule(models.Model):
         verbose_name_plural = 'SimC绿字转换规则'
 
 
-class SimcTemplate(models.Model):
+class SimcContentTemplate(models.Model):
     """
-    SimC模板模型
+    SimC 统一内容模板：基础输入模板、默认 APL、个人 APL 共用一张表。
     """
-    template_content = models.TextField(help_text="模板内容")
-    spec = models.CharField(max_length=100, default="default", help_text="模板适配专精，如 fury/arms/default")
+    TYPE_BASE_TEMPLATE = 'base_template'
+    TYPE_DEFAULT_APL = 'default_apl'
+    TYPE_CUSTOM_APL = 'custom_apl'
+    TEMPLATE_TYPE_CHOICES = (
+        (TYPE_BASE_TEMPLATE, '基础模板'),
+        (TYPE_DEFAULT_APL, '默认APL'),
+        (TYPE_CUSTOM_APL, '个人APL'),
+    )
+    SOURCE_SIMC_UPSTREAM = 'simc_upstream'
+    SOURCE_USER = 'user'
+    SOURCE_CHOICES = (
+        (SOURCE_SIMC_UPSTREAM, 'SimC源码同步'),
+        (SOURCE_USER, '用户维护'),
+    )
+
+    name = models.CharField(max_length=200, default='', blank=True, help_text="展示名称")
+    template_type = models.CharField(max_length=32, choices=TEMPLATE_TYPE_CHOICES, default=TYPE_BASE_TEMPLATE, help_text="内容类型")
+    source = models.CharField(max_length=32, choices=SOURCE_CHOICES, default=SOURCE_USER, help_text="内容来源")
+    spec = models.CharField(max_length=100, default="default", help_text="专精标识，如 warrior_fury/default")
+    class_name = models.CharField(max_length=50, default='', blank=True, help_text="职业英文名，如 warrior")
+    content = models.TextField(help_text="模板/APL内容")
     is_active = models.BooleanField(default=True, help_text="是否启用")
-    
+    is_selectable = models.BooleanField(default=True, help_text="任务发起时是否可选择")
+    sync_version = models.CharField(max_length=128, default='', blank=True, help_text="同步来源版本/提交")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     class Meta:
-        db_table = 'simc_template'
-        verbose_name = 'SimC模板'
-        verbose_name_plural = 'SimC模板'
-    
+        db_table = 'simc_content_template'
+        verbose_name = 'SimC模板/APL'
+        verbose_name_plural = 'SimC模板/APL'
+        indexes = [
+            models.Index(fields=['template_type', 'spec', 'is_active']),
+            models.Index(fields=['source', 'template_type']),
+        ]
+
     def __str__(self):
-        return f"SimC模板 (ID: {self.id})"
+        label = self.name or self.spec or self.template_type
+        return f'{self.get_template_type_display()} {label}'
 
 
 class SimcBackendBinary(models.Model):
@@ -779,26 +807,6 @@ class SimcBackendBinary(models.Model):
         db_table = 'simc_backend_binary'
         verbose_name = 'SimC后端软件'
         verbose_name_plural = 'SimC后端软件'
-
-
-class SimcDefaultApl(models.Model):
-    """
-    SimC 默认 APL（按专精）
-    从 SimC 源码 ActionPriorityLists/default/ 导入
-    """
-    spec = models.CharField(max_length=100, unique=True, help_text="专精标识，如 warrior_fury")
-    class_name = models.CharField(max_length=50, help_text="职业英文名，如 warrior")
-    apl_content = models.TextField(help_text="完整 APL 文本")
-    is_active = models.BooleanField(default=True, help_text="是否启用")
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'simc_default_apl'
-        verbose_name = 'SimC默认APL'
-        verbose_name_plural = 'SimC默认APL'
-
-    def __str__(self):
-        return f'{self.spec} ({"启用" if self.is_active else "禁用"})'
 
 
 class WclAnalysisTask(models.Model):

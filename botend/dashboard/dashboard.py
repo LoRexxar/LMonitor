@@ -65,7 +65,7 @@ MODEL_DESCRIPTIONS = {
     'GeWechatRoomList': '微信群列表',
     'GeWechatTask': '微信任务',
     'UserAplStorage': 'APL保存记录',
-    'SimcTemplate': 'SimC模板',
+    'SimcContentTemplate': 'SimC模板/APL',
     'SimcBackendBinary': 'SimC后端软件',
     'WclAnalysisTask': 'WCL分析任务',
     'SystemAlert': '系统报警',

@@ -13,7 +13,7 @@ import logging
 
 from django.core.management.base import BaseCommand
 
-from botend.models import SimcDefaultApl
+from botend.models import SimcContentTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -149,13 +149,17 @@ class Command(BaseCommand):
             self.stdout.write(f'  [DRY] {spec_key}: {lines} 行')
             return 'ok'
 
-        # 写入数据库（upsert）
-        obj, created = SimcDefaultApl.objects.update_or_create(
+        # 写入统一 SimC 内容模板表；默认 APL 来源固定为 SimC 源码同步。
+        _, created = SimcContentTemplate.objects.update_or_create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec=spec_key,
+            name=f'默认APL {spec_key}',
             defaults={
                 'class_name': class_name,
-                'apl_content': content,
+                'content': content,
                 'is_active': True,
+                'is_selectable': True,
             }
         )
         status = '新建' if created else '更新'

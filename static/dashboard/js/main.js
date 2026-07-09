@@ -1572,40 +1572,7 @@ function initSimcWorkbench() {
         });
     });
 
-    const preset = document.getElementById('simc-import-regular-preset');
-    if (preset) {
-        preset.addEventListener('change', function() {
-            applyRegularPreset(this.value, 'simc-import-regular-time', 'simc-import-regular-target-count');
-        });
-    }
-
-    const raw = document.getElementById('simc-import-raw-code');
-    if (raw) {
-        raw.addEventListener('input', resetSimcImportInspectResult);
-    }
-
-    const inspectBtn = document.getElementById('simc-import-inspect-btn');
-    if (inspectBtn) inspectBtn.addEventListener('click', inspectSimcImportRawCode);
-
-    const createBtn = document.getElementById('simc-import-create-btn');
-    if (createBtn) createBtn.addEventListener('click', createSimcImportTasks);
-
-    const clearBtn = document.getElementById('simc-import-clear-btn');
-    if (clearBtn) {
-        clearBtn.addEventListener('click', function() {
-            const rawInput = document.getElementById('simc-import-raw-code');
-            if (rawInput) rawInput.value = '';
-            resetSimcImportInspectResult();
-        });
-    }
-
-    const refreshBtn = document.getElementById('simc-import-refresh-tasks');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', function() {
-            fetchSimcTaskData();
-            switchSimcWorkbenchTab('tasks');
-        });
-    }
+    bindSimcWorkbenchImportControls();
 
     document.querySelectorAll('[data-simc-table-shortcut]').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -1669,6 +1636,53 @@ function openSimcTableShortcut(tableName) {
 
 let lastSimcImportInspectData = null;
 
+function bindSimcWorkbenchImportControls() {
+    const preset = document.getElementById('simc-import-regular-preset');
+    if (preset && preset.dataset.bound !== '1') {
+        preset.dataset.bound = '1';
+        preset.addEventListener('change', function() {
+            applyRegularPreset(this.value, 'simc-import-regular-time', 'simc-import-regular-target-count');
+        });
+    }
+
+    const raw = document.getElementById('simc-import-raw-code');
+    if (raw && raw.dataset.bound !== '1') {
+        raw.dataset.bound = '1';
+        raw.addEventListener('input', resetSimcImportInspectResult);
+    }
+
+    const inspectBtn = document.getElementById('simc-import-inspect-btn');
+    if (inspectBtn && inspectBtn.dataset.bound !== '1') {
+        inspectBtn.dataset.bound = '1';
+        inspectBtn.addEventListener('click', inspectSimcImportRawCode);
+    }
+
+    const createBtn = document.getElementById('simc-import-create-btn');
+    if (createBtn && createBtn.dataset.bound !== '1') {
+        createBtn.dataset.bound = '1';
+        createBtn.addEventListener('click', createSimcImportTasks);
+    }
+
+    const clearBtn = document.getElementById('simc-import-clear-btn');
+    if (clearBtn && clearBtn.dataset.bound !== '1') {
+        clearBtn.dataset.bound = '1';
+        clearBtn.addEventListener('click', function() {
+            const rawInput = document.getElementById('simc-import-raw-code');
+            if (rawInput) rawInput.value = '';
+            resetSimcImportInspectResult();
+        });
+    }
+
+    const refreshBtn = document.getElementById('simc-import-refresh-tasks');
+    if (refreshBtn && refreshBtn.dataset.bound !== '1') {
+        refreshBtn.dataset.bound = '1';
+        refreshBtn.addEventListener('click', function() {
+            fetchSimcTaskData();
+            switchSimcWorkbenchTab('tasks');
+        });
+    }
+}
+
 function resetSimcImportInspectResult() {
     lastSimcImportInspectData = null;
     const box = document.getElementById('simc-import-inspect-result');
@@ -1683,6 +1697,7 @@ function renderSimcImportInspectResult(data) {
     if (!box) return;
     const warnings = Array.isArray(data && data.warnings) ? data.warnings : [];
     const plans = Array.isArray(data && data.plans) ? data.plans : [];
+    const availableApls = Array.isArray(data && data.available_apls) ? data.available_apls : [];
     const detected = [
         ['角色', data && data.character_name],
         ['职业', data && data.class],
@@ -1702,6 +1717,30 @@ function renderSimcImportInspectResult(data) {
                 ${plan.reason ? `<div class="text-xs text-gray-500 mt-1 ml-6">${escapeHtml(plan.reason)}</div>` : ''}
             </label>`;
     }).join('');
+    const aplHtml = availableApls.length ? `
+        <div class="font-bold text-gray-900 mt-4">本次模拟使用的 APL</div>
+        <div class="mt-2 space-y-2">
+            <label class="flex items-start gap-2 rounded-xl border border-blue-200 bg-white p-3">
+                <input type="radio" name="simc-import-apl" value="" checked class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
+                <span>
+                    <span class="font-semibold text-gray-900">自动 / 使用 raw 内置 APL</span>
+                    <span class="block text-xs text-gray-500">不额外覆盖 action list；如果 raw 里已有 APL 就按 raw 原样运行。</span>
+                </span>
+            </label>
+            ${availableApls.map(apl => `
+                <label class="flex items-start gap-2 rounded-xl border border-gray-200 bg-white p-3">
+                    <input type="radio" name="simc-import-apl" value="${escapeHtml(String(apl.id || ''))}" class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
+                    <span>
+                        <span class="font-semibold text-gray-900">${escapeHtml(apl.name || apl.spec || 'APL')}</span>
+                        <span class="ml-2 text-xs px-2 py-0.5 rounded-full ${apl.template_type === 'default_apl' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}">${apl.template_type === 'default_apl' ? '默认自动同步' : '个人维护'}</span>
+                        <span class="block text-xs text-gray-500">${escapeHtml(apl.spec || '')} · ${escapeHtml(apl.source || '')} · ${apl.content_length || 0} 字符</span>
+                    </span>
+                </label>
+            `).join('')}
+        </div>
+    ` : `
+        <div class="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-2 mt-4">当前专精没有可选 APL，将按 raw 内置 APL 或默认生成逻辑运行。</div>
+    `;
     box.className = 'rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-gray-700';
     box.innerHTML = `
         <div class="font-bold text-blue-950 mb-2">识别结果</div>
@@ -1711,6 +1750,7 @@ function renderSimcImportInspectResult(data) {
         ${warnings.length ? `<div class="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-2 mb-3">${warnings.map(w => `<div>• ${escapeHtml(w)}</div>`).join('')}</div>` : ''}
         <div class="font-bold text-gray-900">创建方案</div>
         ${planHtml || '<div class="text-gray-500 mt-2">暂无可用方案</div>'}
+        ${aplHtml}
     `;
 }
 
@@ -1747,6 +1787,11 @@ function getSelectedSimcImportPlans() {
     return plans.filter(plan => plan.enabled && selected.includes(plan.id));
 }
 
+function getSelectedSimcImportAplId() {
+    const checked = document.querySelector('input[name="simc-import-apl"]:checked');
+    return checked ? checked.value : '';
+}
+
 async function createSimcImportTasks() {
     try {
         const rawInput = document.getElementById('simc-import-raw-code');
@@ -1764,21 +1809,24 @@ async function createSimcImportTasks() {
         }
         const regularTime = parseInt(document.getElementById('simc-import-regular-time')?.value || '300', 10) || 300;
         const targetCount = parseInt(document.getElementById('simc-import-regular-target-count')?.value || '1', 10) || 1;
+        const selectedAplId = getSelectedSimcImportAplId();
         let createdCount = 0;
         for (const plan of selectedPlans) {
             if (plan.id !== 'regular') continue;
             const taskName = plan.task_name || `${inspectData.character_name || 'Raw SimC'} ${inspectData.spec || ''} 常规模拟`.trim();
+            const requestBody = {
+                name: taskName,
+                task_type: 1,
+                simc_profile_id: 0,
+                raw_simc_code: rawCode,
+                regular_time: regularTime,
+                regular_target_count: targetCount
+            };
+            if (selectedAplId) requestBody.selected_apl_id = selectedAplId;
             const response = await fetch('/api/simc-task/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-                body: JSON.stringify({
-                    name: taskName,
-                    task_type: 1,
-                    simc_profile_id: 0,
-                    raw_simc_code: rawCode,
-                    regular_time: regularTime,
-                    regular_target_count: targetCount
-                })
+                body: JSON.stringify(requestBody)
             });
             const payload = await response.json();
             if (!response.ok || !payload.success) throw new Error(payload.error || payload.message || `创建 ${plan.label || plan.id} 失败`);

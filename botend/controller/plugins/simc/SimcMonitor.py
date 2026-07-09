@@ -428,6 +428,9 @@ class SimcMonitor(BaseScan):
             if raw_simc_code and str(raw_simc_code).strip():
                 logger.info(f"[SimC Monitor] Task {simc_task.id}: using raw simc code ({len(raw_simc_code)} chars)")
                 simc_code = str(raw_simc_code).strip()
+                override_action_list = ext_payload.get('override_action_list')
+                if override_action_list:
+                    simc_code = self.apply_action_list_override_to_raw(simc_code, override_action_list)
             else:
                 # ── Profile + 模板模式（原有逻辑） ──
                 override_time = ext_payload.get('regular_time')
@@ -577,33 +580,53 @@ class SimcMonitor(BaseScan):
             self.mark_task_failed(simc_task, "属性模拟执行异常", e)
             return False
 
+    def apply_action_list_override_to_raw(self, simc_code, override_action_list):
+        """在 raw SimC 模式下用选中的 APL 覆盖原 action list。"""
+        code = str(simc_code or '').strip()
+        action_list = str(override_action_list or '').strip()
+        if not code or not action_list:
+            return code
+        kept_lines = []
+        removed = 0
+        for line in code.splitlines():
+            text = line.strip()
+            if text.startswith('actions') or text.startswith('action_list'):
+                removed += 1
+                continue
+            kept_lines.append(line)
+        if removed:
+            logger.info(f"[SimC Monitor] raw SimC 已移除 {removed} 行旧 APL，使用任务选择的 APL")
+        else:
+            logger.info("[SimC Monitor] raw SimC 未发现旧 APL，追加任务选择的 APL")
+        return '\n'.join(kept_lines).rstrip() + '\n\n' + action_list + '\n'
+
     def _load_default_apl(self, spec):
         """
-        从数据库加载默认 APL（按专精自动匹配）
+        从统一 SimC 内容模板表加载默认 APL（按专精自动匹配）。
         :param spec: 专精标识（如 fury, arms, balance）
         :return: APL 文本或 None
         """
         try:
-            from botend.models import SimcDefaultApl
+            from botend.models import SimcContentTemplate
             spec_value = str(spec or '').strip().lower()
             if not spec_value:
                 return None
-            # 精确匹配：spec 字段格式为 class_spec（如 warrior_fury）
-            apl = SimcDefaultApl.objects.filter(
+            apl = SimcContentTemplate.objects.filter(
                 is_active=True,
+                template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+                source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
                 spec__endswith=f'_{spec_value}'
-            ).first()
+            ).order_by('id').first()
+            if not apl:
+                apl = SimcContentTemplate.objects.filter(
+                    is_active=True,
+                    template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+                    source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                    spec=spec_value
+                ).order_by('id').first()
             if apl:
                 logger.info(f"[SimC Monitor] 自动加载默认 APL: {apl.spec}")
-                return apl.apl_content
-            # 回退：直接匹配 spec 字段
-            apl = SimcDefaultApl.objects.filter(
-                is_active=True,
-                spec=spec_value
-            ).first()
-            if apl:
-                logger.info(f"[SimC Monitor] 自动加载默认 APL: {apl.spec}")
-                return apl.apl_content
+                return apl.content
             logger.warning(f"[SimC Monitor] 未找到专精 {spec_value} 的默认 APL")
             return None
         except Exception as e:
@@ -622,12 +645,11 @@ class SimcMonitor(BaseScan):
             if not override_action_list and not (profile.action_list or '').strip():
                 override_action_list = self._load_default_apl(profile.spec)
 
-            # 从数据库获取模板
-            from botend.models import SimcTemplate
+            # 从数据库获取统一基础模板
             template_obj = self.select_template_by_spec(profile.spec)
             if not template_obj:
                 raise Exception("未找到启用的SimC模板")
-            template = template_obj.template_content
+            template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
             return self.apply_template(
                 template=template,
                 profile=profile,
@@ -835,12 +857,11 @@ class SimcMonitor(BaseScan):
         :return: 生成的SimC代码字符串
         """
         try:
-            # 从数据库获取模板
-            from botend.models import SimcTemplate
+            # 从数据库获取统一基础模板
             template_obj = self.select_template_by_spec(profile.spec)
             if not template_obj:
                 raise Exception("未找到启用的SimC模板")
-            template = template_obj.template_content
+            template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
             return self.apply_template(
                 template=template,
                 profile=profile,
@@ -853,14 +874,21 @@ class SimcMonitor(BaseScan):
             raise e
 
     def select_template_by_spec(self, spec):
-        from botend.models import SimcTemplate
-        active = SimcTemplate.objects.filter(is_active=True).order_by('id')
-        if not active.exists():
-            return None
-
+        from botend.models import SimcContentTemplate
         spec_value = str(spec or '').strip().lower()
+
+        queryset = SimcContentTemplate.objects.filter(
+            is_active=True,
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+        ).order_by('id')
+        return self._select_template_from_queryset(queryset, spec_value)
+
+    def _select_template_from_queryset(self, queryset, spec_value):
+        rows = list(queryset)
+        if not rows:
+            return None
         if spec_value:
-            for tpl in active:
+            for tpl in rows:
                 spec_field = str(getattr(tpl, 'spec', '') or '').strip().lower()
                 if not spec_field:
                     continue
@@ -870,14 +898,14 @@ class SimcMonitor(BaseScan):
                 if spec_value in candidates:
                     return tpl
 
-        for tpl in active:
+        for tpl in rows:
             spec_field = str(getattr(tpl, 'spec', '') or '').strip().lower()
             if not spec_field:
                 continue
             candidates = [s.strip() for s in spec_field.split(',') if s.strip()]
             if 'default' in candidates or 'all' in candidates or '*' in candidates:
                 return tpl
-        return active.first()
+        return rows[0]
 
     def apply_template(self, template, profile, result_file, attributes=None, override_time=None, override_target_count=None, override_action_list=None):
         attrs = attributes or self.get_base_attributes(profile)
