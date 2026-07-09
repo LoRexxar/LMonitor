@@ -105,3 +105,13 @@ BATTLENET_CONFIG = {
     "api_host_us": "https://us.api.blizzard.com",
     "api_host_cn": "https://gateway.battlenet.com.cn",
 }
+
+SIMC_CONFIG = {
+    "simc_source_dir": "/home/lighthouse/simc",
+    "simc_build_dir": "/home/lighthouse/simc/build-cli",
+    "simc_path": "/home/lighthouse/simc/build-cli/simc",
+    "result_path": "static/simc_results/",
+    "simc_template": "LMonitor/simc_template.txt",
+    "update_check_interval_seconds": 1800,
+    "compile_threads": 2,
+}
