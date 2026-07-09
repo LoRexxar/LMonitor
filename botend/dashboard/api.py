@@ -21,10 +21,6 @@ import time
 import re
 import requests
 import os
-import shutil
-import subprocess
-import zipfile
-import tarfile
 import threading
 import uuid
 import platform as py_platform
@@ -3235,78 +3231,7 @@ class SimcBackendBinaryAPIView(View):
         if 'linux' in sys_name:
             machine = str(py_platform.machine() or '').lower()
             return 'linuxarm64' if machine in ('aarch64', 'arm64') else 'linux64'
-        return 'win64'
-
-    def _detect_platform_from_filename(self, filename):
-        lower = str(filename or '').lower()
-        if 'win64' in lower:
-            return 'win64'
-        if 'linux64' in lower:
-            return 'linux64'
-        if 'linuxarm64' in lower or 'arm64' in lower:
-            return 'linuxarm64'
-        return ''
-
-    def _parse_version_from_filename(self, filename, platform):
-        text = str(filename or '')
-        m = re.search(rf"simc-(.+?)-{re.escape(platform)}", text, flags=re.IGNORECASE)
-        return m.group(1) if m else ""
-
-    def _extract_archive(self, archive_path, extract_dir, platform):
-        os.makedirs(extract_dir, exist_ok=True)
-        lower = str(archive_path).lower()
-        if lower.endswith(('.tar.gz', '.tar.xz', '.tgz')):
-            with tarfile.open(archive_path, 'r:*') as tf:
-                base = os.path.realpath(extract_dir)
-                base_prefix = base + os.sep
-                for m in tf.getmembers():
-                    target = os.path.realpath(os.path.join(extract_dir, m.name))
-                    if not (target == base or target.startswith(base_prefix)):
-                        raise Exception("压缩包内容包含非法路径")
-                tf.extractall(extract_dir)
-            return extract_dir
-        if lower.endswith('.zip'):
-            with zipfile.ZipFile(archive_path, 'r') as zf:
-                zf.extractall(extract_dir)
-            return extract_dir
-        if lower.endswith('.7z'):
-            try:
-                import py7zr
-            except Exception:
-                candidates = []
-                if str(platform).startswith("win"):
-                    candidates.extend([r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe"])
-                    seven_zip = next((p for p in candidates if os.path.exists(p)), "")
-                else:
-                    seven_zip = shutil.which('7z') or shutil.which('7zz') or ''
-                if not seven_zip:
-                    raise Exception("无法解压 .7z：未安装 7-Zip（7z.exe）且未安装 py7zr")
-                subprocess.run([seven_zip, "x", "-y", f"-o{extract_dir}", archive_path], check=True)
-                return extract_dir
-            try:
-                with py7zr.SevenZipFile(archive_path, mode='r') as z:
-                    z.extractall(path=extract_dir)
-                return extract_dir
-            except Exception as e:
-                raise Exception(f"py7zr解压失败: {str(e)}")
-        raise Exception(f"不支持的压缩格式: {archive_path}")
-
-    def _find_simc_executable(self, root_dir, platform):
-        exe_name = "simc.exe" if str(platform).startswith("win") else "simc"
-        for base, _, files in os.walk(root_dir):
-            for fn in files:
-                if fn.lower() == exe_name.lower():
-                    return os.path.join(base, fn)
-        return ""
-
-    def _ensure_executable_permission(self, exe_path, platform):
-        if not exe_path or str(platform).startswith('win'):
-            return
-        try:
-            st = os.stat(exe_path)
-            os.chmod(exe_path, st.st_mode | 0o111)
-        except Exception:
-            return
+        return 'unsupported'
 
     def _resolve_local_build_paths(self):
         cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
@@ -3356,7 +3281,7 @@ class SimcBackendBinaryAPIView(View):
                     }
                 })
 
-            # 方案B以本地编译配置路径为准；旧上传方案可能残留 win64 simc.exe 路径，不能继续覆盖运行路径。
+            # 以本地编译配置路径为准；历史记录里的旧路径不能继续覆盖运行路径。
             effective_path = binary_path
             return JsonResponse({
                 'success': True,
