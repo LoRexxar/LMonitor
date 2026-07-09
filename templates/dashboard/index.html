@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260709_simc_content_unified" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260709_simc_wb_profiles_rules" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -865,24 +865,76 @@ spec=arcane
                         </div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-tasks-panel" data-simc-panel="tasks"></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-profiles-panel" data-simc-panel="profiles">
-                            <div class="rounded-2xl border border-gray-200 bg-gray-50 p-5">
-                                <h3 class="text-xl font-bold text-gray-900 mb-2">SimC配置管理</h3>
-                                <p class="text-sm text-gray-600 mb-4">配置表仍复用原 Dashboard 表格编辑能力，点击后会进入配置表并保留 SimC 工具台入口。</p>
-                                <button type="button" data-simc-table-shortcut="SimcProfile" class="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700">
-                                    <i class="fas fa-cog mr-2"></i>打开配置表
-                                </button>
+                            <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+                                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                                    <div>
+                                        <h3 class="text-xl font-bold text-gray-900">SimC 配置管理</h3>
+                                        <p class="text-sm text-gray-500 mt-1">管理 SimC 角色配置（profile）：专精、战斗风格、装备属性、天赋、APL。</p>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <select id="simc-wb-profile-spec-filter" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                            <option value="">全部专精</option>
+                                        </select>
+                                        <select id="simc-wb-profile-style-filter" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                            <option value="">全部风格</option>
+                                        </select>
+                                        <button type="button" id="simc-wb-profile-refresh" class="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
+                                            <i class="fas fa-sync-alt mr-1"></i>刷新
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="min-w-full text-sm">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">编号</th>
+                                                <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">配置名</th>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">专精</th>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">战斗风格</th>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">时长(s)</th>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">目标数</th>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="simc-wb-profile-list" class="divide-y divide-gray-100">
+                                            <tr><td colspan="7" class="text-center py-8 text-gray-400"><i class="fas fa-cog text-3xl mb-2"></i><p>加载中…</p></td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div id="simc-wb-profile-pagination" class="mt-4 flex items-center justify-between text-sm text-gray-500"></div>
                             </div>
                         </div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-templates-panel" data-simc-panel="templates"></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-apl-panel" data-simc-panel="apl"></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-backend-panel" data-simc-panel="backend"></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-rules-panel" data-simc-panel="rules">
-                            <div class="rounded-2xl border border-gray-200 bg-gray-50 p-5">
-                                <h3 class="text-xl font-bold text-gray-900 mb-2">绿字转换比例</h3>
-                                <p class="text-sm text-gray-600 mb-4">绿字规则暂复用原 Dashboard 表格编辑能力。</p>
-                                <button type="button" data-simc-table-shortcut="SimcSecondaryStatRule" class="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700">
-                                    <i class="fas fa-calculator mr-2"></i>打开绿字规则表
-                                </button>
+                            <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+                                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                                    <div>
+                                        <h3 class="text-xl font-bold text-gray-900">绿字转换比例</h3>
+                                        <p class="text-sm text-gray-500 mt-1">管理次级属性的绿字转换比例规则，用于 SimC 属性模拟。</p>
+                                    </div>
+                                    <button type="button" id="simc-wb-rules-refresh" class="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
+                                        <i class="fas fa-sync-alt mr-1"></i>刷新
+                                    </button>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="min-w-full text-sm">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">编号</th>
+                                                <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">属性名</th>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">每等级转换</th>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">装备等级系数</th>
+                                                <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">说明</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="simc-wb-rules-list" class="divide-y divide-gray-100">
+                                            <tr><td colspan="5" class="text-center py-8 text-gray-400"><i class="fas fa-calculator text-3xl mb-2"></i><p>加载中…</p></td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div id="simc-wb-rules-pagination" class="mt-4 flex items-center justify-between text-sm text-gray-500"></div>
                             </div>
                         </div>
                     </div>

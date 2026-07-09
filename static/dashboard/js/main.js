@@ -1573,6 +1573,8 @@ function initSimcWorkbench() {
     });
 
     bindSimcWorkbenchImportControls();
+    bindSimcWorkbenchProfilesControls();
+    bindSimcWorkbenchRulesControls();
 
     document.querySelectorAll('[data-simc-table-shortcut]').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -1608,8 +1610,249 @@ function switchSimcWorkbenchTab(tabName) {
         panel.classList.toggle('hidden', !isActive);
     });
     if (activeTab === 'tasks') fetchSimcTaskData();
+    if (activeTab === 'profiles') loadSimcWorkbenchProfiles();
     if (activeTab === 'templates' && typeof loadSimcTemplate === 'function') loadSimcTemplate();
     if (activeTab === 'backend' && typeof loadSimcBackendUploadInfo === 'function') loadSimcBackendUploadInfo();
+    if (activeTab === 'rules') loadSimcWorkbenchRules();
+}
+
+/* ===== SimC 工具台 — 配置管理（profiles） ===== */
+let simcWbProfileSpecFilter = '';
+let simcWbProfileStyleFilter = '';
+let simcWbProfilePage = 1;
+let simcWbProfileTotalPages = 1;
+
+function loadSimcWorkbenchProfiles(page) {
+    page = page || 1;
+    simcWbProfilePage = page;
+    const tbody = document.getElementById('simc-wb-profile-list');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>加载中…</td></tr>';
+
+    const csrf = getCSRFToken();
+    if (!csrf) { tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-red-500">无法获取 CSRF Token</td></tr>'; return; }
+
+    const requestData = { action: 'get_table_data', table_name: 'SimcProfile', page: page, page_size: 20 };
+    if (simcWbProfileSpecFilter) requestData.simc_spec = simcWbProfileSpecFilter;
+    if (simcWbProfileStyleFilter) requestData.simc_fight_style = simcWbProfileStyleFilter;
+
+    fetch('/dashboard/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+        body: JSON.stringify(requestData)
+    }).then(r => r.json()).then(data => {
+        if (data.status !== 'success' || !data.data) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-red-500">加载失败</td></tr>';
+            return;
+        }
+        const rows = data.data.rows || [];
+        const total = data.data.total || 0;
+        simcWbProfileTotalPages = Math.max(1, Math.ceil(total / 20));
+
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-400">暂无配置</td></tr>';
+            renderSimcWbPagination('simc-wb-profile-pagination', simcWbProfilePage, simcWbProfileTotalPages, loadSimcWorkbenchProfiles);
+            return;
+        }
+
+        tbody.innerHTML = rows.map((row, idx) => {
+            const id = row.id || 0;
+            const name = escapeHtml(row.name || '-');
+            const spec = row.spec || '';
+            const fightStyle = escapeHtml(row.fight_style || '-');
+            const time = row.time != null ? row.time : '-';
+            const targetCount = row.target_count != null ? row.target_count : '-';
+            const offset = (page - 1) * 20 + idx + 1;
+            return `<tr class="hover:bg-gray-50 border-b border-gray-100">
+                <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
+                <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
+                <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(spec)}</td>
+                <td class="px-3 py-3 text-center text-xs text-gray-600">${fightStyle}</td>
+                <td class="px-3 py-3 text-center text-xs text-gray-500">${time}</td>
+                <td class="px-3 py-3 text-center text-xs text-gray-500">${targetCount}</td>
+                <td class="px-3 py-3 text-center">
+                    <div class="flex items-center justify-center gap-1 flex-wrap">
+                        <button class="simc-wb-profile-edit text-blue-600 hover:text-blue-800 text-xs" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>
+                        <button class="simc-wb-profile-copy text-green-600 hover:text-green-800 text-xs" data-profile-id="${id}" data-profile-name="${name}" title="复制"><i class="fas fa-copy"></i></button>
+                        <button class="simc-wb-profile-apl text-orange-600 hover:text-orange-800 text-xs" data-profile-id="${id}" title="查看 APL"><i class="fas fa-list"></i></button>
+                        <button class="simc-wb-profile-sim text-purple-600 hover:text-purple-800 text-xs" data-profile-id="${id}" title="直接模拟"><i class="fas fa-play"></i></button>
+                        <button class="simc-wb-profile-del text-red-500 hover:text-red-700 text-xs" data-profile-id="${id}" title="删除"><i class="fas fa-trash"></i></button>
+                    </div>
+                </td>
+            </tr>`;
+        }).join('');
+
+        /* 绑定行内按钮 */
+        tbody.querySelectorAll('.simc-wb-profile-edit').forEach(btn => btn.addEventListener('click', () => { if (typeof editSimcProfile === 'function') editSimcProfile(btn.dataset.profileId); }));
+        tbody.querySelectorAll('.simc-wb-profile-copy').forEach(btn => btn.addEventListener('click', () => { if (typeof copySimcProfile === 'function') copySimcProfile(btn.dataset.profileId, btn.dataset.profileName); }));
+        tbody.querySelectorAll('.simc-wb-profile-apl').forEach(btn => btn.addEventListener('click', () => { if (typeof viewSimcProfileActionList === 'function') viewSimcProfileActionList(btn.dataset.profileId); }));
+        tbody.querySelectorAll('.simc-wb-profile-sim').forEach(btn => btn.addEventListener('click', () => {
+            if (typeof openSimcWorkbench === 'function') openSimcWorkbench();
+            setTimeout(() => { switchSimcWorkbenchTab('import'); }, 100);
+            /* 尝试预选该 profile */
+            const sel = document.getElementById('simc-config-select');
+            if (sel) sel.value = btn.dataset.profileId;
+        }));
+        tbody.querySelectorAll('.simc-wb-profile-del').forEach(btn => btn.addEventListener('click', () => { if (typeof deleteSimcProfile === 'function') deleteSimcProfile(btn.dataset.profileId); }));
+
+        renderSimcWbPagination('simc-wb-profile-pagination', simcWbProfilePage, simcWbProfileTotalPages, loadSimcWorkbenchProfiles);
+    }).catch(err => {
+        console.error('加载 SimC 配置失败:', err);
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-red-500">网络错误</td></tr>';
+    });
+}
+
+function bindSimcWorkbenchProfilesControls() {
+    /* 填充专精下拉选项 */
+    const specSel = document.getElementById('simc-wb-profile-spec-filter');
+    if (specSel && specSel.options.length <= 1 && !specSel.dataset.loaded) {
+        specSel.dataset.loaded = '1';
+        const specs = ['deathknight','demonhunter','druid','evoker','hunter','mage','monk','paladin','priest','rogue','shaman','warlock','warrior'];
+        specs.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s; opt.textContent = s;
+            specSel.appendChild(opt);
+        });
+    }
+    /* 填充战斗风格下拉选项 */
+    const styleSel = document.getElementById('simc-wb-profile-style-filter');
+    if (styleSel && styleSel.options.length <= 1 && !styleSel.dataset.loaded) {
+        styleSel.dataset.loaded = '1';
+        ['single_target','cleave','aoe'].forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s; opt.textContent = s;
+            styleSel.appendChild(opt);
+        });
+    }
+
+    if (specSel && specSel.dataset.bound !== '1') {
+        specSel.dataset.bound = '1';
+        specSel.addEventListener('change', function() {
+            simcWbProfileSpecFilter = this.value;
+            loadSimcWorkbenchProfiles(1);
+        });
+    }
+    if (styleSel && styleSel.dataset.bound !== '1') {
+        styleSel.dataset.bound = '1';
+        styleSel.addEventListener('change', function() {
+            simcWbProfileStyleFilter = this.value;
+            loadSimcWorkbenchProfiles(1);
+        });
+    }
+    const refreshBtn = document.getElementById('simc-wb-profile-refresh');
+    if (refreshBtn && refreshBtn.dataset.bound !== '1') {
+        refreshBtn.dataset.bound = '1';
+        refreshBtn.addEventListener('click', () => loadSimcWorkbenchProfiles(simcWbProfilePage));
+    }
+}
+
+/* ===== SimC 工具台 — 绿字规则（rules） ===== */
+let simcWbRulesPage = 1;
+let simcWbRulesTotalPages = 1;
+
+function loadSimcWorkbenchRules(page) {
+    page = page || 1;
+    simcWbRulesPage = page;
+    const tbody = document.getElementById('simc-wb-rules-list');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>加载中…</td></tr>';
+
+    const csrf = getCSRFToken();
+    if (!csrf) { tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-red-500">无法获取 CSRF Token</td></tr>'; return; }
+
+    fetch('/dashboard/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+        body: JSON.stringify({ action: 'get_table_data', table_name: 'SimcSecondaryStatRule', page: page, page_size: 50 })
+    }).then(r => r.json()).then(data => {
+        if (data.status !== 'success' || !data.data) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-red-500">加载失败</td></tr>';
+            return;
+        }
+        const rows = data.data.rows || [];
+        const total = data.data.total || 0;
+        simcWbRulesTotalPages = Math.max(1, Math.ceil(total / 50));
+
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-gray-400">暂无绿字规则</td></tr>';
+            renderSimcWbPagination('simc-wb-rules-pagination', simcWbRulesPage, simcWbRulesTotalPages, loadSimcWorkbenchRules);
+            return;
+        }
+
+        tbody.innerHTML = rows.map((row, idx) => {
+            const id = row.id || 0;
+            const spec = row.spec || '-';
+            const critPerPct = row.crit_per_percent != null ? row.crit_per_percent : '-';
+            const hastePerPct = row.haste_per_percent != null ? row.haste_per_percent : '-';
+            const masteryPerPct = row.mastery_per_percent != null ? row.mastery_per_percent : '-';
+            const masteryCoeff = row.mastery_coefficient != null ? row.mastery_coefficient : '-';
+            const versaPerPct = row.versatility_per_percent != null ? row.versatility_per_percent : '-';
+            const desc = escapeHtml(row.description || row.note || '');
+            const offset = (page - 1) * 50 + idx + 1;
+            const specBadge = renderSpecBadgeHtml(spec);
+            return `<tr class="hover:bg-gray-50 border-b border-gray-100">
+                <td class="px-3 py-2.5 text-center text-gray-500 text-xs">${offset}</td>
+                <td class="px-3 py-2.5">${specBadge}</td>
+                <td class="px-3 py-2.5 text-center text-xs font-mono text-gray-700" title="急速 ${hastePerPct} / 暴击 ${critPerPct} / 精通 ${masteryPerPct}(${masteryCoeff}) / 全能 ${versaPerPct}">
+                    暴击 ${critPerPct} &nbsp;|&nbsp; 急速 ${hastePerPct} &nbsp;|&nbsp; 精通 ${masteryPerPct}(${masteryCoeff}) &nbsp;|&nbsp; 全能 ${versaPerPct}
+                </td>
+                <td class="px-3 py-2.5 text-center text-xs text-gray-500 font-mono">${masteryCoeff}</td>
+                <td class="px-3 py-2.5 text-xs text-gray-500 max-w-[180px] truncate" title="${desc}">${desc || '-'}</td>
+            </tr>`;
+        }).join('');
+
+        renderSimcWbPagination('simc-wb-rules-pagination', simcWbRulesPage, simcWbRulesTotalPages, loadSimcWorkbenchRules);
+    }).catch(err => {
+        console.error('加载绿字规则失败:', err);
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-red-500">网络错误</td></tr>';
+    });
+}
+
+function bindSimcWorkbenchRulesControls() {
+    const refreshBtn = document.getElementById('simc-wb-rules-refresh');
+    if (refreshBtn && refreshBtn.dataset.bound !== '1') {
+        refreshBtn.dataset.bound = '1';
+        refreshBtn.addEventListener('click', () => loadSimcWorkbenchRules(simcWbRulesPage));
+    }
+}
+
+/* ===== 工具台通用分页渲染 ===== */
+function renderSimcWbPagination(containerId, currentPage, totalPages, loadFn) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (totalPages <= 1) { el.innerHTML = ''; return; }
+
+    let html = '<div class="flex items-center justify-center gap-1">';
+    if (currentPage > 1) {
+        html += `<button class="simc-wb-page-btn px-2.5 py-1 text-xs rounded bg-white border border-gray-300 hover:bg-gray-50" data-page="${currentPage - 1}">‹ 上一页</button>`;
+    }
+    const maxVis = 5;
+    let start = Math.max(1, currentPage - Math.floor(maxVis / 2));
+    let end = Math.min(totalPages, start + maxVis - 1);
+    if (end - start + 1 < maxVis) start = Math.max(1, end - maxVis + 1);
+    if (start > 1) {
+        html += `<button class="simc-wb-page-btn px-2.5 py-1 text-xs rounded bg-white border border-gray-300 hover:bg-gray-50" data-page="1">1</button>`;
+        if (start > 2) html += '<span class="px-1.5 text-gray-400 text-xs">…</span>';
+    }
+    for (let i = start; i <= end; i++) {
+        const active = i === currentPage ? 'bg-blue-500 text-white border-blue-500' : 'bg-white border-gray-300 hover:bg-gray-50';
+        html += `<button class="simc-wb-page-btn px-2.5 py-1 text-xs rounded border ${active}" data-page="${i}">${i}</button>`;
+    }
+    if (end < totalPages) {
+        if (end < totalPages - 1) html += '<span class="px-1.5 text-gray-400 text-xs">…</span>';
+        html += `<button class="simc-wb-page-btn px-2.5 py-1 text-xs rounded bg-white border border-gray-300 hover:bg-gray-50" data-page="${totalPages}">${totalPages}</button>`;
+    }
+    if (currentPage < totalPages) {
+        html += `<button class="simc-wb-page-btn px-2.5 py-1 text-xs rounded bg-white border border-gray-300 hover:bg-gray-50" data-page="${currentPage + 1}">下一页 ›</button>`;
+    }
+    html += '</div>';
+    el.innerHTML = html;
+    el.querySelectorAll('.simc-wb-page-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const p = parseInt(btn.dataset.page, 10);
+            if (p && typeof loadFn === 'function') loadFn(p);
+        });
+    });
 }
 
 function openSimcWorkbench() {
