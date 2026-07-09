@@ -388,7 +388,11 @@ class SimcMonitor(BaseScan):
                 self.mark_task_failed(simc_task, "直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟")
                 return False
 
-            # Profile + 模板模式、属性模拟都需要 SimCProfile。
+            # 新版任务配置模式（player_config_mode）不依赖 SimcProfile，直接走常规模拟。
+            if ext_payload.get('player_config_mode'):
+                return self.process_regular_simulation(simc_task, None)
+
+            # 旧版 Profile + 模板模式、属性模拟都需要 SimcProfile。
             simc_profile = SimcProfile.objects.filter(
                 id=simc_task.simc_profile_id,
                 user_id=simc_task.user_id,
@@ -417,7 +421,7 @@ class SimcMonitor(BaseScan):
         """
         处理常规模拟任务
         :param simc_task: SimcTask对象
-        :param simc_profile: SimcProfile对象
+        :param simc_profile: SimcProfile对象（可选，用于兼容旧任务）
         :return: 执行是否成功
         """
         try:
@@ -432,23 +436,59 @@ class SimcMonitor(BaseScan):
                 if override_action_list:
                     simc_code = self.apply_action_list_override_to_raw(simc_code, override_action_list)
             else:
-                # ── Profile + 模板模式（原有逻辑） ──
-                override_time = ext_payload.get('regular_time')
-                override_target_count = ext_payload.get('regular_target_count')
-                override_action_list = ext_payload.get('override_action_list')
-                logger.info(
-                    f"[SimC Monitor] Regular overrides for task {simc_task.id}: "
-                    f"time={override_time}, targets={override_target_count}"
-                )
+                # ── 新版任务配置模式（从 ext JSON 读取所有配置） ──
+                # 如果 ext 中有 player_config_mode，使用新逻辑
+                if ext_payload.get('player_config_mode'):
+                    # 从数据库获取模板
+                    spec_value = ext_payload.get('spec') or (simc_profile.spec if simc_profile else 'fury')
+                    template_obj = self.select_template_by_spec(spec_value)
+                    if not template_obj:
+                        raise Exception("未找到启用的SimC模板")
+                    template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
+                    
+                    # 构建 task_config 字典
+                    task_config = {
+                        'spec': spec_value,
+                        'talent': ext_payload.get('talent') or (simc_profile.talent if simc_profile else ''),
+                        'fight_style': ext_payload.get('fight_style', 'Patchwerk'),
+                        'time': ext_payload.get('time', 300),
+                        'target_count': ext_payload.get('target_count', 1),
+                        'player_config_mode': ext_payload.get('player_config_mode', 'equipment'),
+                        'player_equipment': ext_payload.get('player_equipment', ''),
+                        'gear_crit': ext_payload.get('gear_crit', 10730),
+                        'gear_haste': ext_payload.get('gear_haste', 18641),
+                        'gear_mastery': ext_payload.get('gear_mastery', 21785),
+                        'gear_versatility': ext_payload.get('gear_versatility', 6757),
+                        'override_action_list': ext_payload.get('override_action_list', ''),
+                    }
+                    
+                    simc_code = self.apply_template(
+                        template_content=template,
+                        task_config=task_config
+                    )
+                else:
+                    # ── 兼容旧版 Profile + 模板模式 ──
+                    if not simc_profile:
+                        self.mark_task_failed(simc_task, "未找到对应的SimC配置，可能已被删除或禁用")
+                        return False
+                    
+                    override_time = ext_payload.get('regular_time')
+                    override_target_count = ext_payload.get('regular_target_count')
+                    override_action_list = ext_payload.get('override_action_list')
+                    logger.info(
+                        f"[SimC Monitor] Regular overrides for task {simc_task.id}: "
+                        f"time={override_time}, targets={override_target_count}"
+                    )
 
-                # 生成SimC代码
-                simc_code = self.generate_simc_code(
-                    simc_profile,
-                    simc_task.result_file,
-                    override_time=override_time,
-                    override_target_count=override_target_count,
-                    override_action_list=override_action_list
-                )
+                    # 生成SimC代码
+                    simc_code = self.generate_simc_code(
+                        simc_profile,
+                        simc_task.result_file,
+                        override_time=override_time,
+                        override_target_count=override_target_count,
+                        override_action_list=override_action_list
+                    )
+                
                 if not isinstance(simc_code, str) or not simc_code.strip():
                     raise Exception("生成SimC配置失败：模板渲染结果为空")
             
@@ -635,14 +675,14 @@ class SimcMonitor(BaseScan):
 
     def generate_simc_code(self, profile, result_file, override_time=None, override_target_count=None, override_action_list=None):
         """
-        生成SimC代码
+        生成SimC代码（从数据库模板 + profile 配置）
         :param profile: SimcProfile对象
         :param result_file: 结果文件名
         :return: 生成的SimC代码字符串
         """
         try:
-            # ── 自动 APL：当用户未指定 override_action_list 且 profile 也没有手写 APL 时 ──
-            if not override_action_list and not (profile.action_list or '').strip():
+            # ── 自动 APL：当用户未指定 override_action_list 时加载默认 APL ──
+            if not override_action_list:
                 override_action_list = self._load_default_apl(profile.spec)
 
             # 从数据库获取统一基础模板
@@ -650,14 +690,25 @@ class SimcMonitor(BaseScan):
             if not template_obj:
                 raise Exception("未找到启用的SimC模板")
             template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
+            
+            # 构建 task_config 字典
+            task_config = {
+                'spec': profile.spec or 'fury',
+                'talent': profile.talent or '',
+                'fight_style': 'Patchwerk',
+                'time': override_time or 300,
+                'target_count': override_target_count or 1,
+                'player_config_mode': 'stats',
+                'gear_crit': profile.gear_crit or 10730,
+                'gear_haste': profile.gear_haste or 18641,
+                'gear_mastery': profile.gear_mastery or 21785,
+                'gear_versatility': profile.gear_versatility or 6757,
+                'override_action_list': override_action_list or '',
+            }
+            
             return self.apply_template(
-                template=template,
-                profile=profile,
-                result_file=result_file,
-                attributes=None,
-                override_time=override_time,
-                override_target_count=override_target_count,
-                override_action_list=override_action_list
+                template_content=template,
+                task_config=task_config
             )
             
         except Exception as e:
@@ -850,7 +901,7 @@ class SimcMonitor(BaseScan):
     
     def generate_attribute_simc_code(self, profile, attributes, result_file):
         """
-        生成属性模拟的SimC代码
+        生成属性模拟的SimC代码（从数据库模板 + profile 配置）
         :param profile: SimcProfile对象
         :param attributes: 修改后的属性字典
         :param result_file: 结果文件名
@@ -862,11 +913,25 @@ class SimcMonitor(BaseScan):
             if not template_obj:
                 raise Exception("未找到启用的SimC模板")
             template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
+            
+            # 构建 task_config 字典
+            task_config = {
+                'spec': profile.spec or 'fury',
+                'talent': profile.talent or '',
+                'fight_style': 'Patchwerk',
+                'time': 300,
+                'target_count': 1,
+                'player_config_mode': 'stats',
+                'gear_crit': attributes.get('gear_crit', 10730),
+                'gear_haste': attributes.get('gear_haste', 18641),
+                'gear_mastery': attributes.get('gear_mastery', 21785),
+                'gear_versatility': attributes.get('gear_versatility', 6757),
+                'override_action_list': self._load_default_apl(profile.spec) or '',
+            }
+            
             return self.apply_template(
-                template=template,
-                profile=profile,
-                result_file=result_file,
-                attributes=attributes
+                template_content=template,
+                task_config=task_config
             )
             
         except Exception as e:
@@ -907,48 +972,53 @@ class SimcMonitor(BaseScan):
                 return tpl
         return rows[0]
 
-    def apply_template(self, template, profile, result_file, attributes=None, override_time=None, override_target_count=None, override_action_list=None):
-        attrs = attributes or self.get_base_attributes(profile)
-        normalized_template = str(template or '')
-        if '{time}' not in normalized_template:
-            if re.search(r'^\s*max_time\s*=.*$', normalized_template, flags=re.MULTILINE):
-                normalized_template = re.sub(r'^\s*max_time\s*=.*$', 'max_time={time}', normalized_template, flags=re.MULTILINE)
-            else:
-                normalized_template += '\nmax_time={time}'
-            logger.warning('[SimC Monitor] 模板缺少 {time} 占位符，已自动规范为 max_time={time}')
-        if '{target_count}' not in normalized_template:
-            if re.search(r'^\s*desired_targets\s*=.*$', normalized_template, flags=re.MULTILINE):
-                normalized_template = re.sub(r'^\s*desired_targets\s*=.*$', 'desired_targets={target_count}', normalized_template, flags=re.MULTILINE)
-            else:
-                normalized_template += '\ndesired_targets={target_count}'
-            logger.warning('[SimC Monitor] 模板缺少 {target_count} 占位符，已自动规范为 desired_targets={target_count}')
-
-        simc_code = normalized_template
-        fight_style = profile.fight_style or 'Patchwerk'
-        max_time = override_time if override_time not in (None, '') else profile.time
-        target_count = override_target_count if override_target_count not in (None, '') else profile.target_count
-        spec_value = str(getattr(profile, 'spec', '') or '').strip() or 'fury'
-
-        simc_code = simc_code.replace('{fight_style}', fight_style)
-        simc_code = simc_code.replace('{time}', str(max_time or 300))
-        simc_code = simc_code.replace('{target_count}', str(target_count or 1))
-        simc_code = simc_code.replace('{talent}', profile.talent or '')
-        final_action_list = override_action_list if override_action_list not in (None, '') else (profile.action_list or '')
-        simc_code = simc_code.replace('{action_list}', final_action_list)
-        simc_code = simc_code.replace('{spec}', spec_value)
-        simc_code = simc_code.replace('{gear_strength}', str(attrs['gear_strength']))
-        simc_code = simc_code.replace('{gear_crit}', str(attrs['gear_crit']))
-        simc_code = simc_code.replace('{gear_haste}', str(attrs['gear_haste']))
-        simc_code = simc_code.replace('{gear_mastery}', str(attrs['gear_mastery']))
-        simc_code = simc_code.replace('{gear_versatility}', str(attrs['gear_versatility']))
-        simc_code = simc_code.replace('{result_file}', self.result_path + result_file)
-
-        # 兼容旧模板：未提供 {spec} 占位符时，覆盖或追加 spec 行
-        if '{spec}' not in normalized_template:
-            if 'spec=' in simc_code:
-                simc_code = re.sub(r'^\s*spec\s*=.*$', f"spec={spec_value}", simc_code, flags=re.MULTILINE)
-            else:
-                simc_code = f"spec={spec_value}\n" + simc_code
-
+    def apply_template(self, template_content, task_config):
+        """
+        新版模板渲染：接收模板内容和任务配置字典，生成SimC代码。
+        
+        :param template_content: 模板原始内容（包含 {spec}, {fight_style} 等占位符）
+        :param task_config: SimcTask.ext 解析后的字典，包含所有运行时配置
+        :return: 渲染后的SimC代码字符串
+        """
+        if not template_content:
+            raise Exception("模板内容为空")
+        if not task_config:
+            task_config = {}
+        
+        simc_code = str(template_content)
+        
+        # 替换基础占位符
+        simc_code = simc_code.replace('{fight_style}', str(task_config.get('fight_style', 'Patchwerk')))
+        simc_code = simc_code.replace('{time}', str(task_config.get('time', 300)))
+        simc_code = simc_code.replace('{target_count}', str(task_config.get('target_count', 1)))
+        simc_code = simc_code.replace('{spec}', str(task_config.get('spec', 'fury')))
+        simc_code = simc_code.replace('{talent}', str(task_config.get('talent', '')))
+        
+        # 处理 {player_config} 占位符
+        player_config_mode = task_config.get('player_config_mode', 'equipment')
+        if player_config_mode == 'equipment':
+            # equipment 模式：插入装备代码，清除 gear_* 占位符（装备自带属性）
+            player_equipment = str(task_config.get('player_equipment', '')).strip()
+            simc_code = simc_code.replace('{player_config}', player_equipment)
+            simc_code = simc_code.replace('{gear_crit}', '')
+            simc_code = simc_code.replace('{gear_haste}', '')
+            simc_code = simc_code.replace('{gear_mastery}', '')
+            simc_code = simc_code.replace('{gear_versatility}', '')
+        else:
+            # stats 模式：替换 gear_* 占位符为绿字值
+            simc_code = simc_code.replace('{player_config}', '')
+            simc_code = simc_code.replace('{gear_crit}', str(task_config.get('gear_crit', 0)))
+            simc_code = simc_code.replace('{gear_haste}', str(task_config.get('gear_haste', 0)))
+            simc_code = simc_code.replace('{gear_mastery}', str(task_config.get('gear_mastery', 0)))
+            simc_code = simc_code.replace('{gear_versatility}', str(task_config.get('gear_versatility', 0)))
+        
+        # 处理 {action_list} 占位符
+        override_action_list = str(task_config.get('override_action_list', '')).strip()
+        simc_code = simc_code.replace('{action_list}', override_action_list)
+        
+        # 清理空行：连续多个空行合并为一个
+        simc_code = re.sub(r'\n{3,}', '\n\n', simc_code)
+        simc_code = simc_code.strip()
+        
         return simc_code
 
