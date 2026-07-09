@@ -633,11 +633,73 @@ class SimcTaskAPIView(View):
             attribute_step = data.get('attribute_step')
             selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
             
+            # 新版字段
+            fight_style = data.get('fight_style')
+            fight_time = data.get('time')
+            target_count = data.get('target_count')
+            player_config_mode = data.get('player_config_mode')
+            player_equipment = data.get('player_equipment', '').strip()
+            gear_crit = data.get('gear_crit')
+            gear_haste = data.get('gear_haste')
+            gear_mastery = data.get('gear_mastery')
+            gear_versatility = data.get('gear_versatility')
+            talent = data.get('talent', '').strip()
+            spec = data.get('spec', '').strip()
+            
             if not name:
                 return JsonResponse({
                     'success': False,
                     'error': '任务名称不能为空'
                 })
+            
+            # 验证 player_config_mode
+            if player_config_mode and player_config_mode not in ('equipment', 'stats'):
+                return JsonResponse({
+                    'success': False,
+                    'error': 'player_config_mode 必须是 "equipment" 或 "stats"'
+                })
+            
+            # 验证 equipment 模式
+            if player_config_mode == 'equipment' and not player_equipment:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'equipment 模式下 player_equipment 不能为空'
+                })
+            
+            # 验证 stats 模式
+            if player_config_mode == 'stats':
+                has_gear = any(v not in (None, '') for v in [gear_crit, gear_haste, gear_mastery, gear_versatility])
+                if not has_gear:
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'stats 模式下至少提供一个 gear 值'
+                    })
+            
+            # 如果提供了 simc_profile_id，用 profile 填充缺失字段
+            if simc_profile_id:
+                try:
+                    profile = SimcProfile.objects.get(
+                        id=simc_profile_id,
+                        user_id=request.user.id,
+                        is_active=True
+                    )
+                    if not spec:
+                        spec = profile.spec
+                    if not talent:
+                        talent = profile.talent
+                    if gear_crit is None:
+                        gear_crit = profile.gear_crit
+                    if gear_haste is None:
+                        gear_haste = profile.gear_haste
+                    if gear_mastery is None:
+                        gear_mastery = profile.gear_mastery
+                    if gear_versatility is None:
+                        gear_versatility = profile.gear_versatility
+                except SimcProfile.DoesNotExist:
+                    return JsonResponse({
+                        'success': False,
+                        'error': '指定的SimC配置不存在'
+                    })
             
             # 直接 SimC 代码模式：仅常规模拟允许不选 profile；属性模拟仍必须基于 profile。
             if raw_simc_code and int(task_type or 1) == 2:
@@ -648,23 +710,11 @@ class SimcTaskAPIView(View):
             if raw_simc_code and int(task_type or 1) == 1:
                 simc_profile_id = 0  # 占位
             elif not simc_profile_id:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'SimC配置不能为空'
-                })
-
-            # 验证SimC配置是否存在（直接代码常规模拟跳过）
-            if not (raw_simc_code and int(task_type or 1) == 1):
-                try:
-                    profile = SimcProfile.objects.get(
-                        id=simc_profile_id,
-                        user_id=request.user.id,
-                        is_active=True
-                    )
-                except SimcProfile.DoesNotExist:
+                # 新版模式：如果提供了 player_config_mode，不需要 profile
+                if not player_config_mode:
                     return JsonResponse({
                         'success': False,
-                        'error': '指定的SimC配置不存在'
+                        'error': 'SimC配置不能为空'
                     })
 
             # 生成result_file
@@ -680,14 +730,26 @@ class SimcTaskAPIView(View):
                 selected_attributes=selected_attributes,
                 attribute_step=attribute_step,
                 raw_simc_code=raw_simc_code,
-                selected_apl_id=selected_apl_id
+                selected_apl_id=selected_apl_id,
+                # 新版字段
+                fight_style=fight_style,
+                time=fight_time,
+                target_count=target_count,
+                player_config_mode=player_config_mode,
+                player_equipment=player_equipment,
+                gear_crit=gear_crit,
+                gear_haste=gear_haste,
+                gear_mastery=gear_mastery,
+                gear_versatility=gear_versatility,
+                talent=talent,
+                spec=spec
             )
 
             # 创建新任务
             task = SimcTask.objects.create(
                 user_id=request.user.id,
                 name=name,
-                simc_profile_id=simc_profile_id,
+                simc_profile_id=simc_profile_id or 0,
                 current_status=current_status,
                 result_file=result_file,
                 task_type=task_type,
@@ -985,7 +1047,9 @@ class SimcTaskAPIView(View):
                     payload['selected_attributes'] = text
         return payload
 
-    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None, selected_apl_id=None):
+    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None, selected_apl_id=None,
+                        fight_style=None, time=None, target_count=None, player_config_mode=None, player_equipment=None,
+                        gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None, talent=None, spec=None):
         ttype = int(task_type or 1)
         base = self._normalize_task_ext(ttype, ext)
 
@@ -1017,6 +1081,32 @@ class SimcTaskAPIView(View):
                 payload['raw_simc_code'] = raw_code
             else:
                 payload.pop('raw_simc_code', None)
+            
+            # 新版字段
+            if player_config_mode:
+                payload['player_config_mode'] = player_config_mode
+                if player_config_mode == 'equipment' and player_equipment:
+                    payload['player_equipment'] = player_equipment
+                elif player_config_mode == 'stats':
+                    if gear_crit not in (None, ''):
+                        payload['gear_crit'] = gear_crit
+                    if gear_haste not in (None, ''):
+                        payload['gear_haste'] = gear_haste
+                    if gear_mastery not in (None, ''):
+                        payload['gear_mastery'] = gear_mastery
+                    if gear_versatility not in (None, ''):
+                        payload['gear_versatility'] = gear_versatility
+                if fight_style:
+                    payload['fight_style'] = fight_style
+                if time not in (None, ''):
+                    payload['time'] = max(1, int(time))
+                if target_count not in (None, ''):
+                    payload['target_count'] = max(1, int(target_count))
+                if spec:
+                    payload['spec'] = spec
+                if talent:
+                    payload['talent'] = talent
+            
             return json.dumps(payload, ensure_ascii=False) if payload else ''
 
         if selected_attributes:
@@ -1710,11 +1800,7 @@ class SimcProfileAPIView(View):
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
-                        'fight_style': profile.fight_style,
-                        'time': profile.time,
-                        'target_count': profile.target_count,
                         'talent': profile.talent,
-                        'action_list': profile.action_list,
                         'gear_strength': profile.gear_strength,
                         'gear_crit': profile.gear_crit,
                         'gear_haste': profile.gear_haste,
@@ -1741,11 +1827,7 @@ class SimcProfileAPIView(View):
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
-                        'fight_style': profile.fight_style,
-                        'time': profile.time,
-                        'target_count': profile.target_count,
                         'talent': profile.talent,
-                        'action_list': profile.action_list,
                         'gear_strength': profile.gear_strength,
                         'gear_crit': profile.gear_crit,
                         'gear_haste': profile.gear_haste,
@@ -1850,16 +1932,12 @@ class SimcProfileAPIView(View):
                         is_active=True
                     )
                     
-                    # 复制配置数据
+                    # 复制配置数据（只保留 spec + talent + gear stats）
                     profile = SimcProfile.objects.create(
                         user_id=request.user.id,
                         name=name,
                         spec=source_profile.spec,
-                        fight_style=source_profile.fight_style,
-                        time=source_profile.time,
-                        target_count=source_profile.target_count,
                         talent=source_profile.talent,
-                        action_list=source_profile.action_list,
                         gear_strength=source_profile.gear_strength,
                         gear_crit=source_profile.gear_crit,
                         gear_haste=source_profile.gear_haste,
@@ -1907,16 +1985,12 @@ class SimcProfileAPIView(View):
                         'error': '要复制的配置不存在'
                     })
             else:
-                # 创建新配置
+                # 创建新配置（只保留 spec + talent + gear stats）
                 profile = SimcProfile.objects.create(
                     user_id=request.user.id,
                     name=name,
                     spec=(str(data.get('spec') or 'fury').strip().lower() or 'fury'),
-                    fight_style=data.get('fight_style', 'Patchwerk'),
-                    time=data.get('time', 40),
-                    target_count=data.get('target_count', 1),
                     talent=data.get('talent', ''),
-                    action_list=data.get('action_list', ''),
                     gear_strength=data.get('gear_strength', 93330),
                     gear_crit=data.get('gear_crit', 10730),
                     gear_haste=data.get('gear_haste', 18641),
@@ -1991,11 +2065,11 @@ class SimcProfileAPIView(View):
                 task_name = f"{profile.name}_属性模拟_{selected_attributes}"
             else:
                 try:
-                    display_time = max(1, int(regular_time)) if regular_time not in (None, '') else max(1, int(profile.time or 300))
+                    display_time = max(1, int(regular_time)) if regular_time not in (None, '') else 300
                 except Exception:
                     display_time = 300
                 try:
-                    display_target_count = max(1, int(regular_target_count)) if regular_target_count not in (None, '') else max(1, int(profile.target_count or 1))
+                    display_target_count = max(1, int(regular_target_count)) if regular_target_count not in (None, '') else 1
                 except Exception:
                     display_target_count = 1
                 task_name = f"{profile.name}_常规模拟_{display_time}s_{display_target_count}目标"
@@ -2009,11 +2083,11 @@ class SimcProfileAPIView(View):
             else:
                 # 常规模拟始终固化“最终生效”的时长和目标数，避免后续查看/执行链路歧义
                 try:
-                    effective_time = max(1, int(regular_time)) if regular_time not in (None, '') else max(1, int(profile.time or 300))
+                    effective_time = max(1, int(regular_time)) if regular_time not in (None, '') else 300
                 except Exception:
                     effective_time = 300
                 try:
-                    effective_target_count = max(1, int(regular_target_count)) if regular_target_count not in (None, '') else max(1, int(profile.target_count or 1))
+                    effective_target_count = max(1, int(regular_target_count)) if regular_target_count not in (None, '') else 1
                 except Exception:
                     effective_target_count = 1
                 ext_payload['regular_time'] = effective_time
@@ -2085,14 +2159,10 @@ class SimcProfileAPIView(View):
                     'error': '配置名称已存在'
                 })
             
-            # 更新配置
+            # 更新配置（只保留 spec + talent + gear stats）
             profile.name = name
             profile.spec = str(data.get('spec', profile.spec) or 'fury').strip().lower() or 'fury'
-            profile.fight_style = data.get('fight_style', profile.fight_style)
-            profile.time = data.get('time', profile.time)
-            profile.target_count = data.get('target_count', profile.target_count)
             profile.talent = data.get('talent', profile.talent)
-            profile.action_list = data.get('action_list', profile.action_list)
             profile.gear_strength = data.get('gear_strength', profile.gear_strength)
             profile.gear_crit = data.get('gear_crit', profile.gear_crit)
             profile.gear_haste = data.get('gear_haste', profile.gear_haste)
@@ -2215,8 +2285,39 @@ class SimcProfileAPIView(View):
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class SimcAplCandidatesAPIView(View):
     """
-    基于GLM生成多个APL候选方案，并创建常规模拟对比任务
+    APL候选方案：GET获取指定专精的APL列表，POST基于GLM生成对比任务
     """
+
+    def get(self, request):
+        """获取指定专精的APL候选列表"""
+        try:
+            spec = (request.GET.get('spec') or '').strip().lower()
+            if not spec:
+                return JsonResponse({'success': False, 'error': 'spec参数不能为空'})
+
+            from botend.models import SimcContentTemplate
+            # 先按 endswith 匹配（fury → warrior_fury），再按精确匹配
+            apls = list(SimcContentTemplate.objects.filter(
+                is_active=True,
+                template_type__in=['default_apl', 'custom_apl'],
+                spec__endswith=f'_{spec}'
+            ).order_by('template_type', 'id'))
+            if not apls:
+                apls = list(SimcContentTemplate.objects.filter(
+                    is_active=True,
+                    template_type__in=['default_apl', 'custom_apl'],
+                    spec=spec
+                ).order_by('template_type', 'id'))
+
+            data = [{
+                'id': a.id,
+                'name': a.name,
+                'spec': a.spec,
+                'template_type': a.template_type,
+            } for a in apls]
+            return JsonResponse({'success': True, 'data': data})
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
 
     def post(self, request):
         try:
@@ -2343,11 +2444,8 @@ class SimcAplCandidatesAPIView(View):
             f"批次: {batch_index}/{total_batches}\n"
             f"本批数量: {batch_size}\n"
             "注意：本次只生成1个候选方案，不要返回多个。\n"
-            f"配置专精: {profile.spec}\n"
-            f"战斗风格: {profile.fight_style}\n"
-            f"时长: {profile.time}\n"
-            f"目标数: {profile.target_count}\n"
-            f"天赋: {profile.talent}\n\n"
+            f"配置专精: {profile.spec}\\n"
+            f"天赋: {profile.talent}\\n\\n"
             "基础APL如下:\n"
             f"{base_text}\n"
         )
