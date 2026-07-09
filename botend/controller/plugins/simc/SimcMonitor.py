@@ -730,6 +730,11 @@ class SimcMonitor(BaseScan):
             
             logger.info(f"[SimC Monitor] Executing command: {' '.join(cmd)}")
             
+            # 记录执行前的 HTML 文件，用于后续检测 SimC 生成的新文件
+            existing_htmls = set(
+                f for f in os.listdir(self.result_path) if f.endswith('.html')
+            )
+            
             # 执行命令
             result = subprocess.run(
                 cmd,
@@ -744,11 +749,36 @@ class SimcMonitor(BaseScan):
                 if result.stdout:
                     logger.debug(f"[SimC Monitor] SimC output: {result.stdout[:500]}...")  # 只记录前500字符
                 
-                # 上传结果文件到OSS
-                # 使用自定义结果文件名或默认的任务结果文件名
-                target_result_file = result_file_name if result_file_name else simc_task.result_file
-                result_file_path = os.path.join(self.result_path, target_result_file)
-                if os.path.exists(result_file_path):
+                # 查找 SimC 生成的结果文件：优先用指定文件名，否则扫描目录找新 HTML
+                target_result_file = result_file_name or simc_task.result_file
+                if not target_result_file:
+                    # 扫描目录，找执行后新增的 HTML 文件
+                    current_htmls = set(
+                        f for f in os.listdir(self.result_path) if f.endswith('.html')
+                    )
+                    new_htmls = current_htmls - existing_htmls
+                    if new_htmls:
+                        target_result_file = sorted(new_htmls)[0]
+                        logger.info(f"[SimC Monitor] Detected new result file: {target_result_file}")
+                    else:
+                        # 退而求其次：取目录中最新的 HTML
+                        html_files = [
+                            (os.path.getmtime(os.path.join(self.result_path, f)), f)
+                            for f in os.listdir(self.result_path) if f.endswith('.html')
+                        ]
+                        if html_files:
+                            html_files.sort(reverse=True)
+                            target_result_file = html_files[0][1]
+                            logger.warning(f"[SimC Monitor] No new HTML detected, using latest: {target_result_file}")
+                
+                # 回写 result_file 到数据库
+                if target_result_file and not simc_task.result_file:
+                    simc_task.result_file = target_result_file
+                    simc_task.save(update_fields=['result_file'])
+                    logger.info(f"[SimC Monitor] Saved result_file={target_result_file} for task {simc_task.id}")
+                
+                result_file_path = os.path.join(self.result_path, target_result_file) if target_result_file else ''
+                if result_file_path and os.path.exists(result_file_path):
                     from botend.interface.ossupload import ossUpload
                     try:
                         upload_success = ossUpload(result_file_path)
