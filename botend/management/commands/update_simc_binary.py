@@ -29,6 +29,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--no-pull', action='store_true', help='不执行 git pull，仅编译当前代码')
         parser.add_argument('--check', action='store_true', help='仅检查当前版本，不执行编译')
+        parser.add_argument('--sync-inputs-only', action='store_true', help='仅同步默认模板和默认 APL，不执行拉取/编译')
         parser.add_argument('--threads', type=int, default=2, help='编译并行度（默认 2，内存不足时降低）')
 
     def handle(self, *args, **options):
@@ -38,6 +39,10 @@ class Command(BaseCommand):
 
         if options['check']:
             self._check_version()
+            return
+        if options['sync_inputs_only']:
+            self._sync_generated_inputs()
+            self._set_status(progress=100, status='默认模板和 APL 同步完成', error='', updating=False)
             return
 
         self._update_binary(do_pull=not options['no_pull'], threads=max(1, int(options['threads'] or 1)))
