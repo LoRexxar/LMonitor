@@ -256,7 +256,7 @@ class SimcNewConfigModeTests(TestCase):
                 'override_action_list': 'actions=auto_attack',
             },
         )
-        self.assertIn('warrior="Bloodmast_r"', rendered)
+        self.assertNotIn('Bloodmast_r', rendered)
         self.assertIn('armory=eu,Kazzak,Bloodmastêr', rendered)
         self.assertIn('spec=fury', rendered)
         self.assertIn('actions=auto_attack', rendered)

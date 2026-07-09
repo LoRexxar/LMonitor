@@ -1057,18 +1057,11 @@ class SimcMonitor(BaseScan):
             region = str(task_config.get('battlenet_region', '')).strip().lower()
             realm = str(task_config.get('battlenet_realm', '')).strip()
             character = str(task_config.get('battlenet_character', '')).strip()
-            spec = str(task_config.get('spec', '')).strip()
             if not region or not realm or not character:
                 raise ValueError('Battle.net 导入缺少 region/realm/character')
-            class_name = self._get_class_by_spec(spec) or 'player'
-            safe_character = re.sub(r'[^A-Za-z0-9_]+', '_', character).strip('_') or 'battlenet_player'
-            player_config = "\n".join([
-                f'{class_name}="{safe_character}"',
-                f'armory={region},{realm},{character}',
-                'role=attack',
-                f'spec={spec}',
-            ])
-            simc_code = simc_code.replace('{player_config}', player_config)
+            # 生产基础模板已经包含 player header/spec/role；这里仅插入 armory 导入行，
+            # 避免额外生成第二个 player 导致空模板角色参与模拟。
+            simc_code = simc_code.replace('{player_config}', f'armory={region},{realm},{character}')
             simc_code = simc_code.replace('{gear_crit}', '')
             simc_code = simc_code.replace('{gear_haste}', '')
             simc_code = simc_code.replace('{gear_mastery}', '')
