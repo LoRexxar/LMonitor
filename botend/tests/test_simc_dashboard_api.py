@@ -627,6 +627,56 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         self.assertEqual(task_ext['talent'], 'UPDATED_BUILD')
         self.assertEqual(task_ext['gear_versatility'], 4400)
 
+    def test_attribute_only_profile_load_contract_keeps_equipment_empty_and_refreshes_preview(self):
+        """工作台加载历史属性配置时，属性只能进入专用字段，不能污染隐藏装备框。"""
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='Legacy workbench load contract',
+            spec='fury',
+            player_config_mode='battlenet',  # 新字段迁移时的错误历史默认值。
+            player_equipment='',
+            battlenet_region='',
+            battlenet_realm='',
+            battlenet_character='',
+            talent='WORKBENCH_BUILD',
+            gear_crit=401,
+            gear_haste=1100,
+            gear_mastery=1140,
+            gear_versatility=100,
+        )
+
+        response = self.client.get(f'/api/simc-profile/{profile.id}/')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertEqual(payload['player_config_mode'], 'attribute_only')
+        self.assertEqual(payload['talent'], 'WORKBENCH_BUILD')
+        self.assertEqual(payload['player_equipment'], '')
+        self.assertFalse(payload['battlenet_region'])
+        self.assertFalse(payload['battlenet_realm'])
+        self.assertFalse(payload['battlenet_character'])
+
+        preview_response = self.client.post(
+            '/api/simc-preview/',
+            data=json.dumps({
+                'spec': payload['spec'],
+                'player_config_mode': payload['player_config_mode'],
+                'talent': payload['talent'],
+                'gear_crit': payload['gear_crit'],
+                'gear_haste': payload['gear_haste'],
+                'gear_mastery': payload['gear_mastery'],
+                'gear_versatility': payload['gear_versatility'],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(preview_response.status_code, 200)
+        preview = preview_response.json()
+        self.assertTrue(preview['success'], preview)
+        self.assertIn('talents=WORKBENCH_BUILD', preview['data']['simc_code'])
+        self.assertIn('crit_rating=401', preview['data']['simc_code'])
+        self.assertNotIn('armory=', preview['data']['simc_code'])
+        self.assertNotIn('head=,', preview['data']['simc_code'])
+
     def test_preview_rejects_incomplete_battlenet_configuration(self):
         response = self.client.post(
             '/api/simc-preview/',

@@ -2110,11 +2110,12 @@ async function simcWbLoadProfileToSimulator(id) {
         setVal('simc-sim-battlenet-region', profile.battlenet_region || 'eu');
         setVal('simc-sim-battlenet-realm', profile.battlenet_realm || '');
         setVal('simc-sim-battlenet-character', profile.battlenet_character || '');
-        setVal('simc-sim-equipment', profile.player_equipment || profile.talent || '');
+        // attribute_only 的天赋只能保留在专用输入区，不能泄到隐藏的手动装备文本框。
+        setVal('simc-sim-equipment', mode === 'manual_equipment' ? (profile.player_equipment || '') : '');
         showMessage('已加载配置：' + (profile.name || ('#' + id)), 'success');
         const importTab = document.querySelector('[data-simc-tab="import"]');
         if (importTab) importTab.click();
-        // 保存的 Battle.net / 手动装备配置回填完成后立即刷新同一份完整预览。
+        // 三种来源统一通过预览 API 刷新右侧结构化详情与最终 SimC 输入。
         setTimeout(() => previewSimcConfiguration(), 0);
     } catch (e) {
         showMessage('加载配置失败: ' + e.message, 'error');
