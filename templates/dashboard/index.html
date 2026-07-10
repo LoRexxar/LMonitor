@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260710_simc_workbench_modal_scroll" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260710_simc_backend_auto_update" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -1261,6 +1261,20 @@
                                     <div class="rounded-xl bg-gray-50 border border-gray-200 p-4">
                                         <div class="text-xs text-gray-500">当前版本</div>
                                         <div id="simc-upload-current-version" class="mt-1 font-semibold text-gray-900 break-all">-</div>
+                                    </div>
+                                    <div class="rounded-xl bg-gray-50 border border-gray-200 p-4">
+                                        <div class="text-xs text-gray-500">上游最新版本</div>
+                                        <div id="simc-upload-latest-version" class="mt-1 font-semibold text-gray-900 break-all">-</div>
+                                    </div>
+                                    <div class="rounded-xl bg-gray-50 border border-gray-200 p-4">
+                                        <div class="text-xs text-gray-500 mb-2">自动更新</div>
+                                        <div class="flex items-center gap-3">
+                                            <button type="button" id="simc-auto-update-toggle" role="switch" aria-checked="false" aria-label="切换 SimC 自动更新" class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed" data-enabled="false">
+                                                <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"></span>
+                                            </button>
+                                            <span id="simc-auto-update-label" class="text-sm font-medium text-gray-700">已关闭</span>
+                                        </div>
+                                        <p id="simc-auto-update-hint" class="mt-1 text-xs text-gray-500">定时任务自动检测并编译</p>
                                     </div>
                                     <div class="rounded-xl bg-gray-50 border border-gray-200 p-4 sm:col-span-2">
                                         <div class="text-xs text-gray-500">源码目录</div>

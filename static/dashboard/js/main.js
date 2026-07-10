@@ -4556,6 +4556,8 @@ function initSimcBackendUploadTool() {
     const threadsInput = document.getElementById('simc-compile-threads');
     const noPullCheck = document.getElementById('simc-compile-no-pull');
     const result = document.getElementById('simc-upload-result');
+    const autoUpdateToggle = document.getElementById('simc-auto-update-toggle');
+    const autoUpdateLabel = document.getElementById('simc-auto-update-label');
 
     if (!submitBtn || !checkBtn || !threadsInput || !noPullCheck || !result) {
         return;
@@ -4566,6 +4568,7 @@ function initSimcBackendUploadTool() {
     const renderBackendInfo = (data) => {
         const platform = document.getElementById('simc-upload-platform');
         const currentVersion = document.getElementById('simc-upload-current-version');
+        const latestVersion = document.getElementById('simc-upload-latest-version');
         const sourceDir = document.getElementById('simc-upload-source-dir');
         const buildDir = document.getElementById('simc-upload-build-dir');
         const path = document.getElementById('simc-upload-path');
@@ -4576,6 +4579,7 @@ function initSimcBackendUploadTool() {
 
         if (platform) platform.textContent = (data && data.platform) ? String(data.platform) : '-';
         if (currentVersion) currentVersion.textContent = (data && data.current_version) ? String(data.current_version) : '-';
+        if (latestVersion) latestVersion.textContent = (data && data.latest_version) ? String(data.latest_version) : '-';
         if (sourceDir) sourceDir.textContent = (data && data.source_dir) ? String(data.source_dir) : '-';
         if (buildDir) buildDir.textContent = (data && data.build_dir) ? String(data.build_dir) : '-';
         if (path) path.textContent = (data && data.binary_path) ? String(data.binary_path) : '-';
@@ -4602,11 +4606,38 @@ function initSimcBackendUploadTool() {
             }
         }
 
+        const autoUpdate = data && data.auto_update !== undefined ? Boolean(data.auto_update) : true;
+        if (autoUpdateToggle && autoUpdateLabel) {
+            autoUpdateToggle.setAttribute('data-enabled', autoUpdate ? 'true' : 'false');
+            autoUpdateToggle.setAttribute('aria-checked', autoUpdate ? 'true' : 'false');
+            const toggleSpan = autoUpdateToggle.querySelector('span');
+            if (autoUpdate) {
+                autoUpdateToggle.classList.remove('bg-gray-300');
+                autoUpdateToggle.classList.add('bg-blue-600');
+                if (toggleSpan) {
+                    toggleSpan.classList.remove('translate-x-1');
+                    toggleSpan.classList.add('translate-x-6');
+                }
+                autoUpdateLabel.textContent = '已开启';
+            } else {
+                autoUpdateToggle.classList.remove('bg-blue-600');
+                autoUpdateToggle.classList.add('bg-gray-300');
+                if (toggleSpan) {
+                    toggleSpan.classList.remove('translate-x-6');
+                    toggleSpan.classList.add('translate-x-1');
+                }
+                autoUpdateLabel.textContent = '已关闭';
+            }
+        }
+
         const isUpdating = data && data.is_updating;
         submitBtn.disabled = isUpdating;
         checkBtn.disabled = isUpdating;
         threadsInput.disabled = isUpdating;
         noPullCheck.disabled = isUpdating;
+        if (autoUpdateToggle) {
+            autoUpdateToggle.disabled = isUpdating;
+        }
 
         if (isUpdating && !pollInterval) {
             startPolling();
@@ -4685,8 +4716,56 @@ function initSimcBackendUploadTool() {
         }
     };
 
+    const toggleAutoUpdate = async () => {
+        const currentEnabled = autoUpdateToggle.getAttribute('data-enabled') === 'true';
+        const newEnabled = !currentEnabled;
+
+        try {
+            const csrfToken = getCSRFToken();
+            if (!csrfToken) {
+                showMessage('无法获取CSRF令牌，请刷新页面', 'error');
+                return;
+            }
+
+            autoUpdateToggle.disabled = true;
+
+            const resp = await fetch('/api/simc-backend-binary/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({
+                    action: 'set_auto_update',
+                    auto_update: newEnabled
+                })
+            });
+
+            const data = await resp.json();
+            if (data && data.success) {
+                showMessage(data.message || `自动更新已${newEnabled ? '开启' : '关闭'}`, 'success');
+                if (data.data) {
+                    renderBackendInfo(data.data);
+                } else {
+                    await fetchBackendInfo();
+                }
+            } else {
+                const err = data && data.error ? String(data.error) : '切换自动更新失败';
+                showMessage(err, 'error');
+                autoUpdateToggle.disabled = false;
+            }
+        } catch (e) {
+            const err = e && e.message ? e.message : '切换自动更新失败';
+            showMessage(err, 'error');
+            autoUpdateToggle.disabled = false;
+        }
+    };
+
     checkBtn.addEventListener('click', () => triggerUpdate(true));
     submitBtn.addEventListener('click', () => triggerUpdate(false));
+    if (autoUpdateToggle) {
+        autoUpdateToggle.addEventListener('click', toggleAutoUpdate);
+    }
 
     fetchBackendInfo();
 }

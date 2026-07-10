@@ -21,6 +21,7 @@ import time
 import re
 import requests
 import os
+import subprocess
 import threading
 import uuid
 import platform as py_platform
@@ -3657,6 +3658,48 @@ class SimcBackendBinaryAPIView(View):
             return False
         return default
 
+    def _get_source_versions(self, source_dir):
+        """Read the checked-out and tracked-upstream commits without modifying the source checkout."""
+        def git_short(ref):
+            result = subprocess.run(
+                ['git', 'rev-parse', '--short', ref],
+                cwd=source_dir,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return result.stdout.strip() if result.returncode == 0 else ''
+
+        try:
+            if not os.path.isdir(source_dir):
+                return '', ''
+            return git_short('HEAD'), git_short('@{u}')
+        except Exception:
+            return '', ''
+
+    def _serialize_backend_row(self, row, source_dir, build_dir, binary_path):
+        current_hash, upstream_hash = self._get_source_versions(source_dir)
+        current_version = current_hash or str(row.current_version or '').strip()
+        latest_version = upstream_hash or str(row.latest_version or '').strip()
+        return {
+            'platform': row.platform,
+            'simc_path': binary_path,
+            'source_dir': source_dir,
+            'build_dir': build_dir,
+            'binary_path': binary_path,
+            'stored_simc_path': row.simc_path,
+            'current_version': current_version,
+            'latest_version': latest_version,
+            'need_update': bool(latest_version) and (latest_version != current_version),
+            'auto_update': row.auto_update,
+            'is_updating': row.is_updating,
+            'update_progress': row.update_progress,
+            'update_status': row.update_status,
+            'last_error': row.last_error,
+            'last_checked_at': _fmt_dt(row.last_checked_at),
+            'last_updated_at': _fmt_dt(row.last_updated_at)
+        }
+
     def get(self, request):
         try:
             runtime_platform = self._get_runtime_platform()
@@ -3685,27 +3728,9 @@ class SimcBackendBinaryAPIView(View):
                 })
 
             # 以本地编译配置路径为准；历史记录里的旧路径不能继续覆盖运行路径。
-            effective_path = binary_path
             return JsonResponse({
                 'success': True,
-                'data': {
-                    'platform': row.platform,
-                    'simc_path': effective_path,
-                    'source_dir': source_dir,
-                    'build_dir': build_dir,
-                    'binary_path': effective_path,
-                    'stored_simc_path': row.simc_path,
-                    'current_version': row.current_version,
-                    'latest_version': row.latest_version,
-                    'need_update': bool(row.latest_version) and (str(row.latest_version).strip() != str(row.current_version).strip()),
-                    'auto_update': row.auto_update,
-                    'is_updating': row.is_updating,
-                    'update_progress': row.update_progress,
-                    'update_status': row.update_status,
-                    'last_error': row.last_error,
-                    'last_checked_at': _fmt_dt(row.last_checked_at),
-                    'last_updated_at': _fmt_dt(row.last_updated_at)
-                }
+                'data': self._serialize_backend_row(row, source_dir, build_dir, binary_path)
             })
         except Exception as e:
             logger.error(f"获取SimC后端更新状态失败: {str(e)}\n{traceback.format_exc()}")
@@ -3719,9 +3744,7 @@ class SimcBackendBinaryAPIView(View):
             from django.core.management import call_command
 
             data = json.loads(request.body or '{}')
-            threads = max(1, int(data.get('threads', 2) or 2))
-            no_pull = self._json_bool(data.get('no_pull'), False)
-            check_only = self._json_bool(data.get('check_only'), False)
+            action = (data.get('action') or '').strip()
 
             runtime_platform = self._get_runtime_platform()
             row = SimcBackendBinary.objects.filter(platform=runtime_platform).first()
@@ -3738,6 +3761,22 @@ class SimcBackendBinaryAPIView(View):
                 row.last_error = ''
                 row.is_updating = False
                 row.save()
+
+            # 处理自动更新开关设置
+            if action == 'set_auto_update':
+                auto_update = self._json_bool(data.get('auto_update'), True)
+                row.auto_update = auto_update
+                row.save(update_fields=['auto_update'])
+                source_dir, build_dir, binary_path = self._resolve_local_build_paths()
+                return JsonResponse({
+                    'success': True,
+                    'message': f'自动更新已{"开启" if auto_update else "关闭"}',
+                    'data': self._serialize_backend_row(row, source_dir, build_dir, binary_path)
+                })
+
+            threads = max(1, int(data.get('threads', 2) or 2))
+            no_pull = self._json_bool(data.get('no_pull'), False)
+            check_only = self._json_bool(data.get('check_only'), False)
 
             if row.is_updating:
                 return JsonResponse({'success': False, 'error': '当前正在更新中，请稍后重试'})
