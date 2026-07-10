@@ -160,7 +160,18 @@ finger1=,id=299002,ilevel=655
         changed_stats = {stat for gear in gears[1:] for stat, value in gear.items() if value != {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}[stat]}
         self.assertEqual(changed_stats, {'crit', 'haste', 'mastery', 'versatility'})
 
-    def test_four_stat_search_selects_highest_dps_and_reduces_step_for_next_round(self):
+    def test_auto_attribute_batch_projects_anchor_direction_to_boundary_instead_of_dropping_it(self):
+        base = {'crit': 400, 'haste': 1100, 'mastery': 1140, 'versatility': 100}
+        rows = SimcBatchTaskAPIView._attribute_variants(base, 200)
+        self.assertEqual(len(rows), 7)
+        self.assertTrue(all(sum(ratings.values()) == sum(base.values()) for _, ratings, _, _ in rows))
+        # 全能不足一个步长时，仍应能搜索“降低全能、提高其他属性”的三个方向，
+        # 只是投影到全能=0 的可行域边界。
+        by_label = {label: ratings for label, ratings, _, _ in rows}
+        self.assertEqual(by_label['versatility -100 / crit +100']['versatility'], 0)
+        self.assertEqual(by_label['versatility -100 / haste +100']['haste'], 1200)
+        self.assertEqual(by_label['versatility -100 / mastery +100']['mastery'], 1240)
+
         chosen = SimcBatchTaskAPIView._next_attribute_search_center([
             {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 100000},
             {'ratings': {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800}, 'dps': 101500},

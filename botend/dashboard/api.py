@@ -1178,13 +1178,29 @@ class SimcBatchTaskAPIView(View):
         # 约束 sum(stats)=常数后，四属性空间只剩三维。以全能为锚点的
         # 三组正/负坐标方向正好覆盖这三个独立维度，共 6 个点 + 基准，
         # 在 MAX_TASKS=8 内即可做一轮完整的局部 pattern search。
+        # 正方向（全能 -> 其他）即使当前全能不足一个 step 也必须纳入：
+        # 这是合法的“反向移动”的可达点，不能因为锚点初值低而丢掉。
         anchor = 'versatility'
-        moves = tuple(
-            [(anchor, stat) for stat in cls.ATTRIBUTE_STATS if stat != anchor]
-            + [(stat, anchor) for stat in cls.ATTRIBUTE_STATS if stat != anchor]
-        )
+        axes = [stat for stat in cls.ATTRIBUTE_STATS if stat != anchor]
+        moves = [(anchor, stat) for stat in axes]
         seen = {tuple(base[stat] for stat in cls.ATTRIBUTE_STATS)}
         for source, target in moves:
+            variant = dict(base)
+            # 将一维坐标投影到非负可行域边界；仍保持四属性总量守恒。
+            transfer = min(step, variant[source])
+            if transfer <= 0:
+                continue
+            variant[source] -= transfer
+            variant[target] += transfer
+            signature = tuple(variant[stat] for stat in cls.ATTRIBUTE_STATS)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            rows.append((f'{source} -{transfer} / {target} +{transfer}', variant, False, {
+                'type': 'attribute', 'algorithm': 'four_stat_pattern_search',
+                'round': round_number, 'step': step, 'move': {'from': source, 'to': target, 'transfer': transfer},
+            }))
+        for source, target in [(stat, anchor) for stat in axes]:
             if base[source] < step:
                 continue
             variant = dict(base)
@@ -1196,7 +1212,7 @@ class SimcBatchTaskAPIView(View):
             seen.add(signature)
             rows.append((f'{source} -{step} / {target} +{step}', variant, False, {
                 'type': 'attribute', 'algorithm': 'four_stat_pattern_search',
-                'round': round_number, 'step': step, 'move': {'from': source, 'to': target},
+                'round': round_number, 'step': step, 'move': {'from': source, 'to': target, 'transfer': step},
             }))
         return rows
 
