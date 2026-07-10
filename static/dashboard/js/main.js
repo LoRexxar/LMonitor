@@ -1613,7 +1613,7 @@ function switchSimcWorkbenchTab(tabName) {
     if (activeTab === 'profiles') loadSimcWorkbenchProfiles();
     if (activeTab === 'templates' && typeof loadSimcTemplate === 'function') loadSimcTemplate();
     if (activeTab === 'backend' && typeof loadSimcBackendUploadInfo === 'function') loadSimcBackendUploadInfo();
-    if (activeTab === 'rules') loadSimcWorkbenchRules();
+    if (activeTab === 'rules') { loadSimcWorkbenchRules(); loadSimcWorkbenchMastery(); }
 }
 
 /* ===== SimC 工具台 — 配置管理（profiles） ===== */
@@ -1680,8 +1680,8 @@ function loadSimcWorkbenchProfiles(page) {
 
         /* 绑定行内按钮 */
         tbody.querySelectorAll('.simc-wb-profile-load').forEach(btn => btn.addEventListener('click', () => { if (typeof simcWbLoadProfileToSimulator === 'function') simcWbLoadProfileToSimulator(btn.dataset.profileId); }));
-        tbody.querySelectorAll('.simc-wb-profile-edit').forEach(btn => btn.addEventListener('click', () => { if (typeof editSimcProfile === 'function') editSimcProfile(btn.dataset.profileId); }));
-        tbody.querySelectorAll('.simc-wb-profile-del').forEach(btn => btn.addEventListener('click', () => { if (typeof deleteSimcProfile === 'function') deleteSimcProfile(btn.dataset.profileId); }));
+        tbody.querySelectorAll('.simc-wb-profile-edit').forEach(btn => btn.addEventListener('click', () => { if (typeof simcWbEditProfile === 'function') simcWbEditProfile(btn.dataset.profileId); }));
+        tbody.querySelectorAll('.simc-wb-profile-del').forEach(btn => btn.addEventListener('click', () => { if (typeof simcWbDeleteProfile === 'function') simcWbDeleteProfile(btn.dataset.profileId); }));
 
         renderSimcWbPagination('simc-wb-profile-pagination', simcWbProfilePage, simcWbProfileTotalPages, loadSimcWorkbenchProfiles);
     }).catch(err => {
@@ -1714,6 +1714,11 @@ function bindSimcWorkbenchProfilesControls() {
         importSaveBtn.dataset.bound = '1';
         importSaveBtn.addEventListener('click', () => simcWbSaveCurrentSimulatorProfile());
     }
+    const profileModeSel = document.querySelector('#simc-wb-profile-form select[name="player_config_mode"]');
+    if (profileModeSel && profileModeSel.dataset.bound !== '1') {
+        profileModeSel.dataset.bound = '1';
+        profileModeSel.addEventListener('change', simcWbSyncProfileFormMode);
+    }
     const refreshBtn = document.getElementById('simc-wb-profile-refresh');
     if (refreshBtn && refreshBtn.dataset.bound !== '1') {
         refreshBtn.dataset.bound = '1';
@@ -1724,6 +1729,10 @@ function bindSimcWorkbenchProfilesControls() {
 /* ===== SimC 工具台 — 绿字规则（rules） ===== */
 let simcWbRulesPage = 1;
 let simcWbRulesTotalPages = 1;
+let simcWbMasteryPage = 1;
+let simcWbMasteryTotalPages = 1;
+let simcWbMasteryFormMode = 'create';
+let simcWbMasteryFormEditId = null;
 
 function loadSimcWorkbenchRules(page) {
     page = page || 1;
@@ -1789,9 +1798,95 @@ function bindSimcWorkbenchRulesControls() {
         refreshBtn.dataset.bound = '1';
         refreshBtn.addEventListener('click', () => loadSimcWorkbenchRules(simcWbRulesPage));
     }
+    const masteryRefreshBtn = document.getElementById('simc-wb-mastery-refresh');
+    if (masteryRefreshBtn && masteryRefreshBtn.dataset.bound !== '1') {
+        masteryRefreshBtn.dataset.bound = '1';
+        masteryRefreshBtn.addEventListener('click', () => loadSimcWorkbenchMastery(simcWbMasteryPage));
+    }
+}
+
+function loadSimcWorkbenchMastery(page) {
+    page = page || 1;
+    simcWbMasteryPage = page;
+    const tbody = document.getElementById('simc-wb-mastery-list');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>加载中…</td></tr>';
+    fetch('/dashboard/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+        body: JSON.stringify({ action: 'get_table_data', table_name: 'SimcMasteryCoefficient', page: page, page_size: 50 })
+    }).then(r => r.json()).then(data => {
+        if (data.status !== 'success') {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-red-500">加载失败</td></tr>';
+            return;
+        }
+        const rows = Array.isArray(data.data) ? data.data : (data.data?.rows || []);
+        const total = data.total_count || rows.length;
+        simcWbMasteryTotalPages = data.total_pages || Math.max(1, Math.ceil(total / 50));
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-gray-400">暂无精通系数</td></tr>';
+            renderSimcWbPagination('simc-wb-mastery-pagination', simcWbMasteryPage, simcWbMasteryTotalPages, loadSimcWorkbenchMastery);
+            return;
+        }
+        tbody.innerHTML = rows.map((row, idx) => {
+            const offset = (page - 1) * 50 + idx + 1;
+            return `<tr class="hover:bg-gray-50 border-b border-gray-100">
+                <td class="px-3 py-2.5 text-center text-gray-500 text-xs">${offset}</td>
+                <td class="px-3 py-2.5">${renderSpecBadgeHtml(row.spec || '')}</td>
+                <td class="px-3 py-2.5 text-center text-xs font-mono text-gray-700">${row.mastery_coefficient != null ? row.mastery_coefficient : '-'}</td>
+                <td class="px-3 py-2.5 text-center text-xs">
+                    <button type="button" onclick="simcWbEditMastery(${row.id})" class="text-blue-600 hover:text-blue-800 mr-2">编辑</button>
+                    <button type="button" onclick="simcWbDeleteMastery(${row.id})" class="text-red-600 hover:text-red-800">删除</button>
+                </td>
+            </tr>`;
+        }).join('');
+        renderSimcWbPagination('simc-wb-mastery-pagination', simcWbMasteryPage, simcWbMasteryTotalPages, loadSimcWorkbenchMastery);
+    }).catch(err => {
+        console.error('加载精通系数失败:', err);
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-red-500">网络错误</td></tr>';
+    });
 }
 
 /* ===== 工具台通用分页渲染 ===== */
+function renderSimcTaskContextHtml(task, extPayload) {
+    const ext = extPayload || {};
+    const chips = [];
+    const mode = ext.player_config_mode || ext.player_import_mode || '';
+    if (mode === 'battlenet') {
+        const armory = [ext.battlenet_region, ext.battlenet_realm, ext.battlenet_character].filter(Boolean).join('/');
+        chips.push('Battle.net' + (armory ? ': ' + armory : ''));
+    } else if (mode === 'manual_equipment' || mode === 'equipment') {
+        const lines = String(ext.player_equipment || '').split('\n').filter(Boolean).length;
+        chips.push('手动装备配置' + (lines ? ': ' + lines + ' 行' : ''));
+    } else if (ext.raw_simc_code) {
+        chips.push('直接 SimC 代码');
+    }
+    if (ext.fight_style) chips.push('场景: ' + ext.fight_style);
+    if (ext.time || ext.target_count) chips.push('时长/目标: ' + (ext.time || '-') + 's / ' + (ext.target_count || '-'));
+    if (ext.selected_apl_id) chips.push('APL #' + ext.selected_apl_id);
+    if (!chips.length) return '';
+    return `<div class="mt-1 flex flex-wrap gap-1">${chips.map(chip => `<span class="inline-flex px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[11px]">${escapeHtml(chip)}</span>`).join('')}</div>`;
+}
+
+function renderSimcTaskContextDetailHtml(task, extPayload) {
+    const ext = extPayload || {};
+    const rows = [];
+    const add = (label, value) => { if (value !== undefined && value !== null && String(value) !== '') rows.push([label, String(value)]); };
+    add('职业/专精', [getSimcSpecClass(ext.spec || task.simc_profile_spec || ''), ext.spec || task.simc_profile_spec || ''].filter(Boolean).join(' / '));
+    add('保存配置', task.simc_profile_name || ext.profile_name || (ext.raw_simc_code ? '直接 SimC 代码' : ''));
+    const mode = ext.player_config_mode || ext.player_import_mode || '';
+    if (mode === 'battlenet') add('导入来源', ['Battle.net', ext.battlenet_region, ext.battlenet_realm, ext.battlenet_character].filter(Boolean).join(' / '));
+    else if (mode === 'manual_equipment' || mode === 'equipment') add('导入来源', '手动装备配置');
+    else if (ext.raw_simc_code) add('导入来源', '直接 SimC 代码');
+    add('战斗场景', ext.fight_style);
+    if (ext.time || ext.target_count) add('时长/目标', `${ext.time || '-'}s / ${ext.target_count || '-'}`);
+    add('APL', ext.selected_apl_id ? `#${ext.selected_apl_id}` : '');
+    if (ext.selected_attributes) add('属性模拟项', Array.isArray(ext.selected_attributes) ? ext.selected_attributes.join(', ') : ext.selected_attributes);
+    add('属性步进', ext.attribute_step);
+    if (!rows.length) return '<span class="text-gray-400">暂无执行上下文</span>';
+    return `<dl class="grid grid-cols-1 md:grid-cols-2 gap-2">${rows.map(([k,v]) => `<div><dt class="text-xs text-gray-500">${escapeHtml(k)}</dt><dd class="font-medium text-gray-800 break-all">${escapeHtml(v)}</dd></div>`).join('')}</dl>`;
+}
+
 function renderSimcWbPagination(containerId, currentPage, totalPages, loadFn) {
     const el = document.getElementById(containerId);
     if (!el) return;
@@ -1874,12 +1969,21 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="gear_versatility"]').value = profileData.gear_versatility || 0;
     }
     formWrap.classList.remove('hidden');
+    simcWbSyncProfileFormMode();
     formWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 function simcWbCloseProfileForm() {
     const f = document.getElementById('simc-wb-profile-form');
     if (f) f.classList.add('hidden');
     simcWbProfileFormEditId = null;
+}
+function simcWbSyncProfileFormMode() {
+    const formWrap = document.getElementById('simc-wb-profile-form');
+    if (!formWrap) return;
+    const mode = formWrap.querySelector('select[name="player_config_mode"]')?.value || 'battlenet';
+    formWrap.querySelectorAll('[data-profile-mode-section]').forEach(el => {
+        el.classList.toggle('hidden', el.getAttribute('data-profile-mode-section') !== mode);
+    });
 }
 async function simcWbSaveProfile() {
     const formWrap = document.getElementById('simc-wb-profile-form');
@@ -1984,7 +2088,7 @@ async function simcWbLoadProfileToSimulator(id) {
         if (!profile) { showMessage('未找到配置', 'error'); return; }
         const specEl = document.getElementById('simc-sim-spec');
         if (specEl) {
-            specEl.value = profile.spec || '';
+            specEl.value = normalizeSimcSpecKey(profile.spec || '');
             specEl.dispatchEvent(new Event('change'));
         }
         const mode = profile.player_config_mode || profile.player_import_mode || 'battlenet';
@@ -2155,6 +2259,75 @@ async function simcWbEditRule(id) {
     } catch (e) { showMessage('加载规则失败', 'error'); }
 }
 
+
+function simcWbToggleMasteryForm(mode, data) {
+    const formWrap = document.getElementById('simc-wb-mastery-form');
+    if (!formWrap) return;
+    simcWbMasteryFormMode = mode;
+    if (mode === 'create') {
+        simcWbMasteryFormEditId = null;
+        formWrap.querySelector('.simc-wb-form-title').textContent = '新增精通系数';
+        formWrap.querySelector('input[name="spec"]').value = '';
+        formWrap.querySelector('input[name="mastery_coefficient"]').value = '';
+    } else {
+        simcWbMasteryFormEditId = data.id;
+        formWrap.querySelector('.simc-wb-form-title').textContent = '编辑精通系数 #' + data.id;
+        formWrap.querySelector('input[name="spec"]').value = data.spec || '';
+        formWrap.querySelector('input[name="mastery_coefficient"]').value = data.mastery_coefficient != null ? data.mastery_coefficient : '';
+    }
+    formWrap.classList.remove('hidden');
+    formWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function simcWbCloseMasteryForm() {
+    const f = document.getElementById('simc-wb-mastery-form');
+    if (f) f.classList.add('hidden');
+    simcWbMasteryFormEditId = null;
+}
+async function simcWbSaveMastery() {
+    const formWrap = document.getElementById('simc-wb-mastery-form');
+    if (!formWrap) return;
+    const spec = formWrap.querySelector('input[name="spec"]').value.trim();
+    const mastery = parseFloat(formWrap.querySelector('input[name="mastery_coefficient"]').value.trim());
+    if (!spec) { showMessage('请输入专精', 'error'); return; }
+    if (!Number.isFinite(mastery)) { showMessage('请输入合法精通系数', 'error'); return; }
+    const payload = { spec: spec, mastery_coefficient: mastery };
+    const btn = formWrap.querySelector('.simc-wb-form-save');
+    const oldHtml = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>保存中…';
+    try {
+        const body = simcWbMasteryFormMode === 'edit' && simcWbMasteryFormEditId
+            ? { action: 'update_table_row', table_name: 'SimcMasteryCoefficient', row_id: simcWbMasteryFormEditId, update_data: payload }
+            : { action: 'create_table_row', table_name: 'SimcMasteryCoefficient', create_data: payload };
+        const resp = await fetch('/dashboard/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify(body) });
+        const data = await resp.json();
+        if (data.status === 'success' || data.success) {
+            showMessage(simcWbMasteryFormMode === 'edit' ? '精通系数已更新' : '精通系数已创建', 'success');
+            simcWbCloseMasteryForm();
+            loadSimcWorkbenchMastery(simcWbMasteryPage);
+        } else {
+            showMessage('保存失败: ' + (data.message || data.error || '未知错误'), 'error');
+        }
+    } catch (e) { showMessage('保存失败: ' + e.message, 'error'); }
+    finally { btn.disabled = false; btn.innerHTML = oldHtml; }
+}
+async function simcWbEditMastery(id) {
+    try {
+        const resp = await fetch('/dashboard/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ action: 'get_table_data', table_name: 'SimcMasteryCoefficient', page: 1, page_size: 500 }) });
+        const data = await resp.json();
+        const rows = Array.isArray(data.data) ? data.data : (data.data?.rows || []);
+        const row = rows.find(r => r.id == id);
+        if (row) simcWbToggleMasteryForm('edit', row); else showMessage('未找到精通系数', 'error');
+    } catch (e) { showMessage('加载精通系数失败', 'error'); }
+}
+async function simcWbDeleteMastery(id) {
+    if (!confirm('确定要删除精通系数 #' + id + ' 吗？')) return;
+    try {
+        const resp = await fetch('/dashboard/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ action: 'delete_table_row', table_name: 'SimcMasteryCoefficient', row_id: id }) });
+        const data = await resp.json();
+        if (data.status === 'success' || data.success) { showMessage('精通系数已删除', 'success'); loadSimcWorkbenchMastery(simcWbMasteryPage); }
+        else showMessage('删除失败: ' + (data.message || data.error || '未知错误'), 'error');
+    } catch (e) { showMessage('删除失败: ' + e.message, 'error'); }
+}
+
 function openSimcWorkbench() {
     const item = document.querySelector('.nav-item[data-section="simc-workbench"]');
     if (item) {
@@ -2197,22 +2370,54 @@ function switchSimcPlayerConfigMode(mode) {
 
 const SIMC_SPEC_CLASS_MAP = {
     arms: 'warrior', fury: 'warrior', protection: 'warrior',
-    blood: 'death_knight', frost: 'death_knight', unholy: 'death_knight',
+    blood: 'death_knight', frost_dk: 'death_knight', unholy: 'death_knight',
     havoc: 'demon_hunter', vengeance: 'demon_hunter',
     balance: 'druid', feral: 'druid', guardian: 'druid', restoration: 'druid',
     devastation: 'evoker', preservation: 'evoker', augmentation: 'evoker',
     beast_mastery: 'hunter', marksmanship: 'hunter', survival: 'hunter',
-    arcane: 'mage', fire: 'mage',
+    arcane: 'mage', fire: 'mage', frost: 'mage',
     brewmaster: 'monk', mistweaver: 'monk', windwalker: 'monk',
     holy: 'priest', discipline: 'priest', shadow: 'priest',
     retribution: 'paladin',
     assassination: 'rogue', outlaw: 'rogue', subtlety: 'rogue',
-    elemental: 'shaman', enhancement: 'shaman',
+    elemental: 'shaman', enhancement: 'shaman', restoration_shaman: 'shaman',
     affliction: 'warlock', demonology: 'warlock', destruction: 'warlock',
 };
 
+function normalizeSimcSpecKey(spec) {
+    let key = String(spec || '').trim().toLowerCase();
+    if (!key) return '';
+    // 数据库里的 APL/旧配置可能是 warrior_fury 这类 class_spec，导入区统一用短专精过滤。
+    const directAliases = {
+        deathknight_frost: 'frost_dk', death_knight_frost: 'frost_dk', dk_frost: 'frost_dk',
+        shaman_restoration: 'restoration_shaman', resto_shaman: 'restoration_shaman',
+    };
+    if (directAliases[key]) return directAliases[key];
+    if (SIMC_SPEC_CLASS_MAP[key]) return key;
+    const parts = key.split('_');
+    for (let i = 1; i < parts.length; i++) {
+        const suffix = parts.slice(i).join('_');
+        if (SIMC_SPEC_CLASS_MAP[suffix]) return suffix;
+    }
+    return key;
+}
+
 function getSimcSpecClass(spec) {
-    return SIMC_SPEC_CLASS_MAP[String(spec || '').trim().toLowerCase()] || '';
+    return SIMC_SPEC_CLASS_MAP[normalizeSimcSpecKey(spec)] || '';
+}
+
+function getCurrentSimcWorkbenchSpecFilter() {
+    const spec = normalizeSimcSpecKey((document.getElementById('simc-sim-spec') || {}).value || '');
+    return { spec, className: getSimcSpecClass(spec) };
+}
+
+function filterSimcProfilesForCurrentImport(profiles) {
+    const filter = getCurrentSimcWorkbenchSpecFilter();
+    if (!filter.spec) return { profiles, filter };
+    const exact = profiles.filter(p => normalizeSimcSpecKey(p.spec) === filter.spec);
+    if (exact.length) return { profiles: exact, filter };
+    const sameClass = profiles.filter(p => getSimcSpecClass(p.spec) && getSimcSpecClass(p.spec) === filter.className);
+    return { profiles: sameClass, filter };
 }
 
 async function loadSimcAplCandidates(spec) {
@@ -2280,11 +2485,18 @@ async function loadSimcSimProfileSelect() {
 async function loadSimcSimSavedProfiles() {
     const container = document.getElementById('simc-sim-saved-profiles');
     if (!container) return;
-    container.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>加载中…';
+    const filter = getCurrentSimcWorkbenchSpecFilter();
+    const filterText = filter.spec ? `（${filter.spec}${filter.className ? ' / ' + filter.className : ''}）` : '';
+    container.innerHTML = `<div class="text-gray-400 text-center py-2"><i class="fas fa-spinner fa-spin mr-1"></i>加载已保存配置${escapeHtml(filterText)}…</div>`;
     try {
-        const profiles = await simcWbFetchProfilesForWorkbench();
+        const allProfiles = await simcWbFetchProfilesForWorkbench();
+        const filtered = filterSimcProfilesForCurrentImport(allProfiles);
+        const profiles = filtered.profiles;
         if (!profiles.length) {
-            container.innerHTML = '<div class="text-gray-400 text-center py-2">暂无已保存配置</div>';
+            const hint = filtered.filter.spec
+                ? `当前专精 ${escapeHtml(filtered.filter.spec)} 没有已保存配置。请切换专精、在“配置管理”新增，或直接填写玩家信息后保存当前。`
+                : '暂无已保存配置';
+            container.innerHTML = `<div class="text-gray-400 text-center py-3 leading-relaxed">${hint}</div>`;
             return;
         }
         container.innerHTML = profiles.map(p => {
@@ -2292,18 +2504,22 @@ async function loadSimcSimSavedProfiles() {
             const source = mode === 'manual_equipment'
                 ? ('手动配置 ' + (p.player_equipment ? String(p.player_equipment).split('\n').filter(Boolean).length + ' 行' : ''))
                 : ('Battle.net ' + [p.battlenet_region, p.battlenet_realm, p.battlenet_character].filter(Boolean).join('/'));
+            const spec = normalizeSimcSpecKey(p.spec || '');
+            const className = getSimcSpecClass(p.spec || '');
             return `
             <button type="button" class="simc-sim-load-profile block w-full text-left rounded-lg border border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50 p-3 mb-2 text-sm" data-profile-id="${p.id}">
                 <div class="flex items-center justify-between gap-2">
                     <div class="font-semibold text-gray-800 truncate">${escapeHtml(p.name || '配置#' + p.id)}</div>
-                    <span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">${escapeHtml(p.spec || '-')}</span>
+                    <span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">${escapeHtml(spec || p.spec || '-')}</span>
                 </div>
                 <div class="text-xs text-gray-500 mt-1 truncate" title="${escapeHtml(source || '-')}">${escapeHtml(source || '-')}</div>
+                ${className ? `<div class="text-[11px] text-gray-400 mt-1">职业：${escapeHtml(className)}</div>` : ''}
             </button>`;
         }).join('');
         container.querySelectorAll('.simc-sim-load-profile').forEach(btn => btn.addEventListener('click', () => simcWbLoadProfileToSimulator(btn.dataset.profileId)));
     } catch (err) {
-        container.innerHTML = '<div class="text-red-500 text-center py-2">加载失败</div>';
+        console.error('Load saved SimC profiles failed:', err);
+        container.innerHTML = '<div class="text-red-500 text-center py-2">加载失败：' + escapeHtml(String(err.message || err)) + '</div>';
     }
 }
 
@@ -2405,6 +2621,7 @@ function bindSimcWorkbenchSimulationControls() {
         specSel.dataset.bound = '1';
         specSel.addEventListener('change', function() {
             loadSimcAplCandidates(this.value);
+            loadSimcSimSavedProfiles();
         });
     }
 
@@ -6624,6 +6841,10 @@ function displaySimcTaskData(tasks) {
                 taskTypeText = '常规模拟';
         }
 
+        const taskExt = parseSimcTaskExt(task.ext_detail || task.ext || {});
+        const contextHtml = renderSimcTaskContextHtml(task, taskExt);
+        const displaySpec = taskExt.spec || task.simc_profile_spec || '';
+        const displayProfileName = task.simc_profile_name || taskExt.profile_name || '';
         const isRegularTask = task.task_type === 1;
         const isCompleted = task.current_status === 2;
         const resultFile = task.result_file || '';
@@ -6640,9 +6861,10 @@ function displaySimcTaskData(tasks) {
                 <td class="px-3 py-3 text-center text-sm text-gray-900 font-mono">${task.id}</td>
                 <td class="px-4 py-3">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(task.name || '')}</div>
-                    <div class="text-xs text-gray-500 mt-1">${escapeHtml(task.simc_profile_name || '')}</div>
+                    <div class="text-xs text-gray-500 mt-1">${escapeHtml(displayProfileName || (taskExt.raw_simc_code ? '直接 SimC 代码' : '无保存配置'))}</div>
+                    ${contextHtml}
                 </td>
-                <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(task.simc_profile_spec || '')}</td>
+                <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(displaySpec || '')}</td>
                 <td class="px-3 py-3">
                     <div class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${taskTypeBadgeClass}">
                         ${taskTypeText}
@@ -7195,11 +7417,13 @@ function openViewSimcTaskModal(task) {
         return;
     }
     
-    // 填充任务名称
+    // 填充任务名称与执行上下文
     document.getElementById('view-simc-task-name').value = task.name || '';
+    const extPayload = parseSimcTaskExt(task.ext_detail || task.ext || {});
+    const contextEl = document.getElementById('view-simc-task-context');
+    if (contextEl) contextEl.innerHTML = renderSimcTaskContextDetailHtml(task, extPayload);
     
     // 直接 SimC 代码任务直接展示原始代码；Profile 任务再按模板生成预览。
-    const extPayload = parseSimcTaskExt(task.ext || (task.ext_detail || {}));
     if (extPayload.raw_simc_code) {
         document.getElementById('view-simc-task-code').value = extPayload.raw_simc_code;
         modal.style.display = 'block';

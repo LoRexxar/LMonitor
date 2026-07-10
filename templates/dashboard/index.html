@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260710_simc_rules_apl_profile" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260710_simc_workbench_tasks_profiles_mastery" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -1027,10 +1027,10 @@
                                                 <option value="manual_equipment">手动装备配置</option>
                                             </select>
                                         </label>
-                                        <label class="block"><span class="text-gray-600">地区</span><input name="battlenet_region" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="cn/eu/us"></label>
-                                        <label class="block"><span class="text-gray-600">服务器</span><input name="battlenet_realm" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Kazzak / 白银之手"></label>
-                                        <label class="block"><span class="text-gray-600">角色名</span><input name="battlenet_character" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="角色名"></label>
-                                        <label class="block col-span-2 md:col-span-4"><span class="text-gray-600">手动装备/天赋玩家块</span><textarea name="player_equipment" rows="5" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-xs" placeholder="manual_equipment 模式填写：talents=... / head=... / neck=..."></textarea></label>
+                                        <label class="block" data-profile-mode-section="battlenet"><span class="text-gray-600">地区</span><input name="battlenet_region" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="cn/eu/us"></label>
+                                        <label class="block" data-profile-mode-section="battlenet"><span class="text-gray-600">服务器</span><input name="battlenet_realm" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Kazzak / 白银之手"></label>
+                                        <label class="block" data-profile-mode-section="battlenet"><span class="text-gray-600">角色名</span><input name="battlenet_character" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="角色名"></label>
+                                        <label class="block col-span-2 md:col-span-4" data-profile-mode-section="manual_equipment"><span class="text-gray-600">手动装备/天赋玩家块</span><textarea name="player_equipment" rows="5" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-xs" placeholder="manual_equipment 模式填写：talents=... / head=... / neck=..."></textarea></label>
                                         <label class="block col-span-2 md:col-span-4"><span class="text-gray-600">天赋码（旧字段兼容）</span><input name="talent" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" placeholder="可选"></label>
                                         <label class="block"><span class="text-gray-600">暴击</span><input name="gear_crit" type="number" value="8730" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">急速</span><input name="gear_haste" type="number" value="20141" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
@@ -1123,6 +1123,53 @@
                                     </table>
                                 </div>
                                 <div id="simc-wb-rules-pagination" class="mt-4 flex items-center justify-between text-sm text-gray-500"></div>
+
+                                <div class="mt-8 border-t border-gray-200 pt-6">
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                                        <div>
+                                            <h4 class="text-lg font-bold text-gray-900">精通系数（按专精）</h4>
+                                            <p class="text-sm text-gray-500 mt-1">职业级规则只保存每 1% 所需绿字；每个专精的 mastery coefficient 在这里单独维护。</p>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <button type="button" onclick="simcWbToggleMasteryForm('create')" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white">
+                                                <i class="fas fa-plus mr-1"></i>新增精通系数
+                                            </button>
+                                            <button type="button" id="simc-wb-mastery-refresh" class="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
+                                                <i class="fas fa-sync-alt mr-1"></i>刷新
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="simc-wb-mastery-form" class="hidden bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <h4 class="simc-wb-form-title text-base font-semibold text-indigo-800">新增精通系数</h4>
+                                            <button type="button" onclick="simcWbCloseMasteryForm()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                                            <label class="block"><span class="text-gray-600">专精 *</span><input name="spec" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="fury / warrior_fury"></label>
+                                            <label class="block"><span class="text-gray-600">精通系数 *</span><input name="mastery_coefficient" type="number" step="0.0001" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="如 1.4"></label>
+                                        </div>
+                                        <div class="flex items-center gap-2 mt-3">
+                                            <button type="button" onclick="simcWbSaveMastery()" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
+                                            <button type="button" onclick="simcWbCloseMasteryForm()" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
+                                        </div>
+                                    </div>
+                                    <div class="overflow-x-auto">
+                                        <table class="min-w-full text-sm">
+                                            <thead class="bg-gray-50">
+                                                <tr>
+                                                    <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">编号</th>
+                                                    <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">专精</th>
+                                                    <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">精通系数</th>
+                                                    <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="simc-wb-mastery-list" class="divide-y divide-gray-100">
+                                                <tr><td colspan="4" class="text-center py-8 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>加载中…</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div id="simc-wb-mastery-pagination" class="mt-4 flex items-center justify-between text-sm text-gray-500"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1966,6 +2013,10 @@
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">任务名称</label>
                     <input type="text" id="view-simc-task-name" class="w-full p-3 border border-gray-300 rounded-md bg-gray-50" readonly>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">执行上下文</label>
+                    <div id="view-simc-task-context" class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700"></div>
                 </div>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">生成的SimC代码</label>
