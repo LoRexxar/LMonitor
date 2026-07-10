@@ -1,5 +1,4 @@
 import json
-from unittest.mock import patch as mock_patch
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
@@ -305,92 +304,15 @@ class SimcNewConfigModeTests(TestCase):
         self.assertIn('actions=auto_attack', rendered)
 
 
-class SimcPreviewTests(TestCase):
-    """预览必须复用实际任务的模板拼装，不创建任务也不触发 SimC。"""
+class SimcPlayerConfigDetailTests(TestCase):
+    """玩家详情只解析当前输入与本地快照，不渲染完整 SimC 执行配置。"""
 
     def setUp(self):
-        self.user = User.objects.create_user(username='preview_user', password='pwd')
+        self.user = User.objects.create_user(username='player_detail_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
-        self.template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='fury',
-            class_name='warrior',
-            name='Fury base template',
-            content='spec={spec}\nfight_style={fight_style}\nmax_time={time}\ntargets={target_count}\n{player_config}\n{action_list}',
-            is_active=True,
-            is_selectable=True,
-        )
-        self.template_lookup = mock_patch(
-            'botend.controller.plugins.simc.SimcMonitor.SimcMonitor.select_template_by_spec',
-            return_value=self.template,
-        )
-        self.mock_template_lookup = self.template_lookup.start()
-        self.addCleanup(self.template_lookup.stop)
-        self.apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury',
-            class_name='warrior',
-            name='Fury APL',
-            content='actions=auto_attack',
-            is_active=True,
-            is_selectable=True,
-        )
 
-    def test_preview_battlenet_returns_full_rendered_configuration(self):
-        response = self.client.post(
-            '/api/simc-preview/',
-            data=json.dumps({
-                'spec': 'fury',
-                'fight_style': 'Patchwerk',
-                'time': 300,
-                'target_count': 1,
-                'player_import_mode': 'battlenet',
-                'battlenet_region': 'EU',
-                'battlenet_realm': 'Kazzak',
-                'battlenet_character': 'Bloodmastêr',
-                'selected_apl_id': self.apl.id,
-            }),
-            content_type='application/json',
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload['success'], payload)
-        self.assertIn('armory=eu,Kazzak,Bloodmastêr', payload['data']['simc_code'])
-        self.assertIn('max_time=300', payload['data']['simc_code'])
-        self.assertIn('actions=auto_attack', payload['data']['simc_code'])
-        self.assertEqual(payload['data']['player_preview'], 'armory=eu,Kazzak,Bloodmastêr')
-        self.assertEqual(SimcTask.objects.count(), 0)
-
-    def test_preview_manual_equipment_returns_full_rendered_configuration(self):
-        response = self.client.post(
-            '/api/simc-preview/',
-            data=json.dumps({
-                'spec': 'fury',
-                'fight_style': 'Cleave',
-                'time': 420,
-                'target_count': 2,
-                'player_config_mode': 'manual_equipment',
-                'player_equipment': 'talents=TEST\nhead=,id=212048',
-            }),
-            content_type='application/json',
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload['success'], payload)
-        self.assertIn('fight_style=Cleave', payload['data']['simc_code'])
-        self.assertIn('max_time=420', payload['data']['simc_code'])
-        self.assertIn('targets=2', payload['data']['simc_code'])
-        self.assertIn('talents=TEST', payload['data']['simc_code'])
-        self.assertIn('head=,id=212048', payload['data']['simc_code'])
-        self.assertEqual(payload['data']['player_preview'], 'talents=TEST\nhead=,id=212048')
-        self.assertEqual(SimcTask.objects.count(), 0)
-
-    def test_preview_returns_structured_manual_player_detail_with_items_and_stats(self):
+    def test_player_config_detail_returns_structured_manual_player_detail_with_items_and_stats(self):
         WowItemSnapshot.objects.create(item_id=212048, name='Helm of Tests', name_zh='测试头盔', icon='inv_helmet_01')
         WowItemSnapshot.objects.create(item_id=71543, name='Swift Enchant', name_zh='迅捷附魔')
         WowItemSnapshot.objects.create(item_id=213479, name='Test Gem', name_zh='测试宝石')
@@ -403,7 +325,7 @@ class SimcPreviewTests(TestCase):
             },
         )
         response = self.client.post(
-            '/api/simc-preview/',
+            '/api/simc-player-config-detail/',
             data=json.dumps({
                 'spec': 'fury',
                 'player_config_mode': 'manual_equipment',
@@ -429,7 +351,7 @@ class SimcPreviewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload['success'], payload)
-        detail = payload['data']['player_detail']
+        detail = payload['data']
         self.assertEqual(detail['source']['type'], 'manual_equipment')
         self.assertEqual(detail['identity']['name'], 'Previewer')
         self.assertEqual(detail['identity']['race'], 'orc')
@@ -488,9 +410,9 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         self.assertEqual(detail['equipment'][2]['crafting_quality'], 5)
         self.assertEqual(detail['omnium_talents'], [{'id': 136817, 'rank': 1}, {'id': 136819, 'rank': 1}])
 
-    def test_preview_returns_battlenet_identity_and_explicit_missing_detail(self):
+    def test_player_config_detail_returns_battlenet_identity_and_explicit_missing_detail(self):
         response = self.client.post(
-            '/api/simc-preview/',
+            '/api/simc-player-config-detail/',
             data=json.dumps({
                 'spec': 'fury',
                 'player_import_mode': 'battlenet',
@@ -504,7 +426,7 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload['success'], payload)
-        detail = payload['data']['player_detail']
+        detail = payload['data']
         self.assertEqual(detail['source']['type'], 'battlenet')
         self.assertEqual(detail['identity']['region'], 'eu')
         self.assertEqual(detail['identity']['realm'], 'Kazzak')
@@ -573,28 +495,19 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         self.assertEqual(profile.player_equipment, '')
         self.assertEqual(profile.battlenet_character, '')
 
-        preview_response = self.client.post(
-            '/api/simc-preview/',
+        detail_response = self.client.post(
+            '/api/simc-player-config-detail/',
             data=json.dumps({
-                'spec': 'fury',
-                'player_config_mode': 'attribute_only',
-                'talent': profile.talent,
-                'gear_crit': profile.gear_crit,
-                'gear_haste': profile.gear_haste,
-                'gear_mastery': profile.gear_mastery,
+                'spec': 'fury', 'player_config_mode': 'attribute_only',
+                'talent': profile.talent, 'gear_crit': profile.gear_crit,
+                'gear_haste': profile.gear_haste, 'gear_mastery': profile.gear_mastery,
                 'gear_versatility': profile.gear_versatility,
-            }),
-            content_type='application/json',
+            }), content_type='application/json',
         )
-        self.assertEqual(preview_response.status_code, 200)
-        preview_payload = preview_response.json()
-        self.assertTrue(preview_payload['success'], preview_payload)
-        self.assertIn('talents=UPDATED_BUILD', preview_payload['data']['simc_code'])
-        self.assertIn('crit_rating=1100', preview_payload['data']['simc_code'])
-        self.assertIn('haste_rating=2200', preview_payload['data']['simc_code'])
-        self.assertNotIn('armory=', preview_payload['data']['simc_code'])
-        self.assertNotIn('head=,', preview_payload['data']['simc_code'])
-        detail = preview_payload['data']['player_detail']
+        self.assertEqual(detail_response.status_code, 200)
+        detail_payload = detail_response.json()
+        self.assertTrue(detail_payload['success'], detail_payload)
+        detail = detail_payload['data']
         self.assertEqual(detail['source']['type'], 'attribute_only')
         self.assertEqual(detail['talents']['build_code'], 'UPDATED_BUILD')
         self.assertEqual(detail['stats']['secondary']['crit']['rating'], 1100)
@@ -627,7 +540,7 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         self.assertEqual(task_ext['talent'], 'UPDATED_BUILD')
         self.assertEqual(task_ext['gear_versatility'], 4400)
 
-    def test_attribute_only_profile_load_contract_keeps_equipment_empty_and_refreshes_preview(self):
+    def test_attribute_only_profile_load_contract_keeps_equipment_empty(self):
         """工作台加载历史属性配置时，属性只能进入专用字段，不能污染隐藏装备框。"""
         profile = SimcProfile.objects.create(
             user_id=self.user.id,
@@ -655,41 +568,3 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         self.assertFalse(payload['battlenet_region'])
         self.assertFalse(payload['battlenet_realm'])
         self.assertFalse(payload['battlenet_character'])
-
-        preview_response = self.client.post(
-            '/api/simc-preview/',
-            data=json.dumps({
-                'spec': payload['spec'],
-                'player_config_mode': payload['player_config_mode'],
-                'talent': payload['talent'],
-                'gear_crit': payload['gear_crit'],
-                'gear_haste': payload['gear_haste'],
-                'gear_mastery': payload['gear_mastery'],
-                'gear_versatility': payload['gear_versatility'],
-            }),
-            content_type='application/json',
-        )
-        self.assertEqual(preview_response.status_code, 200)
-        preview = preview_response.json()
-        self.assertTrue(preview['success'], preview)
-        self.assertIn('talents=WORKBENCH_BUILD', preview['data']['simc_code'])
-        self.assertIn('crit_rating=401', preview['data']['simc_code'])
-        self.assertNotIn('armory=', preview['data']['simc_code'])
-        self.assertNotIn('head=,', preview['data']['simc_code'])
-
-    def test_preview_rejects_incomplete_battlenet_configuration(self):
-        response = self.client.post(
-            '/api/simc-preview/',
-            data=json.dumps({
-                'spec': 'fury',
-                'player_import_mode': 'battlenet',
-                'battlenet_region': 'eu',
-                'battlenet_character': 'Bloodmastêr',
-            }),
-            content_type='application/json',
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertFalse(payload['success'])
-        self.assertIn('Battle.net 导入需要提供', payload['error'])

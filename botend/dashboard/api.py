@@ -1142,8 +1142,8 @@ class SimcTaskAPIView(View):
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
-class SimcPreviewAPIView(View):
-    """渲染工作台当前表单，供用户预览实际会交给 SimC 的完整配置。"""
+class SimcPlayerConfigDetailAPIView(View):
+    """只解析工作台当前玩家输入，返回结构化配置详情；不渲染完整 SimC 执行文本。"""
 
     def post(self, request):
         try:
@@ -1151,13 +1151,11 @@ class SimcPreviewAPIView(View):
             spec = str(data.get('spec') or '').strip()
             if not spec:
                 return JsonResponse({'success': False, 'error': '请先选择专精'})
-
             mode = data.get('player_import_mode') or data.get('player_config_mode')
             if mode == 'equipment':
                 mode = 'manual_equipment'
             if mode not in ('battlenet', 'manual_equipment', 'attribute_only'):
                 return JsonResponse({'success': False, 'error': '玩家信息导入方式必须是 battlenet、manual_equipment 或 attribute_only'})
-
             player_equipment = str(data.get('player_equipment') or '').strip()
             battlenet_region = str(data.get('battlenet_region') or '').strip().lower()
             battlenet_realm = str(data.get('battlenet_realm') or '').strip()
@@ -1169,88 +1167,20 @@ class SimcPreviewAPIView(View):
                 or not battlenet_realm or not battlenet_character
             ):
                 return JsonResponse({'success': False, 'error': 'Battle.net 导入需要提供 region、realm 和 character'})
-
-            def positive_int(value, default):
-                try:
-                    return max(1, int(value))
-                except (TypeError, ValueError):
-                    return default
-
-            override_action_list = ''
-            apl_name = ''
-            selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
-            if selected_apl_id not in (None, ''):
-                apl_obj = _get_simc_content_by_id(
-                    selected_apl_id,
-                    allowed_types=[
-                        SimcContentTemplate.TYPE_DEFAULT_APL,
-                        SimcContentTemplate.TYPE_CUSTOM_APL,
-                    ],
-                )
-                if not apl_obj:
-                    return JsonResponse({'success': False, 'error': '选择的 APL 不存在或已禁用'})
-                override_action_list = apl_obj.content or ''
-                apl_name = apl_obj.name or apl_obj.spec or ''
-
-            # 与 SimcMonitor.process_regular_simulation 的新工作台分支共用同一模板选择和渲染函数。
-            from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-            monitor = object.__new__(SimcMonitor)
-            template_obj = monitor.select_template_by_spec(spec)
-            if not template_obj:
-                return JsonResponse({'success': False, 'error': '未找到启用的SimC模板'})
-            template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
-            task_config = {
-                'spec': spec,
-                'talent': str(data.get('talent') or '').strip(),
-                'fight_style': str(data.get('fight_style') or 'Patchwerk').strip(),
-                'time': positive_int(data.get('time'), 300),
-                'target_count': positive_int(data.get('target_count'), 1),
-                'player_config_mode': mode,
-                'player_import_mode': mode,
-                'player_equipment': player_equipment,
-                'battlenet_region': battlenet_region,
-                'battlenet_realm': battlenet_realm,
-                'battlenet_character': battlenet_character,
-                'gear_crit': data.get('gear_crit', 10730),
-                'gear_haste': data.get('gear_haste', 18641),
-                'gear_mastery': data.get('gear_mastery', 21785),
-                'gear_versatility': data.get('gear_versatility', 6757),
-                'override_action_list': override_action_list,
-            }
-            simc_code = monitor.apply_template(template, task_config)
-            player_preview = (
-                f'armory={battlenet_region},{battlenet_realm},{battlenet_character}'
-                if mode == 'battlenet' else (player_equipment if mode == 'manual_equipment' else '仅天赋与绿字属性配置')
-            )
             from botend.services.simc_player_config import build_player_config_detail
-            player_detail = build_player_config_detail(
-                mode=mode,
-                spec=spec,
-                player_equipment=player_equipment,
-                battlenet_region=battlenet_region,
-                battlenet_realm=battlenet_realm,
+            return JsonResponse({'success': True, 'data': build_player_config_detail(
+                mode=mode, spec=spec, player_equipment=player_equipment,
+                battlenet_region=battlenet_region, battlenet_realm=battlenet_realm,
                 battlenet_character=battlenet_character,
                 talent=str(data.get('talent') or '').strip(),
                 gear_crit=data.get('gear_crit'), gear_haste=data.get('gear_haste'),
                 gear_mastery=data.get('gear_mastery'), gear_versatility=data.get('gear_versatility'),
-            )
-            return JsonResponse({
-                'success': True,
-                'data': {
-                    'simc_code': simc_code,
-                    'player_preview': player_preview,
-                    'player_detail': player_detail,
-                    'player_import_mode': mode,
-                    'template_name': template_obj.name or template_obj.spec or '',
-                    'apl_name': apl_name,
-                    'line_count': len(simc_code.splitlines()),
-                },
-            })
+            )})
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'error': '无效的JSON数据'})
         except Exception as e:
-            logger.error(f"生成 SimC 配置预览失败: {str(e)}\n{traceback.format_exc()}")
-            return JsonResponse({'success': False, 'error': f'预览失败: {str(e)}'})
+            logger.error(f"生成 SimC 玩家配置详情失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'刷新详情失败: {str(e)}'})
 
 
 WOW_SIMC_CLASS_NAMES = {

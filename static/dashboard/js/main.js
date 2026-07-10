@@ -2115,8 +2115,8 @@ async function simcWbLoadProfileToSimulator(id) {
         showMessage('已加载配置：' + (profile.name || ('#' + id)), 'success');
         const importTab = document.querySelector('[data-simc-tab="import"]');
         if (importTab) importTab.click();
-        // 三种来源统一通过预览 API 刷新右侧结构化详情与最终 SimC 输入。
-        setTimeout(() => previewSimcConfiguration(), 0);
+        // 加载后仅刷新结构化玩家详情；完整 SimC 执行输入预览已移除。
+        setTimeout(() => refreshSimcPlayerDetail(), 0);
     } catch (e) {
         showMessage('加载配置失败: ' + e.message, 'error');
     }
@@ -2624,25 +2624,13 @@ function renderSimcPlayerDetail(detail) {
         ${missing ? `<ul class="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 list-disc list-inside">${missing}</ul>` : ''}`;
 }
 
-async function previewSimcConfiguration() {
-    const previewBtn = document.getElementById('simc-sim-preview-btn');
-    const previewCode = document.getElementById('simc-sim-preview-code');
-    const previewHint = document.getElementById('simc-sim-preview-hint');
-    const previewSummary = document.getElementById('simc-sim-preview-summary');
-    if (!previewBtn || !previewCode) return;
-
+async function refreshSimcPlayerDetail() {
+    const refreshBtn = document.getElementById('simc-sim-player-detail-refresh-btn');
     const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
     if (!spec) { showMessage('请先选择专精', 'warning'); return; }
     const checkedMode = document.querySelector('input[name="simc-player-import-mode"]:checked');
     const mode = checkedMode ? checkedMode.value : 'battlenet';
-    const requestBody = {
-        spec: spec,
-        fight_style: (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk',
-        time: parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300,
-        target_count: parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1,
-        player_import_mode: mode,
-        player_config_mode: mode,
-    };
+    const requestBody = { spec, player_import_mode: mode, player_config_mode: mode };
     if (mode === 'manual_equipment') {
         requestBody.player_equipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
         if (!requestBody.player_equipment) { showMessage('请粘贴玩家装备/天赋信息块', 'warning'); return; }
@@ -2658,36 +2646,21 @@ async function previewSimcConfiguration() {
             showMessage('请填写 Battle.net 地区、服务器和角色名', 'warning'); return;
         }
     }
-    const aplRadio = document.querySelector('input[name="simc-sim-apl"]:checked');
-    if (aplRadio && aplRadio.value) requestBody.selected_apl_id = parseInt(aplRadio.value, 10);
 
-    previewBtn.disabled = true;
-    previewBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>生成中…';
+    if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>刷新中…'; }
     try {
-        const resp = await fetch('/api/simc-preview/', {
+        const resp = await fetch('/api/simc-player-config-detail/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
             body: JSON.stringify(requestBody),
         });
         const payload = await resp.json();
-        if (!resp.ok || !payload.success) throw new Error(payload.error || payload.message || '预览失败');
-        const result = payload.data || {};
-        renderSimcPlayerDetail(result.player_detail);
-        previewCode.textContent = result.simc_code || '';
-        if (previewHint) previewHint.textContent = `已按实际任务模板渲染，共 ${result.line_count || 0} 行；不会创建任务或执行 SimC。`;
-        if (previewSummary) {
-            const player = String(result.player_preview || '').replace(/\n/g, ' · ');
-            previewSummary.textContent = `玩家：${player || '-'} ｜ 模板：${result.template_name || '-'} ｜ APL：${result.apl_name || '未选择'}`;
-            previewSummary.classList.remove('hidden');
-        }
+        if (!resp.ok || !payload.success) throw new Error(payload.error || payload.message || '刷新详情失败');
+        renderSimcPlayerDetail(payload.data || {});
     } catch (error) {
-        previewCode.textContent = '预览失败：' + String(error.message || error);
-        if (previewHint) previewHint.textContent = '请修正表单信息后重试。';
-        if (previewSummary) previewSummary.classList.add('hidden');
-        showMessage('生成配置预览失败：' + String(error.message || error), 'error');
+        showMessage('刷新玩家配置详情失败：' + String(error.message || error), 'error');
     } finally {
-        previewBtn.disabled = false;
-        previewBtn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i>刷新预览';
+        if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i>刷新详情'; }
     }
 }
 
@@ -2788,10 +2761,10 @@ function bindSimcWorkbenchSimulationControls() {
         });
     }
 
-    const previewBtn = document.getElementById('simc-sim-preview-btn');
-    if (previewBtn && previewBtn.dataset.bound !== '1') {
-        previewBtn.dataset.bound = '1';
-        previewBtn.addEventListener('click', previewSimcConfiguration);
+    const detailRefreshBtn = document.getElementById('simc-sim-player-detail-refresh-btn');
+    if (detailRefreshBtn && detailRefreshBtn.dataset.bound !== '1') {
+        detailRefreshBtn.dataset.bound = '1';
+        detailRefreshBtn.addEventListener('click', refreshSimcPlayerDetail);
     }
 
     const submitBtn = document.getElementById('simc-sim-submit-btn');

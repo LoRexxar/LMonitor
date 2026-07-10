@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260710-simc-attribute-load-cleanup"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260710-remove-simc-full-preview"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -976,23 +976,14 @@
                                         </div>
                                         <!-- 玩家配置详情：仅解析当前输入和本地快照，不联网、不创建任务 -->
                                         <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 mb-4">
-                                            <div class="font-semibold text-gray-800"><i class="fas fa-user-shield mr-1 text-emerald-600"></i>玩家配置详情</div>
-                                            <p class="text-xs text-gray-500 mt-1">展示当前玩家的身份、天赋、装备、附魔/宝石与属性。Battle.net 标识未同步快照时会明确提示缺失信息。</p>
-                                            <div id="simc-sim-player-detail" class="mt-3 text-sm text-gray-500">填写玩家信息后点击“刷新预览”查看结构化详情。</div>
-                                        </div>
-                                        <!-- 执行输入预览：由后端按实际任务模板渲染，不会创建任务或调用 SimC -->
-                                        <div class="rounded-xl border border-blue-200 bg-blue-50 p-4 mb-4">
-                                            <div class="flex items-center justify-between gap-3 mb-2">
-                                                <div>
-                                                    <div class="font-semibold text-gray-800"><i class="fas fa-eye mr-1 text-blue-500"></i>完整配置预览</div>
-                                                    <p id="simc-sim-preview-hint" class="text-xs text-gray-500 mt-1">填写玩家信息后可预览实际发送给 SimC 的完整配置。</p>
-                                                </div>
-                                                <button type="button" id="simc-sim-preview-btn" class="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
-                                                    <i class="fas fa-sync-alt mr-1"></i>刷新预览
+                                            <div class="flex items-center justify-between gap-3">
+                                                <div class="font-semibold text-gray-800"><i class="fas fa-user-shield mr-1 text-emerald-600"></i>玩家配置详情</div>
+                                                <button type="button" id="simc-sim-player-detail-refresh-btn" class="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white">
+                                                    <i class="fas fa-sync-alt mr-1"></i>刷新详情
                                                 </button>
                                             </div>
-                                            <div id="simc-sim-preview-summary" class="hidden text-xs text-blue-900 bg-white/70 border border-blue-100 rounded-lg px-3 py-2 mb-2"></div>
-                                            <pre id="simc-sim-preview-code" class="max-h-80 overflow-auto rounded-lg bg-slate-950 text-slate-100 p-3 text-xs leading-relaxed whitespace-pre-wrap break-all">暂无预览。预览只渲染配置，不会创建模拟任务。</pre>
+                                            <p class="text-xs text-gray-500 mt-1">展示当前玩家的身份、天赋、装备、附魔/宝石与属性。Battle.net 标识未同步快照时会明确提示缺失信息。</p>
+                                            <div id="simc-sim-player-detail" class="mt-3 text-sm text-gray-500">填写玩家信息后点击“刷新详情”查看结构化详情。</div>
                                         </div>
                                         <!-- 已保存配置快速查看 -->
                                         <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
