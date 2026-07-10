@@ -2576,10 +2576,14 @@ function refreshSimcSavedProfiles() {
 }
 
 function getSimcProfileMode(profile) {
-    const storedMode = profile.player_config_mode || profile.player_import_mode || '';
-    if (storedMode) return storedMode;
-    if (profile.player_equipment) return 'manual_equipment';
-    if (profile.battlenet_region || profile.battlenet_realm || profile.battlenet_character) return 'battlenet';
+    const storedMode = (profile.player_config_mode || profile.player_import_mode || '').trim();
+    const hasEquipment = Boolean(profile.player_equipment);
+    const hasBattlenetIdentity = Boolean(profile.battlenet_region || profile.battlenet_realm || profile.battlenet_character);
+    // 迁移前的属性型记录会被新增字段默认标记为 battlenet。不能只信 mode：
+    // 没有 Battle.net 三元组、没有装备时，真实的 talent + ratings 才是配置来源。
+    if (storedMode === 'attribute_only') return 'attribute_only';
+    if (hasEquipment) return 'manual_equipment';
+    if (hasBattlenetIdentity) return 'battlenet';
     return 'attribute_only';
 }
 
