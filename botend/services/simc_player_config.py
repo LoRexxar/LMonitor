@@ -81,69 +81,109 @@ def _secondary_stat_detail(rating, per_percent, coefficient=1):
     return {'rating': rating, 'percent': percent}
 
 
+CRAFTED_STAT_LABELS = {'32': '精通', '36': '全能', '40': '暴击', '49': '急速'}
+
+
+def _comment_item_hint(line):
+    match = re.match(r'^#\s*(.+?)\s*\((\d+)\)\s*$', line)
+    return (match.group(1), _number(match.group(2))) if match else ('', None)
+
+
+def _parse_professions(raw_value):
+    result = {}
+    for entry in raw_value.split('/'):
+        name, _, level = entry.partition('=')
+        if name and _number(level) is not None:
+            result[name.strip()] = _number(level)
+    return result
+
+
 def parse_manual_player_config(player_equipment, spec):
-    """Parse a SimC player block. Unknown lines remain in raw_fields for traceability."""
+    """Parse an exported SimC player block without fetching external data.
+
+    The exporter puts the authoritative equipped items before ``### Gear from Bags``;
+    commented bag/reward alternatives are intentionally excluded.
+    """
     requested_spec = str(spec or '').strip().lower()
     parsed = {
-        'identity': {'name': '', 'class_name': SPEC_CLASS.get(requested_spec, ''), 'spec': requested_spec, 'race': '', 'level': None},
-        'talents': {'build_code': ''},
-        'equipment': [],
-        'stats': {'primary': {}, 'secondary': {}},
-        'raw_fields': {},
-        'missing_fields': [],
+        'identity': {'name': '', 'class_name': SPEC_CLASS.get(requested_spec, ''), 'spec': requested_spec,
+                     'race': '', 'level': None, 'region': '', 'realm': '', 'role': '', 'professions': {}},
+        'talents': {'build_code': '', 'saved_loadouts': []}, 'omnium_talents': [],
+        'equipment': [], 'stats': {'primary': {}, 'secondary': {}}, 'raw_fields': {}, 'missing_fields': [],
     }
-    item_ids = set()
-    equipment_rows = []
+    item_ids, equipment_rows = set(), []
+    item_hint, in_bag_section, saved_loadout = ('', None), False, None
     for raw_line in str(player_equipment or '').splitlines():
         line = raw_line.strip()
-        if not line or line.startswith('#'):
+        if not line:
+            continue
+        if line.startswith('### Gear from Bags') or line.startswith('### Weekly Reward Choices'):
+            in_bag_section = True
+            continue
+        if line.startswith('#'):
+            label = line[1:].strip()
+            if label.startswith('Saved Loadout:'):
+                saved_loadout = {'name': label.partition(':')[2].strip(), 'build_code': ''}
+                parsed['talents']['saved_loadouts'].append(saved_loadout)
+                continue
+            if label.startswith('talents=') and saved_loadout is not None:
+                saved_loadout['build_code'] = label.partition('=')[2].strip()
+                continue
+            item_hint = _comment_item_hint(line)
+            continue
+        if in_bag_section:
             continue
         key, raw_value, values = _parse_line(line)
         if not key:
             continue
-        class_match = re.match(r'^([a-z_]+)$', key)
-        if class_match and raw_value.startswith('"') and raw_value.endswith('"'):
-            parsed['identity']['class_name'] = key
-            parsed['identity']['name'] = raw_value[1:-1]
-        elif key in ('spec', 'race', 'level'):
-            parsed['identity'][key] = _number(raw_value) if key == 'level' else raw_value
+        if re.match(r'^([a-z_]+)$', key) and raw_value.startswith('"') and raw_value.endswith('"'):
+            parsed['identity']['class_name'], parsed['identity']['name'] = key, raw_value[1:-1]
+        elif key in ('spec', 'race', 'region', 'role'):
+            parsed['identity'][key] = raw_value
+        elif key in ('server', 'realm'):
+            parsed['identity']['realm'] = raw_value
+        elif key == 'level':
+            parsed['identity']['level'] = _number(raw_value)
+        elif key == 'professions':
+            parsed['identity']['professions'] = _parse_professions(raw_value)
         elif key in ('talents', 'talent'):
-            parsed['talents']['build_code'] = raw_value
+            if saved_loadout is not None:
+                saved_loadout['build_code'] = raw_value
+            else:
+                parsed['talents']['build_code'] = raw_value
+        elif key == 'omnium_talents':
+            parsed['omnium_talents'] = [
+                {'id': _number(entry.partition(':')[0]), 'rank': _number(entry.partition(':')[2])}
+                for entry in raw_value.split('/') if _number(entry.partition(':')[0])
+            ]
         elif key in EQUIPMENT_SLOTS:
-            item_id = values.get('id')
-            if item_id:
-                item_ids.add(_number(item_id))
-            if values.get('enchant_id'):
-                item_ids.add(_number(values['enchant_id']))
+            for item_id in [values.get('id'), values.get('enchant_id'), values.get('gem_id')]:
+                if _number(item_id): item_ids.add(_number(item_id))
             for gem_id in re.split(r'[/;:]', values.get('gems', '')):
-                if gem_id:
-                    item_ids.add(_number(gem_id))
-            equipment_rows.append((key, values, raw_value))
-        elif key in PRIMARY or key in {f'{name}_rating' for name in SECONDARY}:
-            parsed['raw_fields'][key] = raw_value
+                if _number(gem_id): item_ids.add(_number(gem_id))
+            equipment_rows.append((key, values, raw_value, item_hint))
         else:
             parsed['raw_fields'][key] = raw_value
+        item_hint = ('', None)
 
-    snapshots = {int(row.item_id): row for row in WowItemSnapshot.objects.filter(item_id__in=[item_id for item_id in item_ids if item_id])}
-    for slot, values, raw_value in equipment_rows:
+    snapshots = {int(row.item_id): row for row in WowItemSnapshot.objects.filter(item_id__in=item_ids)}
+    for slot, values, raw_value, hint in equipment_rows:
         item = _item_meta(values.get('id'), snapshots)
+        if hint[0] and item['display_name'].startswith('#'):
+            item['display_name'], item['export_name'] = hint[0], hint[0]
         enchant = _item_meta(values.get('enchant_id'), snapshots) if values.get('enchant_id') else None
-        gems = [_item_meta(gem_id, snapshots) for gem_id in re.split(r'[/;:]', values.get('gems', '')) if gem_id]
+        gem_ids = ([values['gem_id']] if values.get('gem_id') else []) + [x for x in re.split(r'[/;:]', values.get('gems', '')) if x]
+        crafted = [CRAFTED_STAT_LABELS.get(value, value) for value in re.split(r'[/;:]', values.get('crafted_stats', '')) if value]
         parsed['equipment'].append({
-            **item,
-            'slot': slot,
-            'slot_label': SLOT_LABELS[slot],
-            'item_level': _number(values.get('ilevel') or values.get('item_level')),
-            'enchant': enchant,
-            'gems': gems,
+            **item, 'slot': slot, 'slot_label': SLOT_LABELS[slot], 'item_level': hint[1] or _number(values.get('ilevel') or values.get('item_level')),
+            'enchant': enchant, 'gems': [_item_meta(gem_id, snapshots) for gem_id in gem_ids],
             'bonus_ids': [value for value in re.split(r'[/;:]', values.get('bonus_id', '') or values.get('bonus_ids', '')) if value],
-            'raw_value': raw_value,
+            'content_tuning': values.get('content_tuning', ''), 'crafted_stats': crafted,
+            'crafting_quality': _number(values.get('crafting_quality')), 'raw_value': raw_value,
         })
-
     for stat in PRIMARY:
         value = _number(parsed['raw_fields'].get(stat))
-        if value is not None:
-            parsed['stats']['primary'][stat] = value
+        if value is not None: parsed['stats']['primary'][stat] = value
     return parsed
 
 

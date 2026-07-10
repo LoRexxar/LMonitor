@@ -5,6 +5,7 @@ from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
 from botend.dashboard.api import inspect_raw_simc_code
+from botend.services.simc_player_config import parse_manual_player_config
 from botend.models import SimcContentTemplate, SimcTask, WowItemSnapshot
 
 
@@ -414,6 +415,49 @@ class SimcPreviewTests(TestCase):
         self.assertEqual(detail['stats']['secondary']['crit']['rating'], 10730)
         self.assertAlmostEqual(detail['stats']['secondary']['crit']['percent'], 233.26, places=2)
         self.assertEqual(SimcTask.objects.count(), 0)
+
+    def test_real_simc_export_keeps_main_gear_names_and_excludes_bag_choices(self):
+        config = '''# 炎色雷灬 - Fury - 2026-07-10 02:37 - CN/死亡之翼
+warrior="炎色雷灬"
+level=90
+race=orc
+region=cn
+server=死亡之翼
+role=attack
+professions=enchanting=100/jewelcrafting=100
+spec=fury
+talents=ACTIVE_BUILD
+# Saved Loadout: 团本屠戮
+# talents=SAVED_BUILD
+omnium_talents=136817:1/136819:1
+# 终夜者的獠牙头盔 (289)
+head=,id=249952,enchant_id=8017,gem_id=240892,bonus_id=6652/13534
+# 腐沼的孢子之心 (298)
+neck=,id=268291,gem_id=240983,bonus_id=6652/13668
+# 信徒的流丝罩袍 (285)
+back=,id=239656,bonus_id=12214/13667,content_tuning=3615,crafted_stats=32/36,crafting_quality=5
+# 旋风虚空裂斧 (298)
+main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
+### Gear from Bags
+# 盘绕恶意丝带 (285)
+# neck=,id=249337,bonus_id=6652/13668
+'''
+        detail = parse_manual_player_config(config, 'fury')
+
+        self.assertEqual(detail['identity']['name'], '炎色雷灬')
+        self.assertEqual(detail['identity']['region'], 'cn')
+        self.assertEqual(detail['identity']['realm'], '死亡之翼')
+        self.assertEqual(detail['identity']['role'], 'attack')
+        self.assertEqual(detail['identity']['professions'], {'enchanting': 100, 'jewelcrafting': 100})
+        self.assertEqual(detail['talents']['build_code'], 'ACTIVE_BUILD')
+        self.assertEqual(detail['talents']['saved_loadouts'], [{'name': '团本屠戮', 'build_code': 'SAVED_BUILD'}])
+        self.assertEqual(len(detail['equipment']), 4)
+        self.assertEqual(detail['equipment'][0]['display_name'], '终夜者的獠牙头盔')
+        self.assertEqual(detail['equipment'][0]['item_level'], 289)
+        self.assertEqual(detail['equipment'][0]['gems'][0]['id'], 240892)
+        self.assertEqual(detail['equipment'][2]['crafted_stats'], ['精通', '全能'])
+        self.assertEqual(detail['equipment'][2]['crafting_quality'], 5)
+        self.assertEqual(detail['omnium_talents'], [{'id': 136817, 'rank': 1}, {'id': 136819, 'rank': 1}])
 
     def test_preview_returns_battlenet_identity_and_explicit_missing_detail(self):
         response = self.client.post(
