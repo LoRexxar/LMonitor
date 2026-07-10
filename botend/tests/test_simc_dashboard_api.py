@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch as mock_patch
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
@@ -276,3 +277,106 @@ class SimcNewConfigModeTests(TestCase):
         self.assertIn('talents=TEST', rendered)
         self.assertIn('head=,id=212048', rendered)
         self.assertIn('actions=auto_attack', rendered)
+
+
+class SimcPreviewTests(TestCase):
+    """预览必须复用实际任务的模板拼装，不创建任务也不触发 SimC。"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='preview_user', password='pwd')
+        self.client = Client()
+        self.client.force_login(self.user)
+        self.template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='fury',
+            class_name='warrior',
+            name='Fury base template',
+            content='spec={spec}\nfight_style={fight_style}\nmax_time={time}\ntargets={target_count}\n{player_config}\n{action_list}',
+            is_active=True,
+            is_selectable=True,
+        )
+        self.template_lookup = mock_patch(
+            'botend.controller.plugins.simc.SimcMonitor.SimcMonitor.select_template_by_spec',
+            return_value=self.template,
+        )
+        self.mock_template_lookup = self.template_lookup.start()
+        self.addCleanup(self.template_lookup.stop)
+        self.apl = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury',
+            class_name='warrior',
+            name='Fury APL',
+            content='actions=auto_attack',
+            is_active=True,
+            is_selectable=True,
+        )
+
+    def test_preview_battlenet_returns_full_rendered_configuration(self):
+        response = self.client.post(
+            '/api/simc-preview/',
+            data=json.dumps({
+                'spec': 'fury',
+                'fight_style': 'Patchwerk',
+                'time': 300,
+                'target_count': 1,
+                'player_import_mode': 'battlenet',
+                'battlenet_region': 'EU',
+                'battlenet_realm': 'Kazzak',
+                'battlenet_character': 'Bloodmastêr',
+                'selected_apl_id': self.apl.id,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertIn('armory=eu,Kazzak,Bloodmastêr', payload['data']['simc_code'])
+        self.assertIn('max_time=300', payload['data']['simc_code'])
+        self.assertIn('actions=auto_attack', payload['data']['simc_code'])
+        self.assertEqual(payload['data']['player_preview'], 'armory=eu,Kazzak,Bloodmastêr')
+        self.assertEqual(SimcTask.objects.count(), 0)
+
+    def test_preview_manual_equipment_returns_full_rendered_configuration(self):
+        response = self.client.post(
+            '/api/simc-preview/',
+            data=json.dumps({
+                'spec': 'fury',
+                'fight_style': 'Cleave',
+                'time': 420,
+                'target_count': 2,
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': 'talents=TEST\nhead=,id=212048',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertIn('fight_style=Cleave', payload['data']['simc_code'])
+        self.assertIn('max_time=420', payload['data']['simc_code'])
+        self.assertIn('targets=2', payload['data']['simc_code'])
+        self.assertIn('talents=TEST', payload['data']['simc_code'])
+        self.assertIn('head=,id=212048', payload['data']['simc_code'])
+        self.assertEqual(payload['data']['player_preview'], 'talents=TEST\nhead=,id=212048')
+        self.assertEqual(SimcTask.objects.count(), 0)
+
+    def test_preview_rejects_incomplete_battlenet_configuration(self):
+        response = self.client.post(
+            '/api/simc-preview/',
+            data=json.dumps({
+                'spec': 'fury',
+                'player_import_mode': 'battlenet',
+                'battlenet_region': 'eu',
+                'battlenet_character': 'Bloodmastêr',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload['success'])
+        self.assertIn('Battle.net 导入需要提供', payload['error'])

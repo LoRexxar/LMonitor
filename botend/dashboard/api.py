@@ -1141,6 +1141,105 @@ class SimcTaskAPIView(View):
         return json.dumps(payload, ensure_ascii=False)
 
 
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class SimcPreviewAPIView(View):
+    """渲染工作台当前表单，供用户预览实际会交给 SimC 的完整配置。"""
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+            spec = str(data.get('spec') or '').strip()
+            if not spec:
+                return JsonResponse({'success': False, 'error': '请先选择专精'})
+
+            mode = data.get('player_import_mode') or data.get('player_config_mode')
+            if mode == 'equipment':
+                mode = 'manual_equipment'
+            if mode not in ('battlenet', 'manual_equipment'):
+                return JsonResponse({'success': False, 'error': '玩家信息导入方式必须是 battlenet 或 manual_equipment'})
+
+            player_equipment = str(data.get('player_equipment') or '').strip()
+            battlenet_region = str(data.get('battlenet_region') or '').strip().lower()
+            battlenet_realm = str(data.get('battlenet_realm') or '').strip()
+            battlenet_character = str(data.get('battlenet_character') or '').strip()
+            if mode == 'manual_equipment' and not player_equipment:
+                return JsonResponse({'success': False, 'error': '手动装备模式下玩家装备配置不能为空'})
+            if mode == 'battlenet' and (
+                battlenet_region not in ('us', 'eu', 'kr', 'tw', 'cn')
+                or not battlenet_realm or not battlenet_character
+            ):
+                return JsonResponse({'success': False, 'error': 'Battle.net 导入需要提供 region、realm 和 character'})
+
+            def positive_int(value, default):
+                try:
+                    return max(1, int(value))
+                except (TypeError, ValueError):
+                    return default
+
+            override_action_list = ''
+            apl_name = ''
+            selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
+            if selected_apl_id not in (None, ''):
+                apl_obj = _get_simc_content_by_id(
+                    selected_apl_id,
+                    allowed_types=[
+                        SimcContentTemplate.TYPE_DEFAULT_APL,
+                        SimcContentTemplate.TYPE_CUSTOM_APL,
+                    ],
+                )
+                if not apl_obj:
+                    return JsonResponse({'success': False, 'error': '选择的 APL 不存在或已禁用'})
+                override_action_list = apl_obj.content or ''
+                apl_name = apl_obj.name or apl_obj.spec or ''
+
+            # 与 SimcMonitor.process_regular_simulation 的新工作台分支共用同一模板选择和渲染函数。
+            from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+            monitor = object.__new__(SimcMonitor)
+            template_obj = monitor.select_template_by_spec(spec)
+            if not template_obj:
+                return JsonResponse({'success': False, 'error': '未找到启用的SimC模板'})
+            template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
+            task_config = {
+                'spec': spec,
+                'talent': str(data.get('talent') or '').strip(),
+                'fight_style': str(data.get('fight_style') or 'Patchwerk').strip(),
+                'time': positive_int(data.get('time'), 300),
+                'target_count': positive_int(data.get('target_count'), 1),
+                'player_config_mode': mode,
+                'player_import_mode': mode,
+                'player_equipment': player_equipment,
+                'battlenet_region': battlenet_region,
+                'battlenet_realm': battlenet_realm,
+                'battlenet_character': battlenet_character,
+                'gear_crit': data.get('gear_crit', 10730),
+                'gear_haste': data.get('gear_haste', 18641),
+                'gear_mastery': data.get('gear_mastery', 21785),
+                'gear_versatility': data.get('gear_versatility', 6757),
+                'override_action_list': override_action_list,
+            }
+            simc_code = monitor.apply_template(template, task_config)
+            player_preview = (
+                f'armory={battlenet_region},{battlenet_realm},{battlenet_character}'
+                if mode == 'battlenet' else player_equipment
+            )
+            return JsonResponse({
+                'success': True,
+                'data': {
+                    'simc_code': simc_code,
+                    'player_preview': player_preview,
+                    'player_import_mode': mode,
+                    'template_name': template_obj.name or template_obj.spec or '',
+                    'apl_name': apl_name,
+                    'line_count': len(simc_code.splitlines()),
+                },
+            })
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': '无效的JSON数据'})
+        except Exception as e:
+            logger.error(f"生成 SimC 配置预览失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({'success': False, 'error': f'预览失败: {str(e)}'})
+
+
 WOW_SIMC_CLASS_NAMES = {
     'deathknight', 'death_knight', 'demonhunter', 'demon_hunter', 'druid', 'evoker',
     'hunter', 'mage', 'monk', 'paladin', 'priest', 'rogue', 'shaman', 'warlock', 'warrior'
