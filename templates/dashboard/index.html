@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260710_simc_workbench_tasks_profiles_mastery" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260710_simc_workbench_modal_scroll" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -2004,9 +2004,9 @@
     </div>
 
     <!-- SimC任务查看模态框 -->
-    <div class="fixed inset-0 bg-black bg-opacity-50 z-50" id="view-simc-task-modal" style="display: none;">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+    <div class="fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto" id="view-simc-task-modal" style="display: none;">
+        <div class="flex min-h-full items-start justify-center p-4 sm:items-center">
+            <div class="my-auto w-full max-w-6xl max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl bg-white p-6 shadow-lg">
                 <h4 class="text-lg font-semibold text-gray-800 mb-4">
                     <i class="fas fa-eye mr-2 text-green-500"></i>查看SimC代码
                 </h4>
