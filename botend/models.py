@@ -705,11 +705,16 @@ class SimcTask(models.Model):
     
 class SimcProfile(models.Model):
     """
-    SimC配置模型 - 简化为玩家配置预设（只保留 spec + talent + gear stats）
+    SimC配置模型 - 玩家配置预设，绑定专精并保存 Battle.net 或手动装备块导入信息。
     """
     user_id = models.IntegerField(help_text="用户ID")
     name = models.CharField(max_length=200, help_text="配置名称")
     spec = models.CharField(max_length=100, default="fury", help_text="专精标识，如 fury/arms/fire")
+    player_config_mode = models.CharField(max_length=50, default="battlenet", help_text="玩家配置来源：battlenet/manual_equipment")
+    battlenet_region = models.CharField(max_length=20, default="", blank=True)
+    battlenet_realm = models.CharField(max_length=100, default="", blank=True)
+    battlenet_character = models.CharField(max_length=100, default="", blank=True)
+    player_equipment = models.TextField(default="", blank=True, help_text="手动装备/天赋玩家块")
     talent = models.CharField(max_length=2000, default="")
     gear_strength = models.IntegerField(default=93330)
     gear_crit = models.IntegerField(default=10730)

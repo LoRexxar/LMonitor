@@ -1657,15 +1657,20 @@ function loadSimcWorkbenchProfiles(page) {
             const id = row.id || 0;
             const name = escapeHtml(row.name || '-');
             const spec = row.spec || '';
-            const talent = escapeHtml(row.talent || '-');
+            const mode = row.player_config_mode || row.player_import_mode || 'battlenet';
+            const sourceText = mode === 'manual_equipment'
+                ? ('手动配置 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : ''))
+                : ('Battle.net ' + [row.battlenet_region, row.battlenet_realm, row.battlenet_character].filter(Boolean).join('/'));
+            const sourceTitle = escapeHtml(sourceText || '-');
             const offset = (page - 1) * 20 + idx + 1;
             return `<tr class="hover:bg-gray-50 border-b border-gray-100">
                 <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
                 <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(spec)}</td>
-                <td class="px-3 py-3 text-xs text-gray-500 max-w-[180px] truncate font-mono" title="${talent}">${talent}</td>
+                <td class="px-3 py-3 text-xs text-gray-500 max-w-[220px] truncate" title="${sourceTitle}">${sourceTitle}</td>
                 <td class="px-3 py-3 text-center">
                     <div class="flex items-center justify-center gap-1 flex-wrap">
+                        <button class="simc-wb-profile-load text-green-600 hover:text-green-800 text-xs" data-profile-id="${id}" title="加载到发起模拟"><i class="fas fa-arrow-right"></i></button>
                         <button class="simc-wb-profile-edit text-blue-600 hover:text-blue-800 text-xs" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>
                         <button class="simc-wb-profile-del text-red-500 hover:text-red-700 text-xs" data-profile-id="${id}" title="删除"><i class="fas fa-trash"></i></button>
                     </div>
@@ -1674,6 +1679,7 @@ function loadSimcWorkbenchProfiles(page) {
         }).join('');
 
         /* 绑定行内按钮 */
+        tbody.querySelectorAll('.simc-wb-profile-load').forEach(btn => btn.addEventListener('click', () => { if (typeof simcWbLoadProfileToSimulator === 'function') simcWbLoadProfileToSimulator(btn.dataset.profileId); }));
         tbody.querySelectorAll('.simc-wb-profile-edit').forEach(btn => btn.addEventListener('click', () => { if (typeof editSimcProfile === 'function') editSimcProfile(btn.dataset.profileId); }));
         tbody.querySelectorAll('.simc-wb-profile-del').forEach(btn => btn.addEventListener('click', () => { if (typeof deleteSimcProfile === 'function') deleteSimcProfile(btn.dataset.profileId); }));
 
@@ -1702,6 +1708,11 @@ function bindSimcWorkbenchProfilesControls() {
             simcWbProfileSpecFilter = this.value;
             loadSimcWorkbenchProfiles(1);
         });
+    }
+    const importSaveBtn = document.getElementById('simc-sim-save-profile-btn');
+    if (importSaveBtn && importSaveBtn.dataset.bound !== '1') {
+        importSaveBtn.dataset.bound = '1';
+        importSaveBtn.addEventListener('click', () => simcWbSaveCurrentSimulatorProfile());
     }
     const refreshBtn = document.getElementById('simc-wb-profile-refresh');
     if (refreshBtn && refreshBtn.dataset.bound !== '1') {
@@ -1745,23 +1756,23 @@ function loadSimcWorkbenchRules(page) {
 
         tbody.innerHTML = rows.map((row, idx) => {
             const id = row.id || 0;
-            const spec = row.spec || '-';
+            const className = row.class_name || '-';
             const critPerPct = row.crit_per_percent != null ? row.crit_per_percent : '-';
             const hastePerPct = row.haste_per_percent != null ? row.haste_per_percent : '-';
             const masteryPerPct = row.mastery_per_percent != null ? row.mastery_per_percent : '-';
-            const masteryCoeff = row.mastery_coefficient != null ? row.mastery_coefficient : '-';
             const versaPerPct = row.versatility_per_percent != null ? row.versatility_per_percent : '-';
-            const desc = escapeHtml(row.description || row.note || '');
             const offset = (page - 1) * 50 + idx + 1;
-            const specBadge = renderSpecBadgeHtml(spec);
             return `<tr class="hover:bg-gray-50 border-b border-gray-100">
                 <td class="px-3 py-2.5 text-center text-gray-500 text-xs">${offset}</td>
-                <td class="px-3 py-2.5">${specBadge}</td>
-                <td class="px-3 py-2.5 text-center text-xs font-mono text-gray-700" title="急速 ${hastePerPct} / 暴击 ${critPerPct} / 精通 ${masteryPerPct}(${masteryCoeff}) / 全能 ${versaPerPct}">
-                    暴击 ${critPerPct} &nbsp;|&nbsp; 急速 ${hastePerPct} &nbsp;|&nbsp; 精通 ${masteryPerPct}(${masteryCoeff}) &nbsp;|&nbsp; 全能 ${versaPerPct}
+                <td class="px-3 py-2.5"><span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-700">${escapeHtml(className)}</span></td>
+                <td class="px-3 py-2.5 text-center text-xs font-mono text-gray-700" title="急速 ${hastePerPct} / 暴击 ${critPerPct} / 精通 ${masteryPerPct} / 全能 ${versaPerPct}">
+                    暴击 ${critPerPct} &nbsp;|&nbsp; 急速 ${hastePerPct} &nbsp;|&nbsp; 精通 ${masteryPerPct} &nbsp;|&nbsp; 全能 ${versaPerPct}
                 </td>
-                <td class="px-3 py-2.5 text-center text-xs text-gray-500 font-mono">${masteryCoeff}</td>
-                <td class="px-3 py-2.5 text-xs text-gray-500 max-w-[180px] truncate" title="${desc}">${desc || '-'}</td>
+                <td class="px-3 py-2.5 text-center text-xs text-gray-500 font-mono">按职业统一</td>
+                <td class="px-3 py-2.5 text-center text-xs">
+                    <button type="button" onclick="simcWbEditRule(${id})" class="text-blue-600 hover:text-blue-800 mr-2">编辑</button>
+                    <button type="button" onclick="simcWbDeleteRule(${id})" class="text-red-600 hover:text-red-800">删除</button>
+                </td>
             </tr>`;
         }).join('');
 
@@ -1835,6 +1846,11 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('.simc-wb-form-title').textContent = '新增配置';
         formWrap.querySelector('input[name="name"]').value = '';
         formWrap.querySelector('select[name="spec"]').value = 'fury';
+        formWrap.querySelector('select[name="player_config_mode"]').value = 'battlenet';
+        formWrap.querySelector('input[name="battlenet_region"]').value = 'eu';
+        formWrap.querySelector('input[name="battlenet_realm"]').value = '';
+        formWrap.querySelector('input[name="battlenet_character"]').value = '';
+        formWrap.querySelector('textarea[name="player_equipment"]').value = '';
         formWrap.querySelector('input[name="talent"]').value = '';
         formWrap.querySelector('input[name="gear_crit"]').value = '8730';
         formWrap.querySelector('input[name="gear_haste"]').value = '20141';
@@ -1846,6 +1862,11 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="name"]').value = profileData.name || '';
         const specSel = formWrap.querySelector('select[name="spec"]');
         specSel.value = profileData.spec || 'fury';
+        formWrap.querySelector('select[name="player_config_mode"]').value = profileData.player_config_mode || profileData.player_import_mode || 'battlenet';
+        formWrap.querySelector('input[name="battlenet_region"]').value = profileData.battlenet_region || '';
+        formWrap.querySelector('input[name="battlenet_realm"]').value = profileData.battlenet_realm || '';
+        formWrap.querySelector('input[name="battlenet_character"]').value = profileData.battlenet_character || '';
+        formWrap.querySelector('textarea[name="player_equipment"]').value = profileData.player_equipment || '';
         formWrap.querySelector('input[name="talent"]').value = profileData.talent || '';
         formWrap.querySelector('input[name="gear_crit"]').value = profileData.gear_crit || 0;
         formWrap.querySelector('input[name="gear_haste"]').value = profileData.gear_haste || 0;
@@ -1867,6 +1888,12 @@ async function simcWbSaveProfile() {
     const payload = {
         name: gv('name'),
         spec: gv('spec'),
+        player_config_mode: gv('player_config_mode'),
+        player_import_mode: gv('player_config_mode'),
+        battlenet_region: gv('battlenet_region'),
+        battlenet_realm: gv('battlenet_realm'),
+        battlenet_character: gv('battlenet_character'),
+        player_equipment: gv('player_equipment'),
         talent: gv('talent'),
         gear_crit: parseInt(gv('gear_crit')) || 0,
         gear_haste: parseInt(gv('gear_haste')) || 0,
@@ -1939,6 +1966,89 @@ async function simcWbEditProfile(id) {
     } catch (e) { showMessage('加载配置失败', 'error'); }
 }
 
+async function simcWbFetchProfilesForWorkbench() {
+    const resp = await fetch('/dashboard/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+        body: JSON.stringify({ action: 'get_table_data', table_name: 'SimcProfile', page: 1, page_size: 500 })
+    });
+    const data = await resp.json();
+    if (!(data.status === 'success' || data.success)) throw new Error(data.message || data.error || '加载配置失败');
+    return Array.isArray(data.data) ? data.data : (data.data?.rows || []);
+}
+
+async function simcWbLoadProfileToSimulator(id) {
+    try {
+        const rows = await simcWbFetchProfilesForWorkbench();
+        const profile = rows.find(r => String(r.id) === String(id));
+        if (!profile) { showMessage('未找到配置', 'error'); return; }
+        const specEl = document.getElementById('simc-sim-spec');
+        if (specEl) {
+            specEl.value = profile.spec || '';
+            specEl.dispatchEvent(new Event('change'));
+        }
+        const mode = profile.player_config_mode || profile.player_import_mode || 'battlenet';
+        document.querySelectorAll('input[name="simc-player-import-mode"]').forEach(r => { r.checked = r.value === mode; });
+        if (typeof switchSimcPlayerImportMode === 'function') switchSimcPlayerImportMode(mode);
+        const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+        setVal('simc-sim-battlenet-region', profile.battlenet_region || 'eu');
+        setVal('simc-sim-battlenet-realm', profile.battlenet_realm || '');
+        setVal('simc-sim-battlenet-character', profile.battlenet_character || '');
+        setVal('simc-sim-equipment', profile.player_equipment || profile.talent || '');
+        showMessage('已加载配置：' + (profile.name || ('#' + id)), 'success');
+        const importTab = document.querySelector('[data-simc-tab="import"]');
+        if (importTab) importTab.click();
+    } catch (e) {
+        showMessage('加载配置失败: ' + e.message, 'error');
+    }
+}
+
+async function simcWbSaveCurrentSimulatorProfile() {
+    const spec = (document.getElementById('simc-sim-spec')?.value || '').trim();
+    if (!spec) { showMessage('请先选择专精', 'error'); return; }
+    const mode = document.querySelector('input[name="simc-player-import-mode"]:checked')?.value || 'battlenet';
+    const name = prompt('配置名称', spec + '-' + (mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-character')?.value || 'profile') : 'manual'));
+    if (!name) return;
+    const payload = {
+        name: name.trim(),
+        spec: spec,
+        player_config_mode: mode,
+        player_import_mode: mode,
+        battlenet_region: (document.getElementById('simc-sim-battlenet-region')?.value || '').trim(),
+        battlenet_realm: (document.getElementById('simc-sim-battlenet-realm')?.value || '').trim(),
+        battlenet_character: (document.getElementById('simc-sim-battlenet-character')?.value || '').trim(),
+        player_equipment: document.getElementById('simc-sim-equipment')?.value || '',
+        talent: '',
+        gear_crit: 0,
+        gear_haste: 0,
+        gear_mastery: 0,
+        gear_versatility: 0,
+    };
+    if (mode === 'battlenet' && (!payload.battlenet_region || !payload.battlenet_realm || !payload.battlenet_character)) {
+        showMessage('Battle.net 配置需要填写地区、服务器和角色名', 'error'); return;
+    }
+    if (mode === 'manual_equipment' && !payload.player_equipment.trim()) {
+        showMessage('手动配置需要填写装备/天赋玩家块', 'error'); return;
+    }
+    try {
+        const resp = await fetch('/dashboard/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({ action: 'create_table_row', table_name: 'SimcProfile', create_data: payload })
+        });
+        const data = await resp.json();
+        if (data.status === 'success' || data.success) {
+            showMessage('当前配置已保存', 'success');
+            if (typeof refreshSimcSavedProfiles === 'function') refreshSimcSavedProfiles();
+            loadSimcWorkbenchProfiles(simcWbProfilePage);
+        } else {
+            showMessage('保存失败: ' + (data.message || data.error || '未知错误'), 'error');
+        }
+    } catch (e) {
+        showMessage('保存失败: ' + e.message, 'error');
+    }
+}
+
 /* --- Rule CRUD --- */
 function simcWbToggleRuleForm(mode, ruleData) {
     const formWrap = document.getElementById('simc-wb-rule-form');
@@ -1947,23 +2057,19 @@ function simcWbToggleRuleForm(mode, ruleData) {
     if (mode === 'create') {
         simcWbRuleFormEditId = null;
         formWrap.querySelector('.simc-wb-form-title').textContent = '新增绿字规则';
-        formWrap.querySelector('select[name="spec"]').value = 'arms';
-        formWrap.querySelector('input[name="crit_per_percent"]').value = '';
-        formWrap.querySelector('input[name="haste_per_percent"]').value = '';
-        formWrap.querySelector('input[name="mastery_per_percent"]').value = '';
-        formWrap.querySelector('input[name="mastery_coefficient"]').value = '1.4';
-        formWrap.querySelector('input[name="versatility_per_percent"]').value = '';
-        formWrap.querySelector('input[name="notes"]').value = '';
+        formWrap.querySelector('select[name="class_name"]').value = 'warrior';
+        formWrap.querySelector('input[name="crit_per_percent"]').value = '46';
+        formWrap.querySelector('input[name="haste_per_percent"]').value = '44';
+        formWrap.querySelector('input[name="mastery_per_percent"]').value = '46';
+        formWrap.querySelector('input[name="versatility_per_percent"]').value = '54';
     } else {
         simcWbRuleFormEditId = ruleData.id;
         formWrap.querySelector('.simc-wb-form-title').textContent = '编辑绿字规则 #' + ruleData.id;
-        formWrap.querySelector('select[name="spec"]').value = ruleData.spec || 'arms';
+        formWrap.querySelector('select[name="class_name"]').value = ruleData.class_name || 'warrior';
         formWrap.querySelector('input[name="crit_per_percent"]').value = ruleData.crit_per_percent || '';
         formWrap.querySelector('input[name="haste_per_percent"]').value = ruleData.haste_per_percent || '';
         formWrap.querySelector('input[name="mastery_per_percent"]').value = ruleData.mastery_per_percent || '';
-        formWrap.querySelector('input[name="mastery_coefficient"]').value = ruleData.mastery_coefficient || '1.4';
         formWrap.querySelector('input[name="versatility_per_percent"]').value = ruleData.versatility_per_percent || '';
-        formWrap.querySelector('input[name="notes"]').value = ruleData.notes || '';
     }
     formWrap.classList.remove('hidden');
     formWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1978,15 +2084,13 @@ async function simcWbSaveRule() {
     if (!formWrap) return;
     const gv = n => formWrap.querySelector('[name="' + n + '"]').value.trim();
     const payload = {
-        spec: gv('spec'),
+        class_name: gv('class_name'),
         crit_per_percent: parseFloat(gv('crit_per_percent')) || 0,
         haste_per_percent: parseFloat(gv('haste_per_percent')) || 0,
         mastery_per_percent: parseFloat(gv('mastery_per_percent')) || 0,
-        mastery_coefficient: parseFloat(gv('mastery_coefficient')) || 1.4,
         versatility_per_percent: parseFloat(gv('versatility_per_percent')) || 0,
-        notes: gv('notes'),
     };
-    if (!payload.spec) { showMessage('请选择专精', 'error'); return; }
+    if (!payload.class_name) { showMessage('请选择职业', 'error'); return; }
     const csrf = getCSRFToken();
     const btn = formWrap.querySelector('.simc-wb-form-save');
     const oldHtml = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>保存中…';
@@ -2091,6 +2195,26 @@ function switchSimcPlayerConfigMode(mode) {
     }
 }
 
+const SIMC_SPEC_CLASS_MAP = {
+    arms: 'warrior', fury: 'warrior', protection: 'warrior',
+    blood: 'death_knight', frost: 'death_knight', unholy: 'death_knight',
+    havoc: 'demon_hunter', vengeance: 'demon_hunter',
+    balance: 'druid', feral: 'druid', guardian: 'druid', restoration: 'druid',
+    devastation: 'evoker', preservation: 'evoker', augmentation: 'evoker',
+    beast_mastery: 'hunter', marksmanship: 'hunter', survival: 'hunter',
+    arcane: 'mage', fire: 'mage',
+    brewmaster: 'monk', mistweaver: 'monk', windwalker: 'monk',
+    holy: 'priest', discipline: 'priest', shadow: 'priest',
+    retribution: 'paladin',
+    assassination: 'rogue', outlaw: 'rogue', subtlety: 'rogue',
+    elemental: 'shaman', enhancement: 'shaman',
+    affliction: 'warlock', demonology: 'warlock', destruction: 'warlock',
+};
+
+function getSimcSpecClass(spec) {
+    return SIMC_SPEC_CLASS_MAP[String(spec || '').trim().toLowerCase()] || '';
+}
+
 async function loadSimcAplCandidates(spec) {
     const container = document.getElementById('simc-sim-apl-list');
     if (!container) return;
@@ -2102,7 +2226,10 @@ async function loadSimcAplCandidates(spec) {
     container.className = 'rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500';
     container.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>加载 APL 列表中…';
     try {
-        const resp = await fetch('/api/simc-apl-candidates/?spec=' + encodeURIComponent(spec));
+        const className = getSimcSpecClass(spec);
+        const qs = new URLSearchParams({ spec: spec });
+        if (className) qs.set('class_name', className);
+        const resp = await fetch('/api/simc-apl-candidates/?' + qs.toString());
         const data = await resp.json();
         if (!resp.ok || !data.success) throw new Error(data.error || data.message || '加载失败');
         const candidates = Array.isArray(data.data) ? data.data : (data.candidates || []);
@@ -2155,27 +2282,33 @@ async function loadSimcSimSavedProfiles() {
     if (!container) return;
     container.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>加载中…';
     try {
-        const resp = await fetch('/api/simc-profile/');
-        const data = await resp.json();
-        if (!resp.ok || !data.success) throw new Error(data.error || '加载失败');
-        const profiles = Array.isArray(data.data) ? data.data : (data.profiles || []);
+        const profiles = await simcWbFetchProfilesForWorkbench();
         if (!profiles.length) {
             container.innerHTML = '<div class="text-gray-400 text-center py-2">暂无已保存配置</div>';
             return;
         }
-        container.innerHTML = profiles.map(p => `
-            <div class="rounded-lg border border-gray-200 bg-white p-3 mb-2 text-sm">
-                <div class="font-semibold text-gray-800">${escapeHtml(p.name || '配置#' + p.id)}</div>
-                <div class="text-xs text-gray-500 mt-1">
-                    专精: ${escapeHtml(p.spec || '-')} ·
-                    暴击:${p.gear_crit || 0} 急速:${p.gear_haste || 0} 精通:${p.gear_mastery || 0} 全能:${p.gear_versatility || 0}
+        container.innerHTML = profiles.map(p => {
+            const mode = p.player_config_mode || p.player_import_mode || 'battlenet';
+            const source = mode === 'manual_equipment'
+                ? ('手动配置 ' + (p.player_equipment ? String(p.player_equipment).split('\n').filter(Boolean).length + ' 行' : ''))
+                : ('Battle.net ' + [p.battlenet_region, p.battlenet_realm, p.battlenet_character].filter(Boolean).join('/'));
+            return `
+            <button type="button" class="simc-sim-load-profile block w-full text-left rounded-lg border border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50 p-3 mb-2 text-sm" data-profile-id="${p.id}">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="font-semibold text-gray-800 truncate">${escapeHtml(p.name || '配置#' + p.id)}</div>
+                    <span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">${escapeHtml(p.spec || '-')}</span>
                 </div>
-                ${p.talent ? `<div class="text-xs text-gray-400 mt-1 font-mono truncate" title="${escapeHtml(p.talent)}">天赋: ${escapeHtml(p.talent)}</div>` : ''}
-            </div>
-        `).join('');
+                <div class="text-xs text-gray-500 mt-1 truncate" title="${escapeHtml(source || '-')}">${escapeHtml(source || '-')}</div>
+            </button>`;
+        }).join('');
+        container.querySelectorAll('.simc-sim-load-profile').forEach(btn => btn.addEventListener('click', () => simcWbLoadProfileToSimulator(btn.dataset.profileId)));
     } catch (err) {
         container.innerHTML = '<div class="text-red-500 text-center py-2">加载失败</div>';
     }
+}
+
+function refreshSimcSavedProfiles() {
+    return loadSimcSimSavedProfiles();
 }
 
 function onSimcProfileSelect() {
@@ -3306,11 +3439,10 @@ function displayTableData(data, fields, tableName = currentTableName) {
     }
     else if (renderTableName === 'SimcSecondaryStatRule') {
         displayFields = [
-            'spec',
+            'class_name',
             'crit_per_percent',
             'haste_per_percent',
             'mastery_per_percent',
-            'mastery_coefficient',
             'versatility_per_percent'
         ];
     }

@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260710_simc_player_import" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260710_simc_rules_apl_profile" defer></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -959,9 +959,14 @@
                                         <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
                                             <div class="flex items-center justify-between mb-2">
                                                 <div class="font-semibold text-gray-800"><i class="fas fa-database mr-1 text-purple-500"></i>已保存配置</div>
-                                                <button type="button" id="simc-sim-refresh-profiles-btn" class="text-xs px-3 py-1 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700">
-                                                    <i class="fas fa-sync-alt mr-1"></i>刷新
-                                                </button>
+                                                <div class="flex items-center gap-2">
+                                                    <button type="button" id="simc-sim-save-profile-btn" class="text-xs px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+                                                        <i class="fas fa-save mr-1"></i>保存当前
+                                                    </button>
+                                                    <button type="button" id="simc-sim-refresh-profiles-btn" class="text-xs px-3 py-1 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700">
+                                                        <i class="fas fa-sync-alt mr-1"></i>刷新
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div id="simc-sim-saved-profiles" class="text-sm text-gray-500 max-h-80 overflow-y-auto">
                                                 加载中...
@@ -1016,7 +1021,17 @@
                                                 <option value="blood">blood</option><option value="unholy">unholy</option>
                                             </select>
                                         </label>
-                                        <label class="block"><span class="text-gray-600">天赋码</span><input name="talent" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" placeholder="可选"></label>
+                                        <label class="block"><span class="text-gray-600">导入来源 *</span>
+                                            <select name="player_config_mode" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                                <option value="battlenet">Battle.net 角色拉取</option>
+                                                <option value="manual_equipment">手动装备配置</option>
+                                            </select>
+                                        </label>
+                                        <label class="block"><span class="text-gray-600">地区</span><input name="battlenet_region" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="cn/eu/us"></label>
+                                        <label class="block"><span class="text-gray-600">服务器</span><input name="battlenet_realm" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Kazzak / 白银之手"></label>
+                                        <label class="block"><span class="text-gray-600">角色名</span><input name="battlenet_character" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="角色名"></label>
+                                        <label class="block col-span-2 md:col-span-4"><span class="text-gray-600">手动装备/天赋玩家块</span><textarea name="player_equipment" rows="5" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-xs" placeholder="manual_equipment 模式填写：talents=... / head=... / neck=..."></textarea></label>
+                                        <label class="block col-span-2 md:col-span-4"><span class="text-gray-600">天赋码（旧字段兼容）</span><input name="talent" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" placeholder="可选"></label>
                                         <label class="block"><span class="text-gray-600">暴击</span><input name="gear_crit" type="number" value="8730" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">急速</span><input name="gear_haste" type="number" value="20141" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">精通</span><input name="gear_mastery" type="number" value="21785" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
@@ -1035,7 +1050,7 @@
                                                 <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">编号</th>
                                                 <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">配置名</th>
                                                 <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">专精</th>
-                                                <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">天赋码</th>
+                                                <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">玩家来源</th>
                                                 <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">操作</th>
                                             </tr>
                                         </thead>
@@ -1073,29 +1088,18 @@
                                         <button type="button" onclick="simcWbCloseRuleForm()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
                                     </div>
                                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                                        <label class="block"><span class="text-gray-600">专精 *</span>
-                                            <select name="spec" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                                                <option value="arms">arms</option><option value="fury">fury</option><option value="protection">protection</option>
-                                                <option value="havoc">havoc</option><option value="vengeance">vengeance</option>
-                                                <option value="balance">balance</option><option value="feral">feral</option><option value="guardian">guardian</option><option value="restoration_druid">restoration (druid)</option>
-                                                <option value="devastation">devastation</option><option value="preservation">preservation</option><option value="augmentation">augmentation</option>
-                                                <option value="beast_mastery">beast_mastery</option><option value="marksmanship">marksmanship</option><option value="survival">survival</option>
-                                                <option value="arcane">arcane</option><option value="fire">fire</option><option value="frost_mage">frost (mage)</option>
-                                                <option value="brewmaster">brewmaster</option><option value="mistweaver">mistweaver</option><option value="windwalker">windwalker</option>
-                                                <option value="holy_paladin">holy (paladin)</option><option value="discipline">discipline</option><option value="shadow">shadow</option>
-                                                <option value="retribution">retribution</option>
-                                                <option value="assassination">assassination</option><option value="outlaw">outlaw</option><option value="subtlety">subtlety</option>
-                                                <option value="elemental">elemental</option><option value="enhancement">enhancement</option><option value="restoration_shaman">restoration (shaman)</option>
-                                                <option value="affliction">affliction</option><option value="demonology">demonology</option><option value="destruction">destruction</option>
-                                                <option value="blood">blood</option><option value="frost_dk">frost (dk)</option><option value="unholy">unholy</option>
+                                        <label class="block"><span class="text-gray-600">职业 *</span>
+                                            <select name="class_name" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                                <option value="death_knight">death_knight</option><option value="demon_hunter">demon_hunter</option><option value="druid">druid</option>
+                                                <option value="evoker">evoker</option><option value="hunter">hunter</option><option value="mage">mage</option>
+                                                <option value="monk">monk</option><option value="paladin">paladin</option><option value="priest">priest</option>
+                                                <option value="rogue">rogue</option><option value="shaman">shaman</option><option value="warlock">warlock</option><option value="warrior">warrior</option>
                                             </select>
                                         </label>
                                         <label class="block"><span class="text-gray-600">暴击/%</span><input name="crit_per_percent" type="number" step="0.1" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="如 46"></label>
                                         <label class="block"><span class="text-gray-600">急速/%</span><input name="haste_per_percent" type="number" step="0.1" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="如 44"></label>
                                         <label class="block"><span class="text-gray-600">精通/%</span><input name="mastery_per_percent" type="number" step="0.1" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="如 46"></label>
-                                        <label class="block"><span class="text-gray-600">精通系数</span><input name="mastery_coefficient" type="number" step="0.01" value="1.4" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">全能/%</span><input name="versatility_per_percent" type="number" step="0.1" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="如 54"></label>
-                                        <label class="block col-span-2"><span class="text-gray-600">说明</span><input name="notes" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="可选备注"></label>
                                     </div>
                                     <div class="flex items-center gap-2 mt-3">
                                         <button type="button" onclick="simcWbSaveRule()" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
@@ -1107,10 +1111,10 @@
                                         <thead class="bg-gray-50">
                                             <tr>
                                                 <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">编号</th>
-                                                <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">属性名</th>
-                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">每等级转换</th>
-                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">装备等级系数</th>
-                                                <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">说明</th>
+                                                <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">职业</th>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">每 1% 所需绿字</th>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">口径</th>
+                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">操作</th>
                                             </tr>
                                         </thead>
                                         <tbody id="simc-wb-rules-list" class="divide-y divide-gray-100">

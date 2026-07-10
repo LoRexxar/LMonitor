@@ -398,10 +398,12 @@ class DashboardView(View):
                 elif table_name == 'SimcProfile':
                     queryset = model.objects.values(
                         'id', 'name', 'spec',
+                        'player_config_mode', 'battlenet_region', 'battlenet_realm',
+                        'battlenet_character', 'player_equipment',
                         'talent', 'gear_strength', 'gear_crit',
                         'gear_haste', 'gear_mastery', 'gear_versatility', 'is_active'
                     ).filter(is_active=True).order_by('-id')
-                    queryset = apply_search_filter(queryset, ['name', 'spec', 'talent'])
+                    queryset = apply_search_filter(queryset, ['name', 'spec', 'talent', 'battlenet_realm', 'battlenet_character', 'player_equipment'])
                     if simc_spec_filter:
                         queryset = queryset.filter(spec__icontains=simc_spec_filter)
                     total_count = queryset.count()

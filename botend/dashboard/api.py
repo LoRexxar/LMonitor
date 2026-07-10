@@ -1815,6 +1815,11 @@ class SimcProfileAPIView(View):
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
+                        'player_config_mode': getattr(profile, 'player_config_mode', 'battlenet') or 'battlenet',
+                        'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
+                        'battlenet_realm': getattr(profile, 'battlenet_realm', '') or '',
+                        'battlenet_character': getattr(profile, 'battlenet_character', '') or '',
+                        'player_equipment': getattr(profile, 'player_equipment', '') or '',
                         'talent': profile.talent,
                         'gear_strength': profile.gear_strength,
                         'gear_crit': profile.gear_crit,
@@ -1842,6 +1847,11 @@ class SimcProfileAPIView(View):
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
+                        'player_config_mode': getattr(profile, 'player_config_mode', 'battlenet') or 'battlenet',
+                        'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
+                        'battlenet_realm': getattr(profile, 'battlenet_realm', '') or '',
+                        'battlenet_character': getattr(profile, 'battlenet_character', '') or '',
+                        'player_equipment': getattr(profile, 'player_equipment', '') or '',
                         'talent': profile.talent,
                         'gear_strength': profile.gear_strength,
                         'gear_crit': profile.gear_crit,
@@ -1952,6 +1962,11 @@ class SimcProfileAPIView(View):
                         user_id=request.user.id,
                         name=name,
                         spec=source_profile.spec,
+                        player_config_mode=getattr(source_profile, 'player_config_mode', 'battlenet') or 'battlenet',
+                        battlenet_region=getattr(source_profile, 'battlenet_region', '') or '',
+                        battlenet_realm=getattr(source_profile, 'battlenet_realm', '') or '',
+                        battlenet_character=getattr(source_profile, 'battlenet_character', '') or '',
+                        player_equipment=getattr(source_profile, 'player_equipment', '') or '',
                         talent=source_profile.talent,
                         gear_strength=source_profile.gear_strength,
                         gear_crit=source_profile.gear_crit,
@@ -2005,6 +2020,11 @@ class SimcProfileAPIView(View):
                     user_id=request.user.id,
                     name=name,
                     spec=(str(data.get('spec') or 'fury').strip().lower() or 'fury'),
+                    player_config_mode=(str(data.get('player_config_mode') or data.get('player_import_mode') or 'battlenet').strip() or 'battlenet'),
+                    battlenet_region=str(data.get('battlenet_region') or '').strip(),
+                    battlenet_realm=str(data.get('battlenet_realm') or '').strip(),
+                    battlenet_character=str(data.get('battlenet_character') or '').strip(),
+                    player_equipment=data.get('player_equipment') or '',
                     talent=data.get('talent', ''),
                     gear_strength=data.get('gear_strength', 93330),
                     gear_crit=data.get('gear_crit', 10730),
@@ -2174,9 +2194,14 @@ class SimcProfileAPIView(View):
                     'error': '配置名称已存在'
                 })
             
-            # 更新配置（只保留 spec + talent + gear stats）
+            # 更新配置（玩家配置来源 + spec/talent + gear stats）
             profile.name = name
             profile.spec = str(data.get('spec', profile.spec) or 'fury').strip().lower() or 'fury'
+            profile.player_config_mode = str(data.get('player_config_mode') or data.get('player_import_mode') or profile.player_config_mode or 'battlenet').strip() or 'battlenet'
+            profile.battlenet_region = str(data.get('battlenet_region') or '').strip()
+            profile.battlenet_realm = str(data.get('battlenet_realm') or '').strip()
+            profile.battlenet_character = str(data.get('battlenet_character') or '').strip()
+            profile.player_equipment = data.get('player_equipment') or ''
             profile.talent = data.get('talent', profile.talent)
             profile.gear_strength = data.get('gear_strength', profile.gear_strength)
             profile.gear_crit = data.get('gear_crit', profile.gear_crit)
@@ -2306,30 +2331,22 @@ class SimcAplCandidatesAPIView(View):
     def get(self, request):
         """获取指定专精的APL候选列表"""
         try:
-            spec = (request.GET.get('spec') or '').strip().lower()
-            if not spec:
+            raw_spec = (request.GET.get('spec') or '').strip().lower()
+            raw_class = (request.GET.get('class_name') or request.GET.get('class') or '').strip().lower()
+            if not raw_spec:
                 return JsonResponse({'success': False, 'error': 'spec参数不能为空'})
 
-            from botend.models import SimcContentTemplate
-            # 先按 endswith 匹配（fury → warrior_fury），再按精确匹配
-            apls = list(SimcContentTemplate.objects.filter(
-                is_active=True,
-                template_type__in=['default_apl', 'custom_apl'],
-                spec__endswith=f'_{spec}'
-            ).order_by('template_type', 'id'))
-            if not apls:
-                apls = list(SimcContentTemplate.objects.filter(
-                    is_active=True,
-                    template_type__in=['default_apl', 'custom_apl'],
-                    spec=spec
-                ).order_by('template_type', 'id'))
+            spec_token = _normalize_simc_token(raw_spec)
+            class_token = WOW_SIMC_CLASS_ALIASES.get(_normalize_simc_token(raw_class), _normalize_simc_token(raw_class))
+            spec_key = spec_token
+            if class_token and '_' not in spec_token:
+                spec_key = f'{class_token}_{spec_token}'
 
-            data = [{
-                'id': a.id,
-                'name': a.name,
-                'spec': a.spec,
-                'template_type': a.template_type,
-            } for a in apls]
+            data = _list_selectable_apl_for_spec(
+                spec_key=spec_key,
+                class_name=class_token,
+                spec=spec_token,
+            )
             return JsonResponse({'success': True, 'data': data})
         except Exception as e:
             return JsonResponse({'success': False, 'error': str(e)})
