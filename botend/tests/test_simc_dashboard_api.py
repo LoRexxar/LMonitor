@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
 from botend.dashboard.api import inspect_raw_simc_code
-from botend.models import SimcContentTemplate, SimcTask
+from botend.models import SimcContentTemplate, SimcTask, WowItemSnapshot
 
 
 class SimcRawInspectTests(TestCase):
@@ -363,6 +363,82 @@ class SimcPreviewTests(TestCase):
         self.assertIn('head=,id=212048', payload['data']['simc_code'])
         self.assertEqual(payload['data']['player_preview'], 'talents=TEST\nhead=,id=212048')
         self.assertEqual(SimcTask.objects.count(), 0)
+
+    def test_preview_returns_structured_manual_player_detail_with_items_and_stats(self):
+        WowItemSnapshot.objects.create(item_id=212048, name='Helm of Tests', name_zh='测试头盔', icon='inv_helmet_01')
+        WowItemSnapshot.objects.create(item_id=71543, name='Swift Enchant', name_zh='迅捷附魔')
+        WowItemSnapshot.objects.create(item_id=213479, name='Test Gem', name_zh='测试宝石')
+        from botend.models import SimcSecondaryStatRule
+        SimcSecondaryStatRule.objects.update_or_create(
+            class_name='warrior',
+            defaults={
+                'crit_per_percent': 46, 'haste_per_percent': 44,
+                'mastery_per_percent': 46, 'versatility_per_percent': 54,
+            },
+        )
+        response = self.client.post(
+            '/api/simc-preview/',
+            data=json.dumps({
+                'spec': 'fury',
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': '\n'.join([
+                    'warrior="Previewer"',
+                    'level=80',
+                    'race=orc',
+                    'spec=fury',
+                    'talents=BUILDCODE',
+                    'head=,id=212048,ilevel=639,enchant_id=71543,gems=213479/213480',
+                    'main_hand=,id=224638,ilevel=646',
+                    'crit_rating=10730',
+                    'haste_rating=18641',
+                    'mastery_rating=21785',
+                    'versatility_rating=6757',
+                ]),
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        detail = payload['data']['player_detail']
+        self.assertEqual(detail['source']['type'], 'manual_equipment')
+        self.assertEqual(detail['identity']['name'], 'Previewer')
+        self.assertEqual(detail['identity']['race'], 'orc')
+        self.assertEqual(detail['talents']['build_code'], 'BUILDCODE')
+        self.assertEqual(detail['equipment'][0]['slot'], 'head')
+        self.assertEqual(detail['equipment'][0]['display_name'], '测试头盔')
+        self.assertEqual(detail['equipment'][0]['item_level'], 639)
+        self.assertEqual(detail['equipment'][0]['enchant']['display_name'], '迅捷附魔')
+        self.assertEqual(detail['equipment'][0]['gems'][0]['display_name'], '测试宝石')
+        self.assertEqual(detail['stats']['secondary']['crit']['rating'], 10730)
+        self.assertAlmostEqual(detail['stats']['secondary']['crit']['percent'], 233.26, places=2)
+        self.assertEqual(SimcTask.objects.count(), 0)
+
+    def test_preview_returns_battlenet_identity_and_explicit_missing_detail(self):
+        response = self.client.post(
+            '/api/simc-preview/',
+            data=json.dumps({
+                'spec': 'fury',
+                'player_import_mode': 'battlenet',
+                'battlenet_region': 'EU',
+                'battlenet_realm': 'Kazzak',
+                'battlenet_character': 'Bloodmastêr',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        detail = payload['data']['player_detail']
+        self.assertEqual(detail['source']['type'], 'battlenet')
+        self.assertEqual(detail['identity']['region'], 'eu')
+        self.assertEqual(detail['identity']['realm'], 'Kazzak')
+        self.assertEqual(detail['identity']['name'], 'Bloodmastêr')
+        self.assertEqual(detail['equipment'], [])
+        self.assertTrue(detail['missing_fields'])
+        self.assertIn('未保存角色装备快照', detail['missing_fields'][0])
 
     def test_preview_rejects_incomplete_battlenet_configuration(self):
         response = self.client.post(

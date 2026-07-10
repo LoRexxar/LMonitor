@@ -1222,11 +1222,21 @@ class SimcPreviewAPIView(View):
                 f'armory={battlenet_region},{battlenet_realm},{battlenet_character}'
                 if mode == 'battlenet' else player_equipment
             )
+            from botend.services.simc_player_config import build_player_config_detail
+            player_detail = build_player_config_detail(
+                mode=mode,
+                spec=spec,
+                player_equipment=player_equipment,
+                battlenet_region=battlenet_region,
+                battlenet_realm=battlenet_realm,
+                battlenet_character=battlenet_character,
+            )
             return JsonResponse({
                 'success': True,
                 'data': {
                     'simc_code': simc_code,
                     'player_preview': player_preview,
+                    'player_detail': player_detail,
                     'player_import_mode': mode,
                     'template_name': template_obj.name or template_obj.spec or '',
                     'apl_name': apl_name,

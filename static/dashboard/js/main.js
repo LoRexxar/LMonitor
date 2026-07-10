@@ -2534,6 +2534,34 @@ function onSimcProfileSelect() {
     // 已保存配置只在右侧做只读展示，任务输入只允许 Battle.net 或手动装备块。
 }
 
+function renderSimcPlayerDetail(detail) {
+    const container = document.getElementById('simc-sim-player-detail');
+    if (!container) return;
+    if (!detail) { container.textContent = '暂无可展示的玩家配置。'; return; }
+    const identity = detail.identity || {};
+    const talents = detail.talents || {};
+    const stats = detail.stats || {};
+    const source = detail.source || {};
+    const esc = value => escapeHtml(String(value == null || value === '' ? '-' : value));
+    const secondaryLabels = { crit: '暴击', haste: '急速', mastery: '精通', versatility: '全能' };
+    const secondaryRows = Object.entries(stats.secondary || {}).map(([key, stat]) =>
+        `<div class="rounded bg-white/80 border border-emerald-100 px-2 py-1"><span class="text-gray-500">${secondaryLabels[key] || key}</span> <b class="text-gray-800">${esc(stat.rating)}</b> <span class="text-gray-500">绿字${stat.percent == null ? '' : ' / ' + esc(stat.percent) + '%'}</span></div>`
+    ).join('') || '<span class="text-gray-400">未提供副属性绿字</span>';
+    const equipment = (detail.equipment || []).map(item => {
+        const ench = item.enchant ? `<div class="text-[11px] text-violet-700">附魔：${esc(item.enchant.display_name)}</div>` : '';
+        const gems = (item.gems || []).length ? `<div class="text-[11px] text-cyan-700">宝石：${item.gems.map(g => esc(g.display_name)).join('、')}</div>` : '';
+        const name = item.wowhead_url ? `<a class="text-blue-700 hover:underline" target="_blank" rel="noopener" href="${esc(item.wowhead_url)}">${esc(item.display_name)}</a>` : esc(item.display_name);
+        return `<div class="rounded-lg bg-white border border-emerald-100 p-2"><div class="text-[11px] text-gray-500">${esc(item.slot_label)}</div><div class="font-medium text-gray-800">${name} <span class="text-xs text-gray-400">${item.item_level ? 'ilvl ' + esc(item.item_level) : '#' + esc(item.id)}</span></div>${ench}${gems}</div>`;
+    }).join('') || '<div class="text-gray-400">未解析到装备槽位。</div>';
+    const missing = (detail.missing_fields || []).map(text => `<li>${esc(text)}</li>`).join('');
+    container.innerHTML = `
+        <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 mb-3"><span>来源：<b>${esc(source.label)}</b></span><span>角色：<b>${esc(identity.name)}</b></span><span>职业/专精：<b>${esc(identity.class_name)} / ${esc(identity.spec)}</b></span>${identity.race ? `<span>种族：<b>${esc(identity.race)}</b></span>` : ''}${identity.level ? `<span>等级：<b>${esc(identity.level)}</b></span>` : ''}${identity.region ? `<span>地区/服务器：<b>${esc(identity.region)} / ${esc(identity.realm)}</b></span>` : ''}</div>
+        <div class="grid md:grid-cols-2 gap-3 mb-3"><div class="rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500">天赋构筑码</div><div class="font-mono text-xs break-all text-gray-800">${esc(talents.build_code)}</div></div><div class="rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500 mb-1">主属性</div><div class="text-xs text-gray-700">${Object.entries(stats.primary || {}).map(([key, value]) => esc(key) + ' ' + esc(value)).join(' · ') || '未提供'}</div></div></div>
+        <div class="mb-3"><div class="text-xs text-gray-500 mb-1">副属性（rating / 按规则换算百分比）</div><div class="grid grid-cols-2 gap-2 text-xs">${secondaryRows}</div></div>
+        <div><div class="text-xs text-gray-500 mb-1">装备、附魔与宝石</div><div class="grid md:grid-cols-2 gap-2">${equipment}</div></div>
+        ${missing ? `<ul class="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 list-disc list-inside">${missing}</ul>` : ''}`;
+}
+
 async function previewSimcConfiguration() {
     const previewBtn = document.getElementById('simc-sim-preview-btn');
     const previewCode = document.getElementById('simc-sim-preview-code');
@@ -2578,6 +2606,7 @@ async function previewSimcConfiguration() {
         const payload = await resp.json();
         if (!resp.ok || !payload.success) throw new Error(payload.error || payload.message || '预览失败');
         const result = payload.data || {};
+        renderSimcPlayerDetail(result.player_detail);
         previewCode.textContent = result.simc_code || '';
         if (previewHint) previewHint.textContent = `已按实际任务模板渲染，共 ${result.line_count || 0} 行；不会创建任务或执行 SimC。`;
         if (previewSummary) {
