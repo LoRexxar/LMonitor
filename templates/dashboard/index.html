@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260710_simc_player_export_detail" defer></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260710-simc-attribute-only"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -890,6 +890,10 @@
                                                     <input type="radio" name="simc-player-import-mode" value="manual_equipment" onchange="switchSimcPlayerImportMode('manual_equipment')" class="h-4 w-4 text-blue-600 border-gray-300">
                                                     <span class="text-sm text-gray-700">手动输入装备配置</span>
                                                 </label>
+                                                <label class="flex items-center gap-2 cursor-pointer">
+                                                    <input type="radio" name="simc-player-import-mode" value="attribute_only" onchange="switchSimcPlayerImportMode('attribute_only')" class="h-4 w-4 text-blue-600 border-gray-300">
+                                                    <span class="text-sm text-gray-700">仅天赋与绿字属性</span>
+                                                </label>
                                             </div>
 
                                             <!-- 模式A: Battle.net 角色导入 -->
@@ -1045,6 +1049,7 @@
                                             <select name="player_config_mode" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                                                 <option value="battlenet">Battle.net 角色拉取</option>
                                                 <option value="manual_equipment">手动装备配置</option>
+                                                <option value="attribute_only">仅天赋与绿字属性（无装备）</option>
                                             </select>
                                         </label>
                                         <label class="block" data-profile-mode-section="battlenet"><span class="text-gray-600">地区</span><input name="battlenet_region" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="cn/eu/us"></label>

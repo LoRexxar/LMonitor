@@ -187,7 +187,8 @@ def parse_manual_player_config(player_equipment, spec):
     return parsed
 
 
-def build_player_config_detail(mode, spec, player_equipment='', battlenet_region='', battlenet_realm='', battlenet_character=''):
+def build_player_config_detail(mode, spec, player_equipment='', battlenet_region='', battlenet_realm='', battlenet_character='',
+                               talent='', gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None):
     """Return a serializable player detail object without any external request."""
     mode = 'manual_equipment' if mode == 'equipment' else mode
     if mode == 'battlenet':
@@ -197,6 +198,34 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
                          'region': battlenet_region, 'realm': battlenet_realm},
             'talents': {'build_code': ''}, 'equipment': [], 'stats': {'primary': {}, 'secondary': {}}, 'raw_fields': {},
             'missing_fields': ['未保存角色装备快照；预览不会访问 Battle.net。请导入完整角色配置后查看装备、天赋和属性。'],
+        }
+
+    if mode == 'attribute_only':
+        class_name = SPEC_CLASS.get(spec, '')
+        rule = SimcSecondaryStatRule.objects.filter(class_name=class_name).first()
+        mastery = SimcMasteryCoefficient.objects.filter(spec=spec).first()
+        conversion = {
+            'crit': getattr(rule, 'crit_per_percent', None),
+            'haste': getattr(rule, 'haste_per_percent', None),
+            'mastery': getattr(rule, 'mastery_per_percent', None),
+            'versatility': getattr(rule, 'versatility_per_percent', None),
+        }
+        ratings = {
+            'crit': _number(gear_crit), 'haste': _number(gear_haste),
+            'mastery': _number(gear_mastery), 'versatility': _number(gear_versatility),
+        }
+        mastery_coefficient = getattr(mastery, 'mastery_coefficient', 1) or 1
+        return {
+            'source': {'type': 'attribute_only', 'label': '仅天赋与绿字属性配置'},
+            'identity': {'name': '', 'class_name': class_name, 'spec': spec, 'race': '', 'level': None,
+                         'region': '', 'realm': ''},
+            'talents': {'build_code': talent or ''}, 'equipment': [], 'stats': {
+                'primary': {}, 'secondary': {
+                    stat: _secondary_stat_detail(rating, conversion.get(stat), mastery_coefficient if stat == 'mastery' else 1)
+                    for stat, rating in ratings.items()
+                },
+            }, 'raw_fields': {},
+            'missing_fields': ['未提供玩家身份与装备；该配置只保存天赋和绿字属性。'],
         }
 
     detail = parse_manual_player_config(player_equipment, spec)

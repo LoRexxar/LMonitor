@@ -1657,10 +1657,12 @@ function loadSimcWorkbenchProfiles(page) {
             const id = row.id || 0;
             const name = escapeHtml(row.name || '-');
             const spec = row.spec || '';
-            const mode = row.player_config_mode || row.player_import_mode || 'battlenet';
+            const mode = (typeof getSimcProfileMode === 'function') ? getSimcProfileMode(row) : (row.player_config_mode || row.player_import_mode || 'battlenet');
             const sourceText = mode === 'manual_equipment'
                 ? ('手动配置 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : ''))
-                : ('Battle.net ' + [row.battlenet_region, row.battlenet_realm, row.battlenet_character].filter(Boolean).join('/'));
+                : mode === 'attribute_only'
+                    ? '仅天赋与绿字属性（无装备）'
+                    : ('Battle.net ' + [row.battlenet_region, row.battlenet_realm, row.battlenet_character].filter(Boolean).join('/'));
             const sourceTitle = escapeHtml(sourceText || '-');
             const offset = (page - 1) * 20 + idx + 1;
             return `<tr class="hover:bg-gray-50 border-b border-gray-100">
@@ -1928,6 +1930,8 @@ function renderSimcWbPagination(containerId, currentPage, totalPages, loadFn) {
 /* ===== SimC 工具台 — 内联 CRUD ===== */
 let simcWbProfileFormMode = 'create'; // 'create' | 'edit'
 let simcWbProfileFormEditId = null;
+// 属性型配置没有玩家块；载入后在本地保留其天赋和绿字，供预览/任务提交使用。
+let simcWbAttributeOnlyConfig = null;
 let simcWbRuleFormMode = 'create';
 let simcWbRuleFormEditId = null;
 
@@ -1951,13 +1955,15 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="gear_haste"]').value = '20141';
         formWrap.querySelector('input[name="gear_mastery"]').value = '21785';
         formWrap.querySelector('input[name="gear_versatility"]').value = '7257';
+        simcWbAttributeOnlyConfig = null;
     } else {
         simcWbProfileFormEditId = profileData.id;
         formWrap.querySelector('.simc-wb-form-title').textContent = '编辑配置 #' + profileData.id;
         formWrap.querySelector('input[name="name"]').value = profileData.name || '';
         const specSel = formWrap.querySelector('select[name="spec"]');
         specSel.value = profileData.spec || 'fury';
-        formWrap.querySelector('select[name="player_config_mode"]').value = profileData.player_config_mode || profileData.player_import_mode || 'battlenet';
+        const profileMode = getSimcProfileMode(profileData);
+        formWrap.querySelector('select[name="player_config_mode"]').value = profileMode;
         formWrap.querySelector('input[name="battlenet_region"]').value = profileData.battlenet_region || '';
         formWrap.querySelector('input[name="battlenet_realm"]').value = profileData.battlenet_realm || '';
         formWrap.querySelector('input[name="battlenet_character"]').value = profileData.battlenet_character || '';
@@ -2091,9 +2097,14 @@ async function simcWbLoadProfileToSimulator(id) {
             specEl.value = normalizeSimcSpecKey(profile.spec || '');
             specEl.dispatchEvent(new Event('change'));
         }
-        const mode = profile.player_config_mode || profile.player_import_mode || 'battlenet';
+        const mode = getSimcProfileMode(profile);
         document.querySelectorAll('input[name="simc-player-import-mode"]').forEach(r => { r.checked = r.value === mode; });
         if (typeof switchSimcPlayerImportMode === 'function') switchSimcPlayerImportMode(mode);
+        simcWbAttributeOnlyConfig = mode === 'attribute_only' ? {
+            talent: profile.talent || '', gear_crit: Number(profile.gear_crit || 0),
+            gear_haste: Number(profile.gear_haste || 0), gear_mastery: Number(profile.gear_mastery || 0),
+            gear_versatility: Number(profile.gear_versatility || 0), profile_id: profile.id,
+        } : null;
         const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
         setVal('simc-sim-battlenet-region', profile.battlenet_region || 'eu');
         setVal('simc-sim-battlenet-realm', profile.battlenet_realm || '');
@@ -2115,20 +2126,24 @@ async function simcWbSaveCurrentSimulatorProfile() {
     const mode = document.querySelector('input[name="simc-player-import-mode"]:checked')?.value || 'battlenet';
     const name = prompt('配置名称', spec + '-' + (mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-character')?.value || 'profile') : 'manual'));
     if (!name) return;
+    const attributeConfig = mode === 'attribute_only' ? simcWbAttributeOnlyConfig : null;
+    if (mode === 'attribute_only' && !attributeConfig) {
+        showMessage('请先加载仅天赋与绿字属性配置后再保存', 'error'); return;
+    }
     const payload = {
         name: name.trim(),
         spec: spec,
         player_config_mode: mode,
         player_import_mode: mode,
-        battlenet_region: (document.getElementById('simc-sim-battlenet-region')?.value || '').trim(),
-        battlenet_realm: (document.getElementById('simc-sim-battlenet-realm')?.value || '').trim(),
-        battlenet_character: (document.getElementById('simc-sim-battlenet-character')?.value || '').trim(),
-        player_equipment: document.getElementById('simc-sim-equipment')?.value || '',
-        talent: '',
-        gear_crit: 0,
-        gear_haste: 0,
-        gear_mastery: 0,
-        gear_versatility: 0,
+        battlenet_region: mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-region')?.value || '').trim() : '',
+        battlenet_realm: mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-realm')?.value || '').trim() : '',
+        battlenet_character: mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-character')?.value || '').trim() : '',
+        player_equipment: mode === 'manual_equipment' ? (document.getElementById('simc-sim-equipment')?.value || '') : '',
+        talent: attributeConfig?.talent || '',
+        gear_crit: attributeConfig?.gear_crit || 0,
+        gear_haste: attributeConfig?.gear_haste || 0,
+        gear_mastery: attributeConfig?.gear_mastery || 0,
+        gear_versatility: attributeConfig?.gear_versatility || 0,
     };
     if (mode === 'battlenet' && (!payload.battlenet_region || !payload.battlenet_realm || !payload.battlenet_character)) {
         showMessage('Battle.net 配置需要填写地区、服务器和角色名', 'error'); return;
@@ -2362,9 +2377,9 @@ function switchSimcPlayerImportMode(mode) {
 }
 
 function switchSimcPlayerConfigMode(mode) {
-    // 兼容旧入口：旧 equipment 视为手动装备，新工作台不再支持 stats/profile 作为发起任务来源。
+    // 兼容旧入口：旧 equipment 视为手动装备。
     if (mode === 'equipment') mode = 'manual_equipment';
-    if (mode === 'battlenet' || mode === 'manual_equipment') {
+    if (mode === 'battlenet' || mode === 'manual_equipment' || mode === 'attribute_only') {
         switchSimcPlayerImportMode(mode);
         return;
     }
@@ -2502,10 +2517,12 @@ async function loadSimcSimSavedProfiles() {
             return;
         }
         container.innerHTML = profiles.map(p => {
-            const mode = p.player_config_mode || p.player_import_mode || 'battlenet';
+            const mode = getSimcProfileMode(p);
             const source = mode === 'manual_equipment'
                 ? ('手动配置 ' + (p.player_equipment ? String(p.player_equipment).split('\n').filter(Boolean).length + ' 行' : ''))
-                : ('Battle.net ' + [p.battlenet_region, p.battlenet_realm, p.battlenet_character].filter(Boolean).join('/'));
+                : mode === 'attribute_only'
+                    ? '仅天赋与绿字属性（无装备）'
+                    : ('Battle.net ' + [p.battlenet_region, p.battlenet_realm, p.battlenet_character].filter(Boolean).join('/'));
             const spec = normalizeSimcSpecKey(p.spec || '');
             const className = getSimcSpecClass(p.spec || '');
             return `
@@ -2529,9 +2546,16 @@ function refreshSimcSavedProfiles() {
     return loadSimcSimSavedProfiles();
 }
 
+function getSimcProfileMode(profile) {
+    const storedMode = profile.player_config_mode || profile.player_import_mode || '';
+    if (storedMode) return storedMode;
+    if (profile.player_equipment) return 'manual_equipment';
+    if (profile.battlenet_region || profile.battlenet_realm || profile.battlenet_character) return 'battlenet';
+    return 'attribute_only';
+}
+
 function onSimcProfileSelect() {
-    // 新版发起模拟不再支持“已保存配置/绿字属性”作为玩家信息来源；
-    // 已保存配置只在右侧做只读展示，任务输入只允许 Battle.net 或手动装备块。
+    // 已保存配置由右侧列表载入，具体回填由 simcWbLoadProfileToSimulator 处理。
 }
 
 function renderSimcPlayerDetail(detail) {
@@ -2588,6 +2612,10 @@ async function previewSimcConfiguration() {
     if (mode === 'manual_equipment') {
         requestBody.player_equipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
         if (!requestBody.player_equipment) { showMessage('请粘贴玩家装备/天赋信息块', 'warning'); return; }
+    } else if (mode === 'attribute_only') {
+        const config = simcWbAttributeOnlyConfig;
+        if (!config) { showMessage('请从已保存配置加载仅天赋与绿字属性配置', 'warning'); return; }
+        Object.assign(requestBody, config);
     } else {
         requestBody.battlenet_region = ((document.getElementById('simc-sim-battlenet-region') || {}).value || '').trim();
         requestBody.battlenet_realm = ((document.getElementById('simc-sim-battlenet-realm') || {}).value || '').trim();
@@ -2654,6 +2682,10 @@ async function createSimcSimulationTask() {
             const equipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
             if (!equipment) { showMessage('请粘贴玩家装备/天赋信息块', 'warning'); return; }
             requestBody.player_equipment = equipment;
+        } else if (mode === 'attribute_only') {
+            const config = simcWbAttributeOnlyConfig;
+            if (!config) { showMessage('请从已保存配置加载仅天赋与绿字属性配置', 'warning'); return; }
+            Object.assign(requestBody, config);
         } else if (mode === 'battlenet') {
             const region = ((document.getElementById('simc-sim-battlenet-region') || {}).value || '').trim();
             const realm = ((document.getElementById('simc-sim-battlenet-realm') || {}).value || '').trim();

@@ -659,11 +659,11 @@ class SimcTaskAPIView(View):
                     'error': '任务名称不能为空'
                 })
             
-            # 验证玩家信息导入方式：新工作台只允许 Battle.net 角色导入或手动装备块
-            if player_config_mode and player_config_mode not in ('battlenet', 'manual_equipment'):
+            # 属性型 Profile 只保存天赋与副属性，不要求角色标识或装备行。
+            if player_config_mode and player_config_mode not in ('battlenet', 'manual_equipment', 'attribute_only'):
                 return JsonResponse({
                     'success': False,
-                    'error': '玩家信息导入方式必须是 battlenet 或 manual_equipment'
+                    'error': '玩家信息导入方式必须是 battlenet、manual_equipment 或 attribute_only'
                 })
             
             if player_config_mode == 'manual_equipment' and not player_equipment:
@@ -1155,8 +1155,8 @@ class SimcPreviewAPIView(View):
             mode = data.get('player_import_mode') or data.get('player_config_mode')
             if mode == 'equipment':
                 mode = 'manual_equipment'
-            if mode not in ('battlenet', 'manual_equipment'):
-                return JsonResponse({'success': False, 'error': '玩家信息导入方式必须是 battlenet 或 manual_equipment'})
+            if mode not in ('battlenet', 'manual_equipment', 'attribute_only'):
+                return JsonResponse({'success': False, 'error': '玩家信息导入方式必须是 battlenet、manual_equipment 或 attribute_only'})
 
             player_equipment = str(data.get('player_equipment') or '').strip()
             battlenet_region = str(data.get('battlenet_region') or '').strip().lower()
@@ -1220,7 +1220,7 @@ class SimcPreviewAPIView(View):
             simc_code = monitor.apply_template(template, task_config)
             player_preview = (
                 f'armory={battlenet_region},{battlenet_realm},{battlenet_character}'
-                if mode == 'battlenet' else player_equipment
+                if mode == 'battlenet' else (player_equipment if mode == 'manual_equipment' else '仅天赋与绿字属性配置')
             )
             from botend.services.simc_player_config import build_player_config_detail
             player_detail = build_player_config_detail(
@@ -1230,6 +1230,9 @@ class SimcPreviewAPIView(View):
                 battlenet_region=battlenet_region,
                 battlenet_realm=battlenet_realm,
                 battlenet_character=battlenet_character,
+                talent=str(data.get('talent') or '').strip(),
+                gear_crit=data.get('gear_crit'), gear_haste=data.get('gear_haste'),
+                gear_mastery=data.get('gear_mastery'), gear_versatility=data.get('gear_versatility'),
             )
             return JsonResponse({
                 'success': True,
@@ -1908,6 +1911,18 @@ class SimcProfileAPIView(View):
     SimC配置管理API
     """
     
+    @staticmethod
+    def _profile_mode(profile):
+        """Infer the legal legacy attribute-only form without rewriting stored data."""
+        mode = (getattr(profile, 'player_config_mode', '') or '').strip()
+        if mode:
+            return mode
+        if getattr(profile, 'player_equipment', '') or any(
+            getattr(profile, field, '') for field in ('battlenet_region', 'battlenet_realm', 'battlenet_character')
+        ):
+            return 'manual_equipment' if getattr(profile, 'player_equipment', '') else 'battlenet'
+        return 'attribute_only'
+
     def get(self, request, profile_id=None):
         """获取SimC配置列表或单个配置"""
         try:
@@ -1925,7 +1940,7 @@ class SimcProfileAPIView(View):
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
-                        'player_config_mode': getattr(profile, 'player_config_mode', 'battlenet') or 'battlenet',
+                        'player_config_mode': self._profile_mode(profile),
                         'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
                         'battlenet_realm': getattr(profile, 'battlenet_realm', '') or '',
                         'battlenet_character': getattr(profile, 'battlenet_character', '') or '',
@@ -1957,7 +1972,7 @@ class SimcProfileAPIView(View):
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
-                        'player_config_mode': getattr(profile, 'player_config_mode', 'battlenet') or 'battlenet',
+                        'player_config_mode': self._profile_mode(profile),
                         'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
                         'battlenet_realm': getattr(profile, 'battlenet_realm', '') or '',
                         'battlenet_character': getattr(profile, 'battlenet_character', '') or '',
@@ -2072,7 +2087,7 @@ class SimcProfileAPIView(View):
                         user_id=request.user.id,
                         name=name,
                         spec=source_profile.spec,
-                        player_config_mode=getattr(source_profile, 'player_config_mode', 'battlenet') or 'battlenet',
+                        player_config_mode=self._profile_mode(source_profile),
                         battlenet_region=getattr(source_profile, 'battlenet_region', '') or '',
                         battlenet_realm=getattr(source_profile, 'battlenet_realm', '') or '',
                         battlenet_character=getattr(source_profile, 'battlenet_character', '') or '',
@@ -2126,11 +2141,15 @@ class SimcProfileAPIView(View):
                     })
             else:
                 # 创建新配置（只保留 spec + talent + gear stats）
+                mode = (data.get('player_config_mode') or data.get('player_import_mode') or '').strip()
+                if mode not in ('battlenet', 'manual_equipment', 'attribute_only'):
+                    return JsonResponse({'success': False, 'error': '玩家信息导入方式必须是 battlenet、manual_equipment 或 attribute_only'})
+
                 profile = SimcProfile.objects.create(
                     user_id=request.user.id,
                     name=name,
                     spec=(str(data.get('spec') or 'fury').strip().lower() or 'fury'),
-                    player_config_mode=(str(data.get('player_config_mode') or data.get('player_import_mode') or 'battlenet').strip() or 'battlenet'),
+                    player_config_mode=mode,
                     battlenet_region=str(data.get('battlenet_region') or '').strip(),
                     battlenet_realm=str(data.get('battlenet_realm') or '').strip(),
                     battlenet_character=str(data.get('battlenet_character') or '').strip(),
@@ -2305,9 +2324,14 @@ class SimcProfileAPIView(View):
                 })
             
             # 更新配置（玩家配置来源 + spec/talent + gear stats）
+            mode = str(data.get('player_config_mode') or data.get('player_import_mode') or self._profile_mode(profile)).strip()
+            if mode == 'equipment':
+                mode = 'manual_equipment'
+            if mode not in ('battlenet', 'manual_equipment', 'attribute_only'):
+                return JsonResponse({'success': False, 'error': '玩家信息导入方式必须是 battlenet、manual_equipment 或 attribute_only'})
             profile.name = name
             profile.spec = str(data.get('spec', profile.spec) or 'fury').strip().lower() or 'fury'
-            profile.player_config_mode = str(data.get('player_config_mode') or data.get('player_import_mode') or profile.player_config_mode or 'battlenet').strip() or 'battlenet'
+            profile.player_config_mode = mode
             profile.battlenet_region = str(data.get('battlenet_region') or '').strip()
             profile.battlenet_realm = str(data.get('battlenet_realm') or '').strip()
             profile.battlenet_character = str(data.get('battlenet_character') or '').strip()

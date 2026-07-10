@@ -1074,6 +1074,21 @@ class SimcMonitor(BaseScan):
             simc_code = simc_code.replace('{gear_haste}', '')
             simc_code = simc_code.replace('{gear_mastery}', '')
             simc_code = simc_code.replace('{gear_versatility}', '')
+        elif player_config_mode == 'attribute_only':
+            # 历史属性型 Profile 只有天赋和副属性，不绑定角色标识或装备行。
+            attribute_lines = []
+            talent = str(task_config.get('talent', '')).strip()
+            if talent:
+                attribute_lines.append(f'talents={talent}')
+            for field in ('crit', 'haste', 'mastery', 'versatility'):
+                value = task_config.get(f'gear_{field}')
+                if value not in (None, ''):
+                    attribute_lines.append(f'{field}_rating={value}')
+            simc_code = simc_code.replace('{player_config}', '\n'.join(attribute_lines))
+            simc_code = simc_code.replace('{gear_crit}', '')
+            simc_code = simc_code.replace('{gear_haste}', '')
+            simc_code = simc_code.replace('{gear_mastery}', '')
+            simc_code = simc_code.replace('{gear_versatility}', '')
         else:
             raise ValueError(f'不支持的玩家信息导入方式: {player_config_mode}')
         
