@@ -525,9 +525,33 @@ class SimcMonitor(BaseScan):
             self.mark_task_failed(simc_task, "常规模拟执行异常", e)
             return False
     
+    MAX_ATTRIBUTE_TEST_POINTS = 25
+
+    def build_attribute_test_points(self, total_value, base_value, requested_step):
+        """Bound legacy two-stat scans while preserving endpoints and the real baseline."""
+        try:
+            total = max(0, int(total_value))
+            baseline = min(total, max(0, int(base_value)))
+            step = max(1, int(requested_step))
+        except (TypeError, ValueError):
+            total, baseline, step = 0, 0, 50
+        if total == 0:
+            return [0]
+        requested = list(range(0, total + 1, step))
+        if requested[-1] != total:
+            requested.append(total)
+        if len(requested) <= self.MAX_ATTRIBUTE_TEST_POINTS:
+            return sorted(set(requested + [baseline]))
+        intervals = self.MAX_ATTRIBUTE_TEST_POINTS - 1
+        grid = [round(total * index / intervals) for index in range(intervals + 1)]
+        # Keep the original allocation on the curve, replacing the nearest grid point
+        # so the hard cap still applies.
+        nearest = min(range(1, len(grid) - 1), key=lambda index: abs(grid[index] - baseline))
+        grid[nearest] = baseline
+        return sorted(set(grid))
+
     def process_attribute_simulation(self, simc_task, simc_profile):
         """
-        处理属性模拟任务
         :param simc_task: SimcTask对象
         :param simc_profile: SimcProfile对象
         :return: 执行是否成功
@@ -563,11 +587,12 @@ class SimcMonitor(BaseScan):
             result_files = []
             stage = 0
             
-            # 以可配置步长进行分配模拟，从attr1=0到attr1=total_value
-            # 生成所有需要测试的步长点，确保包含0和total_value
-            test_points = list(range(0, total_value, step_size))
-            if total_value not in test_points:
-                test_points.append(total_value)
+            # Keep the endpoints and equipped allocation, but cap dense legacy scans.
+            test_points = self.build_attribute_test_points(total_value, attr1_base, step_size)
+            logger.info(
+                f"[SimC Monitor] Attribute task {simc_task.id}: {len(test_points)} points "
+                f"(requested step={step_size}, cap={self.MAX_ATTRIBUTE_TEST_POINTS})"
+            )
             
             for attr1_value in test_points:
                 attr2_value = total_value - attr1_value

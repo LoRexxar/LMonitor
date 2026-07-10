@@ -33,7 +33,7 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcProfile, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
 from botend.alerting import upsert_system_alert
-from django.db import models
+from django.db import models, transaction
 from core.glm import GLMClient
 from botend.monitor_env import is_task_runnable, env_limit_hint
 from botend.wow_daily_report.generator import generate_wow_daily_report
@@ -1139,6 +1139,343 @@ class SimcTaskAPIView(View):
         if step_value not in (None, ''):
             payload['attribute_step'] = max(1, int(step_value))
         return json.dumps(payload, ensure_ascii=False)
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class SimcBatchTaskAPIView(View):
+    """Create a small, self-describing regular-task comparison batch."""
+    MAX_TASKS = 8
+    ATTRIBUTE_STATS = ('crit', 'haste', 'mastery', 'versatility')
+    MAX_ATTRIBUTE_SEARCH_ROUNDS = 20
+    DEFAULT_MIN_ATTRIBUTE_STEP = 50
+
+    @staticmethod
+    def _int(value, field):
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f'{field}必须是整数')
+        if value < 0:
+            raise ValueError(f'{field}不能小于0')
+        return value
+
+    @classmethod
+    def _attribute_variants(cls, values, step, round_number=1, mark_base=True):
+        """Return the first bounded neighborhood for four-stat coordinate search.
+
+        All candidates preserve the total secondary-rating budget. Each batch has a
+        baseline plus up to six legal one-coordinate transfers: enough to test every
+        stat as a source and target without falling back to an arbitrary two-stat pair.
+        The compare endpoint can use the winning point as the centre of a smaller next
+        round, so this is an optimizer's search neighborhood rather than a claim that
+        one static batch can analytically know SimC's nonlinear optimum.
+        """
+        base = dict(values)
+        rows = [('基准属性', base, mark_base, {
+            'type': 'attribute', 'algorithm': 'four_stat_pattern_search',
+            'round': round_number, 'step': step, 'move': 'baseline',
+        })]
+        # 约束 sum(stats)=常数后，四属性空间只剩三维。以全能为锚点的
+        # 三组正/负坐标方向正好覆盖这三个独立维度，共 6 个点 + 基准，
+        # 在 MAX_TASKS=8 内即可做一轮完整的局部 pattern search。
+        anchor = 'versatility'
+        moves = tuple(
+            [(anchor, stat) for stat in cls.ATTRIBUTE_STATS if stat != anchor]
+            + [(stat, anchor) for stat in cls.ATTRIBUTE_STATS if stat != anchor]
+        )
+        seen = {tuple(base[stat] for stat in cls.ATTRIBUTE_STATS)}
+        for source, target in moves:
+            if base[source] < step:
+                continue
+            variant = dict(base)
+            variant[source] -= step
+            variant[target] += step
+            signature = tuple(variant[stat] for stat in cls.ATTRIBUTE_STATS)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            rows.append((f'{source} -{step} / {target} +{step}', variant, False, {
+                'type': 'attribute', 'algorithm': 'four_stat_pattern_search',
+                'round': round_number, 'step': step, 'move': {'from': source, 'to': target},
+            }))
+        return rows
+
+    @classmethod
+    def _next_attribute_search_center(cls, results, step, min_step=50):
+        """Choose a four-stat search centre from completed SimC measurements.
+
+        The objective is empirical DPS, never a hard-coded stat weight. If the centre
+        itself wins, halve the resolution; otherwise move to the winning legal point
+        and retain the step so the search can continue in that direction.
+        """
+        if not results:
+            raise ValueError('属性寻优需要至少一个完成结果')
+        try:
+            current_step = max(1, int(step))
+            minimum_step = max(1, int(min_step))
+        except (TypeError, ValueError):
+            raise ValueError('属性寻优步长无效')
+        valid = []
+        for row in results:
+            ratings = row.get('ratings') if isinstance(row, dict) else None
+            dps = row.get('dps') if isinstance(row, dict) else None
+            if not isinstance(ratings, dict) or any(stat not in ratings for stat in cls.ATTRIBUTE_STATS):
+                continue
+            try:
+                normalized = {stat: int(ratings[stat]) for stat in cls.ATTRIBUTE_STATS}
+                score = float(dps)
+            except (TypeError, ValueError):
+                continue
+            if min(normalized.values()) < 0:
+                continue
+            valid.append({'ratings': normalized, 'dps': score, 'is_center': bool(row.get('is_center'))})
+        if not valid:
+            raise ValueError('属性寻优缺少有效 DPS 结果')
+        winner = max(valid, key=lambda row: row['dps'])
+        next_step = max(minimum_step, current_step // 2) if winner['is_center'] else current_step
+        return {'ratings': winner['ratings'], 'step': next_step, 'round': 2, 'dps': winner['dps'], 'converged': bool(winner['is_center'] and current_step <= minimum_step)}
+
+    @classmethod
+    def _attribute_center_signature(cls, ratings, step):
+        return tuple(int(ratings[stat]) for stat in cls.ATTRIBUTE_STATS), int(step)
+
+    @classmethod
+    def _attribute_search_stop_reason(cls, round_number, ratings, step, visited_centers, max_rounds=None):
+        limit = cls.MAX_ATTRIBUTE_SEARCH_ROUNDS if max_rounds is None else max(1, int(max_rounds))
+        if int(round_number) >= limit:
+            return 'max_rounds_reached'
+        if cls._attribute_center_signature(ratings, step) in (visited_centers or set()):
+            return 'cycle_detected'
+        return ''
+
+    @classmethod
+    def _attribute_search_history(cls, tasks):
+        """Read historical centres from task manifests; no extra model fields required."""
+        history = set()
+        for task in tasks:
+            ext = cls._parse_task_ext(task.ext)
+            manifest = ext.get('batch_compare') or {}
+            candidate = manifest.get('candidate') or {}
+            if not manifest.get('is_base'):
+                continue
+            step = candidate.get('step')
+            ratings = {stat: ext.get(f'gear_{stat}') for stat in cls.ATTRIBUTE_STATS}
+            if step in (None, '') or any(value is None for value in ratings.values()):
+                continue
+            try:
+                history.add(cls._attribute_center_signature(ratings, step))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return history
+
+    @staticmethod
+    def _parse_task_ext(ext_data):
+        if isinstance(ext_data, dict):
+            return ext_data
+        try:
+            parsed = json.loads(ext_data or '{}')
+        except (TypeError, ValueError):
+            parsed = {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _parse_manifest_round(manifest):
+        try:
+            return int((manifest.get('candidate') or {}).get('round') or 1)
+        except (AttributeError, TypeError, ValueError):
+            return 1
+
+    @transaction.atomic
+    def _create_attribute_round(self, request, payload, parent_batch_id):
+        """Create the next isolated four-stat search round from completed batch data."""
+        source_rows = []
+        source_manifest = None
+        source_ext = None
+        batch_tasks = list(SimcTask.objects.select_for_update().filter(
+            user_id=request.user.id, is_active=True, task_type=1,
+            ext__contains=f'"batch_id": "{parent_batch_id}"',
+        ).order_by('id'))
+        batch_tasks = [
+            task for task in batch_tasks
+            if (self._parse_task_ext(task.ext).get('batch_compare') or {}).get('batch_id') == parent_batch_id
+            and (self._parse_task_ext(task.ext).get('batch_compare') or {}).get('kind') == 'attribute_variants'
+        ]
+        source_task_name = ''
+        for task in batch_tasks:
+            ext = self._parse_task_ext(task.ext)
+            manifest = ext.get('batch_compare') or {}
+            source_manifest = source_manifest or manifest
+            source_ext = source_ext or ext
+            source_task_name = source_task_name or task.name
+        if not source_manifest:
+            raise ValueError('当前属性搜索批次不存在或无权限访问')
+        current_round = max(
+            self._parse_manifest_round((self._parse_task_ext(task.ext).get('batch_compare') or {}))
+            for task in batch_tasks
+        )
+        round_manifest = None
+        for task in batch_tasks:
+            ext = self._parse_task_ext(task.ext)
+            manifest = ext.get('batch_compare') or {}
+            if self._parse_manifest_round(manifest) != current_round:
+                continue
+            round_manifest = round_manifest or manifest
+            if task.current_status != 2 or not task.result_file:
+                raise ValueError('当前属性搜索轮次尚未全部完成')
+            html_content = SimcRegularCompareAPIView()._get_result_file_content(task.result_file)
+            parsed = SimcRegularCompareAPIView()._parse_regular_result(html_content) if html_content else {}
+            dps = parsed.get('dps')
+            ratings = {stat: ext.get(f'gear_{stat}') for stat in self.ATTRIBUTE_STATS}
+            if dps is None or any(value is None for value in ratings.values()):
+                raise ValueError('当前属性搜索轮次存在无法解析 DPS 或绿字的任务')
+            source_rows.append({'ratings': ratings, 'dps': dps, 'is_center': bool(manifest.get('is_base'))})
+        if len(source_rows) < 2:
+            raise ValueError('当前属性搜索轮次没有足够完成结果')
+        current_step = (round_manifest or {}).get('candidate', {}).get('step')
+        candidate = self._next_attribute_search_center(
+            source_rows, current_step, payload.get('min_attribute_step', self.DEFAULT_MIN_ATTRIBUTE_STEP)
+        )
+        if candidate['converged']:
+            return None, candidate
+        next_round = current_round + 1
+        stop_reason = self._attribute_search_stop_reason(
+            next_round, candidate['ratings'], candidate['step'],
+            self._attribute_search_history(batch_tasks), self.MAX_ATTRIBUTE_SEARCH_ROUNDS,
+        )
+        if stop_reason:
+            candidate['converged'] = True
+            candidate['stop_reason'] = stop_reason
+            return None, candidate
+        specs = self._attribute_variants(candidate['ratings'], candidate['step'], round_number=next_round, mark_base=True)
+        return (specs, candidate, source_ext, source_task_name), None
+
+    @transaction.atomic
+    def _continue_attribute_search(self, request, data, continue_batch_id):
+        """Advance one attribute-search batch while its current task rows stay locked."""
+        continuation, converged = self._create_attribute_round(request, data, continue_batch_id)
+        if converged:
+            return {'batch_id': continue_batch_id, 'accepted': 0, 'converged': True, 'recommendation': converged}
+        specs, recommendation, source_ext, source_task_name = continuation
+        task_api = SimcTaskAPIView()
+        created = []
+        for index, (label, gear, is_base, candidate_data) in enumerate(specs):
+            candidate = dict(candidate_data)
+            candidate['search_center'] = recommendation['ratings']
+            candidate['parent_batch_id'] = continue_batch_id
+            task_ext = {'batch_compare': {'version': 1, 'batch_id': continue_batch_id, 'parent_batch_id': continue_batch_id, 'kind': 'attribute_variants', 'index': index, 'label': label, 'is_base': is_base, 'candidate': candidate}}
+            kwargs = {
+                'task_type': 1, 'ext': task_ext,
+                'fight_style': source_ext.get('fight_style', 'Patchwerk'),
+                'time': source_ext.get('time', 300), 'target_count': source_ext.get('target_count', 1),
+                'player_config_mode': 'attribute_only', 'spec': source_ext.get('spec', ''),
+                'talent': source_ext.get('talent', ''), 'selected_apl_id': source_ext.get('selected_apl_id'),
+            }
+            kwargs.update({f'gear_{stat}': gear[stat] for stat in self.ATTRIBUTE_STATS})
+            ext = task_api._build_task_ext(**kwargs)
+            task = SimcTask.objects.create(user_id=request.user.id, name=f'{source_task_name.rsplit(" · ", 1)[0]} · 第{candidate["round"]}轮 {label}', simc_profile_id=0, current_status=0, result_file='', task_type=1, ext=ext)
+            created.append(task)
+        return {'batch_id': continue_batch_id, 'parent_batch_id': continue_batch_id, 'task_ids': [task.id for task in created], 'accepted': len(created), 'recommendation': recommendation}
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body or '{}')
+            continue_batch_id = str(data.get('continue_batch_id') or '').strip()
+            if continue_batch_id:
+                return JsonResponse({'success': True, 'data': self._continue_attribute_search(request, data, continue_batch_id)})
+
+            kind = str(data.get('kind') or '').strip()
+            spec = str(data.get('spec') or '').strip().lower()
+            mode = str(data.get('player_config_mode') or data.get('player_import_mode') or '').strip()
+            name = str(data.get('name') or '').strip()
+            if kind not in ('attribute_variants', 'gear_candidates', 'talent_candidates'):
+                raise ValueError('不支持的批次类型')
+            if not name or not spec:
+                raise ValueError('任务名称和专精不能为空')
+            if mode not in ('attribute_only', 'manual_equipment'):
+                raise ValueError('批次仅支持 attribute_only 或 manual_equipment 配置')
+            fight_style = str(data.get('fight_style') or 'Patchwerk').strip()
+            fight_time = max(1, self._int(data.get('time', 300), '战斗时长'))
+            target_count = max(1, self._int(data.get('target_count', 1), '目标数量'))
+            selected_apl_id = data.get('selected_apl_id')
+            batch_id = str(uuid.uuid4())
+            specs = []
+
+            if kind == 'attribute_variants':
+                if mode != 'attribute_only':
+                    raise ValueError('自动属性比较仅支持 attribute_only 配置')
+                talent = str(data.get('talent') or '').strip()
+                if not talent:
+                    raise ValueError('自动属性比较需要天赋构筑码')
+                step = self._int(data.get('attribute_step'), '属性步长')
+                if step < 1:
+                    raise ValueError('属性步长至少为1')
+                values = {stat: self._int(data.get(f'gear_{stat}'), f'{stat}绿字') for stat in self.ATTRIBUTE_STATS}
+                for label, ratings, is_base, candidate in self._attribute_variants(values, step):
+                    specs.append({'label': label, 'is_base': is_base, 'gear': ratings, 'candidate': candidate})
+            else:
+                if mode != 'manual_equipment':
+                    raise ValueError('装备和天赋候选比较需要手动 SimC 玩家块')
+                player_equipment = str(data.get('player_equipment') or '').strip()
+                if not player_equipment:
+                    raise ValueError('手动装备模式下玩家装备配置不能为空')
+                from botend.services.simc_player_config import parse_manual_simc_candidates
+                parsed = parse_manual_simc_candidates(player_equipment)
+                base_talent = parsed.get('base_talent') or ''
+                specs.append({'label': '基准配置', 'is_base': True, 'player_equipment': player_equipment, 'talent': base_talent, 'candidate': {'type': 'base'}})
+                submitted = data.get('candidates') or []
+                if not isinstance(submitted, list) or not submitted:
+                    raise ValueError('请至少选择一个可信候选')
+                if len(submitted) + 1 > self.MAX_TASKS:
+                    raise ValueError(f'每批最多{self.MAX_TASKS}个任务（含基准）')
+                if kind == 'gear_candidates':
+                    trusted = {(row['slot'], row['item_id'], row['source']): row for row in parsed['gear_candidates']}
+                    for candidate in submitted:
+                        key = (str(candidate.get('slot') or ''), candidate.get('item_id'), str(candidate.get('source') or ''))
+                        if key not in trusted:
+                            raise ValueError('候选装备的来源、槽位或物品不可信')
+                        row = trusted[key]
+                        lines = []
+                        replaced = False
+                        for line in player_equipment.splitlines():
+                            current_key = line.partition('=')[0].strip().lower()
+                            if current_key == row['slot'] and not replaced:
+                                lines.append(f"{row['slot']}={row['raw_value']}")
+                                replaced = True
+                            else:
+                                lines.append(line)
+                        specs.append({'label': row['name'] or f"{row['slot']} #{row['item_id']}", 'is_base': False, 'player_equipment': '\n'.join(lines), 'talent': base_talent, 'candidate': {'type': 'gear_swap', 'slot': row['slot'], 'item_id': row['item_id'], 'source': row['source']}})
+                else:
+                    trusted = {row['talent']: row for row in parsed['talent_candidates']}
+                    for candidate in submitted:
+                        talent = str(candidate.get('talent') or '')
+                        if talent not in trusted:
+                            raise ValueError('候选天赋来源不可信')
+                        row = trusted[talent]
+                        specs.append({'label': row['name'] or '候选天赋', 'is_base': False, 'player_equipment': player_equipment, 'talent': talent, 'candidate': {'type': 'talent', 'talent': talent, 'source': row['source']}})
+
+            if len(specs) < 2:
+                raise ValueError('可生成的比较任务不足2个；请提高可转移绿字或选择候选')
+            task_api = SimcTaskAPIView()
+            created = []
+            with transaction.atomic():
+                for index, item in enumerate(specs):
+                    task_ext = {'batch_compare': {'version': 1, 'batch_id': batch_id, 'kind': kind, 'index': index, 'label': item['label'], 'is_base': item['is_base'], 'candidate': item['candidate']}}
+                    kwargs = {'task_type': 1, 'ext': task_ext, 'fight_style': fight_style, 'time': fight_time, 'target_count': target_count, 'player_config_mode': mode, 'spec': spec, 'talent': item.get('talent', str(data.get('talent') or '')), 'selected_apl_id': selected_apl_id}
+                    if mode == 'attribute_only':
+                        kwargs.update({f'gear_{stat}': item['gear'][stat] for stat in self.ATTRIBUTE_STATS})
+                    else:
+                        kwargs['player_equipment'] = item['player_equipment']
+                    ext = task_api._build_task_ext(**kwargs)
+                    task = SimcTask.objects.create(user_id=request.user.id, name=f'{name} · {item["label"]}', simc_profile_id=0, current_status=0, result_file='', task_type=1, ext=ext)
+                    created.append(task)
+            return JsonResponse({'success': True, 'data': {'batch_id': batch_id, 'task_ids': [task.id for task in created], 'accepted': len(created)}})
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': '无效的JSON数据'})
+        except ValueError as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+        except Exception as e:
+            logger.error(f'创建 SimC 比较批次失败: {e}\n{traceback.format_exc()}')
+            return JsonResponse({'success': False, 'error': f'创建比较批次失败: {e}'})
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
@@ -3186,9 +3523,43 @@ class SimcRegularCompareAPIView(View):
     """
     常规模拟对比API - 解析多个任务的结果文件并返回可对比数据
     """
+
+    @staticmethod
+    def _batch_round(manifest_or_candidate):
+        try:
+            candidate = manifest_or_candidate.get('candidate', manifest_or_candidate)
+            return int((candidate or {}).get('round') or 1)
+        except (AttributeError, TypeError, ValueError):
+            return 1
     
     def get(self, request):
         try:
+            batch_id = str(request.GET.get('batch_id') or '').strip()
+            if batch_id:
+                batch_tasks = []
+                for task in SimcTask.objects.filter(user_id=request.user.id, is_active=True, task_type=1).order_by('id'):
+                    ext_payload = self._parse_task_ext(task.ext)
+                    manifest = ext_payload.get('batch_compare') if isinstance(ext_payload.get('batch_compare'), dict) else {}
+                    if manifest.get('batch_id') != batch_id:
+                        continue
+                    batch_tasks.append((task, manifest))
+                if not batch_tasks:
+                    return JsonResponse({'success': False, 'error': '比较批次不存在或无权限访问'})
+                status_counts = {'pending': 0, 'running': 0, 'succeeded': 0, 'failed': 0}
+                rows = []
+                for task, manifest in batch_tasks:
+                    status_key = {0: 'pending', 1: 'running', 2: 'succeeded', 3: 'failed'}.get(task.current_status, 'failed')
+                    status_counts[status_key] += 1
+                    rows.append({'id': task.id, 'name': task.name, 'label': manifest.get('label') or task.name, 'index': manifest.get('index'), 'is_base': bool(manifest.get('is_base')), 'candidate': manifest.get('candidate') or {}, 'current_status': task.current_status})
+                rows.sort(key=lambda row: (row['index'] is None, row['index'] if row['index'] is not None else row['id']))
+                first_manifest = batch_tasks[0][1]
+                current_round = max([self._batch_round(manifest) for _, manifest in batch_tasks] or [1])
+                active_rows = [row for row in rows if self._batch_round(row.get('candidate') or {}) == current_round]
+                active_counts = {'pending': 0, 'running': 0, 'succeeded': 0, 'failed': 0}
+                for row in active_rows:
+                    active_counts[{0: 'pending', 1: 'running', 2: 'succeeded', 3: 'failed'}.get(row['current_status'], 'failed')] += 1
+                return JsonResponse({'success': True, 'data': {'batch': {'batch_id': batch_id, 'kind': first_manifest.get('kind'), 'total': len(rows), 'current_round': current_round, 'current_round_total': len(active_rows), **status_counts, 'current_round_status': active_counts}, 'tasks': rows, 'invalid': []}})
+
             task_ids_raw = request.GET.get('task_ids', '')
             task_ids = []
             for part in task_ids_raw.split(','):

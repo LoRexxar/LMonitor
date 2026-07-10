@@ -187,6 +187,47 @@ def parse_manual_player_config(player_equipment, spec):
     return parsed
 
 
+def parse_manual_simc_candidates(player_equipment):
+    """Extract exporter alternatives without changing the equipped-player parser."""
+    result = {'base_talent': '', 'gear_candidates': [], 'talent_candidates': []}
+    section = ''
+    hint_name, hint_level = '', None
+    saved_loadout = ''
+    for raw_line in str(player_equipment or '').splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith('### Gear from Bags'):
+            section, saved_loadout = 'bags', ''
+            continue
+        if line.startswith('### Weekly Reward Choices'):
+            section, saved_loadout = 'weekly_reward', ''
+            continue
+        if line.startswith('#'):
+            label = line[1:].strip()
+            if label.startswith('Saved Loadout:'):
+                saved_loadout = label.partition(':')[2].strip()
+                continue
+            if label.startswith('talents=') and saved_loadout:
+                talent = label.partition('=')[2].strip()
+                if talent:
+                    result['talent_candidates'].append({'name': saved_loadout, 'talent': talent, 'source': 'saved_loadout'})
+                continue
+            hint_name, hint_level = _comment_item_hint(line)
+            continue
+        key, raw_value, values = _parse_line(line)
+        if key in ('talents', 'talent') and not section and not result['base_talent']:
+            result['base_talent'] = raw_value
+        elif section and key in EQUIPMENT_SLOTS and _number(values.get('id')):
+            result['gear_candidates'].append({
+                'slot': key, 'item_id': _number(values.get('id')), 'source': section,
+                'raw_value': raw_value, 'name': hint_name,
+                'item_level': hint_level or _number(values.get('ilevel') or values.get('item_level')),
+            })
+        hint_name, hint_level = '', None
+    return result
+
+
 def build_player_config_detail(mode, spec, player_equipment='', battlenet_region='', battlenet_realm='', battlenet_character='',
                                talent='', gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None):
     """Return a serializable player detail object without any external request."""

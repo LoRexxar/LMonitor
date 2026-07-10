@@ -2682,6 +2682,110 @@ async function refreshSimcPlayerDetail() {
     }
 }
 
+
+let simcAttributeSearchTimer = null;
+
+function setSimcAttributeSearchStatus(message, tone = 'text-amber-800') {
+    const el = document.getElementById('simc-sim-attribute-search-status');
+    if (!el) return;
+    el.className = `mt-2 text-xs ${tone}`;
+    el.textContent = message;
+}
+
+function simcAttributeSearchRequestBody() {
+    const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
+    const checkedMode = document.querySelector('input[name="simc-player-import-mode"]:checked');
+    const mode = checkedMode ? checkedMode.value : '';
+    const config = syncSimcAttributeOnlyConfigFromInputs();
+    const step = parseInt((document.getElementById('simc-sim-attribute-search-step') || {}).value || '200', 10);
+    if (!spec) throw new Error('请先选择专精');
+    if (mode !== 'attribute_only') throw new Error('四属性自动寻优仅支持“仅天赋与绿字属性”模式');
+    if (!config.talent) throw new Error('请填写天赋构筑码');
+    if (!Number.isFinite(step) || step < 1) throw new Error('自动寻优初始步长至少为 1');
+    const fightStyle = (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk';
+    const time = parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300;
+    const targetCount = parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1;
+    const aplRadio = document.querySelector('input[name="simc-sim-apl"]:checked');
+    return {
+        kind: 'attribute_variants', name: `${spec} 四属性自动寻优`, spec,
+        player_config_mode: 'attribute_only', talent: config.talent,
+        gear_crit: config.gear_crit, gear_haste: config.gear_haste,
+        gear_mastery: config.gear_mastery, gear_versatility: config.gear_versatility,
+        attribute_step: step, fight_style: fightStyle, time, target_count: targetCount,
+        selected_apl_id: aplRadio && aplRadio.value ? parseInt(aplRadio.value, 10) : undefined,
+    };
+}
+
+async function submitSimcAttributeSearch(payload) {
+    const response = await fetch('/api/simc-task/batch/', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+        body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || '创建属性寻优批次失败');
+    return result.data;
+}
+
+function pollSimcAttributeSearch(batchId) {
+    if (simcAttributeSearchTimer) clearTimeout(simcAttributeSearchTimer);
+    const poll = async () => {
+        try {
+            const response = await fetch('/api/simc-regular-compare/?batch_id=' + encodeURIComponent(batchId));
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || '获取属性寻优进度失败');
+            const batch = result.data.batch;
+            const roundStatus = batch.current_round_status || batch;
+            if (roundStatus.failed) throw new Error('本轮存在失败任务，已停止自动寻优；请检查任务日志后重新发起。');
+            setSimcAttributeSearchStatus(`第 ${batch.current_round || Math.max(...result.data.tasks.map(t => Number((t.candidate || {}).round || 1)))} 轮：完成 ${roundStatus.succeeded}/${batch.current_round_total || batch.total}，运行 ${roundStatus.running}，等待 ${roundStatus.pending}${roundStatus.failed ? '，失败 ' + roundStatus.failed : ''}`);
+            if (roundStatus.pending || roundStatus.running) {
+                simcAttributeSearchTimer = setTimeout(poll, 5000);
+                return;
+            }
+            if (roundStatus.failed) throw new Error('本轮存在失败任务，已停止自动寻优；请检查任务日志后重新发起。');
+            const next = await submitSimcAttributeSearch({ continue_batch_id: batchId, min_attribute_step: 50 });
+            if (next.converged) {
+                const r = next.recommendation || {};
+                const stats = r.ratings || {};
+                const reason = r.stop_reason === 'cycle_detected'
+                    ? '检测到搜索回环，保留当前实际 DPS 最优点'
+                    : r.stop_reason === 'max_rounds_reached'
+                        ? '达到最大搜索轮数，保留当前实际 DPS 最优点'
+                        : '已收敛';
+                setSimcAttributeSearchStatus(`${reason}：暴击 ${stats.crit} / 急速 ${stats.haste} / 精通 ${stats.mastery} / 全能 ${stats.versatility}，DPS ${r.dps}`, 'text-emerald-700');
+                showMessage('四属性自动寻优已结束', 'success');
+                fetchSimcTaskData();
+                return;
+            }
+            setSimcAttributeSearchStatus(`已选出下一轮中心，继续以步长 ${next.recommendation.step} 模拟 ${next.accepted} 个方案…`);
+            fetchSimcTaskData();
+            pollSimcAttributeSearch(next.batch_id);
+        } catch (error) {
+            setSimcAttributeSearchStatus('自动寻优已停止：' + String(error.message || error), 'text-red-700');
+            showMessage('四属性自动寻优失败：' + String(error.message || error), 'error');
+        }
+    };
+    poll();
+}
+
+async function startSimcAttributeSearch() {
+    const button = document.getElementById('simc-sim-attribute-optimize-btn');
+    try {
+        const payload = simcAttributeSearchRequestBody();
+        if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>创建中…'; }
+        const data = await submitSimcAttributeSearch(payload);
+        setSimcAttributeSearchStatus(`已创建第 1 轮 ${data.accepted} 个方案，等待常规模拟完成…`);
+        showMessage('四属性自动寻优第一轮已创建', 'success');
+        fetchSimcTaskData();
+        switchSimcWorkbenchTab('tasks');
+        pollSimcAttributeSearch(data.batch_id);
+    } catch (error) {
+        setSimcAttributeSearchStatus('无法启动：' + String(error.message || error), 'text-red-700');
+        showMessage('启动四属性自动寻优失败：' + String(error.message || error), 'error');
+    } finally {
+        if (button) { button.disabled = false; button.innerHTML = '<i class="fas fa-compass mr-1"></i>自动寻优四属性'; }
+    }
+}
+
 async function createSimcSimulationTask() {
     try {
         const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
@@ -2789,6 +2893,12 @@ function bindSimcWorkbenchSimulationControls() {
     if (submitBtn && submitBtn.dataset.bound !== '1') {
         submitBtn.dataset.bound = '1';
         submitBtn.addEventListener('click', createSimcSimulationTask);
+    }
+
+    const attributeOptimizeBtn = document.getElementById('simc-sim-attribute-optimize-btn');
+    if (attributeOptimizeBtn && attributeOptimizeBtn.dataset.bound !== '1') {
+        attributeOptimizeBtn.dataset.bound = '1';
+        attributeOptimizeBtn.addEventListener('click', startSimcAttributeSearch);
     }
 
     const refreshProfilesBtn = document.getElementById('simc-sim-refresh-profiles-btn');
