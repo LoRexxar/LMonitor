@@ -139,6 +139,38 @@ class SimcNewConfigModeTests(TestCase):
         self.assertEqual(ext['time'], 300)
         self.assertEqual(ext['target_count'], 1)
 
+    def test_create_task_with_dungeon_preset_values_persists_exact_combat_combination(self):
+        """战斗组合预设只是前端预填，任务端必须按选择后的精确值固化。"""
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'Fury DungeonSlice 300s 5目标',
+                'task_type': 1,
+                'player_import_mode': 'attribute_only',
+                'spec': 'fury',
+                'talent': 'DUNGEON_BUILD',
+                'gear_crit': 400,
+                'gear_haste': 1100,
+                'gear_mastery': 1140,
+                'gear_versatility': 100,
+                'fight_style': 'DungeonSlice',
+                'time': 300,
+                'target_count': 5,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        task = SimcTask.objects.get(id=payload['data']['id'])
+        ext = json.loads(task.ext)
+        self.assertEqual(ext['fight_style'], 'DungeonSlice')
+        self.assertEqual(ext['time'], 300)
+        self.assertEqual(ext['target_count'], 5)
+        self.assertEqual(ext['spec'], 'fury')
+        self.assertEqual(ext['player_config_mode'], 'attribute_only')
+
     def test_create_task_with_legacy_equipment_alias_maps_to_manual_equipment(self):
         response = self.client.post(
             '/api/simc-task/',

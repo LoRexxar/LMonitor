@@ -2093,7 +2093,7 @@ async function simcWbLoadProfileToSimulator(id) {
         const profile = rows.find(r => String(r.id) === String(id));
         if (!profile) { showMessage('未找到配置', 'error'); return; }
         const specEl = document.getElementById('simc-sim-spec');
-        if (specEl) {
+        if (specEl && profile.spec) {
             specEl.value = normalizeSimcSpecKey(profile.spec || '');
             specEl.dispatchEvent(new Event('change'));
         }
@@ -2110,12 +2110,10 @@ async function simcWbLoadProfileToSimulator(id) {
         setVal('simc-sim-battlenet-region', profile.battlenet_region || 'eu');
         setVal('simc-sim-battlenet-realm', profile.battlenet_realm || '');
         setVal('simc-sim-battlenet-character', profile.battlenet_character || '');
-        // attribute_only 的天赋只能保留在专用输入区，不能泄到隐藏的手动装备文本框。
         setVal('simc-sim-equipment', mode === 'manual_equipment' ? (profile.player_equipment || '') : '');
         showMessage('已加载配置：' + (profile.name || ('#' + id)), 'success');
         const importTab = document.querySelector('[data-simc-tab="import"]');
         if (importTab) importTab.click();
-        // 加载后仅刷新结构化玩家详情；完整 SimC 执行输入预览已移除。
         setTimeout(() => refreshSimcPlayerDetail(), 0);
     } catch (e) {
         showMessage('加载配置失败: ' + e.message, 'error');
@@ -2404,6 +2402,26 @@ function switchSimcPlayerImportMode(mode) {
     if (mode === 'attribute_only') {
         fillSimcAttributeOnlyInputs(simcWbAttributeOnlyConfig);
     }
+}
+
+function parseSpecFromPlayerBlock(playerBlock) {
+    if (!playerBlock) return null;
+    const text = String(playerBlock).toLowerCase();
+    const specMatch = text.match(/^\s*spec\s*=\s*(\w+)/m);
+    return specMatch ? specMatch[1] : null;
+}
+
+function autoSelectSpecIfSafe(parsedSpec) {
+    if (!parsedSpec) return false;
+    const normalized = normalizeSimcSpecKey(parsedSpec);
+    if (!normalized) return false;
+    const specEl = document.getElementById('simc-sim-spec');
+    if (!specEl) return false;
+    const currentSpec = (specEl.value || '').trim();
+    if (currentSpec && currentSpec !== normalized) return false;
+    specEl.value = normalized;
+    specEl.dispatchEvent(new Event('change'));
+    return true;
 }
 
 function switchSimcPlayerConfigMode(mode) {
@@ -2781,7 +2799,68 @@ function bindSimcWorkbenchSimulationControls() {
         });
     }
 
+    const fightPresetSel = document.getElementById('simc-sim-fight-preset');
+    if (fightPresetSel && fightPresetSel.dataset.bound !== '1') {
+        fightPresetSel.dataset.bound = '1';
+        fightPresetSel.addEventListener('change', function() {
+            applySimcFightPreset(this.value);
+        });
+    }
+
+    const fightStyleSel = document.getElementById('simc-sim-fight-style');
+    const timeInput = document.getElementById('simc-sim-time');
+    const targetInput = document.getElementById('simc-sim-target-count');
+    [fightStyleSel, timeInput, targetInput].forEach(el => {
+        if (el && el.dataset.boundPresetSync !== '1') {
+            el.dataset.boundPresetSync = '1';
+            el.addEventListener('change', syncSimcFightPresetFromInputs);
+            if (el.tagName === 'INPUT') el.addEventListener('input', syncSimcFightPresetFromInputs);
+        }
+    });
+
+    const equipmentInput = document.getElementById('simc-sim-equipment');
+    if (equipmentInput && equipmentInput.dataset.boundSpecAuto !== '1') {
+        equipmentInput.dataset.boundSpecAuto = '1';
+        equipmentInput.addEventListener('blur', function() {
+            const parsedSpec = parseSpecFromPlayerBlock(this.value);
+            if (parsedSpec) autoSelectSpecIfSafe(parsedSpec);
+        });
+    }
+
+    const attributeTalentInput = document.getElementById('simc-sim-attribute-talent');
+    if (attributeTalentInput && attributeTalentInput.dataset.boundSpecAuto !== '1') {
+        attributeTalentInput.dataset.boundSpecAuto = '1';
+    }
+
+    syncSimcFightPresetFromInputs();
     loadSimcSimSavedProfiles();
+}
+
+function applySimcFightPreset(presetValue) {
+    if (!presetValue || presetValue === 'custom') return;
+    const parts = String(presetValue).split(',');
+    if (parts.length !== 3) return;
+    const [style, time, targetCount] = parts;
+    const fightStyleSel = document.getElementById('simc-sim-fight-style');
+    const timeInput = document.getElementById('simc-sim-time');
+    const targetInput = document.getElementById('simc-sim-target-count');
+    if (fightStyleSel && style) fightStyleSel.value = style;
+    if (timeInput && time) timeInput.value = String(parseInt(time, 10) || 300);
+    if (targetInput && targetCount) targetInput.value = String(parseInt(targetCount, 10) || 1);
+}
+
+function syncSimcFightPresetFromInputs() {
+    const presetSel = document.getElementById('simc-sim-fight-preset');
+    const fightStyleSel = document.getElementById('simc-sim-fight-style');
+    const timeInput = document.getElementById('simc-sim-time');
+    const targetInput = document.getElementById('simc-sim-target-count');
+    if (!presetSel || !fightStyleSel || !timeInput || !targetInput) return;
+    const style = fightStyleSel.value || '';
+    const time = String(parseInt(timeInput.value, 10) || 300);
+    const targetCount = String(parseInt(targetInput.value, 10) || 1);
+    const expected = `${style},${time},${targetCount}`;
+    const matched = Array.from(presetSel.options || []).some(opt => opt.value === expected);
+    presetSel.value = matched ? expected : 'custom';
 }
 
 document.addEventListener('DOMContentLoaded', function() {
