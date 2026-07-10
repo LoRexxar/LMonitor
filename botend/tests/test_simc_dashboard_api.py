@@ -386,6 +386,8 @@ class SimcPreviewTests(TestCase):
                     'warrior="Previewer"',
                     'level=80',
                     'race=orc',
+                    'region=cn',
+                    'server=死亡之翼',
                     'spec=fury',
                     'talents=BUILDCODE',
                     'head=,id=212048,ilevel=639,enchant_id=71543,gems=213479/213480',
@@ -406,6 +408,8 @@ class SimcPreviewTests(TestCase):
         self.assertEqual(detail['source']['type'], 'manual_equipment')
         self.assertEqual(detail['identity']['name'], 'Previewer')
         self.assertEqual(detail['identity']['race'], 'orc')
+        self.assertEqual(detail['identity']['region'], 'cn')
+        self.assertEqual(detail['identity']['realm'], '死亡之翼')
         self.assertEqual(detail['talents']['build_code'], 'BUILDCODE')
         self.assertEqual(detail['equipment'][0]['slot'], 'head')
         self.assertEqual(detail['equipment'][0]['display_name'], '测试头盔')

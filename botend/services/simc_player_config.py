@@ -201,8 +201,6 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
 
     detail = parse_manual_player_config(player_equipment, spec)
     detail['source'] = {'type': 'manual_equipment', 'label': '手动 SimC 玩家配置'}
-    detail['identity']['region'] = ''
-    detail['identity']['realm'] = ''
     class_name = detail['identity']['class_name'] or SPEC_CLASS.get(spec, '')
     rule = SimcSecondaryStatRule.objects.filter(class_name=class_name).first()
     mastery = SimcMasteryCoefficient.objects.filter(spec=detail['identity']['spec'] or spec).first()
