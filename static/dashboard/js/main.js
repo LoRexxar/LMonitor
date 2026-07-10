@@ -2105,6 +2105,7 @@ async function simcWbLoadProfileToSimulator(id) {
             gear_haste: Number(profile.gear_haste || 0), gear_mastery: Number(profile.gear_mastery || 0),
             gear_versatility: Number(profile.gear_versatility || 0), profile_id: profile.id,
         } : null;
+        if (mode === 'attribute_only') fillSimcAttributeOnlyInputs(simcWbAttributeOnlyConfig);
         const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
         setVal('simc-sim-battlenet-region', profile.battlenet_region || 'eu');
         setVal('simc-sim-battlenet-realm', profile.battlenet_realm || '');
@@ -2126,9 +2127,9 @@ async function simcWbSaveCurrentSimulatorProfile() {
     const mode = document.querySelector('input[name="simc-player-import-mode"]:checked')?.value || 'battlenet';
     const name = prompt('配置名称', spec + '-' + (mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-character')?.value || 'profile') : 'manual'));
     if (!name) return;
-    const attributeConfig = mode === 'attribute_only' ? simcWbAttributeOnlyConfig : null;
-    if (mode === 'attribute_only' && !attributeConfig) {
-        showMessage('请先加载仅天赋与绿字属性配置后再保存', 'error'); return;
+    const attributeConfig = mode === 'attribute_only' ? syncSimcAttributeOnlyConfigFromInputs() : null;
+    if (mode === 'attribute_only' && !attributeConfig.talent) {
+        showMessage('请填写天赋构筑码后再保存', 'error'); return;
     }
     const payload = {
         name: name.trim(),
@@ -2369,11 +2370,39 @@ function openSimcTableShortcut(tableName) {
 
 /* === 发起模拟 (新 SimC 模拟面板) === */
 
+function syncSimcAttributeOnlyConfigFromInputs() {
+    const value = id => (document.getElementById(id)?.value || '').trim();
+    simcWbAttributeOnlyConfig = {
+        talent: value('simc-sim-attribute-talent'),
+        gear_crit: Math.max(0, parseInt(value('simc-sim-attribute-crit'), 10) || 0),
+        gear_haste: Math.max(0, parseInt(value('simc-sim-attribute-haste'), 10) || 0),
+        gear_mastery: Math.max(0, parseInt(value('simc-sim-attribute-mastery'), 10) || 0),
+        gear_versatility: Math.max(0, parseInt(value('simc-sim-attribute-versatility'), 10) || 0),
+        profile_id: simcWbAttributeOnlyConfig?.profile_id || null,
+    };
+    return simcWbAttributeOnlyConfig;
+}
+
+function fillSimcAttributeOnlyInputs(config) {
+    const value = config || {};
+    const setValue = (id, input) => { const el = document.getElementById(id); if (el) el.value = input ?? ''; };
+    setValue('simc-sim-attribute-talent', value.talent || '');
+    setValue('simc-sim-attribute-crit', value.gear_crit || 0);
+    setValue('simc-sim-attribute-haste', value.gear_haste || 0);
+    setValue('simc-sim-attribute-mastery', value.gear_mastery || 0);
+    setValue('simc-sim-attribute-versatility', value.gear_versatility || 0);
+}
+
 function switchSimcPlayerImportMode(mode) {
     const battlenetSection = document.getElementById('simc-player-battlenet-section');
     const equipmentSection = document.getElementById('simc-player-equipment-section');
+    const attributeSection = document.getElementById('simc-player-attribute-only-section');
     if (battlenetSection) battlenetSection.classList.toggle('hidden', mode !== 'battlenet');
     if (equipmentSection) equipmentSection.classList.toggle('hidden', mode !== 'manual_equipment');
+    if (attributeSection) attributeSection.classList.toggle('hidden', mode !== 'attribute_only');
+    if (mode === 'attribute_only') {
+        fillSimcAttributeOnlyInputs(simcWbAttributeOnlyConfig);
+    }
 }
 
 function switchSimcPlayerConfigMode(mode) {
@@ -2613,8 +2642,8 @@ async function previewSimcConfiguration() {
         requestBody.player_equipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
         if (!requestBody.player_equipment) { showMessage('请粘贴玩家装备/天赋信息块', 'warning'); return; }
     } else if (mode === 'attribute_only') {
-        const config = simcWbAttributeOnlyConfig;
-        if (!config) { showMessage('请从已保存配置加载仅天赋与绿字属性配置', 'warning'); return; }
+        const config = syncSimcAttributeOnlyConfigFromInputs();
+        if (!config.talent) { showMessage('请填写天赋构筑码', 'warning'); return; }
         Object.assign(requestBody, config);
     } else {
         requestBody.battlenet_region = ((document.getElementById('simc-sim-battlenet-region') || {}).value || '').trim();
@@ -2683,8 +2712,8 @@ async function createSimcSimulationTask() {
             if (!equipment) { showMessage('请粘贴玩家装备/天赋信息块', 'warning'); return; }
             requestBody.player_equipment = equipment;
         } else if (mode === 'attribute_only') {
-            const config = simcWbAttributeOnlyConfig;
-            if (!config) { showMessage('请从已保存配置加载仅天赋与绿字属性配置', 'warning'); return; }
+            const config = syncSimcAttributeOnlyConfigFromInputs();
+            if (!config.talent) { showMessage('请填写天赋构筑码', 'warning'); return; }
             Object.assign(requestBody, config);
         } else if (mode === 'battlenet') {
             const region = ((document.getElementById('simc-sim-battlenet-region') || {}).value || '').trim();

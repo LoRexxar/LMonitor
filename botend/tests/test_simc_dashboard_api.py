@@ -528,7 +528,9 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
             user_id=self.user.id,
             name='Legacy fury stats',
             spec='fury',
-            player_config_mode='',
+            # 历史记录曾因字段默认值被写成 battlenet，但没有任何角色/装备数据；
+            # 读取时必须仍按属性型配置处理。
+            player_config_mode='battlenet',
             player_equipment='',
             battlenet_region='',
             battlenet_realm='',

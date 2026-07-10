@@ -1915,12 +1915,19 @@ class SimcProfileAPIView(View):
     def _profile_mode(profile):
         """Infer the legal legacy attribute-only form without rewriting stored data."""
         mode = (getattr(profile, 'player_config_mode', '') or '').strip()
-        if mode:
-            return mode
-        if getattr(profile, 'player_equipment', '') or any(
+        has_equipment = bool(getattr(profile, 'player_equipment', ''))
+        has_battlenet_identity = any(
             getattr(profile, field, '') for field in ('battlenet_region', 'battlenet_realm', 'battlenet_character')
-        ):
-            return 'manual_equipment' if getattr(profile, 'player_equipment', '') else 'battlenet'
+        )
+        # 历史属性配置在新增 mode 字段时会被数据库默认值标记为 battlenet，
+        # 但并没有 Battle.net 三元组或装备块。以实际持久化数据为准，不能让
+        # 这个默认值遮蔽原有的 talent + ratings。
+        if mode == 'attribute_only':
+            return mode
+        if has_equipment:
+            return 'manual_equipment'
+        if has_battlenet_identity:
+            return 'battlenet'
         return 'attribute_only'
 
     def get(self, request, profile_id=None):

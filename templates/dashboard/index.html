@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260710-simc-attribute-only"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260710-simc-attribute-inputs"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -925,6 +925,21 @@
                                             <div id="simc-player-equipment-section" class="hidden">
                                                 <textarea id="simc-sim-equipment" class="w-full p-3 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm bg-white" rows="10" placeholder="只粘贴玩家信息块，不要粘完整 simc。示例：&#10;talents=...&#10;head=,id=212048,enchant_id=71543,...&#10;neck=,id=224433,...&#10;shoulder=,id=212050,..."></textarea>
                                                 <p class="text-xs text-gray-500 mt-2">这里只填写玩家装备/天赋相关行；iterations、fight_style、targets、APL 等由系统按选项拼装。</p>
+                                            </div>
+
+                                            <!-- 模式C: 仅天赋与绿字属性 -->
+                                            <div id="simc-player-attribute-only-section" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-4">
+                                                <p class="text-xs text-amber-800 mb-3">此模式不需要装备或 Battle.net 身份；天赋与四项绿字可独立修改，并可直接保存、预览和提交。</p>
+                                                <div class="mb-3">
+                                                    <label class="block text-xs font-semibold text-gray-600 mb-1">天赋构筑码</label>
+                                                    <input id="simc-sim-attribute-talent" type="text" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 font-mono text-sm bg-white" placeholder="talent build code">
+                                                </div>
+                                                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">暴击绿字</label><input id="simc-sim-attribute-crit" type="number" min="0" value="0" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"></div>
+                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">急速绿字</label><input id="simc-sim-attribute-haste" type="number" min="0" value="0" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"></div>
+                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">精通绿字</label><input id="simc-sim-attribute-mastery" type="number" min="0" value="0" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"></div>
+                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">全能绿字</label><input id="simc-sim-attribute-versatility" type="number" min="0" value="0" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"></div>
+                                                </div>
                                             </div>
                                         </div>
 
