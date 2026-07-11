@@ -968,9 +968,9 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
             '/api/simc-player-config-detail/',
             data=json.dumps({
                 'spec': 'fury', 'player_config_mode': 'attribute_only',
-                'talent': profile.talent, 'gear_crit': profile.gear_crit,
-                'gear_haste': profile.gear_haste, 'gear_mastery': profile.gear_mastery,
-                'gear_versatility': profile.gear_versatility,
+                'talent': profile.talent, 'gear_strength': 5000,
+                'gear_crit': profile.gear_crit, 'gear_haste': profile.gear_haste,
+                'gear_mastery': profile.gear_mastery, 'gear_versatility': profile.gear_versatility,
             }), content_type='application/json',
         )
         self.assertEqual(detail_response.status_code, 200)
@@ -979,6 +979,7 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         detail = detail_payload['data']
         self.assertEqual(detail['source']['type'], 'attribute_only')
         self.assertEqual(detail['talents']['build_code'], 'UPDATED_BUILD')
+        self.assertEqual(detail['stats']['primary']['strength'], 5000)
         self.assertEqual(detail['stats']['secondary']['crit']['rating'], 1100)
         self.assertAlmostEqual(detail['stats']['secondary']['crit']['percent'], 23.91, places=2)
         self.assertAlmostEqual(detail['stats']['secondary']['mastery']['percent'], 100.43, places=2)

@@ -229,7 +229,7 @@ def parse_manual_simc_candidates(player_equipment):
 
 
 def build_player_config_detail(mode, spec, player_equipment='', battlenet_region='', battlenet_realm='', battlenet_character='',
-                               talent='', gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None):
+                               talent='', gear_strength=None, gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None):
     """Return a serializable player detail object without any external request."""
     mode = 'manual_equipment' if mode == 'equipment' else mode
     if mode == 'battlenet':
@@ -261,7 +261,7 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
             'identity': {'name': '', 'class_name': class_name, 'spec': spec, 'race': '', 'level': None,
                          'region': '', 'realm': ''},
             'talents': {'build_code': talent or ''}, 'equipment': [], 'stats': {
-                'primary': {}, 'secondary': {
+                'primary': {'strength': _number(gear_strength)}, 'secondary': {
                     stat: _secondary_stat_detail(rating, conversion.get(stat), mastery_coefficient if stat == 'mastery' else 1)
                     for stat, rating in ratings.items()
                 },

@@ -1543,7 +1543,7 @@ class SimcPlayerConfigDetailAPIView(View):
                 mode=mode, spec=spec, player_equipment=player_equipment,
                 battlenet_region=battlenet_region, battlenet_realm=battlenet_realm,
                 battlenet_character=battlenet_character,
-                talent=str(data.get('talent') or '').strip(),
+                talent=str(data.get('talent') or '').strip(), gear_strength=data.get('gear_strength'),
                 gear_crit=data.get('gear_crit'), gear_haste=data.get('gear_haste'),
                 gear_mastery=data.get('gear_mastery'), gear_versatility=data.get('gear_versatility'),
             )
