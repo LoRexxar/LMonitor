@@ -161,6 +161,7 @@ finger1=,id=299002,ilevel=655
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({
             'kind': 'attribute_variants', 'name': 'Fury 自动属性比较', 'spec': 'fury',
             'player_config_mode': 'attribute_only', 'talent': 'ATTRIBUTE_BUILD',
+            'gear_strength': 5000,
             'gear_crit': 1000, 'gear_haste': 2000, 'gear_mastery': 3000, 'gear_versatility': 4000,
             'attribute_step': 50, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
         }), content_type='application/json')
@@ -176,6 +177,7 @@ finger1=,id=299002,ilevel=655
         self.assertEqual(sum(row['batch_compare']['is_base'] for row in ext_rows), 1)
         self.assertEqual({row['player_config_mode'] for row in ext_rows}, {'attribute_only'})
         self.assertEqual({row['talent'] for row in ext_rows}, {'ATTRIBUTE_BUILD'})
+        self.assertEqual({row['gear_strength'] for row in ext_rows}, {5000})
         candidates = [row['batch_compare']['candidate'] for row in ext_rows]
         self.assertEqual(candidates[0]['algorithm'], 'four_stat_pairwise_hill_climb')
         self.assertEqual(candidates[0]['algorithm_version'], 2)
@@ -262,6 +264,7 @@ finger1=,id=299002,ilevel=655
             {
                 'player_config_mode': 'attribute_only',
                 'talent': 'BUILD',
+                'gear_strength': 5000,
                 'gear_crit': 1000,
                 'gear_haste': 2000,
                 'gear_mastery': 3000,
@@ -270,6 +273,7 @@ finger1=,id=299002,ilevel=655
             },
         )
         self.assertIn('html=simc_task_42.html', rendered)
+        self.assertIn('gear_strength=5000', rendered)
         self.assertIn('gear_crit_rating=1000', rendered)
         self.assertIn('gear_haste_rating=2000', rendered)
         self.assertIn('gear_mastery_rating=3000', rendered)
@@ -653,6 +657,7 @@ class SimcNewConfigModeTests(TestCase):
                 'spec': 'fury',
                 'player_config_mode': 'attribute_only',
                 'talent': 'ATTRIBUTE_BUILD',
+                'gear_strength': 5000,
                 'gear_crit': 1000,
                 'gear_haste': 2000,
                 'gear_mastery': 3000,
@@ -661,6 +666,7 @@ class SimcNewConfigModeTests(TestCase):
             },
         )
         self.assertIn('talents=ATTRIBUTE_BUILD', rendered)
+        self.assertIn('gear_strength=5000', rendered)
         self.assertIn('crit_rating=1000', rendered)
         self.assertIn('haste_rating=2000', rendered)
         self.assertIn('mastery_rating=3000', rendered)

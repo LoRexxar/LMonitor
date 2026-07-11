@@ -646,6 +646,7 @@ class SimcTaskAPIView(View):
             battlenet_region = data.get('battlenet_region', '').strip().lower()
             battlenet_realm = data.get('battlenet_realm', '').strip()
             battlenet_character = data.get('battlenet_character', '').strip()
+            gear_strength = data.get('gear_strength')
             gear_crit = data.get('gear_crit')
             gear_haste = data.get('gear_haste')
             gear_mastery = data.get('gear_mastery')
@@ -691,6 +692,8 @@ class SimcTaskAPIView(View):
                         spec = profile.spec
                     if not talent:
                         talent = profile.talent
+                    if gear_strength is None:
+                        gear_strength = profile.gear_strength
                     if gear_crit is None:
                         gear_crit = profile.gear_crit
                     if gear_haste is None:
@@ -745,6 +748,7 @@ class SimcTaskAPIView(View):
                 target_count=target_count,
                 player_config_mode=player_config_mode,
                 player_equipment=player_equipment,
+                gear_strength=gear_strength,
                 gear_crit=gear_crit,
                 gear_haste=gear_haste,
                 gear_mastery=gear_mastery,
@@ -1060,7 +1064,7 @@ class SimcTaskAPIView(View):
 
     def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None, selected_apl_id=None,
                         fight_style=None, time=None, target_count=None, player_config_mode=None, player_equipment=None,
-                        gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None, talent=None, spec=None,
+                        gear_strength=None, gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None, talent=None, spec=None,
                         battlenet_region=None, battlenet_realm=None, battlenet_character=None):
         ttype = int(task_type or 1)
         base = self._normalize_task_ext(ttype, ext)
@@ -1104,6 +1108,8 @@ class SimcTaskAPIView(View):
                     payload['battlenet_region'] = str(battlenet_region or '').lower()
                     payload['battlenet_realm'] = str(battlenet_realm or '').strip()
                     payload['battlenet_character'] = str(battlenet_character or '').strip()
+                if gear_strength not in (None, ''):
+                    payload['gear_strength'] = gear_strength
                 if gear_crit not in (None, ''):
                     payload['gear_crit'] = gear_crit
                 if gear_haste not in (None, ''):
@@ -1379,7 +1385,7 @@ class SimcBatchTaskAPIView(View):
                 'fight_style': source_ext.get('fight_style', 'Patchwerk'),
                 'time': source_ext.get('time', 300), 'target_count': source_ext.get('target_count', 1),
                 'player_config_mode': 'attribute_only', 'spec': source_ext.get('spec', ''),
-                'talent': source_ext.get('talent', ''), 'selected_apl_id': source_ext.get('selected_apl_id'),
+                'talent': source_ext.get('talent', ''), 'gear_strength': source_ext.get('gear_strength'), 'selected_apl_id': source_ext.get('selected_apl_id'),
             }
             kwargs.update({f'gear_{stat}': gear[stat] for stat in self.ATTRIBUTE_STATS})
             ext = task_api._build_task_ext(**kwargs)
@@ -1489,6 +1495,7 @@ class SimcBatchTaskAPIView(View):
                     task_ext = {'batch_compare': {'version': 2 if kind == 'attribute_variants' else 1, 'batch_id': batch_id, 'kind': kind, 'index': index, 'label': item['label'], 'is_base': item['is_base'], 'candidate': item['candidate']}}
                     kwargs = {'task_type': 1, 'ext': task_ext, 'fight_style': fight_style, 'time': fight_time, 'target_count': target_count, 'player_config_mode': mode, 'spec': spec, 'talent': item.get('talent', str(data.get('talent') or '')), 'selected_apl_id': selected_apl_id}
                     if mode == 'attribute_only':
+                        kwargs['gear_strength'] = self._int(data.get('gear_strength', 0), '主属性')
                         kwargs.update({f'gear_{stat}': item['gear'][stat] for stat in self.ATTRIBUTE_STATS})
                     else:
                         kwargs['player_equipment'] = item['player_equipment']

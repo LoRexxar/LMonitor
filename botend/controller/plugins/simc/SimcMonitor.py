@@ -1137,6 +1137,9 @@ class SimcMonitor(BaseScan):
             talent = str(task_config.get('talent', '')).strip()
             if talent:
                 attribute_lines.append(f'talents={talent}')
+            strength = task_config.get('gear_strength')
+            if strength not in (None, ''):
+                attribute_lines.append(f'gear_strength={strength}')
             for field in ('crit', 'haste', 'mastery', 'versatility'):
                 value = task_config.get(f'gear_{field}')
                 if value not in (None, ''):

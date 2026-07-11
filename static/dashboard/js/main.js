@@ -1955,6 +1955,7 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="battlenet_character"]').value = '';
         formWrap.querySelector('textarea[name="player_equipment"]').value = '';
         formWrap.querySelector('input[name="talent"]').value = '';
+        formWrap.querySelector('input[name="gear_strength"]').value = '0';
         formWrap.querySelector('input[name="gear_crit"]').value = '8730';
         formWrap.querySelector('input[name="gear_haste"]').value = '20141';
         formWrap.querySelector('input[name="gear_mastery"]').value = '21785';
@@ -1973,6 +1974,7 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="battlenet_character"]').value = profileData.battlenet_character || '';
         formWrap.querySelector('textarea[name="player_equipment"]').value = profileData.player_equipment || '';
         formWrap.querySelector('input[name="talent"]').value = profileData.talent || '';
+        formWrap.querySelector('input[name="gear_strength"]').value = profileData.gear_strength || 0;
         formWrap.querySelector('input[name="gear_crit"]').value = profileData.gear_crit || 0;
         formWrap.querySelector('input[name="gear_haste"]').value = profileData.gear_haste || 0;
         formWrap.querySelector('input[name="gear_mastery"]').value = profileData.gear_mastery || 0;
@@ -2009,6 +2011,7 @@ async function simcWbSaveProfile() {
         battlenet_character: gv('battlenet_character'),
         player_equipment: gv('player_equipment'),
         talent: gv('talent'),
+        gear_strength: parseInt(gv('gear_strength')) || 0,
         gear_crit: parseInt(gv('gear_crit')) || 0,
         gear_haste: parseInt(gv('gear_haste')) || 0,
         gear_mastery: parseInt(gv('gear_mastery')) || 0,
@@ -2105,7 +2108,7 @@ async function simcWbLoadProfileToSimulator(id) {
         document.querySelectorAll('input[name="simc-player-import-mode"]').forEach(r => { r.checked = r.value === mode; });
         if (typeof switchSimcPlayerImportMode === 'function') switchSimcPlayerImportMode(mode);
         simcWbAttributeOnlyConfig = mode === 'attribute_only' ? {
-            talent: profile.talent || '', gear_crit: Number(profile.gear_crit || 0),
+            talent: profile.talent || '', gear_strength: Number(profile.gear_strength || 0), gear_crit: Number(profile.gear_crit || 0),
             gear_haste: Number(profile.gear_haste || 0), gear_mastery: Number(profile.gear_mastery || 0),
             gear_versatility: Number(profile.gear_versatility || 0), profile_id: profile.id,
         } : null;
@@ -2144,6 +2147,7 @@ async function simcWbSaveCurrentSimulatorProfile() {
         battlenet_character: mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-character')?.value || '').trim() : '',
         player_equipment: mode === 'manual_equipment' ? (document.getElementById('simc-sim-equipment')?.value || '') : '',
         talent: attributeConfig?.talent || '',
+        gear_strength: attributeConfig?.gear_strength || 0,
         gear_crit: attributeConfig?.gear_crit || 0,
         gear_haste: attributeConfig?.gear_haste || 0,
         gear_mastery: attributeConfig?.gear_mastery || 0,
@@ -2377,6 +2381,7 @@ function syncSimcAttributeOnlyConfigFromInputs() {
     const value = id => (document.getElementById(id)?.value || '').trim();
     simcWbAttributeOnlyConfig = {
         talent: value('simc-sim-attribute-talent'),
+        gear_strength: Math.max(0, parseInt(value('simc-sim-attribute-strength'), 10) || 0),
         gear_crit: Math.max(0, parseInt(value('simc-sim-attribute-crit'), 10) || 0),
         gear_haste: Math.max(0, parseInt(value('simc-sim-attribute-haste'), 10) || 0),
         gear_mastery: Math.max(0, parseInt(value('simc-sim-attribute-mastery'), 10) || 0),
@@ -2390,6 +2395,7 @@ function fillSimcAttributeOnlyInputs(config) {
     const value = config || {};
     const setValue = (id, input) => { const el = document.getElementById(id); if (el) el.value = input ?? ''; };
     setValue('simc-sim-attribute-talent', value.talent || '');
+    setValue('simc-sim-attribute-strength', value.gear_strength || 0);
     setValue('simc-sim-attribute-crit', value.gear_crit || 0);
     setValue('simc-sim-attribute-haste', value.gear_haste || 0);
     setValue('simc-sim-attribute-mastery', value.gear_mastery || 0);
@@ -2747,7 +2753,7 @@ function simcAttributeSearchRequestBody() {
     const aplRadio = document.querySelector('input[name="simc-sim-apl"]:checked');
     return {
         kind: 'attribute_variants', name: `${spec} 四属性自动寻优`, spec,
-        player_config_mode: 'attribute_only', talent: config.talent,
+        player_config_mode: 'attribute_only', talent: config.talent, gear_strength: config.gear_strength,
         gear_crit: config.gear_crit, gear_haste: config.gear_haste,
         gear_mastery: config.gear_mastery, gear_versatility: config.gear_versatility,
         attribute_step: step, fight_style: fightStyle, time, target_count: targetCount,
