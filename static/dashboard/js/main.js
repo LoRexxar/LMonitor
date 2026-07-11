@@ -2689,7 +2689,8 @@ function setSimcAttributeSearchStatus(message, tone = 'text-amber-800') {
     const el = document.getElementById('simc-sim-attribute-search-status');
     if (!el) return;
     el.className = `mt-2 text-xs ${tone}`;
-    el.textContent = message;
+    el.classList.remove('hidden');
+    el.innerHTML = message;
 }
 
 function simcAttributeSearchRequestBody() {
@@ -2697,11 +2698,10 @@ function simcAttributeSearchRequestBody() {
     const checkedMode = document.querySelector('input[name="simc-player-import-mode"]:checked');
     const mode = checkedMode ? checkedMode.value : '';
     const config = syncSimcAttributeOnlyConfigFromInputs();
-    const step = parseInt((document.getElementById('simc-sim-attribute-search-step') || {}).value || '200', 10);
+    const step = 50;
     if (!spec) throw new Error('请先选择专精');
     if (mode !== 'attribute_only') throw new Error('四属性自动寻优仅支持“仅天赋与绿字属性”模式');
     if (!config.talent) throw new Error('请填写天赋构筑码');
-    if (!Number.isFinite(step) || step < 1) throw new Error('自动寻优初始步长至少为 1');
     const fightStyle = (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk';
     const time = parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300;
     const targetCount = parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1;
@@ -2726,6 +2726,40 @@ async function submitSimcAttributeSearch(payload) {
     return result.data;
 }
 
+function formatSimcAttributeRatings(ratings) {
+    const row = ratings || {};
+    return `暴击 ${row.crit ?? '-'} / 急速 ${row.haste ?? '-'} / 精通 ${row.mastery ?? '-'} / 全能 ${row.versatility ?? '-'}`;
+}
+
+function renderSimcAttributeSearchReport(report) {
+    if (!report || !report.recommendation) return '';
+    const recommendation = report.recommendation;
+    const dps = Number(recommendation.dps || 0).toLocaleString();
+    const stopText = report.local_optimum
+        ? '已验证为当前条件下 50 rating 两两交换邻域局部最优'
+        : report.stop_reason === 'awaiting_current_round'
+            ? '当前轮尚未完成，以下仅显示已完成的独立 SimC 结果'
+            : '已选出当前轮实际 DPS 更优点，正在继续下一轮';
+    const totalRows = Array.isArray(report.all_candidates) ? report.all_candidates.length : (report.candidates || []).length;
+    const rows = (report.all_candidates || report.candidates || []).map((row) => {
+        const dpsText = row.dps === null || row.dps === undefined ? '等待结果' : Number(row.dps).toLocaleString();
+        const state = row.dps === null || row.dps === undefined ? 'text-gray-400' : '';
+        return `
+        <tr class="${row.id === recommendation.id ? 'bg-emerald-50' : ''}">
+            <td class="px-2 py-1.5">第${row.round}轮</td>
+            <td class="px-2 py-1.5 font-mono ${state}">${dpsText}</td>
+            <td class="px-2 py-1.5">${escapeHtml(formatSimcAttributeRatings(row.ratings))}</td>
+            <td class="px-2 py-1.5">${escapeHtml(row.label || '')}</td>
+        </tr>`;
+    }).join('');
+    return `<div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-gray-700">
+        <div class="font-semibold text-emerald-800">四属性 50 rating 局部寻优报告</div>
+        <div class="mt-1">推荐：<span class="font-semibold">${escapeHtml(formatSimcAttributeRatings(recommendation.ratings))}</span> · DPS ${dps}</div>
+        <div class="mt-1">${escapeHtml(stopText)}；已完成 ${report.rounds_completed || 0} 轮，当前批次 ${totalRows} 个候选，总绿字 ${report.total_rating ?? '-'}。</div>
+        <div class="mt-2 overflow-x-auto"><table class="min-w-full text-left"><thead class="text-gray-500"><tr><th class="px-2 py-1">轮次</th><th class="px-2 py-1">DPS</th><th class="px-2 py-1">四属性</th><th class="px-2 py-1">候选</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>`;
+}
+
 function pollSimcAttributeSearch(batchId) {
     if (simcAttributeSearchTimer) clearTimeout(simcAttributeSearchTimer);
     const poll = async () => {
@@ -2734,9 +2768,10 @@ function pollSimcAttributeSearch(batchId) {
             const result = await response.json();
             if (!response.ok || !result.success) throw new Error(result.error || '获取属性寻优进度失败');
             const batch = result.data.batch;
+            const reportHtml = renderSimcAttributeSearchReport(result.data.attribute_report);
             const roundStatus = batch.current_round_status || batch;
             if (roundStatus.failed) throw new Error('本轮存在失败任务，已停止自动寻优；请检查任务日志后重新发起。');
-            setSimcAttributeSearchStatus(`第 ${batch.current_round || Math.max(...result.data.tasks.map(t => Number((t.candidate || {}).round || 1)))} 轮：完成 ${roundStatus.succeeded}/${batch.current_round_total || batch.total}，运行 ${roundStatus.running}，等待 ${roundStatus.pending}${roundStatus.failed ? '，失败 ' + roundStatus.failed : ''}`);
+            setSimcAttributeSearchStatus(`第 ${batch.current_round || Math.max(...result.data.tasks.map(t => Number((t.candidate || {}).round || 1)))} 轮：完成 ${roundStatus.succeeded}/${batch.current_round_total || batch.total}，运行 ${roundStatus.running}，等待 ${roundStatus.pending}${roundStatus.failed ? '，失败 ' + roundStatus.failed : ''}${reportHtml}`);
             if (roundStatus.pending || roundStatus.running) {
                 simcAttributeSearchTimer = setTimeout(poll, 5000);
                 return;

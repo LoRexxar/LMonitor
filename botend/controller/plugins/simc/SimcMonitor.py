@@ -426,6 +426,9 @@ class SimcMonitor(BaseScan):
         """
         try:
             ext_payload = self.parse_task_ext(simc_task.ext)
+            # Every regular task owns one deterministic report path. Batch comparisons
+            # must never discover a directory-neighbour's report after SimC exits.
+            result_file = self.ensure_regular_result_file(simc_task)
 
             # ── 直接 SimC 代码模式 ──
             raw_simc_code = ext_payload.get('raw_simc_code')
@@ -435,6 +438,7 @@ class SimcMonitor(BaseScan):
                 override_action_list = ext_payload.get('override_action_list')
                 if override_action_list:
                     simc_code = self.apply_action_list_override_to_raw(simc_code, override_action_list)
+                simc_code = self.ensure_result_file_directive(simc_code, result_file)
             else:
                 # ── 新版任务配置模式（从 ext JSON 读取所有配置） ──
                 # 如果 ext 中有 player_config_mode，使用新逻辑
@@ -468,7 +472,7 @@ class SimcMonitor(BaseScan):
                     
                     simc_code = self.apply_template(
                         template_content=template,
-                        task_config=task_config
+                        task_config={**task_config, 'result_file': result_file}
                     )
                 else:
                     # ── 兼容旧版 Profile + 模板模式 ──
@@ -487,7 +491,7 @@ class SimcMonitor(BaseScan):
                     # 生成SimC代码
                     simc_code = self.generate_simc_code(
                         simc_profile,
-                        simc_task.result_file,
+                        result_file,
                         override_time=override_time,
                         override_target_count=override_target_count,
                         override_action_list=override_action_list
@@ -502,8 +506,8 @@ class SimcMonitor(BaseScan):
             with open(simc_file_path, 'w', encoding='utf-8') as f:
                 f.write(simc_code)
             
-            # 执行SimC命令
-            success = self.execute_simc_command(simc_file_path, simc_task)
+            # 执行SimC命令；明确传递本任务唯一结果名，禁止目录扫描回退。
+            success = self.execute_simc_command(simc_file_path, simc_task, result_file)
             
             # 清理临时文件
             if os.path.exists(simc_file_path):
@@ -733,6 +737,7 @@ class SimcMonitor(BaseScan):
                 'gear_mastery': profile.gear_mastery or 21785,
                 'gear_versatility': profile.gear_versatility or 6757,
                 'override_action_list': override_action_list or '',
+                'result_file': result_file,
             }
             
             return self.apply_template(
@@ -743,6 +748,28 @@ class SimcMonitor(BaseScan):
         except Exception as e:
             logger.error(f"[SimC Monitor] Error generating SimC code: {str(e)}")
             raise e
+
+    def ensure_regular_result_file(self, simc_task):
+        """Allocate the one report filename a regular SimC task is allowed to use."""
+        current = str(simc_task.result_file or '').strip()
+        if current.endswith('.html') and '\n' not in current and '/' not in current and '\\' not in current:
+            return current
+        result_file = f'simc_task_{simc_task.id}.html'
+        simc_task.result_file = result_file
+        simc_task.save(update_fields=['result_file', 'modified_time'])
+        return result_file
+
+    @staticmethod
+    def ensure_result_file_directive(simc_code, result_file):
+        """Render exactly one task-owned HTML output directive into SimC input."""
+        result_file = str(result_file or '').strip()
+        if not result_file.endswith('.html') or '/' in result_file or '\\' in result_file:
+            raise ValueError('SimC任务结果文件名无效')
+        code = str(simc_code or '')
+        code = code.replace('{result_file}', result_file)
+        lines = [line for line in code.splitlines() if not re.match(r'^\s*html\s*=', line, re.IGNORECASE)]
+        lines.append(f'html={result_file}')
+        return '\n'.join(lines).strip()
 
     def execute_simc_command(self, simc_file_path, simc_task, result_file_name=None):
         """
@@ -778,48 +805,28 @@ class SimcMonitor(BaseScan):
                 if result.stdout:
                     logger.debug(f"[SimC Monitor] SimC output: {result.stdout[:500]}...")  # 只记录前500字符
                 
-                # 查找 SimC 生成的结果文件：优先用指定文件名，否则扫描目录找新 HTML
-                target_result_file = result_file_name or simc_task.result_file
-                if not target_result_file:
-                    # 扫描目录，找执行后新增的 HTML 文件
-                    current_htmls = set(
-                        f for f in os.listdir(self.result_path) if f.endswith('.html')
-                    )
-                    new_htmls = current_htmls - existing_htmls
-                    if new_htmls:
-                        target_result_file = sorted(new_htmls)[0]
-                        logger.info(f"[SimC Monitor] Detected new result file: {target_result_file}")
-                    else:
-                        # 退而求其次：取目录中最新的 HTML
-                        html_files = [
-                            (os.path.getmtime(os.path.join(self.result_path, f)), f)
-                            for f in os.listdir(self.result_path) if f.endswith('.html')
-                        ]
-                        if html_files:
-                            html_files.sort(reverse=True)
-                            target_result_file = html_files[0][1]
-                            logger.warning(f"[SimC Monitor] No new HTML detected, using latest: {target_result_file}")
-                
-                # 回写 result_file 到数据库：空值或文件名不一致时更新
-                if target_result_file and target_result_file != simc_task.result_file:
+                # A successful SimC process is not a successful task without this
+                # task's explicitly requested report. Never borrow a stale/latest HTML.
+                target_result_file = str(result_file_name or simc_task.result_file or '').strip()
+                if not target_result_file or not target_result_file.endswith('.html'):
+                    raise RuntimeError('SimC任务未配置唯一 HTML 结果文件')
+                result_file_path = os.path.join(self.result_path, target_result_file)
+                if not os.path.isfile(result_file_path):
+                    raise RuntimeError(f'SimC未生成预期结果文件: {target_result_file}')
+
+                if target_result_file != simc_task.result_file:
                     simc_task.result_file = target_result_file
-                    simc_task.save(update_fields=['result_file'])
-                    logger.info(f"[SimC Monitor] Saved result_file={target_result_file} for task {simc_task.id}")
-                
-                result_file_path = os.path.join(self.result_path, target_result_file) if target_result_file else ''
-                if result_file_path and os.path.exists(result_file_path):
+                    simc_task.save(update_fields=['result_file', 'modified_time'])
+                try:
                     from botend.interface.ossupload import ossUpload
-                    try:
-                        upload_success = ossUpload(result_file_path)
-                        if upload_success:
-                            logger.info(f"[SimC Monitor] Result file {target_result_file} uploaded to OSS successfully for task {simc_task.id}")
-                        else:
-                            logger.error(f"[SimC Monitor] Failed to upload result file {target_result_file} to OSS for task {simc_task.id}")
-                    except Exception as e:
-                        logger.error(f"[SimC Monitor] Error uploading result file to OSS: {str(e)}")
-                else:
-                    logger.warning(f"[SimC Monitor] Result file not found: {result_file_path}")
-                
+                    upload_success = ossUpload(result_file_path)
+                    if upload_success:
+                        logger.info(f"[SimC Monitor] Result file {target_result_file} uploaded to OSS successfully for task {simc_task.id}")
+                    else:
+                        logger.error(f"[SimC Monitor] Failed to upload result file {target_result_file} to OSS for task {simc_task.id}")
+                except Exception as e:
+                    logger.error(f"[SimC Monitor] Error uploading result file to OSS: {str(e)}")
+
                 return True
             else:
                 logger.error(f"[SimC Monitor] SimC execution failed for task {simc_task.id}")
@@ -1029,7 +1036,7 @@ class SimcMonitor(BaseScan):
             candidates = [s.strip() for s in spec_field.split(',') if s.strip()]
             if 'default' in candidates or 'all' in candidates or '*' in candidates:
                 return tpl
-        return rows[0]
+        return None
 
     def _get_class_by_spec(self, spec):
         """Return SimC class slug by spec slug used in the dashboard selector."""
@@ -1124,6 +1131,8 @@ class SimcMonitor(BaseScan):
         # 清理空行：连续多个空行合并为一个
         simc_code = re.sub(r'\n{3,}', '\n\n', simc_code)
         simc_code = simc_code.strip()
-        
+        result_file = task_config.get('result_file')
+        if result_file not in (None, ''):
+            simc_code = self.ensure_result_file_directive(simc_code, result_file)
         return simc_code
 

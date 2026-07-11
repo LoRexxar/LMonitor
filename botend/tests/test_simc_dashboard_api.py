@@ -1,9 +1,10 @@
 import json
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
-from botend.dashboard.api import SimcBatchTaskAPIView, inspect_raw_simc_code
+from botend.dashboard.api import SimcBatchTaskAPIView, SimcRegularCompareAPIView, inspect_raw_simc_code
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.services.simc_player_config import parse_manual_player_config, parse_manual_simc_candidates
 from botend.models import SimcContentTemplate, SimcProfile, SimcTask, WowItemSnapshot
@@ -131,28 +132,52 @@ finger1=,id=299002,ilevel=655
         self.assertEqual(candidates['talent_candidates'][0]['talent'], 'CLEAVE_BUILD')
         self.assertEqual(parse_manual_player_config('head=,id=212048\n### Gear from Bags\nhead=,id=299001', 'fury')['equipment'][0]['id'], 212048)
 
+    def test_auto_attribute_batch_creates_complete_50_rating_pairwise_neighborhood(self):
+        base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        rows = SimcBatchTaskAPIView._attribute_variants(base, 50)
+        self.assertEqual(len(rows), 13)
+        self.assertEqual(sum(is_base for _, _, is_base, _ in rows), 1)
+        moves = [candidate['move'] for _, _, is_base, candidate in rows if not is_base]
+        self.assertEqual(
+            {(move['from'], move['to'], move['transfer']) for move in moves},
+            {(source, target, 50) for source in base for target in base if source != target},
+        )
+        for _, ratings, _, candidate in rows:
+            self.assertEqual(sum(ratings.values()), sum(base.values()))
+            self.assertTrue(all(value >= 0 for value in ratings.values()))
+            if candidate['move'].get('type') != 'baseline':
+                self.assertEqual(candidate['move']['transfer'], 50)
+
+    def test_auto_attribute_batch_omits_sub_50_source_without_projecting_non_grid_move(self):
+        base = {'crit': 49, 'haste': 50, 'mastery': 100, 'versatility': 0}
+        rows = SimcBatchTaskAPIView._attribute_variants(base, 50)
+        moves = [candidate['move'] for _, _, is_base, candidate in rows if not is_base]
+        self.assertEqual(len(rows), 7)  # centre + (haste/mastery) * 3 valid targets
+        self.assertTrue(all(move['from'] != 'crit' for move in moves))
+        self.assertTrue(all(move['transfer'] == 50 for move in moves))
+
     def test_auto_attribute_batch_creates_base_and_limited_variants_with_one_batch_id(self):
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({
             'kind': 'attribute_variants', 'name': 'Fury 自动属性比较', 'spec': 'fury',
             'player_config_mode': 'attribute_only', 'talent': 'ATTRIBUTE_BUILD',
             'gear_crit': 1000, 'gear_haste': 2000, 'gear_mastery': 3000, 'gear_versatility': 4000,
-            'attribute_step': 200, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
+            'attribute_step': 50, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
         }), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload['success'], payload)
-        # 四属性首轮不是固定的二属性环：基准外的候选要覆盖每一项属性的增减，
-        # 且总绿字恒定，后续轮次可用实际 DPS 继续缩小步长寻优。
-        self.assertEqual(payload['data']['accepted'], 7)
+        # 首轮覆盖四属性之间全部有向 50 绿字转移：中心 + 12 个合法邻居。
+        self.assertEqual(payload['data']['accepted'], 13)
         ext_rows = [json.loads(task.ext) for task in SimcTask.objects.order_by('id')]
-        self.assertEqual(len(ext_rows), 7)
+        self.assertEqual(len(ext_rows), 13)
         self.assertEqual(len({row['batch_compare']['batch_id'] for row in ext_rows}), 1)
         self.assertEqual({row['batch_compare']['kind'] for row in ext_rows}, {'attribute_variants'})
         self.assertEqual(sum(row['batch_compare']['is_base'] for row in ext_rows), 1)
         self.assertEqual({row['player_config_mode'] for row in ext_rows}, {'attribute_only'})
         self.assertEqual({row['talent'] for row in ext_rows}, {'ATTRIBUTE_BUILD'})
         candidates = [row['batch_compare']['candidate'] for row in ext_rows]
-        self.assertEqual(candidates[0]['algorithm'], 'four_stat_pattern_search')
+        self.assertEqual(candidates[0]['algorithm'], 'four_stat_pairwise_hill_climb')
+        self.assertEqual(candidates[0]['algorithm_version'], 2)
         self.assertEqual(candidates[0]['round'], 1)
         base_total = sum((1000, 2000, 3000, 4000))
         gears = [{stat: row[f'gear_{stat}'] for stat in ('crit', 'haste', 'mastery', 'versatility')} for row in ext_rows]
@@ -161,41 +186,78 @@ finger1=,id=299002,ilevel=655
         self.assertEqual(changed_stats, {'crit', 'haste', 'mastery', 'versatility'})
 
     def test_auto_attribute_batch_projects_anchor_direction_to_boundary_instead_of_dropping_it(self):
+        # 50-rating 离散搜索不允许把不足一步的余额投影成 100 等非网格转移。
         base = {'crit': 400, 'haste': 1100, 'mastery': 1140, 'versatility': 100}
-        rows = SimcBatchTaskAPIView._attribute_variants(base, 200)
-        self.assertEqual(len(rows), 7)
+        rows = SimcBatchTaskAPIView._attribute_variants(base, 50)
+        self.assertEqual(len(rows), 13)
         self.assertTrue(all(sum(ratings.values()) == sum(base.values()) for _, ratings, _, _ in rows))
-        # 全能不足一个步长时，仍应能搜索“降低全能、提高其他属性”的三个方向，
-        # 只是投影到全能=0 的可行域边界。
-        by_label = {label: ratings for label, ratings, _, _ in rows}
-        self.assertEqual(by_label['versatility -100 / crit +100']['versatility'], 0)
-        self.assertEqual(by_label['versatility -100 / haste +100']['haste'], 1200)
-        self.assertEqual(by_label['versatility -100 / mastery +100']['mastery'], 1240)
+        self.assertTrue(all(candidate['move'].get('type') == 'baseline' or candidate['move']['transfer'] == 50 for _, _, _, candidate in rows))
 
         chosen = SimcBatchTaskAPIView._next_attribute_search_center([
-            {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 100000},
-            {'ratings': {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800}, 'dps': 101500},
-            {'ratings': {'crit': 1000, 'haste': 2200, 'mastery': 3000, 'versatility': 3800}, 'dps': 100500},
-        ], step=200, min_step=50)
-        self.assertEqual(chosen['ratings'], {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800})
-        self.assertEqual(chosen['step'], 200)
-        self.assertEqual(chosen['round'], 2)
-        # 中心点已经胜出时，不再原地重复扫描，而是缩小粒度继续精炼。
-        refined = SimcBatchTaskAPIView._next_attribute_search_center([
-            {'ratings': {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800}, 'dps': 102000, 'is_center': True},
-            {'ratings': {'crit': 1400, 'haste': 2000, 'mastery': 3000, 'versatility': 3600}, 'dps': 101800},
-        ], step=200, min_step=50)
-        self.assertEqual(refined['ratings'], {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800})
-        self.assertEqual(refined['step'], 100)
-        self.assertEqual(refined['round'], 2)
+            {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 100000, 'is_center': True},
+            {'ratings': {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000}, 'dps': 101500},
+        ], step=50, min_step=50)
+        self.assertEqual(chosen['ratings'], {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000})
+        self.assertEqual(chosen['step'], 50)
+        self.assertFalse(chosen['converged'])
+
+        local_optimum = SimcBatchTaskAPIView._next_attribute_search_center([
+            {'ratings': {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000}, 'dps': 102000, 'is_center': True},
+            {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 101800},
+        ], step=50, min_step=50)
+        self.assertTrue(local_optimum['converged'])
+        self.assertEqual(local_optimum['stop_reason'], 'local_optimum_50_pairwise')
 
     def test_next_attribute_round_preserves_budget_and_marks_new_center(self):
         base = {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800}
-        rows = SimcBatchTaskAPIView._attribute_variants(base, 100, round_number=2, mark_base=True)
-        self.assertEqual(len(rows), 7)
+        rows = SimcBatchTaskAPIView._attribute_variants(base, 50, round_number=2, mark_base=True)
+        self.assertEqual(len(rows), 13)
         self.assertTrue(rows[0][2])
         self.assertEqual(rows[0][3]['round'], 2)
         self.assertTrue(all(sum(ratings.values()) == 10000 for _, ratings, _, _ in rows))
+
+    def test_attribute_batch_task_renders_its_own_explicit_html_result_file(self):
+        monitor = SimcMonitor(None, None)
+        rendered = monitor.apply_template(
+            'warrior="LMonitor"\n{player_config}\nhtml={result_file}\n{action_list}',
+            {
+                'player_config_mode': 'attribute_only',
+                'talent': 'BUILD',
+                'gear_crit': 1000,
+                'gear_haste': 2000,
+                'gear_mastery': 3000,
+                'gear_versatility': 4000,
+                'result_file': 'simc_task_42.html',
+            },
+        )
+        self.assertIn('html=simc_task_42.html', rendered)
+        self.assertNotIn('{result_file}', rendered)
+
+    def test_attribute_batch_task_appends_explicit_html_when_base_template_has_no_placeholder(self):
+        monitor = SimcMonitor(None, None)
+        rendered = monitor.apply_template(
+            'warrior="LMonitor"\n{player_config}\n{action_list}',
+            {
+                'player_config_mode': 'attribute_only',
+                'talent': 'BUILD',
+                'gear_crit': 1000,
+                'gear_haste': 2000,
+                'gear_mastery': 3000,
+                'gear_versatility': 4000,
+                'result_file': 'simc_task_43.html',
+            },
+        )
+        self.assertTrue(rendered.endswith('html=simc_task_43.html'))
+        self.assertEqual(rendered.count('html='), 1)
+
+    def test_result_file_directive_replaces_existing_html_output(self):
+        rendered = SimcMonitor.ensure_result_file_directive(
+            'warrior="LMonitor"\nhtml=stale_report.html\n',
+            'simc_task_44.html',
+        )
+        self.assertEqual(rendered.count('html='), 1)
+        self.assertTrue(rendered.endswith('html=simc_task_44.html'))
+        self.assertNotIn('stale_report.html', rendered)
 
     def test_attribute_search_stops_when_it_revisits_same_center_and_step(self):
         ratings = {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800}
@@ -206,7 +268,22 @@ finger1=,id=299002,ilevel=655
         )
         self.assertEqual(stop, 'cycle_detected')
 
-    def test_attribute_search_stops_at_configured_round_limit(self):
+    def test_attribute_search_rejects_any_non_50_step(self):
+        results = [
+            {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 100000, 'is_center': True},
+            {'ratings': {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000}, 'dps': 100100, 'is_center': False},
+        ]
+        with self.assertRaisesRegex(ValueError, '固定使用 50'):
+            SimcBatchTaskAPIView._next_attribute_search_center(results, step=100, min_step=50)
+        bad_response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'attribute_variants', 'name': '错误步长', 'spec': 'fury',
+            'player_config_mode': 'attribute_only', 'talent': 'ATTRIBUTE_BUILD',
+            'gear_crit': 1000, 'gear_haste': 2000, 'gear_mastery': 3000, 'gear_versatility': 4000,
+            'attribute_step': 100,
+        }), content_type='application/json')
+        self.assertFalse(bad_response.json()['success'])
+        self.assertIn('固定使用 50', bad_response.json()['error'])
+
         stop = SimcBatchTaskAPIView._attribute_search_stop_reason(
             round_number=20, ratings={'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800},
             step=100, visited_centers=set(), max_rounds=20,
@@ -237,6 +314,47 @@ finger1=,id=299002,ilevel=655
         self.assertIn(1700, points)
         self.assertLessEqual(len(points), monitor.MAX_ATTRIBUTE_TEST_POINTS)
         self.assertEqual(points, sorted(set(points)))
+
+    def test_attribute_batch_report_returns_real_dps_rankings_path_and_local_optimum(self):
+        batch_id = 'batch-attribute-report'
+        base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        variants = SimcBatchTaskAPIView._attribute_variants(base, 50)
+        reports = {}
+        for index, (label, ratings, is_base, candidate) in enumerate(variants):
+            dps = 100000 if is_base else 99900
+            task = SimcTask.objects.create(
+                user_id=self.user.id, name=f'attribute {label}', simc_profile_id=0,
+                current_status=2, task_type=1, result_file=f'attribute_{index}.html',
+                ext=json.dumps({
+                    'player_config_mode': 'attribute_only', 'spec': 'fury', 'talent': 'BUILD',
+                    **{f'gear_{stat}': ratings[stat] for stat in SimcBatchTaskAPIView.ATTRIBUTE_STATS},
+                    'batch_compare': {
+                        'version': 2, 'batch_id': batch_id, 'kind': 'attribute_variants',
+                        'index': index, 'label': label, 'is_base': is_base, 'candidate': candidate,
+                    },
+                }),
+            )
+            reports[task.result_file] = f'<h2>Fury: {dps:,} dps</h2>'
+
+        def result_content(_self, result_file):
+            return reports.get(result_file)
+
+        with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', result_content):
+            response = self.client.get('/api/simc-regular-compare/?batch_id=' + batch_id)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        report = payload['data']['attribute_report']
+        self.assertEqual(report['algorithm'], 'four_stat_pairwise_hill_climb')
+        self.assertEqual(report['step'], 50)
+        self.assertEqual(report['total_rating'], 10000)
+        self.assertEqual(report['rounds_completed'], 1)
+        self.assertEqual(report['recommendation']['ratings'], base)
+        self.assertEqual(report['stop_reason'], 'local_optimum_50_pairwise')
+        self.assertEqual(len(report['candidates']), 13)
+        self.assertEqual(report['candidates'][0]['dps'], 100000)
+        self.assertTrue(all(row['result_file'] != report['candidates'][0]['result_file'] for row in report['candidates'][1:]))
 
     def test_batch_compare_query_is_isolated_and_reports_pending_progress(self):
         batch_id, other_id = 'batch-isolated', 'batch-other'

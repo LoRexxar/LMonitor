@@ -1145,9 +1145,12 @@ class SimcTaskAPIView(View):
 class SimcBatchTaskAPIView(View):
     """Create a small, self-describing regular-task comparison batch."""
     MAX_TASKS = 8
+    MAX_ATTRIBUTE_TASKS = 13
     ATTRIBUTE_STATS = ('crit', 'haste', 'mastery', 'versatility')
-    MAX_ATTRIBUTE_SEARCH_ROUNDS = 20
-    DEFAULT_MIN_ATTRIBUTE_STEP = 50
+    MAX_ATTRIBUTE_SEARCH_ROUNDS = 100
+    ATTRIBUTE_SEARCH_STEP = 50
+    DEFAULT_MIN_ATTRIBUTE_STEP = ATTRIBUTE_SEARCH_STEP
+    ATTRIBUTE_DPS_TOLERANCE = 1.0
 
     @staticmethod
     def _int(value, field):
@@ -1160,70 +1163,46 @@ class SimcBatchTaskAPIView(View):
         return value
 
     @classmethod
-    def _attribute_variants(cls, values, step, round_number=1, mark_base=True):
-        """Return the first bounded neighborhood for four-stat coordinate search.
+    def _attribute_variants(cls, values, step=None, round_number=1, mark_base=True):
+        """Measure the complete legal 50-rating directed pairwise neighborhood.
 
-        All candidates preserve the total secondary-rating budget. Each batch has a
-        baseline plus up to six legal one-coordinate transfers: enough to test every
-        stat as a source and target without falling back to an arbitrary two-stat pair.
-        The compare endpoint can use the winning point as the centre of a smaller next
-        round, so this is an optimizer's search neighborhood rather than a claim that
-        one static batch can analytically know SimC's nonlinear optimum.
+        The four ratings keep their exact total. A 50-rating transfer from every legal
+        source stat to every other target stat is evaluated with real SimC. Therefore
+        a winning centre is a local optimum under the declared 50-rating neighborhood,
+        rather than merely under a versatility-anchored coordinate subset.
         """
-        base = dict(values)
+        try:
+            step = int(step if step is not None else cls.ATTRIBUTE_SEARCH_STEP)
+        except (TypeError, ValueError):
+            raise ValueError('属性寻优步长无效')
+        if step != cls.ATTRIBUTE_SEARCH_STEP:
+            raise ValueError(f'四属性自动寻优固定使用 {cls.ATTRIBUTE_SEARCH_STEP} 绿字步长')
+        base = {stat: int(values[stat]) for stat in cls.ATTRIBUTE_STATS}
         rows = [('基准属性', base, mark_base, {
-            'type': 'attribute', 'algorithm': 'four_stat_pattern_search',
-            'round': round_number, 'step': step, 'move': 'baseline',
+            'type': 'attribute', 'algorithm': 'four_stat_pairwise_hill_climb',
+            'algorithm_version': 2, 'round': round_number, 'step': step,
+            'total_rating': sum(base.values()), 'move': {'type': 'baseline'},
         })]
-        # 约束 sum(stats)=常数后，四属性空间只剩三维。以全能为锚点的
-        # 三组正/负坐标方向正好覆盖这三个独立维度，共 6 个点 + 基准，
-        # 在 MAX_TASKS=8 内即可做一轮完整的局部 pattern search。
-        # 正方向（全能 -> 其他）即使当前全能不足一个 step 也必须纳入：
-        # 这是合法的“反向移动”的可达点，不能因为锚点初值低而丢掉。
-        anchor = 'versatility'
-        axes = [stat for stat in cls.ATTRIBUTE_STATS if stat != anchor]
-        moves = [(anchor, stat) for stat in axes]
-        seen = {tuple(base[stat] for stat in cls.ATTRIBUTE_STATS)}
-        for source, target in moves:
-            variant = dict(base)
-            # 将一维坐标投影到非负可行域边界；仍保持四属性总量守恒。
-            transfer = min(step, variant[source])
-            if transfer <= 0:
-                continue
-            variant[source] -= transfer
-            variant[target] += transfer
-            signature = tuple(variant[stat] for stat in cls.ATTRIBUTE_STATS)
-            if signature in seen:
-                continue
-            seen.add(signature)
-            rows.append((f'{source} -{transfer} / {target} +{transfer}', variant, False, {
-                'type': 'attribute', 'algorithm': 'four_stat_pattern_search',
-                'round': round_number, 'step': step, 'move': {'from': source, 'to': target, 'transfer': transfer},
-            }))
-        for source, target in [(stat, anchor) for stat in axes]:
+        for source in cls.ATTRIBUTE_STATS:
             if base[source] < step:
                 continue
-            variant = dict(base)
-            variant[source] -= step
-            variant[target] += step
-            signature = tuple(variant[stat] for stat in cls.ATTRIBUTE_STATS)
-            if signature in seen:
-                continue
-            seen.add(signature)
-            rows.append((f'{source} -{step} / {target} +{step}', variant, False, {
-                'type': 'attribute', 'algorithm': 'four_stat_pattern_search',
-                'round': round_number, 'step': step, 'move': {'from': source, 'to': target, 'transfer': step},
-            }))
+            for target in cls.ATTRIBUTE_STATS:
+                if source == target:
+                    continue
+                variant = dict(base)
+                variant[source] -= step
+                variant[target] += step
+                rows.append((f'{source} -{step} / {target} +{step}', variant, False, {
+                    'type': 'attribute', 'algorithm': 'four_stat_pairwise_hill_climb',
+                    'algorithm_version': 2, 'round': round_number, 'step': step,
+                    'total_rating': sum(base.values()),
+                    'move': {'from': source, 'to': target, 'transfer': step},
+                }))
         return rows
 
     @classmethod
     def _next_attribute_search_center(cls, results, step, min_step=50):
-        """Choose a four-stat search centre from completed SimC measurements.
-
-        The objective is empirical DPS, never a hard-coded stat weight. If the centre
-        itself wins, halve the resolution; otherwise move to the winning legal point
-        and retain the step so the search can continue in that direction.
-        """
+        """Choose the next centre from one completed 50-rating local neighborhood."""
         if not results:
             raise ValueError('属性寻优需要至少一个完成结果')
         try:
@@ -1231,6 +1210,10 @@ class SimcBatchTaskAPIView(View):
             minimum_step = max(1, int(min_step))
         except (TypeError, ValueError):
             raise ValueError('属性寻优步长无效')
+        if current_step != cls.ATTRIBUTE_SEARCH_STEP or minimum_step != cls.ATTRIBUTE_SEARCH_STEP:
+            raise ValueError(f'四属性自动寻优固定使用 {cls.ATTRIBUTE_SEARCH_STEP} 绿字步长')
+        if any(int(row.get('ratings', {}).get(stat, -1)) < 0 for row in results if isinstance(row, dict) for stat in cls.ATTRIBUTE_STATS):
+            raise ValueError('属性寻优绿字不能为负数')
         valid = []
         for row in results:
             ratings = row.get('ratings') if isinstance(row, dict) else None
@@ -1247,9 +1230,21 @@ class SimcBatchTaskAPIView(View):
             valid.append({'ratings': normalized, 'dps': score, 'is_center': bool(row.get('is_center'))})
         if not valid:
             raise ValueError('属性寻优缺少有效 DPS 结果')
-        winner = max(valid, key=lambda row: row['dps'])
-        next_step = max(minimum_step, current_step // 2) if winner['is_center'] else current_step
-        return {'ratings': winner['ratings'], 'step': next_step, 'round': 2, 'dps': winner['dps'], 'converged': bool(winner['is_center'] and current_step <= minimum_step)}
+        center = next((row for row in valid if row['is_center']), None)
+        if center is None:
+            raise ValueError('属性寻优当前轮缺少基准点')
+        tolerance = float(cls.ATTRIBUTE_DPS_TOLERANCE)
+        best_neighbor = max((row for row in valid if not row['is_center']), key=lambda row: row['dps'], default=None)
+        improved = bool(best_neighbor and best_neighbor['dps'] > center['dps'] + tolerance)
+        winner = best_neighbor if improved else center
+        return {
+            'ratings': winner['ratings'],
+            'step': cls.ATTRIBUTE_SEARCH_STEP,
+            'round': 2,
+            'dps': winner['dps'],
+            'converged': not improved,
+            'stop_reason': '' if improved else 'local_optimum_50_pairwise',
+        }
 
     @classmethod
     def _attribute_center_signature(cls, ratings, step):
@@ -1378,7 +1373,7 @@ class SimcBatchTaskAPIView(View):
             candidate = dict(candidate_data)
             candidate['search_center'] = recommendation['ratings']
             candidate['parent_batch_id'] = continue_batch_id
-            task_ext = {'batch_compare': {'version': 1, 'batch_id': continue_batch_id, 'parent_batch_id': continue_batch_id, 'kind': 'attribute_variants', 'index': index, 'label': label, 'is_base': is_base, 'candidate': candidate}}
+            task_ext = {'batch_compare': {'version': 2, 'batch_id': continue_batch_id, 'parent_batch_id': continue_batch_id, 'kind': 'attribute_variants', 'index': index, 'label': label, 'is_base': is_base, 'candidate': candidate}}
             kwargs = {
                 'task_type': 1, 'ext': task_ext,
                 'fight_style': source_ext.get('fight_style', 'Patchwerk'),
@@ -1423,8 +1418,8 @@ class SimcBatchTaskAPIView(View):
                 if not talent:
                     raise ValueError('自动属性比较需要天赋构筑码')
                 step = self._int(data.get('attribute_step'), '属性步长')
-                if step < 1:
-                    raise ValueError('属性步长至少为1')
+                if step != self.ATTRIBUTE_SEARCH_STEP:
+                    raise ValueError(f'四属性自动寻优固定使用 {self.ATTRIBUTE_SEARCH_STEP} 绿字步长')
                 values = {stat: self._int(data.get(f'gear_{stat}'), f'{stat}绿字') for stat in self.ATTRIBUTE_STATS}
                 for label, ratings, is_base, candidate in self._attribute_variants(values, step):
                     specs.append({'label': label, 'is_base': is_base, 'gear': ratings, 'candidate': candidate})
@@ -1475,7 +1470,7 @@ class SimcBatchTaskAPIView(View):
             created = []
             with transaction.atomic():
                 for index, item in enumerate(specs):
-                    task_ext = {'batch_compare': {'version': 1, 'batch_id': batch_id, 'kind': kind, 'index': index, 'label': item['label'], 'is_base': item['is_base'], 'candidate': item['candidate']}}
+                    task_ext = {'batch_compare': {'version': 2 if kind == 'attribute_variants' else 1, 'batch_id': batch_id, 'kind': kind, 'index': index, 'label': item['label'], 'is_base': item['is_base'], 'candidate': item['candidate']}}
                     kwargs = {'task_type': 1, 'ext': task_ext, 'fight_style': fight_style, 'time': fight_time, 'target_count': target_count, 'player_config_mode': mode, 'spec': spec, 'talent': item.get('talent', str(data.get('talent') or '')), 'selected_apl_id': selected_apl_id}
                     if mode == 'attribute_only':
                         kwargs.update({f'gear_{stat}': item['gear'][stat] for stat in self.ATTRIBUTE_STATS})
@@ -3547,6 +3542,74 @@ class SimcRegularCompareAPIView(View):
             return int((candidate or {}).get('round') or 1)
         except (AttributeError, TypeError, ValueError):
             return 1
+
+    def _build_attribute_report(self, batch_tasks):
+        """Return a truthful report for the measured 50-rating local search only."""
+        stats = SimcBatchTaskAPIView.ATTRIBUTE_STATS
+        tolerance = SimcBatchTaskAPIView.ATTRIBUTE_DPS_TOLERANCE
+        candidates = []
+        centers = []
+        invalid = []
+        for task, manifest in batch_tasks:
+            ext = self._parse_task_ext(task.ext)
+            candidate = manifest.get('candidate') or {}
+            ratings = {stat: ext.get(f'gear_{stat}') for stat in stats}
+            round_number = self._batch_round(manifest)
+            row = {
+                'id': task.id, 'label': manifest.get('label') or task.name,
+                'round': round_number, 'is_center': bool(manifest.get('is_base')),
+                'move': candidate.get('move') or {}, 'ratings': ratings,
+                'result_file': task.result_file or '', 'status': task.current_status,
+                'dps': None,
+            }
+            if any(value is None for value in ratings.values()):
+                invalid.append({'id': task.id, 'error': '候选缺少四项绿字'})
+                candidates.append(row)
+                continue
+            try:
+                row['ratings'] = {stat: int(ratings[stat]) for stat in stats}
+            except (TypeError, ValueError):
+                invalid.append({'id': task.id, 'error': '候选绿字无效'})
+                candidates.append(row)
+                continue
+            if task.current_status == 2 and task.result_file:
+                html_content = self._get_result_file_content(task.result_file)
+                parsed = self._parse_regular_result(html_content) if html_content else {}
+                if parsed.get('dps') is None:
+                    invalid.append({'id': task.id, 'error': '无法解析该候选的独立 DPS 结果'})
+                else:
+                    row['dps'] = parsed['dps']
+            candidates.append(row)
+            if row['is_center']:
+                centers.append(row)
+
+        completed = [row for row in candidates if row['dps'] is not None]
+        ranked = sorted(completed, key=lambda row: row['dps'], reverse=True)
+        current_round = max([row['round'] for row in candidates] or [1])
+        current = [row for row in candidates if row['round'] == current_round]
+        center = next((row for row in current if row['is_center']), None)
+        current_complete = bool(current) and all(row['dps'] is not None for row in current)
+        recommendation = ranked[0] if ranked else None
+        stop_reason = 'awaiting_current_round'
+        if current_complete and center:
+            best_neighbor = max((row for row in current if not row['is_center']), key=lambda row: row['dps'], default=None)
+            recommendation = best_neighbor if best_neighbor and best_neighbor['dps'] > center['dps'] + tolerance else center
+            stop_reason = '' if recommendation is not center else 'local_optimum_50_pairwise'
+        path = [
+            {'round': row['round'], 'ratings': row['ratings'], 'dps': row['dps'], 'result_file': row['result_file']}
+            for row in sorted(centers, key=lambda item: item['round'])
+        ]
+        first_center = next((row for row in sorted(centers, key=lambda item: item['round']) if row['round'] == 1), None)
+        return {
+            'algorithm': 'four_stat_pairwise_hill_climb', 'algorithm_version': 2,
+            'step': SimcBatchTaskAPIView.ATTRIBUTE_SEARCH_STEP,
+            'tolerance': tolerance, 'rounds_completed': len({row['round'] for row in candidates if row['dps'] is not None}),
+            'current_round': current_round, 'total_rating': sum(first_center['ratings'].values()) if first_center else None,
+            'initial_ratings': first_center['ratings'] if first_center else {},
+            'recommendation': recommendation, 'stop_reason': stop_reason,
+            'local_optimum': stop_reason == 'local_optimum_50_pairwise',
+            'search_path': path, 'candidates': ranked, 'all_candidates': candidates, 'invalid': invalid,
+        }
     
     def get(self, request):
         try:
@@ -3574,7 +3637,8 @@ class SimcRegularCompareAPIView(View):
                 active_counts = {'pending': 0, 'running': 0, 'succeeded': 0, 'failed': 0}
                 for row in active_rows:
                     active_counts[{0: 'pending', 1: 'running', 2: 'succeeded', 3: 'failed'}.get(row['current_status'], 'failed')] += 1
-                return JsonResponse({'success': True, 'data': {'batch': {'batch_id': batch_id, 'kind': first_manifest.get('kind'), 'total': len(rows), 'current_round': current_round, 'current_round_total': len(active_rows), **status_counts, 'current_round_status': active_counts}, 'tasks': rows, 'invalid': []}})
+                attribute_report = self._build_attribute_report(batch_tasks) if first_manifest.get('kind') == 'attribute_variants' else None
+                return JsonResponse({'success': True, 'data': {'batch': {'batch_id': batch_id, 'kind': first_manifest.get('kind'), 'total': len(rows), 'current_round': current_round, 'current_round_total': len(active_rows), **status_counts, 'current_round_status': active_counts}, 'tasks': rows, 'attribute_report': attribute_report, 'invalid': []}})
 
             task_ids_raw = request.GET.get('task_ids', '')
             task_ids = []
