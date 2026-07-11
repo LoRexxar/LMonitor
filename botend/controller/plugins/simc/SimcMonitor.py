@@ -1017,12 +1017,35 @@ class SimcMonitor(BaseScan):
         ).order_by('id')
         return self._select_template_from_queryset(queryset, spec_value)
 
+    @staticmethod
+    def _is_executable_base_template(template):
+        """Return whether a base template declares a real SimC player.
+
+        Attribute-only tasks intentionally carry only their talent/rating delta, but the
+        selected template must supply the player header (for example ``warrior=...``).
+        Without it, SimC parses those fields as global options and exits with
+        ``Nothing to sim!``. Equipment may be omitted by a controlled base template;
+        it is not the condition that makes the profile syntactically executable.
+        """
+        content = str(getattr(template, 'content', '') or getattr(template, 'template_content', '') or '')
+        return bool(re.search(
+            r'^\s*(?:warrior|paladin|hunter|rogue|priest|deathknight|shaman|mage|warlock|monk|druid|demonhunter|evoker)\s*=',
+            content, re.IGNORECASE | re.MULTILINE,
+        ))
+
     def _select_template_from_queryset(self, queryset, spec_value):
         rows = list(queryset)
         if not rows:
             return None
+        executable_rows = [tpl for tpl in rows if self._is_executable_base_template(tpl)]
+        if not executable_rows:
+            logger.error('[SimC Monitor] 没有包含玩家块和装备基线的可执行基础模板')
+            return None
+        if len(executable_rows) != len(rows):
+            skipped = [str(getattr(tpl, 'id', '')) for tpl in rows if tpl not in executable_rows]
+            logger.warning('[SimC Monitor] 跳过非可执行基础模板: %s', ', '.join(skipped))
         if spec_value:
-            for tpl in rows:
+            for tpl in executable_rows:
                 spec_field = str(getattr(tpl, 'spec', '') or '').strip().lower()
                 if not spec_field:
                     continue
@@ -1032,7 +1055,7 @@ class SimcMonitor(BaseScan):
                 if spec_value in candidates:
                     return tpl
 
-        for tpl in rows:
+        for tpl in executable_rows:
             spec_field = str(getattr(tpl, 'spec', '') or '').strip().lower()
             if not spec_field:
                 continue

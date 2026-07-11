@@ -217,6 +217,21 @@ finger1=,id=299002,ilevel=655
         self.assertEqual(rows[0][3]['round'], 2)
         self.assertTrue(all(sum(ratings.values()) == 10000 for _, ratings, _, _ in rows))
 
+    def test_template_selection_ignores_non_executable_probe_template(self):
+        monitor = SimcMonitor(None, None)
+        probe = SimpleNamespace(id=1, spec='default', content='spec={spec}\n{player_config}\n')
+        executable = SimpleNamespace(
+            id=2,
+            spec='default',
+            content='warrior="Template"\nspec={spec}\n',
+        )
+        selected = monitor._select_template_from_queryset([probe, executable], 'fury')
+        self.assertIs(selected, executable)
+
+    def test_incomplete_base_template_is_not_executable(self):
+        probe = SimpleNamespace(id=1, content='spec=fury\n{player_config}\n')
+        self.assertFalse(SimcMonitor._is_executable_base_template(probe))
+
     def test_attribute_batch_task_renders_its_own_explicit_html_result_file(self):
         monitor = SimcMonitor(None, None)
         rendered = monitor.apply_template(
