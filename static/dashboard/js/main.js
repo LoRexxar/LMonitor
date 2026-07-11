@@ -2556,7 +2556,7 @@ async function loadSimcSimSavedProfiles() {
     if (!container) return;
     const filter = getCurrentSimcWorkbenchSpecFilter();
     const filterText = filter.spec ? `（${filter.spec}${filter.className ? ' / ' + filter.className : ''}）` : '';
-    container.innerHTML = `<div class="text-gray-400 text-center py-2"><i class="fas fa-spinner fa-spin mr-1"></i>加载已保存配置${escapeHtml(filterText)}…</div>`;
+    container.innerHTML = `<div class="text-gray-400 py-1 text-xs"><i class="fas fa-spinner fa-spin mr-1"></i>加载保存配置${escapeHtml(filterText)}…</div>`;
     try {
         const allProfiles = await simcWbFetchProfilesForWorkbench();
         const filtered = filterSimcProfilesForCurrentImport(allProfiles);
@@ -2565,7 +2565,7 @@ async function loadSimcSimSavedProfiles() {
             const hint = filtered.filter.spec
                 ? `当前专精 ${escapeHtml(filtered.filter.spec)} 没有已保存配置。请切换专精、在“配置管理”新增，或直接填写玩家信息后保存当前。`
                 : '暂无已保存配置';
-            container.innerHTML = `<div class="text-gray-400 text-center py-3 leading-relaxed">${hint}</div>`;
+            container.innerHTML = `<div class="text-gray-400 py-1 text-xs">${hint}</div>`;
             return;
         }
         container.innerHTML = profiles.map(p => {
@@ -2578,13 +2578,10 @@ async function loadSimcSimSavedProfiles() {
             const spec = normalizeSimcSpecKey(p.spec || '');
             const className = getSimcSpecClass(p.spec || '');
             return `
-            <button type="button" class="simc-sim-load-profile block w-full text-left rounded-lg border border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50 p-3 mb-2 text-sm" data-profile-id="${p.id}">
-                <div class="flex items-center justify-between gap-2">
-                    <div class="font-semibold text-gray-800 truncate">${escapeHtml(p.name || '配置#' + p.id)}</div>
-                    <span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">${escapeHtml(spec || p.spec || '-')}</span>
-                </div>
-                <div class="text-xs text-gray-500 mt-1 truncate" title="${escapeHtml(source || '-')}">${escapeHtml(source || '-')}</div>
-                ${className ? `<div class="text-[11px] text-gray-400 mt-1">职业：${escapeHtml(className)}</div>` : ''}
+            <button type="button" class="simc-sim-load-profile flex w-full items-center gap-2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 mb-1 text-left text-xs hover:border-blue-300 hover:bg-blue-50" data-profile-id="${p.id}" title="${escapeHtml(source || '-')}">
+                <span class="min-w-0 flex-1 truncate font-medium text-gray-800">${escapeHtml(p.name || '配置#' + p.id)}</span>
+                <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">${escapeHtml(spec || p.spec || '-')}</span>
+                <span class="max-w-24 shrink-0 truncate text-[10px] text-gray-400">${escapeHtml(source || '-')}</span>
             </button>`;
         }).join('');
         container.querySelectorAll('.simc-sim-load-profile').forEach(btn => btn.addEventListener('click', () => simcWbLoadProfileToSimulator(btn.dataset.profileId)));
