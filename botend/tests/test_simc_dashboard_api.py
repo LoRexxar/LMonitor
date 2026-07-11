@@ -270,6 +270,11 @@ finger1=,id=299002,ilevel=655
             },
         )
         self.assertIn('html=simc_task_42.html', rendered)
+        self.assertIn('gear_crit_rating=1000', rendered)
+        self.assertIn('gear_haste_rating=2000', rendered)
+        self.assertIn('gear_mastery_rating=3000', rendered)
+        self.assertIn('gear_versatility_rating=4000', rendered)
+        self.assertNotIn('\ncrit_rating=1000', rendered)
         self.assertNotIn('{result_file}', rendered)
 
     def test_attribute_batch_task_appends_explicit_html_when_base_template_has_no_placeholder(self):

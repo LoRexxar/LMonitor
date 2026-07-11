@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260711-four-stat-search-r3"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260711-duration-target-presets-r1"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -855,25 +855,24 @@
                                                 <i class="fas fa-crosshairs mr-1 text-red-500"></i>战斗配置
                                             </label>
                                             <div class="mb-3">
-                                                <label class="block text-xs font-semibold text-gray-600 mb-1">战斗场景预设</label>
+                                                <label class="block text-xs font-semibold text-gray-600 mb-1">时长与目标预设</label>
                                                 <select id="simc-sim-fight-preset" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white">
-                                                    <option value="Patchwerk,300,1">单体 Patchwerk 300s/1目标</option>
-                                                    <option value="Cleave,300,2">双目标 Cleave 300s/2目标</option>
-                                                    <option value="HecticAddCleave,300,5">持续AOE HecticAddCleave 300s/5目标</option>
-                                                    <option value="DungeonSlice,300,5">大秘境 DungeonSlice 300s/5目标</option>
-                                                    <option value="DungeonRoute,1800,5">大秘境路线 DungeonRoute 1800s/5目标</option>
-                                                    <option value="custom">自定义配置</option>
+                                                    <option value="300,1">300 秒 / 1 目标</option>
+                                                    <option value="300,2">300 秒 / 2 目标</option>
+                                                    <option value="300,5">300 秒 / 5 目标</option>
+                                                    <option value="1800,5">1800 秒 / 5 目标</option>
+                                                    <option value="custom">自定义时长与目标</option>
                                                 </select>
                                             </div>
                                             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                                 <div>
-                                                    <label class="block text-xs font-semibold text-gray-600 mb-1">战斗场景</label>
+                                                    <label class="block text-xs font-semibold text-gray-600 mb-1">SimC 战斗模型</label>
                                                     <select id="simc-sim-fight-style" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                                                        <option value="Patchwerk">Patchwerk (单体标准)</option>
-                                                        <option value="Cleave">Cleave (双目标)</option>
-                                                        <option value="HecticAddCleave">HecticAddCleave (杂乱AOE)</option>
-                                                        <option value="DungeonSlice">DungeonSlice (大秘境)</option>
-                                                        <option value="DungeonRoute">DungeonRoute (大秘境路线)</option>
+                                                        <option value="Patchwerk">Patchwerk</option>
+                                                        <option value="Cleave">Cleave</option>
+                                                        <option value="HecticAddCleave">HecticAddCleave</option>
+                                                        <option value="DungeonSlice">DungeonSlice</option>
+                                                        <option value="DungeonRoute">DungeonRoute</option>
                                                     </select>
                                                 </div>
                                                 <div>

@@ -2952,10 +2952,9 @@ function bindSimcWorkbenchSimulationControls() {
         });
     }
 
-    const fightStyleSel = document.getElementById('simc-sim-fight-style');
     const timeInput = document.getElementById('simc-sim-time');
     const targetInput = document.getElementById('simc-sim-target-count');
-    [fightStyleSel, timeInput, targetInput].forEach(el => {
+    [timeInput, targetInput].forEach(el => {
         if (el && el.dataset.boundPresetSync !== '1') {
             el.dataset.boundPresetSync = '1';
             el.addEventListener('change', syncSimcFightPresetFromInputs);
@@ -2984,26 +2983,22 @@ function bindSimcWorkbenchSimulationControls() {
 function applySimcFightPreset(presetValue) {
     if (!presetValue || presetValue === 'custom') return;
     const parts = String(presetValue).split(',');
-    if (parts.length !== 3) return;
-    const [style, time, targetCount] = parts;
-    const fightStyleSel = document.getElementById('simc-sim-fight-style');
+    if (parts.length !== 2) return;
+    const [time, targetCount] = parts;
     const timeInput = document.getElementById('simc-sim-time');
     const targetInput = document.getElementById('simc-sim-target-count');
-    if (fightStyleSel && style) fightStyleSel.value = style;
     if (timeInput && time) timeInput.value = String(parseInt(time, 10) || 300);
     if (targetInput && targetCount) targetInput.value = String(parseInt(targetCount, 10) || 1);
 }
 
 function syncSimcFightPresetFromInputs() {
     const presetSel = document.getElementById('simc-sim-fight-preset');
-    const fightStyleSel = document.getElementById('simc-sim-fight-style');
     const timeInput = document.getElementById('simc-sim-time');
     const targetInput = document.getElementById('simc-sim-target-count');
-    if (!presetSel || !fightStyleSel || !timeInput || !targetInput) return;
-    const style = fightStyleSel.value || '';
+    if (!presetSel || !timeInput || !targetInput) return;
     const time = String(parseInt(timeInput.value, 10) || 300);
     const targetCount = String(parseInt(targetInput.value, 10) || 1);
-    const expected = `${style},${time},${targetCount}`;
+    const expected = `${time},${targetCount}`;
     const matched = Array.from(presetSel.options || []).some(opt => opt.value === expected);
     presetSel.value = matched ? expected : 'custom';
 }

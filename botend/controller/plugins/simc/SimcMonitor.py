@@ -1140,7 +1140,9 @@ class SimcMonitor(BaseScan):
             for field in ('crit', 'haste', 'mastery', 'versatility'):
                 value = task_config.get(f'gear_{field}')
                 if value not in (None, ''):
-                    attribute_lines.append(f'{field}_rating={value}')
+                    # These are player-scoped SimC stats. Bare ``crit_rating`` is
+                    # parsed as an unknown global option and silently ignored.
+                    attribute_lines.append(f'gear_{field}_rating={value}')
             simc_code = simc_code.replace('{player_config}', '\n'.join(attribute_lines))
             simc_code = simc_code.replace('{gear_crit}', '')
             simc_code = simc_code.replace('{gear_haste}', '')
