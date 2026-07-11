@@ -232,6 +232,29 @@ finger1=,id=299002,ilevel=655
         probe = SimpleNamespace(id=1, content='spec=fury\n{player_config}\n')
         self.assertFalse(SimcMonitor._is_executable_base_template(probe))
 
+    def test_simc_error_details_keep_attribute_batch_execution_context(self):
+        monitor = SimcMonitor(None, None)
+        manifest = {
+            'player_config_mode': 'attribute_only',
+            'spec': 'fury',
+            'talent': 'ATTRIBUTE_BUILD',
+            'gear_crit': 1000,
+            'gear_haste': 2000,
+            'gear_mastery': 3000,
+            'gear_versatility': 4000,
+            'selected_apl_id': 42,
+            'batch_compare': {'batch_id': 'batch-1', 'candidate': {'round': 1}},
+        }
+        task = SimpleNamespace(ext=json.dumps(manifest), id=99)
+
+        monitor.save_simc_error_details(task, 'SimC未生成预期结果文件', stderr_text='x' * 20000)
+
+        stored = json.loads(task.ext)
+        for key, value in manifest.items():
+            self.assertEqual(stored[key], value)
+        self.assertEqual(stored['simc_error_summary'], 'SimC未生成预期结果文件')
+        self.assertIn('simc_error_native', stored)
+
     def test_attribute_batch_task_renders_its_own_explicit_html_result_file(self):
         monitor = SimcMonitor(None, None)
         rendered = monitor.apply_template(

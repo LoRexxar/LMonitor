@@ -280,24 +280,23 @@ class SimcMonitor(BaseScan):
                 payload['simc_error_native'] = native_text
 
             serialized = json.dumps(payload, ensure_ascii=False)
-            # ext 字段上限5000，循环裁剪原生日志以保证可落库
+            # Preserve the runnable task manifest. Error logging must never replace
+            # player_config_mode/batch_compare with a summary, otherwise a failed
+            # batch task cannot be inspected or retried.
             if len(serialized) > 4800:
                 native_value = str(payload.get('simc_error_native') or '')
-                while len(serialized) > 4800 and native_value:
-                    native_value = native_value[:max(0, len(native_value) - 400)]
-                    payload['simc_error_native'] = native_value + '\n...(原生错误已截断)' if native_value else '(原生错误过长，已截断)'
-                    serialized = json.dumps(payload, ensure_ascii=False)
-            if len(serialized) > 5000:
-                payload.pop('simc_error_native', None)
+                available = max(0, 4600 - len(json.dumps({
+                    key: value for key, value in payload.items()
+                    if key != 'simc_error_native'
+                }, ensure_ascii=False)))
+                if available > 0 and native_value:
+                    suffix = '\n...(原生错误已截断)'
+                    payload['simc_error_native'] = native_value[:max(0, available - len(suffix))] + suffix
+                else:
+                    payload.pop('simc_error_native', None)
                 serialized = json.dumps(payload, ensure_ascii=False)
-            if len(serialized) > 5000:
-                payload['simc_error_summary'] = str(payload.get('simc_error_summary') or '')[:200]
-                serialized = json.dumps(payload, ensure_ascii=False)
-            if len(serialized) > 5000:
-                payload = {'simc_error_summary': str(summary or '')[:200]}
-                if return_code is not None:
-                    payload['simc_error_code'] = return_code
-                serialized = json.dumps(payload, ensure_ascii=False)
+            # ext is a TextField, so retain a compact native tail rather than
+            # discarding the original execution context at an arbitrary 5 KB limit.
             simc_task.ext = serialized
         except Exception as e:
             logger.warning(f"[SimC Monitor] Failed to save native error details for task {getattr(simc_task, 'id', '-')}: {e}")
