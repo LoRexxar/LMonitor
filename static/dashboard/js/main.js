@@ -1609,6 +1609,10 @@ function switchSimcWorkbenchTab(tabName) {
         const isActive = panel.getAttribute('data-simc-panel') === activeTab;
         panel.classList.toggle('hidden', !isActive);
     });
+    if (activeTab === 'attribute') {
+        const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
+        if (!spec) showMessage('请先在“发起模拟”选择专精；属性寻优会复用该专精、战斗场景和 APL。', 'warning');
+    }
     if (activeTab === 'tasks') fetchSimcTaskData();
     if (activeTab === 'profiles') loadSimcWorkbenchProfiles();
     if (activeTab === 'templates' && typeof loadSimcTemplate === 'function') loadSimcTemplate();
@@ -2634,12 +2638,53 @@ function renderSimcPlayerDetail(detail) {
         return `<div class="rounded-lg bg-white border border-emerald-100 p-2"><div class="text-[11px] text-gray-500">${esc(item.slot_label)}</div><div class="font-medium text-gray-800">${name} <span class="text-xs text-gray-400">${item.item_level ? 'ilvl ' + esc(item.item_level) : '#' + esc(item.id)}</span></div>${ench}${gems}${crafted}</div>`;
     }).join('') || '<div class="text-gray-400">未解析到装备槽位。</div>';
     const missing = (detail.missing_fields || []).map(text => `<li>${esc(text)}</li>`).join('');
+    const comparison = detail.comparison_candidates || {};
+    renderSimcComparisonCandidates(comparison);
     container.innerHTML = `
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 mb-3"><span>来源：<b>${esc(source.label)}</b></span><span>角色：<b>${esc(identity.name)}</b></span><span>职业/专精：<b>${esc(identity.class_name)} / ${esc(identity.spec)}</b></span>${identity.race ? `<span>种族：<b>${esc(identity.race)}</b></span>` : ''}${identity.level ? `<span>等级：<b>${esc(identity.level)}</b></span>` : ''}${identity.role ? `<span>定位：<b>${esc(identity.role)}</b></span>` : ''}${identity.region ? `<span>地区/服务器：<b>${esc(identity.region)} / ${esc(identity.realm)}</b></span>` : ''}${professionText ? `<span>专业：<b>${professionText}</b></span>` : ''}</div>
         <div class="grid md:grid-cols-2 gap-3 mb-3"><div class="rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500">当前天赋构筑码</div><div class="font-mono text-xs break-all text-gray-800">${esc(talents.build_code)}</div>${savedLoadouts}${omniumTalents}</div><div class="rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500 mb-1">主属性</div><div class="text-xs text-gray-700">${Object.entries(stats.primary || {}).map(([key, value]) => esc(key) + ' ' + esc(value)).join(' · ') || '导出块未包含主属性数值'}</div></div></div>
         <div class="mb-3"><div class="text-xs text-gray-500 mb-1">副属性（rating / 按规则换算百分比）</div><div class="grid grid-cols-2 gap-2 text-xs">${secondaryRows}</div></div>
         <div><div class="text-xs text-gray-500 mb-1">装备、附魔与宝石</div><div class="grid md:grid-cols-2 gap-2">${equipment}</div></div>
         ${missing ? `<ul class="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 list-disc list-inside">${missing}</ul>` : ''}`;
+}
+
+function renderSimcComparisonCandidates(comparison) {
+    const container = document.getElementById('simc-sim-comparison-candidates');
+    if (!container) return;
+    const gear = Array.isArray(comparison.gear) ? comparison.gear : [];
+    const talents = Array.isArray(comparison.talents) ? comparison.talents : [];
+    if (!gear.length && !talents.length) { container.classList.add('hidden'); container.innerHTML = ''; return; }
+    const max = Math.max(1, Number(comparison.max_selectable || 7));
+    const esc = value => escapeHtml(String(value == null ? '' : value));
+    const gearRows = gear.map((row, index) => `<label class="flex gap-2 items-start text-xs rounded border border-gray-200 bg-white p-2"><input class="simc-comparison-gear mt-0.5" type="checkbox" data-slot="${esc(row.slot)}" data-item-id="${esc(row.item_id)}" data-source="${esc(row.source)}"><span><b>${esc(row.name || `${row.slot} #${row.item_id}`)}</b><span class="block text-gray-500">${esc(row.slot)} · #${esc(row.item_id)} · ${esc(row.source)}</span></span></label>`).join('');
+    const talentRows = talents.map(row => `<label class="flex gap-2 items-start text-xs rounded border border-gray-200 bg-white p-2"><input class="simc-comparison-talent mt-0.5" type="checkbox" data-talent="${esc(row.talent)}"><span><b>${esc(row.name || '候选天赋')}</b><span class="block font-mono break-all text-gray-500">${esc(row.talent)}</span></span></label>`).join('');
+    container.classList.remove('hidden');
+    container.innerHTML = `<div class="font-semibold text-gray-800"><i class="fas fa-code-branch text-indigo-600 mr-1"></i>多方案对比</div><p class="text-xs text-gray-500 mt-1">候选由当前手动玩家块解析；每组可选最多 ${max} 个，含基准最多 ${max + 1} 个方案。</p>${gear.length ? `<div class="mt-3"><div class="flex items-center justify-between gap-2"><b class="text-xs text-gray-700">装备 / 饰品候选</b><button type="button" data-simc-comparison-kind="gear_candidates" class="simc-comparison-submit px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs">对比已选装备</button></div><div class="grid gap-2 mt-2">${gearRows}</div></div>` : ''}${talents.length ? `<div class="mt-3"><div class="flex items-center justify-between gap-2"><b class="text-xs text-gray-700">天赋构筑候选</b><button type="button" data-simc-comparison-kind="talent_candidates" class="simc-comparison-submit px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs">对比已选天赋</button></div><div class="grid gap-2 mt-2">${talentRows}</div></div>` : ''}`;
+    container.querySelectorAll('.simc-comparison-submit').forEach(button => button.addEventListener('click', () => startSimcCandidateComparison(button.dataset.simcComparisonKind, max)));
+}
+
+async function startSimcCandidateComparison(kind, maxSelectable) {
+    const input = document.getElementById('simc-sim-equipment');
+    const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
+    const playerEquipment = (input?.value || '').trim();
+    const selected = kind === 'gear_candidates'
+        ? Array.from(document.querySelectorAll('.simc-comparison-gear:checked')).map(el => ({ slot: el.dataset.slot, item_id: Number(el.dataset.itemId), source: el.dataset.source }))
+        : Array.from(document.querySelectorAll('.simc-comparison-talent:checked')).map(el => ({ talent: el.dataset.talent }));
+    if (!spec || !playerEquipment) { showMessage('请先选择专精并填写手动装备玩家块', 'warning'); return; }
+    if (!selected.length) { showMessage('请至少选择一个候选方案', 'warning'); return; }
+    if (selected.length > maxSelectable) { showMessage(`每组最多选择 ${maxSelectable} 个候选（含基准最多 ${maxSelectable + 1} 个方案）`, 'warning'); return; }
+    const button = document.querySelector(`[data-simc-comparison-kind="${kind}"]`);
+    const old = button?.innerHTML;
+    try {
+        if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>创建中…'; }
+        const apl = document.querySelector('input[name="simc-sim-apl"]:checked');
+        const response = await fetch('/api/simc-task/batch/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ kind, name: `${spec} ${kind === 'gear_candidates' ? '装备候选对比' : '天赋候选对比'}`, spec, player_config_mode: 'manual_equipment', player_equipment: playerEquipment, candidates: selected, fight_style: (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk', time: parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300, target_count: parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1, selected_apl_id: apl?.value ? parseInt(apl.value, 10) : undefined }) });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较批次失败');
+        showMessage(`已创建 ${payload.data.accepted} 个比较任务（含基准）`, 'success');
+        fetchSimcTaskData(); switchSimcWorkbenchTab('tasks');
+    } catch (error) { showMessage('创建多方案对比失败：' + String(error.message || error), 'error'); }
+    finally { if (button) { button.disabled = false; button.innerHTML = old; } }
 }
 
 async function refreshSimcPlayerDetail() {
@@ -2695,12 +2740,9 @@ function setSimcAttributeSearchStatus(message, tone = 'text-amber-800') {
 
 function simcAttributeSearchRequestBody() {
     const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
-    const checkedMode = document.querySelector('input[name="simc-player-import-mode"]:checked');
-    const mode = checkedMode ? checkedMode.value : '';
     const config = syncSimcAttributeOnlyConfigFromInputs();
     const step = 50;
-    if (!spec) throw new Error('请先选择专精');
-    if (mode !== 'attribute_only') throw new Error('四属性自动寻优仅支持“仅天赋与绿字属性”模式');
+    if (!spec) throw new Error('请先在“发起模拟”选择专精');
     if (!config.talent) throw new Error('请填写天赋构筑码');
     const fightStyle = (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk';
     const time = parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300;

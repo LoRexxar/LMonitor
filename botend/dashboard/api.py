@@ -1440,8 +1440,10 @@ class SimcBatchTaskAPIView(View):
                     raise ValueError(f'每批最多{self.MAX_TASKS}个任务（含基准）')
                 if kind == 'gear_candidates':
                     trusted = {(row['slot'], row['item_id'], row['source']): row for row in parsed['gear_candidates']}
-                    for candidate in submitted:
-                        key = (str(candidate.get('slot') or ''), candidate.get('item_id'), str(candidate.get('source') or ''))
+                    submitted_keys = [(str(candidate.get('slot') or ''), candidate.get('item_id'), str(candidate.get('source') or '')) for candidate in submitted]
+                    if len(set(submitted_keys)) != len(submitted_keys):
+                        raise ValueError('候选装备不可重复选择')
+                    for candidate, key in zip(submitted, submitted_keys):
                         if key not in trusted:
                             raise ValueError('候选装备的来源、槽位或物品不可信')
                         row = trusted[key]
@@ -1454,15 +1456,29 @@ class SimcBatchTaskAPIView(View):
                                 replaced = True
                             else:
                                 lines.append(line)
+                        if not replaced:
+                            raise ValueError(f'基准玩家块未包含可替换的装备槽位: {row["slot"]}')
                         specs.append({'label': row['name'] or f"{row['slot']} #{row['item_id']}", 'is_base': False, 'player_equipment': '\n'.join(lines), 'talent': base_talent, 'candidate': {'type': 'gear_swap', 'slot': row['slot'], 'item_id': row['item_id'], 'source': row['source']}})
                 else:
                     trusted = {row['talent']: row for row in parsed['talent_candidates']}
-                    for candidate in submitted:
-                        talent = str(candidate.get('talent') or '')
+                    submitted_talents = [str(candidate.get('talent') or '') for candidate in submitted]
+                    if len(set(submitted_talents)) != len(submitted_talents):
+                        raise ValueError('候选天赋不可重复选择')
+                    for talent in submitted_talents:
                         if talent not in trusted:
                             raise ValueError('候选天赋来源不可信')
                         row = trusted[talent]
-                        specs.append({'label': row['name'] or '候选天赋', 'is_base': False, 'player_equipment': player_equipment, 'talent': talent, 'candidate': {'type': 'talent', 'talent': talent, 'source': row['source']}})
+                        lines = []
+                        replaced = False
+                        for line in player_equipment.splitlines():
+                            if line.partition('=')[0].strip().lower() == 'talents' and not replaced:
+                                lines.append(f'talents={talent}')
+                                replaced = True
+                            else:
+                                lines.append(line)
+                        if not replaced:
+                            raise ValueError('基准玩家块未包含 talents 行，无法创建天赋对比')
+                        specs.append({'label': row['name'] or '候选天赋', 'is_base': False, 'player_equipment': '\n'.join(lines), 'talent': talent, 'candidate': {'type': 'talent', 'talent': talent, 'source': row['source']}})
 
             if len(specs) < 2:
                 raise ValueError('可生成的比较任务不足2个；请提高可转移绿字或选择候选')
@@ -1515,15 +1531,23 @@ class SimcPlayerConfigDetailAPIView(View):
                 or not battlenet_realm or not battlenet_character
             ):
                 return JsonResponse({'success': False, 'error': 'Battle.net 导入需要提供 region、realm 和 character'})
-            from botend.services.simc_player_config import build_player_config_detail
-            return JsonResponse({'success': True, 'data': build_player_config_detail(
+            from botend.services.simc_player_config import build_player_config_detail, parse_manual_simc_candidates
+            detail = build_player_config_detail(
                 mode=mode, spec=spec, player_equipment=player_equipment,
                 battlenet_region=battlenet_region, battlenet_realm=battlenet_realm,
                 battlenet_character=battlenet_character,
                 talent=str(data.get('talent') or '').strip(),
                 gear_crit=data.get('gear_crit'), gear_haste=data.get('gear_haste'),
                 gear_mastery=data.get('gear_mastery'), gear_versatility=data.get('gear_versatility'),
-            )})
+            )
+            if mode == 'manual_equipment':
+                candidates = parse_manual_simc_candidates(player_equipment)
+                detail['comparison_candidates'] = {
+                    'gear': candidates['gear_candidates'],
+                    'talents': candidates['talent_candidates'],
+                    'max_selectable': SimcBatchTaskAPIView.MAX_TASKS - 1,
+                }
+            return JsonResponse({'success': True, 'data': detail})
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'error': '无效的JSON数据'})
         except Exception as e:

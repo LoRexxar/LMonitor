@@ -734,6 +734,102 @@ class SimcPlayerConfigDetailTests(TestCase):
         self.assertAlmostEqual(detail['stats']['secondary']['crit']['percent'], 233.26, places=2)
         self.assertEqual(SimcTask.objects.count(), 0)
 
+    def test_player_config_detail_exposes_only_parsed_comparison_candidates(self):
+        player_block = '''warrior="Batcher"
+spec=fury
+talents=ACTIVE_BUILD
+trinket1=,id=111,ilevel=639
+# Saved Loadout: Cleave
+# talents=CLEAVE_BUILD
+### Gear from Bags
+# Candidate Trinket (645)
+trinket1=,id=222,ilevel=645
+### Weekly Reward Choices
+# Candidate Ring (646)
+finger1=,id=333,ilevel=646
+'''
+        response = self.client.post(
+            '/api/simc-player-config-detail/',
+            data=json.dumps({
+                'spec': 'fury', 'player_config_mode': 'manual_equipment',
+                'player_equipment': player_block,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        candidates = payload['data']['comparison_candidates']
+        self.assertEqual(candidates['max_selectable'], 7)
+        self.assertEqual(
+            [(row['slot'], row['item_id'], row['source']) for row in candidates['gear']],
+            [('trinket1', 222, 'bags'), ('finger1', 333, 'weekly_reward')],
+        )
+        self.assertEqual(candidates['talents'], [{'name': 'Cleave', 'talent': 'CLEAVE_BUILD', 'source': 'saved_loadout'}])
+
+    def test_talent_candidate_batch_replaces_player_block_talent_before_execution(self):
+        player_block = '''warrior="Batcher"
+spec=fury
+talents=ACTIVE_BUILD
+trinket1=,id=111,ilevel=639
+# Saved Loadout: Cleave
+# talents=CLEAVE_BUILD
+'''
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'talent_candidates', 'name': 'Fury 天赋对比', 'spec': 'fury',
+            'player_config_mode': 'manual_equipment', 'player_equipment': player_block,
+            'candidates': [{'talent': 'CLEAVE_BUILD'}],
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        ext_rows = [json.loads(task.ext) for task in SimcTask.objects.order_by('id')]
+        self.assertEqual(len(ext_rows), 2)
+        candidate = next(row for row in ext_rows if not row['batch_compare']['is_base'])
+        self.assertIn('talents=CLEAVE_BUILD', candidate['player_equipment'])
+        self.assertNotIn('talents=ACTIVE_BUILD', candidate['player_equipment'])
+
+    def test_gear_candidate_batch_rejects_slot_not_in_baseline_block(self):
+        player_block = '''warrior="Batcher"
+spec=fury
+talents=ACTIVE_BUILD
+head=,id=111,ilevel=639
+### Gear from Bags
+# Candidate ring (645)
+finger1=,id=222,ilevel=645
+'''
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'gear_candidates', 'name': 'Fury 装备对比', 'spec': 'fury',
+            'player_config_mode': 'manual_equipment', 'player_equipment': player_block,
+            'candidates': [{'slot': 'finger1', 'item_id': 222, 'source': 'bags'}],
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('未包含可替换的装备槽位', response.json()['error'])
+
+    def test_candidate_batch_rejects_duplicate_candidates(self):
+        player_block = '''warrior="Batcher"
+spec=fury
+talents=ACTIVE_BUILD
+head=,id=111,ilevel=639
+### Gear from Bags
+# Candidate helm (645)
+head=,id=222,ilevel=645
+# Saved Loadout: Cleave
+# talents=CLEAVE_BUILD
+'''
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'gear_candidates', 'name': 'Fury 装备对比', 'spec': 'fury',
+            'player_config_mode': 'manual_equipment', 'player_equipment': player_block,
+            'candidates': [
+                {'slot': 'head', 'item_id': 222, 'source': 'bags'},
+                {'slot': 'head', 'item_id': 222, 'source': 'bags'},
+            ],
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('不可重复选择', response.json()['error'])
+
     def test_real_simc_export_keeps_main_gear_names_and_excludes_bag_choices(self):
         config = '''# 炎色雷灬 - Fury - 2026-07-10 02:37 - CN/死亡之翼
 warrior="炎色雷灬"
