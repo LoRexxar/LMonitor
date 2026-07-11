@@ -781,8 +781,15 @@ class SimcMonitor(BaseScan):
         """
         try:
             
-            # 构建命令
-            cmd = [self.simc_path, simc_file_path]
+            # SimC resolves an `html=` inside an absolute input profile relative to that
+            # profile, not `cwd`. Force the task-owned absolute output path on the
+            # command line; this overrides the profile directive and is the exact file
+            # verified below.
+            target_result_file = str(result_file_name or simc_task.result_file or '').strip()
+            if not target_result_file or not target_result_file.endswith('.html'):
+                raise RuntimeError('SimC任务未配置唯一 HTML 结果文件')
+            result_file_path = os.path.join(self.result_path, target_result_file)
+            cmd = [self.simc_path, simc_file_path, f'html={result_file_path}']
             
             logger.info(f"[SimC Monitor] Executing command: {' '.join(cmd)}")
             
@@ -807,10 +814,6 @@ class SimcMonitor(BaseScan):
                 
                 # A successful SimC process is not a successful task without this
                 # task's explicitly requested report. Never borrow a stale/latest HTML.
-                target_result_file = str(result_file_name or simc_task.result_file or '').strip()
-                if not target_result_file or not target_result_file.endswith('.html'):
-                    raise RuntimeError('SimC任务未配置唯一 HTML 结果文件')
-                result_file_path = os.path.join(self.result_path, target_result_file)
                 if not os.path.isfile(result_file_path):
                     raise RuntimeError(f'SimC未生成预期结果文件: {target_result_file}')
 

@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
@@ -267,6 +268,24 @@ finger1=,id=299002,ilevel=655
             max_rounds=20,
         )
         self.assertEqual(stop, 'cycle_detected')
+
+    def test_execute_simc_command_passes_absolute_task_result_path(self):
+        from unittest.mock import patch
+        import tempfile
+        import os
+        monitor = object.__new__(SimcMonitor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            monitor.simc_path = '/opt/simc'
+            monitor.result_path = tmpdir
+            task = SimpleNamespace(id=88, result_file='simc_task_88.html', save=lambda **kwargs: None)
+            expected = os.path.join(tmpdir, task.result_file)
+            with patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
+                run.return_value = SimpleNamespace(returncode=0, stdout='', stderr='')
+                with patch('botend.interface.ossupload.ossUpload', return_value=True):
+                    with open(expected, 'w', encoding='utf-8') as report:
+                        report.write('<html></html>')
+                    self.assertTrue(monitor.execute_simc_command('/tmp/input.simc', task, task.result_file))
+            self.assertEqual(run.call_args.args[0], ['/opt/simc', '/tmp/input.simc', f'html={expected}'])
 
     def test_attribute_search_rejects_any_non_50_step(self):
         results = [
