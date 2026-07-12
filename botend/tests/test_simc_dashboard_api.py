@@ -575,7 +575,7 @@ class SimcNewConfigModeTests(TestCase):
         """任务查看接口短暂失败时，用户仍应看到模态框及错误提示，而不是无响应。"""
         main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
         open_modal = main_js.index('function openViewSimcTaskModal(task)')
-        preview_fetch = main_js.index('fetch(`/api/simc-task-preview/', open_modal)
+        preview_fetch = main_js.index('fetch(`/api/simc-task/preview/', open_modal)
         display_modal = main_js.index("modal.style.display = 'block';", open_modal)
         self.assertLess(display_modal, preview_fetch)
 

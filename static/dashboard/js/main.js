@@ -8071,7 +8071,7 @@ function openViewSimcTaskModal(task) {
 
     async function loadPreview() {
         try {
-            const response = await fetch(`/api/simc-task-preview/?task_id=${encodeURIComponent(task.id)}`, {
+            const response = await fetch(`/api/simc-task/preview/?task_id=${encodeURIComponent(task.id)}`, {
                 headers: {'X-CSRFToken': getCSRFToken()}
             });
             const data = await response.json();
