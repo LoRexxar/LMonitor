@@ -8066,6 +8066,9 @@ function openViewSimcTaskModal(task) {
     const contextEl = document.getElementById('view-simc-task-context');
     if (contextEl) contextEl.innerHTML = renderSimcTaskContextDetailHtml(task, extPayload);
     
+    // 先显示已有的结构化上下文；预览请求失败不能让“查看”看起来无响应。
+    modal.style.display = 'block';
+
     async function loadPreview() {
         try {
             const response = await fetch(`/api/simc-task-preview/?task_id=${encodeURIComponent(task.id)}`, {

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -526,6 +527,57 @@ class SimcNewConfigModeTests(TestCase):
         self.assertEqual(ext['fight_style'], 'DungeonSlice')
         self.assertEqual(ext['time'], 180)
         self.assertEqual(ext['target_count'], 5)
+
+    def test_preview_returns_only_current_users_manifest_snapshot(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            name='Preview manifest task',
+            task_type=1,
+            simc_profile_id=0,
+            current_status=2,
+            result_file='preview-task.html',
+            ext=json.dumps({
+                'player_config_mode': 'battlenet',
+                'battlenet_region': 'eu',
+                'battlenet_realm': 'Kazzak',
+                'battlenet_character': 'Bloodmastêr',
+                'spec': 'blood',
+                'fight_style': 'Patchwerk',
+                'time': 300,
+                'target_count': 1,
+                'gear_strength': 0,
+                'gear_crit': 850,
+                'gear_haste': 979,
+                'gear_mastery': 641,
+                'gear_versatility': 69,
+            }),
+        )
+
+        response = self.client.get(f'/api/simc-task/preview/?task_id={task.id}')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertEqual(payload['data']['id'], task.id)
+        self.assertEqual(payload['data']['spec'], 'blood')
+        self.assertEqual(payload['data']['gear']['strength'], 0)
+        self.assertEqual(payload['data']['gear']['haste'], 979)
+        self.assertNotIn('raw_simc_code', payload['data'])
+
+        other = User.objects.create_user(username='preview_other_user', password='pwd')
+        self.client.force_login(other)
+        forbidden = self.client.get(f'/api/simc-task/preview/?task_id={task.id}')
+        self.assertEqual(forbidden.status_code, 200)
+        self.assertFalse(forbidden.json()['success'])
+        self.assertIn('无权限', forbidden.json()['error'])
+
+    def test_task_view_modal_opens_before_preview_request_completes(self):
+        """任务查看接口短暂失败时，用户仍应看到模态框及错误提示，而不是无响应。"""
+        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        open_modal = main_js.index('function openViewSimcTaskModal(task)')
+        preview_fetch = main_js.index('fetch(`/api/simc-task-preview/', open_modal)
+        display_modal = main_js.index("modal.style.display = 'block';", open_modal)
+        self.assertLess(display_modal, preview_fetch)
 
     def test_rerun_creates_pending_task_without_mutating_completed_manifest_task(self):
         manifest = {
