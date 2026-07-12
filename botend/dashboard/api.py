@@ -37,6 +37,7 @@ from django.db import models, transaction
 from core.glm import GLMClient
 from botend.monitor_env import is_task_runnable, env_limit_hint
 from botend.wow_daily_report.generator import generate_wow_daily_report
+from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 
 
 def _fmt_dt(dt):
@@ -595,7 +596,8 @@ class SimcTaskAPIView(View):
                     'name': task.name,
                     'simc_profile_id': task.simc_profile_id,
                     'simc_profile_name': profile_info.get('name', ''),
-                    'simc_profile_spec': profile_info.get('spec', ''),
+                    # New tasks keep their execution spec in ext; only old manifests fall back to the Profile.
+                    'simc_profile_spec': ext_detail.get('spec') or profile_info.get('spec', ''),
                     'current_status': task.current_status,
                     'result_file': task.result_file,
                     'task_type': task.task_type,
@@ -624,7 +626,8 @@ class SimcTaskAPIView(View):
             data = json.loads(request.body)
             name = data.get('name', '').strip()
             simc_profile_id = data.get('simc_profile_id')
-            raw_simc_code = data.get('raw_simc_code', '').strip()
+            # 原始 SimC 输入是任务执行快照的一部分：保留首尾空白和末尾换行，不能静默改写。
+            raw_simc_code = str(data.get('raw_simc_code') or '')
             current_status = data.get('current_status', 0)
             task_type = data.get('task_type', 1)
             ext = data.get('ext', '')
@@ -723,6 +726,21 @@ class SimcTaskAPIView(View):
                         'success': False,
                         'error': 'SimC配置不能为空'
                     })
+
+            if int(task_type or 1) == 2:
+                valid_combinations = {
+                    'crit_mastery', 'crit_haste', 'crit_versatility',
+                    'mastery_haste', 'mastery_versatility', 'haste_versatility',
+                    'haste_mastery',
+                }
+                if str(selected_attributes or '').strip() not in valid_combinations:
+                    return JsonResponse({'success': False, 'error': '属性模拟需要选择两项有效副属性'})
+                try:
+                    attribute_step = int(attribute_step) if attribute_step not in (None, '') else 50
+                except (TypeError, ValueError):
+                    return JsonResponse({'success': False, 'error': '属性模拟步长必须是整数'})
+                if attribute_step != 50:
+                    return JsonResponse({'success': False, 'error': '四属性自动寻优固定使用 50 绿字步长'})
 
             # 生成result_file：player_config_mode 新流程由 SimC 执行后自动检测，
             # 不预生成，避免预生成的文件名与 SimC 实际输出不一致。
@@ -829,55 +847,68 @@ class SimcTaskAPIView(View):
                     'error': '任务名称不能为空'
                 })
             
-            # 直接 SimC 代码模式：常规模拟不需要 profile_id；属性模拟必须基于 profile。
-            if raw_simc_code and int(task_type or 1) == 2:
-                return JsonResponse({
-                    'success': False,
-                    'error': '直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟'
-                })
-            if raw_simc_code and int(task_type or 1) == 1:
-                simc_profile_id = 0
-            elif not simc_profile_id:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'SimC配置不能为空'
-                })
-
-            # 验证SimC配置是否存在（直接代码常规模拟跳过）
-            if not (raw_simc_code and int(task_type or 1) == 1):
-                try:
-                    profile = SimcProfile.objects.get(
-                        id=simc_profile_id,
-                        user_id=request.user.id,
-                        is_active=True
-                    )
-                except SimcProfile.DoesNotExist:
-                    return JsonResponse({
-                        'success': False,
-                        'error': '指定的SimC配置不存在'
-                    })
-            
-            # 获取任务并检查权限
+            # 先按当前用户取得任务；之后所有编辑和 manifest 判定均以它为准。
             try:
                 task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
             except SimcTask.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': '任务不存在或无权限访问'
-                })
-            
-            normalized_ext = self._build_task_ext(
-                task_type=task_type,
-                ext=ext,
-                regular_time=regular_time,
-                regular_target_count=regular_target_count,
-                selected_attributes=selected_attributes,
-                attribute_step=attribute_step,
-                raw_simc_code=raw_simc_code,
-                selected_apl_id=selected_apl_id
-            )
+                return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'})
 
-            # 更新任务
+            # 新版运行 manifest 是 Worker 的可信执行参数：普通编辑仅允许改显示名称。
+            existing_ext = self._normalize_task_ext(task.task_type, task.ext)
+            if existing_ext.get('player_config_mode'):
+                task.name = name
+                task.save(update_fields=['name', 'modified_time'])
+                return JsonResponse({
+                    'success': True,
+                    'message': '任务名称更新成功；运行配置由创建时快照保护，请使用重跑操作重新执行。',
+                    'data': {
+                        'id': task.id,
+                        'name': task.name,
+                        'simc_profile_id': task.simc_profile_id,
+                        'current_status': task.current_status,
+                        'result_file': task.result_file,
+                        'task_type': task.task_type,
+                        'ext': task.ext,
+                        'ext_detail': existing_ext,
+                        'create_time': _fmt_dt(task.create_time),
+                        'modified_time': _fmt_dt(task.modified_time),
+                    }
+                })
+
+            # 旧版任务才允许更新其运行字段。
+            if raw_simc_code and int(task_type or 1) == 2:
+                return JsonResponse({'success': False, 'error': '直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟'})
+            if raw_simc_code and int(task_type or 1) == 1:
+                simc_profile_id = 0
+            elif not simc_profile_id:
+                return JsonResponse({'success': False, 'error': 'SimC配置不能为空'})
+            if not (raw_simc_code and int(task_type or 1) == 1):
+                try:
+                    SimcProfile.objects.get(id=simc_profile_id, user_id=request.user.id, is_active=True)
+                except SimcProfile.DoesNotExist:
+                    return JsonResponse({'success': False, 'error': '指定的SimC配置不存在'})
+
+            normalized_ext = self._build_task_ext(
+                task_type=task_type, ext=ext, regular_time=regular_time,
+                regular_target_count=regular_target_count, selected_attributes=selected_attributes,
+                attribute_step=attribute_step, raw_simc_code=raw_simc_code,
+                selected_apl_id=selected_apl_id,
+                fight_style=fight_style,
+                time=fight_time,
+                target_count=target_count,
+                player_config_mode=player_config_mode,
+                player_equipment=player_equipment,
+                gear_strength=gear_strength,
+                gear_crit=gear_crit,
+                gear_haste=gear_haste,
+                gear_mastery=gear_mastery,
+                gear_versatility=gear_versatility,
+                talent=talent,
+                spec=spec,
+                battlenet_region=battlenet_region,
+                battlenet_realm=battlenet_realm,
+                battlenet_character=battlenet_character,
+            )
             task.name = name
             task.simc_profile_id = simc_profile_id
             task.current_status = current_status
@@ -1005,10 +1036,15 @@ class SimcTaskAPIView(View):
                     'error': '该任务在预处理阶段失败，无法直接重跑，请重新发起“APL候选对比模拟”'
                 })
             
-            # 生成新的结果文件名
-            timestamp = str(int(time.time()))
-            content_to_hash = timestamp + task.name + str(request.user.id)
-            new_result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
+            # 新版 manifest 任务由执行器为该任务生成唯一 simc_task_<id>.html；
+            # 不得预填旧 MD5 名，否则会使严格结果检测查找错误文件。
+            manifest = self._normalize_task_ext(task.task_type, task.ext)
+            if manifest.get('player_config_mode') or manifest.get('raw_simc_code'):
+                new_result_file = ''
+            else:
+                timestamp = str(int(time.time()))
+                content_to_hash = timestamp + task.name + str(request.user.id)
+                new_result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
             
             # 重置任务状态
             task.current_status = 0  # 待处理
@@ -1092,7 +1128,9 @@ class SimcTaskAPIView(View):
                 payload['regular_time'] = max(1, int(regular_time))
             if regular_target_count not in (None, ''):
                 payload['regular_target_count'] = max(1, int(regular_target_count))
-            raw_code = str(raw_simc_code if raw_simc_code is not None else payload.get('raw_simc_code') or '').strip()
+            raw_code_value = raw_simc_code if raw_simc_code is not None else payload.get('raw_simc_code', '')
+            # 任务 manifest 必须保真保存原始 SimC 文本；仅将非字符串值转成字符串。
+            raw_code = raw_code_value if isinstance(raw_code_value, str) else str(raw_code_value or '')
             if raw_code:
                 payload['raw_simc_code'] = raw_code
             else:
@@ -1131,19 +1169,42 @@ class SimcTaskAPIView(View):
             
             return json.dumps(payload, ensure_ascii=False) if payload else ''
 
+        # New and legacy attribute scans share one manifest shape.  The runner
+        # needs the entire frozen player snapshot, not just the selected pair.
+        payload = {}
+        if isinstance(base, dict):
+            payload.update(base)
         if selected_attributes:
-            base['selected_attributes'] = str(selected_attributes).strip()
-        selected = str(base.get('selected_attributes') or '').strip()
+            payload['selected_attributes'] = str(selected_attributes).strip()
+        selected = str(payload.get('selected_attributes') or '').strip()
         if not selected:
             raise Exception('属性模拟任务缺少属性组合')
-        payload = {'selected_attributes': selected}
-        for key in ('selected_apl_id', 'override_action_list', 'override_action_list_name', 'override_action_list_type'):
-            value = base.get(key)
-            if value not in (None, ''):
-                payload[key] = value
-        step_value = attribute_step if attribute_step not in (None, '') else base.get('attribute_step')
-        if step_value not in (None, ''):
-            payload['attribute_step'] = max(1, int(step_value))
+        if attribute_step not in (None, ''):
+            payload['attribute_step'] = max(1, int(attribute_step))
+        if player_config_mode:
+            payload['player_config_mode'] = player_config_mode
+            payload['player_import_mode'] = player_config_mode
+            payload['player_equipment'] = str(player_equipment or '')
+            payload['battlenet_region'] = str(battlenet_region or '').lower()
+            payload['battlenet_realm'] = str(battlenet_realm or '').strip()
+            payload['battlenet_character'] = str(battlenet_character or '').strip()
+            for field, value in (
+                ('gear_strength', gear_strength), ('gear_crit', gear_crit),
+                ('gear_haste', gear_haste), ('gear_mastery', gear_mastery),
+                ('gear_versatility', gear_versatility),
+            ):
+                if value not in (None, ''):
+                    payload[field] = value
+            if fight_style:
+                payload['fight_style'] = fight_style
+            if time not in (None, ''):
+                payload['time'] = max(1, int(time))
+            if target_count not in (None, ''):
+                payload['target_count'] = max(1, int(target_count))
+            if spec:
+                payload['spec'] = spec
+            if talent is not None:
+                payload['talent'] = str(talent).strip()
         return json.dumps(payload, ensure_ascii=False)
 
 
@@ -1455,9 +1516,15 @@ class SimcBatchTaskAPIView(View):
                         row = trusted[key]
                         lines = []
                         replaced = False
+                        in_candidate_section = False
                         for line in player_equipment.splitlines():
+                            stripped = line.strip()
+                            # Candidate blocks in an exported SimC profile are not part of
+                            # the equipped baseline and must never satisfy replacement.
+                            if stripped.startswith('###'):
+                                in_candidate_section = True
                             current_key = line.partition('=')[0].strip().lower()
-                            if current_key == row['slot'] and not replaced:
+                            if current_key == row['slot'] and not replaced and not in_candidate_section:
                                 lines.append(f"{row['slot']}={row['raw_value']}")
                                 replaced = True
                             else:
@@ -2215,6 +2282,28 @@ class AplDetailAPIView(View):
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
+class SimcBattlenetPreflightAPIView(View):
+    """Fetch and validate Battle.net character data before it is saved or simulated."""
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body or '{}')
+            from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
+            result = fetch_battlenet_character_preflight(
+                region=str(data.get('region') or data.get('battlenet_region') or '').strip().lower(),
+                realm=str(data.get('realm') or data.get('battlenet_realm') or '').strip(),
+                character=str(data.get('character') or data.get('battlenet_character') or '').strip(),
+                requested_spec=str(data.get('spec') or '').strip().lower(),
+            )
+            return JsonResponse({'success': True, 'data': result})
+        except ValueError as exc:
+            return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+        except Exception:
+            logger.exception('Battle.net SimC preflight failed')
+            return JsonResponse({'success': False, 'error': '获取 Battle.net 角色配置失败，请稍后重试'}, status=502)
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
 class SimcProfileAPIView(View):
     """
     SimC配置管理API
@@ -2314,6 +2403,57 @@ class SimcProfileAPIView(View):
                 'error': '获取SimC配置失败'
             })
     
+    @staticmethod
+    def _validate_profile_payload(data, fallback=None):
+        """Validate all supported saved-player configuration modes consistently."""
+        fallback = fallback or {}
+        mode = str(data.get('player_config_mode') or data.get('player_import_mode') or fallback.get('mode') or '').strip().lower()
+        if mode == 'equipment':
+            mode = 'manual_equipment'
+        if mode not in ('battlenet', 'manual_equipment', 'attribute_only'):
+            raise ValueError('玩家信息导入方式必须是 battlenet、manual_equipment 或 attribute_only')
+
+        values = {
+            'mode': mode,
+            'spec': str(data.get('spec', fallback.get('spec', 'fury')) or 'fury').strip().lower() or 'fury',
+            'battlenet_region': str(data.get('battlenet_region', fallback.get('battlenet_region', '')) or '').strip().lower(),
+            'battlenet_realm': str(data.get('battlenet_realm', fallback.get('battlenet_realm', '')) or '').strip(),
+            'battlenet_character': str(data.get('battlenet_character', fallback.get('battlenet_character', '')) or '').strip(),
+            'player_equipment': str(data.get('player_equipment', fallback.get('player_equipment', '')) or '').strip(),
+            'talent': str(data.get('talent', fallback.get('talent', '')) or '').strip(),
+        }
+        if mode == 'battlenet':
+            if values['battlenet_region'] not in ('us', 'eu', 'kr', 'tw', 'cn'):
+                raise ValueError('Battle.net region 必须是 us、eu、kr、tw 或 cn')
+            if not values['battlenet_realm']:
+                raise ValueError('Battle.net realm 不能为空')
+            if not values['battlenet_character']:
+                raise ValueError('Battle.net character 不能为空')
+        elif mode == 'manual_equipment' and not values['player_equipment']:
+            raise ValueError('manual_equipment 模式下 player_equipment 不能为空')
+        elif mode == 'attribute_only' and not values['talent']:
+            raise ValueError('attribute_only 模式下 talent 不能为空')
+        return values
+
+    @staticmethod
+    def _coerce_profile_number(data, field, fallback=0):
+        """Accept integer-form fields while rejecting malformed persisted configuration."""
+        raw_value = data.get(field, fallback)
+        if raw_value in (None, ''):
+            return 0
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            raise ValueError(f'{field} 必须是整数')
+
+    @classmethod
+    def _profile_numeric_values(cls, data, fallback=None):
+        fallback = fallback or {}
+        return {
+            field: cls._coerce_profile_number(data, field, fallback.get(field, 0))
+            for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility')
+        }
+
     def post(self, request):
         """创建新的SimC配置或复制现有配置，或者为现有配置创建模拟任务"""
         try:
@@ -2456,26 +2596,28 @@ class SimcProfileAPIView(View):
                         'error': '要复制的配置不存在'
                     })
             else:
-                # 创建新配置（只保留 spec + talent + gear stats）
-                mode = (data.get('player_config_mode') or data.get('player_import_mode') or '').strip()
-                if mode not in ('battlenet', 'manual_equipment', 'attribute_only'):
-                    return JsonResponse({'success': False, 'error': '玩家信息导入方式必须是 battlenet、manual_equipment 或 attribute_only'})
+                # 创建新配置：与更新操作使用同一模式校验，避免保存不可运行的预设。
+                try:
+                    values = self._validate_profile_payload(data)
+                    numeric_values = self._profile_numeric_values(data)
+                except ValueError as e:
+                    return JsonResponse({'success': False, 'error': str(e)})
 
                 profile = SimcProfile.objects.create(
                     user_id=request.user.id,
                     name=name,
-                    spec=(str(data.get('spec') or 'fury').strip().lower() or 'fury'),
-                    player_config_mode=mode,
-                    battlenet_region=str(data.get('battlenet_region') or '').strip(),
-                    battlenet_realm=str(data.get('battlenet_realm') or '').strip(),
-                    battlenet_character=str(data.get('battlenet_character') or '').strip(),
-                    player_equipment=data.get('player_equipment') or '',
-                    talent=data.get('talent', ''),
-                    gear_strength=data.get('gear_strength', 93330),
-                    gear_crit=data.get('gear_crit', 10730),
-                    gear_haste=data.get('gear_haste', 18641),
-                    gear_mastery=data.get('gear_mastery', 21785),
-                    gear_versatility=data.get('gear_versatility', 6757),
+                    spec=values['spec'],
+                    player_config_mode=values['mode'],
+                    battlenet_region=values['battlenet_region'],
+                    battlenet_realm=values['battlenet_realm'],
+                    battlenet_character=values['battlenet_character'],
+                    player_equipment=values['player_equipment'],
+                    talent=values['talent'],
+                    gear_strength=numeric_values['gear_strength'],
+                    gear_crit=numeric_values['gear_crit'],
+                    gear_haste=numeric_values['gear_haste'],
+                    gear_mastery=numeric_values['gear_mastery'],
+                    gear_versatility=numeric_values['gear_versatility'],
                     is_active=data.get('is_active', True)
                 )
                 
@@ -2527,18 +2669,26 @@ class SimcProfileAPIView(View):
     def _create_simulation_task(self, user_id, profile, task_type=1, selected_attributes=None, regular_time=None, regular_target_count=None, attribute_step=None):
         """创建模拟任务的辅助方法"""
         try:
-            # 生成result_file
-            timestamp = str(int(time.time()))
-            content_to_hash = timestamp + profile.name + str(user_id)
-            if selected_attributes:
-                content_to_hash += selected_attributes
-            if regular_time not in (None, ''):
-                content_to_hash += str(regular_time)
-            if regular_target_count not in (None, ''):
-                content_to_hash += str(regular_target_count)
-            if attribute_step not in (None, ''):
-                content_to_hash += str(attribute_step)
-            result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
+            task_type = int(task_type or 1)
+            if task_type not in (1, 2):
+                raise ValueError('任务类型无效')
+            if task_type == 2:
+                selected_attributes = str(selected_attributes or '').strip()
+                if not selected_attributes:
+                    raise ValueError('属性模拟需要选择两项副属性')
+                selected = SimcMonitor(None, None).parse_selected_attributes(selected_attributes)
+                if len(selected) != 2:
+                    raise ValueError('属性模拟需要选择两项有效副属性')
+                try:
+                    step = int(attribute_step) if attribute_step not in (None, '') else 50
+                except (TypeError, ValueError):
+                    raise ValueError('属性模拟步长必须是整数')
+                if step != 50:
+                    raise ValueError('四属性自动寻优固定使用 50 绿字步长')
+                attribute_step = step
+
+            # 新流程由执行器使用任务专属输出名并在实际生成后回写 result_file；不能预填 MD5 名阻断真实结果检测。
+            result_file = ''
             
             # 根据任务类型生成任务名称
             if task_type == 2 and selected_attributes:
@@ -2554,7 +2704,21 @@ class SimcProfileAPIView(View):
                     display_target_count = 1
                 task_name = f"{profile.name}_常规模拟_{display_time}s_{display_target_count}目标"
             
-            ext_payload = {}
+            ext_payload = {
+                'spec': profile.spec,
+                'talent': profile.talent or '',
+                'player_config_mode': self._profile_mode(profile),
+                'player_import_mode': self._profile_mode(profile),
+                'player_equipment': profile.player_equipment or '',
+                'battlenet_region': profile.battlenet_region or '',
+                'battlenet_realm': profile.battlenet_realm or '',
+                'battlenet_character': profile.battlenet_character or '',
+                'gear_strength': profile.gear_strength,
+                'gear_crit': profile.gear_crit,
+                'gear_haste': profile.gear_haste,
+                'gear_mastery': profile.gear_mastery,
+                'gear_versatility': profile.gear_versatility,
+            }
             if task_type == 2:
                 if selected_attributes:
                     ext_payload['selected_attributes'] = selected_attributes
@@ -2572,6 +2736,9 @@ class SimcProfileAPIView(View):
                     effective_target_count = 1
                 ext_payload['regular_time'] = effective_time
                 ext_payload['regular_target_count'] = effective_target_count
+                ext_payload['time'] = effective_time
+                ext_payload['target_count'] = effective_target_count
+                ext_payload['fight_style'] = 'Patchwerk'
 
             # 创建SimcTask
             task = SimcTask.objects.create(
@@ -2581,7 +2748,7 @@ class SimcProfileAPIView(View):
                 current_status=0,  # 待执行
                 result_file=result_file,
                 task_type=task_type,
-                ext=json.dumps(ext_payload, ensure_ascii=False) if ext_payload else (selected_attributes or '')
+                ext=json.dumps(ext_payload, ensure_ascii=False)
             )
             
             return {
@@ -2639,25 +2806,36 @@ class SimcProfileAPIView(View):
                     'error': '配置名称已存在'
                 })
             
-            # 更新配置（玩家配置来源 + spec/talent + gear stats）
-            mode = str(data.get('player_config_mode') or data.get('player_import_mode') or self._profile_mode(profile)).strip()
-            if mode == 'equipment':
-                mode = 'manual_equipment'
-            if mode not in ('battlenet', 'manual_equipment', 'attribute_only'):
-                return JsonResponse({'success': False, 'error': '玩家信息导入方式必须是 battlenet、manual_equipment 或 attribute_only'})
+            # 更新配置：与创建使用同一套模式校验，并允许 partial update 保留未提交字段。
+            try:
+                values = self._validate_profile_payload(data, {
+                    'mode': self._profile_mode(profile),
+                    'spec': profile.spec,
+                    'battlenet_region': profile.battlenet_region,
+                    'battlenet_realm': profile.battlenet_realm,
+                    'battlenet_character': profile.battlenet_character,
+                    'player_equipment': profile.player_equipment,
+                    'talent': profile.talent,
+                })
+                numeric_values = self._profile_numeric_values(data, {
+                    field: getattr(profile, field, 0)
+                    for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility')
+                })
+            except ValueError as e:
+                return JsonResponse({'success': False, 'error': str(e)})
             profile.name = name
-            profile.spec = str(data.get('spec', profile.spec) or 'fury').strip().lower() or 'fury'
-            profile.player_config_mode = mode
-            profile.battlenet_region = str(data.get('battlenet_region') or '').strip()
-            profile.battlenet_realm = str(data.get('battlenet_realm') or '').strip()
-            profile.battlenet_character = str(data.get('battlenet_character') or '').strip()
-            profile.player_equipment = data.get('player_equipment') or ''
-            profile.talent = data.get('talent', profile.talent)
-            profile.gear_strength = data.get('gear_strength', profile.gear_strength)
-            profile.gear_crit = data.get('gear_crit', profile.gear_crit)
-            profile.gear_haste = data.get('gear_haste', profile.gear_haste)
-            profile.gear_mastery = data.get('gear_mastery', profile.gear_mastery)
-            profile.gear_versatility = data.get('gear_versatility', profile.gear_versatility)
+            profile.spec = values['spec']
+            profile.player_config_mode = values['mode']
+            profile.battlenet_region = values['battlenet_region']
+            profile.battlenet_realm = values['battlenet_realm']
+            profile.battlenet_character = values['battlenet_character']
+            profile.player_equipment = values['player_equipment']
+            profile.talent = values['talent']
+            profile.gear_strength = numeric_values['gear_strength']
+            profile.gear_crit = numeric_values['gear_crit']
+            profile.gear_haste = numeric_values['gear_haste']
+            profile.gear_mastery = numeric_values['gear_mastery']
+            profile.gear_versatility = numeric_values['gear_versatility']
             profile.is_active = data.get('is_active', profile.is_active)
             profile.save()
             
@@ -3299,7 +3477,49 @@ class OssConfigAPIView(View):
             })
 
 
-@method_decorator([csrf_exempt], name='dispatch')
+@method_decorator([csrf_exempt, login_required], name='dispatch')
+class SimcTaskPreviewAPIView(View):
+    """Return a user-authorized, structured snapshot of a task manifest only."""
+
+    def get(self, request):
+        task_id = request.GET.get('task_id')
+        try:
+            task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
+        except (SimcTask.DoesNotExist, TypeError, ValueError):
+            return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'})
+        manifest = SimcTaskAPIView()._normalize_task_ext(task.task_type, task.ext)
+        profile = None
+        if not manifest and task.simc_profile_id:
+            profile = SimcProfile.objects.filter(id=task.simc_profile_id, user_id=request.user.id).first()
+        context = {
+            'id': task.id,
+            'name': task.name,
+            'task_type': task.task_type,
+            'status': task.current_status,
+            'result_file': task.result_file,
+            'spec': manifest.get('spec') or (profile.spec if profile else ''),
+            'fight_style': manifest.get('fight_style') or '',
+            'time': manifest.get('time') or manifest.get('regular_time') or '',
+            'target_count': manifest.get('target_count') or manifest.get('regular_target_count') or '',
+            'player_config_mode': manifest.get('player_config_mode') or '',
+            'talent': manifest.get('talent') or '',
+            'gear': {
+                # Preserve a valid explicit zero from the task snapshot.
+                'strength': manifest.get('gear_strength', 0),
+                'crit': manifest.get('gear_crit', 0),
+                'haste': manifest.get('gear_haste', 0),
+                'mastery': manifest.get('gear_mastery', 0),
+                'versatility': manifest.get('gear_versatility', 0),
+            },
+            'selected_attributes': manifest.get('selected_attributes') or '',
+            'attribute_step': manifest.get('attribute_step') or '',
+            'selected_apl_id': manifest.get('selected_apl_id'),
+            'batch_compare': manifest.get('batch_compare') or {},
+        }
+        return JsonResponse({'success': True, 'data': context})
+
+
+@method_decorator([csrf_exempt, login_required], name='dispatch')
 class SimcResultProxyAPIView(View):
     """
     SimC结果文件代理API - 用于从OSS获取文件内容
@@ -3319,6 +3539,16 @@ class SimcResultProxyAPIView(View):
                     'error': '文件名不能为空'
                 })
             
+            # 只允许当前用户自己任务中精确登记的结果文件，禁止借代理读取任意 OSS/local 文件。
+            requested_files = [part.strip() for part in str(result_file).split(',') if part.strip()]
+            if len(requested_files) != 1 or requested_files[0] != result_file.strip() or '/' in result_file or '\\' in result_file:
+                return JsonResponse({'success': False, 'error': '结果文件名无效'})
+            if not SimcTask.objects.filter(user_id=request.user.id, is_active=True).filter(
+                models.Q(result_file=result_file) | models.Q(result_file__startswith=result_file + ',') |
+                models.Q(result_file__endswith=',' + result_file) | models.Q(result_file__contains=',' + result_file + ',')
+            ).exists():
+                return JsonResponse({'success': False, 'error': '结果文件不存在或无权限访问'})
+
             # 首先尝试从OSS获取文件
             oss_config = getattr(settings, 'OSS_CONFIG', {})
             base_url = oss_config.get('base_url', '')
@@ -3375,7 +3605,7 @@ class SimcResultProxyAPIView(View):
             })
 
 
-@method_decorator([csrf_exempt], name='dispatch')
+@method_decorator([csrf_exempt, login_required], name='dispatch')
 class SimcAttributeAnalysisAPIView(View):
     """
     属性模拟分析API - 解析所有结果文件并提取DPS数据
@@ -3396,13 +3626,13 @@ class SimcAttributeAnalysisAPIView(View):
                     'error': '任务ID不能为空'
                 })
             
-            # 获取任务信息
+            # 仅允许当前用户读取自己的任务分析，避免以 task_id 枚举他人 DPS/装备结果。
             try:
-                task = SimcTask.objects.get(id=task_id)
+                task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
             except SimcTask.DoesNotExist:
                 return JsonResponse({
                     'success': False,
-                    'error': '任务不存在'
+                    'error': '任务不存在或无权限访问'
                 })
             
             if task.task_type != 2:
@@ -3431,23 +3661,17 @@ class SimcAttributeAnalysisAPIView(View):
                     continue
                 
                 try:
-                    # 从文件名解析属性信息
                     # 格式: {任务ID}_{属性1}_{值1}_{属性2}_{值2}.html
-                    filename_parts = result_file.replace('.html', '').split('_')
-                    if len(filename_parts) >= 5:
-                        attr1_name = filename_parts[2]
-                        attr2_name = filename_parts[5]
-                        
-                        # 尝试转换为数字，如果失败则保持字符串
+                    # 例如: 42_crit_1000_haste_2000.html。
+                    filename_parts = result_file.removesuffix('.html').split('_')
+                    if len(filename_parts) == 5:
+                        _, attr1_name, attr1_raw, attr2_name, attr2_raw = filename_parts
                         try:
-                            attr1_value = int(filename_parts[3])
+                            attr1_value = int(attr1_raw)
+                            attr2_value = int(attr2_raw)
                         except ValueError:
-                            attr1_value = filename_parts[3]
-                        
-                        try:
-                            attr2_value = int(filename_parts[6])
-                        except ValueError:
-                            attr2_value = filename_parts[6]
+                            logger.warning(f"无法解析属性值: {result_file}")
+                            continue
                     else:
                         logger.warning(f"无法解析文件名格式: {result_file}")
                         continue

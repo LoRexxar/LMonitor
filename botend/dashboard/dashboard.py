@@ -1016,9 +1016,9 @@ class SimcAttributeAnalysisSSRView(View):
             import requests
             
             try:
-                task = SimcTask.objects.get(id=task_id)
+                task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
             except SimcTask.DoesNotExist:
-                return HttpResponse("任务不存在", status=404)
+                return HttpResponse("任务不存在或无权限访问", status=404)
             
             if task.task_type != 2 or not task.result_file:
                 return HttpResponse("该任务不是属性模拟或尚无结果文件", status=400)
@@ -1066,20 +1066,13 @@ class SimcAttributeAnalysisSSRView(View):
             
             analysis = []
             for rf in result_files:
-                # 文件名格式: {任务ID}_{attr1}_{val1}_{attr2}_{val2}.html
-                parts = rf.replace('.html', '').split('_')
-                if len(parts) < 7:
+                parsed = _parse_attribute_result_filename(rf)
+                if not parsed or parsed['task_id'] != task.id:
                     continue
-                attr1_name = parts[2]
-                attr2_name = parts[5]
-                try:
-                    attr1_value = int(parts[3])
-                except ValueError:
-                    attr1_value = parts[3]
-                try:
-                    attr2_value = int(parts[6])
-                except ValueError:
-                    attr2_value = parts[6]
+                attr1_name = parsed['attr1_name']
+                attr1_value = parsed['attr1_value']
+                attr2_name = parsed['attr2_name']
+                attr2_value = parsed['attr2_value']
                 
                 content = read_file_content(rf)
                 if not content:

@@ -387,8 +387,12 @@ class SimcMonitor(BaseScan):
                 self.mark_task_failed(simc_task, "直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟")
                 return False
 
-            # 新版任务配置模式（player_config_mode）不依赖 SimcProfile，直接走常规模拟。
+            # 新版 manifest 已固化玩家配置，不依赖可变 SimcProfile。
+            # 属性扫描仍必须进入属性执行器；不能因为存在 player_config_mode
+            # 被误当作常规任务，否则会丢失 selected_attributes/step 的扫描语义。
             if ext_payload.get('player_config_mode'):
+                if int(simc_task.task_type or 1) == 2:
+                    return self.process_attribute_simulation(simc_task, None)
                 return self.process_regular_simulation(simc_task, None)
 
             # 旧版 Profile + 模板模式、属性模拟都需要 SimcProfile。
@@ -462,10 +466,11 @@ class SimcMonitor(BaseScan):
                         'battlenet_region': ext_payload.get('battlenet_region', ''),
                         'battlenet_realm': ext_payload.get('battlenet_realm', ''),
                         'battlenet_character': ext_payload.get('battlenet_character', ''),
-                        'gear_crit': ext_payload.get('gear_crit', 10730),
-                        'gear_haste': ext_payload.get('gear_haste', 18641),
-                        'gear_mastery': ext_payload.get('gear_mastery', 21785),
-                        'gear_versatility': ext_payload.get('gear_versatility', 6757),
+                        'gear_strength': ext_payload.get('gear_strength', 0),
+                        'gear_crit': ext_payload.get('gear_crit', 0),
+                        'gear_haste': ext_payload.get('gear_haste', 0),
+                        'gear_mastery': ext_payload.get('gear_mastery', 0),
+                        'gear_versatility': ext_payload.get('gear_versatility', 0),
                         'override_action_list': ext_payload.get('override_action_list', ''),
                     }
                     
@@ -568,6 +573,32 @@ class SimcMonitor(BaseScan):
             except Exception:
                 step_size = 50
 
+            # 任务 manifest 已在创建时固化玩家配置；属性扫描也不得回读可变的 Profile。
+            if ext_payload.get('player_config_mode'):
+                from types import SimpleNamespace
+                snapshot = SimpleNamespace(
+                    spec=ext_payload.get('spec') or (simc_profile.spec if simc_profile else ''),
+                    talent=ext_payload.get('talent') or '',
+                    player_config_mode=ext_payload.get('player_config_mode'),
+                    player_import_mode=ext_payload.get('player_import_mode') or ext_payload.get('player_config_mode'),
+                    player_equipment=ext_payload.get('player_equipment') or '',
+                    battlenet_region=ext_payload.get('battlenet_region') or '',
+                    battlenet_realm=ext_payload.get('battlenet_realm') or '',
+                    battlenet_character=ext_payload.get('battlenet_character') or '',
+                    gear_strength=ext_payload.get('gear_strength', 0),
+                    gear_crit=ext_payload.get('gear_crit', 0),
+                    gear_haste=ext_payload.get('gear_haste', 0),
+                    gear_mastery=ext_payload.get('gear_mastery', 0),
+                    gear_versatility=ext_payload.get('gear_versatility', 0),
+                )
+                if not snapshot.spec:
+                    self.mark_task_failed(simc_task, '属性模拟任务快照缺少专精')
+                    return False
+                simc_profile = snapshot
+            elif not simc_profile:
+                self.mark_task_failed(simc_task, '未找到对应的SimC配置，可能已被删除或禁用')
+                return False
+
             # 解析属性组合
             selected_attributes = self.parse_selected_attributes(selected_combination)
             if len(selected_attributes) != 2:
@@ -607,7 +638,7 @@ class SimcMonitor(BaseScan):
                 modified_attributes[attr1] = attr1_value
                 modified_attributes[attr2] = attr2_value
                 
-                simc_code = self.generate_attribute_simc_code(simc_profile, modified_attributes, stage_result_file)
+                simc_code = self.generate_attribute_simc_code(simc_profile, modified_attributes, stage_result_file, ext_payload)
                 if not isinstance(simc_code, str) or not simc_code.strip():
                     raise Exception(f"生成属性模拟配置失败：stage={stage}")
                 
@@ -959,15 +990,21 @@ class SimcMonitor(BaseScan):
         :param simc_profile: SimcProfile对象
         :return: 属性字典
         """
+        def _value(field):
+            try:
+                return int(getattr(simc_profile, field, 0) or 0)
+            except (TypeError, ValueError):
+                return 0
+
         return {
-            'gear_strength': simc_profile.gear_strength or 93330,
-            'gear_crit': simc_profile.gear_crit or 10730,
-            'gear_haste': simc_profile.gear_haste or 18641,
-            'gear_mastery': simc_profile.gear_mastery or 21785,
-            'gear_versatility': simc_profile.gear_versatility or 6757
+            'gear_strength': _value('gear_strength'),
+            'gear_crit': _value('gear_crit'),
+            'gear_haste': _value('gear_haste'),
+            'gear_mastery': _value('gear_mastery'),
+            'gear_versatility': _value('gear_versatility'),
         }
     
-    def generate_attribute_simc_code(self, profile, attributes, result_file):
+    def generate_attribute_simc_code(self, profile, attributes, result_file, task_ext=None):
         """
         生成属性模拟的SimC代码（从数据库模板 + profile 配置）
         :param profile: SimcProfile对象
@@ -982,19 +1019,32 @@ class SimcMonitor(BaseScan):
                 raise Exception("未找到启用的SimC模板")
             template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
             
-            # 构建 task_config 字典
+            manifest = task_ext if isinstance(task_ext, dict) else {}
+
+            def _snapshot_value(field, default=''):
+                if field in manifest:
+                    return manifest[field]
+                return getattr(profile, field, default)
+
             task_config = {
-                'spec': profile.spec or 'fury',
-                'talent': profile.talent or '',
-                'fight_style': 'Patchwerk',
-                'time': 300,
-                'target_count': 1,
-                'player_config_mode': 'stats',
-                'gear_crit': attributes.get('gear_crit', 10730),
-                'gear_haste': attributes.get('gear_haste', 18641),
-                'gear_mastery': attributes.get('gear_mastery', 21785),
-                'gear_versatility': attributes.get('gear_versatility', 6757),
-                'override_action_list': self._load_default_apl(profile.spec) or '',
+                'spec': _snapshot_value('spec') or 'fury',
+                'talent': _snapshot_value('talent') or '',
+                'fight_style': manifest.get('fight_style', 'Patchwerk'),
+                'time': manifest.get('time', 300),
+                'target_count': manifest.get('target_count', 1),
+                'player_config_mode': manifest.get('player_config_mode') or getattr(profile, 'player_config_mode', '') or 'attribute_only',
+                'player_import_mode': manifest.get('player_import_mode') or getattr(profile, 'player_import_mode', '') or manifest.get('player_config_mode') or 'attribute_only',
+                'player_equipment': _snapshot_value('player_equipment') or '',
+                'battlenet_region': _snapshot_value('battlenet_region') or '',
+                'battlenet_realm': _snapshot_value('battlenet_realm') or '',
+                'battlenet_character': _snapshot_value('battlenet_character') or '',
+                'gear_strength': attributes.get('gear_strength', 0),
+                'gear_crit': attributes.get('gear_crit', 0),
+                'gear_haste': attributes.get('gear_haste', 0),
+                'gear_mastery': attributes.get('gear_mastery', 0),
+                'gear_versatility': attributes.get('gear_versatility', 0),
+                'override_action_list': manifest.get('override_action_list') or self._load_default_apl(profile.spec) or '',
+                'result_file': result_file,
             }
             
             return self.apply_template(
@@ -1020,11 +1070,9 @@ class SimcMonitor(BaseScan):
     def _is_executable_base_template(template):
         """Return whether a base template declares a real SimC player.
 
-        Attribute-only tasks intentionally carry only their talent/rating delta, but the
-        selected template must supply the player header (for example ``warrior=...``).
-        Without it, SimC parses those fields as global options and exits with
-        ``Nothing to sim!``. Equipment may be omitted by a controlled base template;
-        it is not the condition that makes the profile syntactically executable.
+        # Attribute-only profiles need an explicit player header in the base
+        # template, but do not require a persisted gear block.  Battle.net and
+        # manual-equipment modes supply it through {player_config}.
         """
         content = str(getattr(template, 'content', '') or getattr(template, 'template_content', '') or '')
         return bool(re.search(
@@ -1116,8 +1164,9 @@ class SimcMonitor(BaseScan):
             character = str(task_config.get('battlenet_character', '')).strip()
             if not region or not realm or not character:
                 raise ValueError('Battle.net 导入缺少 region/realm/character')
-            # 生产基础模板已经包含 player header/spec/role；这里仅插入 armory 导入行，
-            # 避免额外生成第二个 player 导致空模板角色参与模拟。
+            # The controlled base template owns the player declaration/spec.  Armory
+            # import only supplies the character identity so we never create a second
+            # player when a production template already has `spec={spec}`.
             simc_code = simc_code.replace('{player_config}', f'armory={region},{realm},{character}')
             simc_code = simc_code.replace('{gear_crit}', '')
             simc_code = simc_code.replace('{gear_haste}', '')

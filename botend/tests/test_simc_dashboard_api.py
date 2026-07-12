@@ -448,6 +448,116 @@ class SimcNewConfigModeTests(TestCase):
         self.client = Client()
         self.client.force_login(self.user)
 
+    def test_attribute_manifest_task_routes_to_attribute_runner_without_profile_lookup(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            name='Manifest attribute snapshot',
+            task_type=2,
+            simc_profile_id=0,
+            ext=json.dumps({
+                'player_config_mode': 'attribute_only',
+                'spec': 'fury',
+                'talent': 'SNAPSHOT_BUILD',
+                'selected_attributes': 'crit_haste',
+                'attribute_step': 50,
+                'gear_strength': 0,
+                'gear_crit': 1000,
+                'gear_haste': 2000,
+                'gear_mastery': 3000,
+                'gear_versatility': 4000,
+            }),
+            current_status=0,
+            is_active=True,
+        )
+        monitor = SimcMonitor(None, None)
+        with patch.object(monitor, 'process_attribute_simulation', return_value=True) as attribute_runner, \
+             patch.object(monitor, 'process_regular_simulation') as regular_runner:
+            self.assertTrue(monitor.process_simc_task(task))
+
+        attribute_runner.assert_called_once()
+        self.assertIsNone(attribute_runner.call_args.args[1])
+        regular_runner.assert_not_called()
+
+    def test_direct_attribute_task_persists_full_manifest_snapshot(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'Direct attribute snapshot',
+                'task_type': 2,
+                'player_import_mode': 'attribute_only',
+                'spec': 'fury',
+                'talent': 'SNAPSHOT_BUILD',
+                'selected_attributes': 'crit_haste',
+                'attribute_step': 50,
+                'gear_strength': 0,
+                'gear_crit': 1000,
+                'gear_haste': 2000,
+                'gear_mastery': 3000,
+                'gear_versatility': 4000,
+                'fight_style': 'DungeonSlice',
+                'time': 180,
+                'target_count': 5,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        task = SimcTask.objects.get(id=payload['data']['id'])
+        ext = json.loads(task.ext)
+        self.assertEqual(ext['player_config_mode'], 'attribute_only')
+        self.assertEqual(ext['spec'], 'fury')
+        self.assertEqual(ext['talent'], 'SNAPSHOT_BUILD')
+        self.assertEqual(ext['gear_strength'], 0)
+        self.assertEqual(ext['gear_crit'], 1000)
+        self.assertEqual(ext['gear_versatility'], 4000)
+        self.assertEqual(ext['fight_style'], 'DungeonSlice')
+        self.assertEqual(ext['time'], 180)
+        self.assertEqual(ext['target_count'], 5)
+
+    def test_direct_attribute_task_rejects_non_50_step(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'Bad direct attribute step',
+                'task_type': 2,
+                'player_import_mode': 'attribute_only',
+                'spec': 'fury',
+                'talent': 'SNAPSHOT_BUILD',
+                'selected_attributes': 'crit_haste',
+                'attribute_step': 25,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload['success'], payload)
+        self.assertIn('50', payload['error'])
+
+    def test_attribute_render_uses_manifest_snapshot_instead_of_changed_profile(self):
+        monitor = SimcMonitor(None, None)
+        monitor.select_template_by_spec = lambda spec: SimpleNamespace(
+            content='warrior="LMonitor"\\nspec={spec}\\n{player_config}\\nhtml={result_file}'
+        )
+        profile = SimpleNamespace(
+            spec='arms', talent='CHANGED_PROFILE_BUILD', player_config_mode='attribute_only',
+            player_import_mode='attribute_only', player_equipment='changed=1',
+            battlenet_region='us', battlenet_realm='Changed', battlenet_character='Changed',
+        )
+        rendered = monitor.generate_attribute_simc_code(profile, {
+            'gear_strength': 0, 'gear_crit': 1000, 'gear_haste': 2000,
+            'gear_mastery': 3000, 'gear_versatility': 4000,
+        }, '77_crit_1000_haste_2000.html', {
+            'player_config_mode': 'attribute_only', 'spec': 'fury',
+            'talent': 'SNAPSHOT_BUILD', 'gear_strength': 0,
+        })
+
+        self.assertIn('spec=fury', rendered)
+        self.assertIn('talents=SNAPSHOT_BUILD', rendered)
+        self.assertNotIn('CHANGED_PROFILE_BUILD', rendered)
+        self.assertNotIn('spec=arms', rendered)
+        self.assertIn('gear_strength=0', rendered)
+
     def test_create_task_with_manual_equipment_mode(self):
         response = self.client.post(
             '/api/simc-task/',
@@ -630,7 +740,7 @@ class SimcNewConfigModeTests(TestCase):
         )
         self.assertNotIn('Bloodmast_r', rendered)
         self.assertIn('armory=eu,Kazzak,Bloodmastêr', rendered)
-        self.assertIn('spec=fury', rendered)
+        self.assertNotIn('\nspec=fury', rendered)
         self.assertIn('actions=auto_attack', rendered)
 
     def test_apply_template_inserts_manual_equipment_player_block(self):
@@ -907,14 +1017,18 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
     def test_attribute_only_profile_preserves_legacy_data_and_runs_without_player_block(self):
         from botend.models import SimcMasteryCoefficient, SimcSecondaryStatRule
 
-        SimcSecondaryStatRule.objects.create(
+        SimcSecondaryStatRule.objects.update_or_create(
             class_name='warrior',
-            crit_per_percent=46,
-            haste_per_percent=44,
-            mastery_per_percent=46,
-            versatility_per_percent=54,
+            defaults={
+                'crit_per_percent': 46,
+                'haste_per_percent': 44,
+                'mastery_per_percent': 46,
+                'versatility_per_percent': 54,
+            },
         )
-        SimcMasteryCoefficient.objects.create(spec='fury', mastery_coefficient=1.4)
+        SimcMasteryCoefficient.objects.update_or_create(
+            spec='fury', defaults={'mastery_coefficient': 1.4}
+        )
         profile = SimcProfile.objects.create(
             user_id=self.user.id,
             name='Legacy fury stats',
@@ -1037,4 +1151,71 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         self.assertEqual(payload['player_equipment'], '')
         self.assertFalse(payload['battlenet_region'])
         self.assertFalse(payload['battlenet_realm'])
-        self.assertFalse(payload['battlenet_character'])
+
+
+class SimcBattlenetPreflightTests(TestCase):
+    """Battle.net 提交前预检必须真实获取角色信息，而不是只回显 armory 三元组。"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='battlenet_preflight_user', password='pwd')
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_preflight_returns_fetched_character_and_simc_readiness(self):
+        from unittest.mock import patch
+
+        fetched = {
+            'identity': {
+                'name': 'Bloodmastêr', 'realm': 'Kazzak', 'region': 'eu',
+                'class_name': 'warrior', 'level': 80,
+            },
+            'spec': {'key': 'fury', 'name': 'Fury'},
+            'equipment': {'count': 15, 'item_level': 680},
+            'stats': {'secondary': {'crit': {'rating': 1000}}},
+            'simc_ready': True,
+            'warnings': [],
+        }
+        with patch('botend.services.battlenet_preflight.fetch_battlenet_character_preflight', return_value=fetched) as fetch:
+            response = self.client.post('/api/simc-battlenet-preflight/', data=json.dumps({
+                'region': 'EU', 'realm': 'Kazzak', 'character': 'Bloodmastêr', 'spec': 'fury',
+            }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertTrue(payload['data']['simc_ready'])
+        self.assertEqual(payload['data']['identity']['name'], 'Bloodmastêr')
+        self.assertEqual(payload['data']['spec']['key'], 'fury')
+        fetch.assert_called_once_with(region='eu', realm='Kazzak', character='Bloodmastêr', requested_spec='fury')
+
+    def test_preflight_service_parses_live_stats_and_rejects_missing_talent(self):
+        from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
+
+        profile = {
+            'name': 'Bloodmastêr', 'level': 80,
+            'character_class': {'name': 'Warrior'},
+            'active_spec': {'name': 'Fury'},
+            'realm': {'name': 'Kazzak'},
+        }
+        equipment = {'equipped_items': [{'level': {'value': 680}}]}
+        stats = {
+            'strength': {'effective': 5000},
+            'melee_crit': {'rating': 1000, 'value': 20.0},
+            'melee_haste': {'rating': 2000, 'value': 15.0},
+            'mastery': {'rating': 3000, 'value': 30.0},
+            'versatility': {'rating': 4000, 'damageDoneBonus': 10.0},
+        }
+        with patch('botend.services.battlenet_preflight._token', return_value='token'), patch(
+            'botend.services.battlenet_preflight._api_get', side_effect=[profile, equipment, stats]
+        ):
+            result = fetch_battlenet_character_preflight(
+                region='eu', realm='Kazzak', character='Bloodmastêr', requested_spec='fury',
+            )
+
+        self.assertTrue(result['simc_ready'], result)
+        self.assertEqual(result['stats']['primary']['strength'], 5000)
+        self.assertEqual(result['stats']['secondary']['crit']['rating'], 1000)
+        self.assertEqual(result['simc_config']['gear_strength'], 5000)
+        self.assertEqual(result['simc_config']['gear_versatility'], 4000)
+        self.assertEqual(result['simc_config']['talent'], '')
+        self.assertEqual(result['warnings'], [])

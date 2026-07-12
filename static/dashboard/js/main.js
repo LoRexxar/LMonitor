@@ -1630,50 +1630,63 @@ function loadSimcWorkbenchProfiles(page) {
     simcWbProfilePage = page;
     const tbody = document.getElementById('simc-wb-profile-list');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>加载中…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>加载中…</td></tr>';
 
     const csrf = getCSRFToken();
-    if (!csrf) { tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-red-500">无法获取 CSRF Token</td></tr>'; return; }
+    if (!csrf) { tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-red-500">无法获取 CSRF Token</td></tr>'; return; }
 
-    const requestData = { action: 'get_table_data', table_name: 'SimcProfile', page: page, page_size: 20 };
-    if (simcWbProfileSpecFilter) requestData.simc_spec = simcWbProfileSpecFilter;
-
-    fetch('/dashboard/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-        body: JSON.stringify(requestData)
+    fetch('/api/simc-profile/', {
+        method: 'GET',
+        headers: { 'X-CSRFToken': csrf }
     }).then(r => r.json()).then(data => {
-        if (data.status !== 'success') {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-red-500">加载失败</td></tr>';
+        if (!data.success) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-red-500">加载失败</td></tr>';
             return;
         }
-        const rows = Array.isArray(data.data) ? data.data : (data.data?.rows || []);
-        const total = data.total_count || rows.length;
-        simcWbProfileTotalPages = data.total_pages || Math.max(1, Math.ceil(total / 20));
+        let rows = data.data || [];
 
-        if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-gray-400">暂无配置</td></tr>';
+        // Client-side spec filtering
+        if (simcWbProfileSpecFilter) {
+            rows = rows.filter(row => {
+                const spec = (row.spec || '').toLowerCase();
+                const filter = simcWbProfileSpecFilter.toLowerCase();
+                return spec.includes(filter) || spec === filter;
+            });
+        }
+
+        // Client-side pagination
+        const total = rows.length;
+        simcWbProfileTotalPages = Math.max(1, Math.ceil(total / 20));
+        const startIdx = (page - 1) * 20;
+        const endIdx = startIdx + 20;
+        const pageRows = rows.slice(startIdx, endIdx);
+
+        if (!pageRows.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-gray-400">暂无配置</td></tr>';
             renderSimcWbPagination('simc-wb-profile-pagination', simcWbProfilePage, simcWbProfileTotalPages, loadSimcWorkbenchProfiles);
             return;
         }
 
-        tbody.innerHTML = rows.map((row, idx) => {
+        tbody.innerHTML = pageRows.map((row, idx) => {
             const id = row.id || 0;
             const name = escapeHtml(row.name || '-');
             const spec = row.spec || '';
-            const mode = (typeof getSimcProfileMode === 'function') ? getSimcProfileMode(row) : (row.player_config_mode || row.player_import_mode || 'battlenet');
+            const mode = row.player_config_mode || 'battlenet';
             const sourceText = mode === 'manual_equipment'
                 ? ('手动配置 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : ''))
                 : mode === 'attribute_only'
                     ? '仅天赋与绿字属性（无装备）'
                     : ('Battle.net ' + [row.battlenet_region, row.battlenet_realm, row.battlenet_character].filter(Boolean).join('/'));
             const sourceTitle = escapeHtml(sourceText || '-');
-            const offset = (page - 1) * 20 + idx + 1;
+            const offset = startIdx + idx + 1;
             return `<tr class="hover:bg-gray-50 border-b border-gray-100">
                 <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
                 <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(spec)}</td>
                 <td class="px-3 py-3 text-xs text-gray-500 max-w-[220px] truncate" title="${sourceTitle}">${sourceTitle}</td>
+                <td class="px-3 py-3 text-center">
+                    <button class="simc-wb-profile-simulate px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded" data-profile-id="${id}" title="启动模拟">启动模拟</button>
+                </td>
                 <td class="px-3 py-3 text-center">
                     <div class="flex items-center justify-center gap-1 flex-wrap">
                         <button class="simc-wb-profile-load text-green-600 hover:text-green-800 text-xs" data-profile-id="${id}" title="加载到发起模拟"><i class="fas fa-arrow-right"></i></button>
@@ -1685,6 +1698,7 @@ function loadSimcWorkbenchProfiles(page) {
         }).join('');
 
         /* 绑定行内按钮 */
+        tbody.querySelectorAll('.simc-wb-profile-simulate').forEach(btn => btn.addEventListener('click', () => { simcWbLaunchSimulation(btn.dataset.profileId); }));
         tbody.querySelectorAll('.simc-wb-profile-load').forEach(btn => btn.addEventListener('click', () => { if (typeof simcWbLoadProfileToSimulator === 'function') simcWbLoadProfileToSimulator(btn.dataset.profileId); }));
         tbody.querySelectorAll('.simc-wb-profile-edit').forEach(btn => btn.addEventListener('click', () => { if (typeof simcWbEditProfile === 'function') simcWbEditProfile(btn.dataset.profileId); }));
         tbody.querySelectorAll('.simc-wb-profile-del').forEach(btn => btn.addEventListener('click', () => { if (typeof simcWbDeleteProfile === 'function') simcWbDeleteProfile(btn.dataset.profileId); }));
@@ -1692,16 +1706,30 @@ function loadSimcWorkbenchProfiles(page) {
         renderSimcWbPagination('simc-wb-profile-pagination', simcWbProfilePage, simcWbProfileTotalPages, loadSimcWorkbenchProfiles);
     }).catch(err => {
         console.error('加载 SimC 配置失败:', err);
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-red-500">网络错误</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-red-500">网络错误</td></tr>';
     });
 }
 
 function bindSimcWorkbenchProfilesControls() {
-    /* 填充专精下拉选项 */
+    /* 填充专精下拉选项 - 使用真实专精 key */
     const specSel = document.getElementById('simc-wb-profile-spec-filter');
     if (specSel && specSel.options.length <= 1 && !specSel.dataset.loaded) {
         specSel.dataset.loaded = '1';
-        const specs = ['deathknight','demonhunter','druid','evoker','hunter','mage','monk','paladin','priest','rogue','shaman','warlock','warrior'];
+        const specs = [
+            'blood','frost_death_knight','unholy',
+            'havoc','vengeance',
+            'balance','feral','guardian','restoration_druid',
+            'devastation','preservation','augmentation',
+            'beast_mastery','marksmanship','survival',
+            'arcane','fire','frost_mage',
+            'brewmaster','windwalker','mistweaver',
+            'holy_paladin','protection_paladin','retribution',
+            'discipline','holy_priest','shadow',
+            'assassination','outlaw','subtlety',
+            'elemental','enhancement','restoration_shaman',
+            'affliction','demonology','destruction',
+            'arms','fury','protection_warrior'
+        ];
         specs.forEach(s => {
             const opt = document.createElement('option');
             opt.value = s; opt.textContent = s;
@@ -1997,6 +2025,28 @@ function simcWbSyncProfileFormMode() {
         el.classList.toggle('hidden', el.getAttribute('data-profile-mode-section') !== mode);
     });
 }
+async function simcWbLaunchSimulation(profileId) {
+    const csrf = getCSRFToken();
+    if (!csrf) { showMessage('无法获取 CSRF Token', 'error'); return; }
+    try {
+        const resp = await fetch('/api/simc-profile/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+            body: JSON.stringify({ simulate_now: true, profile_id: profileId })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            showMessage('已创建模拟任务并入队，请在任务列表查看', 'success');
+            switchSimcWorkbenchTab('tasks');
+            if (typeof fetchSimcTaskData === 'function') fetchSimcTaskData();
+        } else {
+            showMessage('启动模拟失败: ' + (data.message || data.error || '未知错误'), 'error');
+        }
+    } catch (e) {
+        showMessage('启动模拟失败: ' + e.message, 'error');
+    }
+}
+
 async function simcWbSaveProfile() {
     const formWrap = document.getElementById('simc-wb-profile-form');
     if (!formWrap) return;
@@ -2025,20 +2075,21 @@ async function simcWbSaveProfile() {
     try {
         let resp;
         if (simcWbProfileFormMode === 'edit' && simcWbProfileFormEditId) {
-            resp = await fetch('/dashboard/', {
-                method: 'POST',
+            payload.id = simcWbProfileFormEditId;
+            resp = await fetch('/api/simc-profile/', {
+                method: 'PUT',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-                body: JSON.stringify({ action: 'update_table_row', table_name: 'SimcProfile', row_id: simcWbProfileFormEditId, update_data: payload })
+                body: JSON.stringify(payload)
             });
         } else {
-            resp = await fetch('/dashboard/', {
+            resp = await fetch('/api/simc-profile/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-                body: JSON.stringify({ action: 'create_table_row', table_name: 'SimcProfile', create_data: payload })
+                body: JSON.stringify(payload)
             });
         }
         const data = await resp.json();
-        if (data.status === 'success' || data.success) {
+        if (data.success) {
             showMessage(simcWbProfileFormMode === 'edit' ? '配置已更新' : '配置已创建', 'success');
             simcWbCloseProfileForm();
             loadSimcWorkbenchProfiles(simcWbProfilePage);
@@ -2054,57 +2105,50 @@ async function simcWbSaveProfile() {
 async function simcWbDeleteProfile(id) {
     if (!confirm('确定要删除配置 #' + id + ' 吗？')) return;
     try {
-        const resp = await fetch('/dashboard/', {
-            method: 'POST',
+        const resp = await fetch('/api/simc-profile/', {
+            method: 'DELETE',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-            body: JSON.stringify({ action: 'delete_table_row', table_name: 'SimcProfile', row_id: id })
+            body: JSON.stringify({ id: id })
         });
         const data = await resp.json();
-        if (data.status === 'success' || data.success) {
+        if (data.success) {
             showMessage('配置已删除', 'success');
             loadSimcWorkbenchProfiles(simcWbProfilePage);
         } else {
-            showMessage('删除失败: ' + (data.message || '未知错误'), 'error');
+            showMessage('删除失败: ' + (data.message || data.error || '未知错误'), 'error');
         }
     } catch (e) { showMessage('删除失败: ' + e.message, 'error'); }
 }
 async function simcWbEditProfile(id) {
     try {
-        const resp = await fetch('/dashboard/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-            body: JSON.stringify({ action: 'get_table_data', table_name: 'SimcProfile', page: 1, page_size: 500 })
+        const resp = await fetch(`/api/simc-profile/${id}/`, {
+            method: 'GET',
+            headers: { 'X-CSRFToken': getCSRFToken() }
         });
         const data = await resp.json();
-        const rows = Array.isArray(data.data) ? data.data : (data.data?.rows || []);
-        const profile = rows.find(r => r.id == id);
-        if (profile) simcWbToggleProfileForm('edit', profile);
-        else showMessage('未找到配置', 'error');
-    } catch (e) { showMessage('加载配置失败', 'error'); }
-}
-
-async function simcWbFetchProfilesForWorkbench() {
-    const resp = await fetch('/dashboard/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-        body: JSON.stringify({ action: 'get_table_data', table_name: 'SimcProfile', page: 1, page_size: 500 })
-    });
-    const data = await resp.json();
-    if (!(data.status === 'success' || data.success)) throw new Error(data.message || data.error || '加载配置失败');
-    return Array.isArray(data.data) ? data.data : (data.data?.rows || []);
+        if (data.success) {
+            simcWbToggleProfileForm('edit', data);
+        } else {
+            showMessage('未找到配置', 'error');
+        }
+    } catch (e) { showMessage('加载配置失败: ' + e.message, 'error'); }
 }
 
 async function simcWbLoadProfileToSimulator(id) {
     try {
-        const rows = await simcWbFetchProfilesForWorkbench();
-        const profile = rows.find(r => String(r.id) === String(id));
-        if (!profile) { showMessage('未找到配置', 'error'); return; }
+        const resp = await fetch(`/api/simc-profile/${id}/`, {
+            method: 'GET',
+            headers: { 'X-CSRFToken': getCSRFToken() }
+        });
+        const data = await resp.json();
+        if (!data.success) { showMessage('未找到配置', 'error'); return; }
+        const profile = data;
         const specEl = document.getElementById('simc-sim-spec');
         if (specEl && profile.spec) {
             specEl.value = normalizeSimcSpecKey(profile.spec || '');
             specEl.dispatchEvent(new Event('change'));
         }
-        const mode = getSimcProfileMode(profile);
+        const mode = profile.player_config_mode || 'battlenet';
         document.querySelectorAll('input[name="simc-player-import-mode"]').forEach(r => { r.checked = r.value === mode; });
         if (typeof switchSimcPlayerImportMode === 'function') switchSimcPlayerImportMode(mode);
         simcWbAttributeOnlyConfig = mode === 'attribute_only' ? {
@@ -2160,13 +2204,13 @@ async function simcWbSaveCurrentSimulatorProfile() {
         showMessage('手动配置需要填写装备/天赋玩家块', 'error'); return;
     }
     try {
-        const resp = await fetch('/dashboard/', {
+        const resp = await fetch('/api/simc-profile/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-            body: JSON.stringify({ action: 'create_table_row', table_name: 'SimcProfile', create_data: payload })
+            body: JSON.stringify(payload)
         });
         const data = await resp.json();
-        if (data.status === 'success' || data.success) {
+        if (data.success) {
             showMessage('当前配置已保存', 'success');
             if (typeof refreshSimcSavedProfiles === 'function') refreshSimcSavedProfiles();
             loadSimcWorkbenchProfiles(simcWbProfilePage);
@@ -2690,6 +2734,47 @@ async function startSimcCandidateComparison(kind, maxSelectable) {
     finally { if (button) { button.disabled = false; button.innerHTML = old; } }
 }
 
+async function preflightSimcBattlenet() {
+    const button = document.getElementById('simc-sim-battlenet-preflight-btn');
+    const status = document.getElementById('simc-sim-battlenet-preflight-status');
+    const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
+    const region = ((document.getElementById('simc-sim-battlenet-region') || {}).value || '').trim();
+    const realm = ((document.getElementById('simc-sim-battlenet-realm') || {}).value || '').trim();
+    const character = ((document.getElementById('simc-sim-battlenet-character') || {}).value || '').trim();
+    if (!spec || !region || !realm || !character) {
+        showMessage('请先选择专精并填写 Battle.net 地区、服务器和角色名', 'warning');
+        return;
+    }
+    if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>获取中…'; }
+    if (status) { status.className = 'text-xs text-blue-600'; status.textContent = '正在获取角色配置并验证…'; }
+    try {
+        const response = await fetch('/api/simc-battlenet-preflight/', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({ region, realm, character, spec }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '角色预检失败');
+        const data = payload.data || {};
+        const identity = data.identity || {}, profileSpec = data.spec || {}, equipment = data.equipment || {};
+        const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+        if (status) {
+            status.className = `text-xs ${data.simc_ready ? 'text-emerald-700' : 'text-amber-700'}`;
+            const statSummary = data.stats?.secondary ? Object.entries(data.stats.secondary).map(([name, row]) => `${name} ${row?.rating ?? '-'}`).join(' · ') : '';
+            const warningText = warnings.length ? `；${warnings.join('；')}` : '';
+            status.textContent = data.simc_ready
+                ? `已验证角色与装备：${identity.name || character} · ${profileSpec.name || profileSpec.key || '-'} · ${equipment.count || 0} 件装备，平均装等 ${equipment.item_level || '-'}${statSummary ? ' · ' + statSummary : ''}${warningText}`
+                : `已获取但不可直接模拟：${warnings.join('；') || '角色配置不完整'}`;
+        }
+        if (data.simc_ready) showMessage('Battle.net 角色、装备与属性已获取；保存后会在 SimC 执行时通过 armory 导入当前构筑。', 'success');
+        else showMessage('Battle.net 角色已获取，但当前不能直接启动模拟', 'warning');
+    } catch (error) {
+        if (status) { status.className = 'text-xs text-red-600'; status.textContent = '预检失败：' + String(error.message || error); }
+        showMessage('获取 Battle.net 配置失败：' + String(error.message || error), 'error');
+    } finally {
+        if (button) { button.disabled = false; button.innerHTML = '<i class="fas fa-cloud-download-alt mr-1"></i>获取配置并验证'; }
+    }
+}
+
 async function refreshSimcPlayerDetail() {
     const refreshBtn = document.getElementById('simc-sim-player-detail-refresh-btn');
     const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
@@ -2967,6 +3052,12 @@ function bindSimcWorkbenchSimulationControls() {
     if (detailRefreshBtn && detailRefreshBtn.dataset.bound !== '1') {
         detailRefreshBtn.dataset.bound = '1';
         detailRefreshBtn.addEventListener('click', refreshSimcPlayerDetail);
+    }
+
+    const battlenetPreflightBtn = document.getElementById('simc-sim-battlenet-preflight-btn');
+    if (battlenetPreflightBtn && battlenetPreflightBtn.dataset.bound !== '1') {
+        battlenetPreflightBtn.dataset.bound = '1';
+        battlenetPreflightBtn.addEventListener('click', preflightSimcBattlenet);
     }
 
     const submitBtn = document.getElementById('simc-sim-submit-btn');
@@ -7679,7 +7770,16 @@ async function openEditSimcTaskModal(task) {
     document.getElementById('edit-simc-task-attribute-step').value = '50';
 
     const extPayload = parseSimcTaskExt(task.ext || (task.ext_detail || {}));
+    const isManifestTask = Boolean(extPayload.player_config_mode);
+    modal.setAttribute('data-manifest-task', isManifestTask ? '1' : '0');
     document.getElementById('edit-simc-task-raw-code').value = extPayload.raw_simc_code || '';
+
+    // 任务运行 manifest 不可被旧编辑器覆盖；仅允许改名称，重跑走独立操作。
+    const controls = modal.querySelectorAll('select, textarea, input:not(#edit-simc-task-name)');
+    controls.forEach(control => { control.disabled = isManifestTask; });
+    if (isManifestTask) {
+        showMessage('该任务使用已固化的运行配置；编辑仅可修改名称，重跑请使用任务列表中的“重跑”。', 'info');
+    }
     
     // 处理属性模拟的扩展信息 - 设置属性组合选择框
     const profileSelect = document.getElementById('edit-simc-task-profile');
@@ -7715,24 +7815,72 @@ function updateSimcTask() {
     const modal = document.getElementById('edit-simc-task-modal');
     const taskId = modal.getAttribute('data-task-id');
     const taskName = document.getElementById('edit-simc-task-name').value.trim();
+    const isManifestTask = modal.getAttribute('data-manifest-task') === '1';
+
+    if (!taskName) {
+        showMessage('请输入任务名称', 'error');
+        return;
+    }
+
+    const csrfToken = getCSRFToken();
+
+    // Early branch for manifest tasks - send only id and name
+    if (isManifestTask) {
+        const requestData = {
+            id: parseInt(taskId),
+            name: taskName
+        };
+
+        fetch('/api/simc-task/', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(requestData)
+        })
+        .then(response => {
+            if (response.status === 302 || response.redirected) {
+                window.location.href = '/auth/login/';
+                return;
+            }
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (!data) return;
+            if (data.success) {
+                showMessage('SimC任务更新成功', 'success');
+                modal.style.display = 'none';
+                fetchSimcTaskData();
+            } else {
+                showMessage('更新失败: ' + (data.error || data.message || '未知错误'), 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showMessage('更新失败: ' + error.message, 'error');
+        });
+        return;
+    }
+
+    // Legacy task handling
     const taskType = document.getElementById('edit-simc-task-type').value;
     const simcConfigId = document.getElementById('edit-simc-config-select').value;
     const rawSimcCode = document.getElementById('edit-simc-task-raw-code').value.trim();
     const currentStatus = document.getElementById('edit-simc-task-status').value;
     const regularTime = document.getElementById('edit-simc-task-regular-time').value.trim();
     const regularTargetCount = document.getElementById('edit-simc-task-regular-target-count').value.trim();
-    const attributeStep = document.getElementById('edit-simc-task-attribute-step').value.trim();
-    
-    if (!taskName) {
-        showMessage('请输入任务名称', 'error');
-        return;
-    }
-    
+    const attributeStepInput = document.getElementById('edit-simc-task-attribute-step');
+    const attributeStep = attributeStepInput ? attributeStepInput.value.trim() : '';
+
     if (!taskType) {
         showMessage('请选择任务类型', 'error');
         return;
     }
-    
+
     if (taskType === '2' && !simcConfigId) {
         showMessage('属性模拟任务必须选择SimC配置', 'error');
         return;
@@ -7742,21 +7890,19 @@ function updateSimcTask() {
         showMessage('请选择SimC配置，或粘贴直接SimC代码', 'error');
         return;
     }
-    
+
     // 处理属性模拟的扩展信息
     let extData = '';
     if (taskType === '2') { // 属性模拟
         const profileSelect = document.getElementById('edit-simc-task-profile');
         extData = profileSelect.value;
-        
+
         if (!extData) {
             showMessage('属性模拟任务请选择属性组合', 'error');
             return;
         }
     }
-    
-    const csrfToken = getCSRFToken();
-    
+
     const requestData = {
         id: parseInt(taskId),
         name: taskName,
@@ -7767,7 +7913,7 @@ function updateSimcTask() {
     if (taskType !== '2' && rawSimcCode) {
         requestData.raw_simc_code = rawSimcCode;
     }
-    
+
     if (taskType === '2') {
         requestData.selected_attributes = extData;
         if (attributeStep) {
@@ -7908,23 +8054,34 @@ function openViewSimcTaskModal(task) {
     const contextEl = document.getElementById('view-simc-task-context');
     if (contextEl) contextEl.innerHTML = renderSimcTaskContextDetailHtml(task, extPayload);
     
-    // 直接 SimC 代码任务直接展示原始代码；Profile 任务再按模板生成预览。
-    if (extPayload.raw_simc_code) {
-        document.getElementById('view-simc-task-code').value = extPayload.raw_simc_code;
-        modal.style.display = 'block';
-        return;
+    async function loadPreview() {
+        try {
+            const response = await fetch(`/api/simc-task-preview/?task_id=${encodeURIComponent(task.id)}`, {
+                headers: {'X-CSRFToken': getCSRFToken()}
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || '获取任务预览失败');
+            }
+            const preview = data.data || {};
+            const gear = preview.gear || {};
+            const lines = [
+                `专精=${preview.spec || '未记录'}`,
+                `天赋=${preview.talent || '未记录'}`,
+                `战斗=${preview.fight_style || 'Patchwerk'}，时长=${preview.time || 300}s，目标=${preview.target_count || 1}`,
+                `玩家模式=${preview.player_config_mode || '历史 Profile'}`,
+                `力量=${gear.strength || 0}，暴击=${gear.crit || 0}，急速=${gear.haste || 0}，精通=${gear.mastery || 0}，全能=${gear.versatility || 0}`
+            ];
+            if (preview.selected_attributes) lines.push(`属性组合=${preview.selected_attributes}，步长=${preview.attribute_step || 50}`);
+            document.getElementById('view-simc-task-code').value = lines.join('\n');
+            modal.style.display = 'block';
+        } catch (error) {
+            console.error('获取SimC任务预览失败:', error);
+            showMessage('获取SimC任务预览失败: ' + error.message, 'error');
+        }
     }
 
-    // 生成SimC代码
-    generateSimcCode(task.simc_profile_id, task.result_file, task.ext_detail || null)
-        .then(simcCode => {
-            document.getElementById('view-simc-task-code').value = simcCode;
-            modal.style.display = 'block';
-        })
-        .catch(error => {
-            console.error('生成SimC代码失败:', error);
-            showMessage('生成SimC代码失败: ' + error.message, 'error');
-        });
+    loadPreview();
 }
 
 function viewSimcResult(resultFile) {
@@ -7933,55 +8090,14 @@ function viewSimcResult(resultFile) {
         return;
     }
     
-    // 从API获取OSS配置
-    const csrfToken = getCSRFToken();
-    
-    fetch('/api/oss-config/', {
-        method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        }
-    })
-    .then(response => {
-        if (response.status === 302 || response.redirected) {
-            window.location.href = '/auth/login/';
-            return;
-        }
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (!data) return;
-        if (data.success) {
-            const ossBaseUrl = data.data.base_url || '';
-            const fullPath = ossBaseUrl + resultFile;
-            
-            // 打开OSS结果文件路径
-            window.open(fullPath, '_blank');
-        } else {
-            showMessage('获取OSS配置失败: ' + (data.error || '未知错误'), 'error');
-        }
-    })
-    .catch(error => {
-        console.error('Error fetching OSS config:', error);
-        showMessage('获取OSS配置时发生错误', 'error');
-    });
+    // 结果始终经已鉴权的后端代理读取，不直接依赖或暴露 OSS 地址。
+    const resultUrl = `/simc-result/?file=${encodeURIComponent(resultFile)}`;
+    window.open(resultUrl, '_blank');
 }
 
 function viewSimcAnalysis(resultFile) {
-    if (!resultFile) {
-        showMessage('结果文件路径不存在', 'error');
-        return;
-    }
-    
-    // 构建自定义分析页面的URL
-    const analysisUrl = `/simc-result/?file=${encodeURIComponent(resultFile)}`;
-    
-    // 在新标签页中打开自定义分析页面
-    window.open(analysisUrl, '_blank');
+    // 单个 HTML 报告本身就是 SimC 的分析结果；统一走结果代理页面。
+    viewSimcResult(resultFile);
 }
 
 async function loadSimcProfileOptions(selectElementId) {
