@@ -384,13 +384,13 @@ finger1=,id=299002,ilevel=655
         self.assertIn('最多', response.json()['error'])
 
 
-    def test_legacy_two_stat_scan_uses_adaptive_bounded_points_and_keeps_baseline(self):
+    def test_legacy_two_stat_scan_honors_50_rating_steps_and_keeps_baseline(self):
         monitor = SimcMonitor(None, None)
         points = monitor.build_attribute_test_points(total_value=4000, base_value=1700, requested_step=50)
         self.assertEqual(points[0], 0)
         self.assertEqual(points[-1], 4000)
         self.assertIn(1700, points)
-        self.assertLessEqual(len(points), monitor.MAX_ATTRIBUTE_TEST_POINTS)
+        self.assertEqual(points, list(range(0, 4001, 50)))
         self.assertEqual(points, sorted(set(points)))
 
     def test_attribute_batch_report_returns_real_dps_rankings_path_and_local_optimum(self):

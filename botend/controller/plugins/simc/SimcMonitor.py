@@ -536,30 +536,23 @@ class SimcMonitor(BaseScan):
             self.mark_task_failed(simc_task, "常规模拟执行异常", e)
             return False
     
-    MAX_ATTRIBUTE_TEST_POINTS = 25
-
     def build_attribute_test_points(self, total_value, base_value, requested_step):
-        """Bound legacy two-stat scans while preserving endpoints and the real baseline."""
+        """Build an exact requested-step two-stat curve, retaining endpoints and baseline.
+
+        Attribute optimization promises a fixed rating step.  Do not silently resample
+        a dense curve into arbitrary values: that makes both the displayed candidate
+        points and the optimization conclusion untruthful.
+        """
         try:
             total = max(0, int(total_value))
             baseline = min(total, max(0, int(base_value)))
             step = max(1, int(requested_step))
         except (TypeError, ValueError):
-            total, baseline, step = 0, 0, 50
-        if total == 0:
             return [0]
-        requested = list(range(0, total + 1, step))
-        if requested[-1] != total:
-            requested.append(total)
-        if len(requested) <= self.MAX_ATTRIBUTE_TEST_POINTS:
-            return sorted(set(requested + [baseline]))
-        intervals = self.MAX_ATTRIBUTE_TEST_POINTS - 1
-        grid = [round(total * index / intervals) for index in range(intervals + 1)]
-        # Keep the original allocation on the curve, replacing the nearest grid point
-        # so the hard cap still applies.
-        nearest = min(range(1, len(grid) - 1), key=lambda index: abs(grid[index] - baseline))
-        grid[nearest] = baseline
-        return sorted(set(grid))
+        points = list(range(0, total + 1, step))
+        if points[-1] != total:
+            points.append(total)
+        return sorted(set(points + [baseline]) )
 
     def process_attribute_simulation(self, simc_task, simc_profile):
         """
@@ -624,11 +617,11 @@ class SimcMonitor(BaseScan):
             result_files = []
             stage = 0
             
-            # Keep the endpoints and equipped allocation, but cap dense legacy scans.
+            # Preserve endpoints and the equipped allocation using the requested fixed step.
             test_points = self.build_attribute_test_points(total_value, attr1_base, step_size)
             logger.info(
-                f"[SimC Monitor] Attribute task {simc_task.id}: {len(test_points)} points "
-                f"(requested step={step_size}, cap={self.MAX_ATTRIBUTE_TEST_POINTS})"
+                f"[SimC Monitor] Attribute task {simc_task.id}: {len(test_points)} exact-step points "
+                f"(step={step_size})"
             )
             
             for attr1_value in test_points:
