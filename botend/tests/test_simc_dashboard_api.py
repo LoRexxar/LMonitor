@@ -1219,3 +1219,24 @@ class SimcBattlenetPreflightTests(TestCase):
         self.assertEqual(result['simc_config']['gear_versatility'], 4000)
         self.assertEqual(result['simc_config']['talent'], '')
         self.assertEqual(result['warnings'], [])
+
+    def test_preflight_normalizes_spaced_battlenet_class_name(self):
+        from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
+
+        profile = {
+            'name': 'Bloodmastêr', 'level': 90,
+            'character_class': {'name': 'Death Knight'},
+            'active_spec': {'name': 'Blood'},
+            'realm': {'name': 'Kazzak'},
+        }
+        equipment = {'equipped_items': [{'level': {'value': 292}}]}
+        with patch('botend.services.battlenet_preflight._token', return_value='token'), patch(
+            'botend.services.battlenet_preflight._api_get', side_effect=[profile, equipment, {}]
+        ):
+            result = fetch_battlenet_character_preflight(
+                region='eu', realm='Kazzak', character='Bloodmastêr', requested_spec='blood',
+            )
+
+        self.assertEqual(result['identity']['class_name'], 'deathknight')
+        self.assertTrue(result['simc_ready'], result)
+        self.assertEqual(result['warnings'], [])

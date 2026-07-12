@@ -25,6 +25,19 @@ SPEC_CLASS = {
     'blood': 'deathknight', 'frost_dk': 'deathknight', 'unholy': 'deathknight',
 }
 
+# Battle.net profile API returns display names with spaces (e.g. ``Death Knight``),
+# while SimC/player templates use compact class slugs.  Keep this conversion at the
+# API boundary so the validation path does not reject a valid death knight profile.
+BATTLETNET_CLASS_SLUGS = {
+    'death knight': 'deathknight',
+    'demon hunter': 'demonhunter',
+}
+
+
+def normalize_battlenet_class_name(value):
+    normalized = ' '.join(str(value or '').strip().lower().replace('_', ' ').split())
+    return BATTLETNET_CLASS_SLUGS.get(normalized, normalized.replace(' ', ''))
+
 SLOT_LABELS = {
     'head': '头盔', 'neck': '项链', 'shoulder': '肩甲', 'back': '披风', 'chest': '胸甲',
     'shirt': '衬衫', 'tabard': '战袍', 'wrist': '护腕', 'hands': '手套', 'waist': '腰带',

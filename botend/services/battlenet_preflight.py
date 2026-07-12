@@ -7,7 +7,7 @@ import requests
 from django.conf import settings
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
-from botend.services.simc_player_config import SPEC_CLASS
+from botend.services.simc_player_config import SPEC_CLASS, normalize_battlenet_class_name
 
 
 _REGION_CONFIG = {
@@ -77,7 +77,7 @@ def fetch_battlenet_character_preflight(*, region, realm, character, requested_s
     stats_payload = _api_get(host, f'{base_path}/statistics', namespace, locale, token)
     stats = SpecDetailBase(None, None).parse_battlenet_stats(stats_payload) or {}
 
-    class_name = str((profile.get('character_class') or {}).get('name') or '').lower()
+    class_name = normalize_battlenet_class_name((profile.get('character_class') or {}).get('name'))
     spec_key = _spec_key(profile)
     requested_spec = str(requested_spec or '').strip().lower()
     items = (equipment_payload.get('equipped_items') or [])
