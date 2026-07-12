@@ -448,7 +448,10 @@ class SimcMonitor(BaseScan):
                 if ext_payload.get('player_config_mode'):
                     # 从数据库获取模板
                     spec_value = ext_payload.get('spec') or (simc_profile.spec if simc_profile else 'fury')
-                    template_obj = self.select_template_by_spec(spec_value)
+                    template_obj = self.select_template_by_spec(
+                        spec_value,
+                        player_config_mode=ext_payload.get('player_import_mode') or ext_payload.get('player_config_mode'),
+                    )
                     if not template_obj:
                         raise Exception("未找到启用的SimC模板")
                     template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
@@ -1056,15 +1059,16 @@ class SimcMonitor(BaseScan):
             logger.error(f"[SimC Monitor] Error generating attribute SimC code: {str(e)}")
             raise e
 
-    def select_template_by_spec(self, spec):
+    def select_template_by_spec(self, spec, player_config_mode=None):
         from botend.models import SimcContentTemplate
         spec_value = str(spec or '').strip().lower()
+        import_mode = str(player_config_mode or '').strip().lower()
 
         queryset = SimcContentTemplate.objects.filter(
             is_active=True,
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
         ).order_by('id')
-        return self._select_template_from_queryset(queryset, spec_value)
+        return self._select_template_from_queryset(queryset, spec_value, player_config_mode=import_mode)
 
     @staticmethod
     def _is_executable_base_template(template):
@@ -1080,19 +1084,25 @@ class SimcMonitor(BaseScan):
             content, re.IGNORECASE | re.MULTILINE,
         ))
 
-    def _select_template_from_queryset(self, queryset, spec_value):
+    def _select_template_from_queryset(self, queryset, spec_value, player_config_mode=None):
         rows = list(queryset)
         if not rows:
             return None
-        executable_rows = [tpl for tpl in rows if self._is_executable_base_template(tpl)]
-        if not executable_rows:
+        # An armory directive imports a complete player, therefore it does not
+        # need a template-owned player header.  It still needs the active base
+        # template for shared encounter options and the selected default APL.
+        if str(player_config_mode or '').strip().lower() == 'battlenet':
+            usable_rows = rows
+        else:
+            usable_rows = [tpl for tpl in rows if self._is_executable_base_template(tpl)]
+        if not usable_rows:
             logger.error('[SimC Monitor] 没有包含玩家块和装备基线的可执行基础模板')
             return None
-        if len(executable_rows) != len(rows):
-            skipped = [str(getattr(tpl, 'id', '')) for tpl in rows if tpl not in executable_rows]
+        if len(usable_rows) != len(rows):
+            skipped = [str(getattr(tpl, 'id', '')) for tpl in rows if tpl not in usable_rows]
             logger.warning('[SimC Monitor] 跳过非可执行基础模板: %s', ', '.join(skipped))
         if spec_value:
-            for tpl in executable_rows:
+            for tpl in usable_rows:
                 spec_field = str(getattr(tpl, 'spec', '') or '').strip().lower()
                 if not spec_field:
                     continue
@@ -1102,7 +1112,7 @@ class SimcMonitor(BaseScan):
                 if spec_value in candidates:
                     return tpl
 
-        for tpl in executable_rows:
+        for tpl in usable_rows:
             spec_field = str(getattr(tpl, 'spec', '') or '').strip().lower()
             if not spec_field:
                 continue

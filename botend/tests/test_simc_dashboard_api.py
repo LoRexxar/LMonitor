@@ -219,6 +219,18 @@ finger1=,id=299002,ilevel=655
         self.assertEqual(rows[0][3]['round'], 2)
         self.assertTrue(all(sum(ratings.values()) == 10000 for _, ratings, _, _ in rows))
 
+    def test_battlenet_template_selection_accepts_playerless_default_template(self):
+        monitor = SimcMonitor(None, None)
+        default_template = SimpleNamespace(
+            id=1,
+            spec='default',
+            content='fight_style={fight_style}\n{player_config}\n{action_list}',
+        )
+        selected = monitor._select_template_from_queryset(
+            [default_template], 'blood', player_config_mode='battlenet'
+        )
+        self.assertIs(selected, default_template)
+
     def test_template_selection_ignores_non_executable_probe_template(self):
         monitor = SimcMonitor(None, None)
         probe = SimpleNamespace(id=1, spec='default', content='spec={spec}\n{player_config}\n')
