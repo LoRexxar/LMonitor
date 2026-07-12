@@ -527,6 +527,48 @@ class SimcNewConfigModeTests(TestCase):
         self.assertEqual(ext['time'], 180)
         self.assertEqual(ext['target_count'], 5)
 
+    def test_rerun_creates_pending_task_without_mutating_completed_manifest_task(self):
+        manifest = {
+            'player_config_mode': 'manual_equipment',
+            'spec': 'fury',
+            'player_equipment': 'warrior="Snapshot"\nspec=fury\nhead=,id=212048',
+            'fight_style': 'Patchwerk',
+            'time': 300,
+            'target_count': 1,
+        }
+        original = SimcTask.objects.create(
+            user_id=self.user.id,
+            name='Completed frozen snapshot',
+            simc_profile_id=0,
+            task_type=1,
+            current_status=2,
+            result_file='simc_task_completed.html',
+            ext=json.dumps(manifest),
+        )
+
+        response = self.client.patch(
+            '/api/simc-task/',
+            data=json.dumps({'id': original.id, 'action': 'rerun'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        rerun_id = payload['data']['id']
+        self.assertNotEqual(rerun_id, original.id)
+        self.assertEqual(SimcTask.objects.count(), 2)
+
+        original.refresh_from_db()
+        self.assertEqual(original.current_status, 2)
+        self.assertEqual(original.result_file, 'simc_task_completed.html')
+        self.assertEqual(json.loads(original.ext), manifest)
+
+        rerun = SimcTask.objects.get(id=rerun_id)
+        self.assertEqual(rerun.current_status, 0)
+        self.assertEqual(rerun.result_file, '')
+        self.assertEqual(json.loads(rerun.ext), manifest)
+
     def test_direct_attribute_task_rejects_non_50_step(self):
         response = self.client.post(
             '/api/simc-task/',

@@ -1036,35 +1036,33 @@ class SimcTaskAPIView(View):
                     'error': '该任务在预处理阶段失败，无法直接重跑，请重新发起“APL候选对比模拟”'
                 })
             
-            # 新版 manifest 任务由执行器为该任务生成唯一 simc_task_<id>.html；
-            # 不得预填旧 MD5 名，否则会使严格结果检测查找错误文件。
-            manifest = self._normalize_task_ext(task.task_type, task.ext)
-            if manifest.get('player_config_mode') or manifest.get('raw_simc_code'):
-                new_result_file = ''
-            else:
-                timestamp = str(int(time.time()))
-                content_to_hash = timestamp + task.name + str(request.user.id)
-                new_result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
-            
-            # 重置任务状态
-            task.current_status = 0  # 待处理
-            task.result_file = new_result_file
-            task.save()
+            # 重跑必须保留原任务（及其冻结 manifest/结果）作为历史记录，
+            # 仅复制执行参数创建一个独立的待处理任务。结果文件由执行器按新 ID 生成。
+            rerun_task = SimcTask.objects.create(
+                user_id=task.user_id,
+                name=task.name,
+                simc_profile_id=task.simc_profile_id,
+                current_status=0,
+                result_file='',
+                task_type=task.task_type,
+                ext=task.ext,
+                is_active=task.is_active,
+            )
             
             return JsonResponse({
                 'success': True,
-                'message': 'SimC任务重跑成功，任务已重新加入队列',
+                'message': 'SimC任务重跑成功，新任务已加入队列',
                 'data': {
-                    'id': task.id,
-                    'name': task.name,
-                    'simc_profile_id': task.simc_profile_id,
-                    'current_status': task.current_status,
-                    'result_file': task.result_file,
-                    'task_type': task.task_type,
-                    'ext': task.ext,
-                    'ext_detail': self._normalize_task_ext(task.task_type, task.ext),
-                    'create_time': _fmt_dt(task.create_time),
-                    'modified_time': _fmt_dt(task.modified_time),
+                    'id': rerun_task.id,
+                    'name': rerun_task.name,
+                    'simc_profile_id': rerun_task.simc_profile_id,
+                    'current_status': rerun_task.current_status,
+                    'result_file': rerun_task.result_file,
+                    'task_type': rerun_task.task_type,
+                    'ext': rerun_task.ext,
+                    'ext_detail': self._normalize_task_ext(rerun_task.task_type, rerun_task.ext),
+                    'create_time': _fmt_dt(rerun_task.create_time),
+                    'modified_time': _fmt_dt(rerun_task.modified_time),
                 }
             })
             
