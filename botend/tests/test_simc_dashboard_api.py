@@ -528,6 +528,55 @@ class SimcNewConfigModeTests(TestCase):
         self.assertEqual(ext['time'], 180)
         self.assertEqual(ext['target_count'], 5)
 
+    def test_attribute_analysis_ssr_parses_task_owned_attribute_report(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            name='SSR attribute report',
+            task_type=2,
+            simc_profile_id=0,
+            current_status=2,
+            result_file='77_gear_crit_850_gear_haste_979.html',
+        )
+        result_file = f'{task.id}_gear_crit_850_gear_haste_979.html'
+        task.result_file = result_file
+        task.save(update_fields=['result_file'])
+        response_mock = SimpleNamespace(status_code=200, text='Bloodmastêr: 123,456 dps')
+
+        with patch('botend.dashboard.dashboard.settings.OSS_CONFIG', {'base_url': 'https://oss.example/'}, create=True), \
+             patch('requests.get', return_value=response_mock):
+            response = self.client.get(f'/simc-attribute-analysis-ssr/?task_id={task.id}')
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertContains(response, '123456')
+        self.assertContains(response, 'gear_crit')
+
+    def test_attribute_analysis_api_parses_only_current_task_owned_reports(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            name='API attribute report',
+            task_type=2,
+            simc_profile_id=0,
+            current_status=2,
+        )
+        owned_file = f'{task.id}_gear_crit_850_gear_haste_979.html'
+        foreign_file = f'{task.id + 1}_gear_crit_900_gear_haste_929.html'
+        task.result_file = f'{owned_file},{foreign_file},legacy_crit_1_haste_2.html'
+        task.save(update_fields=['result_file'])
+        response_mock = SimpleNamespace(status_code=200, text='Bloodmastêr: 123,456 dps')
+
+        with patch('botend.dashboard.api.settings.OSS_CONFIG', {'base_url': 'https://oss.example/'}, create=True), \
+             patch('requests.get', return_value=response_mock):
+            response = self.client.get(f'/api/simc-attribute-analysis/?task_id={task.id}')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertEqual(len(payload['data']['results']), 1)
+        self.assertEqual(payload['data']['results'][0]['file_name'], owned_file)
+        self.assertEqual(payload['data']['results'][0]['attr1_name'], 'gear_crit')
+        self.assertEqual(payload['data']['results'][0]['attr1_value'], 850)
+        self.assertEqual(payload['data']['results'][0]['dps'], 123456)
+
     def test_preview_returns_only_current_users_manifest_snapshot(self):
         task = SimcTask.objects.create(
             user_id=self.user.id,
@@ -653,7 +702,7 @@ class SimcNewConfigModeTests(TestCase):
         rendered = monitor.generate_attribute_simc_code(profile, {
             'gear_strength': 0, 'gear_crit': 1000, 'gear_haste': 2000,
             'gear_mastery': 3000, 'gear_versatility': 4000,
-        }, '77_crit_1000_haste_2000.html', {
+        }, '77_gear_crit_1000_gear_haste_2000.html', {
             'player_config_mode': 'attribute_only', 'spec': 'fury',
             'talent': 'SNAPSHOT_BUILD', 'gear_strength': 0,
         })

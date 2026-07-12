@@ -37,6 +37,7 @@ from django.db import models, transaction
 from core.glm import GLMClient
 from botend.monitor_env import is_task_runnable, env_limit_hint
 from botend.wow_daily_report.generator import generate_wow_daily_report
+from botend.services.simc_attribute_results import parse_attribute_result_filename
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 
 
@@ -3659,20 +3660,15 @@ class SimcAttributeAnalysisAPIView(View):
                     continue
                 
                 try:
-                    # 格式: {任务ID}_{属性1}_{值1}_{属性2}_{值2}.html
-                    # 例如: 42_crit_1000_haste_2000.html。
-                    filename_parts = result_file.removesuffix('.html').split('_')
-                    if len(filename_parts) == 5:
-                        _, attr1_name, attr1_raw, attr2_name, attr2_raw = filename_parts
-                        try:
-                            attr1_value = int(attr1_raw)
-                            attr2_value = int(attr2_raw)
-                        except ValueError:
-                            logger.warning(f"无法解析属性值: {result_file}")
-                            continue
-                    else:
-                        logger.warning(f"无法解析文件名格式: {result_file}")
+                    # 只接受 Worker 受控生成的属性结果文件，并确保它属于当前任务。
+                    parsed = parse_attribute_result_filename(result_file)
+                    if not parsed or parsed['task_id'] != task.id:
+                        logger.warning(f"无法解析或无权读取属性结果文件: {result_file}")
                         continue
+                    attr1_name = parsed['attr1_name']
+                    attr1_value = parsed['attr1_value']
+                    attr2_name = parsed['attr2_name']
+                    attr2_value = parsed['attr2_value']
                     
                     # 获取文件内容
                     file_content = None

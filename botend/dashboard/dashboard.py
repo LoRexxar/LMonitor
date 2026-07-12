@@ -30,6 +30,8 @@ from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccoun
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
                           RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask)
 
+from botend.services.simc_attribute_results import parse_attribute_result_filename
+
 
 def _fmt_dt(dt):
     if not dt:
@@ -1066,7 +1068,7 @@ class SimcAttributeAnalysisSSRView(View):
             
             analysis = []
             for rf in result_files:
-                parsed = _parse_attribute_result_filename(rf)
+                parsed = parse_attribute_result_filename(rf)
                 if not parsed or parsed['task_id'] != task.id:
                     continue
                 attr1_name = parsed['attr1_name']
