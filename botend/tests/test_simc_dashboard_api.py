@@ -727,7 +727,7 @@ class SimcNewConfigModeTests(TestCase):
         from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
         monitor = object.__new__(SimcMonitor)
         rendered = monitor.apply_template(
-            'fight_style={fight_style}\n{player_config}\n{action_list}',
+            'deathknight="LMonitor_Base"\nspec={spec}\nfight_style={fight_style}\n{player_config}\n{action_list}',
             {
                 'fight_style': 'Patchwerk',
                 'player_import_mode': 'battlenet',
@@ -739,8 +739,9 @@ class SimcNewConfigModeTests(TestCase):
             },
         )
         self.assertNotIn('Bloodmast_r', rendered)
-        self.assertIn('armory=eu,Kazzak,Bloodmastêr', rendered)
+        self.assertNotIn('deathknight="LMonitor_Base"', rendered)
         self.assertNotIn('\nspec=fury', rendered)
+        self.assertIn('armory=eu,Kazzak,Bloodmastêr', rendered)
         self.assertIn('actions=auto_attack', rendered)
 
     def test_apply_template_inserts_manual_equipment_player_block(self):

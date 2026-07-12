@@ -1158,6 +1158,19 @@ class SimcMonitor(BaseScan):
         if player_config_mode == 'equipment':
             player_config_mode = 'manual_equipment'
 
+        # ``armory`` is itself a complete SimC player import.  Combining it with a
+        # template player declaration (``deathknight=...``) produces two actors:
+        # the template actor has no weapon and makes a valid Armory import fail.
+        # Remove any declaration owned by the selected base template only in this
+        # mode; manual equipment and attribute-only modes still use that template
+        # actor as their controlled baseline.
+        if player_config_mode == 'battlenet':
+            simc_code = re.sub(
+                r'^\s*(?:warrior|paladin|hunter|rogue|priest|deathknight|shaman|mage|warlock|monk|druid|demonhunter|evoker)\s*=.*(?:\n|$)',
+                '', simc_code, count=1, flags=re.IGNORECASE | re.MULTILINE,
+            )
+            simc_code = re.sub(r'^\s*spec\s*=.*(?:\n|$)', '', simc_code, count=1, flags=re.IGNORECASE | re.MULTILINE)
+
         if player_config_mode == 'battlenet':
             region = str(task_config.get('battlenet_region', '')).strip().lower()
             realm = str(task_config.get('battlenet_realm', '')).strip()
