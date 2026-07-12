@@ -2580,6 +2580,18 @@ async function loadSimcAplCandidates(spec) {
     }
 }
 
+async function simcWbFetchProfilesForWorkbench() {
+    const response = await fetch('/api/simc-profile/', {
+        method: 'GET',
+        headers: { 'X-CSRFToken': getCSRFToken() },
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || '加载保存配置失败');
+    }
+    return Array.isArray(data.data) ? data.data : (data.profiles || []);
+}
+
 async function loadSimcSimProfileSelect() {
     const select = document.getElementById('simc-sim-profile-select');
     if (!select) return;

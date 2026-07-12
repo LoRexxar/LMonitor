@@ -18,7 +18,8 @@ const profileFunctions = [
     'simcWbDeleteProfile',
     'simcWbEditProfile',
     'simcWbLoadProfileToSimulator',
-    'simcWbSaveCurrentSimulatorProfile'
+    'simcWbSaveCurrentSimulatorProfile',
+    'simcWbFetchProfilesForWorkbench'
 ];
 
 // Extract only the API-calling functions
@@ -148,7 +149,16 @@ if (profileBlock.includes('simcWbLaunchSimulation') && profileBlock.includes('si
     failed++;
 }
 
-console.log(`\n${passed}/10 tests passed`);
+// Test 11: Workbench saved-profile loader is defined and uses the dedicated API.
+if (profileBlock.includes('async function simcWbFetchProfilesForWorkbench') && profileBlock.includes("fetch('/api/simc-profile/'")) {
+    console.log('✓ Provides the workbench saved-profile loader');
+    passed++;
+} else {
+    console.log('✗ Missing workbench saved-profile loader');
+    failed++;
+}
+
+console.log(`\n${passed}/11 tests passed`);
 
 if (failed > 0) {
     console.log(`\n❌ ${failed} test(s) failed`);
