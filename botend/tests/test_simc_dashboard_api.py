@@ -5,12 +5,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.test import Client, TestCase
+from django.test import Client, RequestFactory, TestCase
 
 from botend.dashboard.api import SimcBatchTaskAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, inspect_raw_simc_code
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
-from botend.services.simc_player_config import parse_manual_player_config, parse_manual_simc_candidates
+from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates
 from botend.models import SimcContentTemplate, SimcProfile, SimcTask, WowItemSnapshot
 
 
@@ -187,6 +187,53 @@ class SimcBatchVariableCompareTests(TestCase):
         self.client = Client()
         self.client.force_login(self.user)
 
+    def test_parse_manual_candidates_canonicalizes_plural_slot_aliases(self):
+        candidates = parse_manual_simc_candidates('''
+warrior="Batcher"
+level=90
+spec=fury
+shoulders=,id=212048
+main_hand=,id=222222
+### Gear from Bags
+shoulders=,id=299001
+''')
+        self.assertEqual(candidates['gear_candidates'][0]['slot'], 'shoulder')
+
+    def test_plural_equipped_slot_can_be_replaced_by_canonical_candidate(self):
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'gear_candidates', 'name': 'plural shoulder', 'spec': 'fury',
+            'player_config_mode': 'manual_equipment',
+            'player_equipment': (
+                'warrior="Batcher"\nlevel=90\nspec=fury\ntalents=BASE\n'
+                'shoulders=,id=212048\nmain_hand=,id=222222\n'
+                '### Gear from Bags\nshoulders=,id=299001'
+            ),
+            'candidates': [{'slot': 'shoulder', 'item_id': 299001, 'source': 'bags'}],
+        }), content_type='application/json')
+        self.assertTrue(response.json()['success'], response.json())
+        tasks = list(SimcTask.objects.order_by('id'))
+        self.assertEqual(len(tasks), 2)
+        candidate_ext = json.loads(tasks[1].ext)
+        self.assertIn('shoulders=,id=299001', candidate_ext['player_equipment'])
+
+    def test_singular_talent_baseline_can_create_talent_candidate_batch(self):
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'talent_candidates', 'name': 'singular talent', 'spec': 'fury',
+            'player_config_mode': 'manual_equipment',
+            'player_equipment': (
+                'warrior="Batcher"\nlevel=90\nspec=fury\ntalent=BASE\n'
+                'head=,id=212048\nmain_hand=,id=222222\n'
+                '# Saved Loadout: Candidate\n# talents=NEW'
+            ),
+            'candidates': [{'talent': 'NEW', 'source': 'saved_loadout'}],
+        }), content_type='application/json')
+        self.assertTrue(response.json()['success'], response.json())
+        tasks = list(SimcTask.objects.order_by('id'))
+        self.assertEqual(len(tasks), 2)
+        candidate_ext = json.loads(tasks[1].ext)
+        self.assertIn('talents=NEW', candidate_ext['player_equipment'])
+        self.assertNotIn('talent=BASE', candidate_ext['player_equipment'])
+
     def test_parse_manual_candidates_keeps_equipped_baseline_separate_from_bag_and_loadout_choices(self):
         candidates = parse_manual_simc_candidates('''
 warrior="Batcher"
@@ -235,9 +282,11 @@ finger1=,id=299002,ilevel=655
         self.assertTrue(all(move['transfer'] == 50 for move in moves))
 
     def test_auto_attribute_batch_creates_base_and_limited_variants_with_one_batch_id(self):
+        frozen_player = 'warrior="Batcher"\nlevel=90\nspec=fury\ntalents=ATTRIBUTE_BUILD\nhead=,id=212048,ilevel=639\nmain_hand=,id=222222,ilevel=639'
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({
             'kind': 'attribute_variants', 'name': 'Fury 自动属性比较', 'spec': 'fury',
             'player_config_mode': 'attribute_only', 'talent': 'ATTRIBUTE_BUILD',
+            'player_equipment': frozen_player,
             'gear_strength': 5000,
             'gear_crit': 1000, 'gear_haste': 2000, 'gear_mastery': 3000, 'gear_versatility': 4000,
             'attribute_step': 50, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
@@ -253,6 +302,7 @@ finger1=,id=299002,ilevel=655
         self.assertEqual({row['batch_compare']['kind'] for row in ext_rows}, {'attribute_variants'})
         self.assertEqual(sum(row['batch_compare']['is_base'] for row in ext_rows), 1)
         self.assertEqual({row['player_config_mode'] for row in ext_rows}, {'attribute_only'})
+        self.assertEqual({row['player_equipment'] for row in ext_rows}, {frozen_player})
         self.assertEqual({row['talent'] for row in ext_rows}, {'ATTRIBUTE_BUILD'})
         self.assertEqual({row['gear_strength'] for row in ext_rows}, {5000})
         candidates = [row['batch_compare']['candidate'] for row in ext_rows]
@@ -264,6 +314,49 @@ finger1=,id=299002,ilevel=655
         self.assertTrue(all(sum(gear.values()) == base_total for gear in gears))
         changed_stats = {stat for gear in gears[1:] for stat, value in gear.items() if value != {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}[stat]}
         self.assertEqual(changed_stats, {'crit', 'haste', 'mastery', 'versatility'})
+
+    def test_auto_attribute_batch_rejects_missing_frozen_player_baseline(self):
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'attribute_variants', 'name': 'Fury 自动属性比较', 'spec': 'fury',
+            'player_config_mode': 'attribute_only', 'talent': 'ATTRIBUTE_BUILD',
+            'gear_strength': 5000,
+            'gear_crit': 1000, 'gear_haste': 2000, 'gear_mastery': 3000, 'gear_versatility': 4000,
+            'attribute_step': 50, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('玩家装备基线', response.json()['error'])
+        self.assertFalse(SimcTask.objects.exists())
+
+    def test_attribute_search_ui_submits_the_visible_frozen_player_baseline(self):
+        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        start = main_js.index('function simcAttributeSearchRequestBody()')
+        end = main_js.index('async function submitSimcAttributeSearch', start)
+        request_builder = main_js[start:end]
+
+        self.assertIn("document.getElementById('simc-sim-equipment')", request_builder)
+        self.assertIn('player_equipment:', request_builder)
+        self.assertIn('玩家装备基线', request_builder)
+
+    def test_player_detail_refresh_submits_attribute_frozen_player_baseline(self):
+        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        start = main_js.index('async function refreshSimcPlayerDetail()')
+        end = main_js.index('function simcAttributeSearchRequestBody()', start)
+        refresh = main_js[start:end]
+        self.assertIn('requestBody.player_equipment', refresh)
+        self.assertIn("document.getElementById('simc-sim-equipment')", refresh)
+
+    def test_regular_attribute_task_rejects_missing_frozen_player_baseline(self):
+        response = self.client.post('/api/simc-task/', data=json.dumps({
+            'name': 'Fury 属性基准', 'task_type': 1, 'spec': 'fury',
+            'player_config_mode': 'attribute_only', 'talent': 'ATTRIBUTE_BUILD',
+            'gear_crit': 1000, 'gear_haste': 2000,
+            'gear_mastery': 3000, 'gear_versatility': 4000,
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('玩家装备基线', response.json()['error'])
+        self.assertFalse(SimcTask.objects.exists())
 
     def test_auto_attribute_batch_projects_anchor_direction_to_boundary_instead_of_dropping_it(self):
         # 50-rating 离散搜索不允许把不足一步的余额投影成 100 等非网格转移。
@@ -295,6 +388,57 @@ finger1=,id=299002,ilevel=655
         self.assertTrue(rows[0][2])
         self.assertEqual(rows[0][3]['round'], 2)
         self.assertTrue(all(sum(ratings.values()) == 10000 for _, ratings, _, _ in rows))
+
+    def test_continue_attribute_search_preserves_exact_frozen_player_baseline(self):
+        frozen_player = 'warrior="Batcher"\nlevel=90\nspec=fury\ntalents=ATTRIBUTE_BUILD\nhead=,id=212048,ilevel=639\nmain_hand=,id=222222,ilevel=639'
+        batch_id = 'frozen-player-batch'
+        ratings_rows = SimcBatchTaskAPIView._attribute_variants(
+            {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 50,
+        )
+        for index, (label, ratings, is_base, candidate) in enumerate(ratings_rows):
+            base_ext = {'batch_compare': {
+                'version': 2, 'batch_id': batch_id, 'kind': 'attribute_variants',
+                'index': index, 'label': label, 'is_base': is_base, 'candidate': candidate,
+            }}
+            ext = SimcTaskAPIView()._build_task_ext(
+                task_type=1, ext=base_ext, fight_style='Patchwerk', time=300, target_count=1,
+                player_config_mode='attribute_only', player_equipment=frozen_player,
+                spec='fury', talent='ATTRIBUTE_BUILD', gear_strength=5000,
+                gear_crit=ratings['crit'], gear_haste=ratings['haste'],
+                gear_mastery=ratings['mastery'], gear_versatility=ratings['versatility'],
+            )
+            SimcTask.objects.create(
+                user_id=self.user.id, simc_profile_id=0,
+                name=f'Fury 自动属性比较 · {label}', current_status=2,
+                result_file=f'simc_task_{index}.html', task_type=1, ext=ext,
+            )
+
+        request = RequestFactory().post('/api/simc-task/batch/', data='{}', content_type='application/json')
+        request.user = self.user
+        dps_values = iter([100000, 101500] + [100100] * 11)
+        with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', return_value='<html></html>'), \
+                patch.object(SimcRegularCompareAPIView, '_parse_regular_result', side_effect=lambda _html: {'dps': next(dps_values)}):
+            result = SimcBatchTaskAPIView()._continue_attribute_search(request, {}, batch_id)
+
+        self.assertEqual(result['accepted'], 13)
+        next_round_ext = [json.loads(task.ext) for task in SimcTask.objects.filter(id__in=result['task_ids'])]
+        self.assertEqual({row['player_equipment'] for row in next_round_ext}, {frozen_player})
+        self.assertEqual({row['batch_compare']['candidate']['round'] for row in next_round_ext}, {2})
+
+    def test_attribute_detail_parses_frozen_player_and_overlays_requested_ratings(self):
+        detail = build_player_config_detail(
+            'attribute_only', 'fury',
+            player_equipment='warrior="Batcher"\nlevel=90\nspec=fury\ntalents=BASE\nhead=,id=212048,ilevel=639',
+            talent='ATTRIBUTE_BUILD', gear_strength=5000,
+            gear_crit=1000, gear_haste=2000, gear_mastery=3000, gear_versatility=4000,
+        )
+
+        self.assertEqual(detail['identity']['name'], 'Batcher')
+        self.assertEqual(detail['identity']['level'], 90)
+        self.assertEqual(detail['equipment'][0]['id'], 212048)
+        self.assertEqual(detail['talents']['build_code'], 'ATTRIBUTE_BUILD')
+        self.assertEqual(detail['stats']['secondary']['crit']['rating'], 1000)
+        self.assertNotIn('无装备', detail['source']['label'])
 
     def test_battlenet_template_selection_accepts_playerless_default_template(self):
         monitor = SimcMonitor(None, None)
@@ -352,6 +496,7 @@ finger1=,id=299002,ilevel=655
             'warrior="LMonitor"\n{player_config}\nhtml={result_file}\n{action_list}',
             {
                 'player_config_mode': 'attribute_only',
+                'player_equipment': 'warrior="Frozen"\nlevel=90\nspec=fury\ntalents=OLD\nhead=,id=212048\nmain_hand=,id=222222',
                 'talent': 'BUILD',
                 'gear_strength': 5000,
                 'gear_crit': 1000,
@@ -362,6 +507,9 @@ finger1=,id=299002,ilevel=655
             },
         )
         self.assertIn('html=simc_task_42.html', rendered)
+        self.assertIn('warrior="Frozen"', rendered)
+        self.assertIn('head=,id=212048', rendered)
+        self.assertNotIn('warrior="LMonitor"', rendered)
         self.assertIn('gear_strength=5000', rendered)
         self.assertIn('gear_crit_rating=1000', rendered)
         self.assertIn('gear_haste_rating=2000', rendered)
@@ -376,6 +524,7 @@ finger1=,id=299002,ilevel=655
             'warrior="LMonitor"\n{player_config}\n{action_list}',
             {
                 'player_config_mode': 'attribute_only',
+                'player_equipment': 'warrior="Frozen"\nlevel=90\nspec=fury\ntalents=OLD\nhead=,id=212048\nmain_hand=,id=222222',
                 'talent': 'BUILD',
                 'gear_crit': 1000,
                 'gear_haste': 2000,
@@ -386,6 +535,47 @@ finger1=,id=299002,ilevel=655
         )
         self.assertTrue(rendered.endswith('html=simc_task_43.html'))
         self.assertEqual(rendered.count('html='), 1)
+
+    def test_attribute_render_replaces_singular_talent_with_selected_build(self):
+        rendered = SimcMonitor(None, None).apply_template(
+            '{player_config}\n{action_list}',
+            {
+                'player_config_mode': 'attribute_only',
+                'player_equipment': 'warrior="Frozen"\nlevel=90\nspec=fury\ntalent=OLD\nhead=,id=212048\nmain_hand=,id=222222',
+                'talent': 'NEW',
+            },
+        )
+        self.assertIn('talents=NEW', rendered)
+        self.assertNotIn('talent=OLD', rendered)
+
+    def test_attribute_render_drops_executable_bag_and_weekly_alternatives(self):
+        monitor = SimcMonitor(None, None)
+        rendered = monitor.apply_template(
+            'warrior="Template"\n{player_config}\n{action_list}',
+            {
+                'player_config_mode': 'attribute_only', 'talent': 'BUILD',
+                'player_equipment': (
+                    'warrior="Frozen"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222\n'
+                    '### Gear from Bags\nhead=,id=299001\n'
+                    '### Weekly Reward Choices\nfinger1=,id=299002'
+                ),
+            },
+        )
+        self.assertIn('head=,id=212048', rendered)
+        self.assertNotIn('299001', rendered)
+        self.assertNotIn('299002', rendered)
+        self.assertNotIn('Gear from Bags', rendered)
+
+    def test_attribute_task_rejects_nonempty_baseline_without_actor_or_equipped_slot(self):
+        for baseline in ('head=,id=212048', 'warrior="No gear"\nspec=fury'):
+            response = self.client.post('/api/simc-task/', data=json.dumps({
+                'name': 'Malformed baseline', 'task_type': 1, 'spec': 'fury',
+                'player_config_mode': 'attribute_only', 'player_equipment': baseline,
+                'talent': 'BUILD', 'gear_crit': 1, 'gear_haste': 2,
+                'gear_mastery': 3, 'gear_versatility': 4,
+            }), content_type='application/json')
+            self.assertFalse(response.json()['success'], response.json())
+        self.assertFalse(SimcTask.objects.exists())
 
     def test_result_file_directive_replaces_existing_html_output(self):
         rendered = SimcMonitor.ensure_result_file_directive(
@@ -527,6 +717,7 @@ finger1=,id=299002,ilevel=655
         bad_response = self.client.post('/api/simc-task/batch/', data=json.dumps({
             'kind': 'attribute_variants', 'name': '错误步长', 'spec': 'fury',
             'player_config_mode': 'attribute_only', 'talent': 'ATTRIBUTE_BUILD',
+            'player_equipment': 'warrior="Frozen"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
             'gear_crit': 1000, 'gear_haste': 2000, 'gear_mastery': 3000, 'gear_versatility': 4000,
             'attribute_step': 100,
         }), content_type='application/json')
@@ -795,6 +986,7 @@ class SimcNewConfigModeTests(TestCase):
                 'name': 'Direct attribute snapshot',
                 'task_type': 2,
                 'player_import_mode': 'attribute_only',
+                'player_equipment': 'warrior="Frozen"\nlevel=90\nspec=fury\ntalents=SNAPSHOT_BUILD\nhead=,id=212048\nmain_hand=,id=222222',
                 'spec': 'fury',
                 'talent': 'SNAPSHOT_BUILD',
                 'selected_attributes': 'crit_haste',
@@ -1168,6 +1360,7 @@ html=simc_task_99.html
                 'name': 'Bad direct attribute step',
                 'task_type': 2,
                 'player_import_mode': 'attribute_only',
+                'player_equipment': 'warrior="Frozen"\nlevel=90\nspec=fury\ntalents=SNAPSHOT_BUILD\nhead=,id=212048\nmain_hand=,id=222222',
                 'spec': 'fury',
                 'talent': 'SNAPSHOT_BUILD',
                 'selected_attributes': 'crit_haste',
@@ -1195,6 +1388,7 @@ html=simc_task_99.html
             'gear_mastery': 3000, 'gear_versatility': 4000,
         }, '77_gear_crit_1000_gear_haste_2000.html', {
             'player_config_mode': 'attribute_only', 'spec': 'fury',
+            'player_equipment': 'warrior="Snapshot"\nlevel=90\nspec=fury\ntalents=OLD\nhead=,id=212048\nmain_hand=,id=222222',
             'talent': 'SNAPSHOT_BUILD', 'gear_strength': 0,
         })
 
@@ -1242,6 +1436,7 @@ html=simc_task_99.html
                 'name': 'Fury DungeonSlice 300s 5目标',
                 'task_type': 1,
                 'player_import_mode': 'attribute_only',
+                'player_equipment': 'warrior="Frozen"\nlevel=90\nspec=fury\ntalents=DUNGEON_BUILD\nhead=,id=212048\nmain_hand=,id=222222',
                 'spec': 'fury',
                 'talent': 'DUNGEON_BUILD',
                 'gear_crit': 400,
@@ -1589,7 +1784,20 @@ html=simc_task_99.html
         self.assertIn('talents=TEST', rendered)
         self.assertIn('head=,id=212048', rendered)
         self.assertIn('actions=auto_attack', rendered)
-    def test_apply_template_inserts_attribute_only_talents_and_ratings_without_player_block(self):
+    def test_apply_template_manual_equipment_truncates_exported_alternative_sections(self):
+        monitor = object.__new__(SimcMonitor)
+        rendered = monitor.apply_template(
+            'fight_style=Patchwerk\n{player_config}\n{action_list}',
+            {
+                'player_import_mode': 'manual_equipment',
+                'player_equipment': 'warrior="Real"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222\n### Gear from Bags\nhead=,id=299001',
+                'override_action_list': 'actions=auto_attack',
+            },
+        )
+        self.assertIn('head=,id=212048', rendered)
+        self.assertNotIn('299001', rendered)
+
+    def test_apply_template_inserts_attribute_only_frozen_player_and_rating_overrides(self):
         from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
         monitor = object.__new__(SimcMonitor)
         rendered = monitor.apply_template(
@@ -1597,6 +1805,7 @@ html=simc_task_99.html
             {
                 'spec': 'fury',
                 'player_config_mode': 'attribute_only',
+                'player_equipment': 'warrior="Frozen"\nlevel=90\nspec=fury\ntalents=OLD\nhead=,id=212048\nmain_hand=,id=222222',
                 'talent': 'ATTRIBUTE_BUILD',
                 'gear_strength': 5000,
                 'gear_crit': 1000,
@@ -1614,7 +1823,7 @@ html=simc_task_99.html
         self.assertIn('versatility_rating=4000', rendered)
         self.assertNotIn('{gear_', rendered)
         self.assertNotIn('armory=', rendered)
-        self.assertNotIn('head=,', rendered)
+        self.assertIn('head=,id=212048', rendered)
         self.assertIn('actions=auto_attack', rendered)
 
 
@@ -1845,7 +2054,7 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         self.assertTrue(detail['missing_fields'])
         self.assertIn('未保存角色装备快照', detail['missing_fields'][0])
 
-    def test_attribute_only_profile_preserves_legacy_data_and_runs_without_player_block(self):
+    def test_attribute_only_profile_preserves_legacy_data_but_rejects_new_task_without_baseline(self):
         from botend.models import SimcMasteryCoefficient, SimcSecondaryStatRule
 
         SimcSecondaryStatRule.objects.update_or_create(
@@ -1902,10 +2111,11 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
             content_type='application/json',
         )
         self.assertEqual(update_response.status_code, 200)
-        self.assertTrue(update_response.json()['success'], update_response.json())
+        self.assertFalse(update_response.json()['success'], update_response.json())
+        self.assertIn('基线', update_response.json()['error'])
         profile.refresh_from_db()
-        self.assertEqual(profile.player_config_mode, 'attribute_only')
-        self.assertEqual(profile.talent, 'UPDATED_BUILD')
+        self.assertEqual(profile.player_config_mode, 'battlenet')
+        self.assertEqual(profile.talent, 'LEGACY_BUILD')
         self.assertEqual(profile.player_equipment, '')
         self.assertEqual(profile.battlenet_character, '')
 
@@ -1923,13 +2133,13 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         self.assertTrue(detail_payload['success'], detail_payload)
         detail = detail_payload['data']
         self.assertEqual(detail['source']['type'], 'attribute_only')
-        self.assertEqual(detail['talents']['build_code'], 'UPDATED_BUILD')
+        self.assertEqual(detail['talents']['build_code'], 'LEGACY_BUILD')
         self.assertEqual(detail['stats']['primary']['strength'], 5000)
-        self.assertEqual(detail['stats']['secondary']['crit']['rating'], 1100)
-        self.assertAlmostEqual(detail['stats']['secondary']['crit']['percent'], 23.91, places=2)
-        self.assertAlmostEqual(detail['stats']['secondary']['mastery']['percent'], 100.43, places=2)
+        self.assertEqual(detail['stats']['secondary']['crit']['rating'], 1000)
+        self.assertAlmostEqual(detail['stats']['secondary']['crit']['percent'], 21.74, places=2)
+        self.assertAlmostEqual(detail['stats']['secondary']['mastery']['percent'], 91.30, places=2)
         self.assertEqual(detail['equipment'], [])
-        self.assertIn('未提供玩家身份', detail['missing_fields'][0])
+        self.assertIn('历史配置未保存冻结玩家装备基线', detail['missing_fields'][0])
 
         task_response = self.client.post(
             '/api/simc-task/',
@@ -1948,12 +2158,9 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         )
         self.assertEqual(task_response.status_code, 200)
         task_payload = task_response.json()
-        self.assertTrue(task_payload['success'], task_payload)
-        task = SimcTask.objects.get(id=task_payload['data']['id'])
-        task_ext = json.loads(task.ext)
-        self.assertEqual(task_ext['player_config_mode'], 'attribute_only')
-        self.assertEqual(task_ext['talent'], 'UPDATED_BUILD')
-        self.assertEqual(task_ext['gear_versatility'], 4400)
+        self.assertFalse(task_payload['success'], task_payload)
+        self.assertIn('玩家装备基线', task_payload['error'])
+        self.assertFalse(SimcTask.objects.exists())
 
     def test_attribute_only_profile_load_contract_keeps_equipment_empty(self):
         """工作台加载历史属性配置时，属性只能进入专用字段，不能污染隐藏装备框。"""

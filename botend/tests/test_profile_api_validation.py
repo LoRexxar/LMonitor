@@ -125,6 +125,7 @@ class SimcProfileAPIValidationTests(TestCase):
             'name': 'Test Attribute Only Valid',
             'spec': 'fury',
             'player_config_mode': 'attribute_only',
+            'player_equipment': 'warrior="Valid"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
             'talent': 'ATTRIBUTE_BUILD',
             'gear_crit': 1000,
             'gear_haste': 2000,
@@ -133,6 +134,71 @@ class SimcProfileAPIValidationTests(TestCase):
         }), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
+
+    def test_attribute_profile_create_and_update_reject_malformed_frozen_baseline(self):
+        malformed = (
+            'not simc',
+            'warrior="No gear"\nspec=fury',
+            'warrior="Incomplete"\nlevel=90\nspec=fury\nhead=,id=212048',
+            'warrior="Unsafe"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222\narmory=us,realm,other',
+            'warrior="Duplicate"\nlevel=90\nspec=fury\nhead=,id=212048\nhead=,id=299001\nmain_hand=,id=222222',
+            'warrior="Alias duplicate"\nlevel=90\nspec=fury\nshoulder=,id=212048\nshoulders=,id=299001\nmain_hand=,id=222222',
+        )
+        for index, baseline in enumerate(malformed):
+            response = self.client.post('/api/simc-profile/', data=json.dumps({
+                'name': f'Bad baseline {index}', 'spec': 'fury',
+                'player_config_mode': 'attribute_only',
+                'player_equipment': baseline, 'talent': 'BUILD',
+            }), content_type='application/json')
+            self.assertFalse(response.json()['success'], response.json())
+            self.assertIn('基线', response.json()['error'])
+
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id, name='Historical empty', spec='fury',
+            player_config_mode='attribute_only', talent='OLD', player_equipment='',
+        )
+        response = self.client.put('/api/simc-profile/', data=json.dumps({
+            'id': profile.id, 'name': profile.name, 'talent': 'NEW',
+        }), content_type='application/json')
+        self.assertFalse(response.json()['success'], response.json())
+        profile.refresh_from_db()
+        self.assertEqual(profile.talent, 'OLD')
+
+    def test_attribute_profile_accepts_plural_simc_slot_aliases(self):
+        response = self.client.post('/api/simc-profile/', data=json.dumps({
+            'name': 'Plural slots', 'spec': 'fury',
+            'player_config_mode': 'attribute_only', 'talent': 'BUILD',
+            'player_equipment': (
+                'warrior="Plural"\nlevel=90\nspec=fury\n'
+                'shoulders=,id=212048\nwrists=,id=212049\nmain_hand=,id=222222'
+            ),
+        }), content_type='application/json')
+        self.assertTrue(response.json()['success'], response.json())
+
+    def test_battlenet_mode_clears_stale_manual_player_block(self):
+        response = self.client.post('/api/simc-profile/', data=json.dumps({
+            'name': 'Battlenet canonical', 'spec': 'fury',
+            'player_config_mode': 'battlenet',
+            'battlenet_region': 'eu', 'battlenet_realm': 'Kazzak', 'battlenet_character': 'Tester',
+            'player_equipment': 'warrior="Stale"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
+        }), content_type='application/json')
+        self.assertTrue(response.json()['success'], response.json())
+        profile = SimcProfile.objects.get(name='Battlenet canonical')
+        self.assertEqual(profile.player_config_mode, 'battlenet')
+        self.assertEqual(profile.player_equipment, '')
+
+        profile.player_config_mode = 'manual_equipment'
+        profile.player_equipment = 'warrior="Stale"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222'
+        profile.battlenet_region = profile.battlenet_realm = profile.battlenet_character = ''
+        profile.save()
+        response = self.client.put('/api/simc-profile/', data=json.dumps({
+            'id': profile.id, 'name': profile.name, 'player_config_mode': 'battlenet',
+            'battlenet_region': 'eu', 'battlenet_realm': 'Kazzak', 'battlenet_character': 'Tester',
+        }), content_type='application/json')
+        self.assertTrue(response.json()['success'], response.json())
+        profile.refresh_from_db()
+        self.assertEqual(profile.player_config_mode, 'battlenet')
+        self.assertEqual(profile.player_equipment, '')
 
     def test_profile_update_validates_same_rules(self):
         """Requirement 2: Update must apply same validation as create."""
@@ -197,6 +263,7 @@ class SimcProfileAPIValidationTests(TestCase):
             name='Runnable Attribute Profile',
             spec='fury',
             player_config_mode='attribute_only',
+            player_equipment='warrior="Runnable"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
             talent='SIMULATE_BUILD',
             gear_strength=0,
             gear_crit=1000,
@@ -223,3 +290,14 @@ class SimcProfileAPIValidationTests(TestCase):
         self.assertEqual(ext['gear_strength'], 0)
         self.assertEqual(ext['selected_attributes'], 'crit_haste')
         self.assertEqual(ext['attribute_step'], 50)
+
+    def test_historical_empty_attribute_profile_cannot_simulate_now_or_create_task(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id, name='Historical empty task', spec='fury',
+            player_config_mode='attribute_only', talent='BUILD', player_equipment='',
+        )
+        response = self.client.post('/api/simc-profile/', data=json.dumps({
+            'simulate_now': True, 'profile_id': profile.id,
+        }), content_type='application/json')
+        self.assertFalse(response.json()['success'], response.json())
+        self.assertFalse(SimcTask.objects.exists())

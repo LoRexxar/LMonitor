@@ -38,6 +38,7 @@ from core.glm import GLMClient
 from botend.monitor_env import is_task_runnable, env_limit_hint
 from botend.wow_daily_report.generator import generate_wow_daily_report
 from botend.services.simc_attribute_results import parse_attribute_result_filename
+from botend.services.simc_player_config import EQUIPMENT_SLOT_ALIASES, validate_player_baseline
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 
 
@@ -697,6 +698,8 @@ class SimcTaskAPIView(View):
                         spec = profile.spec
                     if not talent:
                         talent = profile.talent
+                    if not player_equipment:
+                        player_equipment = str(getattr(profile, 'player_equipment', '') or '').strip()
                     if gear_strength is None:
                         gear_strength = profile.gear_strength
                     if gear_crit is None:
@@ -712,6 +715,12 @@ class SimcTaskAPIView(View):
                         'success': False,
                         'error': '指定的SimC配置不存在'
                     })
+
+            if player_config_mode == 'attribute_only':
+                try:
+                    player_equipment = validate_player_baseline(player_equipment)
+                except ValueError as e:
+                    return JsonResponse({'success': False, 'error': str(e)})
             
             # 直接 SimC 代码模式：仅常规模拟允许不选 profile；属性模拟仍必须基于 profile。
             if raw_simc_code and int(task_type or 1) == 2:
@@ -1188,7 +1197,7 @@ class SimcTaskAPIView(View):
             if player_config_mode:
                 payload['player_config_mode'] = player_config_mode
                 payload['player_import_mode'] = player_config_mode
-                if player_config_mode == 'manual_equipment' and player_equipment:
+                if player_config_mode in ('manual_equipment', 'attribute_only') and player_equipment:
                     payload['player_equipment'] = player_equipment
                 elif player_config_mode == 'battlenet':
                     payload['battlenet_region'] = str(battlenet_region or '').lower()
@@ -1494,6 +1503,7 @@ class SimcBatchTaskAPIView(View):
                 'fight_style': source_ext.get('fight_style', 'Patchwerk'),
                 'time': source_ext.get('time', 300), 'target_count': source_ext.get('target_count', 1),
                 'player_config_mode': 'attribute_only', 'spec': source_ext.get('spec', ''),
+                'player_equipment': source_ext.get('player_equipment', ''),
                 'talent': source_ext.get('talent', ''), 'gear_strength': source_ext.get('gear_strength'), 'selected_apl_id': source_ext.get('selected_apl_id'),
             }
             kwargs.update({f'gear_{stat}': gear[stat] for stat in self.ATTRIBUTE_STATS})
@@ -1539,12 +1549,17 @@ class SimcBatchTaskAPIView(View):
                 talent = str(data.get('talent') or '').strip()
                 if not talent:
                     raise ValueError('自动属性比较需要天赋构筑码')
+                player_equipment = str(data.get('player_equipment') or '').strip()
+                try:
+                    player_equipment = validate_player_baseline(player_equipment)
+                except ValueError as e:
+                    return JsonResponse({'success': False, 'error': str(e)}, status=400)
                 step = self._int(data.get('attribute_step'), '属性步长')
                 if step != self.ATTRIBUTE_SEARCH_STEP:
                     raise ValueError(f'四属性自动寻优固定使用 {self.ATTRIBUTE_SEARCH_STEP} 绿字步长')
                 values = {stat: self._int(data.get(f'gear_{stat}'), f'{stat}绿字') for stat in self.ATTRIBUTE_STATS}
                 for label, ratings, is_base, candidate in self._attribute_variants(values, step):
-                    specs.append({'label': label, 'is_base': is_base, 'gear': ratings, 'candidate': candidate})
+                    specs.append({'label': label, 'is_base': is_base, 'gear': ratings, 'candidate': candidate, 'player_equipment': player_equipment})
             else:
                 if mode != 'manual_equipment':
                     raise ValueError('装备和天赋候选比较需要手动 SimC 玩家块')
@@ -1579,8 +1594,9 @@ class SimcBatchTaskAPIView(View):
                             if stripped.startswith('###'):
                                 in_candidate_section = True
                             current_key = line.partition('=')[0].strip().lower()
-                            if current_key == row['slot'] and not replaced and not in_candidate_section:
-                                lines.append(f"{row['slot']}={row['raw_value']}")
+                            canonical_current_key = EQUIPMENT_SLOT_ALIASES.get(current_key, current_key)
+                            if canonical_current_key == row['slot'] and not replaced and not in_candidate_section:
+                                lines.append(f"{current_key}={row['raw_value']}")
                                 replaced = True
                             else:
                                 lines.append(line)
@@ -1599,7 +1615,7 @@ class SimcBatchTaskAPIView(View):
                         lines = []
                         replaced = False
                         for line in player_equipment.splitlines():
-                            if line.partition('=')[0].strip().lower() == 'talents' and not replaced:
+                            if line.partition('=')[0].strip().lower() in ('talent', 'talents') and not replaced:
                                 lines.append(f'talents={talent}')
                                 replaced = True
                             else:
@@ -1617,6 +1633,7 @@ class SimcBatchTaskAPIView(View):
                     task_ext = {'batch_compare': {'version': 2 if kind == 'attribute_variants' else 1, 'batch_id': batch_id, 'kind': kind, 'category': category or kind, 'index': index, 'label': item['label'], 'is_base': item['is_base'], 'candidate': item['candidate']}}
                     kwargs = {'task_type': 1, 'ext': task_ext, 'fight_style': fight_style, 'time': fight_time, 'target_count': target_count, 'player_config_mode': mode, 'spec': spec, 'talent': item.get('talent', str(data.get('talent') or '')), 'selected_apl_id': selected_apl_id}
                     if mode == 'attribute_only':
+                        kwargs['player_equipment'] = item['player_equipment']
                         kwargs['gear_strength'] = self._int(data.get('gear_strength', 0), '主属性')
                         kwargs.update({f'gear_{stat}': item['gear'][stat] for stat in self.ATTRIBUTE_STATS})
                     else:
@@ -2375,7 +2392,12 @@ class SimcProfileAPIView(View):
         # 历史属性配置在新增 mode 字段时会被数据库默认值标记为 battlenet，
         # 但并没有 Battle.net 三元组或装备块。以实际持久化数据为准，不能让
         # 这个默认值遮蔽原有的 talent + ratings。
-        if mode == 'attribute_only':
+        if mode in ('battlenet', 'manual_equipment', 'attribute_only'):
+            # Explicit modern mode is authoritative. Data-based inference is only for
+            # legacy rows whose mode is empty/invalid; stale cross-mode fields must not
+            # silently change execution semantics.
+            if mode == 'battlenet' and not has_battlenet_identity and not has_equipment:
+                return 'attribute_only'
             return mode
         if has_equipment:
             return 'manual_equipment'
@@ -2478,16 +2500,22 @@ class SimcProfileAPIView(View):
             'talent': str(data.get('talent', fallback.get('talent', '')) or '').strip(),
         }
         if mode == 'battlenet':
+            values['player_equipment'] = ''
             if values['battlenet_region'] not in ('us', 'eu', 'kr', 'tw', 'cn'):
                 raise ValueError('Battle.net region 必须是 us、eu、kr、tw 或 cn')
             if not values['battlenet_realm']:
                 raise ValueError('Battle.net realm 不能为空')
             if not values['battlenet_character']:
                 raise ValueError('Battle.net character 不能为空')
-        elif mode == 'manual_equipment' and not values['player_equipment']:
-            raise ValueError('manual_equipment 模式下 player_equipment 不能为空')
-        elif mode == 'attribute_only' and not values['talent']:
-            raise ValueError('attribute_only 模式下 talent 不能为空')
+        elif mode == 'manual_equipment':
+            values['battlenet_region'] = values['battlenet_realm'] = values['battlenet_character'] = ''
+            if not values['player_equipment']:
+                raise ValueError('manual_equipment 模式下 player_equipment 不能为空')
+        elif mode == 'attribute_only':
+            values['battlenet_region'] = values['battlenet_realm'] = values['battlenet_character'] = ''
+            if not values['talent']:
+                raise ValueError('attribute_only 模式下 talent 不能为空')
+            values['player_equipment'] = validate_player_baseline(values['player_equipment'])
         return values
 
     @staticmethod
@@ -2592,6 +2620,8 @@ class SimcProfileAPIView(View):
                         user_id=request.user.id,
                         is_active=True
                     )
+                    if self._profile_mode(source_profile) == 'attribute_only':
+                        validate_player_baseline(source_profile.player_equipment)
                     
                     # 复制配置数据（只保留 spec + talent + gear stats）
                     profile = SimcProfile.objects.create(
@@ -2725,6 +2755,8 @@ class SimcProfileAPIView(View):
         """创建模拟任务的辅助方法"""
         try:
             task_type = int(task_type or 1)
+            if self._profile_mode(profile) == 'attribute_only':
+                validate_player_baseline(profile.player_equipment)
             if task_type not in (1, 2):
                 raise ValueError('任务类型无效')
             if task_type == 2:

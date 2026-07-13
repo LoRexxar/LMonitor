@@ -45,6 +45,11 @@ SLOT_LABELS = {
     'trinket1': '饰品1', 'trinket2': '饰品2', 'main_hand': '主手', 'off_hand': '副手',
 }
 EQUIPMENT_SLOTS = set(SLOT_LABELS)
+EQUIPMENT_SLOT_ALIASES = {'shoulders': 'shoulder', 'wrists': 'wrist'}
+SUPPORTED_ACTORS = {
+    'warrior', 'paladin', 'hunter', 'rogue', 'priest', 'deathknight', 'shaman',
+    'mage', 'warlock', 'monk', 'druid', 'demonhunter', 'evoker',
+}
 SECONDARY = ('crit', 'haste', 'mastery', 'versatility')
 PRIMARY = ('strength', 'agility', 'intellect', 'stamina')
 
@@ -71,6 +76,70 @@ def _parse_line(line):
         if has_value:
             values[field.strip().lower()] = value.strip()
     return key, raw_value, values
+
+
+def authoritative_player_baseline(player_equipment):
+    """Return only the equipped player block, excluding exported alternatives."""
+    lines = []
+    for raw_line in str(player_equipment or '').splitlines():
+        if re.match(r'^\s*###\s+(?:Gear from Bags|Weekly Reward Choices)\b', raw_line, re.IGNORECASE):
+            break
+        lines.append(raw_line)
+    return '\n'.join(lines).strip()
+
+
+def validate_player_baseline(player_equipment):
+    """Validate one frozen, directly executable player/equipment block.
+
+    Attribute search accepts exported player state, not arbitrary SimC programs.  Keep
+    comments, identity/talent fields and equipped slots, while rejecting imports,
+    profilesets, action lists and other execution-changing directives.
+    """
+    baseline = authoritative_player_baseline(player_equipment)
+    actors = []
+    slots = {}
+    scalar_keys = set()
+    allowed_scalars = {
+        'level', 'race', 'region', 'server', 'realm', 'role', 'position',
+        'professions', 'spec', 'talents', 'talent', 'omnium_talents',
+        'flask', 'food', 'potion', 'augmentation', 'temporary_enchant',
+        'gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery',
+        'gear_versatility', 'gear_crit_rating', 'gear_haste_rating',
+        'gear_mastery_rating', 'gear_versatility_rating',
+    }
+    actor_pattern = re.compile(
+        r'^(' + '|'.join(sorted(SUPPORTED_ACTORS)) + r')$', re.IGNORECASE,
+    )
+    for raw_line in baseline.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        key, raw_value, values = _parse_line(line)
+        if not key:
+            raise ValueError('冻结玩家装备基线包含无法识别的SimC指令')
+        if actor_pattern.fullmatch(key):
+            if not (raw_value.startswith('"') and raw_value.endswith('"') and len(raw_value) > 2):
+                raise ValueError('冻结玩家装备基线中的玩家角色格式无效')
+            actors.append(key.lower())
+        elif key in EQUIPMENT_SLOTS or key in EQUIPMENT_SLOT_ALIASES:
+            canonical_slot = EQUIPMENT_SLOT_ALIASES.get(key, key)
+            if canonical_slot in slots:
+                raise ValueError(f'冻结玩家装备基线包含重复装备槽位: {canonical_slot}')
+            item_id = _number(values.get('id'))
+            if not item_id:
+                raise ValueError(f'冻结玩家装备基线装备槽位缺少物品ID: {canonical_slot}')
+            slots[canonical_slot] = item_id
+        elif key in allowed_scalars:
+            scalar_keys.add(key)
+        else:
+            raise ValueError(f'冻结玩家装备基线包含不允许执行的SimC指令: {key}')
+    if len(actors) != 1:
+        raise ValueError('冻结玩家装备基线必须包含一个受支持的玩家角色')
+    if 'level' not in scalar_keys or 'spec' not in scalar_keys:
+        raise ValueError('冻结玩家装备基线必须包含角色等级和专精')
+    if 'main_hand' not in slots or len(slots) < 2:
+        raise ValueError('冻结玩家装备基线必须包含主手及至少一个其他已装备物品槽位')
+    return baseline
 
 
 def _item_meta(item_id, snapshots):
@@ -169,12 +238,13 @@ def parse_manual_player_config(player_equipment, spec):
                 {'id': _number(entry.partition(':')[0]), 'rank': _number(entry.partition(':')[2])}
                 for entry in raw_value.split('/') if _number(entry.partition(':')[0])
             ]
-        elif key in EQUIPMENT_SLOTS:
+        elif key in EQUIPMENT_SLOTS or key in EQUIPMENT_SLOT_ALIASES:
+            canonical_slot = EQUIPMENT_SLOT_ALIASES.get(key, key)
             for item_id in [values.get('id'), values.get('enchant_id'), values.get('gem_id')]:
                 if _number(item_id): item_ids.add(_number(item_id))
             for gem_id in re.split(r'[/;:]', values.get('gems', '')):
                 if _number(gem_id): item_ids.add(_number(gem_id))
-            equipment_rows.append((key, values, raw_value, item_hint))
+            equipment_rows.append((canonical_slot, values, raw_value, item_hint))
         else:
             parsed['raw_fields'][key] = raw_value
         item_hint = ('', None)
@@ -231,9 +301,10 @@ def parse_manual_simc_candidates(player_equipment):
         key, raw_value, values = _parse_line(line)
         if key in ('talents', 'talent') and not section and not result['base_talent']:
             result['base_talent'] = raw_value
-        elif section and key in EQUIPMENT_SLOTS and _number(values.get('id')):
+        elif section and (key in EQUIPMENT_SLOTS or key in EQUIPMENT_SLOT_ALIASES) and _number(values.get('id')):
+            canonical_slot = EQUIPMENT_SLOT_ALIASES.get(key, key)
             result['gear_candidates'].append({
-                'slot': key, 'item_id': _number(values.get('id')), 'source': section,
+                'slot': canonical_slot, 'item_id': _number(values.get('id')), 'source': section,
                 'raw_value': raw_value, 'name': hint_name,
                 'item_level': hint_level or _number(values.get('ilevel') or values.get('item_level')),
             })
@@ -255,9 +326,10 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
         }
 
     if mode == 'attribute_only':
-        class_name = SPEC_CLASS.get(spec, '')
+        detail = parse_manual_player_config(player_equipment, spec)
+        class_name = detail['identity']['class_name'] or SPEC_CLASS.get(spec, '')
         rule = SimcSecondaryStatRule.objects.filter(class_name=class_name).first()
-        mastery = SimcMasteryCoefficient.objects.filter(spec=spec).first()
+        mastery = SimcMasteryCoefficient.objects.filter(spec=detail['identity']['spec'] or spec).first()
         conversion = {
             'crit': getattr(rule, 'crit_per_percent', None),
             'haste': getattr(rule, 'haste_per_percent', None),
@@ -269,18 +341,22 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
             'mastery': _number(gear_mastery), 'versatility': _number(gear_versatility),
         }
         mastery_coefficient = getattr(mastery, 'mastery_coefficient', 1) or 1
-        return {
-            'source': {'type': 'attribute_only', 'label': '仅天赋与绿字属性配置'},
-            'identity': {'name': '', 'class_name': class_name, 'spec': spec, 'race': '', 'level': None,
-                         'region': '', 'realm': ''},
-            'talents': {'build_code': talent or ''}, 'equipment': [], 'stats': {
-                'primary': {'strength': _number(gear_strength)}, 'secondary': {
-                    stat: _secondary_stat_detail(rating, conversion.get(stat), mastery_coefficient if stat == 'mastery' else 1)
-                    for stat, rating in ratings.items()
-                },
-            }, 'raw_fields': {},
-            'missing_fields': ['未提供玩家身份与装备；该配置只保存天赋和绿字属性。'],
+        detail['source'] = {'type': 'attribute_only', 'label': '冻结玩家基线与绿字覆盖'}
+        detail['identity']['class_name'] = class_name
+        detail['identity']['spec'] = detail['identity']['spec'] or spec
+        detail['talents']['build_code'] = talent or detail['talents']['build_code']
+        detail['stats'] = {
+            'primary': {'strength': _number(gear_strength)}, 'secondary': {
+                stat: _secondary_stat_detail(rating, conversion.get(stat), mastery_coefficient if stat == 'mastery' else 1)
+                for stat, rating in ratings.items()
+            },
         }
+        detail['missing_fields'] = []
+        if not player_equipment.strip():
+            detail['missing_fields'].append('历史配置未保存冻结玩家装备基线；不能发起新的属性模拟。')
+        elif not detail['equipment']:
+            detail['missing_fields'].append('冻结玩家基线未解析到装备槽位。')
+        return detail
 
     detail = parse_manual_player_config(player_equipment, spec)
     detail['source'] = {'type': 'manual_equipment', 'label': '手动 SimC 玩家配置'}

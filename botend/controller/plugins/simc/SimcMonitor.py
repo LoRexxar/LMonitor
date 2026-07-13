@@ -22,6 +22,7 @@ from utils.log import logger
 from botend.models import SimcTask, SimcProfile, SimcBackendBinary
 from botend.alerting import upsert_system_alert
 from botend.controller.BaseScan import BaseScan
+from botend.services.simc_player_config import authoritative_player_baseline, validate_player_baseline
 
 
 class SimcMonitor(BaseScan):
@@ -1288,16 +1289,16 @@ class SimcMonitor(BaseScan):
         if player_config_mode == 'equipment':
             player_config_mode = 'manual_equipment'
 
-        # Manual exports are complete player blocks. Keep the template's runtime/APL
-        # options, but drop only fields owned by its placeholder actor. The previous
-        # implementation sliced everything from the actor through {player_config},
-        # which silently discarded fight_style/max_time/targets, raid buffs and
-        # consumables from the exact file passed to SimC.
-        if player_config_mode == 'manual_equipment':
+        # Manual and attribute exports are complete player blocks. Keep the template's
+        # runtime/APL options, but drop fields owned by its placeholder actor. Attribute
+        # tasks then append their candidate rating overrides to the frozen player block.
+        if player_config_mode in ('manual_equipment', 'attribute_only'):
             player_equipment = str(task_config.get('player_equipment', '')).strip()
+            if player_config_mode == 'attribute_only' and not player_equipment:
+                raise ValueError('属性模拟缺少冻结的玩家装备基线')
             placeholder_count = simc_code.count('{player_config}')
             if placeholder_count != 1:
-                raise ValueError('手动玩家模板中的 {player_config} 必须恰好一个')
+                raise ValueError('玩家模板中的 {player_config} 必须恰好一个')
             placeholder_pos = simc_code.find('{player_config}')
             prefix = simc_code[:placeholder_pos]
             suffix = simc_code[placeholder_pos + len('{player_config}'):]
@@ -1363,15 +1364,26 @@ class SimcMonitor(BaseScan):
             simc_code = simc_code.replace('{gear_mastery}', '')
             simc_code = simc_code.replace('{gear_versatility}', '')
         elif player_config_mode == 'manual_equipment':
-            # 手动装备模式：插入用户提供的玩家装备/天赋信息块，战斗/APL 仍由模板和选项控制
-            player_equipment = str(task_config.get('player_equipment', '')).strip()
+            # 手动装备模式：只插入权威已装备区；背包/周常候选不得参与执行。
+            player_equipment = authoritative_player_baseline(task_config.get('player_equipment', ''))
             simc_code = simc_code.replace('{player_config}', player_equipment)
             simc_code = simc_code.replace('{gear_crit}', '')
             simc_code = simc_code.replace('{gear_haste}', '')
             simc_code = simc_code.replace('{gear_mastery}', '')
             simc_code = simc_code.replace('{gear_versatility}', '')
         elif player_config_mode == 'attribute_only':
-            # 历史属性型 Profile 只有天赋和副属性，不绑定角色标识或装备行。
+            # SimC treats gear_*_rating as final rating overrides. Keep one frozen
+            # real player/equipment block for every candidate, remove prior overrides,
+            # then append this task's talent and rating values.
+            player_equipment = validate_player_baseline(task_config.get('player_equipment', ''))
+            overridden_field = re.compile(
+                r'^\s*(?:talents|talent|gear_strength|gear_(?:crit|haste|mastery|versatility)(?:_rating)?)\s*=',
+                flags=re.IGNORECASE,
+            )
+            frozen_player = '\n'.join(
+                line for line in player_equipment.splitlines()
+                if not overridden_field.match(line)
+            ).strip()
             attribute_lines = []
             talent = str(task_config.get('talent', '')).strip()
             if talent:
@@ -1385,7 +1397,10 @@ class SimcMonitor(BaseScan):
                     # These are player-scoped SimC stats. Bare ``crit_rating`` is
                     # parsed as an unknown global option and silently ignored.
                     attribute_lines.append(f'gear_{field}_rating={value}')
-            simc_code = simc_code.replace('{player_config}', '\n'.join(attribute_lines))
+            simc_code = simc_code.replace(
+                '{player_config}',
+                '\n'.join(part for part in (frozen_player, '\n'.join(attribute_lines)) if part),
+            )
             simc_code = simc_code.replace('{gear_crit}', '')
             simc_code = simc_code.replace('{gear_haste}', '')
             simc_code = simc_code.replace('{gear_mastery}', '')
