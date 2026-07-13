@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
-from botend.dashboard.api import SimcBatchTaskAPIView, SimcRegularCompareAPIView, inspect_raw_simc_code
+from botend.dashboard.api import SimcBatchTaskAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, inspect_raw_simc_code
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.services.simc_player_config import parse_manual_player_config, parse_manual_simc_candidates
 from botend.models import SimcContentTemplate, SimcProfile, SimcTask, WowItemSnapshot
@@ -527,6 +527,125 @@ class SimcNewConfigModeTests(TestCase):
         self.assertEqual(ext['fight_style'], 'DungeonSlice')
         self.assertEqual(ext['time'], 180)
         self.assertEqual(ext['target_count'], 5)
+
+    def test_task_list_does_not_expose_raw_simc_code(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            name='private raw code',
+            task_type=1,
+            simc_profile_id=0,
+            ext=json.dumps({'raw_simc_code': 'warrior="secret"\nspec=fury\n', 'spec': 'fury'}),
+        )
+
+        response = self.client.get('/api/simc-task/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        listed = next(row for row in payload['data'] if row['id'] == task.id)
+        self.assertNotIn('ext', listed)
+        self.assertNotIn('raw_simc_code', listed['ext_detail'])
+        self.assertNotIn('secret', json.dumps(payload, ensure_ascii=False))
+
+    def test_task_create_response_does_not_expose_raw_simc_code(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'new private raw code',
+                'task_type': 1,
+                'simc_profile_id': 0,
+                'raw_simc_code': 'warrior="create-secret"\nspec=fury\n',
+                'regular_time': 300,
+                'regular_target_count': 1,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertNotIn('ext', payload['data'])
+        self.assertNotIn('create-secret', json.dumps(payload, ensure_ascii=False))
+
+    def test_task_management_js_only_reads_browser_safe_ext_detail(self):
+        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        task_ui_start = main_js.index('function displaySimcTaskData(tasks)')
+        task_ui_end = main_js.index('function openAddSimcTaskModal()', task_ui_start)
+        task_ui = main_js[task_ui_start:task_ui_end]
+        log_start = main_js.index('function viewTaskLog(')
+        log_end = main_js.index('function openErrorInfoModal(', log_start)
+        task_log_ui = main_js[log_start:log_end]
+        self.assertNotIn('task.ext ||', task_ui)
+        self.assertNotIn('task.ext)', task_ui)
+        self.assertNotIn('raw_simc_code', task_ui)
+        self.assertNotIn('candidate_reason', task_log_ui)
+        self.assertNotIn('preprocess_reasoning', task_log_ui)
+        self.assertNotIn('simc_error_native', task_log_ui)
+
+    def test_task_ext_summary_drops_raw_simc_code_from_browser_response(self):
+        summary = SimcTaskAPIView()._task_ext_summary(1, json.dumps({
+            'raw_simc_code': 'warrior="secret"\nspec=fury\n',
+            'metadata': {'raw_simc_code': 'nested-secret'},
+            'player_equipment': 'warrior="equipment-secret"',
+            'override_action_list': 'actions=secret_action',
+            'spec': 'fury',
+            'time': 300,
+        }))
+
+        self.assertNotIn('raw_simc_code', summary)
+        self.assertNotIn('metadata', summary)
+        self.assertNotIn('player_equipment', summary)
+        self.assertNotIn('override_action_list', summary)
+        self.assertNotIn('simc_error_native', summary)
+        self.assertNotIn('secret', json.dumps(summary, ensure_ascii=False))
+        self.assertEqual(summary['spec'], 'fury')
+        self.assertEqual(summary['time'], 300)
+
+    def test_task_ext_summary_keeps_safe_apl_context_without_apl_source(self):
+        summary = SimcTaskAPIView()._task_ext_summary(1, json.dumps({
+            'selected_apl_id': 42,
+            'apl_compare': {
+                'batch_id': 'batch-42',
+                'candidate_index': 2,
+                'candidate_name': '候选方案2',
+                'candidate_reason': '交换技能优先级',
+                'is_base': False,
+                'preprocess_stage': 'ready',
+                'preprocess_error': '无',
+                'preprocess_reasoning': '包含不应进入浏览器的推理全文',
+                'apl_list': 'actions=/secret_action',
+            },
+        }))
+
+        self.assertEqual(summary['selected_apl_id'], 42)
+        self.assertEqual(summary['apl_compare'], {
+            'batch_id': 'batch-42',
+            'candidate_index': 2,
+            'is_base': False,
+            'preprocess_stage': 'ready',
+        })
+        serialized = json.dumps(summary, ensure_ascii=False)
+        self.assertNotIn('candidate_name', serialized)
+        self.assertNotIn('candidate_reason', serialized)
+        self.assertNotIn('preprocess_error', serialized)
+        self.assertNotIn('preprocess_reasoning', serialized)
+        self.assertNotIn('secret_action', serialized)
+
+    def test_task_list_hides_failed_native_result_output(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            name='failed raw task',
+            task_type=1,
+            simc_profile_id=0,
+            current_status=3,
+            result_file='SimC执行失败\\n错误输出: warrior="result-secret"',
+        )
+
+        response = self.client.get('/api/simc-task/')
+        self.assertEqual(response.status_code, 200)
+        listed = next(row for row in response.json()['data'] if row['id'] == task.id)
+        self.assertEqual(listed['result_file'], '')
+        self.assertNotIn('result-secret', json.dumps(response.json(), ensure_ascii=False))
 
     def test_attribute_analysis_ssr_parses_task_owned_attribute_report(self):
         task = SimcTask.objects.create(

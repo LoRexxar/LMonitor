@@ -7413,7 +7413,7 @@ function displaySimcTaskData(tasks) {
                 taskTypeText = '属性模拟';
                 taskTypeBadgeClass = 'bg-purple-50 text-purple-700 border border-purple-200';
                 // 如果是属性模拟且有ext数据，显示选中的属性
-                const extPayload = parseSimcTaskExt(task.ext || task.ext_detail || {});
+                const extPayload = parseSimcTaskExt(task.ext_detail || {});
                 if (extPayload.selected_attributes) {
                     const statMap = {
                         'crit': '暴击',
@@ -7429,7 +7429,7 @@ function displaySimcTaskData(tasks) {
                 taskTypeText = '常规模拟';
         }
 
-        const taskExt = parseSimcTaskExt(task.ext_detail || task.ext || {});
+        const taskExt = parseSimcTaskExt(task.ext_detail || {});
         const contextHtml = renderSimcTaskContextHtml(task, taskExt);
         const displaySpec = taskExt.spec || task.simc_profile_spec || '';
         const displayProfileName = task.simc_profile_name || taskExt.profile_name || '';
@@ -7449,7 +7449,7 @@ function displaySimcTaskData(tasks) {
                 <td class="px-3 py-3 text-center text-sm text-gray-900 font-mono">${task.id}</td>
                 <td class="px-4 py-3">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(task.name || '')}</div>
-                    <div class="text-xs text-gray-500 mt-1">${escapeHtml(displayProfileName || (taskExt.raw_simc_code ? '直接 SimC 代码' : '无保存配置'))}</div>
+                    <div class="text-xs text-gray-500 mt-1">${escapeHtml(displayProfileName || (task.simc_profile_id ? '已选配置' : '直接 SimC 代码'))}</div>
                     ${contextHtml}
                 </td>
                 <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(displaySpec || '')}</td>
@@ -7781,10 +7781,10 @@ async function openEditSimcTaskModal(task) {
     applyRegularPreset('300,1', 'edit-simc-task-regular-time', 'edit-simc-task-regular-target-count');
     document.getElementById('edit-simc-task-attribute-step').value = '50';
 
-    const extPayload = parseSimcTaskExt(task.ext || (task.ext_detail || {}));
+    const extPayload = parseSimcTaskExt(task.ext_detail || {});
     const isManifestTask = Boolean(extPayload.player_config_mode);
     modal.setAttribute('data-manifest-task', isManifestTask ? '1' : '0');
-    document.getElementById('edit-simc-task-raw-code').value = extPayload.raw_simc_code || '';
+    document.getElementById('edit-simc-task-raw-code').value = '';
 
     // 任务运行 manifest 不可被旧编辑器覆盖；仅允许改名称，重跑走独立操作。
     const controls = modal.querySelectorAll('select, textarea, input:not(#edit-simc-task-name)');
@@ -7797,7 +7797,7 @@ async function openEditSimcTaskModal(task) {
     const profileSelect = document.getElementById('edit-simc-task-profile');
     toggleTaskTypeFields('edit', task.task_type);
     if (parseInt(task.task_type) === 2) {
-        profileSelect.value = extPayload.selected_attributes || task.ext || '';
+        profileSelect.value = extPayload.selected_attributes || '';
         document.getElementById('edit-simc-task-attribute-step').value = extPayload.attribute_step || 50;
     } else {
         const regularTime = extPayload.regular_time || 300;
@@ -8062,7 +8062,7 @@ function openViewSimcTaskModal(task) {
     
     // 填充任务名称与执行上下文
     document.getElementById('view-simc-task-name').value = task.name || '';
-    const extPayload = parseSimcTaskExt(task.ext_detail || task.ext || {});
+    const extPayload = parseSimcTaskExt(task.ext_detail || {});
     const contextEl = document.getElementById('view-simc-task-context');
     if (contextEl) contextEl.innerHTML = renderSimcTaskContextDetailHtml(task, extPayload);
     
@@ -9925,7 +9925,7 @@ function viewTaskLog(taskId, task = null) {
         }
 
         const t = task || {};
-        const extPayload = parseSimcTaskExt(t.ext || t.ext_detail || {});
+        const extPayload = parseSimcTaskExt(t.ext_detail || {});
         const compare = (extPayload && extPayload.apl_compare) ? extPayload.apl_compare : {};
         const lines = [];
         lines.push(`任务ID: ${taskId}`);
@@ -9947,25 +9947,14 @@ function viewTaskLog(taskId, task = null) {
             lines.push('[APL候选信息]');
             if (compare.batch_id) lines.push(`批次ID: ${compare.batch_id}`);
             if (typeof compare.candidate_index !== 'undefined') lines.push(`候选序号: ${compare.candidate_index}`);
-            if (compare.candidate_name) lines.push(`候选名称: ${compare.candidate_name}`);
-            if (compare.candidate_reason) lines.push(`候选说明: ${compare.candidate_reason}`);
+            if (compare.is_base) lines.push('基础方案: 是');
             if (compare.preprocess_stage) lines.push(`预处理阶段: ${compare.preprocess_stage}`);
-            if (compare.preprocess_error) lines.push(`预处理错误: ${compare.preprocess_error}`);
-            if (compare.preprocess_reasoning) {
-                lines.push('');
-                lines.push('[GLM Reasoning]');
-                lines.push(String(compare.preprocess_reasoning));
-            }
         }
-        if (extPayload && (extPayload.simc_error_summary || extPayload.simc_error_native || typeof extPayload.simc_error_code !== 'undefined')) {
+        if (extPayload && (extPayload.simc_error_summary || typeof extPayload.simc_error_code !== 'undefined')) {
             lines.push('');
-            lines.push('[SimC原生错误信息]');
+            lines.push('[SimC错误摘要]');
             if (typeof extPayload.simc_error_code !== 'undefined') lines.push(`返回码: ${extPayload.simc_error_code}`);
             if (extPayload.simc_error_summary) lines.push(`摘要: ${String(extPayload.simc_error_summary)}`);
-            if (extPayload.simc_error_native) {
-                lines.push('原生输出:');
-                lines.push(String(extPayload.simc_error_native));
-            }
         }
         if (t.result_file) {
             lines.push('');

@@ -590,7 +590,7 @@ class SimcTaskAPIView(View):
             
             tasks_data = []
             for task in tasks:
-                ext_detail = self._normalize_task_ext(task.task_type, task.ext)
+                ext_detail = self._task_ext_summary(task.task_type, task.ext)
                 profile_info = profile_map.get(task.simc_profile_id) or {}
                 tasks_data.append({
                     'id': task.id,
@@ -600,9 +600,10 @@ class SimcTaskAPIView(View):
                     # New tasks keep their execution spec in ext; only old manifests fall back to the Profile.
                     'simc_profile_spec': ext_detail.get('spec') or profile_info.get('spec', ''),
                     'current_status': task.current_status,
-                    'result_file': task.result_file,
+                    'result_file': self._task_result_file_summary(task),
                     'task_type': task.task_type,
-                    'ext': task.ext,
+                    # 任务列表只需安全的结构化摘要；原始 SimC 文本只能留在执行快照中，
+                    # 不得通过列表或前端内嵌 JSON 回显给浏览器。
                     'ext_detail': ext_detail,
                     'create_time': _fmt_dt(task.create_time),
                     'modified_time': _fmt_dt(task.modified_time),
@@ -798,10 +799,9 @@ class SimcTaskAPIView(View):
                     'name': task.name,
                     'simc_profile_id': task.simc_profile_id,
                     'current_status': task.current_status,
-                    'result_file': task.result_file,
+                    'result_file': self._task_result_file_summary(task),
                     'task_type': task.task_type,
-                    'ext': task.ext,
-                    'ext_detail': self._normalize_task_ext(task.task_type, task.ext),
+                    'ext_detail': self._task_ext_summary(task.task_type, task.ext),
                     'create_time': _fmt_dt(task.create_time),
                     'modified_time': _fmt_dt(task.modified_time),
                 }
@@ -867,10 +867,9 @@ class SimcTaskAPIView(View):
                         'name': task.name,
                         'simc_profile_id': task.simc_profile_id,
                         'current_status': task.current_status,
-                        'result_file': task.result_file,
+                        'result_file': self._task_result_file_summary(task),
                         'task_type': task.task_type,
-                        'ext': task.ext,
-                        'ext_detail': existing_ext,
+                        'ext_detail': self._task_ext_summary(task.task_type, task.ext),
                         'create_time': _fmt_dt(task.create_time),
                         'modified_time': _fmt_dt(task.modified_time),
                     }
@@ -925,10 +924,9 @@ class SimcTaskAPIView(View):
                     'name': task.name,
                     'simc_profile_id': task.simc_profile_id,
                     'current_status': task.current_status,
-                    'result_file': task.result_file,
+                    'result_file': self._task_result_file_summary(task),
                     'task_type': task.task_type,
-                    'ext': task.ext,
-                    'ext_detail': self._normalize_task_ext(task.task_type, task.ext),
+                    'ext_detail': self._task_ext_summary(task.task_type, task.ext),
                     'create_time': _fmt_dt(task.create_time),
                     'modified_time': _fmt_dt(task.modified_time),
                 }
@@ -1058,10 +1056,9 @@ class SimcTaskAPIView(View):
                     'name': rerun_task.name,
                     'simc_profile_id': rerun_task.simc_profile_id,
                     'current_status': rerun_task.current_status,
-                    'result_file': rerun_task.result_file,
+                    'result_file': self._task_result_file_summary(rerun_task),
                     'task_type': rerun_task.task_type,
-                    'ext': rerun_task.ext,
-                    'ext_detail': self._normalize_task_ext(rerun_task.task_type, rerun_task.ext),
+                    'ext_detail': self._task_ext_summary(rerun_task.task_type, rerun_task.ext),
                     'create_time': _fmt_dt(rerun_task.create_time),
                     'modified_time': _fmt_dt(rerun_task.modified_time),
                 }
@@ -1078,6 +1075,58 @@ class SimcTaskAPIView(View):
                 'success': False,
                 'error': f'重跑任务失败: {str(e)}'
             })
+
+    def _task_ext_summary(self, task_type, ext):
+        """Return only the browser fields needed to render a task context.
+
+        The persisted manifest deliberately retains executable SimC text, APL and
+        equipment snapshots for the Worker.  Browser responses must instead be
+        an allowlist, so newly-added manifest fields cannot leak raw input.
+        """
+        payload = self._normalize_task_ext(task_type, ext)
+        if not isinstance(payload, dict):
+            return {}
+        browser_fields = (
+            'player_config_mode', 'player_import_mode',
+            'battlenet_region', 'battlenet_realm', 'battlenet_character',
+            'spec', 'talent', 'fight_style', 'time', 'target_count',
+            'regular_time', 'regular_target_count',
+            'selected_attributes', 'attribute_step',
+            'gear_strength', 'gear_crit', 'gear_haste',
+            'gear_mastery', 'gear_versatility',
+            'selected_apl_id', 'profile_name', 'override_action_list_name',
+            'override_action_list_type',
+            'simc_error_code', 'simc_error_summary',
+        )
+        summary = {field: payload[field] for field in browser_fields if field in payload}
+        apl_compare = payload.get('apl_compare')
+        if isinstance(apl_compare, dict):
+            apl_compare_fields = (
+                'batch_id', 'candidate_index', 'is_base', 'preprocess_stage',
+            )
+            summary['apl_compare'] = {
+                field: apl_compare[field]
+                for field in apl_compare_fields
+                if field in apl_compare
+            }
+        return summary
+
+    def _task_result_file_summary(self, task):
+        """Expose result filenames only; native SimC output remains server-side."""
+        if int(task.current_status or 0) != 2:
+            return ''
+        result_file = str(task.result_file or '').strip()
+        if not result_file:
+            return ''
+        if int(task.task_type or 1) == 1:
+            valid_regular_name = re.fullmatch(r'(?:simc_task_\d+|[a-f0-9]{32})\.html', result_file)
+            return result_file if valid_regular_name else ''
+        filenames = [name.strip() for name in result_file.split(',') if name.strip()]
+        if not filenames:
+            return ''
+        if all(parse_attribute_result_filename(name) for name in filenames):
+            return ','.join(filenames)
+        return ''
 
     def _normalize_task_ext(self, task_type, ext):
         if not ext:
@@ -3495,7 +3544,7 @@ class SimcTaskPreviewAPIView(View):
             'name': task.name,
             'task_type': task.task_type,
             'status': task.current_status,
-            'result_file': task.result_file,
+            'result_file': SimcTaskAPIView()._task_result_file_summary(task),
             'spec': manifest.get('spec') or (profile.spec if profile else ''),
             'fight_style': manifest.get('fight_style') or '',
             'time': manifest.get('time') or manifest.get('regular_time') or '',
