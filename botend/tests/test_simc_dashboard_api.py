@@ -1222,6 +1222,22 @@ class SimcNewConfigModeTests(TestCase):
         self.assertIn('armory=eu,Kazzak,Bloodmastêr', rendered)
         self.assertIn('actions=auto_attack', rendered)
 
+    def test_apply_template_manual_equipment_replaces_template_actor_instead_of_creating_two_players(self):
+        monitor = object.__new__(SimcMonitor)
+        template = 'warrior="LMonitor_Base"\nspec=fury\ntalents=TEMPLATE\n{player_config}\n{action_list}'
+        player = 'warrior="Real_Player"\nspec=fury\ntalents=CANDIDATE\nhead=,id=212048'
+        rendered = monitor.apply_template(template, {
+            'spec': 'fury', 'talent': 'CANDIDATE',
+            'player_import_mode': 'manual_equipment',
+            'player_equipment': player,
+            'override_action_list': 'actions=auto_attack',
+        })
+        self.assertNotIn('warrior="LMonitor_Base"', rendered)
+        self.assertEqual(rendered.count('warrior="Real_Player"'), 1)
+        self.assertEqual(rendered.count('\nspec=fury'), 1)
+        self.assertEqual(rendered.count('\ntalents=CANDIDATE'), 1)
+        self.assertNotIn('talents=TEMPLATE', rendered)
+
     def test_apply_template_inserts_manual_equipment_player_block(self):
         from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
         monitor = object.__new__(SimcMonitor)

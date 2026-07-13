@@ -1200,6 +1200,20 @@ class SimcMonitor(BaseScan):
         if player_config_mode == 'equipment':
             player_config_mode = 'manual_equipment'
 
+        # Manual exported profiles are also complete SimC player blocks. Remove the
+        # controlled template actor and its player-scoped fields before inserting the
+        # export, otherwise SimC simulates both actors and candidate reports collapse
+        # to the under-equipped template actor.
+        if player_config_mode == 'manual_equipment':
+            player_equipment = str(task_config.get('player_equipment', '')).strip()
+            actor_pattern = r'^\s*(?:warrior|paladin|hunter|rogue|priest|deathknight|shaman|mage|warlock|monk|druid|demonhunter|evoker)\s*=.*$'
+            placeholder_pos = simc_code.find('{player_config}')
+            prefix = simc_code[:placeholder_pos] if placeholder_pos >= 0 else simc_code
+            actor_matches = list(re.finditer(actor_pattern, prefix, flags=re.IGNORECASE | re.MULTILINE))
+            if actor_matches:
+                actor_start = actor_matches[-1].start()
+                simc_code = simc_code[:actor_start] + simc_code[placeholder_pos:] if placeholder_pos >= 0 else simc_code[:actor_start]
+
         # ``armory`` is itself a complete SimC player import.  Combining it with a
         # template player declaration (``deathknight=...``) produces two actors:
         # the template actor has no weapon and makes a valid Armory import fail.
