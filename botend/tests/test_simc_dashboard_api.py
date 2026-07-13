@@ -393,6 +393,8 @@ finger1=,id=299002,ilevel=655
         self.assertIn('const completed = await pollSimcCandidateComparison', candidate_ui)
         self.assertIn('if (!completed) return;', candidate_ui)
         self.assertIn('completed = true;', candidate_ui)
+        self.assertIn("'/simc-compare/?batch_id='", candidate_ui)
+        self.assertNotIn("'/simc-regular-compare/?batch_id='", candidate_ui)
         self.assertIn('resolve(completed);', candidate_ui)
 
     def test_batch_marks_trinket_category_without_changing_gear_candidate_validation(self):

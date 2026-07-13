@@ -2793,7 +2793,7 @@ function pollSimcCandidateComparison(batchId, kind, button, oldLabel) {
                     setTimeout(poll, 5000);
                     return;
                 }
-                const reportUrl = '/simc-regular-compare/?batch_id=' + encodeURIComponent(batchId);
+                const reportUrl = '/simc-compare/?batch_id=' + encodeURIComponent(batchId);
                 showMessage(`${kind} 候选对比已完成，正在打开完整比较报告`, 'success');
                 fetchSimcTaskData();
                 window.open(reportUrl, '_blank');
