@@ -582,6 +582,7 @@ class SimcNewConfigModeTests(TestCase):
         self.assertNotIn('preprocess_reasoning', task_log_ui)
         self.assertNotIn('simc_error_native', task_log_ui)
         self.assertIn('input:not(#edit-simc-task-name):not(#edit-simc-task-id)', main_js)
+        self.assertIn("taskExt.player_import_mode === 'battlenet' ? 'Battle.net 导入'", main_js)
 
     def test_task_ext_summary_drops_raw_simc_code_from_browser_response(self):
         summary = SimcTaskAPIView()._task_ext_summary(1, json.dumps({

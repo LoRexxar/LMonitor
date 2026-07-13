@@ -7433,6 +7433,9 @@ function displaySimcTaskData(tasks) {
         const contextHtml = renderSimcTaskContextHtml(task, taskExt);
         const displaySpec = taskExt.spec || task.simc_profile_spec || '';
         const displayProfileName = task.simc_profile_name || taskExt.profile_name || '';
+        const displaySource = displayProfileName
+            || (taskExt.player_import_mode === 'battlenet' ? 'Battle.net 导入'
+                : (task.simc_profile_id ? '已选配置' : '直接 SimC 代码'));
         const isRegularTask = task.task_type === 1;
         const isCompleted = task.current_status === 2;
         const resultFile = task.result_file || '';
@@ -7449,7 +7452,7 @@ function displaySimcTaskData(tasks) {
                 <td class="px-3 py-3 text-center text-sm text-gray-900 font-mono">${task.id}</td>
                 <td class="px-4 py-3">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(task.name || '')}</div>
-                    <div class="text-xs text-gray-500 mt-1">${escapeHtml(displayProfileName || (task.simc_profile_id ? '已选配置' : '直接 SimC 代码'))}</div>
+                    <div class="text-xs text-gray-500 mt-1">${escapeHtml(displaySource)}</div>
                     ${contextHtml}
                 </td>
                 <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(displaySpec || '')}</td>
