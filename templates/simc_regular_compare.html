@@ -416,16 +416,20 @@
         }
 
         async function loadCompare() {
+            const batchId = getUrlParameter('batch_id') || '';
             const taskIds = getUrlParameter('task_ids') || '';
-            document.getElementById('task-ids').textContent = taskIds || '-';
-            if (!taskIds) {
-                showError('缺少 task_ids 参数');
+            document.getElementById('task-ids').textContent = taskIds || (batchId ? `批次 ${batchId}` : '-');
+            if (!taskIds && !batchId) {
+                showError('缺少 task_ids 或 batch_id 参数');
                 return;
             }
 
             try {
                 await loadKeywordTranslations();
-                const resp = await fetch(`/api/simc-regular-compare/?task_ids=${encodeURIComponent(taskIds)}`, {
+                const query = batchId
+                    ? `batch_id=${encodeURIComponent(batchId)}`
+                    : `task_ids=${encodeURIComponent(taskIds)}`;
+                const resp = await fetch(`/api/simc-regular-compare/?${query}`, {
                     method: 'GET',
                     credentials: 'same-origin'
                 });

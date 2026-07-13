@@ -3683,20 +3683,24 @@ class SimcAttributeAnalysisAPIView(View):
                     'error': '任务不存在或无权限访问'
                 })
             
-            if task.task_type != 2:
+            task_ext = SimcRegularCompareAPIView()._parse_task_ext(task.ext) or {}
+            raw_manifest = task_ext.get('batch_compare')
+            batch_manifest = raw_manifest if isinstance(raw_manifest, dict) else {}
+            is_four_stat_batch = batch_manifest.get('kind') == 'attribute_variants' and bool(batch_manifest.get('batch_id'))
+            if task.task_type != 2 and not is_four_stat_batch:
                 return JsonResponse({
                     'success': False,
-                    'error': '该任务不是属性模拟任务'
+                    'error': '该任务不是属性模拟或四属性寻优批次'
                 })
-            
-            if not task.result_file:
+            if not task.result_file and not is_four_stat_batch:
                 return JsonResponse({
                     'success': False,
                     'error': '任务尚未完成或无结果文件'
                 })
             
-            # 解析结果文件列表
-            result_files = task.result_file.split(',')
+            # 旧式属性任务由一个任务持有多个受控属性报告；四属性批次的候选
+            # 各自属于常规任务，后面统一由 batch manifest 聚合。
+            result_files = task.result_file.split(',') if task.task_type == 2 else []
             analysis_data = []
             
             # OSS配置
@@ -3770,6 +3774,21 @@ class SimcAttributeAnalysisAPIView(View):
                     return (1, str(value))  # 字符串其次，按字母排序
             
             analysis_data.sort(key=sort_key)
+            attribute_report = None
+            task_ext = SimcRegularCompareAPIView()._parse_task_ext(task.ext) or {}
+            raw_manifest = task_ext.get('batch_compare')
+            batch_manifest = raw_manifest if isinstance(raw_manifest, dict) else {}
+            batch_id = str(batch_manifest.get('batch_id') or '').strip()
+            if batch_manifest.get('kind') == 'attribute_variants' and batch_id:
+                batch_tasks = []
+                for batch_task in SimcTask.objects.filter(user_id=request.user.id, is_active=True, task_type=1).order_by('id'):
+                    ext_payload = SimcRegularCompareAPIView()._parse_task_ext(batch_task.ext) or {}
+                    raw_candidate_manifest = ext_payload.get('batch_compare')
+                    manifest = raw_candidate_manifest if isinstance(raw_candidate_manifest, dict) else {}
+                    if manifest.get('batch_id') == batch_id and manifest.get('kind') == 'attribute_variants':
+                        batch_tasks.append((batch_task, manifest))
+                if batch_tasks:
+                    attribute_report = SimcRegularCompareAPIView()._build_attribute_report(batch_tasks)
             
             return JsonResponse({
                 'success': True,
@@ -3777,7 +3796,8 @@ class SimcAttributeAnalysisAPIView(View):
                     'task_name': task.name,
                     'task_id': task.id,
                     'results': analysis_data,
-                    'total_count': len(analysis_data)
+                    'total_count': len(analysis_data),
+                    'attribute_report': attribute_report
                 }
             })
             

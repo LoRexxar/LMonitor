@@ -90,3 +90,23 @@ class SimcResultUXTests(TestCase):
         self.assertIn('结果摘要可用，但没有可识别的技能明细', result)
         self.assertIn('/api/simc-result-proxy/', result)
         self.assertNotIn('raw_simc_code', result)
+
+    def test_result_page_keeps_full_native_report_in_a_sandboxed_reader(self):
+        with open('templates/simc_result_view.html', encoding='utf-8') as f:
+            result = f.read()
+
+        self.assertIn('原始 SimC 完整报告', result)
+        self.assertIn('id="native-report-frame"', result)
+        self.assertIn('sandbox="allow-same-origin"', result)
+        self.assertIn('nativeReportFrame.srcdoc = html', result)
+        self.assertIn('buildNativeReportOutline', result)
+
+    def test_attribute_page_renders_four_stat_search_context_not_two_stat_curve_only(self):
+        with open('templates/simc_attribute_analysis.html', encoding='utf-8') as f:
+            client = f.read()
+
+        self.assertIn('四属性 50 rating 局部寻优', client)
+        self.assertIn('initial_ratings', client)
+        self.assertIn('search_path', client)
+        self.assertIn('all_candidates', client)
+        self.assertIn('local_optimum_50_pairwise', client)

@@ -80,6 +80,11 @@
                 </div>
             </div>
 
+            <div id="four-stat-report" class="panel mb-3 d-none">
+                <div class="panel-header">四属性 50 rating 局部寻优</div>
+                <div id="four-stat-report-body" class="panel-body small"></div>
+            </div>
+
             <div class="row g-2 mb-3">
                 <div class="col-md-2"><div class="metric-card"><div class="metric-label">有效结果</div><div id="m-count" class="metric-value">-</div></div></div>
                 <div class="col-md-2"><div class="metric-card"><div class="metric-label">最高DPS</div><div id="m-max" class="metric-value">-</div></div></div>
@@ -124,6 +129,7 @@
         let chart = null;
         let maxDps = 0;
         let minDps = 0;
+        let fourStatReport = null;
 
         function byId(id) { return document.getElementById(id); }
         function getTaskId() { return new URLSearchParams(window.location.search).get('task_id') || ''; }
@@ -143,6 +149,34 @@
         function deltaFromBestPercent(dps) {
             if (maxDps === 0) return 0;
             return (deltaFromBest(dps) / maxDps) * 100;
+        }
+
+        function renderFourStatReport(report) {
+            const panel = byId('four-stat-report');
+            const body = byId('four-stat-report-body');
+            if (!panel || !body) return;
+            fourStatReport = report && report.algorithm === 'four_stat_pairwise_hill_climb' ? report : null;
+            if (!fourStatReport) { panel.classList.add('d-none'); return; }
+            const recommendation = fourStatReport.recommendation || {};
+            const initial = fourStatReport.initial_ratings || {};
+            const ratings = recommendation.ratings || {};
+            const initialText = ['crit', 'haste', 'mastery', 'versatility'].map((key) => `${attrName(key)} ${num(initial[key])}`).join(' / ');
+            const recommendationText = ['crit', 'haste', 'mastery', 'versatility'].map((key) => {
+                const delta = num(ratings[key]) - num(initial[key]);
+                return `${attrName(key)} ${num(ratings[key])}${delta ? ` (${delta > 0 ? '+' : ''}${delta})` : ''}`;
+            }).join(' / ');
+            const path = Array.isArray(fourStatReport.search_path) ? fourStatReport.search_path : [];
+            const pathText = path.length ? path.map((row) => `第${row.round}轮：${['crit', 'haste', 'mastery', 'versatility'].map((key) => `${attrName(key)} ${num((row.ratings || {})[key])}`).join(' / ')}${row.dps !== null && row.dps !== undefined ? `，DPS ${num(row.dps).toLocaleString()}` : ''}`).join('<br>') : '尚无完成轮次';
+            const scope = fourStatReport.stop_reason === 'local_optimum_50_pairwise'
+                ? '当前天赋、APL、战斗参数和 SimC 精度下，已验证该点在完整 50 rating 两两有向交换邻域中没有更优候选；这不是全局最优声明。'
+                : '当前结果仍可能在继续搜索；仅展示已完成候选，不能据此宣称最优。';
+            const candidates = Array.isArray(fourStatReport.all_candidates) ? fourStatReport.all_candidates : [];
+            body.innerHTML = `<div class="mb-2"><strong>初始基准：</strong>${esc(initialText)}；固定四属性总预算 ${esc(fourStatReport.total_rating ?? '-')}。</div>
+                <div class="mb-2"><strong>当前推荐：</strong>${esc(recommendationText || '-')}；DPS ${recommendation.dps === null || recommendation.dps === undefined ? '等待结果' : num(recommendation.dps).toLocaleString()}。</div>
+                <div class="mb-2"><strong>搜索路径：</strong><br>${pathText}</div>
+                <div class="mb-2 text-muted">${esc(scope)}</div>
+                <details><summary>全部候选（${candidates.length}）</summary><div class="table-wrap mt-2"><table class="table table-sm"><thead><tr><th>轮次</th><th>四属性</th><th>DPS</th><th>受控结果</th></tr></thead><tbody>${candidates.map((row) => `<tr><td>${esc(row.round)}</td><td>${esc(['crit', 'haste', 'mastery', 'versatility'].map((key) => `${attrName(key)} ${num((row.ratings || {})[key])}`).join(' / '))}</td><td>${row.dps === null || row.dps === undefined ? '等待结果' : num(row.dps).toLocaleString()}</td><td>${row.result_file ? `<a target="_blank" href="/simc-result/?file=${encodeURIComponent(row.result_file)}">打开</a>` : '-'}</td></tr>`).join('')}</tbody></table></div></details>`;
+            panel.classList.remove('d-none');
         }
 
         function exportCsv(filename, headers, rows) {
@@ -211,8 +245,8 @@
                 const badge = deltaAbs === 0 ? '<span class="badge bg-success">最佳</span>' : (isNearOptimal ? '<span class="badge bg-info">近似最优</span>' : '');
                 return `
                     <tr id="row-${idx}" class="${isNearOptimal ? 'table-success' : ''}">
-                        <td>${idx + 1} ${badge}</td>
-                        <td>${esc(attrName(r.attr1_name))}: <strong>${esc(r.attr1_value)}</strong></td>
+                        <td>${idx + 1} ${badge}${r.round ? ` <span class="text-muted small">第${esc(r.round)}轮</span>` : ''}</td>
+                        <td>${esc(attrName(r.attr1_name))}: <strong>${esc(r.attr1_value)}</strong>${r.four_ratings ? `<div class="text-muted small">精通 ${esc(r.four_ratings.mastery)} / 全能 ${esc(r.four_ratings.versatility)}</div>` : ''}</td>
                         <td>${esc(attrName(r.attr2_name))}: <strong>${esc(r.attr2_value)}</strong></td>
                         <td>${num(r.dps).toFixed(0)}</td>
                         <td>-${deltaAbs.toFixed(0)} (-${deltaPercent.toFixed(2)}%)</td>
@@ -358,7 +392,20 @@
                 const data = await resp.json();
                 if (!data || !data.success || !data.data || !Array.isArray(data.data.results)) throw new Error('invalid');
                 byId('task-name').textContent = data.data.task_name || '-';
-                allResults = data.data.results.map((r) => ({ ...r, dps: num(r.dps) }));
+                const report = data.data.attribute_report;
+                const reportCandidates = report && Array.isArray(report.all_candidates) ? report.all_candidates : [];
+                allResults = reportCandidates.length
+                    ? reportCandidates.filter((row) => row.dps !== null && row.dps !== undefined).map((row) => {
+                        const ratings = row.ratings || {};
+                        return {
+                            file_name: row.result_file || '',
+                            attr1_name: 'gear_crit', attr1_value: num(ratings.crit),
+                            attr2_name: 'gear_haste', attr2_value: num(ratings.haste),
+                            dps: num(row.dps), four_ratings: ratings, round: row.round,
+                        };
+                    })
+                    : data.data.results.map((r) => ({ ...r, dps: num(r.dps) }));
+                renderFourStatReport(report);
                 computeRange();
                 rerender();
                 byId('loading').classList.add('d-none');

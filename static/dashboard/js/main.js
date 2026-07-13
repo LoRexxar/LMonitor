@@ -2740,10 +2740,49 @@ async function startSimcCandidateComparison(kind, maxSelectable) {
         const response = await fetch('/api/simc-task/batch/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ kind, name: `${spec} ${kind === 'gear_candidates' ? '装备候选对比' : '天赋候选对比'}`, spec, player_config_mode: 'manual_equipment', player_equipment: playerEquipment, candidates: selected, fight_style: (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk', time: parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300, target_count: parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1, selected_apl_id: apl?.value ? parseInt(apl.value, 10) : undefined }) });
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较批次失败');
-        showMessage(`已创建 ${payload.data.accepted} 个比较任务（含基准）`, 'success');
+        showMessage(`已创建 ${payload.data.accepted} 个比较任务（含基准），正在等待模拟完成…`, 'success');
         fetchSimcTaskData(); switchSimcWorkbenchTab('tasks');
+        pollSimcCandidateComparison(payload.data.batch_id, kind, button, old);
+        return;
     } catch (error) { showMessage('创建多方案对比失败：' + String(error.message || error), 'error'); }
-    finally { if (button) { button.disabled = false; button.innerHTML = old; } }
+    finally { if (button && !button.dataset.simcPolling) { button.disabled = false; button.innerHTML = old; } }
+}
+
+function pollSimcCandidateComparison(batchId, kind, button, oldLabel) {
+    if (!batchId) return;
+    if (button) { button.dataset.simcPolling = '1'; button.disabled = true; }
+    const poll = async () => {
+        let waitForNextPoll = false;
+        try {
+            const response = await fetch('/api/simc-regular-compare/?batch_id=' + encodeURIComponent(batchId));
+            const payload = await response.json();
+            if (!response.ok || !payload.success) throw new Error(payload.error || '获取候选对比进度失败');
+            const batch = payload.data.batch || {};
+            const status = batch.current_round_status || batch;
+            const done = Number(status.succeeded || 0);
+            const total = Number(batch.current_round_total || batch.total || 0);
+            if (button) button.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>模拟中 ${done}/${total}`;
+            if (status.failed) throw new Error(`有 ${status.failed} 个候选模拟失败，未生成比较报告`);
+            if (status.pending || status.running) {
+                waitForNextPoll = true;
+                setTimeout(poll, 5000);
+                return;
+            }
+            const reportUrl = '/simc-regular-compare/?batch_id=' + encodeURIComponent(batchId);
+            showMessage('候选对比已完成，正在打开完整比较报告', 'success');
+            fetchSimcTaskData();
+            window.open(reportUrl, '_blank');
+        } catch (error) {
+            showMessage('候选对比已停止：' + String(error.message || error), 'error');
+        } finally {
+            if (button && button.dataset.simcPolling && !waitForNextPoll) {
+                delete button.dataset.simcPolling;
+                button.disabled = false;
+                button.innerHTML = oldLabel;
+            }
+        }
+    };
+    poll();
 }
 
 async function preflightSimcBattlenet() {
@@ -9905,10 +9944,8 @@ function viewAttributeAnalysis(taskId) {
         return;
     }
     
-    // 构建属性模拟分析页面的URL
-    const analysisUrl = `/simc-attribute-analysis-ssr/?task_id=${taskId}`;
-    
-    // 在新标签页中打开属性模拟分析页面
+    // 使用前端四属性报告页：它消费受控 API 的 attribute_report，呈现基准、路径和全量候选。
+    const analysisUrl = `/simc-attribute-analysis/?task_id=${encodeURIComponent(taskId)}`;
     window.open(analysisUrl, '_blank');
 }
 

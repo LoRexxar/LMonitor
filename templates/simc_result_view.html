@@ -22,6 +22,10 @@
         .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
         .action-summary { display: flex; flex-wrap: wrap; gap: 6px; }
         .action-chip { background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+        .native-report-frame { width: 100%; min-height: 900px; border: 0; background: #fff; }
+        .native-outline { max-height: 280px; overflow: auto; }
+        .native-outline a { display: block; padding: 3px 0; color: #0d6efd; text-decoration: none; }
+        .native-outline a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -173,6 +177,17 @@
                     </div>
                 </div>
             </div>
+
+            <div class="panel mt-3">
+                <div class="panel-header d-flex justify-content-between align-items-center">
+                    <span>原始 SimC 完整报告</span>
+                    <span class="text-muted small">阅读层只做目录和定位；下方保留原生 HTML 的全部内容</span>
+                </div>
+                <div class="panel-body border-bottom">
+                    <div id="native-report-outline" class="native-outline small text-muted">正在建立原始报告目录...</div>
+                </div>
+                <iframe id="native-report-frame" class="native-report-frame" sandbox="allow-same-origin" title="原始 SimC 完整报告"></iframe>
+            </div>
         </div>
     </div>
 
@@ -227,6 +242,27 @@
                     skillTranslations = { ...skillTranslations, ...data.translations };
                 }
             } catch (e) {}
+        }
+
+        function buildNativeReportOutline(html) {
+            const outline = byId('native-report-outline');
+            const nativeReportFrame = byId('native-report-frame');
+            if (!outline || !nativeReportFrame) return;
+            nativeReportFrame.srcdoc = html;
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const headings = Array.from(doc.querySelectorAll('h1, h2, h3'))
+                .map((node, index) => ({ id: node.id || `reader-section-${index + 1}`, text: nodeText(node) }))
+                .filter((item) => item.text)
+                .slice(0, 80);
+            outline.innerHTML = headings.length
+                ? headings.map((item) => `<a href="#" data-native-anchor="${item.id}">${item.text}</a>`).join('')
+                : '<span>原始报告没有可识别的标题；完整内容仍在下方保留。</span>';
+            outline.querySelectorAll('[data-native-anchor]').forEach((link) => link.addEventListener('click', (event) => {
+                event.preventDefault();
+                const frameDoc = nativeReportFrame.contentDocument;
+                const target = frameDoc && frameDoc.getElementById(link.dataset.nativeAnchor);
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }));
         }
 
         function parseSimc(html) {
@@ -576,6 +612,7 @@
                 const data = await resp.json();
                 if (!data || !data.success || !data.content) throw new Error('invalid response');
                 const parsed = parseSimc(data.content);
+                buildNativeReportOutline(data.content);
                 abilitiesData = parsed.abilities || [];
                 actionData = parsed.actions || [];
                 renderMeta(parsed);
