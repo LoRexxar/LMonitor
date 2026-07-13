@@ -767,10 +767,12 @@ class SimcContentTemplate(models.Model):
     TYPE_BASE_TEMPLATE = 'base_template'
     TYPE_DEFAULT_APL = 'default_apl'
     TYPE_CUSTOM_APL = 'custom_apl'
+    TYPE_DEFAULT_PLAYER = 'default_player'
     TEMPLATE_TYPE_CHOICES = (
         (TYPE_BASE_TEMPLATE, '基础模板'),
         (TYPE_DEFAULT_APL, '默认APL'),
         (TYPE_CUSTOM_APL, '个人APL'),
+        (TYPE_DEFAULT_PLAYER, '默认玩家装备模板'),
     )
     SOURCE_SIMC_UPSTREAM = 'simc_upstream'
     SOURCE_USER = 'user'
@@ -798,6 +800,13 @@ class SimcContentTemplate(models.Model):
         indexes = [
             models.Index(fields=['template_type', 'spec', 'is_active']),
             models.Index(fields=['source', 'template_type']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['template_type', 'source', 'spec'],
+                condition=models.Q(template_type='default_player'),
+                name='uniq_simc_default_player_source_spec',
+            ),
         ]
 
     def __str__(self):

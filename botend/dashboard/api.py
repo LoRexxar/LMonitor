@@ -38,7 +38,7 @@ from core.glm import GLMClient
 from botend.monitor_env import is_task_runnable, env_limit_hint
 from botend.wow_daily_report.generator import generate_wow_daily_report
 from botend.services.simc_attribute_results import parse_attribute_result_filename
-from botend.services.simc_player_config import EQUIPMENT_SLOT_ALIASES, validate_player_baseline
+from botend.services.simc_player_config import EQUIPMENT_SLOT_ALIASES, resolve_attribute_player_baseline, validate_player_baseline
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 
 
@@ -718,7 +718,7 @@ class SimcTaskAPIView(View):
 
             if player_config_mode == 'attribute_only':
                 try:
-                    player_equipment = validate_player_baseline(player_equipment)
+                    player_equipment = resolve_attribute_player_baseline(spec, player_equipment)
                 except ValueError as e:
                     return JsonResponse({'success': False, 'error': str(e)})
             
@@ -1551,7 +1551,7 @@ class SimcBatchTaskAPIView(View):
                     raise ValueError('自动属性比较需要天赋构筑码')
                 player_equipment = str(data.get('player_equipment') or '').strip()
                 try:
-                    player_equipment = validate_player_baseline(player_equipment)
+                    player_equipment = resolve_attribute_player_baseline(spec, player_equipment)
                 except ValueError as e:
                     return JsonResponse({'success': False, 'error': str(e)}, status=400)
                 step = self._int(data.get('attribute_step'), '属性步长')
@@ -1677,6 +1677,13 @@ class SimcPlayerConfigDetailAPIView(View):
                 or not battlenet_realm or not battlenet_character
             ):
                 return JsonResponse({'success': False, 'error': 'Battle.net 导入需要提供 region、realm 和 character'})
+            if mode == 'attribute_only' and not player_equipment:
+                try:
+                    player_equipment = resolve_attribute_player_baseline(spec, player_equipment)
+                except ValueError:
+                    # Detail remains backward-compatible for legacy profiles; creation paths
+                    # still require a valid explicit or default frozen baseline.
+                    player_equipment = ''
             from botend.services.simc_player_config import build_player_config_detail, parse_manual_simc_candidates
             detail = build_player_config_detail(
                 mode=mode, spec=spec, player_equipment=player_equipment,
@@ -2515,7 +2522,7 @@ class SimcProfileAPIView(View):
             values['battlenet_region'] = values['battlenet_realm'] = values['battlenet_character'] = ''
             if not values['talent']:
                 raise ValueError('attribute_only 模式下 talent 不能为空')
-            values['player_equipment'] = validate_player_baseline(values['player_equipment'])
+            values['player_equipment'] = resolve_attribute_player_baseline(values['spec'], values['player_equipment'])
         return values
 
     @staticmethod
@@ -2755,8 +2762,9 @@ class SimcProfileAPIView(View):
         """创建模拟任务的辅助方法"""
         try:
             task_type = int(task_type or 1)
+            frozen_player_equipment = profile.player_equipment or ''
             if self._profile_mode(profile) == 'attribute_only':
-                validate_player_baseline(profile.player_equipment)
+                frozen_player_equipment = resolve_attribute_player_baseline(profile.spec, frozen_player_equipment)
             if task_type not in (1, 2):
                 raise ValueError('任务类型无效')
             if task_type == 2:
@@ -2796,7 +2804,7 @@ class SimcProfileAPIView(View):
                 'talent': profile.talent or '',
                 'player_config_mode': self._profile_mode(profile),
                 'player_import_mode': self._profile_mode(profile),
-                'player_equipment': profile.player_equipment or '',
+                'player_equipment': frozen_player_equipment,
                 'battlenet_region': profile.battlenet_region or '',
                 'battlenet_realm': profile.battlenet_realm or '',
                 'battlenet_character': profile.battlenet_character or '',
@@ -4331,6 +4339,14 @@ class SimcTemplateAPIView(View):
     """
     SimC模板API
     """
+
+    @staticmethod
+    def _protected_response():
+        return JsonResponse({'success': False, 'error': '默认玩家装备模板仅允许通过受控导入命令维护'}, status=403)
+
+    @staticmethod
+    def _is_protected(template):
+        return template.template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER
     
     def get(self, request):
         """获取SimC模板列表或单个模板内容"""
@@ -4341,6 +4357,8 @@ class SimcTemplateAPIView(View):
                 # 获取单个模板的完整内容
                 try:
                     template = SimcContentTemplate.objects.get(id=template_id)
+                    if self._is_protected(template):
+                        return self._protected_response()
                     return JsonResponse({
                         'success': True,
                         'id': template.id,
@@ -4364,6 +4382,8 @@ class SimcTemplateAPIView(View):
                 template_type = request.GET.get('template_type') or SimcContentTemplate.TYPE_BASE_TEMPLATE
                 if template_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
                     return JsonResponse({'success': False, 'error': '无效的模板类型'}, status=400)
+                if template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER:
+                    return self._protected_response()
                 templates = SimcContentTemplate.objects.filter(template_type=template_type).order_by('source', 'spec', '-id')
                 template_list = []
                 
@@ -4421,6 +4441,8 @@ class SimcTemplateAPIView(View):
             # 获取并更新模板
             try:
                 template = SimcContentTemplate.objects.get(id=template_id)
+                if self._is_protected(template) or template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER:
+                    return self._protected_response()
                 template.content = template_content
                 if template_spec is not None:
                     template.spec = template_spec
@@ -4476,6 +4498,8 @@ class SimcTemplateAPIView(View):
             # 获取并更新模板状态
             try:
                 template = SimcContentTemplate.objects.get(id=template_id)
+                if self._is_protected(template):
+                    return self._protected_response()
                 template.is_active = is_active
                 if 'is_selectable' in data:
                     template.is_selectable = bool(data.get('is_selectable'))
@@ -4511,6 +4535,8 @@ class SimcTemplateAPIView(View):
             template_type = data.get('template_type') or data.get('type') or SimcContentTemplate.TYPE_BASE_TEMPLATE
             if template_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
                 template_type = SimcContentTemplate.TYPE_BASE_TEMPLATE
+            if template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER:
+                return self._protected_response()
             source = data.get('source') or SimcContentTemplate.SOURCE_USER
             if source not in dict(SimcContentTemplate.SOURCE_CHOICES):
                 source = SimcContentTemplate.SOURCE_USER

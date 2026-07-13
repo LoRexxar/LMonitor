@@ -23,6 +23,19 @@ SPEC_CLASS = {
     'elemental': 'shaman', 'enhancement': 'shaman', 'restoration_shaman': 'shaman',
     'affliction': 'warlock', 'demonology': 'warlock', 'destruction': 'warlock',
     'blood': 'deathknight', 'frost_dk': 'deathknight', 'unholy': 'deathknight',
+    'devourer': 'demonhunter',
+}
+
+SPEC_ALIASES = {
+    'frost_dk': ('deathknight', 'frost'),
+    'frost_death_knight': ('deathknight', 'frost'),
+    'frost_mage': ('mage', 'frost'),
+    'restoration_druid': ('druid', 'restoration'),
+    'restoration_shaman': ('shaman', 'restoration'),
+    'holy_paladin': ('paladin', 'holy'),
+    'protection_paladin': ('paladin', 'protection'),
+    'holy_priest': ('priest', 'holy'),
+    'protection_warrior': ('warrior', 'protection'),
 }
 
 # Battle.net profile API returns display names with spaces (e.g. ``Death Knight``),
@@ -140,6 +153,73 @@ def validate_player_baseline(player_equipment):
     if 'main_hand' not in slots or len(slots) < 2:
         raise ValueError('冻结玩家装备基线必须包含主手及至少一个其他已装备物品槽位')
     return baseline
+
+
+def canonical_simc_spec_identity(spec):
+    """Return the unambiguous SimC class/spec pair for a Dashboard spec key."""
+    value = str(spec or '').strip().lower()
+    if value in SPEC_ALIASES:
+        return SPEC_ALIASES[value]
+    class_name = SPEC_CLASS.get(value)
+    if class_name:
+        return class_name, value
+    for candidate in sorted(SUPPORTED_ACTORS, key=len, reverse=True):
+        prefix = f'{candidate}_'
+        if value.startswith(prefix) and len(value) > len(prefix):
+            return candidate, value[len(prefix):]
+    return '', value
+
+
+def validate_default_player_baseline(spec, player_equipment):
+    """Validate the stricter, complete level-90 baseline used as a default."""
+    baseline = validate_player_baseline(player_equipment)
+    expected_class, expected_spec = canonical_simc_spec_identity(spec)
+    actor = level = actual_spec = None
+    slots = set()
+    for raw_line in baseline.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        key, raw_value, _ = _parse_line(line)
+        if key in SUPPORTED_ACTORS:
+            actor = key
+        elif key == 'level':
+            level = int(raw_value) if raw_value.isdigit() else None
+        elif key == 'spec':
+            actual_spec = raw_value.strip().lower()
+        elif key in EQUIPMENT_SLOTS or key in EQUIPMENT_SLOT_ALIASES:
+            slots.add(EQUIPMENT_SLOT_ALIASES.get(key, key))
+    if not expected_class or actor != expected_class or actual_spec != expected_spec:
+        raise ValueError('默认玩家装备模板中的职业或专精与模板键不一致')
+    if level != 90:
+        raise ValueError('默认玩家装备模板必须是90级角色')
+    if 'main_hand' not in slots or len(slots) < 15:
+        raise ValueError('默认玩家装备模板必须包含主手及至少15个唯一战斗装备槽位')
+    return baseline
+
+
+def resolve_attribute_player_baseline(spec, player_equipment=''):
+    """Validate an explicit baseline or freeze the active upstream default for ``spec``."""
+    explicit = str(player_equipment or '').strip()
+    if explicit:
+        return validate_player_baseline(explicit)
+
+    from botend.models import SimcContentTemplate
+    spec_value = str(spec or '').strip().lower()
+    class_name, canonical_spec = canonical_simc_spec_identity(spec_value)
+    template_key = f'{class_name}_{canonical_spec}' if class_name else spec_value
+    queryset = SimcContentTemplate.objects.filter(
+        template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+        source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+        is_active=True,
+    )
+    template = queryset.filter(spec=template_key).order_by('id').first()
+    if not template:
+        raise ValueError(f'专精 {spec_value or "未知"} 未配置启用的默认玩家装备模板，无法生成玩家装备基线')
+    try:
+        return validate_default_player_baseline(template_key, template.content)
+    except ValueError as exc:
+        raise ValueError(f'专精 {spec_value or "未知"} 的默认玩家装备模板无效: {exc}') from exc
 
 
 def _item_meta(item_id, snapshots):

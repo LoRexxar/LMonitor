@@ -42,6 +42,34 @@ class SimcTemplateAPIViewTests(TestCase):
         self.assertNotIn('content', payload['templates'][0])
         self.assertNotEqual(apl.id, base.id)
 
+    def test_default_player_templates_are_not_exposed_or_mutable_through_generic_api(self):
+        protected = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury', name='protected', content='secret baseline',
+            is_active=True, is_selectable=False,
+        )
+        attempts = [
+            self.client.get(f'/api/simc-template/?id={protected.id}'),
+            self.client.get('/api/simc-template/?template_type=default_player'),
+            self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
+                'content': 'changed', 'template_type': 'base_template',
+            }), content_type='application/json'),
+            self.client.patch(f'/api/simc-template/?id={protected.id}', data=json.dumps({
+                'is_active': False,
+            }), content_type='application/json'),
+            self.client.post('/api/simc-template/', data=json.dumps({
+                'content': 'forged', 'template_type': 'default_player',
+                'source': 'simc_upstream', 'spec': 'warrior_fury',
+            }), content_type='application/json'),
+        ]
+        for response in attempts:
+            self.assertEqual(response.status_code, 403, response.content)
+            self.assertFalse(response.json()['success'])
+        protected.refresh_from_db()
+        self.assertEqual(protected.content, 'secret baseline')
+        self.assertTrue(protected.is_active)
+
 
 class SimcBackendUpdateSafetyTests(TestCase):
     def test_tracked_source_changes_are_autocommitted_before_rebase_pull(self):
@@ -345,7 +373,7 @@ finger1=,id=299002,ilevel=655
         self.assertIn('requestBody.player_equipment', refresh)
         self.assertIn("document.getElementById('simc-sim-equipment')", refresh)
 
-    def test_regular_attribute_task_rejects_missing_frozen_player_baseline(self):
+    def test_regular_attribute_task_rejects_missing_default_player_template(self):
         response = self.client.post('/api/simc-task/', data=json.dumps({
             'name': 'Fury 属性基准', 'task_type': 1, 'spec': 'fury',
             'player_config_mode': 'attribute_only', 'talent': 'ATTRIBUTE_BUILD',
@@ -355,7 +383,7 @@ finger1=,id=299002,ilevel=655
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()['success'])
-        self.assertIn('玩家装备基线', response.json()['error'])
+        self.assertIn('默认玩家装备模板', response.json()['error'])
         self.assertFalse(SimcTask.objects.exists())
 
     def test_auto_attribute_batch_projects_anchor_direction_to_boundary_instead_of_dropping_it(self):
