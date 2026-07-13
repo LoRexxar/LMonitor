@@ -854,12 +854,54 @@ class SimcMonitor(BaseScan):
             if not name.lower().startswith(ignored) and int(value) > 0
         )
         valid = bool(dps_match and non_auto_dps > 0)
+        declared_action_lists = set(re.findall(
+            r'^\s*Priorities \(actions\.([a-z][a-z0-9_]*)\):\s*$',
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        ))
+        default_priority_match = re.search(
+            r'^\s*Priorities \(actions\.default\):\s*$([\s\S]*?)(?=^\s*Priorities \(actions\.|^\s*Actions:|\Z)',
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        default_priority_text = default_priority_match.group(1) if default_priority_match else ''
+        talent_dispatch_lists = []
+        for action_list, condition in re.findall(
+            r'run_action_list,name=([a-z][a-z0-9_]*),if=([^\n]+)',
+            default_priority_text,
+            flags=re.IGNORECASE,
+        ):
+            if 'talent.' in condition.lower() and action_list.lower() not in talent_dispatch_lists:
+                talent_dispatch_lists.append(action_list.lower())
+        active_talent_dispatch_lists = [
+            name for name in talent_dispatch_lists
+            if name in {value.lower() for value in declared_action_lists}
+        ]
+        unresolved_action_lists = [
+            name for name in talent_dispatch_lists
+            if name not in {value.lower() for value in declared_action_lists}
+        ]
+        failure_type = ''
+        reason = ''
+        if not valid:
+            if talent_dispatch_lists and not active_talent_dispatch_lists:
+                failure_type = 'talent_apl_dispatch'
+                reason = (
+                    'SimC结果语义无效：英雄天赋未进入任何有效 APL 分流；'
+                    '当前天赋码可能与 SimC 天赋树版本不兼容。未激活列表: '
+                    + ', '.join(unresolved_action_lists)
+                )
+            else:
+                failure_type = 'auto_attack_only'
+                reason = 'SimC结果语义无效：只有自动攻击，未执行有效技能循环'
         return {
             'valid': valid,
             'dps': float(dps_match.group(1)) if dps_match else 0.0,
             'non_auto_dps': non_auto_dps,
             'action_row_count': len(action_rows),
-            'reason': '' if valid else 'SimC结果语义无效：只有自动攻击，未执行有效技能循环',
+            'failure_type': failure_type,
+            'unresolved_action_lists': unresolved_action_lists,
+            'reason': reason,
         }
 
     @staticmethod
@@ -1246,19 +1288,42 @@ class SimcMonitor(BaseScan):
         if player_config_mode == 'equipment':
             player_config_mode = 'manual_equipment'
 
-        # Manual exported profiles are also complete SimC player blocks. Remove the
-        # controlled template actor and its player-scoped fields before inserting the
-        # export, otherwise SimC simulates both actors and candidate reports collapse
-        # to the under-equipped template actor.
+        # Manual exports are complete player blocks. Keep the template's runtime/APL
+        # options, but drop only fields owned by its placeholder actor. The previous
+        # implementation sliced everything from the actor through {player_config},
+        # which silently discarded fight_style/max_time/targets, raid buffs and
+        # consumables from the exact file passed to SimC.
         if player_config_mode == 'manual_equipment':
             player_equipment = str(task_config.get('player_equipment', '')).strip()
-            actor_pattern = r'^\s*(?:warrior|paladin|hunter|rogue|priest|deathknight|shaman|mage|warlock|monk|druid|demonhunter|evoker)\s*=.*$'
+            placeholder_count = simc_code.count('{player_config}')
+            if placeholder_count != 1:
+                raise ValueError('手动玩家模板中的 {player_config} 必须恰好一个')
             placeholder_pos = simc_code.find('{player_config}')
-            prefix = simc_code[:placeholder_pos] if placeholder_pos >= 0 else simc_code
-            actor_matches = list(re.finditer(actor_pattern, prefix, flags=re.IGNORECASE | re.MULTILINE))
-            if actor_matches:
-                actor_start = actor_matches[-1].start()
-                simc_code = simc_code[:actor_start] + simc_code[placeholder_pos:] if placeholder_pos >= 0 else simc_code[:actor_start]
+            prefix = simc_code[:placeholder_pos]
+            suffix = simc_code[placeholder_pos + len('{player_config}'):]
+            template_player_field = re.compile(
+                r'^\s*(?:'
+                r'warrior|paladin|hunter|rogue|priest|deathknight|shaman|mage|warlock|monk|druid|demonhunter|evoker|'
+                r'source|spec|level|race|role|position|talents|'
+                r'head|neck|shoulder|shoulders|back|chest|wrist|wrists|hands|waist|legs|feet|finger1|finger2|trinket1|trinket2|main_hand|off_hand|'
+                r'gear_[a-z0-9_]+'
+                r')\s*=',
+                flags=re.IGNORECASE,
+            )
+            retained_prefix = '\n'.join(
+                line for line in prefix.splitlines()
+                if not template_player_field.match(line)
+            ).strip()
+            retained_suffix = '\n'.join(
+                line for line in suffix.splitlines()
+                if not template_player_field.match(line)
+            ).strip()
+            parts = ['{player_config}']
+            if retained_prefix:
+                parts.append(retained_prefix)
+            if retained_suffix:
+                parts.append(retained_suffix)
+            simc_code = '\n'.join(parts)
 
         # ``armory`` is itself a complete SimC player import.  Combining it with a
         # template player declaration (``deathknight=...``) produces two actors:
@@ -1337,7 +1402,7 @@ class SimcMonitor(BaseScan):
 
         text = str(simc_code or '')
         actor_pattern = r'^\s*(?:warrior|paladin|hunter|rogue|priest|deathknight|shaman|mage|warlock|monk|druid|demonhunter|evoker)\s*='
-        equipment_pattern = r'^\s*(?:head|neck|shoulder|back|chest|wrist|hands|waist|legs|feet|finger1|finger2|trinket1|trinket2|main_hand|off_hand)\s*='
+        equipment_pattern = r'^\s*(?:head|neck|shoulder|shoulders|back|chest|wrist|wrists|hands|waist|legs|feet|finger1|finger2|trinket1|trinket2|main_hand|off_hand)\s*='
         return {
             'char_count': len(text),
             'line_count': len(text.splitlines()),

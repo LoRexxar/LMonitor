@@ -455,6 +455,55 @@ finger1=,id=299002,ilevel=655
         self.assertIn('只有自动攻击', stored['simc_error_summary'])
         self.assertEqual(stored['semantic_validation']['valid'], False)
 
+    def test_semantic_validation_identifies_unresolved_talent_apl_dispatch(self):
+        stdout = '''Player: Audit warrior fury 90
+  DPS=2499.2 DPS-Error=20/0.82%
+  Priorities (actions.default):
+    auto_attack/charge,if=time<=0.5
+    run_action_list,name=slayer,if=talent.slayers_dominance&active_enemies=1
+    run_action_list,name=thane,if=talent.lightning_strikes&active_enemies=1
+  Actions:
+    auto_attack_mh Count=48.7 pDPS=1672
+    auto_attack_oh Count=47.5 pDPS=823
+    charge_impact Count=1.0 pDPS=5
+'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout)
+        self.assertFalse(validation['valid'])
+        self.assertEqual(validation['failure_type'], 'talent_apl_dispatch')
+        self.assertEqual(validation['unresolved_action_lists'], ['slayer', 'thane'])
+        self.assertIn('英雄天赋', validation['reason'])
+        self.assertIn('slayer', validation['reason'])
+        self.assertIn('thane', validation['reason'])
+
+    def test_semantic_validation_identifies_single_unresolved_talent_dispatch(self):
+        stdout = '''Player: Audit warrior fury 90
+  DPS=2499.2 DPS-Error=20/0.82%
+  Priorities (actions.default):
+    auto_attack
+    run_action_list,name=hero,if=talent.hero_root
+  Actions:
+    auto_attack_mh Count=48.7 pDPS=1672
+'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout)
+        self.assertEqual(validation['failure_type'], 'talent_apl_dispatch')
+        self.assertEqual(validation['unresolved_action_lists'], ['hero'])
+
+    def test_semantic_validation_does_not_misclassify_when_a_talent_dispatch_is_active(self):
+        stdout = '''Player: Audit warrior fury 90
+  DPS=2499.2 DPS-Error=20/0.82%
+  Priorities (actions.default):
+    auto_attack
+    run_action_list,name=slayer,if=talent.slayers_dominance
+    run_action_list,name=thane,if=talent.lightning_strikes
+  Priorities (actions.slayer):
+    bloodthirst,if=0
+  Actions:
+    auto_attack_mh Count=48.7 pDPS=1672
+'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout)
+        self.assertEqual(validation['failure_type'], 'auto_attack_only')
+        self.assertEqual(validation['unresolved_action_lists'], ['thane'])
+
     def test_semantic_validation_accepts_core_skill_damage(self):
         stdout = '''Player: Audit warrior fury 90
   DPS=62453.0 DPS-Error=150/0.24%
@@ -1355,6 +1404,96 @@ html=simc_task_99.html
         self.assertEqual(rendered.count('\nspec=fury'), 1)
         self.assertEqual(rendered.count('\ntalents=CANDIDATE'), 1)
         self.assertNotIn('talents=TEMPLATE', rendered)
+
+    def test_apply_template_manual_equipment_preserves_template_runtime_options(self):
+        monitor = object.__new__(SimcMonitor)
+        template = '\n'.join([
+            'warrior="LMonitor_Base"',
+            'spec={spec}',
+            'fight_style={fight_style}',
+            'max_time={time}',
+            'desired_targets={target_count}',
+            'optimal_raid=0',
+            'override.battle_shout=1',
+            'potion=tempered_potion_3',
+            'shoulders=TEMPLATE_SHOULDERS,id=1',
+            'wrists=TEMPLATE_WRISTS,id=2',
+            '{player_config}',
+            '{action_list}',
+        ])
+        player = '\n'.join([
+            'warrior="Real_Player"',
+            'spec=fury',
+            'talents=CANDIDATE',
+            'head=,id=212048',
+            'shoulders=,id=212050',
+            'wrists=,id=211999',
+            'main_hand=,id=224638',
+        ])
+
+        rendered = monitor.apply_template(template, {
+            'spec': 'fury', 'talent': 'CANDIDATE',
+            'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
+            'player_import_mode': 'manual_equipment',
+            'player_equipment': player,
+            'override_action_list': 'actions=auto_attack',
+        })
+
+        self.assertEqual(rendered.count('warrior="Real_Player"'), 1)
+        self.assertNotIn('warrior="LMonitor_Base"', rendered)
+        self.assertIn('fight_style=Patchwerk', rendered)
+        self.assertIn('max_time=300', rendered)
+        self.assertIn('desired_targets=1', rendered)
+        self.assertIn('optimal_raid=0', rendered)
+        self.assertIn('override.battle_shout=1', rendered)
+        self.assertIn('potion=tempered_potion_3', rendered)
+        self.assertNotIn('TEMPLATE_SHOULDERS', rendered)
+        self.assertNotIn('TEMPLATE_WRISTS', rendered)
+        self.assertEqual(rendered.count('shoulders=,id=212050'), 1)
+        self.assertEqual(rendered.count('wrists=,id=211999'), 1)
+
+    def test_apply_template_manual_equipment_removes_template_player_fields_after_placeholder(self):
+        monitor = object.__new__(SimcMonitor)
+        template = '\n'.join([
+            '{player_config}',
+            'spec={spec}',
+            'talents=TEMPLATE',
+            'shoulders=TEMPLATE_SHOULDERS',
+            'fight_style={fight_style}',
+            '{action_list}',
+            'html={result_file}',
+        ])
+        rendered = monitor.apply_template(template, {
+            'spec': 'fury',
+            'fight_style': 'Patchwerk',
+            'player_import_mode': 'manual_equipment',
+            'player_equipment': '\n'.join([
+                'warrior="Real_Player"',
+                'spec=fury',
+                'talents=CANDIDATE',
+                'shoulders=,id=212050',
+            ]),
+            'override_action_list': 'actions=auto_attack',
+            'result_file': 'simc_task_101.html',
+        })
+        self.assertNotIn('talents=TEMPLATE', rendered)
+        self.assertNotIn('TEMPLATE_SHOULDERS', rendered)
+        self.assertEqual(rendered.count('\nspec=fury'), 1)
+        self.assertIn('fight_style=Patchwerk', rendered)
+
+    def test_apply_template_manual_equipment_requires_exactly_one_player_placeholder(self):
+        monitor = object.__new__(SimcMonitor)
+        config = {
+            'spec': 'fury',
+            'player_import_mode': 'manual_equipment',
+            'player_equipment': 'warrior="Real_Player"\nspec=fury\ntalents=CANDIDATE',
+            'override_action_list': 'actions=auto_attack',
+        }
+
+        with self.assertRaisesRegex(ValueError, 'player_config.*恰好一个'):
+            monitor.apply_template('warrior="Template"\nspec={spec}\n{action_list}', config)
+        with self.assertRaisesRegex(ValueError, 'player_config.*恰好一个'):
+            monitor.apply_template('{player_config}\n{player_config}\n{action_list}', config)
 
     def test_apply_template_inserts_manual_equipment_player_block(self):
         from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
