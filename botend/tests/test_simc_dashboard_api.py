@@ -8,8 +8,54 @@ from django.test import Client, TestCase
 
 from botend.dashboard.api import SimcBatchTaskAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, inspect_raw_simc_code
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.services.simc_player_config import parse_manual_player_config, parse_manual_simc_candidates
 from botend.models import SimcContentTemplate, SimcProfile, SimcTask, WowItemSnapshot
+
+
+class SimcBackendUpdateSafetyTests(TestCase):
+    def test_tracked_source_changes_are_autocommitted_before_rebase_pull(self):
+        command = UpdateSimcBinaryCommand()
+        command.simc_source_dir = '/srv/simc'
+        command._run = __import__('unittest').mock.Mock()
+
+        with patch('botend.management.commands.update_simc_binary.subprocess.run') as run:
+            run.return_value = SimpleNamespace(returncode=0, stdout=' M tracked.simc\n', stderr='')
+            command._preserve_tracked_changes_before_pull()
+
+        self.assertEqual(
+            command._run.call_args_list,
+            [
+                __import__('unittest').mock.call(
+                    ['git', 'add', '-u'], cwd='/srv/simc', timeout=30,
+                    status='保存本地 SimC 源码改动', progress=8,
+                ),
+                __import__('unittest').mock.call(
+                    ['git', 'commit', '-m', __import__('unittest').mock.ANY], cwd='/srv/simc', timeout=60,
+                    status='提交本地 SimC 源码改动', progress=9,
+                ),
+            ],
+        )
+        commit_message = command._run.call_args_list[1].args[0][-1]
+        self.assertIn('auto-save local changes before upstream sync', commit_message)
+
+    def test_auto_update_failure_keeps_usable_binary_available_for_tasks(self):
+        monitor = SimcMonitor(None, None)
+        row = SimpleNamespace(simc_path=monitor.simc_path, auto_update=True, last_checked_at=None, is_updating=False)
+
+        with patch.object(monitor, '_get_backend_row', return_value=row), \
+             patch.object(monitor, '_validate_local_simc_binary', side_effect=[(True, ''), (True, '')]), \
+             patch.object(monitor, '_get_git_hash', return_value='old123'), \
+             patch.object(monitor, '_get_git_upstream_hash', return_value='new456'), \
+             patch('django.core.management.call_command', side_effect=RuntimeError('compile failed')), \
+             patch.object(monitor, '_set_update_status') as set_status, \
+             patch('botend.controller.plugins.simc.SimcMonitor.upsert_system_alert'):
+            self.assertTrue(monitor.ensure_local_simc_backend_current())
+
+        self.assertTrue(any(
+            kwargs.get('status') == '自动更新失败，继续使用现有 SimC 二进制'
+            for _, kwargs in set_status.call_args_list
+        ))
 
 
 class SimcRawInspectTests(TestCase):

@@ -196,10 +196,24 @@ class SimcMonitor(BaseScan):
                 return True
             except Exception as e:
                 err = str(e)
+                if ok:
+                    self._set_update_status(
+                        row,
+                        status='自动更新失败，继续使用现有 SimC 二进制',
+                        progress=100,
+                        is_updating=False,
+                        last_error=err,
+                    )
+                    upsert_system_alert(
+                        'SIMC_UPDATE_FAILED', self._get_runtime_platform(), 3,
+                        'SimC 自动更新失败，已回退到现有二进制', err,
+                    )
+                    logger.error(f"[SimC Monitor] Auto update failed; keeping usable local SimC binary: {err}")
+                    return True
                 self._set_update_status(row, status='自动编译失败', progress=0, is_updating=False, last_error=err)
                 upsert_system_alert('SIMC_UPDATE_FAILED', self._get_runtime_platform(), 3, 'SimC 自动更新失败', err)
                 logger.error(f"[SimC Monitor] Auto update local SimC backend failed: {err}")
-                return ok
+                return False
 
         status = f'本地 SimC 已是最新 {current_hash}' if current_hash else '本地 SimC 可用'
         self._set_update_status(row, status=status, progress=100, is_updating=False, latest_version=latest_version, current_version=current_hash or row.current_version, last_error='')

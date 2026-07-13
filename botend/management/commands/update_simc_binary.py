@@ -3,7 +3,7 @@
 """
 管理命令：编译/更新服务器端 SimC 二进制
 用法：
-  python manage.py update_simc_binary                 # git pull + 编译
+  python manage.py update_simc_binary                 # 自动保存 tracked 改动 + git pull --rebase + 编译
   python manage.py update_simc_binary --no-pull       # 仅编译（不拉代码）
   python manage.py update_simc_binary --check         # 仅检查版本
   python manage.py update_simc_binary --threads 1     # 降低编译并行度
@@ -11,6 +11,7 @@
 import os
 import re
 import subprocess
+from datetime import datetime, timezone as datetime_timezone
 
 from django.conf import settings
 from django.core.management import call_command
@@ -176,6 +177,55 @@ class Command(BaseCommand):
         self._sync_default_template()
         self._sync_default_apl()
 
+    def _preserve_tracked_changes_before_pull(self):
+        """Commit tracked source edits only; leave generated and credential files untracked."""
+        try:
+            result = subprocess.run(
+                ['git', 'status', '--porcelain', '--untracked-files=no'],
+                cwd=self.simc_source_dir,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except Exception as exc:
+            self._fail('检查本地 SimC 源码改动失败', str(exc), progress=7)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or '').strip()
+            self._fail('检查本地 SimC 源码改动失败', detail or 'git status 失败', progress=7)
+        if not (result.stdout or '').strip():
+            return False
+
+        timestamp = datetime.now(datetime_timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        self._run(
+            ['git', 'add', '-u'], cwd=self.simc_source_dir, timeout=30,
+            status='保存本地 SimC 源码改动', progress=8,
+        )
+        self._run(
+            ['git', 'commit', '-m', f'auto-save local changes before upstream sync ({timestamp})'],
+            cwd=self.simc_source_dir, timeout=60,
+            status='提交本地 SimC 源码改动', progress=9,
+        )
+        return True
+
+    def _pull_rebase(self):
+        self._set_status(progress=10, status='拉取 SimC 源码', error='', updating=True)
+        self.stdout.write('拉取 SimC 源码')
+        try:
+            result = subprocess.run(
+                ['git', 'pull', '--rebase'], cwd=self.simc_source_dir,
+                capture_output=True, text=True, timeout=120,
+            )
+        except subprocess.TimeoutExpired as exc:
+            self._fail('拉取 SimC 源码超时', f'拉取 SimC 源码超时: {exc}', progress=10)
+        except Exception as exc:
+            self._fail('拉取 SimC 源码失败', f'拉取 SimC 源码失败: {exc}', progress=10)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or '').strip()[-1000:]
+            if 'CONFLICT' in detail or 'could not apply' in detail:
+                detail = f'{detail}\n本地自动保存提交未丢失；请在 {self.simc_source_dir} 解决冲突后执行 git rebase --continue，或执行 git rebase --abort。'
+            self._fail('拉取 SimC 源码失败', detail or 'git pull --rebase 失败', progress=10)
+        return result
+
     def _update_binary(self, do_pull=True, threads=2):
         self._set_status(progress=1, status='准备更新 SimC', error='', updating=True)
         try:
@@ -183,7 +233,8 @@ class Command(BaseCommand):
                 self._fail('源码目录不存在', f'SimC 源码目录不存在: {self.simc_source_dir}', progress=0)
 
             if do_pull:
-                result = self._run(['git', 'pull'], cwd=self.simc_source_dir, timeout=120, status='拉取 SimC 源码', progress=10)
+                self._preserve_tracked_changes_before_pull()
+                result = self._pull_rebase()
                 self.stdout.write((result.stdout or '').strip())
 
             version = self._get_git_version()
