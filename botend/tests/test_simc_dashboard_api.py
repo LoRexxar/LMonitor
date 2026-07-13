@@ -1389,17 +1389,22 @@ html=simc_task_99.html
         self.assertIn('armory=eu,Kazzak,Bloodmastêr', rendered)
         self.assertIn('actions=auto_attack', rendered)
 
-    def test_apply_template_battlenet_places_armory_before_player_scoped_options(self):
+    def test_apply_template_battlenet_does_not_override_imported_player(self):
         monitor = object.__new__(SimcMonitor)
         template = '\n'.join([
             'deathknight="LMonitor_Base"',
             'source=default',
             'spec={spec}',
             'level=80',
+            'race=mechagnome',
             'role=attack',
+            'position=back',
             'fight_style={fight_style}',
             'max_time={time}',
+            'desired_targets={target_count}',
+            'talents={talent}',
             'potion=tempered_potion_3',
+            'gear_crit_rating={gear_crit}',
             '{player_config}',
             '{action_list}',
         ])
@@ -1412,16 +1417,20 @@ html=simc_task_99.html
             'spec': 'blood',
             'fight_style': 'Patchwerk',
             'time': 300,
+            'target_count': 1,
             'override_action_list': 'actions=auto_attack',
         })
 
-        armory_pos = rendered.index('armory=eu,Kazzak,Bloodmastêr')
-        self.assertLess(armory_pos, rendered.index('source=default'))
-        self.assertLess(armory_pos, rendered.index('level=80'))
-        self.assertLess(armory_pos, rendered.index('role=attack'))
-        self.assertLess(armory_pos, rendered.index('potion=tempered_potion_3'))
+        self.assertIn('armory=eu,Kazzak,Bloodmastêr', rendered)
         self.assertIn('fight_style=Patchwerk', rendered)
         self.assertIn('max_time=300', rendered)
+        self.assertIn('desired_targets=1', rendered)
+        self.assertIn('actions=auto_attack', rendered)
+        for player_option in (
+            'deathknight=', 'source=', 'spec=', 'level=', 'race=', 'role=',
+            'position=', 'talents=', 'potion=', 'gear_crit_rating=',
+        ):
+            self.assertNotIn(player_option, rendered)
 
     def test_apply_template_manual_equipment_replaces_template_actor_instead_of_creating_two_players(self):
         monitor = object.__new__(SimcMonitor)

@@ -1325,18 +1325,25 @@ class SimcMonitor(BaseScan):
                 parts.append(retained_suffix)
             simc_code = '\n'.join(parts)
 
-        # ``armory`` is itself a complete SimC player import.  Combining it with a
-        # template player declaration (``deathknight=...``) produces two actors:
-        # the template actor has no weapon and makes a valid Armory import fail.
-        # Remove any declaration owned by the selected base template only in this
-        # mode; manual equipment and attribute-only modes still use that template
-        # actor as their controlled baseline.
+        # ``armory`` is itself a complete SimC player import. Combining it with any
+        # template-owned player option silently overrides the live character (for
+        # example level=80 or an empty talents= after a level-90 Armory import).
+        # Keep only global runtime options and the selected APL from the template.
         if player_config_mode == 'battlenet':
-            simc_code = re.sub(
-                r'^\s*(?:warrior|paladin|hunter|rogue|priest|deathknight|shaman|mage|warlock|monk|druid|demonhunter|evoker)\s*=.*(?:\n|$)',
-                '', simc_code, count=1, flags=re.IGNORECASE | re.MULTILINE,
+            battlenet_player_field = re.compile(
+                r'^\s*(?:'
+                r'warrior|paladin|hunter|rogue|priest|deathknight|shaman|mage|warlock|monk|druid|demonhunter|evoker|'
+                r'source|spec|level|race|role|position|talents|'
+                r'potion|flask|food|augmentation|temporary_enchant|'
+                r'head|neck|shoulder|shoulders|back|chest|wrist|wrists|hands|waist|legs|feet|finger1|finger2|trinket1|trinket2|main_hand|off_hand|'
+                r'gear_[a-z0-9_]+'
+                r')\s*=',
+                flags=re.IGNORECASE,
             )
-            simc_code = re.sub(r'^\s*spec\s*=.*(?:\n|$)', '', simc_code, count=1, flags=re.IGNORECASE | re.MULTILINE)
+            simc_code = '\n'.join(
+                line for line in simc_code.splitlines()
+                if not battlenet_player_field.match(line)
+            )
 
         if player_config_mode == 'battlenet':
             region = str(task_config.get('battlenet_region', '')).strip().lower()
