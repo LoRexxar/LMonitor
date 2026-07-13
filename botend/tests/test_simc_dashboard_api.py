@@ -374,6 +374,49 @@ finger1=,id=299002,ilevel=655
         self.assertEqual(SimcBatchTaskAPIView._parse_manifest_round({'candidate': {'round': 'bad'}}), 1)
         self.assertEqual(SimcBatchTaskAPIView._parse_manifest_round({'candidate': {'round': 3}}), 3)
 
+    def test_candidate_comparison_ui_allows_independent_trinket_gear_and_talent_selection(self):
+        """候选入口按变更维度分批，不能把饰品、其他装备和天赋混成同一排名。"""
+        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        ui_start = main_js.index('function renderSimcComparisonCandidates(comparison)')
+        ui_end = main_js.index('async function preflightSimcBattlenet()', ui_start)
+        candidate_ui = main_js[ui_start:ui_end]
+
+        self.assertIn('simc-comparison-kind="trinket_candidates"', candidate_ui)
+        self.assertIn('simc-comparison-kind="gear_candidates"', candidate_ui)
+        self.assertIn('simc-comparison-kind="talent_candidates"', candidate_ui)
+        self.assertIn('startSelectedSimcCandidateComparisons', candidate_ui)
+        self.assertIn("kind === 'trinket_candidates'", candidate_ui)
+        self.assertIn("kind === 'gear_candidates'", candidate_ui)
+        self.assertIn('for (const kind of selectedKinds)', candidate_ui)
+        self.assertIn("kind: requestKind", candidate_ui)
+        self.assertIn("category: kind", candidate_ui)
+        self.assertIn('const completed = await pollSimcCandidateComparison', candidate_ui)
+        self.assertIn('if (!completed) return;', candidate_ui)
+        self.assertIn('completed = true;', candidate_ui)
+        self.assertIn('resolve(completed);', candidate_ui)
+
+    def test_batch_marks_trinket_category_without_changing_gear_candidate_validation(self):
+        base = {
+            'name': 'Trinket compare', 'spec': 'fury', 'player_config_mode': 'manual_equipment',
+            'player_equipment': '''warrior="Batcher"
+spec=fury
+talents=BASE
+trinket1=,id=212048
+### Gear from Bags
+# Alternate trinket (650)
+trinket1=,id=299001,ilevel=650
+''',
+        }
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            **base, 'kind': 'gear_candidates', 'category': 'trinket_candidates',
+            'candidates': [{'slot': 'trinket1', 'item_id': 299001, 'source': 'bags'}],
+        }), content_type='application/json')
+
+        self.assertTrue(response.json()['success'], response.json())
+        manifests = [json.loads(task.ext)['batch_compare'] for task in SimcTask.objects.order_by('id')]
+        self.assertEqual({manifest['kind'] for manifest in manifests}, {'gear_candidates'})
+        self.assertEqual({manifest['category'] for manifest in manifests}, {'trinket_candidates'})
+
     def test_batch_rejects_unsupported_source_and_oversized_candidate_selection(self):
         base = {'name': 'Manual candidate compare', 'spec': 'fury', 'player_config_mode': 'manual_equipment',
                 'player_equipment': 'warrior="Batcher"\nspec=fury\ntalents=BASE\nhead=,id=212048'}

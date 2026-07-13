@@ -1510,11 +1510,18 @@ class SimcBatchTaskAPIView(View):
                 return JsonResponse({'success': True, 'data': self._continue_attribute_search(request, data, continue_batch_id)})
 
             kind = str(data.get('kind') or '').strip()
+            category = str(data.get('category') or '').strip()
             spec = str(data.get('spec') or '').strip().lower()
             mode = str(data.get('player_config_mode') or data.get('player_import_mode') or '').strip()
             name = str(data.get('name') or '').strip()
             if kind not in ('attribute_variants', 'gear_candidates', 'talent_candidates'):
                 raise ValueError('不支持的批次类型')
+            if category and category not in ('trinket_candidates', 'gear_candidates', 'talent_candidates'):
+                raise ValueError('不支持的候选类别')
+            if category == 'trinket_candidates' and kind != 'gear_candidates':
+                raise ValueError('饰品候选必须使用装备候选批次')
+            if category in ('gear_candidates', 'talent_candidates') and category != kind:
+                raise ValueError('候选类别与批次类型不匹配')
             if not name or not spec:
                 raise ValueError('任务名称和专精不能为空')
             if mode not in ('attribute_only', 'manual_equipment'):
@@ -1607,7 +1614,7 @@ class SimcBatchTaskAPIView(View):
             created = []
             with transaction.atomic():
                 for index, item in enumerate(specs):
-                    task_ext = {'batch_compare': {'version': 2 if kind == 'attribute_variants' else 1, 'batch_id': batch_id, 'kind': kind, 'index': index, 'label': item['label'], 'is_base': item['is_base'], 'candidate': item['candidate']}}
+                    task_ext = {'batch_compare': {'version': 2 if kind == 'attribute_variants' else 1, 'batch_id': batch_id, 'kind': kind, 'category': category or kind, 'index': index, 'label': item['label'], 'is_base': item['is_base'], 'candidate': item['candidate']}}
                     kwargs = {'task_type': 1, 'ext': task_ext, 'fight_style': fight_style, 'time': fight_time, 'target_count': target_count, 'player_config_mode': mode, 'spec': spec, 'talent': item.get('talent', str(data.get('talent') or '')), 'selected_apl_id': selected_apl_id}
                     if mode == 'attribute_only':
                         kwargs['gear_strength'] = self._int(data.get('gear_strength', 0), '主属性')

@@ -2711,78 +2711,108 @@ function renderSimcComparisonCandidates(comparison) {
     const container = document.getElementById('simc-sim-comparison-candidates');
     if (!container) return;
     const gear = Array.isArray(comparison.gear) ? comparison.gear : [];
+    const trinkets = gear.filter(row => ['trinket1', 'trinket2'].includes(String(row.slot || '').toLowerCase()));
+    const otherGear = gear.filter(row => !['trinket1', 'trinket2'].includes(String(row.slot || '').toLowerCase()));
     const talents = Array.isArray(comparison.talents) ? comparison.talents : [];
     if (!gear.length && !talents.length) { container.classList.add('hidden'); container.innerHTML = ''; return; }
     const max = Math.max(1, Number(comparison.max_selectable || 7));
     const esc = value => escapeHtml(String(value == null ? '' : value));
-    const gearRows = gear.map((row, index) => `<label class="flex gap-2 items-start text-xs rounded border border-gray-200 bg-white p-2"><input class="simc-comparison-gear mt-0.5" type="checkbox" data-slot="${esc(row.slot)}" data-item-id="${esc(row.item_id)}" data-source="${esc(row.source)}"><span><b>${esc(row.name || `${row.slot} #${row.item_id}`)}</b><span class="block text-gray-500">${esc(row.slot)} · #${esc(row.item_id)} · ${esc(row.source)}</span></span></label>`).join('');
+    const gearRows = (rows, cssClass) => rows.map(row => `<label class="flex gap-2 items-start text-xs rounded border border-gray-200 bg-white p-2"><input class="${cssClass} mt-0.5" type="checkbox" data-slot="${esc(row.slot)}" data-item-id="${esc(row.item_id)}" data-source="${esc(row.source)}"><span><b>${esc(row.name || `${row.slot} #${row.item_id}`)}</b><span class="block text-gray-500">${esc(row.slot)} · #${esc(row.item_id)} · ${esc(row.source)}</span></span></label>`).join('');
     const talentRows = talents.map(row => `<label class="flex gap-2 items-start text-xs rounded border border-gray-200 bg-white p-2"><input class="simc-comparison-talent mt-0.5" type="checkbox" data-talent="${esc(row.talent)}"><span><b>${esc(row.name || '候选天赋')}</b><span class="block font-mono break-all text-gray-500">${esc(row.talent)}</span></span></label>`).join('');
+    const categoryHeader = kind => ({
+        trinket_candidates: '<div class="flex items-center gap-2"><input id="simc-comparison-kind-trinket_candidates" type="checkbox" class="simc-comparison-kind-toggle" data-simc-comparison-kind="trinket_candidates"><label for="simc-comparison-kind-trinket_candidates" class="text-xs font-semibold text-gray-700">饰品候选</label></div>',
+        gear_candidates: '<div class="flex items-center gap-2"><input id="simc-comparison-kind-gear_candidates" type="checkbox" class="simc-comparison-kind-toggle" data-simc-comparison-kind="gear_candidates"><label for="simc-comparison-kind-gear_candidates" class="text-xs font-semibold text-gray-700">其他装备候选</label></div>',
+        talent_candidates: '<div class="flex items-center gap-2"><input id="simc-comparison-kind-talent_candidates" type="checkbox" class="simc-comparison-kind-toggle" data-simc-comparison-kind="talent_candidates"><label for="simc-comparison-kind-talent_candidates" class="text-xs font-semibold text-gray-700">天赋候选</label></div>',
+    })[kind] || '';
     container.classList.remove('hidden');
-    container.innerHTML = `<div class="font-semibold text-gray-800"><i class="fas fa-code-branch text-indigo-600 mr-1"></i>多方案对比</div><p class="text-xs text-gray-500 mt-1">候选由当前手动玩家块解析；每组可选最多 ${max} 个，含基准最多 ${max + 1} 个方案。</p>${gear.length ? `<div class="mt-3"><div class="flex items-center justify-between gap-2"><b class="text-xs text-gray-700">装备 / 饰品候选</b><button type="button" data-simc-comparison-kind="gear_candidates" class="simc-comparison-submit px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs">对比已选装备</button></div><div class="grid gap-2 mt-2">${gearRows}</div></div>` : ''}${talents.length ? `<div class="mt-3"><div class="flex items-center justify-between gap-2"><b class="text-xs text-gray-700">天赋构筑候选</b><button type="button" data-simc-comparison-kind="talent_candidates" class="simc-comparison-submit px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs">对比已选天赋</button></div><div class="grid gap-2 mt-2">${talentRows}</div></div>` : ''}`;
-    container.querySelectorAll('.simc-comparison-submit').forEach(button => button.addEventListener('click', () => startSimcCandidateComparison(button.dataset.simcComparisonKind, max)));
+    container.innerHTML = `<div class="font-semibold text-gray-800"><i class="fas fa-code-branch text-indigo-600 mr-1"></i>多方案对比</div><p class="text-xs text-gray-500 mt-1">候选仅来自当前已加载的手动玩家块；勾选类别后会各自创建独立批次和排名，不会混合饰品、其他装备与天赋。</p>${trinkets.length ? `<div class="mt-3">${categoryHeader('trinket_candidates')}<div class="grid gap-2 mt-2">${gearRows(trinkets, 'simc-comparison-trinket')}</div></div>` : ''}${otherGear.length ? `<div class="mt-3">${categoryHeader('gear_candidates')}<div class="grid gap-2 mt-2">${gearRows(otherGear, 'simc-comparison-gear')}</div></div>` : ''}${talents.length ? `<div class="mt-3">${categoryHeader('talent_candidates')}<div class="grid gap-2 mt-2">${talentRows}</div></div>` : ''}<div class="mt-3 flex items-center justify-between gap-2"><span class="text-xs text-gray-500">每个类别最多 ${max} 个候选（含基准最多 ${max + 1} 个方案）。</span><button type="button" class="simc-comparison-submit px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs">对比已勾选类别</button></div>`;
+    container.querySelector('.simc-comparison-submit')?.addEventListener('click', () => startSelectedSimcCandidateComparisons(max));
 }
 
-async function startSimcCandidateComparison(kind, maxSelectable) {
-    const input = document.getElementById('simc-sim-equipment');
+function getSelectedSimcComparisonCandidates(kind) {
+    if (kind === 'trinket_candidates') return Array.from(document.querySelectorAll('.simc-comparison-trinket:checked')).map(el => ({ slot: el.dataset.slot, item_id: Number(el.dataset.itemId), source: el.dataset.source }));
+    if (kind === 'gear_candidates') return Array.from(document.querySelectorAll('.simc-comparison-gear:checked')).map(el => ({ slot: el.dataset.slot, item_id: Number(el.dataset.itemId), source: el.dataset.source }));
+    return Array.from(document.querySelectorAll('.simc-comparison-talent:checked')).map(el => ({ talent: el.dataset.talent }));
+}
+
+async function startSelectedSimcCandidateComparisons(maxSelectable) {
     const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
-    const playerEquipment = (input?.value || '').trim();
-    const selected = kind === 'gear_candidates'
-        ? Array.from(document.querySelectorAll('.simc-comparison-gear:checked')).map(el => ({ slot: el.dataset.slot, item_id: Number(el.dataset.itemId), source: el.dataset.source }))
-        : Array.from(document.querySelectorAll('.simc-comparison-talent:checked')).map(el => ({ talent: el.dataset.talent }));
+    const playerEquipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
+    const selectedKinds = Array.from(document.querySelectorAll('.simc-comparison-kind-toggle:checked')).map(el => el.dataset.simcComparisonKind);
     if (!spec || !playerEquipment) { showMessage('请先选择专精并填写手动装备玩家块', 'warning'); return; }
-    if (!selected.length) { showMessage('请至少选择一个候选方案', 'warning'); return; }
-    if (selected.length > maxSelectable) { showMessage(`每组最多选择 ${maxSelectable} 个候选（含基准最多 ${maxSelectable + 1} 个方案）`, 'warning'); return; }
-    const button = document.querySelector(`[data-simc-comparison-kind="${kind}"]`);
+    if (!selectedKinds.length) { showMessage('请至少勾选一个候选类别', 'warning'); return; }
+    const selections = Object.fromEntries(selectedKinds.map(kind => [kind, getSelectedSimcComparisonCandidates(kind)]));
+    const emptyKind = selectedKinds.find(kind => !selections[kind].length);
+    if (emptyKind) { showMessage('已勾选的类别请至少选择一个候选方案', 'warning'); return; }
+    const oversizedKind = selectedKinds.find(kind => selections[kind].length > maxSelectable);
+    if (oversizedKind) { showMessage(`每个类别最多选择 ${maxSelectable} 个候选（含基准最多 ${maxSelectable + 1} 个方案）`, 'warning'); return; }
+    const button = document.querySelector('.simc-comparison-submit');
     const old = button?.innerHTML;
     try {
-        if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>创建中…'; }
+        if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>创建批次中…'; }
         const apl = document.querySelector('input[name="simc-sim-apl"]:checked');
-        const response = await fetch('/api/simc-task/batch/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ kind, name: `${spec} ${kind === 'gear_candidates' ? '装备候选对比' : '天赋候选对比'}`, spec, player_config_mode: 'manual_equipment', player_equipment: playerEquipment, candidates: selected, fight_style: (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk', time: parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300, target_count: parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1, selected_apl_id: apl?.value ? parseInt(apl.value, 10) : undefined }) });
-        const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较批次失败');
-        showMessage(`已创建 ${payload.data.accepted} 个比较任务（含基准），正在等待模拟完成…`, 'success');
-        fetchSimcTaskData(); switchSimcWorkbenchTab('tasks');
-        pollSimcCandidateComparison(payload.data.batch_id, kind, button, old);
-        return;
+        // 类别按用户勾选顺序串行：前一个批次创建/运行失败时，不再继续创建后续类别，
+        // 避免产生用户不会再查看的孤立任务。
+        const batches = [];
+        for (const kind of selectedKinds) {
+            const requestKind = kind === 'trinket_candidates' ? 'gear_candidates' : kind;
+            const response = await fetch('/api/simc-task/batch/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ kind: requestKind, category: kind, name: `${spec} ${kind === 'trinket_candidates' ? '饰品' : kind === 'gear_candidates' ? '其他装备' : '天赋'}候选对比`, spec, player_config_mode: 'manual_equipment', player_equipment: playerEquipment, candidates: selections[kind], fight_style: (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk', time: parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300, target_count: parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1, selected_apl_id: apl?.value ? parseInt(apl.value, 10) : undefined }) });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较批次失败');
+            const batch = { batchId: payload.data.batch_id, kind, accepted: payload.data.accepted };
+            batches.push(batch);
+            showMessage(`已创建 ${kind} 独立比较批次，正在等待模拟完成…`, 'success');
+            fetchSimcTaskData(); switchSimcWorkbenchTab('tasks');
+            const completed = await pollSimcCandidateComparison(batch.batchId, batch.kind, button, old);
+            if (!completed) return;
+        }
+        showMessage(`已完成 ${batches.length} 个已勾选类别的独立比较`, 'success');
     } catch (error) { showMessage('创建多方案对比失败：' + String(error.message || error), 'error'); }
-    finally { if (button && !button.dataset.simcPolling) { button.disabled = false; button.innerHTML = old; } }
+    finally { if (button) { button.disabled = false; button.innerHTML = old; } }
 }
 
 function pollSimcCandidateComparison(batchId, kind, button, oldLabel) {
-    if (!batchId) return;
+    if (!batchId) return Promise.resolve();
     if (button) { button.dataset.simcPolling = '1'; button.disabled = true; }
-    const poll = async () => {
-        let waitForNextPoll = false;
-        try {
-            const response = await fetch('/api/simc-regular-compare/?batch_id=' + encodeURIComponent(batchId));
-            const payload = await response.json();
-            if (!response.ok || !payload.success) throw new Error(payload.error || '获取候选对比进度失败');
-            const batch = payload.data.batch || {};
-            const status = batch.current_round_status || batch;
-            const done = Number(status.succeeded || 0);
-            const total = Number(batch.current_round_total || batch.total || 0);
-            if (button) button.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>模拟中 ${done}/${total}`;
-            if (status.failed) throw new Error(`有 ${status.failed} 个候选模拟失败，未生成比较报告`);
-            if (status.pending || status.running) {
-                waitForNextPoll = true;
-                setTimeout(poll, 5000);
-                return;
+    return new Promise(resolve => {
+        let completed = false;
+        const poll = async () => {
+            let waitForNextPoll = false;
+            try {
+                const response = await fetch('/api/simc-regular-compare/?batch_id=' + encodeURIComponent(batchId));
+                const payload = await response.json();
+                if (!response.ok || !payload.success) throw new Error(payload.error || '获取候选对比进度失败');
+                const batch = payload.data.batch || {};
+                const status = batch.current_round_status || batch;
+                const done = Number(status.succeeded || 0);
+                const total = Number(batch.current_round_total || batch.total || 0);
+                if (button) button.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>${kind} 模拟中 ${done}/${total}`;
+                if (status.failed) throw new Error(`有 ${status.failed} 个候选模拟失败，未生成比较报告`);
+                if (status.pending || status.running) {
+                    waitForNextPoll = true;
+                    setTimeout(poll, 5000);
+                    return;
+                }
+                const reportUrl = '/simc-regular-compare/?batch_id=' + encodeURIComponent(batchId);
+                showMessage(`${kind} 候选对比已完成，正在打开完整比较报告`, 'success');
+                fetchSimcTaskData();
+                window.open(reportUrl, '_blank');
+                completed = true;
+            } catch (error) {
+                showMessage('候选对比已停止：' + String(error.message || error), 'error');
+            } finally {
+                if (!waitForNextPoll) {
+                    if (button && button.dataset.simcPolling) {
+                        delete button.dataset.simcPolling;
+                        button.disabled = false;
+                        button.innerHTML = oldLabel;
+                    }
+                    resolve(completed);
+                }
             }
-            const reportUrl = '/simc-regular-compare/?batch_id=' + encodeURIComponent(batchId);
-            showMessage('候选对比已完成，正在打开完整比较报告', 'success');
-            fetchSimcTaskData();
-            window.open(reportUrl, '_blank');
-        } catch (error) {
-            showMessage('候选对比已停止：' + String(error.message || error), 'error');
-        } finally {
-            if (button && button.dataset.simcPolling && !waitForNextPoll) {
-                delete button.dataset.simcPolling;
-                button.disabled = false;
-                button.innerHTML = oldLabel;
-            }
-        }
-    };
-    poll();
+        };
+        poll();
+    });
 }
 
 async function preflightSimcBattlenet() {
