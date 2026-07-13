@@ -7787,7 +7787,9 @@ async function openEditSimcTaskModal(task) {
     document.getElementById('edit-simc-task-raw-code').value = '';
 
     // 任务运行 manifest 不可被旧编辑器覆盖；仅允许改名称，重跑走独立操作。
-    const controls = modal.querySelectorAll('select, textarea, input:not(#edit-simc-task-name)');
+    const controls = modal.querySelectorAll(
+        'select, textarea, input:not(#edit-simc-task-name):not(#edit-simc-task-id)'
+    );
     controls.forEach(control => { control.disabled = isManifestTask; });
     if (isManifestTask) {
         showMessage('该任务使用已固化的运行配置；编辑仅可修改名称，重跑请使用任务列表中的“重跑”。', 'info');
