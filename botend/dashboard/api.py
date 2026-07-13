@@ -3950,11 +3950,38 @@ class SimcRegularCompareAPIView(View):
                 if not batch_tasks:
                     return JsonResponse({'success': False, 'error': '比较批次不存在或无权限访问'})
                 status_counts = {'pending': 0, 'running': 0, 'succeeded': 0, 'failed': 0}
+                invalid = []
                 rows = []
                 for task, manifest in batch_tasks:
                     status_key = {0: 'pending', 1: 'running', 2: 'succeeded', 3: 'failed'}.get(task.current_status, 'failed')
                     status_counts[status_key] += 1
-                    rows.append({'id': task.id, 'name': task.name, 'label': manifest.get('label') or task.name, 'index': manifest.get('index'), 'is_base': bool(manifest.get('is_base')), 'candidate': manifest.get('candidate') or {}, 'current_status': task.current_status})
+                    candidate = manifest.get('candidate') or {}
+                    row = {
+                        'id': task.id, 'name': task.name, 'label': manifest.get('label') or task.name,
+                        'index': manifest.get('index'), 'is_base': bool(manifest.get('is_base')),
+                        'candidate': candidate, 'current_status': task.current_status,
+                        'dps': None, 'result_file': '',
+                    }
+                    if task.current_status == 2 and task.result_file:
+                        html_content = self._get_result_file_content(task.result_file)
+                        parsed = self._parse_regular_result(html_content) if html_content else {}
+                        row['dps'] = parsed.get('dps')
+                        row['character'] = parsed.get('character', {})
+                        row['simulation'] = parsed.get('simulation', {})
+                        row['talents'] = parsed.get('talents', {})
+                        row['abilities'] = parsed.get('abilities', [])
+                        row['top_abilities'] = parsed.get('top_abilities', [])
+                        row['apl_list'] = ''
+                        row['candidate_name'] = manifest.get('label') or ''
+                        row['is_base_candidate'] = bool(manifest.get('is_base'))
+                        row['candidate_index'] = manifest.get('index')
+                        if row['dps'] is None:
+                            invalid.append({'id': task.id, 'error': '无法解析该候选的独立 DPS 结果'})
+                        else:
+                            result_summary = SimcTaskAPIView()._task_result_file_summary(task)
+                            if result_summary:
+                                row['result_file'] = result_summary
+                    rows.append(row)
                 rows.sort(key=lambda row: (row['index'] is None, row['index'] if row['index'] is not None else row['id']))
                 first_manifest = batch_tasks[0][1]
                 current_round = max([self._batch_round(manifest) for _, manifest in batch_tasks] or [1])
@@ -3963,7 +3990,7 @@ class SimcRegularCompareAPIView(View):
                 for row in active_rows:
                     active_counts[{0: 'pending', 1: 'running', 2: 'succeeded', 3: 'failed'}.get(row['current_status'], 'failed')] += 1
                 attribute_report = self._build_attribute_report(batch_tasks) if first_manifest.get('kind') == 'attribute_variants' else None
-                return JsonResponse({'success': True, 'data': {'batch': {'batch_id': batch_id, 'kind': first_manifest.get('kind'), 'total': len(rows), 'current_round': current_round, 'current_round_total': len(active_rows), **status_counts, 'current_round_status': active_counts}, 'tasks': rows, 'attribute_report': attribute_report, 'invalid': []}})
+                return JsonResponse({'success': True, 'data': {'batch': {'batch_id': batch_id, 'kind': first_manifest.get('kind'), 'total': len(rows), 'current_round': current_round, 'current_round_total': len(active_rows), **status_counts, 'current_round_status': active_counts}, 'tasks': rows, 'attribute_report': attribute_report, 'invalid': invalid}})
 
             task_ids_raw = request.GET.get('task_ids', '')
             task_ids = []

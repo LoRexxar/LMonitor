@@ -480,6 +480,32 @@ trinket1=,id=299001,ilevel=650
         self.assertEqual(report['candidates'][0]['dps'], 100000)
         self.assertTrue(all(row['result_file'] != report['candidates'][0]['result_file'] for row in report['candidates'][1:]))
 
+    def test_regular_candidate_batch_returns_parsed_dps_and_controlled_result_link(self):
+        batch_id = 'batch-regular-report'
+        tasks = []
+        for index, (label, dps) in enumerate((('基准配置', 1744), ('候选天赋', 1801))):
+            tasks.append(SimcTask.objects.create(
+                user_id=self.user.id, name=label, simc_profile_id=0,
+                current_status=2, task_type=1, result_file=f'simc_task_{800 + index}.html',
+                ext=json.dumps({'batch_compare': {
+                    'version': 1, 'batch_id': batch_id, 'kind': 'talent_candidates',
+                    'index': index, 'label': label, 'is_base': index == 0,
+                    'candidate': {'type': 'base' if index == 0 else 'talent'},
+                }}),
+            ))
+        reports = {
+            task.result_file: f'<h2>Fury: {dps:,} dps</h2>'
+            for task, (_, dps) in zip(tasks, (('基准配置', 1744), ('候选天赋', 1801)))
+        }
+        with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', lambda _self, filename: reports.get(filename)):
+            response = self.client.get('/api/simc-regular-compare/?batch_id=' + batch_id)
+
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        rows = payload['data']['tasks']
+        self.assertEqual([row['dps'] for row in rows], [1744, 1801])
+        self.assertTrue(all(row['result_file'].startswith('simc_task_') for row in rows))
+
     def test_batch_compare_query_is_isolated_and_reports_pending_progress(self):
         batch_id, other_id = 'batch-isolated', 'batch-other'
         def create_task(name, bid, index, status=0):
