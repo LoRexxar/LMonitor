@@ -545,6 +545,8 @@ class SimcMonitor(BaseScan):
                 
                 if not isinstance(simc_code, str) or not simc_code.strip():
                     raise Exception("生成SimC配置失败：模板渲染结果为空")
+
+            self.persist_final_config_validation(simc_task, simc_code)
             
             # 创建临时SimC文件
             simc_file_path = os.path.join(self.result_path, f"temp_{simc_task.id}.simc")
@@ -836,6 +838,42 @@ class SimcMonitor(BaseScan):
         lines.append(f'html={result_file}')
         return '\n'.join(lines).strip()
 
+    @staticmethod
+    def validate_simulation_semantics(stdout_text):
+        """Reject reports that technically finish but never execute a real rotation."""
+        text = str(stdout_text or '')
+        dps_match = re.search(r'\bDPS=([0-9]+(?:\.[0-9]+)?)', text)
+        action_rows = re.findall(
+            r'^\s{2,}([a-z][a-z0-9_]*)\s+Count=.*?\bpDPS=\s*([0-9]+)',
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        ignored = ('auto_attack', 'charge_impact', 'potion', 'blood_fury')
+        non_auto_dps = sum(
+            int(value) for name, value in action_rows
+            if not name.lower().startswith(ignored) and int(value) > 0
+        )
+        valid = bool(dps_match and non_auto_dps > 0)
+        return {
+            'valid': valid,
+            'dps': float(dps_match.group(1)) if dps_match else 0.0,
+            'non_auto_dps': non_auto_dps,
+            'action_row_count': len(action_rows),
+            'reason': '' if valid else 'SimC结果语义无效：只有自动攻击，未执行有效技能循环',
+        }
+
+    @staticmethod
+    def persist_semantic_validation(simc_task, validation):
+        try:
+            manifest = json.loads(simc_task.ext) if simc_task.ext else {}
+        except (TypeError, ValueError):
+            manifest = {}
+        if not isinstance(manifest, dict):
+            manifest = {}
+        manifest['semantic_validation'] = validation
+        simc_task.ext = json.dumps(manifest, ensure_ascii=False)
+        simc_task.save(update_fields=['ext'])
+
     def execute_simc_command(self, simc_file_path, simc_task, result_file_name=None):
         """
         执行SimC命令
@@ -881,6 +919,14 @@ class SimcMonitor(BaseScan):
                 # task's explicitly requested report. Never borrow a stale/latest HTML.
                 if not os.path.isfile(result_file_path):
                     raise RuntimeError(f'SimC未生成预期结果文件: {target_result_file}')
+
+                semantic_validation = self.validate_simulation_semantics(result.stdout)
+                self.persist_semantic_validation(simc_task, semantic_validation)
+                if not semantic_validation['valid']:
+                    summary = semantic_validation.get('reason') or 'SimC结果语义校验失败'
+                    self.save_simc_error_details(simc_task, summary, stdout_text=result.stdout)
+                    logger.error('[SimC Monitor] Task %s semantic validation failed: %s', simc_task.id, summary)
+                    return False
 
                 if target_result_file != simc_task.result_file:
                     simc_task.result_file = target_result_file
@@ -1283,4 +1329,37 @@ class SimcMonitor(BaseScan):
         if result_file not in (None, ''):
             simc_code = self.ensure_result_file_directive(simc_code, result_file)
         return simc_code
+
+    @staticmethod
+    def build_final_config_validation(simc_code):
+        """Build a non-sensitive structural audit of the exact rendered input."""
+        import hashlib
+
+        text = str(simc_code or '')
+        actor_pattern = r'^\s*(?:warrior|paladin|hunter|rogue|priest|deathknight|shaman|mage|warlock|monk|druid|demonhunter|evoker)\s*='
+        equipment_pattern = r'^\s*(?:head|neck|shoulder|back|chest|wrist|hands|waist|legs|feet|finger1|finger2|trinket1|trinket2|main_hand|off_hand)\s*='
+        return {
+            'char_count': len(text),
+            'line_count': len(text.splitlines()),
+            'sha256': hashlib.sha256(text.encode('utf-8')).hexdigest(),
+            'actor_count': len(re.findall(actor_pattern, text, flags=re.IGNORECASE | re.MULTILINE)),
+            'spec_count': len(re.findall(r'^\s*spec\s*=', text, flags=re.IGNORECASE | re.MULTILINE)),
+            'talents_count': len(re.findall(r'^\s*talents\s*=', text, flags=re.IGNORECASE | re.MULTILINE)),
+            'equipment_count': len(re.findall(equipment_pattern, text, flags=re.IGNORECASE | re.MULTILINE)),
+            'action_count': len(re.findall(r'^\s*actions(?:\.[^=\s]+)?(?:\+)?\s*=', text, flags=re.IGNORECASE | re.MULTILINE)),
+            'html_output_count': len(re.findall(r'^\s*html\s*=', text, flags=re.IGNORECASE | re.MULTILINE)),
+            'placeholder_count': len(re.findall(r'\{[a-zA-Z_][a-zA-Z0-9_]*\}', text)),
+        }
+
+    @staticmethod
+    def persist_final_config_validation(simc_task, simc_code):
+        try:
+            manifest = json.loads(simc_task.ext) if simc_task.ext else {}
+        except (TypeError, ValueError):
+            manifest = {}
+        if not isinstance(manifest, dict):
+            manifest = {}
+        manifest['final_config_validation'] = SimcMonitor.build_final_config_validation(simc_code)
+        simc_task.ext = json.dumps(manifest, ensure_ascii=False)
+        simc_task.save(update_fields=['ext'])
 

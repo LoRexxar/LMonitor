@@ -1538,19 +1538,7 @@ function initSimcTaskManagement() {
         });
     }
     
-    // 复制SimC代码
-    const copyCodeBtn = document.getElementById('copy-simc-code');
-    if (copyCodeBtn) {
-        copyCodeBtn.addEventListener('click', function() {
-            const codeTextarea = document.getElementById('view-simc-task-code');
-            if (codeTextarea) {
-                codeTextarea.select();
-                document.execCommand('copy');
-                showMessage('SimC代码已复制到剪贴板', 'success');
-            }
-        });
-    }
-    
+
     // 加载初始数据
     fetchSimcTaskData();
 }
@@ -8162,8 +8150,18 @@ function openViewSimcTaskModal(task) {
                 `力量=${gear.strength || 0}，暴击=${gear.crit || 0}，急速=${gear.haste || 0}，精通=${gear.mastery || 0}，全能=${gear.versatility || 0}`
             ];
             if (preview.selected_attributes) lines.push(`属性组合=${preview.selected_attributes}，步长=${preview.attribute_step || 50}`);
-            document.getElementById('view-simc-task-code').value = lines.join('\n');
-            modal.style.display = 'block';
+            document.getElementById('view-simc-task-snapshot').value = lines.join('\n');
+            const validation = preview.final_config_validation || {};
+            const validationEl = document.getElementById('view-simc-final-validation');
+            if (validationEl) {
+                validationEl.textContent = validation.sha256 ? [
+                    `SHA-256=${validation.sha256}`,
+                    `字符=${validation.char_count}，行=${validation.line_count}`,
+                    `角色=${validation.actor_count}，专精=${validation.spec_count}，天赋=${validation.talents_count}`,
+                    `装备=${validation.equipment_count}，APL指令=${validation.action_count}`,
+                    `HTML输出=${validation.html_output_count}，残留占位符=${validation.placeholder_count}`
+                ].join('\n') : '任务尚未生成最终执行输入';
+            }
         } catch (error) {
             console.error('获取SimC任务预览失败:', error);
             showMessage('获取SimC任务预览失败: ' + error.message, 'error');
@@ -8180,13 +8178,17 @@ function viewSimcResult(resultFile) {
     }
     
     // 结果始终经已鉴权的后端代理读取，不直接依赖或暴露 OSS 地址。
-    const resultUrl = `/simc-result/?file=${encodeURIComponent(resultFile)}`;
+    const resultUrl = `/simc-result/?file=${encodeURIComponent(resultFile)}&mode=native`;
     window.open(resultUrl, '_blank');
 }
 
 function viewSimcAnalysis(resultFile) {
-    // 单个 HTML 报告本身就是 SimC 的分析结果；统一走结果代理页面。
-    viewSimcResult(resultFile);
+    if (!resultFile) {
+        showMessage('结果文件路径不存在', 'error');
+        return;
+    }
+    const resultUrl = `/simc-result/?file=${encodeURIComponent(resultFile)}&mode=analysis`;
+    window.open(resultUrl, '_blank');
 }
 
 async function loadSimcProfileOptions(selectElementId) {

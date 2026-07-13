@@ -101,6 +101,19 @@ class SimcResultUXTests(TestCase):
         self.assertIn('nativeReportFrame.srcdoc = html', result)
         self.assertIn('buildNativeReportOutline', result)
 
+    def test_task_result_and_analysis_buttons_open_distinct_result_modes(self):
+        with open('static/dashboard/js/main.js', encoding='utf-8') as f:
+            main_js = f.read()
+        with open('templates/simc_result_view.html', encoding='utf-8') as f:
+            result = f.read()
+
+        self.assertIn('mode=native', main_js)
+        self.assertIn('mode=analysis', main_js)
+        self.assertNotIn("function viewSimcAnalysis(resultFile) {\n    // 单个 HTML 报告本身就是 SimC 的分析结果；统一走结果代理页面。\n    viewSimcResult(resultFile);", main_js)
+        self.assertIn("params.get('mode')", result)
+        self.assertIn('data-result-mode="analysis"', result)
+        self.assertIn('data-result-mode="native"', result)
+
     def test_attribute_page_renders_four_stat_search_context_not_two_stat_curve_only(self):
         with open('templates/simc_attribute_analysis.html', encoding='utf-8') as f:
             client = f.read()

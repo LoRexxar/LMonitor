@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260713l"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260713n"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -2061,7 +2061,7 @@
         <div class="flex min-h-full items-start justify-center p-4 sm:items-center">
             <div class="my-auto w-full max-w-6xl max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl bg-white p-6 shadow-lg">
                 <h4 class="text-lg font-semibold text-gray-800 mb-4">
-                    <i class="fas fa-eye mr-2 text-green-500"></i>查看SimC代码
+                    <i class="fas fa-eye mr-2 text-green-500"></i>查看任务配置
                 </h4>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">任务名称</label>
@@ -2072,13 +2072,16 @@
                     <div id="view-simc-task-context" class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700"></div>
                 </div>
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">生成的SimC代码</label>
-                    <textarea id="view-simc-task-code" class="w-full p-3 border border-gray-300 rounded-md bg-gray-50 font-mono text-sm resize-y" rows="25" readonly></textarea>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">运行配置快照</label>
+                    <textarea id="view-simc-task-snapshot" class="w-full p-3 border border-gray-300 rounded-md bg-gray-50 font-mono text-sm resize-y" rows="12" readonly></textarea>
+                    <p class="mt-2 text-xs text-gray-500">这里展示任务创建时冻结的结构化配置摘要，不是 Worker 最终执行的完整 SimC 文本。</p>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">最终执行配置校验</label>
+                    <div id="view-simc-final-validation" class="rounded-lg border border-gray-200 bg-gray-50 p-3 font-mono text-sm text-gray-700">任务尚未生成最终执行输入</div>
                 </div>
                 <div class="mt-4 flex justify-end space-x-3">
-                    <button id="copy-simc-code" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-copy mr-2"></i>复制代码
-                    </button>
+
                     <button id="close-view-simc-task" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
                         <i class="fas fa-times mr-2"></i>关闭
                     </button>

@@ -3570,6 +3570,7 @@ class SimcTaskPreviewAPIView(View):
             'attribute_step': manifest.get('attribute_step') or '',
             'selected_apl_id': manifest.get('selected_apl_id'),
             'batch_compare': manifest.get('batch_compare') or {},
+            'final_config_validation': manifest.get('final_config_validation') or {},
         }
         return JsonResponse({'success': True, 'data': context})
 

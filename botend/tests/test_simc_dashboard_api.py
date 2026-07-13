@@ -412,15 +412,60 @@ finger1=,id=299002,ilevel=655
         with tempfile.TemporaryDirectory() as tmpdir:
             monitor.simc_path = '/opt/simc'
             monitor.result_path = tmpdir
-            task = SimpleNamespace(id=88, result_file='simc_task_88.html', save=lambda **kwargs: None)
+            task = SimpleNamespace(id=88, result_file='simc_task_88.html', ext='{}', save=lambda **kwargs: None)
             expected = os.path.join(tmpdir, task.result_file)
             with patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
-                run.return_value = SimpleNamespace(returncode=0, stdout='', stderr='')
+                run.return_value = SimpleNamespace(
+                    returncode=0,
+                    stdout='Player: Audit warrior fury 90\n  DPS=60000.0\n    bloodthirst Count=40 pDPS=5000\n',
+                    stderr='',
+                )
                 with patch('botend.interface.ossupload.ossUpload', return_value=True):
                     with open(expected, 'w', encoding='utf-8') as report:
                         report.write('<html></html>')
                     self.assertTrue(monitor.execute_simc_command('/tmp/input.simc', task, task.result_file))
             self.assertEqual(run.call_args.args[0], ['/opt/simc', '/tmp/input.simc', f'html={expected}'])
+
+    def test_execute_simc_command_rejects_auto_attack_only_semantic_result(self):
+        from unittest.mock import patch
+        import tempfile
+        import os
+        monitor = object.__new__(SimcMonitor)
+        stdout = '''Player: Audit warrior fury 90
+  DPS=2422.9 DPS-Error=9.1/0.38%
+    auto_attack_mh Count=112.6 pDPS=1618
+    auto_attack_oh Count=110.4 pDPS=803
+    charge_impact Count=1.0 pDPS=2
+'''
+        with tempfile.TemporaryDirectory() as tmpdir:
+            monitor.simc_path = '/opt/simc'
+            monitor.result_path = tmpdir
+            task = SimpleNamespace(
+                id=89, result_file='simc_task_89.html',
+                ext=json.dumps({'spec': 'fury'}),
+                save=lambda **kwargs: None,
+            )
+            expected = os.path.join(tmpdir, task.result_file)
+            with open(expected, 'w', encoding='utf-8') as report:
+                report.write('<html></html>')
+            with patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
+                run.return_value = SimpleNamespace(returncode=0, stdout=stdout, stderr='')
+                self.assertFalse(monitor.execute_simc_command('/tmp/input.simc', task, task.result_file))
+        stored = json.loads(task.ext)
+        self.assertIn('只有自动攻击', stored['simc_error_summary'])
+        self.assertEqual(stored['semantic_validation']['valid'], False)
+
+    def test_semantic_validation_accepts_core_skill_damage(self):
+        stdout = '''Player: Audit warrior fury 90
+  DPS=62453.0 DPS-Error=150/0.24%
+  Priorities (actions.slayer):
+    auto_attack_mh Count=144.6 pDPS=3390
+    bloodthirst Count=43.3 pDPS=4976
+    rampage1 Count=79.6 pDPS=2295
+'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout)
+        self.assertTrue(validation['valid'])
+        self.assertGreater(validation['non_auto_dps'], 0)
 
     def test_attribute_search_rejects_any_non_50_step(self):
         results = [
@@ -950,6 +995,79 @@ class SimcNewConfigModeTests(TestCase):
         preview_fetch = main_js.index('fetch(`/api/simc-task/preview/', open_modal)
         display_modal = main_js.index("modal.style.display = 'block';", open_modal)
         self.assertLess(display_modal, preview_fetch)
+
+    def test_task_modal_labels_manifest_as_configuration_not_generated_simc_code(self):
+        template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+
+        self.assertIn('查看任务配置', template)
+        self.assertIn('运行配置快照', template)
+        self.assertNotIn('查看SimC代码', template)
+        self.assertNotIn('生成的SimC代码', template)
+        self.assertNotIn('copy-simc-code', template)
+        self.assertIn('view-simc-task-snapshot', main_js)
+        self.assertNotIn('view-simc-task-code', main_js)
+
+    def test_final_execution_config_validation_summarizes_rendered_simc_without_raw_content(self):
+        rendered = '''warrior="AuditActor"
+spec=fury
+talents=SECRET_BUILD
+head=,id=123
+actions=auto_attack
+actions+=/bloodthirst
+html=simc_task_99.html
+'''
+
+        summary = SimcMonitor.build_final_config_validation(rendered)
+
+        self.assertEqual(summary['actor_count'], 1)
+        self.assertEqual(summary['spec_count'], 1)
+        self.assertEqual(summary['talents_count'], 1)
+        self.assertEqual(summary['equipment_count'], 1)
+        self.assertEqual(summary['action_count'], 2)
+        self.assertEqual(summary['html_output_count'], 1)
+        self.assertEqual(summary['placeholder_count'], 0)
+        self.assertEqual(len(summary['sha256']), 64)
+        self.assertNotIn('SECRET_BUILD', json.dumps(summary))
+
+    def test_worker_persists_final_execution_validation_in_task_manifest(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            name='Worker audit',
+            simc_profile_id=0,
+            task_type=1,
+            current_status=1,
+            ext=json.dumps({'spec': 'fury', 'override_action_list': 'actions=SECRET'}),
+        )
+
+        SimcMonitor.persist_final_config_validation(task, 'warrior="A"\nspec=fury\nactions=auto_attack\nhtml=x.html')
+
+        task.refresh_from_db()
+        manifest = json.loads(task.ext)
+        self.assertEqual(manifest['final_config_validation']['actor_count'], 1)
+        self.assertNotIn('SECRET', json.dumps(manifest['final_config_validation']))
+        self.assertEqual(manifest['override_action_list'], 'actions=SECRET')
+
+    def test_task_preview_returns_persisted_final_execution_validation(self):
+        validation = {
+            'char_count': 12000, 'line_count': 280, 'sha256': 'a' * 64,
+            'actor_count': 1, 'spec_count': 1, 'talents_count': 1,
+            'equipment_count': 14, 'action_count': 112,
+            'html_output_count': 1, 'placeholder_count': 0,
+        }
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            name='Validated task',
+            simc_profile_id=0,
+            task_type=1,
+            current_status=2,
+            ext=json.dumps({'spec': 'fury', 'final_config_validation': validation}),
+        )
+
+        response = self.client.get(f'/api/simc-task/preview/?task_id={task.id}')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data']['final_config_validation'], validation)
 
     def test_rerun_creates_pending_task_without_mutating_completed_manifest_task(self):
         manifest = {

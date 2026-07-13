@@ -46,6 +46,11 @@
         <div id="error" class="alert alert-danger d-none">结果加载失败，请检查文件是否存在或格式是否正确。</div>
 
         <div id="content" class="d-none">
+            <div class="btn-group mb-3" role="group" aria-label="结果视图切换">
+                <a class="btn btn-outline-primary" data-result-mode="analysis" href="#">结构化分析</a>
+                <a class="btn btn-outline-primary" data-result-mode="native" href="#">原生 SimC 报告</a>
+            </div>
+            <div id="analysis-result-content">
             <div class="panel mb-3 sticky-toolbar">
                 <div class="panel-body py-2">
                     <div class="row g-2 align-items-end">
@@ -179,7 +184,8 @@
                 </div>
             </div>
 
-            <div class="panel mt-3">
+            </div>
+            <div id="native-result-content" class="panel mt-3">
                 <div class="panel-header d-flex justify-content-between align-items-center">
                     <span>原始 SimC 完整报告</span>
                     <span class="text-muted small">阅读层只做目录和定位；下方保留原生 HTML 的全部内容</span>
@@ -223,6 +229,19 @@
 
         function nodeText(node) { return decodeMojibake((node?.textContent || '').replace(/\u00a0/g, ' ').trim()); }
         function getParam(name) { return new URLSearchParams(window.location.search).get(name) || ''; }
+        function applyResultMode(file) {
+            const params = new URLSearchParams(window.location.search);
+            const mode = params.get('mode') === 'native' ? 'native' : 'analysis';
+            const analysis = byId('analysis-result-content');
+            const nativeReport = byId('native-result-content');
+            analysis.classList.toggle('d-none', mode !== 'analysis');
+            nativeReport.classList.toggle('d-none', mode !== 'native');
+            document.querySelectorAll('[data-result-mode]').forEach((link) => {
+                const linkMode = link.getAttribute('data-result-mode');
+                link.href = `/simc-result/?file=${encodeURIComponent(file)}&mode=${linkMode}`;
+                link.classList.toggle('active', linkMode === mode);
+            });
+        }
         function tSkill(name) { return skillTranslations[name] || name; }
 
         function translateText(text) {
@@ -606,6 +625,7 @@
                 return;
             }
             byId('result-file-name').textContent = file;
+            applyResultMode(file);
             const batchId = getParam('batch_id');
             if (batchId) {
                 const compareLink = byId('batch-compare-link');
