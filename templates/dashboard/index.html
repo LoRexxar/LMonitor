@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260713k"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260713l"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -1069,6 +1069,7 @@
                                         <label class="block" data-profile-mode-section="battlenet"><span class="text-gray-600">角色名</span><input name="battlenet_character" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="角色名"></label>
                                         <label class="block col-span-2 md:col-span-4" data-profile-mode-section="manual_equipment"><span class="text-gray-600">手动装备/天赋玩家块</span><textarea name="player_equipment" rows="5" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-xs" placeholder="manual_equipment 模式填写：talents=... / head=... / neck=..."></textarea></label>
                                         <label class="block col-span-2 md:col-span-4"><span class="text-gray-600">天赋码（旧字段兼容）</span><input name="talent" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" placeholder="可选"></label>
+                                        <label class="block"><span class="text-gray-600">力量</span><input name="gear_strength" type="number" value="0" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">暴击</span><input name="gear_crit" type="number" value="8730" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">急速</span><input name="gear_haste" type="number" value="20141" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">精通</span><input name="gear_mastery" type="number" value="21785" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>

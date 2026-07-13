@@ -171,6 +171,26 @@ class SimcProfileAPIValidationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()['success'])
 
+    def test_profile_edit_get_returns_all_form_fields(self):
+        """The workbench edit form must receive every value it assigns, including strength."""
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='Editable profile',
+            spec='fury',
+            player_config_mode='attribute_only',
+            talent='EDIT_BUILD',
+            gear_strength=123,
+            gear_crit=456,
+            gear_haste=789,
+            gear_mastery=1011,
+            gear_versatility=1213,
+        )
+        response = self.client.get(f'/api/simc-profile/{profile.id}/')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertEqual(payload['gear_strength'], 123)
+
     def test_attribute_profile_simulate_now_creates_frozen_attribute_task(self):
         profile = SimcProfile.objects.create(
             user_id=self.user.id,

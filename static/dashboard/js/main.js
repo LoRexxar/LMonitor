@@ -8929,7 +8929,7 @@ function initSimcTemplateManagement() {
 function loadTemplateList() {
     const csrfToken = getCSRFToken();
     
-    fetch('/api/simc-template/', {
+    fetch('/api/simc-template/?template_type=base_template', {
         method: 'GET',
         headers: {
             'Content-Type': 'application/json',

@@ -4308,16 +4308,17 @@ class SimcTemplateAPIView(View):
                         'error': '模板不存在'
                     })
             else:
-                # 获取所有模板/APL列表
-                templates = SimcContentTemplate.objects.all().order_by('template_type', 'source', 'spec', '-id')
+                # 管理列表只服务于“基础模板”界面；APL 有独立候选/编辑链路，不能混入。
+                template_type = request.GET.get('template_type') or SimcContentTemplate.TYPE_BASE_TEMPLATE
+                if template_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
+                    return JsonResponse({'success': False, 'error': '无效的模板类型'}, status=400)
+                templates = SimcContentTemplate.objects.filter(template_type=template_type).order_by('source', 'spec', '-id')
                 template_list = []
                 
                 for template in templates:
                     preview = template.content[:100] + '...' if len(template.content) > 100 else template.content
                     template_list.append({
                         'id': template.id,
-                        'template_content': template.content,
-                        'content': template.content,
                         'preview': preview,
                         'spec': template.spec,
                         'class_name': template.class_name,

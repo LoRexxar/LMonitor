@@ -13,6 +13,35 @@ from botend.services.simc_player_config import parse_manual_player_config, parse
 from botend.models import SimcContentTemplate, SimcProfile, SimcTask, WowItemSnapshot
 
 
+class SimcTemplateAPIViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='template_user', password='pwd')
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_list_returns_metadata_preview_without_apl_source(self):
+        """The legacy template list must not mix full APL source into its base-template view."""
+        base = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='fury', name='基础模板', content='warrior="Template"', is_active=True,
+        )
+        apl = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury', name='默认 APL', content='actions+=/bloodthirst', is_active=True,
+        )
+        response = self.client.get('/api/simc-template/?template_type=base_template')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertEqual([row['id'] for row in payload['templates']], [base.id])
+        self.assertEqual(payload['templates'][0]['template_type'], 'base_template')
+        self.assertNotIn('template_content', payload['templates'][0])
+        self.assertNotIn('content', payload['templates'][0])
+        self.assertNotEqual(apl.id, base.id)
+
+
 class SimcBackendUpdateSafetyTests(TestCase):
     def test_tracked_source_changes_are_autocommitted_before_rebase_pull(self):
         command = UpdateSimcBinaryCommand()
