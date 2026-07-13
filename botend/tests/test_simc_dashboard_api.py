@@ -1,3 +1,4 @@
+import importlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -1447,6 +1448,41 @@ html=simc_task_99.html
         self.assertEqual(rendered.count('\nspec=fury'), 1)
         self.assertEqual(rendered.count('\ntalents=CANDIDATE'), 1)
         self.assertNotIn('talents=TEMPLATE', rendered)
+
+    def test_standard_raid_buff_migration_updates_all_base_templates(self):
+        migration = importlib.import_module(
+            'botend.migrations.0103_enable_standard_simc_raid_buffs'
+        )
+        first = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='default',
+            content='fight_style=Patchwerk\noptimal_raid=0\n{player_config}',
+        )
+        second = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='fury',
+            content='optimal_raid=0\noverride.battle_shout=1',
+        )
+        apl = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury',
+            content='# optimal_raid=0 must not alter APL content',
+        )
+        historical_model = SimpleNamespace(objects=SimcContentTemplate.objects)
+        apps = SimpleNamespace(get_model=lambda *args: historical_model)
+
+        migration.enable_standard_raid_buffs(apps, None)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        apl.refresh_from_db()
+        self.assertIn('optimal_raid=1', first.content)
+        self.assertIn('optimal_raid=1', second.content)
+        self.assertNotIn('optimal_raid=0', first.content)
+        self.assertEqual(apl.content, '# optimal_raid=0 must not alter APL content')
 
     def test_apply_template_manual_equipment_preserves_template_runtime_options(self):
         monitor = object.__new__(SimcMonitor)
