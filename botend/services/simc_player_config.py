@@ -213,7 +213,10 @@ def resolve_attribute_player_baseline(spec, player_equipment=''):
         source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
         is_active=True,
     )
-    template = queryset.filter(spec=template_key).order_by('id').first()
+    matches = list(queryset.filter(spec=template_key).order_by('id')[:2])
+    if len(matches) > 1:
+        raise ValueError(f'专精 {spec_value or "未知"} 存在重复的默认玩家装备模板，请先修复模板数据')
+    template = matches[0] if matches else None
     if not template:
         raise ValueError(f'专精 {spec_value or "未知"} 未配置启用的默认玩家装备模板，无法生成玩家装备基线')
     try:

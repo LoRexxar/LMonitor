@@ -801,13 +801,6 @@ class SimcContentTemplate(models.Model):
             models.Index(fields=['template_type', 'spec', 'is_active']),
             models.Index(fields=['source', 'template_type']),
         ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=['template_type', 'source', 'spec'],
-                condition=models.Q(template_type='default_player'),
-                name='uniq_simc_default_player_source_spec',
-            ),
-        ]
 
     def __str__(self):
         label = self.name or self.spec or self.template_type

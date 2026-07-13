@@ -165,6 +165,14 @@ class DefaultPlayerTemplateAPITests(TestCase):
         self.assertIn('默认玩家装备模板', response.json()['error'])
         self.assertFalse(SimcTask.objects.exists())
 
+    def test_duplicate_active_default_templates_fail_closed(self):
+        self.add_template()
+        self.add_template()
+        response = self.client.post('/api/simc-task/', data=json.dumps(self.task_payload()), content_type='application/json')
+        self.assertFalse(response.json()['success'])
+        self.assertIn('重复', response.json()['error'])
+        self.assertFalse(SimcTask.objects.exists())
+
     def test_attribute_batch_freezes_default_into_every_task(self):
         self.add_template()
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({
