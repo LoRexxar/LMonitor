@@ -246,10 +246,10 @@
                     }
                 }
                 player.querySelectorAll('.params li').forEach((li) => {
-                    const text = li.textContent || '';
-                    if (text.includes('Class:')) result.character.class = translateText(text.split(':')[1]?.trim() || '');
-                    if (text.includes('Spec:')) result.character.spec = translateText(text.split(':')[1]?.trim() || '');
-                    if (text.includes('Level:')) result.character.level = text.split(':')[1]?.trim() || '';
+                    const text = nodeText(li);
+                    if (text.includes('Class:')) result.character.class = translateText(text.split(':').slice(1).join(':').trim());
+                    if (text.includes('Spec:')) result.character.spec = translateText(text.split(':').slice(1).join(':').trim());
+                    if (text.includes('Level:')) result.character.level = text.split(':').slice(1).join(':').trim();
                 });
 
                 const abilTable = player.querySelector('table.sc.sort');
@@ -295,7 +295,7 @@
             const mast = doc.querySelector('#masthead');
             if (mast) {
                 mast.querySelectorAll('.params li').forEach((li) => {
-                    const text = li.textContent || '';
+                    const text = nodeText(li);
                     if (text.includes('Iterations:')) result.simulation.iterations = text.split(':')[1]?.trim() || '';
                     if (text.includes('Fight Length:')) result.simulation.fightLength = text.split(':')[1]?.trim() || '';
                     if (text.includes('Fight Style:')) result.simulation.fightStyle = text.split(':')[1]?.trim() || '';
