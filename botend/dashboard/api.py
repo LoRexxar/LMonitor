@@ -3983,6 +3983,25 @@ class SimcRegularCompareAPIView(View):
                                 row['result_file'] = result_summary
                     rows.append(row)
                 rows.sort(key=lambda row: (row['index'] is None, row['index'] if row['index'] is not None else row['id']))
+                completed_rows = [row for row in rows if row.get('dps') is not None]
+                ranked_rows = sorted(completed_rows, key=lambda row: (-row['dps'], row['id']))
+                rank_by_id = {row['id']: rank for rank, row in enumerate(ranked_rows, start=1)}
+                baseline_row = next((row for row in rows if row.get('is_base')), None)
+                baseline_dps = baseline_row.get('dps') if baseline_row else None
+                for row in rows:
+                    row['rank'] = rank_by_id.get(row['id'])
+                    if row.get('dps') is not None and baseline_dps is not None:
+                        row['delta_dps'] = row['dps'] - baseline_dps
+                        row['delta_percent'] = round((row['delta_dps'] / baseline_dps) * 100, 2) if baseline_dps else None
+                    else:
+                        row['delta_dps'] = None
+                        row['delta_percent'] = None
+                winner_row = ranked_rows[0] if ranked_rows else None
+                comparison = {
+                    'baseline': ({'id': baseline_row['id'], 'label': baseline_row['label'], 'dps': baseline_row['dps']} if baseline_row else None),
+                    'winner': ({'id': winner_row['id'], 'label': winner_row['label'], 'dps': winner_row['dps'],
+                                'delta_dps': winner_row.get('delta_dps'), 'delta_percent': winner_row.get('delta_percent')} if winner_row else None),
+                }
                 first_manifest = batch_tasks[0][1]
                 current_round = max([self._batch_round(manifest) for _, manifest in batch_tasks] or [1])
                 active_rows = [row for row in rows if self._batch_round(row.get('candidate') or {}) == current_round]
@@ -3990,7 +4009,7 @@ class SimcRegularCompareAPIView(View):
                 for row in active_rows:
                     active_counts[{0: 'pending', 1: 'running', 2: 'succeeded', 3: 'failed'}.get(row['current_status'], 'failed')] += 1
                 attribute_report = self._build_attribute_report(batch_tasks) if first_manifest.get('kind') == 'attribute_variants' else None
-                return JsonResponse({'success': True, 'data': {'batch': {'batch_id': batch_id, 'kind': first_manifest.get('kind'), 'total': len(rows), 'current_round': current_round, 'current_round_total': len(active_rows), **status_counts, 'current_round_status': active_counts}, 'tasks': rows, 'attribute_report': attribute_report, 'invalid': invalid}})
+                return JsonResponse({'success': True, 'data': {'batch': {'batch_id': batch_id, 'kind': first_manifest.get('kind'), 'total': len(rows), 'current_round': current_round, 'current_round_total': len(active_rows), **status_counts, 'current_round_status': active_counts}, 'tasks': rows, 'comparison': comparison, 'attribute_report': attribute_report, 'invalid': invalid}})
 
             task_ids_raw = request.GET.get('task_ids', '')
             task_ids = []

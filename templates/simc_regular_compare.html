@@ -62,6 +62,7 @@
         </div>
 
         <div id="compare-content" class="hidden space-y-6">
+            <div id="comparison-summary" class="bg-white rounded-lg shadow-md p-6"></div>
             <div id="invalid-section" class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 hidden">
                 <div class="flex items-center mb-3">
                     <i class="fas fa-exclamation-circle text-yellow-600 mr-3"></i>
@@ -89,10 +90,11 @@
                     <table class="min-w-full border border-gray-200 rounded-lg">
                         <thead class="bg-gray-50">
                             <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">排名</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务ID</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务名称</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">DPS</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">差异(相对最高)</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">差异(相对基准)</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">职业/专精</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">天赋</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">APL列表</th>
@@ -148,6 +150,7 @@
         let keywordTranslations = {};
         let keywordTranslationsLoaded = false;
         let regularCompareTasks = [];
+        let regularCompareBatchId = '';
 
         function escapeHtml(text) {
             if (text === null || text === undefined) return '';
@@ -279,20 +282,21 @@
             tbody.innerHTML = tasks.map(t => {
                 const classSpec = `${escapeHtml((t.character && t.character.class) || '')}${(t.character && t.character.spec) ? ' / ' + escapeHtml(t.character.spec) : ''}`;
                 const talents = escapeHtml((t.talents && t.talents.string) || '');
-                const viewUrl = `/simc-result/?file=${encodeURIComponent(t.result_file || '')}`;
+                const viewUrl = `/simc-result/?file=${encodeURIComponent(t.result_file || '')}${regularCompareBatchId ? `&batch_id=${encodeURIComponent(regularCompareBatchId)}` : ''}`;
                 const dps = t.dps || 0;
                 const candidateLabel = escapeHtml((t.candidate_name || '').trim());
                 const taskTitle = candidateLabel ? `${escapeHtml(t.name || '')}<div class="text-xs text-violet-600 mt-1">${candidateLabel}${t.is_base_candidate ? '（基础）' : ''}</div>` : escapeHtml(t.name || '');
-                const deltaPercent = maxDps > 0 ? ((dps / maxDps - 1) * 100) : 0;
-                const deltaSign = deltaPercent >= 0 ? '+' : '';
+                const deltaPercent = t.delta_percent;
+                const deltaSign = deltaPercent !== null && deltaPercent >= 0 ? '+' : '';
                 const deltaClass = deltaPercent === 0 ? 'text-green-700' : (deltaPercent < 0 ? 'text-red-700' : 'text-green-700');
                 return `
                     <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 text-sm font-bold text-gray-900">${t.rank ? `#${t.rank}` : '-'}</td>
                         <td class="px-4 py-3 text-sm text-gray-900">${t.id}</td>
                         <td class="px-4 py-3 text-sm font-medium text-gray-900">${taskTitle}</td>
                         <td class="px-4 py-3 text-sm text-gray-900">${dps.toLocaleString()}</td>
                         <td class="px-4 py-3 text-sm ${deltaClass}">
-                            ${deltaPercent === 0 ? '基准' : `${deltaSign}${deltaPercent.toFixed(1)}%`}
+                            ${deltaPercent === null || deltaPercent === undefined ? '-' : (t.is_base ? '基准' : `${deltaSign}${deltaPercent.toFixed(2)}% (${Number(t.delta_dps || 0) >= 0 ? '+' : ''}${Number(t.delta_dps || 0).toLocaleString()})`)}
                         </td>
                         <td class="px-4 py-3 text-sm text-gray-700">${classSpec || '-'}</td>
                         <td class="px-4 py-3 text-sm text-gray-700 break-all">${talents || '-'}</td>
@@ -343,7 +347,7 @@
                 return;
             }
 
-            const baselineTask = tasks[0];
+            const baselineTask = tasks.find(t => t.is_base) || tasks[0];
             const baselineTaskId = baselineTask ? baselineTask.id : null;
 
             function parsePercent(text) {
@@ -447,6 +451,8 @@
 
                 const tasks = (data.data && data.data.tasks) || [];
                 const invalid = (data.data && data.data.invalid) || [];
+                const comparison = (data.data && data.data.comparison) || {};
+                regularCompareBatchId = batchId;
 
                 if (!tasks || tasks.length < 2) {
                     showError('可用于对比的任务不足2个');
@@ -455,6 +461,15 @@
 
                 tasks.sort((a, b) => (b.dps || 0) - (a.dps || 0));
                 regularCompareTasks = tasks;
+                const baseline = comparison.baseline || {};
+                const winner = comparison.winner || {};
+                document.getElementById('comparison-summary').innerHTML = `
+                    <h2 class="text-xl font-semibold text-gray-900 mb-3"><i class="fas fa-trophy text-yellow-500 mr-2"></i>对比结论</h2>
+                    <div class="grid md:grid-cols-3 gap-4 text-sm">
+                        <div><span class="text-gray-500">样本数</span><div class="text-2xl font-bold">${tasks.length}</div></div>
+                        <div><span class="text-gray-500">基准样本</span><div class="font-semibold">${escapeHtml(baseline.label || '-')} · ${Number(baseline.dps || 0).toLocaleString()} DPS</div></div>
+                        <div><span class="text-gray-500">最优样本</span><div class="font-semibold text-green-700">${escapeHtml(winner.label || '-')} · ${Number(winner.dps || 0).toLocaleString()} DPS</div><div class="text-xs text-green-700">相对基准 ${Number(winner.delta_percent || 0) >= 0 ? '+' : ''}${Number(winner.delta_percent || 0).toFixed(2)}%</div></div>
+                    </div>`;
                 renderInvalid(invalid);
                 renderDpsChart(tasks);
                 renderTaskTable(tasks);

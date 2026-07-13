@@ -354,14 +354,39 @@ class SimcMonitor(BaseScan):
                 self.fail_pending_tasks(f"SimC路径不是文件: {self.simc_path}")
                 return False
 
-            # 每次 MonitorTask 调度只取一个待执行 SimC 任务，避免单次 scan 长时间占用全局监控循环。
-            # 任务继续按外层 MonitorTask 的 last_scan_time/wait_time 排序进入下一轮调度。
-            simc_task = SimcTask.objects.filter(is_active=True, current_status=0).order_by('modified_time', 'id').first()
-            if simc_task:
+            # A SimC batch is one user action and must be drained during this dispatch.
+            # Processing only one candidate makes global MonitorTask scheduling latency
+            # multiply by the number of candidates and leaves a "completed" report partial.
+            first_task = SimcTask.objects.filter(
+                is_active=True,
+                current_status=0,
+            ).order_by('modified_time', 'id').first()
+            if not first_task:
+                logger.info("[SimC Monitor] No pending SimC task.")
+                return True
+
+            first_ext = self.parse_task_ext(first_task.ext)
+            if not isinstance(first_ext, dict):
+                first_ext = {}
+            first_manifest = first_ext.get('batch_compare') if isinstance(first_ext.get('batch_compare'), dict) else {}
+            batch_id = str(first_manifest.get('batch_id') or '').strip()
+            pending_tasks = [first_task]
+            if batch_id:
+                pending_tasks = []
+                for candidate in SimcTask.objects.filter(
+                    is_active=True,
+                    current_status=0,
+                ).order_by('modified_time', 'id'):
+                    candidate_ext = self.parse_task_ext(candidate.ext)
+                    if not isinstance(candidate_ext, dict):
+                        candidate_ext = {}
+                    manifest = candidate_ext.get('batch_compare') if isinstance(candidate_ext.get('batch_compare'), dict) else {}
+                    if str(manifest.get('batch_id') or '').strip() == batch_id:
+                        pending_tasks.append(candidate)
+
+            for simc_task in pending_tasks:
                 logger.info(f"[SimC Monitor] Processing task: {simc_task.name} (ID: {simc_task.id})")
                 self.process_simc_task(simc_task)
-            else:
-                logger.info("[SimC Monitor] No pending SimC task.")
                 
         except Exception as e:
             logger.error(f"[SimC Monitor] Error during SimC simulation: {str(e)}")

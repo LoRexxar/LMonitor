@@ -34,6 +34,7 @@
             <div>
                 <h4 class="mb-1 text-primary">SimC 结果分析</h4>
                 <div class="text-muted small">文件：<span id="result-file-name">-</span></div>
+                <a id="batch-compare-link" class="btn btn-sm btn-outline-primary mt-2 d-none" href="#">返回多样本对比（查看排名与差异）</a>
             </div>
             <button class="btn btn-secondary btn-sm" onclick="window.close()">关闭</button>
         </div>
@@ -605,6 +606,12 @@
                 return;
             }
             byId('result-file-name').textContent = file;
+            const batchId = getParam('batch_id');
+            if (batchId) {
+                const compareLink = byId('batch-compare-link');
+                compareLink.href = `/simc-compare/?batch_id=${encodeURIComponent(batchId)}`;
+                compareLink.classList.remove('d-none');
+            }
             await loadTranslations();
             try {
                 const resp = await fetch(`/api/simc-result-proxy/?file=${encodeURIComponent(file)}`);

@@ -598,6 +598,62 @@ trinket1=,id=299001,ilevel=650
         self.assertEqual(payload['data']['batch']['running'], 1)
         self.assertEqual(payload['data']['batch']['succeeded'], 0)
 
+    def test_scan_drains_all_pending_batch_candidates_in_one_dispatch(self):
+        batch_id = 'batch-drain-all'
+        tasks = [
+            SimcTask.objects.create(
+                user_id=self.user.id, name=f'candidate {index}', simc_profile_id=0,
+                current_status=0, task_type=1, result_file='',
+                ext=json.dumps({'batch_compare': {
+                    'version': 1, 'batch_id': batch_id, 'kind': 'talent_candidates',
+                    'index': index, 'label': f'candidate {index}', 'is_base': index == 0,
+                }}),
+            )
+            for index in range(3)
+        ]
+        monitor = SimcMonitor(None, None)
+
+        def finish(task):
+            SimcTask.objects.filter(id=task.id).update(current_status=2, result_file=f'simc_task_{task.id}.html')
+            return True
+
+        with patch.object(monitor, 'ensure_local_simc_backend_current', return_value=True), \
+             patch('botend.controller.plugins.simc.SimcMonitor.os.path.exists', return_value=True), \
+             patch('botend.controller.plugins.simc.SimcMonitor.os.path.isfile', return_value=True), \
+             patch.object(monitor, 'process_simc_task', side_effect=finish) as process:
+            self.assertTrue(monitor.scan())
+
+        self.assertEqual([call.args[0].id for call in process.call_args_list], [task.id for task in tasks])
+        self.assertEqual(SimcTask.objects.filter(id__in=[task.id for task in tasks], current_status=2).count(), 3)
+
+    def test_compare_response_ranks_candidates_against_explicit_baseline(self):
+        batch_id = 'batch-ranked-summary'
+        reports = {}
+        for index, (label, dps) in enumerate((('基准配置', 100000), ('候选 A', 103000), ('候选 B', 99000))):
+            task = SimcTask.objects.create(
+                user_id=self.user.id, name=label, simc_profile_id=0,
+                current_status=2, task_type=1, result_file=f'ranked_{index}.html',
+                ext=json.dumps({'batch_compare': {
+                    'version': 1, 'batch_id': batch_id, 'kind': 'talent_candidates',
+                    'index': index, 'label': label, 'is_base': index == 0,
+                }}),
+            )
+            reports[task.result_file] = f'<div class="player"><h2>Fury: {dps:,} dps</h2></div>'
+
+        with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', lambda _self, filename: reports.get(filename)):
+            payload = self.client.get('/api/simc-regular-compare/?batch_id=' + batch_id).json()
+
+        rows = payload['data']['tasks']
+        self.assertEqual([(row['label'], row['rank']) for row in rows], [('基准配置', 2), ('候选 A', 1), ('候选 B', 3)])
+        self.assertEqual(rows[0]['delta_dps'], 0)
+        self.assertEqual(rows[0]['delta_percent'], 0.0)
+        self.assertEqual(rows[1]['delta_dps'], 3000)
+        self.assertEqual(rows[1]['delta_percent'], 3.0)
+        self.assertEqual(rows[2]['delta_dps'], -1000)
+        self.assertEqual(rows[2]['delta_percent'], -1.0)
+        self.assertEqual(payload['data']['comparison']['baseline']['label'], '基准配置')
+        self.assertEqual(payload['data']['comparison']['winner']['label'], '候选 A')
+
 
 class SimcNewConfigModeTests(TestCase):
     """测试新版工作台任务配置：只输入玩家信息，战斗/APL 由选项控制。"""
