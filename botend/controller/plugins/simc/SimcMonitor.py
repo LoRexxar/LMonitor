@@ -1344,10 +1344,13 @@ class SimcMonitor(BaseScan):
             character = str(task_config.get('battlenet_character', '')).strip()
             if not region or not realm or not character:
                 raise ValueError('Battle.net 导入缺少 region/realm/character')
-            # The controlled base template owns the player declaration/spec.  Armory
-            # import only supplies the character identity so we never create a second
-            # player when a production template already has `spec={spec}`.
-            simc_code = simc_code.replace('{player_config}', f'armory={region},{realm},{character}')
+            # ``armory`` creates the player actor, so it must precede all options
+            # scoped to that imported player (source/level/role/consumables, etc.).
+            # Base templates commonly put {player_config} after those options because
+            # attribute/manual modes already have a template actor; leaving that order
+            # in armory mode makes SimC parse them as unknown global options.
+            simc_code = simc_code.replace('{player_config}', '')
+            simc_code = f'armory={region},{realm},{character}\n{simc_code.lstrip()}'
             simc_code = simc_code.replace('{gear_crit}', '')
             simc_code = simc_code.replace('{gear_haste}', '')
             simc_code = simc_code.replace('{gear_mastery}', '')

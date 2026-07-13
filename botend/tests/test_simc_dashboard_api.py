@@ -1389,6 +1389,40 @@ html=simc_task_99.html
         self.assertIn('armory=eu,Kazzak,Bloodmastêr', rendered)
         self.assertIn('actions=auto_attack', rendered)
 
+    def test_apply_template_battlenet_places_armory_before_player_scoped_options(self):
+        monitor = object.__new__(SimcMonitor)
+        template = '\n'.join([
+            'deathknight="LMonitor_Base"',
+            'source=default',
+            'spec={spec}',
+            'level=80',
+            'role=attack',
+            'fight_style={fight_style}',
+            'max_time={time}',
+            'potion=tempered_potion_3',
+            '{player_config}',
+            '{action_list}',
+        ])
+
+        rendered = monitor.apply_template(template, {
+            'player_import_mode': 'battlenet',
+            'battlenet_region': 'eu',
+            'battlenet_realm': 'Kazzak',
+            'battlenet_character': 'Bloodmastêr',
+            'spec': 'blood',
+            'fight_style': 'Patchwerk',
+            'time': 300,
+            'override_action_list': 'actions=auto_attack',
+        })
+
+        armory_pos = rendered.index('armory=eu,Kazzak,Bloodmastêr')
+        self.assertLess(armory_pos, rendered.index('source=default'))
+        self.assertLess(armory_pos, rendered.index('level=80'))
+        self.assertLess(armory_pos, rendered.index('role=attack'))
+        self.assertLess(armory_pos, rendered.index('potion=tempered_potion_3'))
+        self.assertIn('fight_style=Patchwerk', rendered)
+        self.assertIn('max_time=300', rendered)
+
     def test_apply_template_manual_equipment_replaces_template_actor_instead_of_creating_two_players(self):
         monitor = object.__new__(SimcMonitor)
         template = 'warrior="LMonitor_Base"\nspec=fury\ntalents=TEMPLATE\n{player_config}\n{action_list}'
