@@ -86,7 +86,7 @@ class SimcResultUXTests(TestCase):
         self.assertIn('距最佳不超过', client)
         self.assertIn('maxDeltaPercent > 0 && deltaPercent > maxDeltaPercent', client)
         self.assertNotIn('最低相对性能', client)
-        self.assertIn('decodeMojibake', result)
+        self.assertIn("replace(/<[^>]*>/g, '')", result)
         self.assertIn('结果摘要可用，但没有可识别的技能明细', result)
         self.assertIn('/api/simc-result-proxy/', result)
         self.assertNotIn('raw_simc_code', result)

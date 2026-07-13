@@ -246,10 +246,13 @@
                     }
                 }
                 player.querySelectorAll('.params li').forEach((li) => {
-                    const text = nodeText(li);
-                    if (text.includes('Class:')) result.character.class = translateText(text.split(':').slice(1).join(':').trim());
-                    if (text.includes('Spec:')) result.character.spec = translateText(text.split(':').slice(1).join(':').trim());
-                    if (text.includes('Level:')) result.character.level = text.split(':').slice(1).join(':').trim();
+                    const text = nodeText(li).replace(/<[^>]*>/g, '').trim();
+                    const classMatch = text.match(/^Class:\s*(.+)$/i);
+                    const specMatch = text.match(/^Spec:\s*(.+)$/i);
+                    const levelMatch = text.match(/^Level:\s*(\d+)\s*$/i);
+                    if (classMatch) result.character.class = translateText(classMatch[1].trim());
+                    if (specMatch) result.character.spec = translateText(specMatch[1].trim());
+                    if (levelMatch) result.character.level = levelMatch[1];
                 });
 
                 const abilTable = player.querySelector('table.sc.sort');
@@ -288,7 +291,7 @@
             Object.entries(metadata).forEach(([key, regex]) => {
                 if (!result.character[key]) {
                     const match = reportText.match(regex);
-                    if (match) result.character[key] = translateText(match[1].trim());
+                    if (match) result.character[key] = translateText(match[1].replace(/<[^>]*>/g, '').trim());
                 }
             });
 
