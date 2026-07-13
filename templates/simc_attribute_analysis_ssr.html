@@ -41,19 +41,19 @@
                     <div class="text-xs opacity-75">{{ stats.best.attr1_name }}:{{ stats.best.attr1_value }} / {{ stats.best.attr2_name }}:{{ stats.best.attr2_value }}</div>
                 </div>
                 <div class="bg-white bg-opacity-20 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold">{{ stats.min_dps|floatformat:0 }}</div>
-                    <div class="text-sm opacity-90">最低DPS</div>
-                    <div class="text-xs opacity-75">{{ stats.worst.attr1_name }}:{{ stats.worst.attr1_value }} / {{ stats.worst.attr2_name }}:{{ stats.worst.attr2_value }}</div>
+                    <div class="text-2xl font-bold">{{ stats.total_budget|floatformat:0 }}</div>
+                    <div class="text-sm opacity-90">{% if stats.budget_is_fixed %}固定总量{% else %}配置总量{% endif %}</div>
+                    <div class="text-xs opacity-75">{% if stats.budget_is_fixed %}所有配置绿字总和相等{% else %}结果中检测到不同绿字总和，请谨慎比较{% endif %}</div>
                 </div>
                 <div class="bg-white bg-opacity-20 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold">+{{ stats.improvement_abs|floatformat:0 }}</div>
-                    <div class="text-sm opacity-90">性能提升</div>
-                    <div class="text-xs opacity-75">+{{ stats.improvement_percent|floatformat:1 }}%（相对最低）</div>
+                    <div class="text-2xl font-bold">{{ stats.near_optimal_count }}</div>
+                    <div class="text-sm opacity-90">近似最优</div>
+                    <div class="text-xs opacity-75">距最佳 ≤ 0.2% 的配置</div>
                 </div>
                 <div class="bg-white bg-opacity-20 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold">{{ stats.avg_dps|floatformat:0 }}</div>
-                    <div class="text-sm opacity-90">平均DPS</div>
-                    <div class="text-xs opacity-75">{{ stats.above_avg }}/{{ stats.count }} 高于平均</div>
+                    <div class="text-2xl font-bold">{% if stats.spread_narrow %}是{% else %}否{% endif %}</div>
+                    <div class="text-sm opacity-90">差异极小</div>
+                    <div class="text-xs opacity-75">{% if stats.spread_narrow %}配置间差异 ≤ 0.5%{% else %}配置间差异 > 0.5%{% endif %}</div>
                 </div>
             </div>
         </div>
@@ -83,18 +83,18 @@
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">排名</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">属性1</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">属性2</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">DPS & 性能</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">DPS & 距最佳</th>
                             <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">操作</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
                         {% for item in results_by_dps %}
-                        <tr class="hover:bg-gray-50 {% if forloop.first %}bg-green-50{% elif forloop.last %}bg-red-50{% endif %}">
+                        <tr class="hover:bg-gray-50 {% if item.delta_from_best_percent <= 0.2 %}bg-green-50{% endif %}">
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                 <div class="flex items-center space-x-2">
                                     <span>#{{ forloop.counter }}</span>
                                     {% if item.dps == stats.max_dps %}<span class="badge bg-green-100 text-green-800">最佳</span>{% endif %}
-                                    {% if item.dps == stats.min_dps %}<span class="badge bg-red-100 text-red-800">最低</span>{% endif %}
+                                    {% if item.delta_from_best_percent <= 0.2 and item.dps != stats.max_dps %}<span class="badge bg-blue-100 text-blue-800">近似最优</span>{% endif %}
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
@@ -106,14 +106,11 @@
                                 <div class="text-lg font-bold text-purple-600">{{ item.attr2_value }}</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-lg font-bold {% if item.dps == stats.max_dps %}text-green-600{% elif item.dps == stats.min_dps %}text-red-600{% else %}text-gray-900{% endif %}">
+                                <div class="text-lg font-bold {% if item.dps == stats.max_dps %}text-green-600{% else %}text-gray-900{% endif %}">
                                     {{ item.dps|floatformat:0 }}
                                 </div>
-                                <div class="bar-bg mt-1">
-                                    <div class="bar-fill" style="width: {{ item.relative_percent|floatformat:1 }}%"></div>
-                                </div>
                                 <div class="text-xs text-gray-500 mt-1">
-                                    相对性能: {{ item.relative_percent|floatformat:1 }}%
+                                    距最佳: -{{ item.delta_from_best_abs|floatformat:0 }} (-{{ item.delta_from_best_percent|floatformat:2 }}%)
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-center">
@@ -164,21 +161,16 @@
             });
 
             const chart = new Chart(ctx, {
-                type: 'line',
+                type: 'scatter',
                 data: {
-                    labels,
                     datasets: [{
                         label: 'DPS',
-                        data: dpsValues,
-                        borderColor: 'rgb(59, 130, 246)',
-                        backgroundColor: 'rgba(59, 130, 246, 0.12)',
-                        borderWidth: 3,
-                        fill: true,
-                        tension: 0.35,
-                        pointBackgroundColor: pointColors,
-                        pointBorderColor: pointColors,
-                        pointRadius: 6,
-                        pointHoverRadius: 8
+                        data: results.map((r, idx) => ({ x: idx + 1, y: r.dps || 0 })),
+                        backgroundColor: pointColors,
+                        borderColor: pointColors,
+                        pointRadius: 8,
+                        pointHoverRadius: 10,
+                        showLine: false
                     }]
                 },
                 options: {
@@ -195,16 +187,18 @@
                                 },
                                 label: function (context) {
                                     const value = context.parsed.y || 0;
-                                    const deltaPercent = maxDps > 0 ? ((value / maxDps - 1) * 100) : 0;
-                                    const sign = deltaPercent >= 0 ? '+' : '';
-                                    return [`DPS: ${value.toLocaleString()}`, `差异: ${sign}${deltaPercent.toFixed(1)}%`];
+                                    const deltaAbs = maxDps - value;
+                                    const deltaPercent = maxDps > 0 ? (deltaAbs / maxDps * 100) : 0;
+                                    return [`DPS: ${value.toLocaleString()}`, `距最佳: -${deltaAbs.toFixed(0)} (-${deltaPercent.toFixed(2)}%)`];
                                 }
                             }
                         }
                     },
                     scales: {
                         x: {
-                            title: { display: true, text: '属性配置' }
+                            type: 'linear',
+                            title: { display: true, text: '配置序号' },
+                            ticks: { stepSize: 1 }
                         },
                         y: {
                             beginAtZero: false,
@@ -216,7 +210,7 @@
                     },
                     onClick: function (event, activeElements) {
                         if (!activeElements || activeElements.length === 0) return;
-                        const index = activeElements[0].index;
+                        const index = activeElements[0].dataIndex ?? activeElements[0].index;
                         const r = results[index];
                         if (!r || !r.fileName) return;
                         window.open(`/simc-result/?file=${encodeURIComponent(r.fileName)}`, '_blank');

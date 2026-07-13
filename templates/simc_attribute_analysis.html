@@ -60,12 +60,12 @@
                             </select>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label mb-1 small">最低相对性能</label>
+                            <label class="form-label mb-1 small">距最佳不超过</label>
                             <select id="min-performance" class="form-select form-select-sm">
                                 <option value="0" selected>全部</option>
-                                <option value="90">>= 90%</option>
-                                <option value="95">>= 95%</option>
-                                <option value="98">>= 98%</option>
+                                <option value="0.2">0.2%（近似最优）</option>
+                                <option value="0.5">0.5%</option>
+                                <option value="1">1%</option>
                             </select>
                         </div>
                         <div class="col-md-3">
@@ -85,7 +85,7 @@
                 <div class="col-md-2"><div class="metric-card"><div class="metric-label">最高DPS</div><div id="m-max" class="metric-value">-</div></div></div>
                 <div class="col-md-2"><div class="metric-card"><div class="metric-label">最低DPS</div><div id="m-min" class="metric-value">-</div></div></div>
                 <div class="col-md-2"><div class="metric-card"><div class="metric-label">平均DPS</div><div id="m-avg" class="metric-value">-</div></div></div>
-                <div class="col-md-2"><div class="metric-card"><div class="metric-label">提升幅度</div><div id="m-improve" class="metric-value">-</div></div></div>
+                <div class="col-md-2"><div class="metric-card"><div id="m-budget-label" class="metric-label">固定总量</div><div id="m-budget" class="metric-value">-</div></div></div>
                 <div class="col-md-2"><div class="metric-card"><div class="metric-label">当前显示</div><div id="m-visible" class="metric-value">-</div></div></div>
             </div>
 
@@ -106,7 +106,7 @@
                                 <th>属性1</th>
                                 <th>属性2</th>
                                 <th>DPS</th>
-                                <th>相对性能</th>
+                                <th>距最佳</th>
                                 <th>文件</th>
                                 <th>操作</th>
                             </tr>
@@ -129,13 +129,20 @@
         function getTaskId() { return new URLSearchParams(window.location.search).get('task_id') || ''; }
         function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
         function attrName(name) {
-            const map = { gear_crit: '暴击', gear_haste: '急速', gear_mastery: '精通', gear_versatility: '全能', crit: '暴击', haste: '急速', mastery: '精通', versatility: '全能' };
+            const map = {
+                gear_crit: '暴击', gear_haste: '急速', gear_mastery: '精通', gear_versatility: '全能',
+                crit: '暴击', haste: '急速', mastery: '精通', versatility: '全能'
+            };
             return map[name] || name || '-';
         }
         function esc(v) { return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-        function relativePercent(dps) {
-            if (maxDps <= minDps) return 100;
-            return ((num(dps) - minDps) * 100) / (maxDps - minDps);
+        function deltaFromBest(dps) {
+            return maxDps - num(dps);
+        }
+
+        function deltaFromBestPercent(dps) {
+            if (maxDps === 0) return 0;
+            return (deltaFromBest(dps) / maxDps) * 100;
         }
 
         function exportCsv(filename, headers, rows) {
@@ -161,25 +168,29 @@
         function renderMetrics() {
             const dps = allResults.map((r) => num(r.dps));
             const avg = dps.length ? dps.reduce((s, x) => s + x, 0) / dps.length : 0;
-            const improve = minDps > 0 ? ((maxDps - minDps) / minDps) * 100 : 0;
+
+            const totalBudget = allResults.length ? num(allResults[0].attr1_value) + num(allResults[0].attr2_value) : 0;
+            const budgetIsFixed = allResults.every((r) => num(r.attr1_value) + num(r.attr2_value) === totalBudget);
+
             byId('m-count').textContent = String(allResults.length);
             byId('m-max').textContent = maxDps.toFixed(0);
             byId('m-min').textContent = minDps.toFixed(0);
             byId('m-avg').textContent = avg.toFixed(0);
-            byId('m-improve').textContent = `+${improve.toFixed(1)}%`;
+            byId('m-budget').textContent = totalBudget.toFixed(0);
+            byId('m-budget-label').textContent = budgetIsFixed ? '固定总量' : '配置总量';
             byId('m-visible').textContent = `${shownResults.length}/${allResults.length}`;
         }
 
         function getFilteredSortedResults() {
             const keyword = (byId('keyword').value || '').trim().toLowerCase();
-            const minPerf = num(byId('min-performance').value || 0);
+            const maxDeltaPercent = num(byId('min-performance').value || 0);
             const sortBy = byId('sort-by').value;
 
             let list = allResults.filter((r) => {
-                const rel = relativePercent(r.dps);
-                if (rel < minPerf) return false;
+                const deltaPercent = deltaFromBestPercent(r.dps);
+                if (maxDeltaPercent > 0 && deltaPercent > maxDeltaPercent) return false;
                 if (!keyword) return true;
-                const text = `${r.attr1_name} ${r.attr1_value} ${r.attr2_name} ${r.attr2_value} ${r.file_name || ''}`.toLowerCase();
+                const text = `${attrName(r.attr1_name)} ${r.attr1_value} ${attrName(r.attr2_name)} ${r.attr2_value} ${r.file_name || ''}`.toLowerCase();
                 return text.includes(keyword);
             });
 
@@ -193,16 +204,19 @@
         function renderTable() {
             shownResults = getFilteredSortedResults();
             const html = shownResults.length ? shownResults.map((r, idx) => {
-                const rel = relativePercent(r.dps);
+                const deltaAbs = deltaFromBest(r.dps);
+                const deltaPercent = deltaFromBestPercent(r.dps);
+                const isNearOptimal = deltaPercent <= 0.2;
                 const viewUrl = `/simc-result/?file=${encodeURIComponent(r.file_name || '')}`;
+                const badge = deltaAbs === 0 ? '<span class="badge bg-success">最佳</span>' : (isNearOptimal ? '<span class="badge bg-info">近似最优</span>' : '');
                 return `
-                    <tr id="row-${idx}">
-                        <td>${idx + 1}</td>
+                    <tr id="row-${idx}" class="${isNearOptimal ? 'table-success' : ''}">
+                        <td>${idx + 1} ${badge}</td>
                         <td>${esc(attrName(r.attr1_name))}: <strong>${esc(r.attr1_value)}</strong></td>
                         <td>${esc(attrName(r.attr2_name))}: <strong>${esc(r.attr2_value)}</strong></td>
-                        <td>${num(r.dps).toFixed(2)}</td>
-                        <td>${rel.toFixed(1)}%</td>
-                        <td class="text-muted">${esc(r.file_name || '-')}</td>
+                        <td>${num(r.dps).toFixed(0)}</td>
+                        <td>-${deltaAbs.toFixed(0)} (-${deltaPercent.toFixed(2)}%)</td>
+                        <td class="text-muted small">${esc(r.file_name || '-')}</td>
                         <td>
                             <a href="${viewUrl}" target="_blank" class="btn btn-sm btn-outline-primary">详情</a>
                             <button class="btn btn-sm btn-outline-secondary" onclick="focusPoint(${idx})">定位</button>
@@ -215,9 +229,10 @@
         }
 
         function renderChart() {
-            const labels = shownResults.map((_, i) => `配置${i + 1}`);
             const values = shownResults.map((r) => num(r.dps));
             const pointColors = values.map((v) => {
+                const deltaPercent = deltaFromBestPercent(v);
+                if (deltaPercent <= 0.2) return 'rgb(34, 197, 94)';
                 if (maxDps <= minDps) return 'rgb(59,130,246)';
                 const ratio = (v - minDps) / (maxDps - minDps);
                 const red = Math.floor(255 * (1 - ratio));
@@ -226,20 +241,16 @@
             });
             if (chart) chart.destroy();
             chart = new Chart(byId('dps-chart').getContext('2d'), {
-                type: 'line',
+                type: 'scatter',
                 data: {
-                    labels,
                     datasets: [{
-                        data: values,
-                        borderColor: 'rgb(59,130,246)',
-                        backgroundColor: 'rgba(59,130,246,0.15)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.3,
-                        pointBackgroundColor: pointColors,
-                        pointBorderColor: pointColors,
-                        pointRadius: 5,
-                        pointHoverRadius: 7
+                        label: 'DPS',
+                        data: shownResults.map((r, idx) => ({ x: idx + 1, y: num(r.dps) })),
+                        backgroundColor: pointColors,
+                        borderColor: pointColors,
+                        pointRadius: 6,
+                        pointHoverRadius: 9,
+                        showLine: false
                     }]
                 },
                 options: {
@@ -254,13 +265,30 @@
                                     const r = shownResults[i];
                                     return `${attrName(r.attr1_name)}:${r.attr1_value} / ${attrName(r.attr2_name)}:${r.attr2_value}`;
                                 },
-                                label: (ctx) => `DPS: ${num(ctx.parsed.y).toFixed(2)}`
+                                label: (ctx) => {
+                                    const dps = ctx.parsed.y || 0;
+                                    const deltaAbs = deltaFromBest(dps);
+                                    const deltaPercent = deltaFromBestPercent(dps);
+                                    return [`DPS: ${dps.toFixed(0)}`, `距最佳: -${deltaAbs.toFixed(0)} (-${deltaPercent.toFixed(2)}%)`];
+                                }
                             }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            title: { display: true, text: '配置序号' },
+                            ticks: { stepSize: 1 }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            title: { display: true, text: 'DPS' },
+                            ticks: { callback: (v) => v.toLocaleString() }
                         }
                     },
                     onClick: (evt, active) => {
                         if (!active.length) return;
-                        const idx = active[0].index;
+                        const idx = active[0].dataIndex ?? active[0].index;
                         const r = shownResults[idx];
                         if (!r || !r.file_name) return;
                         window.open(`/simc-result/?file=${encodeURIComponent(r.file_name)}`, '_blank');
@@ -304,11 +332,15 @@
                 rerender();
             });
             byId('btn-export-csv').addEventListener('click', () => {
-                const rows = shownResults.map((r) => [
-                    attrName(r.attr1_name), r.attr1_value, attrName(r.attr2_name), r.attr2_value,
-                    num(r.dps).toFixed(2), `${relativePercent(r.dps).toFixed(1)}%`, r.file_name || ''
-                ]);
-                exportCsv('simc_attribute_analysis.csv', ['属性1', '属性1值', '属性2', '属性2值', 'DPS', '相对性能', '文件'], rows);
+                const rows = shownResults.map((r) => {
+                    const deltaAbs = deltaFromBest(r.dps);
+                    const deltaPercent = deltaFromBestPercent(r.dps);
+                    return [
+                        attrName(r.attr1_name), r.attr1_value, attrName(r.attr2_name), r.attr2_value,
+                        num(r.dps).toFixed(0), `-${deltaAbs.toFixed(0)}`, `-${deltaPercent.toFixed(2)}%`, r.file_name || ''
+                    ];
+                });
+                exportCsv('simc_attribute_analysis.csv', ['属性1', '属性1值', '属性2', '属性2值', 'DPS', '距最佳(绝对)', '距最佳(%)', '文件'], rows);
             });
         }
 

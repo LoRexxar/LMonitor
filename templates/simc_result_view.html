@@ -97,6 +97,8 @@
                 </div>
             </div>
 
+            <div id="analysis-insight" class="alert alert-info border-0 shadow-sm mb-3 d-none"></div>
+
             <div id="chart-section" class="row g-3 mb-3">
                 <div class="col-lg-6">
                     <div class="panel">
@@ -191,12 +193,25 @@
 
         function byId(id) { return document.getElementById(id); }
         function parseNum(v) { const n = parseFloat(String(v ?? '').replace(/,/g, '').replace('%', '').replace('s', '').trim()); return Number.isFinite(n) ? n : 0; }
+        function decodeMojibake(text) {
+            const value = String(text || '');
+            if (!/[ÃÂâ]/.test(value) || [...value].some((ch) => ch.charCodeAt(0) > 255)) return value;
+            try {
+                const bytes = Uint8Array.from(value, (ch) => ch.charCodeAt(0));
+                const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+                return /\uFFFD/.test(decoded) ? value : decoded;
+            } catch (e) {
+                return value;
+            }
+        }
+
+        function nodeText(node) { return decodeMojibake((node?.textContent || '').replace(/\u00a0/g, ' ').trim()); }
         function getParam(name) { return new URLSearchParams(window.location.search).get(name) || ''; }
         function tSkill(name) { return skillTranslations[name] || name; }
 
         function translateText(text) {
             if (!text || typeof text !== 'string') return text;
-            let out = text;
+            let out = decodeMojibake(text);
             for (const [en, cn] of Object.entries(skillTranslations)) {
                 const reg = new RegExp('\\b' + en.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
                 out = out.replace(reg, cn);
@@ -218,11 +233,13 @@
             const doc = new DOMParser().parseFromString(html, 'text/html');
             const result = { character: {}, simulation: {}, abilities: [], actions: [] };
             const player = doc.querySelector('.player');
+            const reportText = nodeText(doc.body);
 
             if (player) {
                 const title = player.querySelector('h2');
                 if (title) {
-                    const m = title.textContent.match(/(.+?)\s*:\s*([\d,]+)\s*dps/i);
+                    const titleText = nodeText(title);
+                    const m = titleText.match(/(.+?)\s*:\s*([\d,]+)\s*dps/i);
                     if (m) {
                         result.character.name = m[1].trim();
                         result.character.dps = parseNum(m[2]);
@@ -257,6 +274,23 @@
                     });
                 }
             }
+
+            const reportHeader = reportText.match(/([^\n:]{2,80})\s*:\s*([\d,]+)\s*dps/i);
+            if (!result.character.name && reportHeader) {
+                result.character.name = reportHeader[1].trim();
+                result.character.dps = parseNum(reportHeader[2]);
+            }
+            const metadata = {
+                class: /\bclass\s*:\s*([^\n]+)/i,
+                spec: /\bspec\s*:\s*([^\n]+)/i,
+                level: /\blevel\s*:\s*(\d+)/i,
+            };
+            Object.entries(metadata).forEach(([key, regex]) => {
+                if (!result.character[key]) {
+                    const match = reportText.match(regex);
+                    if (match) result.character[key] = translateText(match[1].trim());
+                }
+            });
 
             const mast = doc.querySelector('#masthead');
             if (mast) {
@@ -417,6 +451,22 @@
             box.innerHTML = top.map(([name, cnt]) => `<span class="action-chip">${tSkill(name)} × ${cnt}</span>`).join('');
         }
 
+        function renderInsight(data) {
+            const box = byId('analysis-insight');
+            if (!box) return;
+            box.classList.remove('d-none');
+            if (!abilitiesData.length) {
+                box.className = 'alert alert-warning border-0 shadow-sm mb-3';
+                box.innerHTML = '<strong>结果摘要可用，但没有可识别的技能明细。</strong> 当前报告可确认 DPS 与模拟参数；该 SimC HTML 未包含兼容的技能贡献表或行动序列表，因此不会生成不可靠的循环分析。';
+                return;
+            }
+            const sorted = [...abilitiesData].sort((a, b) => parseNum(b.dpsPercent) - parseNum(a.dpsPercent));
+            const primary = sorted[0];
+            const top3 = sorted.slice(0, 3).reduce((sum, item) => sum + parseNum(item.dpsPercent), 0);
+            box.className = 'alert alert-info border-0 shadow-sm mb-3';
+            box.innerHTML = `<strong>分析结论：</strong>${tSkill(primary.name)} 是最高贡献技能（${parseNum(primary.dpsPercent).toFixed(1)}%）；前 3 个技能合计占 ${top3.toFixed(1)}% 的 DPS。${actionData.length ? ` 已解析 ${actionData.length} 条行动记录，可按时间窗口查看。` : ' 当前报告没有可识别的行动序列。'}`;
+        }
+
         function renderMetrics() {
             const sorted = [...abilitiesData].sort((a, b) => parseNum(b.dpsPercent) - parseNum(a.dpsPercent));
             if (!sorted.length) {
@@ -472,6 +522,7 @@
         function rerender() {
             renderAbilities();
             renderActions();
+            renderInsight();
             renderMetrics();
             renderCharts();
             applyViewMode();

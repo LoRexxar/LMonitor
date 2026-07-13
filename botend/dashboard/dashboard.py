@@ -1047,6 +1047,11 @@ class SimcAttributeAnalysisSSRView(View):
             
             def extract_dps(html):
                 try:
+                    if isinstance(html, bytes):
+                        try:
+                            html = html.decode('utf-8', errors='replace')
+                        except Exception:
+                            html = str(html)
                     m = re.search(r':\s*([\d,]+)\s*dps', html, re.IGNORECASE)
                     if m:
                         return int(m.group(1).replace(',', ''))
@@ -1066,6 +1071,19 @@ class SimcAttributeAnalysisSSRView(View):
                     return None
                 return None
             
+            def translate_attr_name(name):
+                mapping = {
+                    'gear_crit': '暴击',
+                    'gear_haste': '急速',
+                    'gear_mastery': '精通',
+                    'gear_versatility': '全能',
+                    'crit': '暴击',
+                    'haste': '急速',
+                    'mastery': '精通',
+                    'versatility': '全能',
+                }
+                return mapping.get(name, name)
+
             analysis = []
             for rf in result_files:
                 parsed = parse_attribute_result_filename(rf)
@@ -1075,19 +1093,19 @@ class SimcAttributeAnalysisSSRView(View):
                 attr1_value = parsed['attr1_value']
                 attr2_name = parsed['attr2_name']
                 attr2_value = parsed['attr2_value']
-                
+
                 content = read_file_content(rf)
                 if not content:
                     continue
                 dps_val = extract_dps(content)
                 if dps_val is None:
                     continue
-                
+
                 analysis.append({
                     'file_name': rf,
-                    'attr1_name': attr1_name,
+                    'attr1_name': translate_attr_name(attr1_name),
                     'attr1_value': attr1_value,
-                    'attr2_name': attr2_name,
+                    'attr2_name': translate_attr_name(attr2_name),
                     'attr2_value': attr2_value,
                     'dps': dps_val
                 })
@@ -1110,16 +1128,28 @@ class SimcAttributeAnalysisSSRView(View):
             worst = next(i for i in analysis if i['dps'] == min_dps)
             improvement_abs = max_dps - min_dps
             improvement_percent = (improvement_abs * 100.0 / min_dps) if min_dps else 0.0
-            
-            # 增加相对性能百分比，供模板渲染进度条
+
+            budget_values = [
+                int(item['attr1_value']) + int(item['attr2_value'])
+                for item in analysis
+                if isinstance(item['attr1_value'], int) and isinstance(item['attr2_value'], int)
+            ]
+            total_budget = budget_values[0] if budget_values else 0
+            budget_is_fixed = bool(budget_values) and len(set(budget_values)) == 1
+
+            near_optimal_configs = []
             for item in analysis:
-                if max_dps == min_dps:
-                    item['relative_percent'] = 100.0
-                else:
-                    item['relative_percent'] = (item['dps'] - min_dps) * 100.0 / (max_dps - min_dps)
+                delta_from_best = max_dps - item['dps']
+                delta_percent = (delta_from_best / max_dps * 100.0) if max_dps > 0 else 0.0
+                item['delta_from_best_abs'] = delta_from_best
+                item['delta_from_best_percent'] = delta_percent
+                if delta_percent <= 0.2:
+                    near_optimal_configs.append(item)
+
+            spread_narrow = (improvement_percent <= 0.5) if improvement_percent is not None else False
             
             results_by_dps = sorted(analysis, key=lambda x: x.get('dps', 0), reverse=True)
-            
+
             context = {
                 'task_id': task.id,
                 'task_name': task.name,
@@ -1135,6 +1165,10 @@ class SimcAttributeAnalysisSSRView(View):
                     'worst': worst,
                     'improvement_abs': improvement_abs,
                     'improvement_percent': improvement_percent,
+                    'total_budget': total_budget,
+                    'budget_is_fixed': budget_is_fixed,
+                    'near_optimal_count': len(near_optimal_configs),
+                    'spread_narrow': spread_narrow,
                 }
             }
             
