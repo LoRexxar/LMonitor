@@ -7,12 +7,176 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import Client, RequestFactory, TestCase
+from django.utils import timezone
 
 from botend.dashboard.api import SimcAplCandidatesAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, inspect_raw_simc_code
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates
 from botend.models import SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, WowItemSnapshot
+
+
+class SimcWorkerBatchLifecycleTests(TestCase):
+    def setUp(self):
+        self.monitor = SimcMonitor(None, None)
+        self.batch = SimcTaskBatch.objects.create(
+            user_id=801,
+            name='worker lifecycle',
+            batch_type='comparison',
+            status=0,
+        )
+
+    def _task(self, status=0, batch='default', ext=None):
+        task_batch = self.batch if batch == 'default' else batch
+        return SimcTask.objects.create(
+            user_id=801,
+            name=f'task-{status}',
+            simc_profile_id=0,
+            task_type=1,
+            current_status=status,
+            batch=task_batch,
+            ext=json.dumps(ext or {}, ensure_ascii=False),
+            is_active=True,
+        )
+
+    def test_batch_stays_running_until_all_fk_members_succeed(self):
+        first = self._task(status=2)
+        second = self._task(status=0)
+
+        self.monitor.sync_batch_lifecycle(self.batch.id)
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, 1)
+        self.assertIsNone(self.batch.completed_at)
+
+        second.current_status = 2
+        second.save(update_fields=['current_status', 'modified_time'])
+        self.monitor.sync_batch_lifecycle(self.batch.id)
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, 2)
+        self.assertIsNotNone(self.batch.completed_at)
+        first.refresh_from_db()
+        self.assertEqual(first.current_status, 2)
+
+    def test_batch_failure_has_priority_and_completed_at_is_idempotent(self):
+        failed = self._task(status=3)
+        self._task(status=2)
+
+        self.monitor.sync_batch_lifecycle(self.batch.id)
+        self.batch.refresh_from_db()
+        completed_at = self.batch.completed_at
+        self.assertEqual(self.batch.status, 3)
+        self.assertIsNotNone(completed_at)
+
+        self.monitor.sync_batch_lifecycle(self.batch.id)
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, 3)
+        self.assertEqual(self.batch.completed_at, completed_at)
+        failed.refresh_from_db()
+        self.assertEqual(failed.current_status, 3)
+
+    def test_appending_pending_task_reopens_completed_batch(self):
+        self._task(status=2)
+        self.monitor.sync_batch_lifecycle(self.batch.id)
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, 2)
+
+        self._task(status=0)
+        self.monitor.sync_batch_lifecycle(self.batch.id)
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, 1)
+        self.assertIsNone(self.batch.completed_at)
+
+    def test_sync_uses_fk_and_ignores_forged_legacy_batch_id(self):
+        other = SimcTaskBatch.objects.create(
+            user_id=801, name='other', batch_type='comparison', status=0,
+        )
+        self._task(status=2, ext={'batch_compare': {'batch_id': other.id}})
+
+        self.monitor.sync_batch_lifecycle(self.batch.id)
+        self.batch.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(self.batch.status, 2)
+        self.assertEqual(other.status, 0)
+
+    def test_mark_task_failed_updates_fk_batch_without_legacy_lookup(self):
+        task = self._task(status=0)
+        legacy_only = self._task(
+            status=0,
+            batch=None,
+            ext={'batch_compare': {'batch_id': self.batch.id}},
+        )
+
+        self.monitor.mark_task_failed(task, 'expected failure')
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, 3)
+        self.assertIsNotNone(self.batch.completed_at)
+
+        isolated_batch = SimcTaskBatch.objects.create(
+            user_id=801, name='isolated', batch_type='comparison', status=0,
+        )
+        legacy_only.ext = json.dumps({'batch_compare': {'batch_id': isolated_batch.id}})
+        legacy_only.save(update_fields=['ext', 'modified_time'])
+        self.monitor.mark_task_failed(legacy_only, 'legacy failure')
+        isolated_batch.refresh_from_db()
+        self.assertEqual(isolated_batch.status, 0)
+
+    def test_soft_deleted_tasks_do_not_block_or_fail_batch_lifecycle(self):
+        self._task(status=2)
+        deleted_pending = self._task(status=0)
+        deleted_failed = self._task(status=3)
+        SimcTask.objects.filter(id__in=[deleted_pending.id, deleted_failed.id]).update(is_active=False)
+
+        self.monitor.sync_batch_lifecycle(self.batch.id)
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, 2)
+        self.assertIsNotNone(self.batch.completed_at)
+
+    def test_soft_delete_reconciles_real_batch_immediately(self):
+        succeeded = self._task(status=2)
+        pending = self._task(status=0)
+        self.monitor.sync_batch_lifecycle(self.batch.id)
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, 1)
+
+        user = User.objects.create_user(username='batch_delete_user', password='pwd')
+        self.batch.user_id = user.id
+        self.batch.save(update_fields=['user_id', 'updated_at'])
+        SimcTask.objects.filter(id__in=[succeeded.id, pending.id]).update(user_id=user.id)
+        client = Client()
+        client.force_login(user)
+        response = client.delete(
+            '/api/simc-task/',
+            data=json.dumps({'id': pending.id}),
+            content_type='application/json',
+        )
+
+        self.assertTrue(response.json()['success'], response.json())
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, 2)
+        self.assertIsNotNone(self.batch.completed_at)
+
+    def test_claim_promotes_batch_before_execution_and_finally_completes_it(self):
+        task = self._task(
+            status=0,
+            ext={'raw_simc_code': 'warrior="Batch"\nlevel=80'},
+        )
+        observed_batch_status = []
+
+        def complete_task(simc_task, _profile):
+            self.batch.refresh_from_db()
+            observed_batch_status.append(self.batch.status)
+            simc_task.current_status = 2
+            simc_task.completed_at = timezone.now()
+            simc_task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
+            return True
+
+        with patch.object(self.monitor, 'process_regular_simulation', side_effect=complete_task):
+            self.assertTrue(self.monitor.process_simc_task(task))
+
+        self.batch.refresh_from_db()
+        self.assertEqual(observed_batch_status, [1])
+        self.assertEqual(self.batch.status, 2)
+        self.assertIsNotNone(self.batch.completed_at)
 
 
 class SimcTemplateAPIViewTests(TestCase):
@@ -1218,7 +1382,7 @@ trinket1=,id=299001,ilevel=650
         self.assertEqual([row['dps'] for row in rows], [1744, 1801])
         self.assertTrue(all(row['result_file'].startswith('simc_task_') for row in rows))
 
-    def test_database_batch_relation_is_authoritative_and_completion_updates_batch(self):
+    def test_database_batch_relation_is_authoritative_and_result_read_has_no_lifecycle_side_effect(self):
         batch = SimcTaskBatch.objects.create(
             user_id=self.user.id, name='Authoritative batch',
             batch_type='comparison', status=1,
@@ -1252,8 +1416,8 @@ trinket1=,id=299001,ilevel=650
         self.assertEqual(payload['data']['batch']['total'], 2)
         self.assertEqual([row['label'] for row in payload['data']['tasks']], ['基准配置', '候选配置'])
         batch.refresh_from_db()
-        self.assertEqual(batch.status, 2)
-        self.assertIsNotNone(batch.completed_at)
+        self.assertEqual(batch.status, 1)
+        self.assertIsNone(batch.completed_at)
 
     def test_batch_compare_query_is_isolated_and_reports_pending_progress(self):
         batch_id, other_id = 'batch-isolated', 'batch-other'
@@ -1271,6 +1435,40 @@ trinket1=,id=299001,ilevel=650
         self.assertEqual(payload['data']['batch']['pending'], 1)
         self.assertEqual(payload['data']['batch']['running'], 1)
         self.assertEqual(payload['data']['batch']['succeeded'], 0)
+
+    def test_scan_real_batch_uses_fk_and_does_not_mix_forged_legacy_id(self):
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='real drain', batch_type='comparison', status=0,
+        )
+        real_tasks = [
+            SimcTask.objects.create(
+                user_id=self.user.id, name=f'real {index}', simc_profile_id=0,
+                current_status=0, task_type=1, batch=batch,
+                ext=json.dumps({'batch_compare': {
+                    'version': 2, 'batch_id': str(batch.id), 'kind': 'talent_candidates',
+                    'index': index, 'label': f'real {index}',
+                }}),
+            )
+            for index in range(2)
+        ]
+        forged = SimcTask.objects.create(
+            user_id=self.user.id, name='forged legacy', simc_profile_id=0,
+            current_status=0, task_type=1,
+            ext=json.dumps({'batch_compare': {
+                'version': 1, 'batch_id': str(batch.id), 'kind': 'talent_candidates',
+                'index': 99, 'label': 'forged',
+            }}),
+        )
+        monitor = SimcMonitor(None, None)
+
+        with patch.object(monitor, 'ensure_local_simc_backend_current', return_value=True), \
+             patch('botend.controller.plugins.simc.SimcMonitor.os.path.exists', return_value=True), \
+             patch('botend.controller.plugins.simc.SimcMonitor.os.path.isfile', return_value=True), \
+             patch.object(monitor, 'process_simc_task', return_value=True) as process:
+            self.assertTrue(monitor.scan())
+
+        self.assertEqual([call.args[0].id for call in process.call_args_list], [task.id for task in real_tasks])
+        self.assertNotIn(forged.id, [call.args[0].id for call in process.call_args_list])
 
     def test_scan_drains_all_pending_batch_candidates_in_one_dispatch(self):
         batch_id = 'batch-drain-all'

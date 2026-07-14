@@ -17,9 +17,10 @@ import json
 import re
 import platform as py_platform
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 from utils.log import logger
-from botend.models import SimcTask, SimcProfile, SimcBackendBinary
+from botend.models import SimcTask, SimcTaskBatch, SimcProfile, SimcBackendBinary
 from botend.alerting import upsert_system_alert
 from botend.controller.BaseScan import BaseScan
 from botend.services.simc_player_config import authoritative_player_baseline, validate_player_baseline
@@ -220,6 +221,53 @@ class SimcMonitor(BaseScan):
         self._set_update_status(row, status=status, progress=100, is_updating=False, latest_version=latest_version, current_version=current_hash or row.current_version, last_error='')
         return True
 
+    def sync_batch_lifecycle(self, batch_id):
+        """Recompute one real Batch strictly from its FK-owned task statuses."""
+        if not batch_id:
+            return
+        try:
+            with transaction.atomic():
+                batch = SimcTaskBatch.objects.select_for_update().filter(id=batch_id).first()
+                if batch is None:
+                    return
+                statuses = list(
+                    SimcTask.objects.filter(batch_id=batch.id, is_active=True)
+                    .values_list('current_status', flat=True)
+                )
+                if not statuses:
+                    resolved_status = 0
+                elif any(status == 3 for status in statuses):
+                    resolved_status = 3
+                elif all(status == 2 for status in statuses):
+                    resolved_status = 2
+                else:
+                    resolved_status = 1
+
+                update_fields = []
+                if batch.status != resolved_status:
+                    batch.status = resolved_status
+                    update_fields.append('status')
+                if resolved_status in (2, 3):
+                    if batch.completed_at is None:
+                        batch.completed_at = timezone.now()
+                        update_fields.append('completed_at')
+                elif batch.completed_at is not None:
+                    batch.completed_at = None
+                    update_fields.append('completed_at')
+                if update_fields:
+                    update_fields.append('updated_at')
+                    batch.save(update_fields=update_fields)
+        except Exception as exc:
+            logger.error(f"[SimC Monitor] Failed to sync batch {batch_id} lifecycle: {exc}")
+
+    def reconcile_open_batches(self):
+        """Retry lifecycle reconciliation for non-terminal real batches."""
+        for batch_id in SimcTaskBatch.objects.filter(
+            is_active=True,
+            status__in=(0, 1),
+        ).values_list('id', flat=True):
+            self.sync_batch_lifecycle(batch_id)
+
     def mark_task_failed(self, simc_task, reason, exc=None, overwrite_when_has_error=False):
         """
         将任务标记为失败，并写入可见错误信息。
@@ -244,6 +292,7 @@ class SimcMonitor(BaseScan):
 
             simc_task.current_status = 3
             simc_task.save()
+            self.sync_batch_lifecycle(simc_task.batch_id)
         except Exception as save_err:
             logger.error(f"[SimC Monitor] Failed to persist task error for task {getattr(simc_task, 'id', '-')}: {save_err}")
 
@@ -336,6 +385,7 @@ class SimcMonitor(BaseScan):
         logger.info("[SimC Monitor] Start SimC simulation check.")
         
         try:
+            self.reconcile_open_batches()
             if not self.ensure_local_simc_backend_current():
                 logger.error("[SimC Monitor] Local SimC backend is not ready")
                 self.fail_pending_tasks("SimC本地编译产物不可用，请先完成后端编译更新")
@@ -370,19 +420,26 @@ class SimcMonitor(BaseScan):
             if not isinstance(first_ext, dict):
                 first_ext = {}
             first_manifest = first_ext.get('batch_compare') if isinstance(first_ext.get('batch_compare'), dict) else {}
-            batch_id = str(first_manifest.get('batch_id') or '').strip()
+            legacy_batch_id = str(first_manifest.get('batch_id') or '').strip()
             pending_tasks = [first_task]
-            if batch_id:
+            if first_task.batch_id:
+                pending_tasks = list(SimcTask.objects.filter(
+                    is_active=True,
+                    current_status=0,
+                    batch_id=first_task.batch_id,
+                ).order_by('modified_time', 'id'))
+            elif legacy_batch_id:
                 pending_tasks = []
                 for candidate in SimcTask.objects.filter(
                     is_active=True,
                     current_status=0,
+                    batch__isnull=True,
                 ).order_by('modified_time', 'id'):
                     candidate_ext = self.parse_task_ext(candidate.ext)
                     if not isinstance(candidate_ext, dict):
                         candidate_ext = {}
                     manifest = candidate_ext.get('batch_compare') if isinstance(candidate_ext.get('batch_compare'), dict) else {}
-                    if str(manifest.get('batch_id') or '').strip() == batch_id:
+                    if str(manifest.get('batch_id') or '').strip() == legacy_batch_id:
                         pending_tasks.append(candidate)
 
             for simc_task in pending_tasks:
@@ -438,6 +495,7 @@ class SimcMonitor(BaseScan):
                 logger.info(f"[SimC Monitor] Task {simc_task.id} was already claimed or no longer pending, skip")
                 return False
             simc_task.refresh_from_db()
+            self.sync_batch_lifecycle(simc_task.batch_id)
             self.clear_simc_error_details(simc_task)
             simc_task.save(update_fields=['ext', 'modified_time'])
 
@@ -492,7 +550,9 @@ class SimcMonitor(BaseScan):
             logger.error(f"[SimC Monitor] Error processing task {simc_task.id}: {str(e)}")
             self.mark_task_failed(simc_task, "任务处理失败", e)
             return False
-        
+        finally:
+            self.sync_batch_lifecycle(getattr(simc_task, 'batch_id', None))
+
         return True
     
     def process_regular_simulation(self, simc_task, simc_profile):

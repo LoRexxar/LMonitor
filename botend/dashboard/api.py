@@ -1067,8 +1067,10 @@ class SimcTaskAPIView(View):
                 })
             
             # 软删除
+            batch_id = task.batch_id
             task.is_active = False
             task.save()
+            SimcMonitor(None, None).sync_batch_lifecycle(batch_id)
             
             return JsonResponse({
                 'success': True,
@@ -1796,6 +1798,9 @@ class SimcBatchTaskAPIView(View):
                 batch_compare=batch_compare,
             )
             created.append(task)
+        batch.status = 1
+        batch.completed_at = None
+        batch.save(update_fields=['status', 'completed_at', 'updated_at'])
         return {
             'batch_id': effective_batch_id,
             'parent_batch_id': continue_batch_id,
@@ -4519,23 +4524,6 @@ class SimcRegularCompareAPIView(View):
                 for row in active_rows:
                     active_counts[{0: 'pending', 1: 'running', 2: 'succeeded', 3: 'failed'}.get(row['current_status'], 'failed')] += 1
                 attribute_report = self._build_attribute_report(batch_tasks) if first_manifest.get('kind') == 'attribute_variants' else None
-                if database_batch is not None:
-                    if status_counts['failed']:
-                        resolved_batch_status = 3
-                    elif status_counts['succeeded'] == len(rows):
-                        resolved_batch_status = 2
-                    else:
-                        resolved_batch_status = 1
-                    update_fields = []
-                    if database_batch.status != resolved_batch_status:
-                        database_batch.status = resolved_batch_status
-                        update_fields.append('status')
-                    if resolved_batch_status in (2, 3) and database_batch.completed_at is None:
-                        database_batch.completed_at = timezone.now()
-                        update_fields.append('completed_at')
-                    if update_fields:
-                        update_fields.append('updated_at')
-                        database_batch.save(update_fields=update_fields)
                 batch_payload = {
                     'batch_id': batch_id,
                     'name': database_batch.name if database_batch is not None else '',
