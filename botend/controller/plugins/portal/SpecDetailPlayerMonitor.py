@@ -23,6 +23,12 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
     PLAYER_RANKING_LIMIT = 20
     PROFILE_ENRICH_LIMIT = 20
     RANKING_SAMPLE_BACKFILL_LIMIT = 100
+    PROFILE_UPDATE_FIELDS = (
+        'class_name', 'rank', 'score', 'faction', 'race', 'gender', 'guild_name',
+        'realm_rank', 'avatar_url', 'profile_url', 'achievement_points', 'item_level',
+        'gear_json', 'talents_json', 'talent_build_code', 'stats_json',
+        'stats_crawl_status',
+    )
 
     DEFAULT_GEAR_SLOTS = [
         'head', 'neck', 'shoulder', 'shirt', 'chest', 'waist', 'legs', 'feet',
@@ -111,10 +117,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                             }
                             self._preserve_complete_talents_when_new_payload_is_downgrade(existing, defaults, class_name, spec_name)
                             if existing:
-                                for field, value in defaults.items():
-                                    setattr(existing, field, value)
-                                existing.class_name = class_name
-                                existing.save(update_fields=[*defaults.keys(), 'class_name'])
+                                defaults['class_name'] = class_name
+                                self._save_changed_profile(existing, defaults)
                             else:
                                 profile = PlayerSpecTopPlayer(
                                     season_id=season.id,
@@ -260,6 +264,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         for key, row in sample_map.items():
             profile = existing.get(key)
             needs_profile = self._profile_needs_rio_enrichment(profile)
+            original_values = None
             if not profile:
                 profile = PlayerSpecTopPlayer(
                     season_id=season_id,
@@ -271,16 +276,32 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     rank=None,
                     stats_crawl_status=0,
                 )
+            else:
+                original_values = {
+                    field: getattr(profile, field)
+                    for field in self.PROFILE_UPDATE_FIELDS
+                }
 
             self._apply_ranking_row_to_profile(profile, row)
             if needs_profile and (profile.region or '').lower() != 'cn':
                 self._enrich_profile_model_from_raiderio(profile)
                 time.sleep(0.2)
 
-            profile.last_updated = timezone.now()
-            self._save_profile_safely(profile)
+            if profile.pk:
+                values = {
+                    field: getattr(profile, field)
+                    for field in self.PROFILE_UPDATE_FIELDS
+                }
+                values['last_updated'] = timezone.now()
+                for field, value in (original_values or {}).items():
+                    setattr(profile, field, value)
+                changed = self._save_changed_profile(profile, values)
+            else:
+                profile.last_updated = timezone.now()
+                self._save_profile_safely(profile)
+                changed = True
             existing[key] = profile
-            updated += 1
+            updated += int(changed)
 
         logger.info(f"[SpecDetailPlayer] 定向补齐 ranking 样本: {class_name}/{spec_name} {updated} 条")
         return updated
@@ -317,21 +338,32 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             existing = self._find_existing_profile_for_unique_key(profile)
             if not existing:
                 raise
-            for field in (
-                'class_name', 'rank', 'score', 'faction', 'race', 'gender', 'guild_name',
-                'realm_rank', 'avatar_url', 'profile_url', 'achievement_points', 'item_level',
-                'gear_json', 'talents_json', 'talent_build_code', 'stats_json',
-                'stats_crawl_status', 'last_updated',
-            ):
-                setattr(existing, field, getattr(profile, field))
-            existing.save(update_fields=[
-                'class_name', 'rank', 'score', 'faction', 'race', 'gender', 'guild_name',
-                'realm_rank', 'avatar_url', 'profile_url', 'achievement_points', 'item_level',
-                'gear_json', 'talents_json', 'talent_build_code', 'stats_json',
-                'stats_crawl_status', 'last_updated',
-            ])
+            values = {
+                field: getattr(profile, field)
+                for field in self.PROFILE_UPDATE_FIELDS
+            }
+            values['last_updated'] = profile.last_updated
+            self._save_changed_profile(existing, values)
             profile.id = existing.id
             return existing
+
+    @staticmethod
+    def _save_changed_profile(profile, values):
+        """只持久化发生实质变化的字段；时间戳本身不触发写入。"""
+        changed_fields = [
+            field
+            for field, value in values.items()
+            if field != 'last_updated' and getattr(profile, field) != value
+        ]
+        if not changed_fields:
+            return False
+        for field in changed_fields:
+            setattr(profile, field, values[field])
+        if 'last_updated' in values:
+            profile.last_updated = values['last_updated']
+            changed_fields.append('last_updated')
+        profile.save(update_fields=changed_fields)
+        return True
 
     def _find_existing_profile_for_unique_key(self, profile):
         target_key = self._profile_identity_key(profile.region, profile.realm, profile.character_name)

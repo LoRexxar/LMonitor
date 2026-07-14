@@ -18,6 +18,23 @@ from utils.log import logger
 
 
 class SpecDetailRankingMonitor(SpecDetailBase):
+    DUNGEON_KEY_FIELDS = (
+        'class_name', 'spec_name', 'character_name', 'realm', 'region',
+        'report_code', 'fight_id',
+    )
+    DUNGEON_UPDATE_FIELDS = (
+        'dungeon_name', 'dps', 'keystone_level', 'clear_time', 'score', 'medal',
+        'affixes', 'talents_json', 'talent_build_code', 'gear_json', 'faction',
+        'guild_name',
+    )
+    RAID_KEY_FIELDS = (
+        'class_name', 'spec_name', 'character_name', 'realm', 'region',
+        'report_code', 'fight_id',
+    )
+    RAID_UPDATE_FIELDS = (
+        'boss_name', 'raid_zone_id', 'raid_zone_name', 'dps', 'kill_time',
+        'talents_json', 'talent_build_code', 'gear_json', 'faction', 'guild_name',
+    )
 
     def __init__(self, req, task):
         super().__init__(req, task)
@@ -179,10 +196,19 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
             try:
                 with transaction.atomic():
-                    SpecDungeonRanking.objects.filter(season_id=season.id, dungeon_id=enc_id).delete()
-                    SpecDungeonRanking.objects.bulk_create(records, batch_size=500)
+                    result = self._sync_ranking_records(
+                        model=SpecDungeonRanking,
+                        filters={'season_id': season.id, 'dungeon_id': enc_id},
+                        records=records,
+                        key_fields=self.DUNGEON_KEY_FIELDS,
+                        update_fields=self.DUNGEON_UPDATE_FIELDS,
+                    )
                 total += len(records)
-                logger.info(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}): 写入 {len(records)} 条")
+                logger.info(
+                    f"[SpecDetailRanking] M+ {enc_id} ({enc_name}): "
+                    f"新增 {result['created']} / 更新 {result['updated']} / "
+                    f"删除 {result['deleted']} / 未变化 {result['unchanged']}"
+                )
             except Exception as e:
                 ok = False
                 logger.error(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}) 写入失败: {e}")
@@ -311,12 +337,19 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             elif records:
                 try:
                     with transaction.atomic():
-                        SpecRaidRanking.objects.filter(
-                            season_id=season.id, boss_id=enc_id
-                        ).delete()
-                        SpecRaidRanking.objects.bulk_create(records, batch_size=500)
+                        result = self._sync_ranking_records(
+                            model=SpecRaidRanking,
+                            filters={'season_id': season.id, 'boss_id': enc_id},
+                            records=records,
+                            key_fields=self.RAID_KEY_FIELDS,
+                            update_fields=self.RAID_UPDATE_FIELDS,
+                        )
                     total += len(records)
-                    logger.info(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}): {len(records)} 条")
+                    logger.info(
+                        f"[SpecDetailRanking] Boss {enc_id} ({enc_name}): "
+                        f"新增 {result['created']} / 更新 {result['updated']} / "
+                        f"删除 {result['deleted']} / 未变化 {result['unchanged']}"
+                    )
                 except Exception as e:
                     ok = False
                     logger.error(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}) 写入失败: {e}")
@@ -326,3 +359,61 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
         logger.info(f"[SpecDetailRanking] 团本排名采集完成: {total} 条")
         return ok
+
+    @staticmethod
+    def _sync_ranking_records(model, filters, records, key_fields, update_fields):
+        """按稳定业务键同步排名，只写入新增、变化和已消失的记录。"""
+        existing_map = {}
+        duplicate_existing_ids = []
+        for row in model.objects.filter(**filters):
+            key = tuple(getattr(row, field) for field in key_fields)
+            if key in existing_map:
+                duplicate_existing_ids.append(row.id)
+                continue
+            existing_map[key] = row
+        incoming_map = {}
+        for row in records:
+            key = tuple(getattr(row, field) for field in key_fields)
+            if key in incoming_map:
+                raise ValueError(f"重复排名业务键: {key}")
+            incoming_map[key] = row
+
+        to_create = []
+        to_update = []
+        unchanged = 0
+        for key, incoming in incoming_map.items():
+            existing = existing_map.get(key)
+            if existing is None:
+                to_create.append(incoming)
+                continue
+            if not any(
+                getattr(existing, field) != getattr(incoming, field)
+                for field in update_fields
+            ):
+                unchanged += 1
+                continue
+            for field in update_fields:
+                setattr(existing, field, getattr(incoming, field))
+            existing.last_updated = incoming.last_updated
+            to_update.append(existing)
+
+        stale_ids = duplicate_existing_ids + [
+            row.id for key, row in existing_map.items()
+            if key not in incoming_map
+        ]
+        if stale_ids:
+            model.objects.filter(id__in=stale_ids).delete()
+        if to_create:
+            model.objects.bulk_create(to_create, batch_size=500)
+        if to_update:
+            model.objects.bulk_update(
+                to_update,
+                fields=[*update_fields, 'last_updated'],
+                batch_size=500,
+            )
+        return {
+            'created': len(to_create),
+            'updated': len(to_update),
+            'deleted': len(stale_ids),
+            'unchanged': unchanged,
+        }

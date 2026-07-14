@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
@@ -15,6 +15,51 @@ class SpecDetailPlayerMonitorIdentityTests(SimpleTestCase):
 
     def test_profile_identity_key_rejects_incomplete_identity(self):
         self.assertIsNone(SpecDetailPlayerMonitor._profile_identity_key('eu', '', 'Bloodmäster'))
+
+
+class SpecDetailPlayerMonitorDifferentialUpdateTests(SimpleTestCase):
+    def test_save_changed_profile_skips_unchanged_payload_and_timestamp(self):
+        profile = SimpleNamespace(
+            pk=1,
+            class_name='Warrior',
+            score=3000,
+            gear_json=[{'item_id': 1}],
+            last_updated='old-time',
+            save=Mock(),
+        )
+
+        changed = SpecDetailPlayerMonitor._save_changed_profile(profile, {
+            'class_name': 'Warrior',
+            'score': 3000,
+            'gear_json': [{'item_id': 1}],
+            'last_updated': 'new-time',
+        })
+
+        self.assertFalse(changed)
+        self.assertEqual(profile.last_updated, 'old-time')
+        profile.save.assert_not_called()
+
+    def test_save_changed_profile_updates_only_changed_fields_and_timestamp(self):
+        profile = SimpleNamespace(
+            pk=1,
+            class_name='Warrior',
+            score=3000,
+            gear_json=[{'item_id': 1}],
+            last_updated='old-time',
+            save=Mock(),
+        )
+
+        changed = SpecDetailPlayerMonitor._save_changed_profile(profile, {
+            'class_name': 'Warrior',
+            'score': 3100,
+            'gear_json': [{'item_id': 1}],
+            'last_updated': 'new-time',
+        })
+
+        self.assertTrue(changed)
+        self.assertEqual(profile.score, 3100)
+        self.assertEqual(profile.last_updated, 'new-time')
+        profile.save.assert_called_once_with(update_fields=['score', 'last_updated'])
 
 
 class SpecDetailPlayerMonitorTalentPreserveTests(SimpleTestCase):
