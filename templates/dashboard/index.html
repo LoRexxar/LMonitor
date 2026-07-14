@@ -1390,6 +1390,12 @@
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="text-xl font-semibold text-gray-800">SimC模板管理</h3>
                             <div class="flex space-x-3">
+                                <select id="template-type-filter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    <option value="base_template">基础模板</option>
+                                    <option value="default_apl">默认APL</option>
+                                    <option value="custom_apl">个人APL</option>
+                                    <option value="default_player">默认玩家</option>
+                                </select>
                                 <button id="add-template-btn" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200 flex items-center">
                                     <i class="fas fa-plus mr-2"></i>
                                     新增模板
@@ -1400,13 +1406,14 @@
                                 </button>
                             </div>
                         </div>
-                        
+
                         <!-- 模板列表表格 -->
                         <div class="overflow-x-auto">
                             <table class="min-w-full bg-white border border-gray-200 rounded-lg">
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">编号</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">名称</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">专精</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">模板预览</th>
                                         <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">状态</th>
@@ -1418,7 +1425,7 @@
                                 </tbody>
                             </table>
                         </div>
-                        
+
                         <!-- 空状态提示 -->
                         <div id="template-empty-state" class="text-center py-12" style="display: none;">
                             <i class="fas fa-file-code text-gray-400 text-4xl mb-4"></i>

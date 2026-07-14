@@ -396,6 +396,31 @@ class SimcMonitor(BaseScan):
             
         return True
 
+    @staticmethod
+    def is_frozen_manifest_v2(simc_task):
+        """Return whether the task declares the immutable v2 execution contract."""
+        try:
+            manifest = json.loads(simc_task.fragment_manifest or '{}')
+        except (TypeError, ValueError):
+            return False
+        return isinstance(manifest, dict) and manifest.get('manifest_version') == 'v2'
+
+    @staticmethod
+    def validate_frozen_task_input(simc_task):
+        """Validate and return the exact immutable SimC body owned by a v2 task."""
+        content = simc_task.final_simc_content
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError('manifest v2 任务缺少冻结的 final_simc_content')
+        expected_hash = str(simc_task.input_hash or '').strip().lower()
+        if not re.fullmatch(r'[0-9a-f]{64}', expected_hash):
+            raise ValueError('manifest v2 任务缺少有效 input_hash')
+        actual_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+        if actual_hash != expected_hash:
+            raise ValueError(
+                f'冻结正文 hash 校验失败: expected={expected_hash}, actual={actual_hash}'
+            )
+        return content
+
     def process_simc_task(self, simc_task):
         """
         处理单个SimC任务
@@ -415,6 +440,16 @@ class SimcMonitor(BaseScan):
             simc_task.refresh_from_db()
             self.clear_simc_error_details(simc_task)
             simc_task.save(update_fields=['ext', 'modified_time'])
+
+            # manifest v2 is the only execution authority for newly composed atoms.
+            # Validate before reading ext or querying mutable Profile/template/APL rows.
+            if self.is_frozen_manifest_v2(simc_task):
+                try:
+                    self.validate_frozen_task_input(simc_task)
+                except ValueError as exc:
+                    self.mark_task_failed(simc_task, '冻结任务输入校验失败', exc)
+                    return False
+                return self.process_regular_simulation(simc_task, None)
             
             ext_payload = self.parse_task_ext(simc_task.ext)
             raw_simc_code = str(ext_payload.get('raw_simc_code') or '').strip()
@@ -468,24 +503,34 @@ class SimcMonitor(BaseScan):
         :return: 执行是否成功
         """
         try:
+            frozen_v2 = self.is_frozen_manifest_v2(simc_task)
+            if frozen_v2:
+                # Defence in depth for direct callers that bypass process_simc_task().
+                simc_code = self.validate_frozen_task_input(simc_task)
+            else:
+                simc_code = ''
+
             ext_payload = self.parse_task_ext(simc_task.ext)
             # Every regular task owns one deterministic report path. Batch comparisons
             # must never discover a directory-neighbour's report after SimC exits.
             result_file = self.ensure_regular_result_file(simc_task)
 
-            # ── 直接 SimC 代码模式 ──
-            raw_simc_code = ext_payload.get('raw_simc_code')
-            if raw_simc_code and str(raw_simc_code).strip():
+            # ── Frozen final_simc_content (manifest v2) ──
+            if frozen_v2:
+                logger.info(f"[SimC Monitor] Task {simc_task.id}: using frozen final_simc_content ({len(simc_code)} chars)")
+
+            # ── Legacy: 直接 SimC 代码模式 ──
+            elif ext_payload.get('raw_simc_code') and str(ext_payload.get('raw_simc_code')).strip():
+                raw_simc_code = ext_payload.get('raw_simc_code')
                 logger.info(f"[SimC Monitor] Task {simc_task.id}: using raw simc code ({len(raw_simc_code)} chars)")
                 simc_code = str(raw_simc_code).strip()
                 override_action_list = ext_payload.get('override_action_list')
                 if override_action_list:
                     simc_code = self.apply_action_list_override_to_raw(simc_code, override_action_list)
                 simc_code = self.ensure_result_file_directive(simc_code, result_file)
-            else:
-                # ── 新版任务配置模式（从 ext JSON 读取所有配置） ──
-                # 如果 ext 中有 player_config_mode，使用新逻辑
-                if ext_payload.get('player_config_mode'):
+
+            # ── Legacy: 新版任务配置模式（从 ext JSON 读取所有配置） ──
+            elif ext_payload.get('player_config_mode'):
                     # 快照冻结：优先使用 ext.base_template_content
                     spec_value = ext_payload.get('spec') or (simc_profile.spec if simc_profile else 'fury')
                     template = ext_payload.get('base_template_content')
@@ -517,29 +562,30 @@ class SimcMonitor(BaseScan):
                         template_content=template,
                         task_config={**task_config, 'result_file': result_file}
                     )
-                else:
-                    # ── 兼容旧版 Profile + 模板模式 ──
-                    if not simc_profile:
-                        self.mark_task_failed(simc_task, "未找到对应的SimC配置，可能已被删除或禁用")
-                        return False
-                    
-                    override_time = ext_payload.get('regular_time')
-                    override_target_count = ext_payload.get('regular_target_count')
-                    override_action_list = ext_payload.get('override_action_list')
-                    logger.info(
-                        f"[SimC Monitor] Regular overrides for task {simc_task.id}: "
-                        f"time={override_time}, targets={override_target_count}"
-                    )
 
-                    # 生成SimC代码
-                    simc_code = self.generate_simc_code(
-                        simc_profile,
-                        result_file,
-                        override_time=override_time,
-                        override_target_count=override_target_count,
-                        override_action_list=override_action_list
-                    )
-                
+            # ── Legacy: 兼容旧版 Profile + 模板模式 ──
+            else:
+                if not simc_profile:
+                    self.mark_task_failed(simc_task, "未找到对应的SimC配置，可能已被删除或禁用")
+                    return False
+
+                override_time = ext_payload.get('regular_time')
+                override_target_count = ext_payload.get('regular_target_count')
+                override_action_list = ext_payload.get('override_action_list')
+                logger.info(
+                    f"[SimC Monitor] Regular overrides for task {simc_task.id}: "
+                    f"time={override_time}, targets={override_target_count}"
+                )
+
+                # 生成SimC代码
+                simc_code = self.generate_simc_code(
+                    simc_profile,
+                    result_file,
+                    override_time=override_time,
+                    override_target_count=override_target_count,
+                    override_action_list=override_action_list
+                )
+
                 if not isinstance(simc_code, str) or not simc_code.strip():
                     raise Exception("生成SimC配置失败：模板渲染结果为空")
 

@@ -682,26 +682,84 @@ class UserAplStorage(models.Model):
     
 
 
+class SimcTaskBatch(models.Model):
+    """SimC任务批次 - 用于聚合对比任务（属性/天赋/饰品/装备/APL对比）"""
+    user_id = models.IntegerField(help_text="用户ID")
+    name = models.CharField(max_length=200, help_text="批次名称")
+    batch_type = models.CharField(max_length=50, default='comparison', help_text="批次类型：comparison/attribute_sweep")
+    request_manifest = models.TextField(null=True, blank=True, help_text="冻结批次输入（JSON）")
+    status = models.IntegerField(default=0, help_text="0=待创建,1=运行中,2=完成,3=失败")
+    error_detail = models.TextField(null=True, blank=True, help_text="错误详情")
+    completed_at = models.DateTimeField(null=True, blank=True, help_text="完成时间")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'simc_task_batch'
+        verbose_name = 'SimC任务批次'
+        verbose_name_plural = 'SimC任务批次'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user_id', '-created_at']),
+        ]
+
+
 class SimcTask(models.Model):
     """
-    SimC任务模型
+    SimC任务模型 - Phase 1重构：冻结final_simc_content，manifest v2记录槽位来源
     """
     user_id = models.IntegerField(help_text="用户ID")
     name = models.CharField(max_length=200, help_text="任务名称")
     simc_profile_id = models.IntegerField(help_text="用户ID")
     result_file = models.TextField(help_text="任务结果，多个文件以逗号分割", null=True)
     task_type = models.IntegerField(default=1, help_text="任务类型：1=常规模拟，2=属性模拟")
-    ext = models.TextField(null=True, blank=True, help_text="扩展信息")
+    ext = models.TextField(null=True, blank=True, help_text="扩展信息（legacy兼容）")
+
+    batch = models.ForeignKey(SimcTaskBatch, null=True, blank=True, on_delete=models.SET_NULL, help_text="所属批次")
+    candidate_label = models.CharField(max_length=200, default='', blank=True, help_text="对比任务标签，如 crit+1000")
+
+    final_simc_content = models.TextField(null=True, blank=True, help_text="冻结的完整SimC输入正文，Worker直接执行")
+    input_hash = models.CharField(max_length=64, default='', blank=True, help_text="final_simc_content的SHA256，用于去重")
+    fragment_manifest = models.TextField(null=True, blank=True, help_text="JSON manifest v2: 记录各槽位来源和版本")
+
+    error_detail = models.TextField(null=True, blank=True, help_text="创建或执行错误详情")
+    result_summary = models.TextField(null=True, blank=True, help_text="结果摘要JSON：DPS/HPS等关键指标")
+
     modified_time = models.DateTimeField(auto_now=True, help_text="修改时间")
-    current_status = models.IntegerField(default=0, help_text="当前状态")
+    current_status = models.IntegerField(default=0, help_text="当前状态：0=待执行,1=执行中,2=完成,3=失败")
     create_time = models.DateTimeField(auto_now_add=True, help_text="创建时间")
+    started_at = models.DateTimeField(null=True, blank=True, help_text="开始执行时间")
+    completed_at = models.DateTimeField(null=True, blank=True, help_text="完成时间")
     is_active = models.BooleanField(default=True, help_text="是否启用")
-    
+
     class Meta:
         db_table = 'simc_task'
         verbose_name = 'SimC任务'
         verbose_name_plural = 'SimC任务'
         ordering = ['-modified_time']
+        indexes = [
+            models.Index(fields=['user_id', '-create_time']),
+            models.Index(fields=['batch', '-create_time']),
+            models.Index(fields=['input_hash']),
+        ]
+
+
+class SimcTaskArtifact(models.Model):
+    """SimC任务产物 - 分离存储HTML报告、JSON统计等文件路径"""
+    task = models.ForeignKey(SimcTask, on_delete=models.CASCADE, related_name='artifacts')
+    artifact_type = models.CharField(max_length=50, help_text="产物类型：html_report/json_stats/log")
+    file_path = models.CharField(max_length=500, help_text="相对static/的文件路径")
+    file_size = models.BigIntegerField(default=0, help_text="文件大小（字节）")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'simc_task_artifact'
+        verbose_name = 'SimC任务产物'
+        verbose_name_plural = 'SimC任务产物'
+        indexes = [
+            models.Index(fields=['task', 'artifact_type']),
+        ]
     
 class SimcProfile(models.Model):
     """
@@ -768,11 +826,13 @@ class SimcContentTemplate(models.Model):
     TYPE_DEFAULT_APL = 'default_apl'
     TYPE_CUSTOM_APL = 'custom_apl'
     TYPE_DEFAULT_PLAYER = 'default_player'
+    TYPE_CUSTOM_PLAYER = 'custom_player'
     TEMPLATE_TYPE_CHOICES = (
         (TYPE_BASE_TEMPLATE, '基础模板'),
         (TYPE_DEFAULT_APL, '默认APL'),
         (TYPE_CUSTOM_APL, '个人APL'),
         (TYPE_DEFAULT_PLAYER, '默认玩家装备模板'),
+        (TYPE_CUSTOM_PLAYER, '用户自定义装备'),
     )
     SOURCE_SIMC_UPSTREAM = 'simc_upstream'
     SOURCE_USER = 'user'
@@ -790,6 +850,8 @@ class SimcContentTemplate(models.Model):
     is_active = models.BooleanField(default=True, help_text="是否启用")
     is_selectable = models.BooleanField(default=True, help_text="任务发起时是否可选择")
     sync_version = models.CharField(max_length=128, default='', blank=True, help_text="同步来源版本/提交")
+    owner_user_id = models.BigIntegerField(null=True, blank=True, help_text="所属用户ID，NULL表示全局模板")
+    active_unique_key = models.CharField(max_length=200, null=True, blank=True, unique=True, help_text="活跃时唯一键，非活跃时为NULL")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -801,6 +863,42 @@ class SimcContentTemplate(models.Model):
             models.Index(fields=['template_type', 'spec', 'is_active']),
             models.Index(fields=['source', 'template_type']),
         ]
+
+    def _normalize_name(self):
+        """Normalize name for custom_apl uniqueness check (lowercase, strip whitespace)."""
+        if not self.name:
+            return ''
+        return self.name.lower().strip()
+
+    def _compute_active_unique_key(self):
+        """
+        Compute active_unique_key based on template_type, owner, spec, and name.
+        Returns None if is_active=False.
+        """
+        if not self.is_active:
+            return None
+
+        template_type = self.template_type
+        owner = 'global' if self.owner_user_id is None else self.owner_user_id
+        spec = self.spec or 'default'
+
+        if template_type == self.TYPE_CUSTOM_APL:
+            normalized_name = self._normalize_name()
+            name_hash = hashlib.sha256(normalized_name.encode('utf-8')).hexdigest()[:16]
+            return f'{template_type}:{owner}:{spec}:{name_hash}'
+        elif template_type in (self.TYPE_BASE_TEMPLATE, self.TYPE_DEFAULT_APL, self.TYPE_DEFAULT_PLAYER):
+            if owner == 'global':
+                return f'{template_type}:global:{spec}'
+            else:
+                return f'{template_type}:{owner}:{spec}'
+        elif template_type == self.TYPE_CUSTOM_PLAYER:
+            return f'{template_type}:{owner}:{spec}'
+
+        return None
+
+    def save(self, *args, **kwargs):
+        self.active_unique_key = self._compute_active_unique_key()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         label = self.name or self.spec or self.template_type

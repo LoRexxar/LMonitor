@@ -8989,42 +8989,48 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // SimC模板管理相关函数
 function initSimcTemplateManagement() {
+    // 初始化模板类型筛选事件
+    const templateTypeFilter = document.getElementById('template-type-filter');
+    if (templateTypeFilter) {
+        templateTypeFilter.addEventListener('change', loadTemplateList);
+    }
+
     // 初始化刷新列表按钮事件
     const refreshBtn = document.getElementById('refresh-template-list');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', loadTemplateList);
     }
-    
+
     // 初始化新增模板按钮事件
     const addBtn = document.getElementById('add-template-btn');
     if (addBtn) {
         addBtn.addEventListener('click', openAddTemplateModal);
     }
-    
+
     // 初始化新增模态框事件
     const cancelAddBtn = document.getElementById('cancel-add-template');
     const confirmAddBtn = document.getElementById('confirm-add-template');
-    
+
     if (cancelAddBtn) {
         cancelAddBtn.addEventListener('click', closeAddTemplateModal);
     }
-    
+
     if (confirmAddBtn) {
         confirmAddBtn.addEventListener('click', saveTemplateAdd);
     }
-    
+
     // 初始化编辑模态框事件
     const cancelEditBtn = document.getElementById('cancel-edit-template');
     const confirmEditBtn = document.getElementById('confirm-edit-template');
-    
+
     if (cancelEditBtn) {
         cancelEditBtn.addEventListener('click', closeEditTemplateModal);
     }
-    
+
     if (confirmEditBtn) {
         confirmEditBtn.addEventListener('click', saveTemplateEdit);
     }
-    
+
     // 页面加载时自动加载模板列表
     loadTemplateList();
 }
@@ -9032,8 +9038,9 @@ function initSimcTemplateManagement() {
 // 加载模板列表
 function loadTemplateList() {
     const csrfToken = getCSRFToken();
-    
-    fetch('/api/simc-template/?template_type=base_template', {
+    const templateType = document.getElementById('template-type-filter')?.value || 'base_template';
+
+    fetch(`/api/simc-template/?template_type=${templateType}`, {
         method: 'GET',
         headers: {
             'Content-Type': 'application/json',
@@ -9068,30 +9075,33 @@ function loadTemplateList() {
 function displayTemplateList(templates) {
     const tbody = document.getElementById('template-list');
     const emptyState = document.getElementById('template-empty-state');
-    
+    const templateType = document.getElementById('template-type-filter')?.value || 'base_template';
+
     if (!tbody) return;
-    
+
     tbody.innerHTML = '';
-    
+
     if (templates.length === 0) {
         if (emptyState) {
             emptyState.style.display = 'block';
         }
         return;
     }
-    
+
     if (emptyState) {
         emptyState.style.display = 'none';
     }
-    
+
     templates.forEach(template => {
         const row = document.createElement('tr');
         row.className = 'hover:bg-gray-50';
-        
+
         const preview = template.preview || '';
-        
+        const isDefaultPlayer = template.template_type === 'default_player';
+
         row.innerHTML = `
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${template.id}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(template.name || '未命名')}</td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(template.spec || 'default')}</td>
             <td class="px-6 py-4 text-sm text-gray-900">
                 <div class="max-w-xs truncate" title="${escapeHtml(preview)}">
@@ -9100,8 +9110,8 @@ function displayTemplateList(templates) {
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
                 <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                    template.is_active 
-                        ? 'bg-green-100 text-green-800' 
+                    template.is_active
+                        ? 'bg-green-100 text-green-800'
                         : 'bg-gray-100 text-gray-800'
                 }">
                     ${template.is_active ? '启用' : '禁用'}
@@ -9111,14 +9121,21 @@ function displayTemplateList(templates) {
                 <button onclick="editTemplate(${template.id})" class="text-blue-600 hover:text-blue-900 mr-3">
                     <i class="fas fa-edit mr-1"></i>编辑
                 </button>
-                <button onclick="toggleTemplateStatus(${template.id}, ${!template.is_active})" 
-                        class="${template.is_active ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}">
+                ${!isDefaultPlayer ? `
+                <button onclick="toggleTemplateStatus(${template.id}, ${!template.is_active})"
+                        class="${template.is_active ? 'text-orange-600 hover:text-orange-900' : 'text-green-600 hover:text-green-900'} mr-3">
                     <i class="fas fa-${template.is_active ? 'ban' : 'check'} mr-1"></i>
                     ${template.is_active ? '禁用' : '启用'}
                 </button>
+                <button onclick="deleteTemplate(${template.id})" class="text-red-600 hover:text-red-900">
+                    <i class="fas fa-trash mr-1"></i>删除
+                </button>
+                ` : `
+                <span class="text-gray-400 text-xs">受保护</span>
+                `}
             </td>
         `;
-        
+
         tbody.appendChild(row);
     });
 }
@@ -9332,7 +9349,7 @@ function saveTemplateEdit() {
 // 切换模板状态（启用/禁用）
 function toggleTemplateStatus(templateId, newStatus) {
     const csrfToken = getCSRFToken();
-    
+
     fetch(`/api/simc-template/?id=${templateId}`, {
         method: 'PATCH',
         headers: {
@@ -9365,6 +9382,46 @@ function toggleTemplateStatus(templateId, newStatus) {
     .catch(error => {
         console.error('Error toggling template status:', error);
         showMessage('更新模板状态时发生错误', 'error');
+    });
+}
+
+// 删除模板
+function deleteTemplate(templateId) {
+    if (!confirm('确定要删除这个模板吗？此操作不可恢复。')) {
+        return;
+    }
+
+    const csrfToken = getCSRFToken();
+
+    fetch(`/api/simc-template/?id=${templateId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => {
+        if (response.status === 302 || response.redirected) {
+            window.location.href = '/auth/login/';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data) return;
+        if (data.success) {
+            showMessage('模板已删除', 'success');
+            loadTemplateList();
+        } else {
+            showMessage('删除模板失败: ' + (data.error || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting template:', error);
+        showMessage('删除模板时发生错误', 'error');
     });
 }
 

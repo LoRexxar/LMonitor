@@ -1,4 +1,5 @@
 import importlib
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ from botend.dashboard.api import SimcAplCandidatesAPIView, SimcBatchTaskAPIView,
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates
-from botend.models import SimcContentTemplate, SimcProfile, SimcTask, WowItemSnapshot
+from botend.models import SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, WowItemSnapshot
 
 
 class SimcTemplateAPIViewTests(TestCase):
@@ -42,33 +43,124 @@ class SimcTemplateAPIViewTests(TestCase):
         self.assertNotIn('content', payload['templates'][0])
         self.assertNotEqual(apl.id, base.id)
 
-    def test_default_player_templates_are_not_exposed_or_mutable_through_generic_api(self):
+    def test_default_player_cannot_create_or_mutate_identity_fields(self):
+        """default_player 不允许通过 API 创建或改变 template_type/source/spec 身份字段。"""
         protected = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='warrior_fury', name='protected', content='secret baseline',
             is_active=True, is_selectable=False,
         )
-        attempts = [
-            self.client.get(f'/api/simc-template/?id={protected.id}'),
-            self.client.get('/api/simc-template/?template_type=default_player'),
+        forbidden_attempts = [
             self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
                 'content': 'changed', 'template_type': 'base_template',
             }), content_type='application/json'),
-            self.client.patch(f'/api/simc-template/?id={protected.id}', data=json.dumps({
-                'is_active': False,
+            self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
+                'content': 'changed', 'source': 'user',
+            }), content_type='application/json'),
+            self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
+                'content': 'changed', 'spec': 'warrior_arms',
             }), content_type='application/json'),
             self.client.post('/api/simc-template/', data=json.dumps({
                 'content': 'forged', 'template_type': 'default_player',
                 'source': 'simc_upstream', 'spec': 'warrior_fury',
             }), content_type='application/json'),
         ]
-        for response in attempts:
+        for response in forbidden_attempts:
             self.assertEqual(response.status_code, 403, response.content)
             self.assertFalse(response.json()['success'])
         protected.refresh_from_db()
         self.assertEqual(protected.content, 'secret baseline')
-        self.assertTrue(protected.is_active)
+        self.assertEqual(protected.template_type, SimcContentTemplate.TYPE_DEFAULT_PLAYER)
+        self.assertEqual(protected.source, SimcContentTemplate.SOURCE_SIMC_UPSTREAM)
+        self.assertEqual(protected.spec, 'warrior_fury')
+
+    def test_default_player_allows_content_and_metadata_updates(self):
+        """default_player 允许更新 content/name/is_selectable/is_active，但不允许改身份。"""
+        protected = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury', name='Baseline', content='warrior="Fury"\nlevel=80',
+            is_active=True, is_selectable=False,
+        )
+        response = self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
+            'content': 'warrior="Fury"\nlevel=80\nrace=orc',
+            'name': 'Updated Baseline',
+            'is_selectable': True,
+            'is_active': False,
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'])
+        protected.refresh_from_db()
+        self.assertIn('race=orc', protected.content)
+        self.assertEqual(protected.name, 'Updated Baseline')
+        self.assertTrue(protected.is_selectable)
+        self.assertFalse(protected.is_active)
+        self.assertEqual(protected.template_type, SimcContentTemplate.TYPE_DEFAULT_PLAYER)
+        self.assertEqual(protected.source, SimcContentTemplate.SOURCE_SIMC_UPSTREAM)
+        self.assertEqual(protected.spec, 'warrior_fury')
+
+    def test_base_template_rejects_actor_lines(self):
+        """base_template 必须恰好一个 {player_config} 占位符，不允许 actor= 行。"""
+        valid = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='', name='Valid', content='fight_style=Patchwerk\n{player_config}\n',
+            is_active=True,
+        )
+        response = self.client.put(f'/api/simc-template/?id={valid.id}', data=json.dumps({
+            'content': 'fight_style=Patchwerk\nactor="Bad"\n{player_config}\n',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('actor', response.json()['error'].lower())
+
+        response = self.client.put(f'/api/simc-template/?id={valid.id}', data=json.dumps({
+            'content': 'fight_style=Patchwerk\n{player_config}\n{player_config}\n',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('player_config', response.json()['error'].lower())
+
+        response = self.client.put(f'/api/simc-template/?id={valid.id}', data=json.dumps({
+            'content': 'fight_style=Patchwerk\nmax_time=300\n',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('player_config', response.json()['error'].lower())
+
+
+    def test_delete_rejects_default_player(self):
+        """DELETE 不允许删除 default_player 类型。"""
+        protected = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury', name='Baseline', content='warrior="Fury"',
+            is_active=True,
+        )
+        response = self.client.delete(f'/api/simc-template/?id={protected.id}')
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['success'])
+        self.assertTrue(SimcContentTemplate.objects.filter(id=protected.id).exists())
+
+    def test_delete_allows_user_content(self):
+        """DELETE 允许删除用户创建的 base_template/custom_apl/default_apl。"""
+        user_base = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='', name='My Base', content='fight_style=Patchwerk\n{player_config}',
+        )
+        user_apl = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury', name='My APL', content='actions=/auto_attack',
+        )
+        response = self.client.delete(f'/api/simc-template/?id={user_base.id}')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'])
+        self.assertFalse(SimcContentTemplate.objects.filter(id=user_base.id).exists())
+
+        response = self.client.delete(f'/api/simc-template/?id={user_apl.id}')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'])
+        self.assertFalse(SimcContentTemplate.objects.filter(id=user_apl.id).exists())
 
 
 class SimcBackendUpdateSafetyTests(TestCase):
@@ -214,6 +306,109 @@ class SimcBatchVariableCompareTests(TestCase):
         self.user = User.objects.create_user(username='batch_compare_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
+        self.base_template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury',
+            name='Batch contract base',
+            content=(
+                '{simulation_options}\n{player_config}\n'
+                '{stat_overrides}\n{action_list}\n{output_options}\n'
+            ),
+            is_active=True,
+        )
+        self.default_apl = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury',
+            name='Batch contract APL',
+            content='actions=/auto_attack',
+            is_active=True,
+        )
+
+    def test_general_attribute_task_stays_on_attribute_executor_until_split_into_atoms(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id, name='Attribute source', spec='fury', talent='BUILD',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Attribute"\nspec=fury\nmain_hand=,id=222222',
+            gear_crit=1000, gear_haste=2000, gear_mastery=3000, gear_versatility=4000,
+            is_active=True,
+        )
+        with patch('botend.dashboard.api.SimcComposer.compose') as compose:
+            response = self.client.post('/api/simc-task/', data=json.dumps({
+                'name': 'legacy attribute sweep',
+                'task_type': 2,
+                'simc_profile_id': profile.id,
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': profile.player_equipment,
+                'spec': 'fury',
+                'talent': 'BUILD',
+                'selected_attributes': 'crit_haste',
+                'attribute_step': 50,
+            }), content_type='application/json')
+
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        compose.assert_not_called()
+        task = SimcTask.objects.get(id=payload['data']['id'])
+        self.assertIsNone(task.fragment_manifest)
+        self.assertFalse(task.final_simc_content)
+
+        monitor = SimcMonitor(None, None)
+        with patch.object(monitor, 'process_attribute_simulation', return_value=True) as execute:
+            self.assertTrue(monitor.process_simc_task(task))
+        execute.assert_called_once()
+        self.assertIsNone(execute.call_args.args[1])
+
+    def test_batch_creates_database_batch_and_frozen_v2_atoms(self):
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'gear_candidates', 'name': 'Frozen gear batch', 'spec': 'fury',
+            'player_config_mode': 'manual_equipment',
+            'player_equipment': (
+                'warrior="Batcher"\nlevel=90\nspec=fury\ntalents=BASE\n'
+                'head=,id=212048\nmain_hand=,id=222222\n'
+                '### Gear from Bags\nhead=,id=299001'
+            ),
+            'candidates': [{'slot': 'head', 'item_id': 299001, 'source': 'bags'}],
+        }), content_type='application/json')
+
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        batch = SimcTaskBatch.objects.get(id=payload['data']['batch_id'])
+        self.assertEqual(batch.user_id, self.user.id)
+        self.assertEqual(batch.batch_type, 'gear_candidates')
+        tasks = list(SimcTask.objects.filter(batch=batch).order_by('id'))
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual([task.candidate_label for task in tasks], ['基准配置', 'head #299001'])
+        for task in tasks:
+            manifest = json.loads(task.fragment_manifest)
+            self.assertEqual(manifest['manifest_version'], 'v2')
+            self.assertTrue(task.final_simc_content.strip())
+            self.assertEqual(
+                task.input_hash,
+                hashlib.sha256(task.final_simc_content.encode('utf-8')).hexdigest(),
+            )
+            self.assertIn(f'html={task.result_file}', task.final_simc_content)
+
+    def test_batch_rolls_back_when_one_candidate_cannot_be_composed(self):
+        with patch('botend.dashboard.api.SimcComposer.compose', side_effect=[
+            ('warrior="ok"\nhtml=ok.html', SimpleNamespace(to_json=lambda: '{"manifest_version":"v2"}'), None),
+            (None, None, '候选内容冲突'),
+        ]) as compose:
+            response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+                'kind': 'gear_candidates', 'name': 'Rollback batch', 'spec': 'fury',
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': (
+                    'warrior="Batcher"\nspec=fury\ntalents=BASE\nhead=,id=212048\n'
+                    '### Gear from Bags\nhead=,id=299001'
+                ),
+                'candidates': [{'slot': 'head', 'item_id': 299001, 'source': 'bags'}],
+            }), content_type='application/json')
+
+        self.assertFalse(response.json()['success'])
+        self.assertEqual(compose.call_count, 2)
+        self.assertFalse(SimcTaskBatch.objects.exists())
+        self.assertFalse(SimcTask.objects.exists())
 
     def test_parse_manual_candidates_canonicalizes_plural_slot_aliases(self):
         candidates = parse_manual_simc_candidates('''
@@ -455,6 +650,8 @@ finger1=,id=299002,ilevel=655
 
     def test_continue_attribute_search_preserves_template_and_explicit_empty_apl(self):
         frozen_player = 'warrior="Batcher"\nlevel=90\nspec=fury\ntalents=ATTRIBUTE_BUILD\nhead=,id=212048,ilevel=639\nmain_hand=,id=222222,ilevel=639'
+        self.default_apl.is_active = False
+        self.default_apl.save()
         template = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
@@ -465,7 +662,12 @@ finger1=,id=299002,ilevel=655
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='warrior_fury', name='Frozen APL', content='actions=/DB_CHANGED', is_active=True,
         )
-        batch_id = 'frozen-input-batch'
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Frozen input batch',
+            batch_type='attribute_sweep', status=1,
+            request_manifest=json.dumps({'version': 2}),
+        )
+        batch_id = str(batch.id)
         ratings_rows = SimcBatchTaskAPIView._attribute_variants(
             {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 50,
         )
@@ -479,13 +681,14 @@ finger1=,id=299002,ilevel=655
                 gear_crit=ratings['crit'], gear_haste=ratings['haste'],
                 gear_mastery=ratings['mastery'], gear_versatility=ratings['versatility'],
                 base_template_id=template.id,
-                base_template_content='warrior="FROZEN"\n{player_config}\n{action_list}',
+                base_template_content='{player_config}\n{action_list}',
                 selected_apl_id=apl.id, override_action_list='', override_action_list_provided=True,
             )
             SimcTask.objects.create(
                 user_id=self.user.id, simc_profile_id=0,
                 name=f'Fury 自动属性比较 · {label}', current_status=2,
                 result_file=f'simc_task_{100 + index}.html', task_type=1, ext=ext,
+                batch=batch, candidate_label=label,
             )
 
         template.content = 'warrior="NEW_DB"'
@@ -500,14 +703,29 @@ finger1=,id=299002,ilevel=655
             result = SimcBatchTaskAPIView()._continue_attribute_search(request, {}, batch_id)
 
         next_round_ext = [json.loads(task.ext) for task in SimcTask.objects.filter(id__in=result['task_ids'])]
-        self.assertEqual({row['base_template_content'] for row in next_round_ext}, {'warrior="FROZEN"\n{player_config}\n{action_list}'})
+        self.assertEqual({row['base_template_content'] for row in next_round_ext}, {'{player_config}\n{action_list}'})
         self.assertEqual({row['override_action_list'] for row in next_round_ext}, {''})
+        next_round_tasks = list(SimcTask.objects.filter(id__in=result['task_ids']))
+        self.assertEqual({task.batch_id for task in next_round_tasks}, {batch.id})
+        self.assertEqual({json.loads(task.fragment_manifest)['manifest_version'] for task in next_round_tasks}, {'v2'})
+        self.assertTrue(all(task.final_simc_content for task in next_round_tasks))
+        self.assertTrue(all(
+            task.input_hash == hashlib.sha256(task.final_simc_content.encode('utf-8')).hexdigest()
+            for task in next_round_tasks
+        ))
 
     def test_saved_profile_simulate_now_freezes_all_execution_inputs(self):
+        self.base_template.is_active = False
+        self.base_template.save()
+        self.default_apl.is_active = False
+        self.default_apl.save()
         template = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
-            spec='fury', name='Fury base', content='warrior="Frozen"\n{player_config}\n{action_list}', is_active=True,
+            spec='fury', name='Fury base', content=(
+                '{simulation_options}\n{player_config}\n{stat_overrides}\n'
+                '{action_list}\n{output_options}\n'
+            ), is_active=True,
         )
         apl = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
@@ -530,6 +748,33 @@ finger1=,id=299002,ilevel=655
         self.assertEqual(ext['player_equipment'], profile.player_equipment)
         self.assertEqual(ext['selected_apl_id'], apl.id)
         self.assertEqual(ext['override_action_list'], apl.content)
+
+        task = SimcTask.objects.get(id=result['data']['id'])
+        manifest = json.loads(task.fragment_manifest)
+        self.assertEqual(manifest['manifest_version'], 'v2')
+        self.assertTrue(task.final_simc_content.strip())
+        self.assertEqual(
+            task.input_hash,
+            hashlib.sha256(task.final_simc_content.encode('utf-8')).hexdigest(),
+        )
+        self.assertIn(f'html={task.result_file}', task.final_simc_content)
+        self.assertIn('actions=/bloodthirst', task.final_simc_content)
+
+        frozen_content = task.final_simc_content
+        profile.player_equipment = 'warrior="Changed"\nspec=fury\nmain_hand=,id=999999'
+        profile.save(update_fields=['player_equipment'])
+        template.content = '{player_config}\n# changed template\n{output_options}'
+        template.save(update_fields=['content'])
+        apl.content = 'actions=/changed'
+        apl.save(update_fields=['content'])
+
+        monitor = SimcMonitor(None, None)
+        with patch.object(monitor, 'process_regular_simulation', return_value=True) as execute:
+            self.assertTrue(monitor.process_simc_task(task))
+        execute.assert_called_once()
+        executed_task, executed_profile = execute.call_args.args
+        self.assertIsNone(executed_profile)
+        self.assertEqual(executed_task.final_simc_content, frozen_content)
 
     def test_attribute_detail_parses_frozen_player_and_overlays_requested_ratings(self):
         detail = build_player_config_detail(
@@ -973,6 +1218,43 @@ trinket1=,id=299001,ilevel=650
         self.assertEqual([row['dps'] for row in rows], [1744, 1801])
         self.assertTrue(all(row['result_file'].startswith('simc_task_') for row in rows))
 
+    def test_database_batch_relation_is_authoritative_and_completion_updates_batch(self):
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Authoritative batch',
+            batch_type='comparison', status=1,
+            request_manifest=json.dumps({'version': 2}),
+        )
+        reports = {}
+        for index, (label, dps) in enumerate((('基准配置', 100000), ('候选配置', 101000))):
+            task = SimcTask.objects.create(
+                user_id=self.user.id, name=label, simc_profile_id=0,
+                current_status=2, task_type=1, result_file=f'authoritative_{index}.html',
+                batch=batch, candidate_label=label,
+                ext=json.dumps({'batch_compare': {
+                    'version': 2, 'batch_id': str(batch.id), 'kind': 'talent_candidates',
+                    'index': index, 'label': label, 'is_base': index == 0,
+                }}),
+            )
+            reports[task.result_file] = f'<h2>Fury: {dps:,} dps</h2>'
+        SimcTask.objects.create(
+            user_id=self.user.id, name='伪造 legacy 同号任务', simc_profile_id=0,
+            current_status=2, task_type=1, result_file='unrelated.html',
+            ext=json.dumps({'batch_compare': {
+                'version': 1, 'batch_id': str(batch.id), 'kind': 'talent_candidates',
+                'index': 99, 'label': '不应混入', 'is_base': False,
+            }}),
+        )
+
+        with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', lambda _self, filename: reports.get(filename)):
+            payload = self.client.get(f'/api/simc-regular-compare/?batch_id={batch.id}').json()
+
+        self.assertTrue(payload['success'], payload)
+        self.assertEqual(payload['data']['batch']['total'], 2)
+        self.assertEqual([row['label'] for row in payload['data']['tasks']], ['基准配置', '候选配置'])
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, 2)
+        self.assertIsNotNone(batch.completed_at)
+
     def test_batch_compare_query_is_isolated_and_reports_pending_progress(self):
         batch_id, other_id = 'batch-isolated', 'batch-other'
         def create_task(name, bid, index, status=0):
@@ -1054,6 +1336,20 @@ class SimcNewConfigModeTests(TestCase):
         self.user = User.objects.create_user(username='newmode_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
+        self.base_template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury',
+            content='{player_identity}\n{equipment}\n{action_list}\n{simulation_options}\n{stat_overrides}\n{output_options}',
+            is_active=True,
+        )
+        self.default_apl = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury',
+            content='actions=/auto_attack\nactions+=/bloodthirst',
+            is_active=True,
+        )
 
     def test_attribute_manifest_task_routes_to_attribute_runner_without_profile_lookup(self):
         task = SimcTask.objects.create(
@@ -1568,7 +1864,8 @@ html=simc_task_99.html
         payload = response.json()
         self.assertTrue(payload['success'], payload)
         task = SimcTask.objects.get(id=payload['data']['id'])
-        self.assertEqual(task.result_file, '')
+        self.assertTrue(task.result_file.endswith('.html'))
+        self.assertIn(f'html={task.result_file}', task.final_simc_content)
         ext = json.loads(task.ext)
         self.assertEqual(ext['player_config_mode'], 'manual_equipment')
         self.assertEqual(ext['player_import_mode'], 'manual_equipment')
@@ -1631,7 +1928,14 @@ html=simc_task_99.html
         self.assertEqual(ext['player_config_mode'], 'manual_equipment')
         self.assertEqual(ext['player_import_mode'], 'manual_equipment')
 
-    def test_create_task_with_battlenet_mode(self):
+    @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
+    def test_create_task_with_battlenet_mode(self, preflight):
+        preflight.return_value = {
+            'identity': {'class_name': 'warrior', 'level': 80},
+            'spec': {'key': 'fury'},
+            'simc_ready': True,
+            'warnings': [],
+        }
         response = self.client.post(
             '/api/simc-task/',
             data=json.dumps({
@@ -1653,7 +1957,8 @@ html=simc_task_99.html
         payload = response.json()
         self.assertTrue(payload['success'], payload)
         task = SimcTask.objects.get(id=payload['data']['id'])
-        self.assertEqual(task.result_file, '')
+        self.assertTrue(task.result_file.endswith('.html'))
+        self.assertIn(f'html={task.result_file}', task.final_simc_content)
         ext = json.loads(task.ext)
         self.assertEqual(ext['player_config_mode'], 'battlenet')
         self.assertEqual(ext['player_import_mode'], 'battlenet')
@@ -1794,6 +2099,8 @@ html=simc_task_99.html
         self.assertNotIn('talents=TEMPLATE', rendered)
 
     def test_standard_raid_buff_migration_updates_all_base_templates(self):
+        self.default_apl.is_active = False
+        self.default_apl.save()
         migration = importlib.import_module(
             'botend.migrations.0103_enable_standard_simc_raid_buffs'
         )
@@ -1983,6 +2290,20 @@ class SimcPlayerConfigDetailTests(TestCase):
         self.user = User.objects.create_user(username='player_detail_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
+        self.base_template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury',
+            content='{player_identity}\n{equipment}\n{action_list}\n{simulation_options}\n{stat_overrides}\n{output_options}',
+            is_active=True,
+        )
+        self.default_apl = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury',
+            content='actions=/auto_attack\nactions+=/bloodthirst',
+            is_active=True,
+        )
 
     def test_player_config_detail_returns_structured_manual_player_detail_with_items_and_stats(self):
         WowItemSnapshot.objects.create(item_id=212048, name='Helm of Tests', name_zh='测试头盔', icon='inv_helmet_01')
