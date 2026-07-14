@@ -2532,7 +2532,9 @@ function filterSimcProfilesForCurrentImport(profiles) {
 
 async function loadSimcAplCandidates(spec) {
     const container = document.getElementById('simc-sim-apl-list');
+    const editor = document.getElementById('apl-override');
     if (!container) return;
+    if (editor) editor.value = '';
     if (!spec) {
         container.className = 'rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500';
         container.innerHTML = '请先选择专精以加载 APL 列表。';
@@ -2564,10 +2566,78 @@ async function loadSimcAplCandidates(spec) {
                 </span>
             </label>
         `).join('');
+        container.querySelectorAll('input[name="simc-sim-apl"]').forEach((radio) => {
+            radio.addEventListener('change', () => loadSimcAplOverride(radio.value));
+        });
+        const selected = container.querySelector('input[name="simc-sim-apl"]:checked');
+        if (selected) await loadSimcAplOverride(selected.value);
     } catch (err) {
         console.error('Load APL candidates failed:', err);
         container.className = 'rounded-xl bg-red-50 border border-red-200 text-red-800 p-4 text-sm';
         container.innerHTML = '加载 APL 失败：' + escapeHtml(String(err.message || err));
+    }
+}
+
+async function loadSimcAplOverride(aplId) {
+    const editor = document.getElementById('apl-override');
+    if (!editor) return;
+    if (!aplId) { editor.value = ''; return; }
+    const response = await fetch('/api/simc-template/?id=' + encodeURIComponent(aplId));
+    const payload = await response.json();
+    if (!response.ok || !payload.success) throw new Error(payload.error || '加载 APL 内容失败');
+    editor.value = payload.content || payload.template_content || '';
+}
+
+async function loadSimcBaseTemplateContent(templateId) {
+    const editor = document.getElementById('base-template-content');
+    if (!editor) return;
+    if (!templateId) { editor.value = ''; return; }
+    const response = await fetch('/api/simc-template/?id=' + encodeURIComponent(templateId));
+    const payload = await response.json();
+    if (!response.ok || !payload.success) throw new Error(payload.error || '加载基础模板内容失败');
+    editor.value = payload.content || payload.template_content || '';
+}
+
+async function loadSimcSnapshotDefaults(spec) {
+    const baseSelect = document.getElementById('base-template-select');
+    const baseEditor = document.getElementById('base-template-content');
+    const baselineEditor = document.getElementById('player-baseline-config');
+    if (!spec) {
+        if (baseSelect) baseSelect.innerHTML = '<option value="">使用默认基础模板</option>';
+        if (baseEditor) baseEditor.value = '';
+        if (baselineEditor) baselineEditor.value = '';
+        return;
+    }
+    if (baseSelect) {
+        const response = await fetch('/api/simc-template/?template_type=base_template');
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '加载基础模板失败');
+        const normalized = normalizeSimcSpecKey(spec);
+        const rows = (payload.templates || []).filter((row) => {
+            if (row.is_active === false) return false;
+            const rowSpec = normalizeSimcSpecKey(row.spec || '');
+            const rawSpec = String(row.spec || '').trim().toLowerCase();
+            return !rowSpec || ['default', 'all', '*'].includes(rawSpec) || rowSpec === normalized;
+        });
+        baseSelect.innerHTML = '<option value="">使用唯一启用的默认基础模板</option>' + rows.map((row) =>
+            `<option value="${escapeHtml(String(row.id))}">${escapeHtml(row.name || row.spec || ('模板 #' + row.id))}</option>`
+        ).join('');
+        const exactRows = rows.filter((row) => normalizeSimcSpecKey(row.spec || '') === normalized);
+        if (exactRows.length === 1) baseSelect.value = String(exactRows[0].id);
+        else if (rows.length === 1) baseSelect.value = String(rows[0].id);
+        baseSelect.onchange = () => loadSimcBaseTemplateContent(baseSelect.value).catch((err) => {
+            console.error('Load base template content failed:', err);
+            showMessage('加载基础模板内容失败：' + String(err.message || err), 'error');
+        });
+        await loadSimcBaseTemplateContent(baseSelect.value);
+    }
+    if (baselineEditor) {
+        const response = await fetch('/api/simc-player-config-detail/?spec=' + encodeURIComponent(spec));
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '加载默认玩家基线失败');
+        baselineEditor.value = (payload.data || {}).player_equipment || '';
+        const legacyEditor = document.getElementById('simc-sim-equipment');
+        if (legacyEditor && !legacyEditor.value.trim()) legacyEditor.value = baselineEditor.value;
     }
 }
 
@@ -2742,12 +2812,15 @@ async function startSelectedSimcCandidateComparisons(maxSelectable) {
     try {
         if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>创建批次中…'; }
         const apl = document.querySelector('input[name="simc-sim-apl"]:checked');
+        const baseTemplate = document.getElementById('base-template-select');
+        const baseTemplateEditor = document.getElementById('base-template-content');
+        const aplOverride = document.getElementById('apl-override');
         // 类别按用户勾选顺序串行：前一个批次创建/运行失败时，不再继续创建后续类别，
         // 避免产生用户不会再查看的孤立任务。
         const batches = [];
         for (const kind of selectedKinds) {
             const requestKind = kind === 'trinket_candidates' ? 'gear_candidates' : kind;
-            const response = await fetch('/api/simc-task/batch/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ kind: requestKind, category: kind, name: `${spec} ${kind === 'trinket_candidates' ? '饰品' : kind === 'gear_candidates' ? '其他装备' : '天赋'}候选对比`, spec, player_config_mode: 'manual_equipment', player_equipment: playerEquipment, candidates: selections[kind], fight_style: (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk', time: parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300, target_count: parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1, selected_apl_id: apl?.value ? parseInt(apl.value, 10) : undefined }) });
+            const response = await fetch('/api/simc-task/batch/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ kind: requestKind, category: kind, name: `${spec} ${kind === 'trinket_candidates' ? '饰品' : kind === 'gear_candidates' ? '其他装备' : '天赋'}候选对比`, spec, player_config_mode: 'manual_equipment', player_equipment: playerEquipment, candidates: selections[kind], fight_style: (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk', time: parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300, target_count: parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1, selected_apl_id: apl?.value ? parseInt(apl.value, 10) : undefined, override_action_list: aplOverride ? aplOverride.value : undefined, base_template_id: baseTemplate?.value ? parseInt(baseTemplate.value, 10) : undefined, base_template_content: baseTemplateEditor ? baseTemplateEditor.value : undefined }) });
             const payload = await response.json();
             if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较批次失败');
             const batch = { batchId: payload.data.batch_id, kind, accepted: payload.data.accepted };
@@ -2906,12 +2979,18 @@ function simcAttributeSearchRequestBody() {
     const step = 50;
     if (!spec) throw new Error('请先在“发起模拟”选择专精');
     if (!config.talent) throw new Error('请填写天赋构筑码');
-    const playerEquipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
+    const playerBaseline = ((document.getElementById('player-baseline-config') || {}).value || '').trim();
+    const playerEquipment = playerBaseline
+        || ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
     if (!playerEquipment) throw new Error('请填写冻结的玩家装备基线');
     const fightStyle = (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk';
     const time = parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300;
     const targetCount = parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1;
     const aplRadio = document.querySelector('input[name="simc-sim-apl"]:checked');
+    const baseTemplate = document.getElementById('base-template-select');
+    const baseTemplateEditor = document.getElementById('base-template-content');
+    const aplOverride = document.getElementById('apl-override');
+    const apl_override = aplOverride ? aplOverride.value : undefined;
     return {
         kind: 'attribute_variants', name: `${spec} 四属性自动寻优`, spec,
         player_config_mode: 'attribute_only', player_equipment: playerEquipment,
@@ -2920,6 +2999,9 @@ function simcAttributeSearchRequestBody() {
         gear_mastery: config.gear_mastery, gear_versatility: config.gear_versatility,
         attribute_step: step, fight_style: fightStyle, time, target_count: targetCount,
         selected_apl_id: aplRadio && aplRadio.value ? parseInt(aplRadio.value, 10) : undefined,
+        base_template_id: baseTemplate && baseTemplate.value ? parseInt(baseTemplate.value, 10) : undefined,
+        base_template_content: baseTemplateEditor ? baseTemplateEditor.value : undefined,
+        override_action_list: apl_override,
     };
 }
 
@@ -3048,6 +3130,12 @@ async function createSimcSimulationTask() {
             player_import_mode: mode,
             player_config_mode: mode,
         };
+        const baseTemplate = document.getElementById('base-template-select');
+        if (baseTemplate && baseTemplate.value) requestBody.base_template_id = parseInt(baseTemplate.value, 10);
+        const baseTemplateEditor = document.getElementById('base-template-content');
+        if (baseTemplateEditor) requestBody.base_template_content = baseTemplateEditor.value;
+        const baselineEditor = document.getElementById('player-baseline-config');
+        const frozenBaseline = baselineEditor ? baselineEditor.value.trim() : '';
 
         if (mode === 'manual_equipment') {
             const equipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
@@ -3056,7 +3144,7 @@ async function createSimcSimulationTask() {
         } else if (mode === 'attribute_only') {
             const config = syncSimcAttributeOnlyConfigFromInputs();
             if (!config.talent) { showMessage('请填写天赋构筑码', 'warning'); return; }
-            const equipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
+            const equipment = frozenBaseline || ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
             if (!equipment) { showMessage('请填写冻结的玩家装备基线', 'warning'); return; }
             requestBody.player_equipment = equipment;
             Object.assign(requestBody, config);
@@ -3074,6 +3162,8 @@ async function createSimcSimulationTask() {
         if (aplRadio && aplRadio.value) {
             requestBody.selected_apl_id = parseInt(aplRadio.value, 10);
         }
+        const aplOverride = document.getElementById('apl-override');
+        if (aplOverride) requestBody.override_action_list = aplOverride.value;
 
         const specLabels = {
             arms: '武器战', fury: '狂怒战', protection: '防战', havoc: '浩劫', vengeance: '复仇',
@@ -3124,6 +3214,7 @@ function bindSimcWorkbenchSimulationControls() {
         specSel.dataset.bound = '1';
         specSel.addEventListener('change', function() {
             loadSimcAplCandidates(this.value);
+            loadSimcSnapshotDefaults(this.value).catch((error) => showMessage('加载默认模拟输入失败：' + String(error.message || error), 'error'));
             loadSimcSimSavedProfiles();
         });
     }
@@ -8997,16 +9088,13 @@ function displayTemplateList(templates) {
         const row = document.createElement('tr');
         row.className = 'hover:bg-gray-50';
         
-        // 截取模板内容预览
-        const preview = template.template_content.length > 100 
-            ? template.template_content.substring(0, 100) + '...' 
-            : template.template_content;
+        const preview = template.preview || '';
         
         row.innerHTML = `
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${template.id}</td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(template.spec || 'default')}</td>
             <td class="px-6 py-4 text-sm text-gray-900">
-                <div class="max-w-xs truncate" title="${escapeHtml(template.template_content)}">
+                <div class="max-w-xs truncate" title="${escapeHtml(preview)}">
                     ${escapeHtml(preview)}
                 </div>
             </td>

@@ -639,8 +639,12 @@ class SimcTaskAPIView(View):
             selected_attributes = data.get('selected_attributes')
             attribute_step = data.get('attribute_step')
             selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
-            
-            # 新版字段：SimC 工作台只接收“玩家信息块”，完整 simc 由后端模板拼装
+            base_template_id = data.get('base_template_id')
+            base_template_content = data.get('base_template_content') if 'base_template_content' in data else None
+            override_action_list = data.get('override_action_list') if 'override_action_list' in data else None
+            override_action_list_provided = 'override_action_list' in data
+
+            # 新版字段：SimC 工作台只接收”玩家信息块”，完整 simc 由后端模板拼装
             fight_style = data.get('fight_style')
             fight_time = data.get('time')
             target_count = data.get('target_count')
@@ -771,6 +775,10 @@ class SimcTaskAPIView(View):
                 attribute_step=attribute_step,
                 raw_simc_code=raw_simc_code,
                 selected_apl_id=selected_apl_id,
+                base_template_id=base_template_id,
+                base_template_content=base_template_content,
+                override_action_list=override_action_list,
+                override_action_list_provided=override_action_list_provided,
                 # 新版字段
                 fight_style=fight_style,
                 time=fight_time,
@@ -1155,14 +1163,88 @@ class SimcTaskAPIView(View):
                     payload['selected_attributes'] = text
         return payload
 
-    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None, selected_apl_id=None,
+    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None, selected_apl_id=None, base_template_id=None, base_template_content=None, override_action_list=None, override_action_list_provided=False,
                         fight_style=None, time=None, target_count=None, player_config_mode=None, player_equipment=None,
                         gear_strength=None, gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None, talent=None, spec=None,
                         battlenet_region=None, battlenet_realm=None, battlenet_character=None):
         ttype = int(task_type or 1)
         base = self._normalize_task_ext(ttype, ext)
 
-        if selected_apl_id not in (None, ''):
+        # 用户编辑后的正文是任务的权威快照；ID 仅保留来源元数据。
+        if base_template_content is not None:
+            frozen_template = str(base_template_content)
+            if not frozen_template.strip():
+                raise Exception('基础模板内容不能为空')
+            if base_template_id not in (None, ''):
+                template_obj = _get_simc_content_by_id(
+                    base_template_id,
+                    allowed_types=[SimcContentTemplate.TYPE_BASE_TEMPLATE],
+                )
+                if not template_obj:
+                    raise Exception('选择的基础模板不存在或已禁用')
+                base['base_template_id'] = template_obj.id
+            base['base_template_content'] = frozen_template
+        elif base_template_id not in (None, ''):
+            template_obj = _get_simc_content_by_id(
+                base_template_id,
+                allowed_types=[SimcContentTemplate.TYPE_BASE_TEMPLATE],
+            )
+            if not template_obj:
+                raise Exception('选择的基础模板不存在或已禁用')
+            base['base_template_id'] = template_obj.id
+            base['base_template_content'] = template_obj.content
+        elif not base.get('base_template_content') and spec:
+            # 先匹配专精模板；没有时再使用唯一全局默认模板。每一层都 fail closed。
+            candidates = SimcContentTemplate.objects.filter(
+                template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+                is_active=True,
+                spec=spec,
+            )
+            if candidates.count() > 1:
+                raise Exception(f'专精 {spec} 有多个启用的基础模板，请明确选择一个')
+            if candidates.count() == 0:
+                candidates = SimcContentTemplate.objects.filter(
+                    template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+                    is_active=True,
+                    spec__in=['default', 'all', '*'],
+                )
+                if candidates.count() > 1:
+                    raise Exception('存在多个启用的默认基础模板，请明确选择一个')
+            candidate_count = candidates.count()
+            if candidate_count == 1:
+                template_obj = candidates.first()
+                base['base_template_id'] = template_obj.id
+                base['base_template_content'] = template_obj.content
+            elif candidate_count > 1:
+                raise Exception(f'专精 {spec} 存在重复启用的基础模板，请明确选择一个')
+            else:
+                # 首次同步前兼容已有任务入口：读取部署配置中的基础模板并立即冻结，
+                # 执行阶段仍只消费任务快照，不会再次读取该文件。
+                template_path = str((getattr(settings, 'SIMC_CONFIG', {}) or {}).get('simc_template') or 'LMonitor/simc_template.txt')
+                if not os.path.isabs(template_path):
+                    template_path = os.path.join(settings.BASE_DIR, template_path)
+                if not os.path.isfile(template_path):
+                    raise Exception(f'专精 {spec} 没有可用的基础模板')
+                with open(template_path, encoding='utf-8') as template_file:
+                    frozen_template = template_file.read()
+                if not frozen_template.strip():
+                    raise Exception(f'专精 {spec} 没有可用的基础模板')
+                base['base_template_content'] = frozen_template
+
+        # 快照冻结：APL - 用户编辑内容优先
+        if override_action_list_provided:
+            base['override_action_list'] = str(override_action_list or '')
+            if selected_apl_id not in (None, ''):
+                apl_obj = _get_simc_content_by_id(
+                    selected_apl_id,
+                    allowed_types=[SimcContentTemplate.TYPE_DEFAULT_APL, SimcContentTemplate.TYPE_CUSTOM_APL],
+                )
+                if not apl_obj:
+                    raise Exception('选择的 APL 不存在或已禁用')
+                base['selected_apl_id'] = apl_obj.id
+                base['override_action_list_name'] = apl_obj.name or apl_obj.spec
+                base['override_action_list_type'] = apl_obj.template_type
+        elif selected_apl_id not in (None, ''):
             apl_obj = _get_simc_content_by_id(
                 selected_apl_id,
                 allowed_types=[SimcContentTemplate.TYPE_DEFAULT_APL, SimcContentTemplate.TYPE_CUSTOM_APL],
@@ -1173,9 +1255,20 @@ class SimcTaskAPIView(View):
             base['override_action_list'] = apl_obj.content
             base['override_action_list_name'] = apl_obj.name or apl_obj.spec
             base['override_action_list_type'] = apl_obj.template_type
-        elif 'selected_apl_id' in base:
-            # 保留旧任务 ext 中的 APL 选择，不主动清除。
-            pass
+        elif not base.get('selected_apl_id') and not base.get('override_action_list') and spec:
+            # 没有 APL ID/override 时只在按专精匹配到唯一启用默认 APL 时兜底
+            spec_key = f'warrior_{spec}' if spec in ('fury', 'arms', 'protection') else spec
+            candidates = SimcContentTemplate.objects.filter(
+                template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+                is_active=True,
+                spec=spec_key
+            )
+            if candidates.count() > 1:
+                raise Exception(f'专精 {spec_key} 存在重复启用的默认 APL，请明确选择一个')
+            elif candidates.count() == 1:
+                apl_obj = candidates.first()
+                base['selected_apl_id'] = apl_obj.id
+                base['override_action_list'] = apl_obj.content
 
         if ttype == 1:
             payload = {}
@@ -1194,11 +1287,20 @@ class SimcTaskAPIView(View):
                 payload.pop('raw_simc_code', None)
             
             # 新版字段：只保存玩家信息导入方式和由表单选择的战斗/APL 配置
+            # 快照冻结：player_equipment
             if player_config_mode:
                 payload['player_config_mode'] = player_config_mode
                 payload['player_import_mode'] = player_config_mode
-                if player_config_mode in ('manual_equipment', 'attribute_only') and player_equipment:
-                    payload['player_equipment'] = player_equipment
+                if player_config_mode in ('manual_equipment', 'attribute_only'):
+                    # 冻结 player_equipment 到 ext
+                    if player_equipment:
+                        payload['player_equipment'] = player_equipment
+                    elif player_config_mode == 'attribute_only' and spec:
+                        # attribute_only 模式下，从 default_player 获取并冻结
+                        from botend.services.simc_player_config import authoritative_player_baseline
+                        baseline = authoritative_player_baseline(spec)
+                        if baseline:
+                            payload['player_equipment'] = baseline
                 elif player_config_mode == 'battlenet':
                     payload['battlenet_region'] = str(battlenet_region or '').lower()
                     payload['battlenet_realm'] = str(battlenet_realm or '').strip()
@@ -1504,7 +1606,12 @@ class SimcBatchTaskAPIView(View):
                 'time': source_ext.get('time', 300), 'target_count': source_ext.get('target_count', 1),
                 'player_config_mode': 'attribute_only', 'spec': source_ext.get('spec', ''),
                 'player_equipment': source_ext.get('player_equipment', ''),
-                'talent': source_ext.get('talent', ''), 'gear_strength': source_ext.get('gear_strength'), 'selected_apl_id': source_ext.get('selected_apl_id'),
+                'talent': source_ext.get('talent', ''), 'gear_strength': source_ext.get('gear_strength'),
+                'base_template_id': source_ext.get('base_template_id'),
+                'base_template_content': source_ext.get('base_template_content'),
+                'selected_apl_id': source_ext.get('selected_apl_id'),
+                'override_action_list': source_ext.get('override_action_list'),
+                'override_action_list_provided': 'override_action_list' in source_ext,
             }
             kwargs.update({f'gear_{stat}': gear[stat] for stat in self.ATTRIBUTE_STATS})
             ext = task_api._build_task_ext(**kwargs)
@@ -1540,6 +1647,10 @@ class SimcBatchTaskAPIView(View):
             fight_time = max(1, self._int(data.get('time', 300), '战斗时长'))
             target_count = max(1, self._int(data.get('target_count', 1), '目标数量'))
             selected_apl_id = data.get('selected_apl_id')
+            base_template_id = data.get('base_template_id')
+            base_template_content = data.get('base_template_content') if 'base_template_content' in data else None
+            override_action_list = data.get('override_action_list') if 'override_action_list' in data else None
+            override_action_list_provided = 'override_action_list' in data
             batch_id = str(uuid.uuid4())
             specs = []
 
@@ -1631,7 +1742,17 @@ class SimcBatchTaskAPIView(View):
             with transaction.atomic():
                 for index, item in enumerate(specs):
                     task_ext = {'batch_compare': {'version': 2 if kind == 'attribute_variants' else 1, 'batch_id': batch_id, 'kind': kind, 'category': category or kind, 'index': index, 'label': item['label'], 'is_base': item['is_base'], 'candidate': item['candidate']}}
-                    kwargs = {'task_type': 1, 'ext': task_ext, 'fight_style': fight_style, 'time': fight_time, 'target_count': target_count, 'player_config_mode': mode, 'spec': spec, 'talent': item.get('talent', str(data.get('talent') or '')), 'selected_apl_id': selected_apl_id}
+                    kwargs = {
+                        'task_type': 1, 'ext': task_ext, 'fight_style': fight_style,
+                        'time': fight_time, 'target_count': target_count,
+                        'player_config_mode': mode, 'spec': spec,
+                        'talent': item.get('talent', str(data.get('talent') or '')),
+                        'base_template_id': base_template_id,
+                        'base_template_content': base_template_content,
+                        'selected_apl_id': selected_apl_id,
+                        'override_action_list': override_action_list,
+                        'override_action_list_provided': override_action_list_provided,
+                    }
                     if mode == 'attribute_only':
                         kwargs['player_equipment'] = item['player_equipment']
                         kwargs['gear_strength'] = self._int(data.get('gear_strength', 0), '主属性')
@@ -1654,6 +1775,17 @@ class SimcBatchTaskAPIView(View):
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class SimcPlayerConfigDetailAPIView(View):
     """只解析工作台当前玩家输入，返回结构化配置详情；不渲染完整 SimC 执行文本。"""
+
+    def get(self, request):
+        """返回指定专精当前唯一启用的默认玩家基线，供工作台编辑后冻结。"""
+        spec = str(request.GET.get('spec') or '').strip()
+        if not spec:
+            return JsonResponse({'success': False, 'error': '请先选择专精'}, status=400)
+        try:
+            baseline = resolve_attribute_player_baseline(spec, '')
+            return JsonResponse({'success': True, 'data': {'spec': spec, 'player_equipment': baseline}})
+        except ValueError as exc:
+            return JsonResponse({'success': False, 'error': str(exc)}, status=400)
 
     def post(self, request):
         try:
@@ -1782,6 +1914,21 @@ def _get_simc_content_by_id(content_id, allowed_types=None):
     if allowed_types:
         qs = qs.filter(template_type__in=allowed_types)
     return qs.first()
+
+
+def _get_unique_default_apl_for_spec(spec):
+    """返回专精唯一启用的默认 APL；重复候选必须显式消歧。"""
+    spec_value = str(spec or '').strip().lower()
+    spec_key = f'warrior_{spec_value}' if spec_value in ('fury', 'arms', 'protection') else spec_value
+    candidates = SimcContentTemplate.objects.filter(
+        template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+        is_active=True,
+        spec=spec_key,
+    )
+    count = candidates.count()
+    if count > 1:
+        raise ValueError(f'专精 {spec_key} 存在重复启用的默认 APL，请明确选择一个')
+    return candidates.first() if count == 1 else None
 
 
 def inspect_raw_simc_code(raw_simc_code):
@@ -2835,6 +2982,32 @@ class SimcProfileAPIView(View):
                 ext_payload['target_count'] = effective_target_count
                 ext_payload['fight_style'] = 'Patchwerk'
 
+            # 已保存配置的“立即模拟”也必须冻结三类执行输入，避免 Worker 执行时
+            # 因基础模板或默认 APL 后续更新而改变已创建任务的语义。
+            ext_payload = json.loads(SimcTaskAPIView()._build_task_ext(
+                task_type=task_type,
+                ext=ext_payload,
+                regular_time=regular_time,
+                regular_target_count=regular_target_count,
+                selected_attributes=selected_attributes,
+                attribute_step=attribute_step,
+                fight_style=ext_payload.get('fight_style'),
+                time=ext_payload.get('time'),
+                target_count=ext_payload.get('target_count'),
+                player_config_mode=ext_payload.get('player_config_mode'),
+                player_equipment=frozen_player_equipment,
+                gear_strength=profile.gear_strength,
+                gear_crit=profile.gear_crit,
+                gear_haste=profile.gear_haste,
+                gear_mastery=profile.gear_mastery,
+                gear_versatility=profile.gear_versatility,
+                talent=profile.talent or '',
+                spec=profile.spec,
+                battlenet_region=profile.battlenet_region or '',
+                battlenet_realm=profile.battlenet_realm or '',
+                battlenet_character=profile.battlenet_character or '',
+            ))
+
             # 创建SimcTask
             task = SimcTask.objects.create(
                 user_id=user_id,
@@ -3093,7 +3266,8 @@ class SimcAplCandidatesAPIView(View):
             if not profile:
                 return JsonResponse({'success': False, 'error': 'SimC配置不存在或无权限访问'})
 
-            base_apl = str(profile.action_list or '').strip()
+            apl_template = _get_unique_default_apl_for_spec(profile.spec)
+            base_apl = str(apl_template.content if apl_template else '').strip()
             if not base_apl:
                 return JsonResponse({'success': False, 'error': '当前配置缺少基础APL，无法生成候选方案'})
 
@@ -3308,21 +3482,39 @@ class SimcAplCandidatesAPIView(View):
         total_count = int(candidate_count) + (1 if include_base else 0)
         if total_count <= 0:
             raise Exception('候选数量无效')
+        frozen_inputs = json.loads(SimcTaskAPIView()._build_task_ext(
+            task_type=1,
+            ext={},
+            fight_style='Patchwerk',
+            time=300,
+            target_count=1,
+            player_config_mode=SimcProfileAPIView._profile_mode(profile),
+            player_equipment=profile.player_equipment or '',
+            gear_strength=profile.gear_strength,
+            gear_crit=profile.gear_crit,
+            gear_haste=profile.gear_haste,
+            gear_mastery=profile.gear_mastery,
+            gear_versatility=profile.gear_versatility,
+            talent=profile.talent or '',
+            spec=profile.spec,
+            battlenet_region=profile.battlenet_region or '',
+            battlenet_realm=profile.battlenet_realm or '',
+            battlenet_character=profile.battlenet_character or '',
+        ))
         batch_id = uuid.uuid4().hex[:12]
         created = []
         for idx in range(total_count):
             is_base = bool(include_base and idx == 0)
             plan_name = '基础方案' if is_base else f'候选方案{idx}'
             display_name = f"{profile.name}_APL对比_{idx:02d}_预处理中"
-            ext_payload = {
-                'apl_compare': {
-                    'batch_id': batch_id,
-                    'candidate_index': idx,
-                    'candidate_name': plan_name,
-                    'candidate_reason': '等待预处理生成',
-                    'is_base': is_base,
-                    'preprocess_stage': 'pending'
-                }
+            ext_payload = dict(frozen_inputs)
+            ext_payload['apl_compare'] = {
+                'batch_id': batch_id,
+                'candidate_index': idx,
+                'candidate_name': plan_name,
+                'candidate_reason': '等待预处理生成',
+                'is_base': is_base,
+                'preprocess_stage': 'pending'
             }
             task = SimcTask.objects.create(
                 user_id=user_id,
@@ -3364,7 +3556,14 @@ class SimcAplCandidatesAPIView(View):
                     close_old_connections()
                     return
 
-                base_apl = str(profile.action_list or '').strip()
+                first_task = SimcTask.objects.filter(id__in=ids, user_id=user_id, is_active=True).order_by('id').first()
+                first_ext = {}
+                if first_task:
+                    try:
+                        first_ext = json.loads(first_task.ext or '{}')
+                    except Exception:
+                        first_ext = {}
+                base_apl = str(first_ext.get('override_action_list') or '').strip()
                 if not base_apl:
                     self._mark_preprocess_failed(ids, '预处理失败: 当前配置缺少基础APL')
                     close_old_connections()
@@ -4115,16 +4314,9 @@ class SimcRegularCompareAPIView(View):
 
                 ext_payload = self._parse_task_ext(task.ext)
                 apl_compare = ext_payload.get('apl_compare') if isinstance(ext_payload.get('apl_compare'), dict) else {}
-                profile_action_list = ''
-                try:
-                    profile = SimcProfile.objects.filter(id=task.simc_profile_id, user_id=request.user.id, is_active=True).first()
-                    profile_action_list = (profile.action_list or '') if profile else ''
-                except Exception:
-                    profile_action_list = ''
                 apl_list = str(
                     apl_compare.get('apl_list')
                     or ext_payload.get('override_action_list')
-                    or profile_action_list
                     or ''
                 )
                 

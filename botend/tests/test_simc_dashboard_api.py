@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.test import Client, RequestFactory, TestCase
 
-from botend.dashboard.api import SimcBatchTaskAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, inspect_raw_simc_code
+from botend.dashboard.api import SimcAplCandidatesAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, inspect_raw_simc_code
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates
@@ -452,6 +452,84 @@ finger1=,id=299002,ilevel=655
         next_round_ext = [json.loads(task.ext) for task in SimcTask.objects.filter(id__in=result['task_ids'])]
         self.assertEqual({row['player_equipment'] for row in next_round_ext}, {frozen_player})
         self.assertEqual({row['batch_compare']['candidate']['round'] for row in next_round_ext}, {2})
+
+    def test_continue_attribute_search_preserves_template_and_explicit_empty_apl(self):
+        frozen_player = 'warrior="Batcher"\nlevel=90\nspec=fury\ntalents=ATTRIBUTE_BUILD\nhead=,id=212048,ilevel=639\nmain_hand=,id=222222,ilevel=639'
+        template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='fury', name='Frozen base', content='warrior="DB_CHANGED"', is_active=True,
+        )
+        apl = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury', name='Frozen APL', content='actions=/DB_CHANGED', is_active=True,
+        )
+        batch_id = 'frozen-input-batch'
+        ratings_rows = SimcBatchTaskAPIView._attribute_variants(
+            {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 50,
+        )
+        for index, (label, ratings, is_base, candidate) in enumerate(ratings_rows):
+            ext = SimcTaskAPIView()._build_task_ext(
+                task_type=1,
+                ext={'batch_compare': {'version': 2, 'batch_id': batch_id, 'kind': 'attribute_variants', 'index': index, 'label': label, 'is_base': is_base, 'candidate': candidate}},
+                fight_style='Patchwerk', time=300, target_count=1,
+                player_config_mode='attribute_only', player_equipment=frozen_player,
+                spec='fury', talent='ATTRIBUTE_BUILD', gear_strength=5000,
+                gear_crit=ratings['crit'], gear_haste=ratings['haste'],
+                gear_mastery=ratings['mastery'], gear_versatility=ratings['versatility'],
+                base_template_id=template.id,
+                base_template_content='warrior="FROZEN"\n{player_config}\n{action_list}',
+                selected_apl_id=apl.id, override_action_list='', override_action_list_provided=True,
+            )
+            SimcTask.objects.create(
+                user_id=self.user.id, simc_profile_id=0,
+                name=f'Fury 自动属性比较 · {label}', current_status=2,
+                result_file=f'simc_task_{100 + index}.html', task_type=1, ext=ext,
+            )
+
+        template.content = 'warrior="NEW_DB"'
+        template.save(update_fields=['content'])
+        apl.content = 'actions=/NEW_DB'
+        apl.save(update_fields=['content'])
+        request = RequestFactory().post('/api/simc-task/batch/', data='{}', content_type='application/json')
+        request.user = self.user
+        dps_values = iter([100000, 101500] + [100100] * 11)
+        with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', return_value='<html></html>'), \
+                patch.object(SimcRegularCompareAPIView, '_parse_regular_result', side_effect=lambda _html: {'dps': next(dps_values)}):
+            result = SimcBatchTaskAPIView()._continue_attribute_search(request, {}, batch_id)
+
+        next_round_ext = [json.loads(task.ext) for task in SimcTask.objects.filter(id__in=result['task_ids'])]
+        self.assertEqual({row['base_template_content'] for row in next_round_ext}, {'warrior="FROZEN"\n{player_config}\n{action_list}'})
+        self.assertEqual({row['override_action_list'] for row in next_round_ext}, {''})
+
+    def test_saved_profile_simulate_now_freezes_all_execution_inputs(self):
+        template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='fury', name='Fury base', content='warrior="Frozen"\n{player_config}\n{action_list}', is_active=True,
+        )
+        apl = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury', name='Fury APL', content='actions=/bloodthirst', is_active=True,
+        )
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id, name='Saved fury', spec='fury', talent='BUILD',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Saved"\nspec=fury\nmain_hand=,id=222222',
+            is_active=True,
+        )
+
+        result = SimcProfileAPIView()._create_simulation_task(self.user.id, profile)
+
+        self.assertTrue(result['success'], result)
+        ext = json.loads(SimcTask.objects.get(id=result['data']['id']).ext)
+        self.assertEqual(ext['base_template_id'], template.id)
+        self.assertEqual(ext['base_template_content'], template.content)
+        self.assertEqual(ext['player_equipment'], profile.player_equipment)
+        self.assertEqual(ext['selected_apl_id'], apl.id)
+        self.assertEqual(ext['override_action_list'], apl.content)
 
     def test_attribute_detail_parses_frozen_player_and_overlays_requested_ratings(self):
         detail = build_player_config_detail(
@@ -1278,6 +1356,36 @@ class SimcNewConfigModeTests(TestCase):
             section = soup.select_one(f'#{section_id}')
             self.assertIsNotNone(section, section_id)
             self.assertIs(section.parent, main_content, section_id)
+
+    def test_simc_workbench_panels_are_siblings(self):
+        from bs4 import BeautifulSoup
+
+        template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        soup = BeautifulSoup(template, 'html.parser')
+        panel_ids = (
+            'simc-workbench-import-panel',
+            'simc-workbench-tasks-panel',
+            'simc-workbench-profiles-panel',
+            'simc-workbench-templates-panel',
+            'simc-workbench-apl-panel',
+            'simc-workbench-backend-panel',
+            'simc-workbench-rules-panel',
+        )
+        panels = [soup.select_one(f'#{panel_id}') for panel_id in panel_ids]
+
+        self.assertTrue(all(panels), panel_ids)
+        expected_parent = panels[0].parent
+        for panel in panels[1:]:
+            self.assertIs(panel.parent, expected_parent, panel.get('id'))
+
+    def test_template_list_renders_api_preview_without_full_template_content(self):
+        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        display_start = main_js.index('function displayTemplateList(templates)')
+        display_end = main_js.index('// 编辑模板', display_start)
+        display_source = main_js[display_start:display_end]
+
+        self.assertIn("const preview = template.preview || '';", display_source)
+        self.assertNotIn('template.template_content', display_source)
 
     def test_task_modal_labels_manifest_as_configuration_not_generated_simc_code(self):
         template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')

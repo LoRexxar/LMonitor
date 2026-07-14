@@ -486,15 +486,11 @@ class SimcMonitor(BaseScan):
                 # ── 新版任务配置模式（从 ext JSON 读取所有配置） ──
                 # 如果 ext 中有 player_config_mode，使用新逻辑
                 if ext_payload.get('player_config_mode'):
-                    # 从数据库获取模板
+                    # 快照冻结：优先使用 ext.base_template_content
                     spec_value = ext_payload.get('spec') or (simc_profile.spec if simc_profile else 'fury')
-                    template_obj = self.select_template_by_spec(
-                        spec_value,
-                        player_config_mode=ext_payload.get('player_import_mode') or ext_payload.get('player_config_mode'),
-                    )
-                    if not template_obj:
-                        raise Exception("未找到启用的SimC模板")
-                    template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
+                    template = ext_payload.get('base_template_content')
+                    if not template:
+                        raise Exception("任务快照缺少基础模板内容")
                     
                     # 构建 task_config 字典
                     task_config = {
@@ -1137,13 +1133,14 @@ class SimcMonitor(BaseScan):
         :return: 生成的SimC代码字符串
         """
         try:
-            # 从数据库获取统一基础模板
-            template_obj = self.select_template_by_spec(profile.spec)
-            if not template_obj:
-                raise Exception("未找到启用的SimC模板")
-            template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
-            
             manifest = task_ext if isinstance(task_ext, dict) else {}
+            template = manifest.get('base_template_content')
+            if not template:
+                # 只兼容未迁移的历史调用；新建任务都必须携带冻结模板快照。
+                template_obj = self.select_template_by_spec(profile.spec)
+                if not template_obj:
+                    raise Exception("属性模拟任务快照缺少基础模板内容")
+                template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
 
             def _snapshot_value(field, default=''):
                 if field in manifest:
@@ -1167,7 +1164,7 @@ class SimcMonitor(BaseScan):
                 'gear_haste': attributes.get('gear_haste', 0),
                 'gear_mastery': attributes.get('gear_mastery', 0),
                 'gear_versatility': attributes.get('gear_versatility', 0),
-                'override_action_list': manifest.get('override_action_list') or self._load_default_apl(profile.spec) or '',
+                'override_action_list': manifest.get('override_action_list', ''),
                 'result_file': result_file,
             }
             

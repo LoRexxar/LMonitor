@@ -173,8 +173,12 @@ class Command(BaseCommand):
         call_command('import_simc_apl', source_dir=source_dir)
 
     def _sync_generated_inputs(self):
-        self._set_status(progress=95, status='同步默认模板和 APL', error='', updating=True)
+        if hasattr(self, 'row'):
+            self._set_status(progress=95, status='同步默认模板和 APL', error='', updating=True)
+        git_hash = self._get_git_hash()
         self._sync_default_template()
+        player_source_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID1')
+        call_command('import_simc_player_templates', source_dir=player_source_dir, sync_version=git_hash)
         self._sync_default_apl()
 
     def _preserve_tracked_changes_before_pull(self):

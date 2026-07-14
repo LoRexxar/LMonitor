@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260713p"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260714c"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -960,13 +960,34 @@
                                                 <div class="mt-4 flex flex-wrap items-center gap-3"><button type="button" id="simc-sim-attribute-optimize-btn" class="px-5 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold"><i class="fas fa-compass mr-1"></i>自动寻优四属性</button><span class="text-xs text-amber-800">保持四项副属性总和不变；内点最多创建 13 个独立常规模拟。</span></div>
                                                 <div id="simc-sim-attribute-search-status" class="hidden mt-2 text-xs"></div>
                                             </div>
+                                        </div>
                                         <div class="mb-5">
                                             <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                                <i class="fas fa-list-ol mr-1 text-green-500"></i>APL 选择
+                                                <i class="fas fa-file-code mr-1 text-purple-500"></i>基础模板选择
                                                 <span class="text-xs text-gray-400 font-normal ml-1">(需要先选专精)</span>
                                             </label>
-                                            <div id="simc-sim-apl-list" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">
+                                            <select id="base-template-select" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500">
+                                                <option value="">使用默认基础模板</option>
+                                            </select>
+                                            <textarea id="base-template-content" class="w-full mt-3 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 font-mono text-sm bg-white" rows="10" placeholder="选择模板后自动加载，可在创建任务前编辑；提交后将冻结为任务快照。"></textarea>
+                                        </div>
+                                        <div class="mb-5">
+                                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                                <i class="fas fa-user-edit mr-1 text-blue-500"></i>默认玩家基线配置
+                                                <span class="text-xs text-gray-400 font-normal ml-1">(可编辑覆盖)</span>
+                                            </label>
+                                            <textarea id="player-baseline-config" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-sm bg-white" rows="8" placeholder="玩家装备基线将在专精变化时自动加载..."></textarea>
+                                        </div>
+                                        <div class="mb-5">
+                                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                                <i class="fas fa-list-ol mr-1 text-green-500"></i>APL 选择与覆盖
+                                                <span class="text-xs text-gray-400 font-normal ml-1">(需要先选专精)</span>
+                                            </label>
+                                            <div id="simc-sim-apl-list" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500 mb-3">
                                                 请先选择专精以加载 APL 列表。
+                                            </div>
+                                            <div id="apl-override-editor">
+                                                <textarea id="apl-override" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 font-mono text-sm bg-white" rows="10" placeholder="APL 覆盖编辑区（选择 APL 后自动填充，可手动编辑）"></textarea>
                                             </div>
                                         </div>
 
@@ -1078,7 +1099,6 @@
                                         <button type="button" onclick="simcWbSaveProfile()" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
                                         <button type="button" onclick="simcWbCloseProfileForm()" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
                                     </div>
-                                </div>
                                 </div>
                                 <div class="overflow-x-auto">
                                     <table class="min-w-full text-sm">
