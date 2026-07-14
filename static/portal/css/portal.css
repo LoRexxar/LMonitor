@@ -1292,11 +1292,45 @@ body {
 
 .portal-news-search-btn:hover { background: rgb(67, 56, 202); }
 
+.portal-news-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.portal-news-tab {
+    border: 1px solid rgb(226, 232, 240);
+    border-radius: 9999px;
+    background: white;
+    color: rgb(51, 65, 85);
+    cursor: pointer;
+    font-size: 0.84rem;
+    font-weight: 700;
+    padding: 0.55rem 1rem;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.portal-news-tab:hover {
+    background: rgb(248, 250, 252);
+    border-color: rgb(203, 213, 225);
+}
+
+.portal-news-tab.is-active {
+    background: rgb(15, 23, 42);
+    border-color: rgb(15, 23, 42);
+    color: white;
+}
+
 .portal-news-layout {
     display: grid;
     grid-template-columns: 200px minmax(0, 1fr);
     gap: 1rem;
     align-items: start;
+}
+
+.portal-news-layout.is-report-view {
+    grid-template-columns: minmax(0, 1fr);
 }
 
 @media (max-width: 768px) {

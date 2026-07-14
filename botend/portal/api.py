@@ -9,7 +9,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, WowArticle, WowDailyReport, WowSkillDiffReport, WowWagoMonitorState
+from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, WowArticle, WowDailyReport, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
 from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.portal.mythicstats import (
@@ -417,21 +417,83 @@ def _state_to_dict(s):
     }
 
 
+def _paginate_recent_reports(request, queryset, serializer):
+    try:
+        page = max(1, int(request.GET.get('page') or 1))
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.GET.get('page_size') or request.GET.get('limit') or 20)
+    except ValueError:
+        page_size = 20
+    page_size = max(1, min(100, page_size))
+
+    since = timezone.now() - timedelta(days=60)
+    paginator = Paginator(queryset.filter(created_at__gte=since).order_by('-created_at', '-id'), page_size)
+    try:
+        page_obj = paginator.page(page)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages or 1)
+
+    return JsonResponse({
+        'status': 'success',
+        'data': [serializer(row) for row in page_obj.object_list],
+        'meta': {
+            'page': page_obj.number,
+            'page_size': page_size,
+            'total': paginator.count,
+            'total_pages': paginator.num_pages,
+            'has_next': page_obj.has_next(),
+            'has_previous': page_obj.has_previous(),
+        },
+    })
+
+
 class PortalWowSkillDiffListAPIView(View):
     def get(self, request):
-        limit = request.GET.get('limit', '20')
-        try:
-            limit = max(1, min(100, int(limit)))
-        except ValueError:
-            limit = 20
-        rows = list(WowSkillDiffReport.objects.all().order_by('-created_at')[:limit])
-        return JsonResponse({'status': 'success', 'data': [_skilldiff_to_dict(x) for x in rows]})
+        return _paginate_recent_reports(
+            request,
+            WowSkillDiffReport.objects.all(),
+            _skilldiff_to_dict,
+        )
 
 
 class PortalWowSkillDiffStatesAPIView(View):
     def get(self, request):
         rows = list(WowWagoMonitorState.objects.filter(is_active=True).order_by('branch', 'locale', 'id'))
         return JsonResponse({'status': 'success', 'data': [_state_to_dict(x) for x in rows]})
+
+
+def _hotfix_report_to_dict(r):
+    branch = (getattr(r, 'branch', '') or '').strip()
+    from_push = int(getattr(r, 'from_push', 0) or 0)
+    to_push = int(getattr(r, 'to_push', 0) or 0)
+    summary = (getattr(r, 'summary_title', '') or '').strip()
+    if not summary:
+        entry_count = int(getattr(r, 'entry_count', 0) or 0)
+        table_count = int(getattr(r, 'table_count', 0) or 0)
+        summary = f"Hotfix 全量更新：{table_count} 张表 / {entry_count} 项"
+    push_label = f"push {from_push}→{to_push}"
+    title = summary if push_label in summary else f"{summary}（{push_label}）"
+    return {
+        'id': r.id,
+        'title': title,
+        'url': f"/portal/wow-hotfix-report/{r.id}/",
+        'source': 'Wago',
+        'time': _fmt_dt(getattr(r, 'created_at', None)),
+        'branch': branch,
+        'from_push': from_push,
+        'to_push': to_push,
+    }
+
+
+class PortalHotfixReportsAPIView(View):
+    def get(self, request):
+        return _paginate_recent_reports(
+            request,
+            WowHotfixReport.objects.all(),
+            _hotfix_report_to_dict,
+        )
 
 
 class PortalDailyReportLatestAPIView(View):

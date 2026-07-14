@@ -7,7 +7,7 @@
     <title>魔兽世界新闻聚合 - WowDaily.cn</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_news">
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260714_news_tabs">
 </head>
 <body class="portal-bg font-sans">
     <header class="portal-header">
@@ -43,6 +43,11 @@
                 <div class="portal-section-kicker">News Index</div>
                 <h1 class="portal-news-title">魔兽世界新闻聚合</h1>
             </div>
+            <div id="news-content-tabs" class="portal-news-tabs" role="tablist" aria-label="聚合内容类型">
+                <button type="button" role="tab" data-news-tab="news" class="portal-news-tab is-active" aria-selected="true">新闻资讯</button>
+                <button type="button" role="tab" data-news-tab="build" class="portal-news-tab" aria-selected="false">Build 挖掘</button>
+                <button type="button" role="tab" data-news-tab="hotfix" class="portal-news-tab" aria-selected="false">Hotfix</button>
+            </div>
             <form id="news-search-form" class="portal-news-search" autocomplete="off">
                 <input id="news-search-input" class="portal-news-search-input" type="search" placeholder="搜索标题、译名、作者、来源 ...">
                 <button type="submit" class="portal-news-search-btn">搜索</button>
@@ -73,6 +78,6 @@
         </section>
     </main>
 
-    <script src="{% static 'portal/js/news_index.js' %}?v=20260708_news_v2"></script>
+    <script src="{% static 'portal/js/news_index.js' %}?v=20260714_news_tabs"></script>
 </body>
 </html>
