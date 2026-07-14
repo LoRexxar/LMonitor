@@ -118,13 +118,24 @@ class ngaMonitor(BaseScan):
                 wa = WowArticle.objects.filter(url=post_link).first()
 
                 if wa:
+                    update_fields = []
                     try:
                         cur = int(getattr(wa, "reply_count", 0) or 0)
                     except Exception:
                         cur = 0
                     if int(post_count or 0) > 0 and int(post_count) != cur:
                         wa.reply_count = int(post_count or 0)
-                        wa.save(update_fields=["reply_count"])
+                        update_fields.append("reply_count")
+                    expected_author = "nga{}".format(title)
+                    should_update_classification = title == "前瞻区" or wa.author != "nga前瞻区"
+                    if should_update_classification and wa.author != expected_author:
+                        wa.author = expected_author
+                        update_fields.append("author")
+                    if should_update_classification and wa.category != "nga":
+                        wa.category = "nga"
+                        update_fields.append("category")
+                    if update_fields:
+                        wa.save(update_fields=update_fields)
                     continue
 
                 if is_bad:

@@ -45,3 +45,39 @@ class NgaMonitorRequestTests(TestCase):
         article = WowArticle.objects.get(url="https://nga.178.com/read.php?tid=123")
         self.assertEqual(article.title, "前瞻测试标题")
         self.assertEqual(article.author, "nga前瞻区")
+
+    def test_resolve_data_marks_existing_hot_article_as_nga_preview(self):
+        article = WowArticle.objects.create(
+            title="旧标题",
+            url="https://nga.178.com/read.php?tid=123",
+            source="nga",
+            category="hot",
+            author=None,
+            reply_count=1,
+        )
+        task = Mock()
+        monitor = ngaMonitor(Mock(), task)
+
+        monitor.resolve_data(NGA_GB18030_HTML, "前瞻区", 10)
+
+        article.refresh_from_db()
+        self.assertEqual(article.author, "nga前瞻区")
+        self.assertEqual(article.category, "nga")
+        self.assertEqual(article.reply_count, 21)
+
+    def test_water_scan_does_not_overwrite_preview_classification(self):
+        article = WowArticle.objects.create(
+            title="前瞻测试标题",
+            url="https://nga.178.com/read.php?tid=123",
+            source="nga",
+            category="nga",
+            author="nga前瞻区",
+            reply_count=20,
+        )
+        monitor = ngaMonitor(Mock(), Mock())
+
+        monitor.resolve_data(NGA_GB18030_HTML, "水区", 200)
+
+        article.refresh_from_db()
+        self.assertEqual(article.author, "nga前瞻区")
+        self.assertEqual(article.reply_count, 21)
