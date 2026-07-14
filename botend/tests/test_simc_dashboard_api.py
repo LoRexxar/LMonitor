@@ -1266,6 +1266,19 @@ class SimcNewConfigModeTests(TestCase):
         display_modal = main_js.index("modal.style.display = 'block';", open_modal)
         self.assertLess(display_modal, preview_fetch)
 
+    def test_dashboard_sections_stay_inside_main_content(self):
+        from bs4 import BeautifulSoup
+
+        template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        soup = BeautifulSoup(template, 'html.parser')
+        main_content = soup.select_one('.main-content')
+
+        self.assertIsNotNone(main_content)
+        for section_id in ('dashboard-home', 'simc-workbench', 'tools', 'database-tables'):
+            section = soup.select_one(f'#{section_id}')
+            self.assertIsNotNone(section, section_id)
+            self.assertIs(section.parent, main_content, section_id)
+
     def test_task_modal_labels_manifest_as_configuration_not_generated_simc_code(self):
         template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
         main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
