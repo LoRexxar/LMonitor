@@ -15,7 +15,7 @@ from utils.log import logger
 from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
 
-from botend.models import WowArticle
+from botend.models import TargetAuth, WowArticle
 
 
 class ngaMonitor(BaseScan):
@@ -49,7 +49,8 @@ class ngaMonitor(BaseScan):
         :param url:
         :return:
         """
-        cookies = ""
+        auth = TargetAuth.objects.filter(domain="nga.178.com", is_login=True).first()
+        cookies = auth.cookie if auth and auth.cookie else ""
 
         for title in self.target_list:
             url = self.target_list[title]["url"]
