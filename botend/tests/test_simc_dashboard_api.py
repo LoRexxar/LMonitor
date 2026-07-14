@@ -2946,3 +2946,321 @@ class SimcBattlenetPreflightTests(TestCase):
         self.assertEqual(result['identity']['class_name'], 'deathknight')
         self.assertTrue(result['simc_ready'], result)
         self.assertEqual(result['warnings'], [])
+
+
+class SimcBatchTaskAPIViewGetTests(TestCase):
+    """Test GET endpoint for SimcBatchTaskAPIView - list batches and batch details."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='batch_get_user', password='pwd')
+        self.other_user = User.objects.create_user(username='other_user', password='pwd')
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_get_list_returns_recent_20_batches_with_status_counts(self):
+        # Create 25 batches (reverse order so 24 is most recent)
+        batches_created = []
+        for i in range(25):
+            batch = SimcTaskBatch.objects.create(
+                user_id=self.user.id,
+                name=f'Batch {i}',
+                batch_type='comparison',
+                status=1 if i < 5 else 2,
+            )
+            batches_created.append(batch)
+
+        # Add tasks to the last 3 batches created (22, 23, 24)
+        for i in [22, 23, 24]:
+            batch = batches_created[i]
+            SimcTask.objects.create(
+                user_id=self.user.id, name=f'Task {i}-0', simc_profile_id=0,
+                task_type=1, current_status=0, batch=batch, is_active=True,
+            )
+            SimcTask.objects.create(
+                user_id=self.user.id, name=f'Task {i}-1', simc_profile_id=0,
+                task_type=1, current_status=1, batch=batch, is_active=True,
+            )
+            SimcTask.objects.create(
+                user_id=self.user.id, name=f'Task {i}-2', simc_profile_id=0,
+                task_type=1, current_status=2, batch=batch, is_active=True,
+            )
+            SimcTask.objects.create(
+                user_id=self.user.id, name=f'Task {i}-3', simc_profile_id=0,
+                task_type=1, current_status=3, batch=batch, is_active=True,
+            )
+
+        response = self.client.get('/api/simc-task/batch/')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'])
+        batches = payload['data']
+        self.assertEqual(len(batches), 20)  # Only 20 most recent
+
+        # Find first batch with tasks (should be Batch 24)
+        first = batches[0]
+        self.assertEqual(first['name'], 'Batch 24')
+        self.assertIn('batch_id', first)
+        self.assertIn('batch_type', first)
+        self.assertIn('status', first)
+        self.assertIn('status_counts', first)
+        self.assertIn('created_at', first)
+        self.assertEqual(first['status_counts']['pending'], 1)
+        self.assertEqual(first['status_counts']['running'], 1)
+        self.assertEqual(first['status_counts']['completed'], 1)
+        self.assertEqual(first['status_counts']['failed'], 1)
+
+    def test_get_detail_returns_batch_with_task_list(self):
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id,
+            name='Detail Test Batch',
+            batch_type='attribute_sweep',
+            status=2,
+            completed_at=timezone.now(),
+        )
+        task1 = SimcTask.objects.create(
+            user_id=self.user.id, name='Task 1', simc_profile_id=0,
+            task_type=1, current_status=2, batch=batch, is_active=True,
+            candidate_label='基准配置', result_file='simc_task_1.html',
+        )
+        task2 = SimcTask.objects.create(
+            user_id=self.user.id, name='Task 2', simc_profile_id=0,
+            task_type=1, current_status=3, batch=batch, is_active=True,
+            candidate_label='候选A', error_detail='Test error message\nwith traceback',
+        )
+
+        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'])
+        data = payload['data']
+
+        self.assertEqual(data['batch_id'], batch.id)
+        self.assertEqual(data['name'], 'Detail Test Batch')
+        self.assertEqual(data['batch_type'], 'attribute_sweep')
+        self.assertEqual(data['status'], 2)
+        self.assertIn('report_url', data)
+        # No report_url because task2 has status=3 (failed)
+        self.assertEqual(data['report_url'], '')
+
+        # Check tasks
+        tasks = data['tasks']
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual(tasks[0]['task_id'], task1.id)
+        self.assertEqual(tasks[0]['candidate_label'], '基准配置')
+        self.assertEqual(tasks[0]['status'], 2)
+
+        # Error summary should not contain traceback/sensitive info
+        self.assertEqual(tasks[1]['task_id'], task2.id)
+        self.assertEqual(tasks[1]['status'], 3)
+        # _safe_error_summary returns fixed message for error_detail with traceback
+        self.assertEqual(tasks[1]['error_summary'], '任务执行失败')
+
+    def test_get_detail_enforces_user_isolation(self):
+        other_batch = SimcTaskBatch.objects.create(
+            user_id=self.other_user.id,
+            name='Other User Batch',
+            batch_type='comparison',
+            status=1,
+        )
+
+        response = self.client.get(f'/api/simc-task/batch/?batch_id={other_batch.id}')
+        self.assertEqual(response.status_code, 404)
+        payload = response.json()
+        self.assertFalse(payload['success'])
+
+    def test_get_detail_prohibits_sensitive_data_leakage(self):
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id,
+            name='Security Test',
+            batch_type='comparison',
+            status=2,
+            request_manifest='{"secret": "sensitive_data"}',
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='Task', simc_profile_id=0,
+            task_type=1, current_status=2, batch=batch, is_active=True,
+            final_simc_content='spec=fury\nclass=warrior',
+            ext='{"player_equipment": "secret_config"}',
+        )
+
+        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+
+        # Ensure sensitive fields are not in response
+        response_str = json.dumps(payload)
+        self.assertNotIn('request_manifest', response_str)
+        self.assertNotIn('final_simc_content', response_str)
+        self.assertNotIn('player_equipment', response_str)
+        self.assertNotIn('secret', response_str)
+
+    def test_get_list_filters_inactive_batches_and_tasks(self):
+        active_batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Active', batch_type='comparison',
+            status=1, is_active=True,
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='Active Task', simc_profile_id=0,
+            task_type=1, current_status=2, batch=active_batch, is_active=True,
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='Inactive Task', simc_profile_id=0,
+            task_type=1, current_status=2, batch=active_batch, is_active=False,
+        )
+
+        inactive_batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Inactive', batch_type='comparison',
+            status=1, is_active=False,
+        )
+
+        response = self.client.get('/api/simc-task/batch/')
+        payload = response.json()
+        batches = payload['data']
+
+        # Only active batch should be returned
+        self.assertEqual(len(batches), 1)
+        self.assertEqual(batches[0]['batch_id'], active_batch.id)
+        # Only active task should be counted
+        self.assertEqual(batches[0]['status_counts']['completed'], 1)
+
+    def test_get_detail_safe_error_summary_from_ext(self):
+        """Test that error summary comes from ext.simc_error_summary safely"""
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Error Test', batch_type='comparison', status=1,
+        )
+        # Task with safe summary in ext
+        safe_task = SimcTask.objects.create(
+            user_id=self.user.id, name='Safe', simc_profile_id=0,
+            task_type=1, current_status=3, batch=batch, is_active=True,
+            ext='{"simc_error_summary": "配置解析失败"}',
+        )
+        # Task with sensitive patterns in ext summary - should be blocked
+        unsafe_task = SimcTask.objects.create(
+            user_id=self.user.id, name='Unsafe', simc_profile_id=0,
+            task_type=1, current_status=3, batch=batch, is_active=True,
+            ext='{"simc_error_summary": "Traceback file /path/to/file"}',
+        )
+        # Task with error_detail (not ext) - should use fixed message
+        detail_task = SimcTask.objects.create(
+            user_id=self.user.id, name='Detail', simc_profile_id=0,
+            task_type=1, current_status=3, batch=batch, is_active=True,
+            error_detail='Raw error from stderr',
+        )
+
+        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
+        payload = response.json()
+        tasks = payload['data']['tasks']
+
+        # Safe summary should be returned (truncated to 200 chars)
+        self.assertEqual(tasks[0]['error_summary'], '配置解析失败')
+        # Unsafe summary with sensitive patterns should return fixed message
+        self.assertEqual(tasks[1]['error_summary'], '任务执行失败')
+        # error_detail is ignored, fixed message returned
+        self.assertEqual(tasks[2]['error_summary'], '任务执行失败')
+
+    def test_get_detail_no_report_url_when_tasks_incomplete(self):
+        """Test report_url only appears when all tasks succeed with valid HTML"""
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Incomplete', batch_type='comparison', status=1,
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='T1', simc_profile_id=0,
+            task_type=1, current_status=2, batch=batch, is_active=True,
+            result_file='simc_task_1.html',
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='T2', simc_profile_id=0,
+            task_type=1, current_status=1, batch=batch, is_active=True,  # still running
+        )
+
+        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
+        payload = response.json()
+        # No report_url because not all tasks are status=2
+        self.assertEqual(payload['data']['report_url'], '')
+
+    def test_get_detail_no_report_url_when_no_valid_html(self):
+        """Test report_url blocked when result_file doesn't pass validation"""
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Invalid', batch_type='comparison', status=2,
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='T1', simc_profile_id=0,
+            task_type=1, current_status=2, batch=batch, is_active=True,
+            result_file='../../etc/passwd',  # Invalid path
+        )
+
+        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
+        payload = response.json()
+        # No report_url because result_file fails validation
+        self.assertEqual(payload['data']['report_url'], '')
+
+    def test_get_detail_no_report_url_for_invalid_attribute_result(self):
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Invalid attribute result',
+            batch_type='attribute_sweep', status=2,
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='T1', simc_profile_id=0,
+            task_type=2, current_status=2, batch=batch, is_active=True,
+            result_file='../../secret.html',
+        )
+
+        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data']['report_url'], '')
+
+    def test_batch_frontend_polling_and_safe_detail_contract(self):
+        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        start = main_js.index('// SimC Batch 自动刷新逻辑')
+        end = main_js.index('function displaySimcTaskData(', start)
+        batch_js = main_js[start:end]
+
+        self.assertNotIn('setInterval(', batch_js)
+        self.assertIn('simcBatchFetchInFlight', batch_js)
+        self.assertIn('Promise.allSettled', batch_js)
+        self.assertIn('delete container.dataset.hasActiveBatch', batch_js)
+        self.assertIn('r.status === 401 || r.status === 403', batch_js)
+        self.assertIn('r.redirected', batch_js)
+        self.assertIn('暂无模拟批次', batch_js)
+        self.assertIn('task.status === 1 || task.status === 4', batch_js)
+
+    def test_get_detail_report_url_only_when_all_valid(self):
+        """Test report_url appears only when all tasks succeed with valid HTML"""
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Valid', batch_type='comparison', status=2,
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='T1', simc_profile_id=0,
+            task_type=1, current_status=2, batch=batch, is_active=True,
+            result_file='simc_task_123.html',
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='T2', simc_profile_id=0,
+            task_type=1, current_status=2, batch=batch, is_active=True,
+            result_file='a1b2c3d4e5f6789012345678901234ab.html',
+        )
+
+        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
+        payload = response.json()
+        # report_url should be present
+        self.assertEqual(payload['data']['report_url'], f'/simc-compare/?batch_id={batch.id}')
+
+    def test_status_4_counted_as_running(self):
+        """Test that status=4 tasks are counted as 'running'"""
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Status4', batch_type='comparison', status=1,
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='T1', simc_profile_id=0,
+            task_type=1, current_status=4, batch=batch, is_active=True,
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='T2', simc_profile_id=0,
+            task_type=1, current_status=1, batch=batch, is_active=True,
+        )
+
+        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
+        payload = response.json()
+        # Both status=4 and status=1 should count as running
+        self.assertEqual(payload['data']['status_counts']['running'], 2)

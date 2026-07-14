@@ -1809,6 +1809,155 @@ class SimcBatchTaskAPIView(View):
             'recommendation': recommendation,
         }
 
+    def _safe_error_summary(self, task):
+        """安全错误摘要：从ext的simc_error_summary提取，或返回固定文案"""
+        try:
+            ext = json.loads(task.ext) if isinstance(task.ext, str) else (task.ext or {})
+        except (json.JSONDecodeError, TypeError):
+            ext = {}
+
+        summary = ext.get('simc_error_summary', '')
+        if summary and isinstance(summary, str):
+            # 从现有安全摘要中提取，禁止路径、命令、stderr、冻结输入
+            safe = summary.strip()[:200]
+            # 移除可能的敏感模式
+            if any(x in safe.lower() for x in ['traceback', 'file "/', 'command', 'stderr', 'gear_', 'player=']):
+                return '任务执行失败'
+            return safe if safe else '任务执行失败'
+        return '任务执行失败'
+
+    def _has_valid_html_results(self, tasks):
+        """检查是否所有任务都成功且有通过安全验证的HTML结果"""
+        if not tasks:
+            return False
+        task_api = SimcTaskAPIView()
+        for task in tasks:
+            if task.current_status != 2:
+                return False
+            # 复用任务列表既有的文件名白名单；属性任务也必须逐个通过解析器。
+            if not task_api._task_result_file_summary(task):
+                return False
+        return True
+
+    def get(self, request):
+        """返回最近20条Batch列表或单个Batch详情（严格用户隔离，仅安全摘要）"""
+        try:
+            user_id = request.user.id
+            batch_id = str(request.GET.get('batch_id') or '').strip()
+
+            if batch_id:
+                # 返回单个Batch详情
+                try:
+                    batch = SimcTaskBatch.objects.get(
+                        id=int(batch_id),
+                        user_id=user_id,
+                        is_active=True
+                    )
+                except (ValueError, SimcTaskBatch.DoesNotExist):
+                    return JsonResponse({'success': False, 'error': 'Batch不存在或无权限访问'}, status=404)
+
+                # 聚合该Batch下的所有活跃任务
+                tasks = SimcTask.objects.filter(
+                    batch=batch,
+                    user_id=user_id,
+                    is_active=True
+                ).order_by('id')
+
+                status_counts = {'pending': 0, 'running': 0, 'completed': 0, 'failed': 0}
+                task_details = []
+
+                for task in tasks:
+                    if task.current_status == 0:
+                        status_counts['pending'] += 1
+                    elif task.current_status in (1, 4):
+                        status_counts['running'] += 1
+                    elif task.current_status == 2:
+                        status_counts['completed'] += 1
+                    elif task.current_status == 3:
+                        status_counts['failed'] += 1
+
+                    # 安全的错误摘要：从ext.simc_error_summary提取或固定文案
+                    error_summary = ''
+                    if task.current_status == 3:
+                        error_summary = self._safe_error_summary(task)
+
+                    task_details.append({
+                        'task_id': task.id,
+                        'candidate_label': task.candidate_label or '',
+                        'status': task.current_status,
+                        'error_summary': error_summary,
+                        'started_at': _fmt_dt(task.started_at),
+                        'completed_at': _fmt_dt(task.completed_at),
+                    })
+
+                # 报告URL：仅当FK成员非空、全部成功且有安全HTML结果时给出
+                report_url = ''
+                if tasks and self._has_valid_html_results(tasks):
+                    report_url = f'/simc-compare/?batch_id={batch.id}'
+
+                return JsonResponse({
+                    'success': True,
+                    'data': {
+                        'batch_id': batch.id,
+                        'name': batch.name,
+                        'batch_type': batch.batch_type,
+                        'status': batch.status,
+                        'status_counts': status_counts,
+                        'created_at': _fmt_dt(batch.created_at),
+                        'completed_at': _fmt_dt(batch.completed_at),
+                        'report_url': report_url,
+                        'tasks': task_details,
+                    }
+                })
+            else:
+                # 返回最近20条Batch列表
+                batches = SimcTaskBatch.objects.filter(
+                    user_id=user_id,
+                    is_active=True
+                ).order_by('-created_at')[:20]
+
+                batch_list = []
+                for batch in batches:
+                    # 聚合该Batch的任务状态计数
+                    tasks = SimcTask.objects.filter(
+                        batch=batch,
+                        user_id=user_id,
+                        is_active=True
+                    )
+
+                    status_counts = {'pending': 0, 'running': 0, 'completed': 0, 'failed': 0}
+                    for task in tasks:
+                        if task.current_status == 0:
+                            status_counts['pending'] += 1
+                        elif task.current_status in (1, 4):
+                            status_counts['running'] += 1
+                        elif task.current_status == 2:
+                            status_counts['completed'] += 1
+                        elif task.current_status == 3:
+                            status_counts['failed'] += 1
+
+                    # 报告URL：仅当FK成员非空、全部成功且有安全HTML结果时给出
+                    report_url = ''
+                    if tasks and self._has_valid_html_results(tasks):
+                        report_url = f'/simc-compare/?batch_id={batch.id}'
+
+                    batch_list.append({
+                        'batch_id': batch.id,
+                        'name': batch.name,
+                        'batch_type': batch.batch_type,
+                        'status': batch.status,
+                        'status_counts': status_counts,
+                        'created_at': _fmt_dt(batch.created_at),
+                        'completed_at': _fmt_dt(batch.completed_at),
+                        'report_url': report_url,
+                    })
+
+                return JsonResponse({'success': True, 'data': batch_list})
+
+        except Exception as e:
+            logger.error(f'获取 SimC Batch 数据失败: {e}\n{traceback.format_exc()}')
+            return JsonResponse({'success': False, 'error': '服务器内部错误'}, status=500)
+
     def post(self, request):
         try:
             data = json.loads(request.body or '{}')

@@ -141,7 +141,7 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260714c"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260715b"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -1473,7 +1473,10 @@
                                 <span id="simc-backend-update-progress-text"></span>
                             </div>
                         </div>
-                        
+
+                        <!-- Batch 批次卡片区 -->
+                        <div id="simc-batch-cards-container" class="mb-6"></div>
+
                         <!-- 任务列表 -->
                         <div class="overflow-x-auto">
                             <table class="min-w-full bg-white border border-gray-200 rounded-lg">
@@ -1487,7 +1490,7 @@
                                         <th class="w-28 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">专精</th>
                                         <th class="min-w-[170px] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务类型</th>
                                         <th class="w-24 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">状态</th>
-        
+
                                         <th class="min-w-[360px] px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">操作</th>
                                     </tr>
                                 </thead>

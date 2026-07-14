@@ -1597,6 +1597,13 @@ function switchSimcWorkbenchTab(tabName) {
         const isActive = panel.getAttribute('data-simc-panel') === activeTab;
         panel.classList.toggle('hidden', !isActive);
     });
+
+    // 离开tasks tab时清除自动刷新定时器
+    if (activeTab !== 'tasks' && simcBatchAutoRefreshTimer) {
+        clearTimeout(simcBatchAutoRefreshTimer);
+        simcBatchAutoRefreshTimer = null;
+    }
+
     if (activeTab === 'attribute') {
         const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
         if (!spec) showMessage('请先在“发起模拟”选择专精；属性寻优会复用该专精、战斗场景和 APL。', 'warning');
@@ -7475,38 +7482,315 @@ function startSimcBackendUpdatePolling() {
     pollOnce();
 }
 
+// SimC Batch 自动刷新逻辑：单一 in-flight promise + setTimeout 避免并发重入
+let simcBatchAutoRefreshTimer = null;
+let simcBatchFetchInFlight = null;
+
 function fetchSimcTaskData(page = 1) {
     const csrfToken = getCSRFToken();
-    
-    fetch('/api/simc-task/', {
-        method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
+
+    // 防止并发重入
+    if (simcBatchFetchInFlight) {
+        return simcBatchFetchInFlight;
+    }
+
+    simcBatchFetchInFlight = Promise.allSettled([
+        fetch('/api/simc-task/', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        }).then(r => {
+            if (r.status === 401 || r.status === 403) {
+                window.location.href = '/login/?next=' + encodeURIComponent(window.location.pathname);
+                throw new Error('登录已过期，正在跳转...');
+            }
+            if (r.redirected) {
+                window.location.href = r.url;
+                throw new Error('正在跳转...');
+            }
+            return r.ok ? r.json() : Promise.reject(new Error('任务列表请求失败'));
+        }),
+        fetch('/api/simc-task/batch/', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        }).then(r => {
+            if (r.status === 401 || r.status === 403) {
+                window.location.href = '/login/?next=' + encodeURIComponent(window.location.pathname);
+                throw new Error('登录已过期，正在跳转...');
+            }
+            if (r.redirected) {
+                window.location.href = r.url;
+                throw new Error('正在跳转...');
+            }
+            return r.ok ? r.json() : Promise.reject(new Error('Batch列表请求失败'));
+        })
+    ]).then(results => {
+        const [taskResult, batchResult] = results;
+
+        // 处理任务列表结果（独立失败不阻断Batch）
+        if (taskResult.status === 'fulfilled' && taskResult.value && taskResult.value.success) {
+            displaySimcTaskData(taskResult.value.data);
+        } else {
+            const reason = taskResult.status === 'rejected'
+                ? taskResult.reason
+                : new Error((taskResult.value && taskResult.value.message) || '任务列表获取失败');
+            console.error('任务列表获取失败:', reason);
+            showMessage(reason.message || '任务列表获取失败', 'error');
         }
-    })
-    .then(response => {
-        if (response.status === 302 || response.redirected) {
-            // 用户未登录，重定向到登录页面
-            window.location.href = '/auth/login/';
+
+        // 处理Batch列表结果（独立失败不阻断任务）
+        if (batchResult.status === 'fulfilled' && batchResult.value && batchResult.value.success) {
+            displaySimcBatchCards(batchResult.value.data);
+        } else {
+            const reason = batchResult.status === 'rejected'
+                ? batchResult.reason
+                : new Error((batchResult.value && batchResult.value.message) || 'Batch列表获取失败');
+            console.error('Batch列表获取失败:', reason);
+            displaySimcBatchCardsError('获取 Batch 列表失败，请刷新重试');
+        }
+    }).finally(() => {
+        simcBatchFetchInFlight = null;
+    });
+
+    return simcBatchFetchInFlight;
+}
+
+function scheduleSimcBatchRefresh() {
+    // 清除旧的定时器
+    if (simcBatchAutoRefreshTimer) {
+        clearTimeout(simcBatchAutoRefreshTimer);
+        simcBatchAutoRefreshTimer = null;
+    }
+
+    // 检查是否在tasks tab
+    const currentTab = document.querySelector('.simc-workbench-tab.bg-blue-600');
+    if (!currentTab || currentTab.getAttribute('data-simc-tab') !== 'tasks') {
+        return;
+    }
+
+    // 检查是否有活跃的Batch
+    const container = document.getElementById('simc-batch-cards-container');
+    if (!container || !container.dataset.hasActiveBatch) {
+        return;
+    }
+
+    // 5秒后再次刷新
+    simcBatchAutoRefreshTimer = setTimeout(() => {
+        fetchSimcTaskData().then(() => {
+            scheduleSimcBatchRefresh();
+        });
+    }, 5000);
+}
+
+function displaySimcBatchCardsError(message) {
+    const container = document.getElementById('simc-batch-cards-container');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+            <p class="text-red-700 mb-2">${escapeHtml(message)}</p>
+            <button onclick="fetchSimcTaskData()" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm">
+                <i class="fas fa-redo mr-1"></i>重试
+            </button>
+        </div>
+    `;
+}
+
+function displaySimcBatchCards(batches) {
+    const container = document.getElementById('simc-batch-cards-container');
+    if (!container) return;
+
+    // 空列表时显示空态并停止轮询
+    if (!batches || batches.length === 0) {
+        container.innerHTML = `
+            <div class="bg-white border border-gray-200 rounded-lg p-5 text-center text-sm text-gray-500">
+                暂无模拟批次
+            </div>
+        `;
+        delete container.dataset.hasActiveBatch;
+        if (simcBatchAutoRefreshTimer) {
+            clearTimeout(simcBatchAutoRefreshTimer);
+            simcBatchAutoRefreshTimer = null;
+        }
+        return;
+    }
+
+    // 检查是否有运行中或待执行的Batch (status 0=待创建, 1=运行中)
+    const hasActiveBatch = batches.some(b => b.status === 0 || b.status === 1);
+    if (hasActiveBatch) {
+        container.dataset.hasActiveBatch = 'true';
+        scheduleSimcBatchRefresh();
+    } else {
+        delete container.dataset.hasActiveBatch;
+    }
+
+    const html = batches.map(batch => {
+        const statusClass = batch.status === 0 ? 'bg-gray-100 text-gray-700' :
+                           batch.status === 1 ? 'bg-blue-100 text-blue-700' :
+                           batch.status === 2 ? 'bg-green-100 text-green-700' :
+                           'bg-red-100 text-red-700';
+        const statusText = batch.status === 0 ? '待创建' :
+                          batch.status === 1 ? '运行中' :
+                          batch.status === 2 ? '完成' : '失败';
+
+        const typeText = batch.batch_type === 'comparison' ? '候选对比' :
+                        batch.batch_type === 'attribute_sweep' ? '属性寻优' :
+                        batch.batch_type === 'gear_candidates' ? '装备候选' :
+                        batch.batch_type === 'talent_candidates' ? '天赋候选' : batch.batch_type;
+
+        const counts = batch.status_counts || {};
+        const total = (counts.pending || 0) + (counts.running || 0) + (counts.completed || 0) + (counts.failed || 0);
+        const completed = counts.completed || 0;
+        const failed = counts.failed || 0;
+        const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+        return `
+            <div class="bg-white rounded-lg shadow-md border border-gray-200 p-4 mb-3">
+                <div class="flex items-start justify-between gap-3 mb-3">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex flex-wrap items-center gap-2 mb-1">
+                            <h4 class="min-w-0 break-words text-base font-semibold text-gray-900">${escapeHtml(batch.name)}</h4>
+                            <span class="inline-flex flex-shrink-0 whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full ${statusClass}">${statusText}</span>
+                            <span class="inline-flex flex-shrink-0 whitespace-nowrap px-2 py-0.5 text-xs rounded-full bg-purple-50 text-purple-700 border border-purple-200">${escapeHtml(typeText)}</span>
+                        </div>
+                        <div class="text-xs text-gray-500">创建时间: ${escapeHtml(batch.created_at || '-')}</div>
+                        ${batch.completed_at ? `<div class="text-xs text-gray-500">完成时间: ${escapeHtml(batch.completed_at)}</div>` : ''}
+                    </div>
+                    <button onclick="toggleBatchDetail(${batch.batch_id})" class="text-blue-600 hover:text-blue-800 text-sm">
+                        <i class="fas fa-chevron-down" id="batch-chevron-${batch.batch_id}"></i>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-4 gap-2 mb-3 text-center text-xs">
+                    <div class="bg-gray-50 rounded px-2 py-1">
+                        <div class="text-gray-500">待执行</div>
+                        <div class="font-semibold text-gray-700">${counts.pending || 0}</div>
+                    </div>
+                    <div class="bg-blue-50 rounded px-2 py-1">
+                        <div class="text-blue-500">运行中</div>
+                        <div class="font-semibold text-blue-700">${counts.running || 0}</div>
+                    </div>
+                    <div class="bg-green-50 rounded px-2 py-1">
+                        <div class="text-green-500">已完成</div>
+                        <div class="font-semibold text-green-700">${completed}</div>
+                    </div>
+                    <div class="bg-red-50 rounded px-2 py-1">
+                        <div class="text-red-500">失败</div>
+                        <div class="font-semibold text-red-700">${failed}</div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <div class="flex items-center justify-between text-xs text-gray-600 mb-1">
+                        <span>进度</span>
+                        <span>${completed} / ${total} (${progress}%)</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: ${progress}%"></div>
+                    </div>
+                </div>
+
+                ${batch.status === 2 && batch.report_url ? `
+                    <div class="mb-2">
+                        <a href="${escapeHtml(batch.report_url)}" target="_blank" class="inline-flex items-center px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded-md transition-colors">
+                            <i class="fas fa-chart-line mr-1"></i>查看对比报告
+                        </a>
+                    </div>
+                ` : ''}
+
+                <div id="batch-detail-${batch.batch_id}" class="hidden mt-3 pt-3 border-t border-gray-200">
+                    <div class="text-xs text-gray-500 mb-2">正在加载详情...</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
+function toggleBatchDetail(batchId) {
+    const detail = document.getElementById(`batch-detail-${batchId}`);
+    const chevron = document.getElementById(`batch-chevron-${batchId}`);
+    if (!detail) return;
+
+    if (detail.classList.contains('hidden')) {
+        detail.classList.remove('hidden');
+        if (chevron) chevron.classList.add('rotate-180');
+        loadBatchDetail(batchId);
+    } else {
+        detail.classList.add('hidden');
+        if (chevron) chevron.classList.remove('rotate-180');
+    }
+}
+
+function loadBatchDetail(batchId) {
+    const detail = document.getElementById(`batch-detail-${batchId}`);
+    if (!detail) return;
+
+    const csrf = getCSRFToken();
+    fetch(`/api/simc-task/batch/?batch_id=${batchId}`, {
+        method: 'GET',
+        headers: { 'X-CSRFToken': csrf }
+    }).then(r => {
+        if (r.status === 401 || r.status === 403) {
+            window.location.href = '/login/?next=' + encodeURIComponent(window.location.pathname);
+            throw new Error('登录已过期，正在跳转...');
+        }
+        if (r.redirected) {
+            window.location.href = r.url;
+            throw new Error('正在跳转...');
+        }
+        if (!r.ok) throw new Error('Batch详情请求失败');
+        return r.json();
+    }).then(data => {
+        if (!data.success || !data.data) {
+            detail.innerHTML = '<div class="text-xs text-red-500">加载失败</div>';
             return;
         }
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+
+        const batch = data.data;
+        const tasks = batch.tasks || [];
+
+        if (tasks.length === 0) {
+            detail.innerHTML = '<div class="text-xs text-gray-500">暂无任务</div>';
+            return;
         }
-        return response.json();
-    })
-    .then(data => {
-        if (!data) return; // 处理重定向情况
-        if (data.success) {
-            displaySimcTaskData(data.data);
-        } else {
-            showMessage('获取SimC任务数据失败: ' + (data.message || '未知错误'), 'error');
-        }
-    })
-    .catch(error => {
-        console.error('Error fetching SimC task data:', error);
-        showMessage('获取SimC任务数据时发生错误', 'error');
+
+        const taskHtml = tasks.map(task => {
+            const statusClass = task.status === 0 ? 'bg-gray-100 text-gray-700' :
+                               (task.status === 1 || task.status === 4) ? 'bg-blue-100 text-blue-700' :
+                               task.status === 2 ? 'bg-green-100 text-green-700' :
+                               'bg-red-100 text-red-700';
+            const statusText = task.status === 0 ? '待执行' :
+                              (task.status === 1 || task.status === 4) ? '运行中' :
+                              task.status === 2 ? '完成' : '失败';
+
+            return `
+                <div class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <div class="flex-1 min-w-0">
+                        <div class="text-sm font-medium text-gray-900 truncate">${escapeHtml(task.candidate_label || `任务 #${task.task_id}`)}</div>
+                        ${task.error_summary ? `<div class="text-xs text-red-600 mt-0.5 truncate" title="${escapeHtml(task.error_summary)}">${escapeHtml(task.error_summary)}</div>` : ''}
+                        ${task.started_at ? `<div class="text-xs text-gray-500">开始: ${escapeHtml(task.started_at)}</div>` : ''}
+                    </div>
+                    <span class="inline-flex px-2 py-0.5 text-xs font-medium rounded-full ml-2 ${statusClass}">${statusText}</span>
+                </div>
+            `;
+        }).join('');
+
+        detail.innerHTML = `
+            <div class="text-sm font-medium text-gray-700 mb-2">候选列表 (${tasks.length})</div>
+            <div class="max-h-64 overflow-y-auto bg-gray-50 rounded p-2">
+                ${taskHtml}
+            </div>
+        `;
+    }).catch(err => {
+        console.error('加载Batch详情失败:', err);
+        detail.innerHTML = '<div class="text-xs text-red-500">网络错误</div>';
     });
 }
 
