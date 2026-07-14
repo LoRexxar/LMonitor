@@ -67,10 +67,13 @@ class ngaMonitor(BaseScan):
                 logger.error("[ngaMonitor] empty html.")
                 return
             if isinstance(html, (bytes, bytearray)):
+                raw_html = bytes(html)
+                charset_match = re.search(br'charset\s*=\s*["\']?([A-Za-z0-9._-]+)', raw_html[:4096], re.I)
+                charset = charset_match.group(1).decode("ascii", "ignore") if charset_match else "utf-8"
                 try:
-                    html = html.decode('utf-8', 'ignore')
-                except Exception:
-                    html = str(html)
+                    html = raw_html.decode(charset, "replace")
+                except (LookupError, UnicodeDecodeError):
+                    html = raw_html.decode("utf-8", "replace")
 
             try:
                 from bs4 import BeautifulSoup
