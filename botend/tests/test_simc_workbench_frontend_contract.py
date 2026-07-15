@@ -9,22 +9,94 @@ MAIN = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
-    def test_ten_models_have_visible_entries(self):
+    def test_ten_models_have_visible_entries_in_advanced(self):
         resources = (
             "batches", "tasks", "artifacts", "profiles", "secondary-rules",
             "mastery-rules", "templates", "backend", "apl-keywords", "apl-storage",
         )
         for resource in resources:
             self.assertIn(f'data-simc-model="{resource}"', HTML)
-        model_block = HTML[HTML.index('aria-label="SimC 十模型入口"'):HTML.index('</div>', HTML.index('aria-label="SimC 十模型入口"'))]
-        self.assertNotIn("sr-only", model_block)
+        self.assertIn('data-simc-l1-panel="advanced"', HTML)
+        advanced_panel_start = HTML.index('data-simc-l1-panel="advanced"')
+        advanced_section = HTML[advanced_panel_start:advanced_panel_start + 2000]
+        self.assertIn('aria-label="SimC 十模型入口"', advanced_section)
 
-    def test_task_is_default_and_has_task_batch_subtabs(self):
+    def test_workflow_is_default_l1_with_history_and_advanced(self):
+        self.assertIn('data-simc-l1-tab="workflow"', HTML)
+        self.assertIn('data-simc-l1-tab="history"', HTML)
+        self.assertIn('data-simc-l1-tab="advanced"', HTML)
+        self.assertIn('data-simc-l1-panel="workflow"', HTML)
+        self.assertIn('data-simc-l1-panel="history"', HTML)
+        self.assertIn('data-simc-l1-panel="advanced"', HTML)
+        self.assertIn("switchSimcWorkbenchL1Tab('workflow')", MAIN)
+        workflow_panel_start = HTML.index('data-simc-l1-panel="workflow"')
+        workflow_end = HTML.index('<!-- End L1 Panel: 模拟工作流 -->')
+        self.assertIn('id="simc-workbench-import-panel"', HTML[workflow_panel_start:workflow_end])
+        history_panel_start = HTML.index('data-simc-l1-panel="history"')
+        history_end = HTML.index('<!-- End L1 Panel: 历史任务 -->')
+        self.assertIn('id="simc-workbench-tasks-panel"', HTML[history_panel_start:history_end])
+        advanced_panel_start = HTML.index('data-simc-l1-panel="advanced"')
+        advanced_end = HTML.index('<!-- End L1 Panel: 高级设置 -->')
+        self.assertIn('id="simc-workbench-profiles-panel"', HTML[advanced_panel_start:advanced_end])
+        self.assertIn('id="simc-workbench-artifacts-panel"', HTML[advanced_panel_start:advanced_end])
+
+    def test_history_panel_has_task_batch_subtabs(self):
         self.assertIn('data-simc-panel="tasks"', HTML)
         self.assertIn('data-task-subtab="tasks"', HTML)
         self.assertIn('data-task-subtab="batches"', HTML)
-        self.assertIn("activate('tasks')", JS)
-        self.assertIn("switchSimcWorkbenchTab('tasks')", MAIN)
+        self.assertIn("window.simcWorkbenchLoadPanel = activate", JS)
+
+    def test_history_polling_is_cancelled_and_stale_responses_are_ignored(self):
+        self.assertIn("window.simcWorkbenchDeactivatePanel = deactivate", JS)
+        self.assertIn("scheduleTaskRefresh(false)", JS)
+        self.assertIn("state.taskRequestSerial += 1", JS)
+        self.assertIn("requestSerial !== state.taskRequestSerial || state.activePanel !== 'tasks'", JS)
+        self.assertIn("resource !== state.taskResource || page !== state.taskPage", JS)
+        self.assertIn("window.simcWorkbenchDeactivatePanel(activeChildPanel)", MAIN)
+
+    def test_history_fetch_is_aborted_on_deactivation(self):
+        self.assertIn("taskAbortController: null", JS)
+        self.assertIn("const controller = new AbortController()", JS)
+        self.assertIn("{ signal: controller.signal }", JS)
+        self.assertIn("state.taskAbortController.abort()", JS)
+        self.assertIn("error.name === 'AbortError'", JS)
+
+    def test_leaving_workbench_stops_all_history_and_candidate_polling(self):
+        self.assertIn("function deactivateSimcWorkbench()", MAIN)
+        self.assertIn("if (sectionId !== 'simc-workbench') deactivateSimcWorkbench();", MAIN)
+        self.assertIn("window.simcWorkbenchDeactivatePanel('')", MAIN)
+        self.assertIn("stopSimcCandidateComparisonPolling()", MAIN)
+        self.assertIn("clearTimeout(simcCandidatePollControl.timer)", MAIN)
+        self.assertIn("control.resolve(false)", MAIN)
+
+    def test_candidate_comparison_post_and_poll_share_cancellation(self):
+        self.assertIn("let simcCandidateGeneration = 0", MAIN)
+        self.assertIn("controller: new AbortController()", MAIN)
+        self.assertIn("signal: control.controller.signal", MAIN)
+        self.assertIn("control.controller.abort()", MAIN)
+        self.assertIn("isCurrentSimcCandidateControl(control)", MAIN)
+        self.assertIn("control.button.disabled = false", MAIN)
+        self.assertIn("control.button.innerHTML = control.oldLabel", MAIN)
+
+    def test_attribute_search_generation_cancels_get_and_continue_post(self):
+        self.assertIn("let simcAttributeSearchGeneration = 0", MAIN)
+        self.assertIn("function stopSimcAttributeSearch()", MAIN)
+        self.assertIn("isCurrentSimcAttributeSearch(generation)", MAIN)
+        self.assertIn("submitSimcAttributeSearch(payload, signal)", MAIN)
+        self.assertIn("signal: simcAttributeSearchControl.controller.signal", MAIN)
+        self.assertIn("stopSimcAttributeSearch()", MAIN)
+        self.assertIn("oldLabel: button?.innerHTML", MAIN)
+        self.assertIn("control.button.disabled = false", MAIN)
+        self.assertIn("control.button.innerHTML = control.oldLabel", MAIN)
+
+    def test_legacy_task_loader_is_fully_removed(self):
+        self.assertNotIn("fetchSimcTaskData", MAIN)
+        self.assertIn("window.simcWorkbenchLoadTaskResource('batches')", MAIN)
+
+    def test_profile_mode_sync_defines_form_wrapper(self):
+        start = MAIN.index("function simcWbSyncProfileFormMode()")
+        body = MAIN[start:MAIN.index("\n}", start) + 2]
+        self.assertIn("const formWrap = document.getElementById('simc-wb-profile-form')", body)
 
     def test_artifact_uses_actual_sandbox_helper(self):
         self.assertIn('id="simc-workbench-artifacts-panel"', HTML)
@@ -59,6 +131,295 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("startsWith('/')", JS)
         self.assertEqual(MAIN.count("function escapeHtml"), 1)
 
+    def test_apl_storage_has_inline_crud_and_simulation_loading(self):
+        self.assertIn('id="simc-wb-apl-storage-form"', HTML)
+        self.assertIn('data-inline-create="apl-storage"', HTML)
+        self.assertIn("'/api/apl-storage/'", JS)
+        self.assertIn('data-apl-action="edit"', JS)
+        self.assertIn('data-apl-action="archive"', JS)
+        self.assertIn('data-apl-action="restore"', JS)
+        self.assertIn('data-apl-action="use"', JS)
+        self.assertIn("window.loadSimcWorkbenchApl", JS)
+        self.assertNotIn("confirm(", JS)
+        self.assertNotIn("onclick=", JS.lower())
+
     def test_script_is_really_loaded(self):
         self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
+
+    def test_profile_inline_form_uses_delegated_actions_not_inline_handlers(self):
+        start = HTML.index('id="simc-workbench-profiles-panel"')
+        end = HTML.index('id="simc-workbench-templates-panel"', start)
+        profile_panel = HTML[start:end]
+        self.assertNotIn('onclick=', profile_panel)
+        for action in ('create', 'close', 'save'):
+            self.assertIn(f'data-profile-form-action="{action}"', profile_panel)
+        bind_start = MAIN.index("function bindSimcWorkbenchProfilesControls()")
+        bind_end = MAIN.index("\n\n/* ===== SimC 工具台 — 绿字规则", bind_start)
+        bind_body = MAIN[bind_start:bind_end]
+        self.assertIn("closest('[data-profile-form-action]')", bind_body)
+        self.assertIn("closest('[data-profile-row-action]')", bind_body)
+        self.assertIn("'/api/simc-profile/?include_inactive=1'", MAIN)
+        self.assertIn('data-profile-row-action="deactivate"', MAIN)
+        self.assertIn('data-profile-row-action="restore"', MAIN)
+        self.assertIn('status_only: true', MAIN)
+        self.assertNotIn('function simcWbDeleteProfile', MAIN)
+
+    def test_workflow_import_mode_uses_delegated_change_handler(self):
+        start = HTML.index('id="simc-workbench-import-panel"')
+        end = HTML.index('<!-- End L1 Panel: 模拟工作流 -->', start)
+        workflow_panel = HTML[start:end]
+        self.assertNotIn('onchange=', workflow_panel)
+        self.assertIn('name="simc-player-import-mode"', workflow_panel)
+        self.assertIn("closest('input[name=\"simc-player-import-mode\"]')", MAIN)
+
+    def test_workbench_profile_and_rule_actions_do_not_use_native_dialogs(self):
+        start = MAIN.index('/* --- Profile CRUD --- */')
+        end = MAIN.index('async function simcWbEditMastery', start)
+        workbench_crud = MAIN[start:end]
+        for token in ('prompt(', 'confirm(', 'alert('):
+            self.assertNotIn(token, workbench_crud)
+        save_start = MAIN.index('async function simcWbSaveCurrentSimulatorProfile()')
+        save_end = MAIN.index('\n\n/* --- Rule CRUD --- */', save_start)
+        save_body = MAIN[save_start:save_end]
+        self.assertIn("switchSimcWorkbenchL1Tab('advanced', 'profiles')", save_body)
+        self.assertIn("simcWbToggleProfileForm('create')", save_body)
+        self.assertNotIn("fetch('/api/simc-profile/'", save_body)
+
+    def test_mobile_sidebar_toggle_opens_and_closes(self):
+        toggle_start = MAIN.index("function toggleSidebar()")
+        toggle_end = MAIN.index("function openSidebar()", toggle_start)
+        toggle_body = MAIN[toggle_start:toggle_end]
+        self.assertIn("closeSidebar();", toggle_body)
+        self.assertIn("openSidebar();", toggle_body)
+
+    def test_mobile_sidebar_closes_after_actionable_navigation(self):
+        sidebar_start = MAIN.index("function initSidebarToggle()")
+        sidebar_end = MAIN.index("function toggleSidebar()", sidebar_start)
+        sidebar_body = MAIN[sidebar_start:sidebar_end]
+        self.assertIn("sidebar.addEventListener('click'", sidebar_body)
+        self.assertIn(".nav-item:not(.has-submenu), .submenu-item", sidebar_body)
+        self.assertIn("window.innerWidth < 1024", sidebar_body)
+        self.assertIn("closeSidebar();", sidebar_body)
+
+    def test_desktop_resize_restores_body_scrolling(self):
+        resize_start = MAIN.index("window.addEventListener('resize'")
+        resize_end = MAIN.index("    });", resize_start) + 7
+        self.assertIn("document.body.style.overflow = '';", MAIN[resize_start:resize_end])
+
+    def test_navigation_unified_entry_point(self):
+        """Navigation must use single unified L1 switching function."""
+        self.assertIn("function switchSimcWorkbenchL1Tab(", MAIN)
+        self.assertNotIn("window.switchSimcWorkbenchTab", JS)
+        self.assertIn("switchSimcWorkbenchL1Tab('workflow')", MAIN)
+        init_start = MAIN.index("function initSimcWorkbench(")
+        init_end = MAIN.index("function switchSimcWorkbenchL1Tab(")
+        init_body = MAIN[init_start:init_end]
+        self.assertIn("switchSimcWorkbenchL1Tab('workflow')", init_body)
+
+    def test_l1_active_tab_does_not_keep_touch_hover_background(self):
+        switch_start = MAIN.index("function switchSimcWorkbenchL1Tab(")
+        switch_end = MAIN.index("\n\nfunction ", switch_start + 50)
+        switch_body = MAIN[switch_start:switch_end]
+        self.assertIn("tab.classList.toggle('hover:bg-gray-50', !isActive);", switch_body)
+
+    def test_navigation_l1_to_panel_mapping_explicit(self):
+        """Each L1 tab must explicitly map to its child panels."""
+        switch_l1_start = MAIN.index("function switchSimcWorkbenchL1Tab(")
+        switch_l1_end = MAIN.index("\n\nfunction ", switch_l1_start + 50)
+        switch_l1_body = MAIN[switch_l1_start:switch_l1_end]
+        self.assertIn("workflow: 'import'", switch_l1_body)
+        self.assertIn("history: 'tasks'", switch_l1_body)
+        self.assertIn("advanced: 'profiles'", switch_l1_body)
+        self.assertIn("window.simcWorkbenchLoadPanel", switch_l1_body)
+        self.assertNotIn("fetchSimcTaskData", switch_l1_body)
+
+    def test_navigation_child_panel_always_selects_its_parent(self):
+        switch_start = MAIN.index("function switchSimcWorkbenchTab(")
+        switch_end = MAIN.index("\n\n/* ===== SimC", switch_start)
+        switch_body = MAIN[switch_start:switch_end]
+        self.assertIn("import: 'workflow'", switch_body)
+        self.assertIn("tasks: 'history'", switch_body)
+        self.assertIn("artifacts: 'advanced'", switch_body)
+        self.assertIn("switchSimcWorkbenchL1Tab(parentTab, activeTab)", switch_body)
+
+    def test_workbench_data_loader_has_no_duplicate_model_navigation_handler(self):
+        self.assertNotIn("const tab = event.target.closest('[data-simc-tab]')", JS)
+
+    def test_navigation_task_creation_switches_to_history(self):
+        """After task creation, navigation must switch to history L1 panel."""
+        self.assertIn("switchSimcWorkbenchL1Tab('history')", MAIN)
+        submit_lines = [line for line in MAIN.split("\n") if "simc-sim-submit-btn" in line or "submitSimcSimulation" in line]
+        self.assertTrue(len(submit_lines) > 0, "Submit button handler must exist")
+
+    def test_navigation_profile_load_switches_to_workflow(self):
+        """Profile load must return to workflow L1 panel."""
+        profile_load_lines = [line for line in MAIN.split("\n") if "loadSimcProfile" in line or "simc-sim-saved-profiles" in line]
+        self.assertTrue(len(profile_load_lines) > 0, "Profile load handler must exist")
+
+    def test_navigation_no_orphaned_switchSimcWorkbenchTab_calls(self):
+        """Old switchSimcWorkbenchTab calls without L1 coordination are forbidden."""
+        switch_tab_calls = []
+        for i, line in enumerate(MAIN.split("\n"), 1):
+            if "switchSimcWorkbenchTab(" in line and "function switchSimcWorkbenchTab(" not in line:
+                switch_tab_calls.append((i, line.strip()))
+        forbidden_contexts = []
+        for line_no, line in switch_tab_calls:
+            if any(trigger in line for trigger in ["onClick", "addEventListener", "simc-sim-submit", "Profile", "batch"]):
+                start_idx = max(0, line_no - 20)
+                end_idx = min(len(MAIN.split("\n")), line_no + 5)
+                context = "\n".join(MAIN.split("\n")[start_idx:end_idx])
+                if "switchSimcWorkbenchL1Tab" not in context:
+                    forbidden_contexts.append(f"Line {line_no}: {line}")
+        self.assertEqual(len(forbidden_contexts), 0, f"Found switchSimcWorkbenchTab without L1 coordination: {forbidden_contexts[:3]}")
+
+    def test_navigation_model_entry_must_open_advanced_first(self):
+        """Model entry buttons must switch to advanced L1 before opening specific panel."""
+        model_entry_start = MAIN.index("'.simc-model-entry'")
+        model_entry_end = MAIN.index("});", model_entry_start) + 3
+        model_entry_section = MAIN[model_entry_start:model_entry_end]
+        self.assertIn("switchSimcWorkbenchL1Tab('advanced')", model_entry_section)
+
+    def test_navigation_simc_workbench_js_has_no_global_navigation(self):
+        """simc-workbench.js must not call global L1 navigation functions."""
+        self.assertNotIn("switchSimcWorkbenchL1Tab", JS)
+        self.assertNotIn("window.switchSimcWorkbenchTab(", JS)
+
+    def test_navigation_default_state_workflow_and_import_visible(self):
+        """Initial state: workflow L1 active, import panel visible."""
+        self.assertIn('data-simc-l1-tab="workflow"', HTML)
+        workflow_tab = HTML[HTML.index('data-simc-l1-tab="workflow"'):HTML.index('data-simc-l1-tab="workflow"') + 300]
+        self.assertIn("bg-blue-600", workflow_tab)
+        self.assertIn("text-white", workflow_tab)
+        workflow_panel = HTML[HTML.index('data-simc-l1-panel="workflow"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        self.assertNotIn('class="simc-l1-panel hidden"', workflow_panel[:200])
+        self.assertIn('id="simc-workbench-import-panel"', workflow_panel)
+
+    def test_rules_management_uses_event_delegation_no_inline_onclick(self):
+        """Rules management must use event delegation with data-* attributes, not inline onclick."""
+        self.assertNotIn("onclick=\"simcWbEditRule", MAIN)
+        self.assertNotIn("onclick=\"simcWbDeleteRule", MAIN)
+        self.assertNotIn("onclick=\"simcWbEditMastery", MAIN)
+        self.assertNotIn("onclick=\"simcWbDeleteMastery", MAIN)
+        self.assertIn("data-rule-action=", MAIN)
+        self.assertIn("data-mastery-action=", MAIN)
+        self.assertNotIn('querySelector.*onclick', MAIN)
+
+    def test_rules_forms_use_data_attributes_not_onclick(self):
+        """Rule form close/save/cancel buttons must use data-* attributes."""
+        self.assertNotIn('onclick="simcWbToggleRuleForm', HTML)
+        self.assertNotIn('onclick="simcWbSaveRule', HTML)
+        self.assertNotIn('onclick="simcWbToggleMasteryForm', HTML)
+        self.assertNotIn('onclick="simcWbSaveMastery', HTML)
+
+    def test_rules_buttons_hidden_for_regular_users_via_is_staff_check(self):
+        """Regular users should not see rule create/edit/delete buttons."""
+        self.assertIn("can_write", MAIN)
+        self.assertIn("data-simc-inline-create", HTML)
+
+    def test_template_inline_create_and_form_exists(self):
+        """Templates panel must have inline create button and form container."""
+        self.assertIn('data-inline-create="templates"', HTML)
+        self.assertIn('id="simc-wb-template-form"', HTML)
+
+    def test_apl_keyword_inline_create_and_form_exists(self):
+        """APL keywords must have inline create button and form container."""
+        self.assertIn('data-inline-create="apl-keywords"', HTML)
+        self.assertIn('id="simc-wb-apl-keyword-form"', HTML)
+
+    def test_template_click_handlers_exist(self):
+        """Template edit/archive/restore/detail handlers must exist."""
+        self.assertIn('data-wb-action="template-edit"', JS)
+        self.assertIn('data-wb-action="template-detail"', JS)
+        self.assertIn('data-template-action="cancel"', JS)
+        self.assertIn('data-template-action="close-detail"', JS)
+
+    def test_apl_keyword_click_handlers_exist(self):
+        """APL keyword edit/archive/restore/cancel handlers must exist."""
+        self.assertIn('data-apl-keyword-action="cancel"', JS)
+        self.assertIn('data-apl-keyword-action=', JS)
+
+    def test_template_submit_handler_exists(self):
+        """Template form submission must be handled."""
+        self.assertIn('data-template-form', JS)
+
+    def test_apl_keyword_submit_handler_exists(self):
+        """APL keyword form submission must be handled."""
+        self.assertIn('data-apl-keyword-form', JS)
+
+    def test_activate_does_not_duplicate_load_templates_or_apl(self):
+        """activate() must not call loadTemplates or loadApl twice for same tab."""
+        activate_start = JS.index('function activate(')
+        activate_end = JS.index('\n    window.simcWorkbenchLoadPanel')
+        activate_body = JS[activate_start:activate_end]
+        self.assertEqual(activate_body.count("if (tab === 'templates')"), 1)
+        self.assertEqual(activate_body.count("if (tab === 'apl')"), 1)
+
+    def test_template_detail_calls_showTemplateDetail_not_inline_html(self):
+        """template-detail action must call showTemplateDetail function."""
+        self.assertIn('function showTemplateDetail(', JS)
+        detail_handler = JS[JS.index('data-wb-action'):JS.index('data-wb-action') + 1000]
+        self.assertIn('showTemplateDetail', JS)
+
+    def test_backend_controls_post_real_actions_with_csrf(self):
+        """Backend check/update/auto-update controls must POST to the dedicated API."""
+        self.assertIn('async function runBackendAction(', JS)
+        self.assertIn("'/api/simc-backend-binary/'", JS)
+        self.assertIn("'X-CSRFToken': window.getCSRFToken()", JS)
+        self.assertIn("action: 'set_auto_update'", JS)
+
+    def test_backend_controls_have_delegated_click_and_change_handlers(self):
+        """Rendered backend controls must be connected through delegated safe handlers."""
+        self.assertIn("closest('[data-backend-action]')", JS)
+        self.assertIn("closest('[data-backend-auto-update]')", JS)
+        self.assertNotIn('onclick=', JS)
+
+    def test_backend_panel_renders_operational_status_not_only_versions(self):
+        """Backend panel must expose availability, progress, status and safe error state."""
+        for field in ('available', 'need_update', 'is_updating', 'update_progress',
+                      'update_status', 'has_error', 'auto_update'):
+            self.assertIn(f'info.{field}', JS)
+
+    def test_old_simc_task_modals_removed_from_html(self):
+        """Old SimC task modals (add/edit/view) must be removed."""
+        self.assertNotIn('id="add-simc-task-modal"', HTML)
+        self.assertNotIn('id="edit-simc-task-modal"', HTML)
+        self.assertNotIn('id="view-simc-task-modal"', HTML)
+        self.assertNotIn('id="add-simc-task-btn"', HTML)
+        self.assertNotIn('id="cancel-add-simc-task"', HTML)
+        self.assertNotIn('id="confirm-add-simc-task"', HTML)
+        self.assertNotIn('id="cancel-edit-simc-task"', HTML)
+        self.assertNotIn('id="confirm-edit-simc-task"', HTML)
+        self.assertNotIn('id="close-view-simc-task"', HTML)
+
+    def test_old_simc_profile_modals_removed_from_html(self):
+        """Old SimC profile modals (add/edit) must be removed."""
+        self.assertNotIn('id="add-simc-profile-modal"', HTML)
+        self.assertNotIn('id="edit-simc-profile-modal"', HTML)
+
+    def test_old_simc_modal_functions_removed_from_main_js(self):
+        """Old SimC modal open/close/update/delete functions must be removed."""
+        forbidden_functions = (
+            'function openAddSimcTaskModal',
+            'function submitAddSimcTask',
+            'function openEditSimcTaskModal',
+            'function updateSimcTask',
+            'function deleteSimcTask',
+            'function deleteSimcProfile',
+            'add-simc-task-modal',
+            'edit-simc-task-modal',
+            'view-simc-task-modal',
+            'add-simc-profile-modal',
+            'edit-simc-profile-modal',
+        )
+        for token in forbidden_functions:
+            self.assertNotIn(token, MAIN)
+
+    def test_old_simc_modal_event_listeners_removed(self):
+        """Old modal button event listeners must be removed."""
+        self.assertNotIn('add-simc-task-btn', MAIN)
+        self.assertNotIn('cancel-add-simc-task', MAIN)
+        self.assertNotIn('confirm-add-simc-task', MAIN)
+        self.assertNotIn('cancel-edit-simc-task', MAIN)
+        self.assertNotIn('confirm-edit-simc-task', MAIN)
+        self.assertNotIn('close-view-simc-task', MAIN)

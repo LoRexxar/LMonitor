@@ -174,11 +174,10 @@ class SimcComposerIdentitySlotResolutionTests(TestCase):
         self.assertTrue(response.json()['success'], response.json())
         task = SimcTask.objects.get(id=response.json()['data']['id'])
 
-        # Verify single actor in final content
-        final = task.final_simc_content
-        self.assertIsNotNone(final)
-        actor_lines = [line for line in final.split('\n') if line.startswith('warrior=')]
-        self.assertEqual(len(actor_lines), 1, "Must have exactly one actor, not duplicated")
+        # Battle.net 模式冻结 SimC armory 导入指令，且只能出现一个角色来源。
+        final = task.final_simc_content or ''
+        actor_lines = [line for line in final.split('\n') if line.startswith('armory=')]
+        self.assertEqual(actor_lines, ['armory=us,area-52,testchar'])
 
     @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
     def test_user_spec_conflicts_with_bnet_spec_rejects(self, mock_preflight):
@@ -757,6 +756,31 @@ class SimcComposerUserContentIsolationTests(TestCase):
             owner_user_id=None,  # Global
             is_active=True,
         )
+        self.user1_apl = SimcContentTemplate.objects.create(
+            name='User1 private APL',
+            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury',
+            content='actions=/bloodthirst',
+            owner_user_id=self.user1.id,
+            is_active=True,
+        )
+
+    def test_user_cannot_access_other_user_private_apl_even_with_override(self):
+        self.client.force_login(self.user2)
+        response = self.client.post('/api/simc-task/', data=json.dumps({
+            'name': 'Cross-user APL access',
+            'task_type': 1,
+            'spec': 'fury',
+            'base_template_id': self.global_template.id,
+            'selected_apl_id': self.user1_apl.id,
+            'override_action_list': 'actions=/attacker_supplied_override',
+            'player_import_mode': 'manual_equipment',
+            'player_equipment': 'warrior="Player"\nspec=fury\nhead=,id=212048',
+        }), content_type='application/json')
+
+        self.assertFalse(response.json()['success'], response.json())
+        self.assertFalse(SimcTask.objects.filter(user_id=self.user2.id).exists())
 
     def test_user_cannot_access_other_user_private_template(self):
         """User2 cannot explicitly reference User1's private template."""

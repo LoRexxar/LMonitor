@@ -115,6 +115,15 @@ class PortalEventServiceDb2Test(SimpleTestCase):
 
 
 class PortalEventServiceWowheadTest(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        patcher = patch(
+            "botend.services.portal_event_service.timezone.now",
+            return_value=datetime(2026, 6, 15, 12, tzinfo=dt_timezone.utc),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_parse_wowhead_events_shifts_to_cn_calendar_time(self):
         original_start = int(datetime(2026, 6, 16, 15, tzinfo=dt_timezone.utc).timestamp())
         original_end = int(datetime(2026, 6, 23, 15, tzinfo=dt_timezone.utc).timestamp())

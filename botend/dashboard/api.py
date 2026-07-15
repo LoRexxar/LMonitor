@@ -777,6 +777,7 @@ class SimcTaskAPIView(View):
             normalized_ext = self._build_task_ext(
                 task_type=task_type,
                 ext=ext,
+                owner_user_id=request.user.id,
                 regular_time=regular_time,
                 regular_target_count=regular_target_count,
                 selected_attributes=selected_attributes,
@@ -997,6 +998,7 @@ class SimcTaskAPIView(View):
 
             normalized_ext = self._build_task_ext(
                 task_type=task_type, ext=ext, regular_time=regular_time,
+                owner_user_id=request.user.id,
                 regular_target_count=regular_target_count, selected_attributes=selected_attributes,
                 attribute_step=attribute_step, raw_simc_code=raw_simc_code,
                 selected_apl_id=selected_apl_id,
@@ -1180,12 +1182,13 @@ class SimcTaskAPIView(View):
         rerun_task = SimcTask.objects.create(
             user_id=task.user_id, name=task.name, simc_profile_id=task.simc_profile_id,
             current_status=0, result_file='', task_type=task.task_type, ext=task.ext,
-            batch_id=task.batch_id, candidate_label=task.candidate_label,
+            # A member rerun is independent. Reusing the old batch would mutate that
+            # comparison's totals and ranking after it had already completed.
+            batch_id=None, candidate_label=task.candidate_label,
             final_simc_content=task.final_simc_content, input_hash=task.input_hash,
             fragment_manifest=task.fragment_manifest, error_detail=None, result_summary=None,
             started_at=None, completed_at=None, is_active=True,
         )
-        SimcMonitor(None, None).sync_batch_lifecycle(task.batch_id)
         return rerun_task
 
     def _task_ext_summary(self, task_type, ext):
@@ -1258,7 +1261,7 @@ class SimcTaskAPIView(View):
                     payload['selected_attributes'] = text
         return payload
 
-    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None, selected_apl_id=None, base_template_id=None, base_template_content=None, override_action_list=None, override_action_list_provided=False,
+    def _build_task_ext(self, task_type, ext, regular_time=None, regular_target_count=None, selected_attributes=None, attribute_step=None, raw_simc_code=None, selected_apl_id=None, base_template_id=None, base_template_content=None, override_action_list=None, override_action_list_provided=False, owner_user_id=None,
                         fight_style=None, time=None, target_count=None, player_config_mode=None, player_equipment=None,
                         gear_strength=None, gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None, talent=None, spec=None,
                         battlenet_region=None, battlenet_realm=None, battlenet_character=None):
@@ -1274,6 +1277,7 @@ class SimcTaskAPIView(View):
                 template_obj = _get_simc_content_by_id(
                     base_template_id,
                     allowed_types=[SimcContentTemplate.TYPE_BASE_TEMPLATE],
+                    owner_user_id=owner_user_id,
                 )
                 if not template_obj:
                     raise Exception('选择的基础模板不存在或已禁用')
@@ -1283,6 +1287,7 @@ class SimcTaskAPIView(View):
             template_obj = _get_simc_content_by_id(
                 base_template_id,
                 allowed_types=[SimcContentTemplate.TYPE_BASE_TEMPLATE],
+                owner_user_id=owner_user_id,
             )
             if not template_obj:
                 raise Exception('选择的基础模板不存在或已禁用')
@@ -1294,7 +1299,7 @@ class SimcTaskAPIView(View):
                 template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
                 is_active=True,
                 spec=spec,
-            )
+            ).filter(models.Q(owner_user_id__isnull=True) | models.Q(owner_user_id=owner_user_id))
             if candidates.count() > 1:
                 raise Exception(f'专精 {spec} 有多个启用的基础模板，请明确选择一个')
             if candidates.count() == 0:
@@ -1302,7 +1307,7 @@ class SimcTaskAPIView(View):
                     template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
                     is_active=True,
                     spec__in=['default', 'all', '*'],
-                )
+                ).filter(models.Q(owner_user_id__isnull=True) | models.Q(owner_user_id=owner_user_id))
                 if candidates.count() > 1:
                     raise Exception('存在多个启用的默认基础模板，请明确选择一个')
             candidate_count = candidates.count()
@@ -1333,6 +1338,7 @@ class SimcTaskAPIView(View):
                 apl_obj = _get_simc_content_by_id(
                     selected_apl_id,
                     allowed_types=[SimcContentTemplate.TYPE_DEFAULT_APL, SimcContentTemplate.TYPE_CUSTOM_APL],
+                    owner_user_id=owner_user_id,
                 )
                 if not apl_obj:
                     raise Exception('选择的 APL 不存在或已禁用')
@@ -1343,6 +1349,7 @@ class SimcTaskAPIView(View):
             apl_obj = _get_simc_content_by_id(
                 selected_apl_id,
                 allowed_types=[SimcContentTemplate.TYPE_DEFAULT_APL, SimcContentTemplate.TYPE_CUSTOM_APL],
+                owner_user_id=owner_user_id,
             )
             if not apl_obj:
                 raise Exception('选择的 APL 不存在或已禁用')
@@ -1351,17 +1358,9 @@ class SimcTaskAPIView(View):
             base['override_action_list_name'] = apl_obj.name or apl_obj.spec
             base['override_action_list_type'] = apl_obj.template_type
         elif not base.get('selected_apl_id') and not base.get('override_action_list') and spec:
-            # 没有 APL ID/override 时只在按专精匹配到唯一启用默认 APL 时兜底
-            spec_key = f'warrior_{spec}' if spec in ('fury', 'arms', 'protection') else spec
-            candidates = SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-                is_active=True,
-                spec=spec_key
-            )
-            if candidates.count() > 1:
-                raise Exception(f'专精 {spec_key} 存在重复启用的默认 APL，请明确选择一个')
-            elif candidates.count() == 1:
-                apl_obj = candidates.first()
+            # 没有 APL ID/override 时，当前用户默认 APL 优先于全局上游默认。
+            apl_obj = _get_unique_default_apl_for_spec(spec, owner_user_id=owner_user_id)
+            if apl_obj:
                 base['selected_apl_id'] = apl_obj.id
                 base['override_action_list'] = apl_obj.content
 
@@ -2144,7 +2143,7 @@ class SimcBatchTaskAPIView(View):
             return JsonResponse({'success': False, 'error': f'创建比较批次失败: {e}'})
 
 
-@method_decorator([csrf_exempt, login_required], name='dispatch')
+@method_decorator(login_required, name='dispatch')
 class SimcPlayerConfigDetailAPIView(View):
     """只解析工作台当前玩家输入，返回结构化配置详情；不渲染完整 SimC 执行文本。"""
 
@@ -2276,7 +2275,7 @@ def _list_selectable_apl_for_spec(spec_key='', class_name='', spec=''):
     return rows
 
 
-def _get_simc_content_by_id(content_id, allowed_types=None):
+def _get_simc_content_by_id(content_id, allowed_types=None, owner_user_id=None):
     if not content_id:
         return None
     try:
@@ -2285,22 +2284,24 @@ def _get_simc_content_by_id(content_id, allowed_types=None):
         return None
     if allowed_types:
         qs = qs.filter(template_type__in=allowed_types)
+    qs = qs.filter(models.Q(owner_user_id__isnull=True) | models.Q(owner_user_id=owner_user_id))
     return qs.first()
 
 
-def _get_unique_default_apl_for_spec(spec):
-    """返回专精唯一启用的默认 APL；重复候选必须显式消歧。"""
+def _get_unique_default_apl_for_spec(spec, owner_user_id=None):
+    """返回当前用户可见的默认 APL；用户模板优先于全局上游模板。"""
     spec_value = str(spec or '').strip().lower()
     spec_key = f'warrior_{spec_value}' if spec_value in ('fury', 'arms', 'protection') else spec_value
     candidates = SimcContentTemplate.objects.filter(
         template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
         is_active=True,
         spec=spec_key,
-    )
-    count = candidates.count()
-    if count > 1:
-        raise ValueError(f'专精 {spec_key} 存在重复启用的默认 APL，请明确选择一个')
-    return candidates.first() if count == 1 else None
+    ).filter(models.Q(owner_user_id__isnull=True) | models.Q(owner_user_id=owner_user_id))
+    if owner_user_id is not None:
+        owned = candidates.filter(owner_user_id=owner_user_id).first()
+        if owned:
+            return owned
+    return candidates.filter(owner_user_id__isnull=True).first()
 
 
 def inspect_raw_simc_code(raw_simc_code):
@@ -2418,7 +2419,7 @@ def inspect_raw_simc_code(raw_simc_code):
     return result
 
 
-@method_decorator([csrf_exempt, login_required], name='dispatch')
+@method_decorator(login_required, name='dispatch')
 class SimcRawInspectAPIView(View):
     """Inspect pasted raw SimulationCraft code and return safe task plans."""
 
@@ -2975,10 +2976,10 @@ class SimcProfileAPIView(View):
                     })
             else:
                 # 获取配置列表
-                profiles = SimcProfile.objects.filter(
-                    user_id=request.user.id,
-                    is_active=True
-                ).order_by('-id')
+                profile_filters = {'user_id': request.user.id}
+                if request.GET.get('include_inactive') not in ('1', 'true'):
+                    profile_filters['is_active'] = True
+                profiles = SimcProfile.objects.filter(**profile_filters).order_by('-id')
                 
                 profile_list = []
                 for profile in profiles:
@@ -3365,6 +3366,7 @@ class SimcProfileAPIView(View):
             ext_payload = json.loads(SimcTaskAPIView()._build_task_ext(
                 task_type=task_type,
                 ext=ext_payload,
+                owner_user_id=user_id,
                 regular_time=regular_time,
                 regular_target_count=regular_target_count,
                 selected_attributes=selected_attributes,
@@ -3467,6 +3469,20 @@ class SimcProfileAPIView(View):
                     'error': '配置ID不能为空'
                 })
             
+            if data.get('status_only') is True:
+                if not isinstance(data.get('is_active'), bool):
+                    return JsonResponse({'success': False, 'error': 'is_active 必须是布尔值'})
+                profile = SimcProfile.objects.get(
+                    id=profile_id,
+                    user_id=request.user.id,
+                )
+                profile.is_active = data['is_active']
+                profile.save(update_fields=['is_active'])
+                return JsonResponse({
+                    'success': True,
+                    'message': 'SimC配置已恢复' if profile.is_active else 'SimC配置已停用',
+                })
+
             # 获取配置记录
             profile = SimcProfile.objects.get(
                 id=profile_id,
@@ -3637,7 +3653,7 @@ class SimcProfileAPIView(View):
             })
 
 
-@method_decorator([csrf_exempt, login_required], name='dispatch')
+@method_decorator(login_required, name='dispatch')
 class SimcAplCandidatesAPIView(View):
     """
     APL候选方案：GET获取指定专精的APL列表，POST基于GLM生成对比任务
@@ -3685,7 +3701,10 @@ class SimcAplCandidatesAPIView(View):
             if not profile:
                 return JsonResponse({'success': False, 'error': 'SimC配置不存在或无权限访问'})
 
-            apl_template = _get_unique_default_apl_for_spec(profile.spec)
+            apl_template = _get_unique_default_apl_for_spec(
+                profile.spec,
+                owner_user_id=request.user.id,
+            )
             base_apl = str(apl_template.content if apl_template else '').strip()
             if not base_apl:
                 return JsonResponse({'success': False, 'error': '当前配置缺少基础APL，无法生成候选方案'})
@@ -3904,6 +3923,7 @@ class SimcAplCandidatesAPIView(View):
         frozen_inputs = json.loads(SimcTaskAPIView()._build_task_ext(
             task_type=1,
             ext={},
+            owner_user_id=user_id,
             fight_style='Patchwerk',
             time=300,
             target_count=1,
@@ -4696,7 +4716,44 @@ class SimcRegularCompareAPIView(View):
                     'current_round': current_round, 'current_round_total': len(active_rows),
                     **status_counts, 'current_round_status': active_counts,
                 }
-                return JsonResponse({'success': True, 'data': {'batch': batch_payload, 'tasks': rows, 'comparison': comparison, 'attribute_report': attribute_report, 'invalid': invalid}})
+                # This browser endpoint is always summary-only. A query flag must never
+                # expose candidate manifests, parsed report bodies, APL, result locations,
+                # or filenames embedded in an attribute search path.
+                summary_rows = [{
+                    'id': row['id'], 'name': row['name'], 'label': row['label'],
+                    'rank': row['rank'], 'dps': row['dps'],
+                    'delta_dps': row['delta_dps'], 'delta_percent': row['delta_percent'],
+                } for row in rows]
+                safe_attribute_report = None
+                if attribute_report:
+                    safe_candidate_fields = ('id', 'label', 'round', 'is_center', 'ratings', 'dps')
+                    def safe_candidate(value):
+                        if not isinstance(value, dict):
+                            return None
+                        return {key: value.get(key) for key in safe_candidate_fields if key in value}
+                    safe_attribute_report = {
+                        key: attribute_report.get(key)
+                        for key in (
+                            'algorithm', 'algorithm_version', 'step', 'tolerance',
+                            'rounds_completed', 'current_round', 'total_rating',
+                            'initial_ratings', 'stop_reason', 'local_optimum',
+                        )
+                    }
+                    safe_attribute_report['recommendation'] = safe_candidate(attribute_report.get('recommendation'))
+                    safe_attribute_report['search_path'] = [{
+                        key: point.get(key) for key in ('round', 'ratings', 'dps') if key in point
+                    } for point in attribute_report.get('search_path', []) if isinstance(point, dict)]
+                    safe_attribute_report['candidates'] = [
+                        safe_candidate(value) for value in attribute_report.get('candidates', [])
+                        if isinstance(value, dict)
+                    ]
+                return JsonResponse({'success': True, 'data': {
+                    'batch': batch_payload,
+                    'tasks': summary_rows,
+                    'comparison': comparison,
+                    'attribute_report': safe_attribute_report,
+                    'invalid': [{'id': item.get('id'), 'error': item.get('error', '')} for item in invalid],
+                }})
 
             task_ids_raw = request.GET.get('task_ids', '')
             task_ids = []
@@ -4759,45 +4816,37 @@ class SimcRegularCompareAPIView(View):
                     invalid.append({'id': task.id, 'name': task.name, 'error': '无法从结果文件中解析DPS'})
                     continue
 
-                ext_payload = self._parse_task_ext(task.ext)
-                apl_compare = ext_payload.get('apl_compare') if isinstance(ext_payload.get('apl_compare'), dict) else {}
-                apl_list = str(
-                    apl_compare.get('apl_list')
-                    or ext_payload.get('override_action_list')
-                    or ''
-                )
-                
                 tasks_data.append({
                     'id': task.id,
                     'name': task.name,
-                    'result_file': task.result_file,
-                    'candidate_name': apl_compare.get('candidate_name') or '',
-                    'candidate_index': apl_compare.get('candidate_index'),
-                    'is_base_candidate': bool(apl_compare.get('is_base')),
-                    'apl_list': apl_list,
+                    'label': task.name,
                     'dps': parsed.get('dps'),
-                    'character': parsed.get('character', {}),
-                    'simulation': parsed.get('simulation', {}),
-                    'talents': parsed.get('talents', {}),
-                    'abilities': parsed.get('abilities', []),
-                    'top_abilities': parsed.get('top_abilities', [])
+                    'rank': None,
+                    'delta_dps': None,
+                    'delta_percent': None,
                 })
             
             if len(tasks_data) < 2:
                 return JsonResponse({
                     'success': False,
                     'error': '可用于对比的任务不足2个',
-                    'invalid': invalid,
-                    'data': {
-                        'tasks': tasks_data
-                    }
+                    'invalid': [{'id': item.get('id'), 'error': item.get('error', '')} for item in invalid],
+                    'data': {'tasks': tasks_data},
                 })
             
+            ranked = sorted(tasks_data, key=lambda row: (-row['dps'], row['id']))
+            rank_by_id = {row['id']: index for index, row in enumerate(ranked, 1)}
+            baseline_dps = tasks_data[0]['dps']
+            for row in tasks_data:
+                row['rank'] = rank_by_id[row['id']]
+                row['delta_dps'] = row['dps'] - baseline_dps
+                row['delta_percent'] = round((row['delta_dps'] / baseline_dps) * 100, 2) if baseline_dps else None
+
             return JsonResponse({
                 'success': True,
                 'data': {
                     'tasks': tasks_data,
-                    'invalid': invalid
+                    'invalid': [{'id': item.get('id'), 'error': item.get('error', '')} for item in invalid]
                 }
             })
             
@@ -4805,8 +4854,8 @@ class SimcRegularCompareAPIView(View):
             logger.error(f"常规模拟对比失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({
                 'success': False,
-                'error': f'对比失败: {str(e)}'
-            })
+                'error': '生成对比摘要失败，请稍后重试'
+            }, status=500)
 
     def _parse_task_ext(self, ext_data):
         if not ext_data:
@@ -4993,6 +5042,8 @@ class SimcTemplateAPIView(View):
         template = SimcContentTemplate.objects.filter(id=template_id).first()
         if not template:
             return None, JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
+        if template.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM:
+            return None, JsonResponse({'success': False, 'error': '上游模板为只读资源'}, status=403)
         if template.owner_user_id == request.user.id:
             return template, None
         if template.owner_user_id is None:
@@ -5379,6 +5430,31 @@ class SimcWorkbenchAPIView(View):
         return None
 
     @staticmethod
+    def _task_status_label(status):
+        """返回中文状态标签"""
+        labels = {0: '待运行', 1: '运行中', 2: '成功', 3: '失败', 4: '运行中'}
+        return labels.get(status, '未知')
+
+    @staticmethod
+    def _task_progress(task):
+        """返回任务可信进度；运行中仅采用 Worker 已持久化的 progress。"""
+        status = task.current_status
+        if status == 0:  # pending
+            return 0
+        if status in (2, 3):  # success or failed
+            return 100
+        if status in (1, 4):  # running
+            try:
+                ext = json.loads(task.ext) if isinstance(task.ext, str) else (task.ext or {})
+                progress = ext.get('progress')
+                if isinstance(progress, (int, float)) and 0 <= progress <= 100:
+                    return int(progress)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+            return None
+        return 0
+
+    @staticmethod
     def _task_row(task):
         summary = {}
         try:
@@ -5388,6 +5464,8 @@ class SimcWorkbenchAPIView(View):
             pass
         return {
             'id': task.id, 'name': task.name, 'status': task.current_status,
+            'status_label': SimcWorkbenchAPIView._task_status_label(task.current_status),
+            'progress': SimcWorkbenchAPIView._task_progress(task),
             'task_type': task.task_type, 'batch_id': task.batch_id,
             'candidate_label': task.candidate_label, 'result_summary': summary,
             'has_report': bool(task.result_file), 'is_active': task.is_active,
@@ -5409,27 +5487,120 @@ class SimcWorkbenchAPIView(View):
                     'created_at': _fmt_dt(item.created_at),
                 } for item in task.artifacts.all().order_by('-created_at')]
                 return JsonResponse({'success': True, 'data': row})
-            return JsonResponse({'success': True, 'data': [self._task_row(row) for row in qs[:200]]})
+
+            # 分页参数白名单校验
+            try:
+                page = int(request.GET.get('page', 1))
+                page_size = int(request.GET.get('page_size', 20))
+            except (ValueError, TypeError):
+                return JsonResponse({'success': False, 'error': '分页参数必须为整数'}, status=400)
+
+            page = max(1, page)
+            page_size = max(1, min(50, page_size))  # 默认20，最大50
+
+            total = qs.count()
+            total_pages = (total + page_size - 1) // page_size
+            offset = (page - 1) * page_size
+
+            tasks = qs[offset:offset + page_size]
+            return JsonResponse({
+                'success': True,
+                'data': [self._task_row(row) for row in tasks],
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total': total,
+                    'total_pages': total_pages,
+                }
+            })
 
         if resource == 'batches':
-            qs = SimcTaskBatch.objects.filter(user_id=request.user.id).order_by('-created_at')
+            member_filter = models.Q(simctask__user_id=request.user.id, simctask__is_active=True)
+            qs = SimcTaskBatch.objects.filter(user_id=request.user.id).annotate(
+                task_total=models.Count('simctask', filter=member_filter),
+                task_pending=models.Count('simctask', filter=member_filter & models.Q(simctask__current_status=0)),
+                task_running=models.Count('simctask', filter=member_filter & models.Q(simctask__current_status__in=(1, 4))),
+                task_succeeded=models.Count('simctask', filter=member_filter & models.Q(simctask__current_status=2)),
+                task_failed=models.Count('simctask', filter=member_filter & models.Q(simctask__current_status=3)),
+                task_with_result=models.Count(
+                    'simctask',
+                    filter=member_filter & models.Q(simctask__current_status=2, simctask__result_file__isnull=False)
+                           & ~models.Q(simctask__result_file=''),
+                ),
+            ).order_by('-created_at')
             if object_id:
                 batch = qs.filter(id=object_id).first()
                 if not batch:
                     return JsonResponse({'success': False, 'error': '批次不存在'}, status=404)
+
+                total = batch.task_total
+                pending = batch.task_pending
+                running = batch.task_running
+                succeeded = batch.task_succeeded
+                failed = batch.task_failed
+                percent = int(((succeeded + failed) / total * 100)) if total > 0 else 0
+
+                report_url = ''
+                if total > 0 and failed == 0 and succeeded == total and batch.task_with_result == total:
+                    report_url = f'/simc-compare/?batch_id={batch.id}'
+
                 return JsonResponse({'success': True, 'data': {
                     'id': batch.id, 'name': batch.name, 'batch_type': batch.batch_type,
                     'status': batch.status, 'is_active': batch.is_active,
-                    'task_count': batch.simctask_set.filter(user_id=request.user.id).count(),
+                    'total': total, 'pending': pending, 'running': running,
+                    'succeeded': succeeded, 'failed': failed, 'percent': percent,
+                    'report_url': report_url,
                     'created_at': _fmt_dt(batch.created_at), 'updated_at': _fmt_dt(batch.updated_at),
                 }})
-            rows = [{
-                'id': row.id, 'name': row.name, 'batch_type': row.batch_type,
-                'status': row.status, 'is_active': row.is_active,
-                'task_count': row.simctask_set.filter(user_id=request.user.id).count(),
-                'created_at': _fmt_dt(row.created_at), 'updated_at': _fmt_dt(row.updated_at),
-            } for row in qs[:200]]
-            return JsonResponse({'success': True, 'data': rows})
+
+            # 分页参数白名单校验
+            try:
+                page = int(request.GET.get('page', 1))
+                page_size = int(request.GET.get('page_size', 20))
+            except (ValueError, TypeError):
+                return JsonResponse({'success': False, 'error': '分页参数必须为整数'}, status=400)
+
+            page = max(1, page)
+            page_size = max(1, min(50, page_size))
+
+            total = qs.count()
+            total_pages = (total + page_size - 1) // page_size
+            offset = (page - 1) * page_size
+
+            batches = qs[offset:offset + page_size]
+            rows = []
+            for row in batches:
+                task_total = row.task_total
+                task_pending = row.task_pending
+                task_running = row.task_running
+                task_succeeded = row.task_succeeded
+                task_failed = row.task_failed
+                task_percent = int(((task_succeeded + task_failed) / task_total * 100)) if task_total > 0 else 0
+
+                report_url = ''
+                if (task_total > 0 and task_failed == 0 and task_succeeded == task_total
+                        and row.task_with_result == task_total):
+                    report_url = f'/simc-compare/?batch_id={row.id}'
+
+                rows.append({
+                    'id': row.id, 'name': row.name, 'batch_type': row.batch_type,
+                    'status': row.status, 'is_active': row.is_active,
+                    'total': task_total, 'pending': task_pending, 'running': task_running,
+                    'succeeded': task_succeeded, 'failed': task_failed, 'percent': task_percent,
+                    'report_url': report_url,
+                    'created_at': _fmt_dt(row.created_at), 'updated_at': _fmt_dt(row.updated_at),
+                })
+
+            return JsonResponse({
+                'success': True,
+                'data': rows,
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total': total,
+                    'total_pages': total_pages,
+                }
+            })
 
         if resource == 'artifacts':
             qs = SimcTaskArtifact.objects.filter(task__user_id=request.user.id).select_related('task').order_by('-created_at')
@@ -5463,26 +5634,48 @@ class SimcWorkbenchAPIView(View):
                 'type_label': row.get_template_type_display(), 'source': row.source, 'spec': row.spec,
                 'class_name': row.class_name, 'content': row.content, 'is_active': row.is_active,
                 'is_selectable': row.is_selectable, 'is_system': row.owner_user_id is None,
-                'read_only': row.owner_user_id is None or row.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                'read_only': (
+                    not request.user.is_staff
+                    or row.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM
+                ),
             } for row in qs]
             if object_id:
-                return JsonResponse({'success': True, 'data': rows[0]} if rows else {'success': False, 'error': '模板不存在'}, status=200 if rows else 404)
-            return JsonResponse({'success': True, 'data': rows})
+                return JsonResponse(
+                    {'success': True, 'data': rows[0], 'can_write': request.user.is_staff}
+                    if rows else {'success': False, 'error': '模板不存在'},
+                    status=200 if rows else 404,
+                )
+            return JsonResponse({'success': True, 'data': rows, 'can_write': request.user.is_staff})
 
         if resource in ('secondary-rules', 'mastery-rules'):
             model = SimcSecondaryStatRule if resource == 'secondary-rules' else SimcMasteryCoefficient
             fields = ('id', 'class_name', 'crit_per_percent', 'haste_per_percent', 'mastery_per_percent', 'versatility_per_percent') if resource == 'secondary-rules' else ('id', 'spec', 'mastery_coefficient')
+            if object_id:
+                row = model.objects.filter(id=object_id).values(*fields).first()
+                if not row:
+                    return JsonResponse({'success': False, 'error': '规则不存在'}, status=404)
+                return JsonResponse({'success': True, 'data': row})
             return JsonResponse({'success': True, 'data': list(model.objects.order_by(fields[1]).values(*fields)), 'can_write': request.user.is_staff})
 
         if resource == 'apl-keywords':
-            rows = list(SimcAplKeywordPair.objects.order_by('apl_keyword').values(
-                'id', 'apl_keyword', 'cn_keyword', 'description', 'is_active'))
-            return JsonResponse({'success': True, 'data': rows, 'can_write': request.user.is_staff})
+            qs = SimcAplKeywordPair.objects.order_by('apl_keyword')
+            fields = ('id', 'apl_keyword', 'cn_keyword', 'description', 'is_active')
+            if object_id:
+                row = qs.filter(id=object_id).values(*fields).first()
+                if not row:
+                    return JsonResponse({'success': False, 'error': 'APL 关键字不存在'}, status=404)
+                return JsonResponse({'success': True, 'data': row, 'can_write': request.user.is_staff})
+            return JsonResponse({'success': True, 'data': list(qs.values(*fields)), 'can_write': request.user.is_staff})
 
         if resource == 'apl-storage':
-            rows = list(UserAplStorage.objects.filter(user_id=request.user.id).order_by('-id').values(
-                'id', 'title', 'apl_code', 'is_active'))
-            return JsonResponse({'success': True, 'data': rows})
+            qs = UserAplStorage.objects.filter(user_id=request.user.id).order_by('-id')
+            fields = ('id', 'title', 'apl_code', 'is_active')
+            if object_id:
+                row = qs.filter(id=object_id).values(*fields).first()
+                if not row:
+                    return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+                return JsonResponse({'success': True, 'data': row})
+            return JsonResponse({'success': True, 'data': list(qs.values(*fields))})
 
         if resource == 'backends':
             return SimcBackendBinaryAPIView().get(request)
@@ -5530,21 +5723,245 @@ class SimcWorkbenchAPIView(View):
             profile.is_active = action == 'restore'
             profile.save(update_fields=['is_active'])
             return JsonResponse({'success': True})
+        if resource == 'apl-storage' and object_id and action in ('archive', 'restore'):
+            apl = UserAplStorage.objects.filter(id=object_id, user_id=request.user.id).first()
+            if not apl:
+                return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+            apl.is_active = action == 'restore'
+            apl.save(update_fields=['is_active'])
+            return JsonResponse({'success': True})
+        if resource == 'templates':
+            if not request.user.is_staff:
+                return JsonResponse({'success': False, 'error': '仅管理员可创建模板'}, status=403)
+            if object_id and action in ('archive', 'restore'):
+                tpl = SimcContentTemplate.objects.filter(id=object_id).first()
+                if not tpl:
+                    return JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
+                if tpl.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM:
+                    return JsonResponse({'success': False, 'error': '上游同步模板为只读，不可修改'}, status=403)
+                tpl.is_active = action == 'restore'
+                tpl.save(update_fields=['is_active', 'updated_at'])
+                return JsonResponse({'success': True})
+            if not object_id:
+                try:
+                    name = str(data.get('name') or '').strip()
+                    template_type = str(data.get('template_type') or '').strip()
+                    spec = str(data.get('spec') or 'default').strip()
+                    content = str(data.get('content') or '').strip()
+                    if not template_type or template_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
+                        return JsonResponse({'success': False, 'error': '模板类型无效'}, status=400)
+                    if not content:
+                        return JsonResponse({'success': False, 'error': '模板内容不能为空'}, status=400)
+                    owner_user_id = data.get('owner_user_id')
+                    if owner_user_id is not None:
+                        try:
+                            owner_user_id = int(owner_user_id)
+                        except (TypeError, ValueError):
+                            return JsonResponse({'success': False, 'error': 'owner_user_id 必须是整数'}, status=400)
+                    tpl = SimcContentTemplate(
+                        name=name,
+                        template_type=template_type,
+                        spec=spec,
+                        content=content,
+                        owner_user_id=owner_user_id,
+                        source=SimcContentTemplate.SOURCE_USER,
+                        class_name=str(data.get('class_name') or '').strip(),
+                        is_active=True,
+                    )
+                    tpl.save()
+                    return JsonResponse({'success': True, 'data': {'id': tpl.id}})
+                except Exception as e:
+                    if 'active_unique_key' in str(e) or 'UNIQUE' in str(e):
+                        return JsonResponse({'success': False, 'error': '相同 owner/spec/type 的活跃模板已存在'}, status=409)
+                    logger.error(f"创建模板失败: {str(e)}")
+                    return JsonResponse({'success': False, 'error': '创建模板失败'}, status=500)
+        if resource == 'apl-keywords':
+            if not request.user.is_staff:
+                return JsonResponse({'success': False, 'error': '仅管理员可修改关键词'}, status=403)
+            if object_id and action in ('archive', 'restore'):
+                kw = SimcAplKeywordPair.objects.filter(id=object_id).first()
+                if not kw:
+                    return JsonResponse({'success': False, 'error': '关键词不存在'}, status=404)
+                kw.is_active = action == 'restore'
+                kw.save(update_fields=['is_active'])
+                return JsonResponse({'success': True})
+            if not object_id:
+                try:
+                    apl_keyword = str(data.get('apl_keyword') or '').strip()
+                    cn_keyword = str(data.get('cn_keyword') or '').strip()
+                    if not apl_keyword or not cn_keyword:
+                        return JsonResponse({'success': False, 'error': 'apl_keyword 和 cn_keyword 不能为空'}, status=400)
+                    if SimcAplKeywordPair.objects.filter(apl_keyword=apl_keyword, is_active=True).exists():
+                        return JsonResponse({'success': False, 'error': f'活跃关键词 {apl_keyword} 已存在'}, status=409)
+                    kw = SimcAplKeywordPair.objects.create(
+                        apl_keyword=apl_keyword,
+                        cn_keyword=cn_keyword,
+                        description=str(data.get('description') or '').strip(),
+                        is_active=True,
+                    )
+                    return JsonResponse({'success': True, 'data': {'id': kw.id}})
+                except Exception as e:
+                    logger.error(f"创建关键词失败: {str(e)}")
+                    return JsonResponse({'success': False, 'error': '创建关键词失败'}, status=500)
+        if resource in ('secondary-rules', 'mastery-rules'):
+            if not request.user.is_staff:
+                return JsonResponse({'success': False, 'error': '仅管理员可修改规则'}, status=403)
+            model = SimcSecondaryStatRule if resource == 'secondary-rules' else SimcMasteryCoefficient
+            if not object_id:
+                try:
+                    if resource == 'secondary-rules':
+                        class_name = str(data.get('class_name') or '').strip()
+                        if not class_name:
+                            return JsonResponse({'success': False, 'error': '职业标识不能为空'}, status=400)
+                        if model.objects.filter(class_name=class_name).exists():
+                            return JsonResponse({'success': False, 'error': f'职业 {class_name} 的规则已存在'}, status=409)
+                        try:
+                            crit = float(data.get('crit_per_percent', 46))
+                            haste = float(data.get('haste_per_percent', 44))
+                            mastery = float(data.get('mastery_per_percent', 46))
+                            versa = float(data.get('versatility_per_percent', 54))
+                        except (TypeError, ValueError):
+                            return JsonResponse({'success': False, 'error': '属性值必须是有效数字'}, status=400)
+                        rule = model.objects.create(
+                            class_name=class_name,
+                            crit_per_percent=crit,
+                            haste_per_percent=haste,
+                            mastery_per_percent=mastery,
+                            versatility_per_percent=versa,
+                        )
+                    else:
+                        spec = str(data.get('spec') or '').strip()
+                        if not spec:
+                            return JsonResponse({'success': False, 'error': '专精标识不能为空'}, status=400)
+                        if model.objects.filter(spec=spec).exists():
+                            return JsonResponse({'success': False, 'error': f'专精 {spec} 的规则已存在'}, status=409)
+                        try:
+                            coef = float(data.get('mastery_coefficient', 1.4))
+                        except (TypeError, ValueError):
+                            return JsonResponse({'success': False, 'error': '精通系数必须是有效数字'}, status=400)
+                        rule = model.objects.create(
+                            spec=spec,
+                            mastery_coefficient=coef,
+                        )
+                    return JsonResponse({'success': True, 'data': {'id': rule.id}})
+                except Exception as e:
+                    logger.error(f"创建规则失败: {str(e)}")
+                    return JsonResponse({'success': False, 'error': '创建规则失败'}, status=500)
+        return JsonResponse({'success': False, 'error': '不支持的资源操作'}, status=400)
+
+    def put(self, request, resource, object_id=None):
+        try:
+            data = self._json_body(request)
+        except ValueError as exc:
+            return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+        if resource == 'templates':
+            if not request.user.is_staff:
+                return JsonResponse({'success': False, 'error': '仅管理员可编辑模板'}, status=403)
+            if not object_id:
+                return JsonResponse({'success': False, 'error': '缺少模板ID'}, status=400)
+            tpl = SimcContentTemplate.objects.filter(id=object_id).first()
+            if not tpl:
+                return JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
+            if tpl.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM:
+                return JsonResponse({'success': False, 'error': '上游同步模板为只读，不可编辑'}, status=403)
+            try:
+                if 'name' in data:
+                    tpl.name = str(data['name'] or '').strip()
+                if 'content' in data:
+                    tpl.content = str(data['content'] or '').strip()
+                if 'spec' in data:
+                    tpl.spec = str(data['spec'] or 'default').strip()
+                if 'class_name' in data:
+                    tpl.class_name = str(data['class_name'] or '').strip()
+                tpl.save()
+                return JsonResponse({'success': True})
+            except Exception as e:
+                if 'active_unique_key' in str(e) or 'UNIQUE' in str(e):
+                    return JsonResponse({'success': False, 'error': '修改后的模板与已有活跃模板冲突'}, status=409)
+                logger.error(f"更新模板失败: {str(e)}")
+                return JsonResponse({'success': False, 'error': '更新模板失败'}, status=500)
+        if resource == 'apl-keywords':
+            if not request.user.is_staff:
+                return JsonResponse({'success': False, 'error': '仅管理员可修改关键词'}, status=403)
+            if not object_id:
+                return JsonResponse({'success': False, 'error': '缺少关键词ID'}, status=400)
+            kw = SimcAplKeywordPair.objects.filter(id=object_id).first()
+            if not kw:
+                return JsonResponse({'success': False, 'error': '关键词不存在'}, status=404)
+            try:
+                if 'cn_keyword' in data:
+                    kw.cn_keyword = str(data['cn_keyword'] or '').strip()
+                if 'description' in data:
+                    kw.description = str(data['description'] or '').strip()
+                kw.save()
+                return JsonResponse({'success': True})
+            except Exception as e:
+                logger.error(f"更新关键词失败: {str(e)}")
+                return JsonResponse({'success': False, 'error': '更新关键词失败'}, status=500)
+        if resource in ('secondary-rules', 'mastery-rules'):
+            if not request.user.is_staff:
+                return JsonResponse({'success': False, 'error': '仅管理员可修改规则'}, status=403)
+            if not object_id:
+                return JsonResponse({'success': False, 'error': '缺少规则ID'}, status=400)
+            model = SimcSecondaryStatRule if resource == 'secondary-rules' else SimcMasteryCoefficient
+            rule = model.objects.filter(id=object_id).first()
+            if not rule:
+                return JsonResponse({'success': False, 'error': '规则不存在'}, status=404)
+            try:
+                if resource == 'secondary-rules':
+                    if 'crit_per_percent' in data:
+                        rule.crit_per_percent = float(data['crit_per_percent'])
+                    if 'haste_per_percent' in data:
+                        rule.haste_per_percent = float(data['haste_per_percent'])
+                    if 'mastery_per_percent' in data:
+                        rule.mastery_per_percent = float(data['mastery_per_percent'])
+                    if 'versatility_per_percent' in data:
+                        rule.versatility_per_percent = float(data['versatility_per_percent'])
+                else:
+                    if 'mastery_coefficient' in data:
+                        rule.mastery_coefficient = float(data['mastery_coefficient'])
+                rule.save()
+                return JsonResponse({'success': True})
+            except (TypeError, ValueError):
+                return JsonResponse({'success': False, 'error': '属性值必须是有效数字'}, status=400)
+            except Exception as e:
+                logger.error(f"更新规则失败: {str(e)}")
+                return JsonResponse({'success': False, 'error': '更新规则失败'}, status=500)
+        return JsonResponse({'success': False, 'error': '不支持的资源操作'}, status=400)
+
+    def delete(self, request, resource, object_id=None):
+        if resource == 'templates':
+            return JsonResponse({'success': False, 'error': '模板不支持真实删除，请使用停用操作'}, status=400)
+        if resource == 'apl-keywords':
+            return JsonResponse({'success': False, 'error': '关键词不支持真实删除，请使用停用操作'}, status=400)
+        if resource in ('secondary-rules', 'mastery-rules'):
+            if not request.user.is_staff:
+                return JsonResponse({'success': False, 'error': '仅管理员可修改规则'}, status=403)
+            if not object_id:
+                return JsonResponse({'success': False, 'error': '缺少规则ID'}, status=400)
+            model = SimcSecondaryStatRule if resource == 'secondary-rules' else SimcMasteryCoefficient
+            rule = model.objects.filter(id=object_id).first()
+            if not rule:
+                return JsonResponse({'success': False, 'error': '规则不存在'}, status=404)
+            rule.delete()
+            return JsonResponse({'success': True})
         return JsonResponse({'success': False, 'error': '不支持的资源操作'}, status=400)
 
 
 @method_decorator(login_required, name='dispatch')
 class SimcArtifactPreviewAPIView(View):
     def get(self, request, object_id):
-        artifact = SimcTaskArtifact.objects.filter(id=object_id, task__user_id=request.user.id).first()
+        artifact = SimcTaskArtifact.objects.filter(id=object_id, task__user_id=request.user.id).select_related('task').first()
         artifact_path = str(artifact.file_path or '').replace('\\', '/') if artifact else ''
-        if (not artifact or artifact.artifact_type not in ('html_report', 'json_stats', 'log')
+        if (not artifact or artifact.artifact_type != 'html_report'
                 or not artifact_path.startswith('simc_results/')):
             return JsonResponse({'success': False, 'error': '产物不存在'}, status=404)
-        full_path = _safe_join_static(artifact_path)
-        if not full_path or not os.path.isfile(full_path):
+        from botend.services.simc_artifacts import _validated_result
+        validated = _validated_result(artifact.task, os.path.basename(artifact_path))
+        if not validated or validated[1] != artifact_path:
             return JsonResponse({'success': False, 'error': '产物文件不可用'}, status=404)
-        content_type = 'text/html; charset=utf-8' if artifact.artifact_type == 'html_report' else 'text/plain; charset=utf-8'
+        full_path = str(validated[0])
+        content_type = 'text/html; charset=utf-8'
         response = FileResponse(open(full_path, 'rb'), content_type=content_type)
         response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
         return response
@@ -5623,6 +6040,7 @@ class SimcBackendBinaryAPIView(View):
 
     def get(self, request):
         try:
+            can_write = request.user.is_staff
             runtime_platform = self._get_runtime_platform()
             row = SimcBackendBinary.objects.filter(platform=runtime_platform).first()
             source_dir, build_dir, binary_path = self._resolve_local_build_paths()
@@ -5636,27 +6054,31 @@ class SimcBackendBinaryAPIView(View):
                         'available': bool(binary_path and os.path.isfile(binary_path) and os.access(binary_path, os.X_OK)),
                         'current_version': '',
                         'latest_version': '',
+                        'need_update': False,
                         'auto_update': True,
                         'is_updating': False,
                         'update_progress': 0,
                         'update_status': '未初始化',
                         'has_error': False,
                         'last_checked_at': None,
-                        'last_updated_at': None
+                        'last_updated_at': None,
+                        'can_write': can_write
                     }
                 })
 
             # 以本地编译配置路径为准；历史记录里的旧路径不能继续覆盖运行路径。
+            data = self._serialize_backend_row(row, source_dir, build_dir, binary_path)
+            data['can_write'] = can_write
             return JsonResponse({
                 'success': True,
-                'data': self._serialize_backend_row(row, source_dir, build_dir, binary_path)
+                'data': data
             })
         except Exception as e:
             logger.error(f"获取SimC后端更新状态失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({
                 'success': False,
-                'error': f'获取SimC后端更新状态失败: {str(e)}'
-            })
+                'error': '获取 SimC 后端状态失败，请稍后重试'
+            }, status=500)
 
     def post(self, request):
         if not request.user.is_staff:

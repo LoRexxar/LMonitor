@@ -1076,6 +1076,11 @@ class SimcMonitor(BaseScan):
                 if target_result_file != simc_task.result_file:
                     simc_task.result_file = target_result_file
                     simc_task.save(update_fields=['result_file', 'modified_time'])
+                if isinstance(simc_task, SimcTask):
+                    from botend.services.simc_artifacts import upsert_task_html_artifact
+                    artifact = upsert_task_html_artifact(simc_task, target_result_file)
+                    if artifact is None:
+                        raise RuntimeError('SimC结果文件未通过任务产物安全校验')
                 try:
                     from botend.interface.ossupload import ossUpload
                     upload_success = ossUpload(result_file_path)

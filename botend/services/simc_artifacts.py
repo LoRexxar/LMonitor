@@ -1,0 +1,75 @@
+"""Secure registration of Worker-produced SimC report artifacts."""
+import os
+import re
+from pathlib import Path
+
+from django.conf import settings
+from django.db import transaction
+
+from botend.models import SimcTask, SimcTaskArtifact
+from botend.services.simc_attribute_results import parse_attribute_result_filename
+
+
+_REGULAR_RESULT_NAME_RE = re.compile(r"^simc_task_(?P<task_id>\d+)\.html$")
+
+
+def _validated_result(task, result_file):
+    """Return (absolute path, static-relative path) for this task's generated report."""
+    filename = str(result_file or "").strip()
+    if not filename or filename != os.path.basename(filename) or "\n" in filename or "\r" in filename:
+        return None
+
+    regular_match = _REGULAR_RESULT_NAME_RE.fullmatch(filename)
+    attribute_result = parse_attribute_result_filename(filename)
+    bound_id = regular_match.group("task_id") if regular_match else None
+    if attribute_result:
+        bound_id = attribute_result["task_id"]
+    if not bound_id or int(bound_id) != int(task.pk):
+        return None
+
+    result_root = (Path(settings.BASE_DIR) / "static" / "simc_results").resolve()
+    full_path = (result_root / filename).resolve()
+    try:
+        full_path.relative_to(result_root)
+    except ValueError:
+        return None
+    if not full_path.is_file():
+        return None
+    return full_path, f"simc_results/{filename}"
+
+
+def upsert_task_html_artifact(task, result_file):
+    """Atomically register an existing, task-id-bound report generated in the result root.
+
+    The caller cannot choose a directory, another task's filename, or a non-report file.
+    Locking the owner task makes the application-level upsert deterministic even though the
+    legacy artifact table has no uniqueness constraint.
+    """
+    validated = _validated_result(task, result_file)
+    if not validated:
+        return None
+    full_path, relative_path = validated
+    with transaction.atomic():
+        locked_task = SimcTask.objects.select_for_update().filter(pk=task.pk, user_id=task.user_id).first()
+        if not locked_task:
+            return None
+        artifact = SimcTaskArtifact.objects.filter(
+            task=locked_task, artifact_type="html_report", file_path=relative_path,
+        ).order_by("id").first()
+        size = full_path.stat().st_size
+        if artifact:
+            if artifact.file_size != size:
+                artifact.file_size = size
+                artifact.save(update_fields=["file_size"])
+        else:
+            artifact = SimcTaskArtifact.objects.create(
+                task=locked_task, artifact_type="html_report", file_path=relative_path, file_size=size,
+            )
+        return artifact
+
+
+def map_existing_successful_task_artifact(task):
+    """Strict compatibility mapping for an owner's historical regular result."""
+    if task.current_status != 2:
+        return None
+    return upsert_task_html_artifact(task, task.result_file)

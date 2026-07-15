@@ -115,7 +115,7 @@ class WagoDB2GraphServiceTests(SimpleTestCase):
 
     def test_unknown_table_remains_unresolved_with_loaded_row(self):
         client = FakeWagoDB2Client({
-            ('VehicleSeat', 999): {
+            ('TotallyUnknownTable', 999): {
                 'ID': 999,
                 'Flags': 12,
             },
@@ -123,12 +123,12 @@ class WagoDB2GraphServiceTests(SimpleTestCase):
         service = WagoDB2GraphService(build='68367', locale='zhCN', client=client)
 
         graph = service.resolve_hotfix_rows([
-            {'table_name': 'VehicleSeat', 'record_id': 999, 'push_id': 109505},
+            {'table_name': 'TotallyUnknownTable', 'record_id': 999, 'push_id': 109505},
         ])
 
         self.assertEqual(graph.objects, [])
         self.assertEqual(len(graph.unresolved_records), 1)
-        self.assertEqual(graph.unresolved_records[0].table, 'VehicleSeat')
+        self.assertEqual(graph.unresolved_records[0].table, 'TotallyUnknownTable')
         self.assertEqual(graph.unresolved_records[0].row['Flags'], 12)
 
     def test_resolve_record_refs_accepts_generic_refs_not_only_hotfix_rows(self):

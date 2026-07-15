@@ -193,6 +193,9 @@ def _is_external_article_image_url(image_url):
     image_url = (image_url or "").strip()
     if not image_url.startswith(("http://", "https://")):
         return False
+    parsed = urlparse(image_url)
+    if parsed.hostname == "oss.wowdaily.cn" and parsed.path.startswith("/portal/articles/"):
+        return False
     base_url = ((getattr(settings, "OSS_CONFIG", {}) or {}).get("base_url") or "").strip()
     if base_url and image_url.startswith(base_url.rstrip("/") + "/"):
         return False

@@ -79,6 +79,8 @@ class PortalVideoMonitor(BaseScan):
             bvid = (item.get("bvid") or "").strip()
             if not bvid:
                 continue
+            if target.last_seen_bvid and bvid == target.last_seen_bvid:
+                break
             if not newest_bvid:
                 newest_bvid = bvid
             published_at = self._parse_published_at(item.get("published_ts"))

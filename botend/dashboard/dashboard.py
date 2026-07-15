@@ -165,6 +165,13 @@ class DashboardView(View):
 
     def _get_model_map(self):
         return {model.__name__: model for model in apps.get_app_config('botend').get_models()}
+
+    SIMC_DEDICATED_API_MODELS = {
+        'SimcTask', 'SimcTaskBatch', 'SimcTaskArtifact', 'SimcProfile',
+        'SimcContentTemplate', 'SimcSecondaryStatRule',
+        'SimcMasteryCoefficient', 'SimcAplKeywordPair',
+        'UserAplStorage', 'SimcBackendBinary',
+    }
     
     def get(self, request):
         """
@@ -178,7 +185,11 @@ class DashboardView(View):
             models = list(self._get_model_map().values())
             
             total_records = 0
-            for model in models:
+            visible_models = [
+                model for model in models
+                if model.__name__ not in self.SIMC_DEDICATED_API_MODELS
+            ]
+            for model in visible_models:
                 model_name = model.__name__
                 try:
                     record_count = model.objects.count()
@@ -198,7 +209,7 @@ class DashboardView(View):
                 'title': '后台',
                 'page_name': 'dashboard',
                 'tables_info': tables_info,
-                'total_tables': len(models),
+                'total_tables': len(visible_models),
                 'total_records': total_records,
                 'stats': stats
             }
@@ -228,6 +239,15 @@ class DashboardView(View):
             action = data.get('action')
             if not action:
                 return JsonResponse({"status": "error", "message": "缺少action参数"})
+
+            if (
+                action in {'create_table_row', 'update_table_row', 'delete_table_row'}
+                and data.get('table_name') in self.SIMC_DEDICATED_API_MODELS
+            ):
+                return JsonResponse(
+                    {"status": "error", "message": "SimC 数据必须通过专用接口维护"},
+                    status=403,
+                )
             
             # 根据操作类型处理请求
             if action == 'get_table_data':
@@ -271,7 +291,12 @@ class DashboardView(View):
             table_name = data.get('table_name')
             if not table_name:
                 return JsonResponse({"status": "error", "message": "缺少table_name参数"})
-            
+            if table_name in self.SIMC_DEDICATED_API_MODELS:
+                return JsonResponse(
+                    {"status": "error", "message": "SimC 数据必须通过专用接口访问"},
+                    status=403,
+                )
+
             # 获取分页参数
             page = int(data.get('page', 1))
             page_size = int(data.get('page_size', 50))
@@ -404,7 +429,7 @@ class DashboardView(View):
                         'battlenet_character', 'player_equipment',
                         'talent', 'gear_strength', 'gear_crit',
                         'gear_haste', 'gear_mastery', 'gear_versatility', 'is_active'
-                    ).filter(is_active=True).order_by('-id')
+                    ).filter(user_id=self.request.user.id, is_active=True).order_by('-id')
                     queryset = apply_search_filter(queryset, ['name', 'spec', 'talent', 'battlenet_realm', 'battlenet_character', 'player_equipment'])
                     if simc_spec_filter:
                         queryset = queryset.filter(spec__icontains=simc_spec_filter)

@@ -301,3 +301,60 @@ class SimcProfileAPIValidationTests(TestCase):
         }), content_type='application/json')
         self.assertFalse(response.json()['success'], response.json())
         self.assertFalse(SimcTask.objects.exists())
+
+    def test_profile_list_can_include_inactive_profiles_for_lifecycle_management(self):
+        active = SimcProfile.objects.create(
+            user_id=self.user.id, name='Active profile', spec='fury',
+            player_config_mode='attribute_only', talent='BUILD', player_equipment='warrior="A"',
+        )
+        inactive = SimcProfile.objects.create(
+            user_id=self.user.id, name='Inactive profile', spec='fury',
+            player_config_mode='attribute_only', talent='BUILD', player_equipment='warrior="I"',
+            is_active=False,
+        )
+        other = User.objects.create_user(username='profile_other', password='pwd')
+        SimcProfile.objects.create(
+            user_id=other.id, name='Other profile', spec='fury',
+            player_config_mode='attribute_only', talent='BUILD', player_equipment='warrior="O"',
+            is_active=False,
+        )
+
+        default_ids = {row['id'] for row in self.client.get('/api/simc-profile/').json()['data']}
+        managed_rows = self.client.get('/api/simc-profile/?include_inactive=1').json()['data']
+        managed_by_id = {row['id']: row for row in managed_rows}
+
+        self.assertEqual(default_ids, {active.id})
+        self.assertEqual(set(managed_by_id), {active.id, inactive.id})
+        self.assertFalse(managed_by_id[inactive.id]['is_active'])
+
+    def test_profile_status_only_update_can_deactivate_and_restore_owned_profile(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id, name='Lifecycle profile', spec='fury',
+            player_config_mode='attribute_only', talent='BUILD', player_equipment='warrior="P"',
+        )
+        other = User.objects.create_user(username='profile_status_other', password='pwd')
+        foreign = SimcProfile.objects.create(
+            user_id=other.id, name='Foreign profile', spec='fury',
+            player_config_mode='attribute_only', talent='BUILD', player_equipment='warrior="F"',
+        )
+
+        deactivate = self.client.put('/api/simc-profile/', data=json.dumps({
+            'id': profile.id, 'status_only': True, 'is_active': False,
+        }), content_type='application/json')
+        self.assertTrue(deactivate.json()['success'], deactivate.json())
+        profile.refresh_from_db()
+        self.assertFalse(profile.is_active)
+
+        restore = self.client.put('/api/simc-profile/', data=json.dumps({
+            'id': profile.id, 'status_only': True, 'is_active': True,
+        }), content_type='application/json')
+        self.assertTrue(restore.json()['success'], restore.json())
+        profile.refresh_from_db()
+        self.assertTrue(profile.is_active)
+
+        denied = self.client.put('/api/simc-profile/', data=json.dumps({
+            'id': foreign.id, 'status_only': True, 'is_active': False,
+        }), content_type='application/json')
+        self.assertFalse(denied.json()['success'])
+        foreign.refresh_from_db()
+        self.assertTrue(foreign.is_active)

@@ -66,8 +66,8 @@ class SimcTaskBaseTemplateSnapshotTests(TestCase):
         base_template = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
-            spec='fury', name='用户基础模板',
-            content='warrior="UserTemplate"\nfight_style={fight_style}\n{player_config}\n{action_list}',
+            spec='warrior_fury', name='用户基础模板',
+            content='{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}',
             is_active=True,
         )
 
@@ -84,19 +84,19 @@ class SimcTaskBaseTemplateSnapshotTests(TestCase):
         task = SimcTask.objects.get(id=response.json()['data']['id'])
         ext = json.loads(task.ext)
         self.assertIn('base_template_content', ext, "任务 ext 应冻结 base_template_content")
-        self.assertIn('UserTemplate', ext['base_template_content'])
-        self.assertIn('{player_config}', ext['base_template_content'])
+        self.assertIn('{player_identity}', ext['base_template_content'])
+        self.assertIn('{equipment}', ext['base_template_content'])
 
     def test_request_base_template_content_overrides_selected_template_snapshot(self):
         """用户编辑后的基础模板正文优先于所选模板当前数据库正文。"""
         base_template = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
-            spec='fury', name='可编辑基础模板',
-            content='warrior="DatabaseVersion"\n{player_config}\n{action_list}',
+            spec='warrior_fury', name='可编辑基础模板',
+            content='{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}',
             is_active=True,
         )
-        edited = 'warrior="EditedSnapshot"\niterations=12345\n{player_config}\n{action_list}'
+        edited = '{simulation_options}\niterations=12345\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}'
         response = self.client.post('/api/simc-task/', data=json.dumps({
             'name': 'Edited base template snapshot', 'task_type': 1,
             'base_template_id': base_template.id,
@@ -108,15 +108,15 @@ class SimcTaskBaseTemplateSnapshotTests(TestCase):
         self.assertTrue(response.json()['success'], response.json())
         ext = json.loads(SimcTask.objects.get(id=response.json()['data']['id']).ext)
         self.assertEqual(ext['base_template_content'], edited)
-        self.assertNotIn('DatabaseVersion', ext['base_template_content'])
+        self.assertIn('iterations=12345', ext['base_template_content'])
 
     def test_frozen_base_template_immune_to_upstream_changes(self):
         """冻结的基础模板快照不受模板后续更新影响。"""
         base_template = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
-            spec='fury', name='可变基础模板',
-            content='warrior="Original"\n{player_config}\n{action_list}',
+            spec='warrior_fury', name='可变基础模板',
+            content='{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}',
             is_active=True,
         )
 
@@ -132,18 +132,17 @@ class SimcTaskBaseTemplateSnapshotTests(TestCase):
         self.assertTrue(response.json()['success'])
         task = SimcTask.objects.get(id=response.json()['data']['id'])
         original_frozen = json.loads(task.ext)['base_template_content']
-        self.assertIn('Original', original_frozen)
+        self.assertIn('{player_identity}', original_frozen)
 
         # 更新模板内容
-        base_template.content = 'warrior="Modified"\nfight_style=HecticAddCleave\n{player_config}'
+        base_template.content = '{simulation_options}\nfight_style=HecticAddCleave\n{player_identity}\n{equipment}'
         base_template.save()
 
         # 任务快照不应改变
         task.refresh_from_db()
         frozen = json.loads(task.ext)['base_template_content']
         self.assertEqual(frozen, original_frozen)
-        self.assertIn('Original', frozen)
-        self.assertNotIn('Modified', frozen)
+        self.assertIn('{player_identity}', frozen)
         self.assertNotIn('HecticAddCleave', frozen)
 
 
@@ -157,6 +156,15 @@ class SimcTaskAplSnapshotTests(TestCase):
 
     def test_explicit_selected_apl_id_freezes_apl_content(self):
         """明确 selected_apl_id 时沿用既有 override_action_list 字段冻结 APL。"""
+        # Create base template first
+        base_template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury', name='基础模板',
+            content='{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}',
+            is_active=True,
+        )
+
         apl = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
@@ -168,6 +176,7 @@ class SimcTaskAplSnapshotTests(TestCase):
         response = self.client.post('/api/simc-task/', data=json.dumps({
             'name': 'Frozen APL task',
             'task_type': 1,
+            'base_template_id': base_template.id,
             'selected_apl_id': apl.id,
             'player_import_mode': 'manual_equipment',
             'player_equipment': 'warrior="Player"\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
@@ -183,6 +192,15 @@ class SimcTaskAplSnapshotTests(TestCase):
 
     def test_frozen_apl_immune_to_upstream_changes(self):
         """冻结的 APL 快照不受 APL 后续更新影响。"""
+        # Create base template first
+        base_template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury', name='基础模板',
+            content='{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}',
+            is_active=True,
+        )
+
         apl = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
@@ -194,6 +212,7 @@ class SimcTaskAplSnapshotTests(TestCase):
         response = self.client.post('/api/simc-task/', data=json.dumps({
             'name': 'Immutable APL snapshot',
             'task_type': 1,
+            'base_template_id': base_template.id,
             'selected_apl_id': apl.id,
             'player_import_mode': 'manual_equipment',
             'player_equipment': 'warrior="Player"\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
@@ -219,6 +238,15 @@ class SimcTaskAplSnapshotTests(TestCase):
 
     def test_explicit_empty_apl_override_remains_empty(self):
         """显式清空 APL 表示冻结空内容，不能重新填回所选或默认 APL。"""
+        # Create base template first
+        base_template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury', name='基础模板',
+            content='{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}',
+            is_active=True,
+        )
+
         apl = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
@@ -226,6 +254,7 @@ class SimcTaskAplSnapshotTests(TestCase):
         )
         response = self.client.post('/api/simc-task/', data=json.dumps({
             'name': 'Explicit empty APL', 'task_type': 1,
+            'base_template_id': base_template.id,
             'selected_apl_id': apl.id, 'override_action_list': '',
             'player_import_mode': 'manual_equipment',
             'player_equipment': 'warrior="Player"\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
@@ -247,6 +276,15 @@ class SimcTaskDefaultPlayerBaselineTests(TestCase):
 
     def test_attribute_only_mode_uses_default_player_baseline(self):
         """attribute_only 模式下，玩家基线默认从 default_player 获取并冻结。"""
+        # Create base template first
+        base_template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury', name='基础模板',
+            content='{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}',
+            is_active=True,
+        )
+
         equipment = '\n'.join([
             'warrior="DefaultPlayer"', 'level=90', 'spec=fury',
             'head=,id=212048', 'neck=,id=224433', 'shoulder=,id=212050',
@@ -266,6 +304,7 @@ class SimcTaskDefaultPlayerBaselineTests(TestCase):
         response = self.client.post('/api/simc-task/', data=json.dumps({
             'name': 'Default player baseline',
             'task_type': 1,
+            'base_template_id': base_template.id,
             'player_config_mode': 'attribute_only',
             'spec': 'fury',
             'talent': 'BUILD',
@@ -291,6 +330,15 @@ class SimcTaskAutoSelectionTests(TestCase):
 
     def test_unique_enabled_apl_auto_selected(self):
         """缺少显式 selected_apl_id 时，按 spec 使用唯一启用默认 APL。"""
+        # Create base template first
+        base_template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury', name='基础模板',
+            content='{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}',
+            is_active=True,
+        )
+
         SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
@@ -301,6 +349,7 @@ class SimcTaskAutoSelectionTests(TestCase):
         response = self.client.post('/api/simc-task/', data=json.dumps({
             'name': 'Auto select unique APL',
             'task_type': 1,
+            'base_template_id': base_template.id,
             'player_import_mode': 'manual_equipment',
             'player_equipment': 'warrior="Player"\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
             'spec': 'fury',
@@ -313,32 +362,42 @@ class SimcTaskAutoSelectionTests(TestCase):
         self.assertIn('override_action_list', ext)
         self.assertIn('execute', ext['override_action_list'])
 
-    def test_duplicate_enabled_apl_fails_closed(self):
-        """重复启用 APL 时 fail closed，拒绝创建任务。"""
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='APL 1',
-            content='actions+=/execute', is_active=True,
+    def test_user_default_apl_overrides_global_default(self):
+        """全局与当前用户默认 APL 并存时，自动选择当前用户版本。"""
+        base_template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='warrior_fury', name='基础模板',
+            content='{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}',
+            is_active=True,
         )
         SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury', name='Global APL',
+            content='actions+=/execute', is_active=True,
+        )
+        owned = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
             source=SimcContentTemplate.SOURCE_USER,
-            spec='warrior_fury', name='APL 2',
+            owner_user_id=self.user.id,
+            spec='warrior_fury', name='User APL',
             content='actions+=/whirlwind', is_active=True,
         )
 
         response = self.client.post('/api/simc-task/', data=json.dumps({
-            'name': 'Duplicate APL fails',
+            'name': 'User APL wins',
             'task_type': 1,
+            'base_template_id': base_template.id,
             'player_import_mode': 'manual_equipment',
             'player_equipment': 'warrior="Player"\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
             'spec': 'fury',
         }), content_type='application/json')
 
-        self.assertFalse(response.json()['success'])
-        self.assertIn('重复', response.json()['error'])
-        self.assertFalse(SimcTask.objects.exists())
+        self.assertTrue(response.json()['success'], response.json())
+        ext = json.loads(SimcTask.objects.get(id=response.json()['data']['id']).ext)
+        self.assertEqual(ext['selected_apl_id'], owned.id)
+        self.assertEqual(ext['override_action_list'], 'actions+=/whirlwind')
 
 
 class SimcWorkbenchFrontendContractTests(TestCase):

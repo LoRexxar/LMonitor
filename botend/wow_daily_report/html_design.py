@@ -105,7 +105,8 @@ def render_daily_html_with_skill(report_date, sections: List[Dict[str, Any]], *,
         html = extract_html(raw)
         ok, err = validate_html_document(html)
         if not ok:
-            detail = getattr(glm, "last_error", "") or err
+            last_error = getattr(glm, "last_error", "")
+            detail = last_error.strip() if isinstance(last_error, str) and last_error.strip() else err
             return None, {"renderer": "fallback_static", "error": detail}
         return html, {"renderer": "ai_html_skill", "error": ""}
     except Exception as exc:

@@ -198,6 +198,28 @@ class SimcComposer:
                 user_spec = bnet_spec
                 derived_class = SPEC_CLASS.get(bnet_spec)
 
+            # Battle.net does not expose a portable SimC equipment export. Freeze
+            # the authoritative armory import instruction itself; SimC resolves the
+            # active character/equipment when the immutable task is executed.
+            region = str(request_data.get('battlenet_region') or '').strip().lower()
+            realm = str(request_data.get('battlenet_realm') or '').strip()
+            character = str(request_data.get('battlenet_character') or '').strip()
+            if not region or not realm or not character:
+                return SlotResolution(
+                    slot_name='player_identity', value=None, status='missing',
+                    error='Battle.net 导入缺少 region、realm 或 character',
+                )
+            armory_content = f'armory={region},{realm},{character}'
+            return SlotResolution(
+                slot_name='player_identity',
+                value=SlotValue(
+                    content=armory_content,
+                    source='battlenet_armory',
+                    content_hash=hashlib.sha256(armory_content.encode('utf-8')).hexdigest(),
+                ),
+                status='resolved',
+            )
+
         # For addon/manual export modes, parse and check for conflicts
         if player_import_mode in ('addon_full_export', 'manual_equipment'):
             player_equipment = request_data.get('player_equipment', '').strip()
@@ -765,15 +787,15 @@ class SimcComposer:
     def _count_actors(self, content: str) -> int:
         """Count actor definitions in final content."""
         actor_classes = ['warrior', 'mage', 'priest', 'paladin', 'druid', 'hunter',
-                        'rogue', 'shaman', 'warlock', 'monk', 'demon_hunter',
-                        'death_knight', 'evoker']
+                        'rogue', 'shaman', 'warlock', 'monk', 'demonhunter', 'demon_hunter',
+                        'deathknight', 'death_knight', 'evoker']
 
         count = 0
         for line in content.split('\n'):
             line = line.strip()
             if '=' in line:
                 key = line.split('=')[0].strip()
-                if key in actor_classes:
+                if key in actor_classes or key == 'armory':
                     count += 1
 
         return count

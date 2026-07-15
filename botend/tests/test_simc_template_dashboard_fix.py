@@ -77,8 +77,8 @@ class SimcTemplateDashboardFixTests(TestCase):
         self.assertEqual(detail_payload['content'], 'warrior="Default"\nspec=fury\nhead=,id=212048')
         self.assertEqual(detail_payload['template_type'], 'default_player')
 
-    def test_authenticated_dashboard_user_can_update_default_player_content_and_metadata(self):
-        """已登录用户可更新 default_player 的 content/name/is_selectable/is_active，但不能改 template_type/source/spec。"""
+    def test_authenticated_dashboard_user_cannot_update_upstream_default_player(self):
+        """upstream default_player 只能由受控同步链路维护，staff API 也只读。"""
         default_player = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
@@ -86,7 +86,6 @@ class SimcTemplateDashboardFixTests(TestCase):
             is_active=True, is_selectable=False,
         )
 
-        # 允许更新 content、name、is_selectable、is_active
         update_response = self.client.put(
             f'/api/simc-template/?id={default_player.id}',
             data=json.dumps({
@@ -97,19 +96,13 @@ class SimcTemplateDashboardFixTests(TestCase):
             }),
             content_type='application/json',
         )
-        self.assertEqual(update_response.status_code, 200, update_response.content)
-        update_payload = update_response.json()
-        self.assertTrue(update_payload['success'], update_payload)
+        self.assertEqual(update_response.status_code, 403, update_response.content)
 
         default_player.refresh_from_db()
-        self.assertEqual(default_player.content, 'warrior="Updated"\nspec=fury\nhead=,id=999999')
-        self.assertEqual(default_player.name, '新名称')
-        self.assertTrue(default_player.is_selectable)
-        self.assertFalse(default_player.is_active)
-        # 身份字段不变
-        self.assertEqual(default_player.template_type, SimcContentTemplate.TYPE_DEFAULT_PLAYER)
-        self.assertEqual(default_player.source, SimcContentTemplate.SOURCE_SIMC_UPSTREAM)
-        self.assertEqual(default_player.spec, 'warrior_fury')
+        self.assertEqual(default_player.content, '旧内容')
+        self.assertEqual(default_player.name, '旧名称')
+        self.assertFalse(default_player.is_selectable)
+        self.assertTrue(default_player.is_active)
 
     def test_default_player_identity_fields_are_immutable_through_api(self):
         """default_player 的 template_type/source/spec 身份字段通过 API 不可变更。"""

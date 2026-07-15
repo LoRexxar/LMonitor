@@ -5,6 +5,7 @@ from pathlib import Path
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from django.test import Client, TestCase
 
 from botend.models import SimcContentTemplate, SimcProfile, SimcTask
@@ -122,6 +123,7 @@ class DefaultPlayerTemplateAPITests(TestCase):
         payload = {
             'name': 'Fury default baseline', 'task_type': 1, 'spec': 'fury',
             'player_config_mode': 'attribute_only', 'talent': 'USER_BUILD',
+            'base_template_content': '{simulation_options}\n{player_config}\n{action_list}\n{output_options}',
             'gear_strength': 5000, 'gear_crit': 1000, 'gear_haste': 2000,
             'gear_mastery': 3000, 'gear_versatility': 4000,
         }
@@ -165,13 +167,11 @@ class DefaultPlayerTemplateAPITests(TestCase):
         self.assertIn('默认玩家装备模板', response.json()['error'])
         self.assertFalse(SimcTask.objects.exists())
 
-    def test_duplicate_active_default_templates_fail_closed(self):
+    def test_duplicate_active_default_templates_are_rejected_by_unique_constraint(self):
         self.add_template()
-        self.add_template()
-        response = self.client.post('/api/simc-task/', data=json.dumps(self.task_payload()), content_type='application/json')
-        self.assertFalse(response.json()['success'])
-        self.assertIn('重复', response.json()['error'])
-        self.assertFalse(SimcTask.objects.exists())
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.add_template()
+        self.assertEqual(SimcContentTemplate.objects.count(), 1)
 
     def test_attribute_batch_freezes_default_into_every_task(self):
         self.add_template()

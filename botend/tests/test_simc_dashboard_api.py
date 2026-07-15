@@ -239,8 +239,8 @@ class SimcTemplateAPIViewTests(TestCase):
         self.assertEqual(protected.source, SimcContentTemplate.SOURCE_SIMC_UPSTREAM)
         self.assertEqual(protected.spec, 'warrior_fury')
 
-    def test_default_player_allows_content_and_metadata_updates(self):
-        """default_player 允许更新 content/name/is_selectable/is_active，但不允许改身份。"""
+    def test_default_player_upstream_content_and_metadata_are_read_only(self):
+        """simc_upstream 的 default_player 对 staff 也完全只读。"""
         protected = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
@@ -253,16 +253,13 @@ class SimcTemplateAPIViewTests(TestCase):
             'is_selectable': True,
             'is_active': False,
         }), content_type='application/json')
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()['success'])
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['success'])
         protected.refresh_from_db()
-        self.assertIn('race=orc', protected.content)
-        self.assertEqual(protected.name, 'Updated Baseline')
-        self.assertTrue(protected.is_selectable)
-        self.assertFalse(protected.is_active)
-        self.assertEqual(protected.template_type, SimcContentTemplate.TYPE_DEFAULT_PLAYER)
-        self.assertEqual(protected.source, SimcContentTemplate.SOURCE_SIMC_UPSTREAM)
-        self.assertEqual(protected.spec, 'warrior_fury')
+        self.assertNotIn('race=orc', protected.content)
+        self.assertEqual(protected.name, 'Baseline')
+        self.assertFalse(protected.is_selectable)
+        self.assertTrue(protected.is_active)
 
     def test_base_template_rejects_actor_lines(self):
         """base_template 必须恰好一个 {player_config} 占位符，不允许 actor= 行。"""
@@ -1287,10 +1284,13 @@ finger1=,id=299002,ilevel=655
         self.assertIn("kind: requestKind", candidate_ui)
         self.assertIn("category: kind", candidate_ui)
         self.assertIn('const completed = await pollSimcCandidateComparison', candidate_ui)
-        self.assertIn('if (!completed) return;', candidate_ui)
-        self.assertIn('completed = true;', candidate_ui)
-        self.assertIn("'/simc-compare/?batch_id='", candidate_ui)
-        self.assertNotIn("'/simc-regular-compare/?batch_id='", candidate_ui)
+        self.assertIn('if (!completed || !isCurrentSimcCandidateControl(control)) return;', candidate_ui)
+        self.assertIn('finish(true);', candidate_ui)
+        self.assertIn("switchSimcWorkbenchL1Tab('history')", candidate_ui)
+        self.assertIn("'/api/simc-regular-compare/?batch_id='", candidate_ui)
+        self.assertIn("switchSimcWorkbenchTab('artifacts')", candidate_ui)
+        self.assertNotIn("'/simc-compare/?batch_id='", candidate_ui)
+        self.assertNotIn("window.open(", candidate_ui)
         self.assertIn('resolve(completed);', candidate_ui)
 
     def test_batch_marks_trinket_category_without_changing_gear_candidate_validation(self):
@@ -1374,9 +1374,10 @@ trinket1=,id=299001,ilevel=650
         self.assertEqual(report['stop_reason'], 'local_optimum_50_pairwise')
         self.assertEqual(len(report['candidates']), 13)
         self.assertEqual(report['candidates'][0]['dps'], 100000)
-        self.assertTrue(all(row['result_file'] != report['candidates'][0]['result_file'] for row in report['candidates'][1:]))
+        self.assertTrue(all('result_file' not in row for row in report['candidates']))
+        self.assertTrue(all('result_file' not in row for row in report['search_path']))
 
-    def test_regular_candidate_batch_returns_parsed_dps_and_controlled_result_link(self):
+    def test_regular_candidate_batch_returns_only_safe_parsed_summary(self):
         batch_id = 'batch-regular-report'
         tasks = []
         for index, (label, dps) in enumerate((('基准配置', 1744), ('候选天赋', 1801))):
@@ -1400,7 +1401,9 @@ trinket1=,id=299001,ilevel=650
         self.assertTrue(payload['success'], payload)
         rows = payload['data']['tasks']
         self.assertEqual([row['dps'] for row in rows], [1744, 1801])
-        self.assertTrue(all(row['result_file'].startswith('simc_task_') for row in rows))
+        self.assertTrue(all(set(row) == {
+            'id', 'name', 'label', 'rank', 'dps', 'delta_dps', 'delta_percent'
+        } for row in rows))
 
     def test_database_batch_relation_is_authoritative_and_result_read_has_no_lifecycle_side_effect(self):
         batch = SimcTaskBatch.objects.create(
@@ -1676,22 +1679,17 @@ class SimcNewConfigModeTests(TestCase):
         self.assertNotIn('ext', payload['data'])
         self.assertNotIn('create-secret', json.dumps(payload, ensure_ascii=False))
 
-    def test_task_management_js_only_reads_browser_safe_ext_detail(self):
+    def test_task_management_uses_new_inline_safe_history_ui(self):
         main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        task_ui_start = main_js.index('function displaySimcTaskData(tasks)')
-        task_ui_end = main_js.index('function openAddSimcTaskModal()', task_ui_start)
-        task_ui = main_js[task_ui_start:task_ui_end]
-        log_start = main_js.index('function viewTaskLog(')
-        log_end = main_js.index('function openErrorInfoModal(', log_start)
-        task_log_ui = main_js[log_start:log_end]
-        self.assertNotIn('task.ext ||', task_ui)
-        self.assertNotIn('task.ext)', task_ui)
-        self.assertNotIn('raw_simc_code', task_ui)
-        self.assertNotIn('candidate_reason', task_log_ui)
-        self.assertNotIn('preprocess_reasoning', task_log_ui)
-        self.assertNotIn('simc_error_native', task_log_ui)
-        self.assertIn('input:not(#edit-simc-task-name):not(#edit-simc-task-id)', main_js)
-        self.assertIn("taskExt.player_import_mode === 'battlenet' ? 'Battle.net 导入'", main_js)
+        workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
+        self.assertNotIn('function displaySimcTaskData(tasks)', main_js)
+        self.assertNotIn('function openViewSimcTaskModal(task)', main_js)
+        self.assertIn('async function showTaskDetail(resource, id)', workbench_js)
+        self.assertIn("document.getElementById('simc-wb-task-detail')", workbench_js)
+        self.assertNotIn('raw_simc_code', workbench_js)
+        self.assertNotIn('candidate_reason', workbench_js)
+        self.assertNotIn('preprocess_reasoning', workbench_js)
+        self.assertNotIn('simc_error_native', workbench_js)
 
     def test_task_ext_summary_drops_raw_simc_code_from_browser_response(self):
         summary = SimcTaskAPIView()._task_ext_summary(1, json.dumps({
@@ -1850,13 +1848,13 @@ class SimcNewConfigModeTests(TestCase):
         self.assertFalse(forbidden.json()['success'])
         self.assertIn('无权限', forbidden.json()['error'])
 
-    def test_task_view_modal_opens_before_preview_request_completes(self):
-        """任务查看接口短暂失败时，用户仍应看到模态框及错误提示，而不是无响应。"""
+    def test_task_detail_is_inline_and_old_modal_is_removed(self):
         main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        open_modal = main_js.index('function openViewSimcTaskModal(task)')
-        preview_fetch = main_js.index('fetch(`/api/simc-task/preview/', open_modal)
-        display_modal = main_js.index("modal.style.display = 'block';", open_modal)
-        self.assertLess(display_modal, preview_fetch)
+        workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
+        self.assertNotIn('function openViewSimcTaskModal(task)', main_js)
+        self.assertIn('async function showTaskDetail(resource, id)', workbench_js)
+        self.assertIn("host.classList.remove('hidden')", workbench_js)
+        self.assertNotIn('modal.style.display', workbench_js)
 
     def test_dashboard_sections_stay_inside_main_content(self):
         from bs4 import BeautifulSoup
@@ -1871,47 +1869,51 @@ class SimcNewConfigModeTests(TestCase):
             self.assertIsNotNone(section, section_id)
             self.assertIs(section.parent, main_content, section_id)
 
-    def test_simc_workbench_panels_are_siblings(self):
+    def test_simc_workbench_panels_are_grouped_by_l1_information_architecture(self):
         from bs4 import BeautifulSoup
 
         template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
         soup = BeautifulSoup(template, 'html.parser')
-        panel_ids = (
-            'simc-workbench-import-panel',
-            'simc-workbench-tasks-panel',
-            'simc-workbench-profiles-panel',
-            'simc-workbench-templates-panel',
-            'simc-workbench-apl-panel',
-            'simc-workbench-backend-panel',
-            'simc-workbench-rules-panel',
-        )
-        panels = [soup.select_one(f'#{panel_id}') for panel_id in panel_ids]
+        expected_groups = {
+            'simc-l1-workflow-panel': ('simc-workbench-import-panel',),
+            'simc-l1-history-panel': ('simc-workbench-tasks-panel',),
+            'simc-l1-advanced-panel': (
+                'simc-workbench-profiles-panel', 'simc-workbench-templates-panel',
+                'simc-workbench-apl-panel', 'simc-workbench-backend-panel',
+                'simc-workbench-rules-panel',
+            ),
+        }
+        for group_id, panel_ids in expected_groups.items():
+            group = soup.select_one(f'#{group_id}')
+            self.assertIsNotNone(group, group_id)
+            for panel_id in panel_ids:
+                panel = soup.select_one(f'#{panel_id}')
+                self.assertIsNotNone(panel, panel_id)
+                self.assertIn(group, panel.parents, panel_id)
 
-        self.assertTrue(all(panels), panel_ids)
-        expected_parent = panels[0].parent
-        for panel in panels[1:]:
-            self.assertIs(panel.parent, expected_parent, panel.get('id'))
-
-    def test_template_list_renders_api_preview_without_full_template_content(self):
+    def test_template_list_uses_dedicated_api_preview_and_inline_detail(self):
         main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        display_start = main_js.index('function displayTemplateList(templates)')
-        display_end = main_js.index('// 编辑模板', display_start)
-        display_source = main_js[display_start:display_end]
+        workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
+        self.assertNotIn('function displayTemplateList(templates)', main_js)
+        self.assertIn('async function loadTemplates()', workbench_js)
+        self.assertIn('async function showTemplateDetail(id)', workbench_js)
+        self.assertIn('row.preview', workbench_js)
+        self.assertNotIn('row.content', workbench_js[workbench_js.index('async function loadTemplates()'):workbench_js.index('function renderTemplateForm')])
 
-        self.assertIn("const preview = template.preview || '';", display_source)
-        self.assertNotIn('template.template_content', display_source)
-
-    def test_task_modal_labels_manifest_as_configuration_not_generated_simc_code(self):
+    def test_task_history_uses_inline_safe_detail_instead_of_raw_config_modal(self):
         template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
         main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
 
-        self.assertIn('查看任务配置', template)
-        self.assertIn('运行配置快照', template)
+        self.assertIn('id="simc-wb-task-detail"', template)
         self.assertNotIn('查看SimC代码', template)
         self.assertNotIn('生成的SimC代码', template)
         self.assertNotIn('copy-simc-code', template)
-        self.assertIn('view-simc-task-snapshot', main_js)
         self.assertNotIn('view-simc-task-code', main_js)
+        self.assertIn('async function showTaskDetail(resource, id)', workbench_js)
+        self.assertIn('状态：', workbench_js)
+        self.assertIn('更新时间：', workbench_js)
+        self.assertNotIn('final_simc_content', workbench_js)
 
     def test_final_execution_config_validation_summarizes_rendered_simc_without_raw_content(self):
         rendered = '''warrior="AuditActor"
@@ -2177,6 +2179,8 @@ html=simc_task_99.html
         task = SimcTask.objects.get(id=payload['data']['id'])
         self.assertTrue(task.result_file.endswith('.html'))
         self.assertIn(f'html={task.result_file}', task.final_simc_content)
+        self.assertIn('armory=eu,Kazzak,Bloodmastêr', task.final_simc_content)
+        self.assertNotIn('warrior="Bloodmastêr"', task.final_simc_content)
         ext = json.loads(task.ext)
         self.assertEqual(ext['player_config_mode'], 'battlenet')
         self.assertEqual(ext['player_import_mode'], 'battlenet')
@@ -3231,19 +3235,19 @@ class SimcBatchTaskAPIViewGetTests(TestCase):
         self.assertEqual(response.json()['data']['report_url'], '')
 
     def test_batch_frontend_polling_and_safe_detail_contract(self):
-        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        start = main_js.index('// SimC Batch 自动刷新逻辑')
-        end = main_js.index('function displaySimcTaskData(', start)
-        batch_js = main_js[start:end]
+        workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
+        start = workbench_js.index('async function loadTasks(')
+        end = workbench_js.index('function renderPagination(', start)
+        task_js = workbench_js[start:end]
 
-        self.assertNotIn('setInterval(', batch_js)
-        self.assertIn('simcBatchFetchInFlight', batch_js)
-        self.assertIn('Promise.allSettled', batch_js)
-        self.assertIn('delete container.dataset.hasActiveBatch', batch_js)
-        self.assertIn('r.status === 401 || r.status === 403', batch_js)
-        self.assertIn('r.redirected', batch_js)
-        self.assertIn('暂无模拟批次', batch_js)
-        self.assertIn('task.status === 1 || task.status === 4', batch_js)
+        self.assertNotIn('setInterval(', task_js)
+        self.assertIn('taskFetchInFlight', task_js)
+        self.assertIn('taskRequestSerial', task_js)
+        self.assertIn('setTimeout(', task_js)
+        self.assertIn('[0, 1, 4].includes(Number(row.status))', task_js)
+        self.assertIn('Number(row.pending || 0) > 0', task_js)
+        self.assertIn('scheduleTaskRefresh(hasActive)', task_js)
+        self.assertIn('暂无记录', task_js)
 
     def test_get_detail_report_url_only_when_all_valid(self):
         """Test report_url appears only when all tasks succeed with valid HTML"""

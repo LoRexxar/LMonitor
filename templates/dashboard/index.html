@@ -141,8 +141,8 @@
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260715b"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260715c"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260715o"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260715k"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -283,12 +283,6 @@
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
                         <ul class="submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
-                            <li class="submenu-item" data-table="SimcAplKeywordPair">
-                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
-                                    <i class="fas fa-key mr-2 text-xs"></i>
-                                    APL关键字管理
-                                </a>
-                            </li>
                             <li class="submenu-item" data-tool="wcl-analysis-entry">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-chart-bar mr-2 text-xs"></i>
@@ -767,45 +761,24 @@
 
                 <div class="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden mb-6">
                     <div class="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-blue-50">
-                        <div class="flex flex-wrap gap-2" id="simc-workbench-tabs" aria-label="SimC 十模型工作台">
-                            <div class="w-full grid grid-cols-2 md:grid-cols-5 gap-2 mb-3" aria-label="SimC 十模型入口">
-                                <button type="button" data-simc-model="batches" data-simc-tab="tasks" class="simc-model-entry rounded-lg border p-2 text-xs">TaskBatch 批次</button>
-                                <button type="button" data-simc-model="tasks" data-simc-tab="tasks" class="simc-model-entry rounded-lg border p-2 text-xs">Task 任务</button>
-                                <button type="button" data-simc-model="artifacts" data-simc-tab="artifacts" class="simc-model-entry rounded-lg border p-2 text-xs">Artifact 结果</button>
-                                <button type="button" data-simc-model="profiles" data-simc-tab="profiles" class="simc-model-entry rounded-lg border p-2 text-xs">Profile 配置</button>
-                                <button type="button" data-simc-model="secondary-rules" data-simc-tab="rules" class="simc-model-entry rounded-lg border p-2 text-xs">SecondaryStatRule</button>
-                                <button type="button" data-simc-model="mastery-rules" data-simc-tab="rules" class="simc-model-entry rounded-lg border p-2 text-xs">MasteryCoefficient</button>
-                                <button type="button" data-simc-model="templates" data-simc-tab="templates" class="simc-model-entry rounded-lg border p-2 text-xs">ContentTemplate</button>
-                                <button type="button" data-simc-model="backend" data-simc-tab="backend" class="simc-model-entry rounded-lg border p-2 text-xs">BackendBinary</button>
-                                <button type="button" data-simc-model="apl-keywords" data-simc-tab="apl" class="simc-model-entry rounded-lg border p-2 text-xs">AplKeywordPair</button>
-                                <button type="button" data-simc-model="apl-storage" data-simc-tab="apl" class="simc-model-entry rounded-lg border p-2 text-xs">UserAplStorage</button>
-                            </div>
-                            <button type="button" data-simc-tab="tasks" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-blue-600 text-white shadow-sm">
-                                <i class="fas fa-tasks mr-2"></i>任务管理
+                        <div class="flex flex-wrap gap-2" id="simc-workbench-l1-tabs">
+                            <button type="button" data-simc-l1-tab="workflow" class="simc-l1-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-blue-600 text-white shadow-sm">
+                                <i class="fas fa-project-diagram mr-2"></i>模拟工作流
                             </button>
-                            <button type="button" data-simc-tab="import" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
-                                <i class="fas fa-play-circle mr-2"></i>发起模拟
+                            <button type="button" data-simc-l1-tab="history" class="simc-l1-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
+                                <i class="fas fa-history mr-2"></i>历史任务
                             </button>
-                            <button type="button" data-simc-tab="artifacts" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50"><i class="fas fa-file-lines mr-2"></i>结果中心</button>
-                            <button type="button" data-simc-tab="profiles" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
-                                <i class="fas fa-cog mr-2"></i>配置管理
-                            </button>
-                            <button type="button" data-simc-tab="templates" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
-                                <i class="fas fa-file-code mr-2"></i>模板管理
-                            </button>
-                            <button type="button" data-simc-tab="apl" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
-                                <i class="fas fa-exchange-alt mr-2"></i>APL互转
-                            </button>
-                            <button type="button" data-simc-tab="backend" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
-                                <i class="fas fa-hammer mr-2"></i>后端更新
-                            </button>
-                            <button type="button" data-simc-tab="rules" class="simc-workbench-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
-                                <i class="fas fa-calculator mr-2"></i>绿字规则
+                            <button type="button" data-simc-l1-tab="advanced" class="simc-l1-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
+                                <i class="fas fa-cogs mr-2"></i>高级设置
                             </button>
                         </div>
                     </div>
                     <div class="p-5">
-                        <div class="simc-workbench-panel hidden" id="simc-workbench-import-panel" data-simc-panel="import">
+                        <!-- L1 Panel: 模拟工作流 -->
+                        <div class="simc-l1-panel" id="simc-l1-workflow-panel" data-simc-l1-panel="workflow">
+                            <div class="space-y-6">
+                                <!-- Workflow continues with import panel content below -->
+                        <div class="simc-workbench-panel" id="simc-workbench-import-panel" data-simc-panel="import">
                             <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
                                 <div class="xl:col-span-7">
                                     <div class="rounded-2xl border border-blue-100 bg-blue-50/40 p-5 h-full">
@@ -907,15 +880,15 @@
                                             </label>
                                             <div class="flex flex-wrap gap-4 mb-3">
                                                 <label class="flex items-center gap-2 cursor-pointer">
-                                                    <input type="radio" name="simc-player-import-mode" value="battlenet" checked onchange="switchSimcPlayerImportMode('battlenet')" class="h-4 w-4 text-blue-600 border-gray-300">
+                                                    <input type="radio" name="simc-player-import-mode" value="battlenet" checked class="h-4 w-4 text-blue-600 border-gray-300">
                                                     <span class="text-sm text-gray-700">Battle.net 角色拉取</span>
                                                 </label>
                                                 <label class="flex items-center gap-2 cursor-pointer">
-                                                    <input type="radio" name="simc-player-import-mode" value="manual_equipment" onchange="switchSimcPlayerImportMode('manual_equipment')" class="h-4 w-4 text-blue-600 border-gray-300">
+                                                    <input type="radio" name="simc-player-import-mode" value="manual_equipment" class="h-4 w-4 text-blue-600 border-gray-300">
                                                     <span class="text-sm text-gray-700">手动输入装备配置</span>
                                                 </label>
                                                 <label class="flex items-center gap-2 cursor-pointer">
-                                                    <input type="radio" name="simc-player-import-mode" value="attribute_only" onchange="switchSimcPlayerImportMode('attribute_only')" class="h-4 w-4 text-blue-600 border-gray-300">
+                                                    <input type="radio" name="simc-player-import-mode" value="attribute_only" class="h-4 w-4 text-blue-600 border-gray-300">
                                                     <span class="text-sm text-gray-700">冻结玩家基线与绿字覆盖</span>
                                                 </label>
                                             </div>
@@ -1019,7 +992,7 @@
                                 <div class="xl:col-span-5">
                                     <div class="rounded-2xl border border-gray-200 bg-white p-5 h-full">
                                         <!-- 已保存配置：紧凑单行选择，点击后回填左侧表单 -->
-                                        <div class="rounded-xl border border-gray-200 bg-gray-50 p-3 mb-4">
+
                                             <div class="flex items-center justify-between gap-3 mb-2">
                                                 <div class="font-semibold text-gray-800"><i class="fas fa-database mr-1 text-purple-500"></i>加载保存配置</div>
                                                 <button type="button" id="simc-sim-refresh-profiles-btn" class="shrink-0 text-xs px-2.5 py-1 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700">
@@ -1046,13 +1019,40 @@
                                 </div>
                             </div>
                         </div>
+                        </div>
+                        </div>
+                        <!-- End L1 Panel: 模拟工作流 -->
+
+                        <!-- L1 Panel: 历史任务 -->
+                        <div class="simc-l1-panel hidden" id="simc-l1-history-panel" data-simc-l1-panel="history">
                         <div class="simc-workbench-panel" id="simc-workbench-tasks-panel" data-simc-panel="tasks">
                             <div class="rounded-2xl border bg-white p-5">
                                 <div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-xl font-bold">任务与批次</h3><p class="text-sm text-gray-500">列表、行内详情和安全白名单动作均在本页完成。</p></div><button type="button" data-simc-refresh="tasks" class="rounded-lg bg-slate-100 px-3 py-2 text-sm">刷新</button></div>
                                 <div class="mt-4 flex gap-2" role="tablist"><button type="button" data-task-subtab="tasks" class="simc-task-subtab rounded-lg bg-blue-600 px-4 py-2 text-white">Task</button><button type="button" data-task-subtab="batches" class="simc-task-subtab rounded-lg border px-4 py-2">Batch</button></div>
-                                <div id="simc-wb-task-list" class="mt-4"></div><div id="simc-wb-task-detail" class="mt-4 hidden rounded-xl border bg-slate-50 p-4"></div>
+                                <div id="simc-wb-task-list" class="mt-4"></div>
+                                <div id="simc-wb-task-pagination" class="mt-3"></div>
+                                <div id="simc-wb-task-detail" class="mt-4 hidden rounded-xl border bg-slate-50 p-4"></div>
                             </div>
                         </div>
+                        </div>
+                        <!-- End L1 Panel: 历史任务 -->
+
+                        <!-- L1 Panel: 高级设置 -->
+                        <div class="simc-l1-panel hidden" id="simc-l1-advanced-panel" data-simc-l1-panel="advanced">
+                            <div class="mb-4">
+                                <div class="w-full grid grid-cols-2 md:grid-cols-5 gap-2" aria-label="SimC 十模型入口">
+                                    <button type="button" data-simc-model="batches" data-simc-tab="tasks" class="simc-model-entry rounded-lg border p-2 text-xs">TaskBatch 批次</button>
+                                    <button type="button" data-simc-model="tasks" data-simc-tab="tasks" class="simc-model-entry rounded-lg border p-2 text-xs">Task 任务</button>
+                                    <button type="button" data-simc-model="artifacts" data-simc-tab="artifacts" class="simc-model-entry rounded-lg border p-2 text-xs">Artifact 结果</button>
+                                    <button type="button" data-simc-model="profiles" data-simc-tab="profiles" class="simc-model-entry rounded-lg border p-2 text-xs">Profile 配置</button>
+                                    <button type="button" data-simc-model="secondary-rules" data-simc-tab="rules" class="simc-model-entry rounded-lg border p-2 text-xs">SecondaryStatRule</button>
+                                    <button type="button" data-simc-model="mastery-rules" data-simc-tab="rules" class="simc-model-entry rounded-lg border p-2 text-xs">MasteryCoefficient</button>
+                                    <button type="button" data-simc-model="templates" data-simc-tab="templates" class="simc-model-entry rounded-lg border p-2 text-xs">ContentTemplate</button>
+                                    <button type="button" data-simc-model="backend" data-simc-tab="backend" class="simc-model-entry rounded-lg border p-2 text-xs">BackendBinary</button>
+                                    <button type="button" data-simc-model="apl-keywords" data-simc-tab="apl" class="simc-model-entry rounded-lg border p-2 text-xs">AplKeywordPair</button>
+                                    <button type="button" data-simc-model="apl-storage" data-simc-tab="apl" class="simc-model-entry rounded-lg border p-2 text-xs">UserAplStorage</button>
+                                </div>
+                            </div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-artifacts-panel" data-simc-panel="artifacts"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">Artifact 结果中心</h3><p class="text-sm text-gray-500">站内只读安全预览，不跳出工作台。</p></div><button type="button" data-simc-refresh="artifacts" class="rounded-lg bg-slate-100 px-3 py-2 text-sm">刷新</button></div><div id="simc-wb-artifact-list" class="mt-4"></div><div id="simc-wb-artifact-detail" class="mt-4 hidden"></div></div></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-profiles-panel" data-simc-panel="profiles">
                             <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
@@ -1062,7 +1062,7 @@
                                         <p class="text-sm text-gray-500 mt-1">管理 SimC 角色配置（profile）：专精、天赋、装备属性。</p>
                                     </div>
                                     <div class="flex items-center gap-2">
-                                        <button type="button" id="simc-wb-profile-add" onclick="simcWbToggleProfileForm('create')" class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+                                        <button type="button" id="simc-wb-profile-add" data-profile-form-action="create" class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
                                             <i class="fas fa-plus mr-1"></i>新增配置
                                         </button>
                                         <select id="simc-wb-profile-spec-filter" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
@@ -1077,7 +1077,7 @@
                                 <div id="simc-wb-profile-form" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
                                     <div class="flex items-center justify-between mb-3">
                                         <h4 class="simc-wb-form-title text-base font-semibold text-blue-800">新增配置</h4>
-                                        <button type="button" onclick="simcWbCloseProfileForm()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                                        <button type="button" data-profile-form-action="close" class="text-gray-400 hover:text-gray-600" aria-label="关闭配置表单"><i class="fas fa-times"></i></button>
                                     </div>
                                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                         <label class="block"><span class="text-gray-600">名称 *</span><input name="name" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="配置名"></label>
@@ -1117,8 +1117,8 @@
                                         <label class="block"><span class="text-gray-600">全能</span><input name="gear_versatility" type="number" value="7257" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                     </div>
                                     <div class="flex items-center gap-2 mt-3">
-                                        <button type="button" onclick="simcWbSaveProfile()" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
-                                        <button type="button" onclick="simcWbCloseProfileForm()" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
+                                        <button type="button" data-profile-form-action="save" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
+                                        <button type="button" data-profile-form-action="close" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
                                     </div>
                                 </div>
                                 <div class="overflow-x-auto">
@@ -1153,7 +1153,7 @@
                                         <p class="text-sm text-gray-500 mt-1">管理次级属性的绿字转换比例规则，用于 SimC 属性模拟。</p>
                                     </div>
                                     <div class="flex items-center gap-2">
-                                        <button type="button" onclick="simcWbToggleRuleForm('create')" class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+                                        <button type="button" data-simc-inline-create="secondary-rules" class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
                                             <i class="fas fa-plus mr-1"></i>新增规则
                                         </button>
                                         <button type="button" id="simc-wb-rules-refresh" class="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
@@ -1165,7 +1165,7 @@
                                 <div id="simc-wb-rule-form" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
                                     <div class="flex items-center justify-between mb-3">
                                         <h4 class="simc-wb-form-title text-base font-semibold text-blue-800">新增绿字规则</h4>
-                                        <button type="button" onclick="simcWbCloseRuleForm()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                                        <button type="button" data-rule-form-action="close" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
                                     </div>
                                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                         <label class="block"><span class="text-gray-600">职业 *</span>
@@ -1182,8 +1182,8 @@
                                         <label class="block"><span class="text-gray-600">全能/%</span><input name="versatility_per_percent" type="number" step="0.1" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="如 54"></label>
                                     </div>
                                     <div class="flex items-center gap-2 mt-3">
-                                        <button type="button" onclick="simcWbSaveRule()" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
-                                        <button type="button" onclick="simcWbCloseRuleForm()" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
+                                        <button type="button" data-rule-form-action="save" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
+                                        <button type="button" data-rule-form-action="cancel" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
                                     </div>
                                 </div>
                                 <div class="overflow-x-auto">
@@ -1211,7 +1211,7 @@
                                             <p class="text-sm text-gray-500 mt-1">职业级规则只保存每 1% 所需绿字；每个专精的 mastery coefficient 在这里单独维护。</p>
                                         </div>
                                         <div class="flex items-center gap-2">
-                                            <button type="button" onclick="simcWbToggleMasteryForm('create')" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white">
+                                            <button type="button" data-simc-inline-create="mastery-rules" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white">
                                                 <i class="fas fa-plus mr-1"></i>新增精通系数
                                             </button>
                                             <button type="button" id="simc-wb-mastery-refresh" class="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
@@ -1222,15 +1222,15 @@
                                     <div id="simc-wb-mastery-form" class="hidden bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4">
                                         <div class="flex items-center justify-between mb-3">
                                             <h4 class="simc-wb-form-title text-base font-semibold text-indigo-800">新增精通系数</h4>
-                                            <button type="button" onclick="simcWbCloseMasteryForm()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                                            <button type="button" data-mastery-form-action="close" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
                                         </div>
                                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                                             <label class="block"><span class="text-gray-600">专精 *</span><input name="spec" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="fury / warrior_fury"></label>
                                             <label class="block"><span class="text-gray-600">精通系数 *</span><input name="mastery_coefficient" type="number" step="0.0001" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="如 1.4"></label>
                                         </div>
                                         <div class="flex items-center gap-2 mt-3">
-                                            <button type="button" onclick="simcWbSaveMastery()" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
-                                            <button type="button" onclick="simcWbCloseMasteryForm()" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
+                                            <button type="button" data-mastery-form-action="save" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
+                                            <button type="button" data-mastery-form-action="cancel" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
                                         </div>
                                     </div>
                                     <div class="overflow-x-auto">
@@ -1252,9 +1252,10 @@
                                 </div>
                             </div>
                         </div>
+                        </div>
+                        <!-- End L1 Panel: 高级设置 -->
                     </div>
                 </div>
-            </div>
 
             <!-- Tools内容区域 -->
             <div class="content-section" id="tools" style="display: none;">
@@ -1313,15 +1314,6 @@
                             </button>
                             <button id="copy-result" class="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
                                 <i class="fas fa-copy mr-2"></i>复制结果
-                            </button>
-                            <button id="save-apl" class="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
-                                <i class="fas fa-save mr-2"></i>保存APL
-                            </button>
-                            <button id="view-saved-apl" class="bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
-                                <i class="fas fa-list mr-2"></i>查看已保存APL
-                            </button>
-                            <button id="preview-current-apl" class="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg transition-colors duration-200">
-                                <i class="fas fa-language mr-2"></i>翻译预览
                             </button>
                         </div>
                     </div>
@@ -1406,131 +1398,6 @@
                     </div>
                 </div>
                 
-                <!-- SimC模板管理 -->
-                <div class="tool-content" id="simc-template-management" style="display: none;">
-                    <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="text-xl font-semibold text-gray-800">SimC模板管理</h3>
-                            <div class="flex space-x-3">
-                                <select id="template-type-filter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                                    <option value="base_template">基础模板</option>
-                                    <option value="default_apl">默认APL</option>
-                                    <option value="custom_apl">个人APL</option>
-                                    <option value="default_player">默认玩家</option>
-                                </select>
-                                <button id="add-template-btn" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200 flex items-center">
-                                    <i class="fas fa-plus mr-2"></i>
-                                    新增模板
-                                </button>
-                                <button id="refresh-template-list" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center">
-                                    <i class="fas fa-sync-alt mr-2"></i>
-                                    刷新列表
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- 模板列表表格 -->
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full bg-white border border-gray-200 rounded-lg">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">编号</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">名称</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">专精</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">模板预览</th>
-                                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">状态</th>
-                                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="template-list" class="bg-white divide-y divide-gray-200">
-                                    <!-- 模板列表将通过JavaScript动态加载 -->
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <!-- 空状态提示 -->
-                        <div id="template-empty-state" class="text-center py-12" style="display: none;">
-                            <i class="fas fa-file-code text-gray-400 text-4xl mb-4"></i>
-                            <p class="text-gray-500 text-lg mb-2">暂无模板数据</p>
-                            <p class="text-gray-400 text-sm">请联系管理员添加模板</p>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- SimC任务管理 -->
-                <div class="tool-content" id="simc-task-management" style="display: none;">
-                    <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="text-xl font-semibold text-gray-800">SimC任务管理</h3>
-                            <div class="flex items-center space-x-3">
-                                <button id="compare-simc-regular-tasks-btn" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors duration-200 flex items-center opacity-50 cursor-not-allowed" disabled>
-                                    <i class="fas fa-balance-scale mr-2"></i>
-                                    对比常规模拟
-                                </button>
-                                <button id="add-simc-task-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center">
-                                    <i class="fas fa-plus mr-2"></i>
-                                    新增任务
-                                </button>
-                            </div>
-                        </div>
-
-                        <div id="simc-backend-update-panel" class="hidden mb-4 border border-gray-200 rounded-lg p-4 bg-gray-50">
-                            <div class="flex items-center justify-between gap-4">
-                                <div class="text-sm text-gray-700">
-                                    <span class="font-semibold">SimC 后端更新</span>
-                                    <span id="simc-backend-update-status" class="ml-2 text-gray-600"></span>
-                                </div>
-                                <div class="text-xs text-gray-500">
-                                    <span id="simc-backend-update-version"></span>
-                                </div>
-                            </div>
-                            <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                                <span id="simc-backend-update-need" class="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-200 text-gray-700"></span>
-                                <span id="simc-backend-update-running" class="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-200 text-gray-700"></span>
-                            </div>
-                            <div class="mt-3 w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
-                                <div id="simc-backend-update-progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
-                            </div>
-                            <div class="mt-2 text-xs text-gray-500">
-                                <span id="simc-backend-update-progress-text"></span>
-                            </div>
-                        </div>
-
-                        <!-- Batch 批次卡片区 -->
-                        <div id="simc-batch-cards-container" class="mb-6"></div>
-
-                        <!-- 任务列表 -->
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full bg-white border border-gray-200 rounded-lg">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="w-12 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
-                                            <input id="simc-task-select-all" type="checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded">
-                                        </th>
-                                        <th class="w-20 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">编号</th>
-                                        <th class="min-w-[220px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务名称</th>
-                                        <th class="w-28 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">专精</th>
-                                        <th class="min-w-[170px] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">任务类型</th>
-                                        <th class="w-24 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">状态</th>
-
-                                        <th class="min-w-[360px] px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="simc-task-list" class="bg-white divide-y divide-gray-200">
-                                    <!-- 任务列表将通过JavaScript动态加载 -->
-                                    <tr>
-                                        <td colspan="7" class="text-center py-8 text-gray-500">
-                                            <i class="fas fa-tasks text-4xl mb-4"></i>
-                                            <p>暂无任务数据</p>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-
                 <div class="tool-content" id="wago-skill-diff-rerun" style="display: none;">
                     <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
                         <h3 class="text-xl font-semibold text-gray-800 mb-3">Wago 指定版本重跑</h3>
@@ -1858,800 +1725,6 @@
                     </button>
                     <button type="submit" form="edit-record-form" id="submit-edit-btn" class="px-6 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl">
                         <i class="fas fa-save mr-2"></i>保存
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- APL保存区域浮窗 -->
-    <div class="fixed inset-0 bg-black bg-opacity-50 z-50" id="apl-save-section" style="display: none;">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-2xl">
-                <h4 class="text-lg font-semibold text-gray-800 mb-4">保存APL代码</h4>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">APL标题 *</label>
-                    <input type="text" id="apl-title" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent" placeholder="请输入APL标题..." required>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">APL代码 *</label>
-                    <textarea id="apl-edit-input" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none" rows="15" placeholder="请输入APL代码..." required></textarea>
-                </div>
-                <div class="mt-4 flex justify-end space-x-3">
-                    <button id="cancel-save" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        取消
-                    </button>
-                    <button id="confirm-save" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-save mr-2"></i>确认保存
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- 已保存APL列表浮窗 -->
-    <div class="fixed inset-0 bg-black bg-opacity-50 z-50" id="saved-apl-section" style="display: none;">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-                <div class="flex justify-between items-center mb-4">
-                    <h4 class="text-lg font-semibold text-gray-800">已保存的APL</h4>
-                    <div class="flex space-x-2">
-                        <button id="refresh-apl-list" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md text-sm transition-colors duration-200">
-                            <i class="fas fa-sync-alt mr-1"></i>刷新
-                        </button>
-                        <button id="close-apl-list" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded-md text-sm transition-colors duration-200">
-                            <i class="fas fa-times mr-1"></i>关闭
-                        </button>
-                    </div>
-                </div>
-                <div id="saved-apl-list" class="space-y-3">
-                    <!-- APL列表将通过JavaScript动态加载 -->
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- APL翻译预览浮窗 -->
-    <div class="fixed inset-0 bg-black bg-opacity-50 z-50" id="apl-translation-preview-modal" style="display: none;">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-5xl max-h-[85vh] overflow-y-auto">
-                <div class="flex justify-between items-center mb-4">
-                    <h4 class="text-lg font-semibold text-gray-800">APL翻译预览 - <span id="apl-preview-title"></span></h4>
-                    <button id="close-apl-preview" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded-md text-sm transition-colors duration-200">
-                        <i class="fas fa-times mr-1"></i>关闭
-                    </button>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <h5 class="text-sm font-semibold text-gray-700 mb-2">APL原文</h5>
-                        <textarea id="apl-preview-raw" class="w-full p-3 border border-gray-300 rounded-md font-mono text-sm bg-gray-50" rows="18" readonly></textarea>
-                    </div>
-                    <div>
-                        <h5 class="text-sm font-semibold text-gray-700 mb-2">中文翻译</h5>
-                        <textarea id="apl-preview-cn" class="w-full p-3 border border-gray-300 rounded-md font-mono text-sm bg-gray-50" rows="18" readonly></textarea>
-                    </div>
-                </div>
-                <div class="mt-4 flex justify-end space-x-3">
-                    <button id="copy-apl-preview-raw" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">复制原文</button>
-                    <button id="copy-apl-preview-cn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">复制翻译</button>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- SimC任务新增模态框 -->
-    <div class="fixed inset-0 bg-black bg-opacity-50 z-50" id="add-simc-task-modal" style="display: none;">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-                <h4 class="text-lg font-semibold text-gray-800 mb-4">新增SimC任务</h4>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">任务名称 *</label>
-                    <input type="text" id="simc-task-name" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="请输入任务名称..." required>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">任务类型 *</label>
-                    <select id="simc-task-type" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" required>
-                        <option value="1">常规模拟</option>
-                        <option value="2">属性模拟</option>
-                    </select>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">SimC配置</label>
-                    <select id="simc-config-select" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                        <option value="">请选择SimC配置...</option>
-                    </select>
-                    <p class="text-xs text-gray-500 mt-1">常规模拟可二选一：选择已有配置，或在下方粘贴完整 SimC 代码；属性模拟必须选择配置。</p>
-                </div>
-                <div class="mb-4" id="simc-task-raw-code-wrapper">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">直接 SimC 代码（可选，仅常规模拟）</label>
-                    <textarea id="simc-task-raw-code" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm" rows="8" placeholder="粘贴完整 .simc 配置后，将不再依赖上方 SimC 配置..."></textarea>
-                    <div class="mt-3 flex flex-wrap items-center gap-2">
-                        <button type="button" id="inspect-raw-simc-code" class="inline-flex items-center px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-md transition-colors duration-200 text-sm">
-                            <i class="fas fa-magic mr-2"></i>识别方案
-                        </button>
-                        <span class="text-xs text-gray-500">识别角色、职业、专精与可创建的模拟方案；raw 代码首版只开放常规模拟。</span>
-                    </div>
-                    <div id="simc-raw-inspect-result" class="mt-3 hidden border border-indigo-100 bg-indigo-50 rounded-lg p-3 text-sm"></div>
-                </div>
-                <div class="mb-4" style="display: none;">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">属性组合 *</label>
-                    <select id="simc-task-profile" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" required>
-                        <option value="">请选择属性组合...</option>
-                        <option value="crit_haste">暴击+急速</option>
-                        <option value="crit_mastery">暴击+精通</option>
-                        <option value="crit_versatility">暴击+全能</option>
-                        <option value="haste_mastery">急速+精通</option>
-                        <option value="haste_versatility">急速+全能</option>
-                        <option value="mastery_versatility">精通+全能</option>
-                    </select>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" id="simc-task-regular-options">
-                    <div class="md:col-span-2">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">常规模拟默认场景</label>
-                        <select id="simc-task-regular-preset" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            <option value="300,1">单体标准(300秒 / 1目标)</option>
-                            <option value="300,2">双目标(300秒 / 2目标)</option>
-                            <option value="40,5">AOE爆发(40秒 / 5目标)</option>
-                            <option value="40,10">极限AOE(40秒 / 10目标)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">覆盖战斗时长(秒，可选)</label>
-                        <input type="number" id="simc-task-regular-time" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" value="300">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">覆盖目标数量(可选)</label>
-                        <input type="number" id="simc-task-regular-target-count" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" value="1">
-                    </div>
-                </div>
-                <div class="mb-4" id="simc-task-attribute-step-wrapper" style="display: none;">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">属性模拟步长</label>
-                    <input type="number" id="simc-task-attribute-step" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" value="50" min="1">
-                </div>
-
-                <div class="mt-4 flex justify-end space-x-3">
-                    <button id="cancel-add-simc-task" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        取消
-                    </button>
-                    <button id="confirm-add-simc-task" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-plus mr-2"></i>确认新增
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- SimC任务编辑模态框 -->
-    <div class="fixed inset-0 bg-black bg-opacity-50 z-50" id="edit-simc-task-modal" style="display: none;">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-                <h4 class="text-lg font-semibold text-gray-800 mb-4">编辑SimC任务</h4>
-                <input type="hidden" id="edit-simc-task-id">
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">任务名称 *</label>
-                    <input type="text" id="edit-simc-task-name" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="请输入任务名称..." required>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">任务类型 *</label>
-                    <select id="edit-simc-task-type" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" required>
-                        <option value="1">常规模拟</option>
-                        <option value="2">属性模拟</option>
-                    </select>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">SimC配置</label>
-                    <select id="edit-simc-config-select" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                        <option value="">请选择SimC配置...</option>
-                    </select>
-                    <p class="text-xs text-gray-500 mt-1">常规模拟可二选一：选择已有配置，或在下方粘贴完整 SimC 代码；属性模拟必须选择配置。</p>
-                </div>
-                <div class="mb-4" id="edit-simc-task-raw-code-wrapper">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">直接 SimC 代码（可选，仅常规模拟）</label>
-                    <textarea id="edit-simc-task-raw-code" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm" rows="8" placeholder="粘贴完整 .simc 配置后，将不再依赖上方 SimC 配置..."></textarea>
-                </div>
-                <div class="mb-4" style="display: none;">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">属性组合 *</label>
-                    <select id="edit-simc-task-profile" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" required>
-                        <option value="">请选择属性组合...</option>
-                        <option value="crit_haste">暴击+急速</option>
-                        <option value="crit_mastery">暴击+精通</option>
-                        <option value="crit_versatility">暴击+全能</option>
-                        <option value="haste_mastery">急速+精通</option>
-                        <option value="haste_versatility">急速+全能</option>
-                        <option value="mastery_versatility">精通+全能</option>
-                    </select>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" id="edit-simc-task-regular-options">
-                    <div class="md:col-span-2">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">常规模拟默认场景</label>
-                        <select id="edit-simc-task-regular-preset" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            <option value="300,1">单体标准(300秒 / 1目标)</option>
-                            <option value="300,2">双目标(300秒 / 2目标)</option>
-                            <option value="40,5">AOE爆发(40秒 / 5目标)</option>
-                            <option value="40,10">极限AOE(40秒 / 10目标)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">覆盖战斗时长(秒，可选)</label>
-                        <input type="number" id="edit-simc-task-regular-time" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" value="300">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">覆盖目标数量(可选)</label>
-                        <input type="number" id="edit-simc-task-regular-target-count" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" min="1" value="1">
-                    </div>
-                </div>
-                <div class="mb-4" id="edit-simc-task-attribute-step-wrapper" style="display: none;">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">属性模拟步长</label>
-                    <input type="number" id="edit-simc-task-attribute-step" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" value="50" min="1">
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">任务状态</label>
-                    <select id="edit-simc-task-status" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                        <option value="0">等待中</option>
-                        <option value="1">进行中</option>
-                        <option value="4">预处理中</option>
-                        <option value="2">已完成</option>
-                        <option value="3">失败</option>
-                    </select>
-                </div>
-                <div class="mt-4 flex justify-end space-x-3">
-                    <button id="cancel-edit-simc-task" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        取消
-                    </button>
-                    <button id="confirm-edit-simc-task" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-save mr-2"></i>确认保存
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- SimC任务查看模态框 -->
-    <div class="fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto" id="view-simc-task-modal" style="display: none;">
-        <div class="flex min-h-full items-start justify-center p-4 sm:items-center">
-            <div class="my-auto w-full max-w-6xl max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl bg-white p-6 shadow-lg">
-                <h4 class="text-lg font-semibold text-gray-800 mb-4">
-                    <i class="fas fa-eye mr-2 text-green-500"></i>查看任务配置
-                </h4>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">任务名称</label>
-                    <input type="text" id="view-simc-task-name" class="w-full p-3 border border-gray-300 rounded-md bg-gray-50" readonly>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">执行上下文</label>
-                    <div id="view-simc-task-context" class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700"></div>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">运行配置快照</label>
-                    <textarea id="view-simc-task-snapshot" class="w-full p-3 border border-gray-300 rounded-md bg-gray-50 font-mono text-sm resize-y" rows="12" readonly></textarea>
-                    <p class="mt-2 text-xs text-gray-500">这里展示任务创建时冻结的结构化配置摘要，不是 Worker 最终执行的完整 SimC 文本。</p>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">最终执行配置校验</label>
-                    <div id="view-simc-final-validation" class="rounded-lg border border-gray-200 bg-gray-50 p-3 font-mono text-sm text-gray-700">任务尚未生成最终执行输入</div>
-                </div>
-                <div class="mt-4 flex justify-end space-x-3">
-
-                    <button id="close-view-simc-task" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-times mr-2"></i>关闭
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- SimC配置新增模态框 -->
-    <div id="add-simc-profile-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-                <div class="p-6">
-                    <h3 class="text-lg font-semibold text-gray-800 mb-4">
-                        <i class="fas fa-plus mr-2 text-blue-500"></i>新增SimC配置
-                    </h3>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">配置名称</label>
-                            <input type="text" id="add-simc-profile-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="请输入配置名称">
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">专精</label>
-                                <select id="add-simc-profile-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                    <option value="fury">fury</option>
-                                    <option value="arms">arms</option>
-                                    <option value="protection">protection</option>
-                                    <option value="fire">fire</option>
-                                    <option value="frost">frost</option>
-                                    <option value="arcane">arcane</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">战斗风格</label>
-                                <select id="add-simc-profile-fight-style" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                    <option value="Patchwerk">Patchwerk</option>
-                                    <option value="HecticAddCleave">HecticAddCleave</option>
-                                    <option value="LightMovement">LightMovement</option>
-                                    <option value="HeavyMovement">HeavyMovement</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">时间(秒)</label>
-                                <input type="number" id="add-simc-profile-time" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="40" min="1">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">目标数量</label>
-                                <input type="number" id="add-simc-profile-target-count" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="1" min="1">
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">力量</label>
-                                <input type="number" id="add-simc-profile-strength" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="93330" min="0">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">暴击</label>
-                                <input type="number" id="add-simc-profile-crit" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="10730" min="0">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">急速</label>
-                                <input type="number" id="add-simc-profile-haste" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="18641" min="0">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">精通</label>
-                                <input type="number" id="add-simc-profile-mastery" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="21785" min="0">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">全能</label>
-                                <input type="number" id="add-simc-profile-versatility" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="6757" min="0">
-                            </div>
-                        </div>
-                        <div class="p-2 bg-indigo-50 border border-indigo-100 rounded-lg">
-                            <p id="add-secondary-stat-preview-rule" class="text-xs text-indigo-700">属性预览结果</p>
-                            <p id="add-secondary-stat-preview-values" class="text-xs text-indigo-900 mt-1">暴击 -- | 急速 -- | 精通 -- | 全能 --</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">天赋</label>
-                            <textarea id="add-simc-profile-talent" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="3" placeholder="请输入天赋配置..."></textarea>
-                            <div class="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
-                                <div class="flex items-center justify-between">
-                                    <p class="text-xs text-gray-500">天赋预览（尝试）</p>
-                                    <a id="add-talent-preview-link" href="#" target="_blank" class="text-xs text-blue-600 hover:text-blue-700">打开计算器</a>
-                                </div>
-                                <div class="mt-1.5 flex items-center gap-2">
-                                    <img id="add-talent-preview-image" src="" alt="talent-preview" class="w-8 h-8 rounded border border-gray-200 bg-white object-cover">
-                                    <p id="add-talent-preview-text" class="text-xs text-gray-600">输入专精和天赋后自动更新预览</p>
-                                </div>
-                                <div class="mt-2 text-center">
-                                    <iframe
-                                        id="add-talent-preview-raidbots"
-                                        title="add-talent-preview-raidbots"
-                                        class="w-[280px] h-[180px] border border-gray-200 rounded bg-white hidden mx-auto"
-                                        loading="lazy"
-                                        referrerpolicy="no-referrer"
-                                        scrolling="no"
-                                        style="overflow: hidden; display: block;"
-                                    ></iframe>
-                                    <p id="add-talent-preview-raidbots-tip" class="text-xs text-gray-400 mt-1">Raidbots 缩略图：输入有效天赋串后显示</p>
-                                </div>
-                            </div>
-                        </div>
-                        <details class="border border-gray-200 rounded-lg bg-white">
-                            <summary class="px-3 py-2 cursor-pointer text-sm font-medium text-gray-700 select-none">
-                                动作列表（APL编辑，可展开）
-                            </summary>
-                            <div class="px-3 pb-3">
-                                <textarea id="add-simc-profile-action-list" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入动作列表..."></textarea>
-                                <div class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2">
-                                        <div class="flex items-center gap-2">
-                                            <p class="text-xs text-gray-500">中文可读编辑（主编辑）</p>
-                                            <span id="add-simc-profile-apl-preview-status" class="text-xs text-gray-400">未开始</span>
-                                        </div>
-                                        <div class="flex items-center gap-2">
-                                            <label class="text-xs text-gray-600 flex items-center gap-1">
-                                                <input id="add-simc-profile-apl-preview-auto" type="checkbox" class="rounded border-gray-300 text-indigo-600" checked>
-                                                自动同步到APL
-                                            </label>
-                                            <button type="button" id="add-simc-profile-apl-preview-btn" class="px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
-                                                <i class="fas fa-right-left mr-1"></i>同步到APL
-                                            </button>
-                                            <button type="button" id="add-simc-profile-apl-preview-copy" class="px-3 py-1.5 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors duration-200 text-xs">
-                                                <i class="fas fa-copy mr-1"></i>复制中文
-                                            </button>
-                                            <button type="button" id="add-simc-profile-apl-rebuild-cn-btn" class="px-3 py-1.5 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition-colors duration-200 text-xs">
-                                                <i class="fas fa-wand-magic-sparkles mr-1"></i>从APL重建中文
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <textarea id="add-simc-profile-apl-preview-cn" class="w-full p-3 border border-gray-300 rounded-md text-xs bg-white" rows="14" placeholder="在这里编辑中文可读动作列表，系统会自动同步为 APL action_list"></textarea>
-                                    <p class="text-[11px] text-gray-500 mt-2">建议每行一条动作描述，便于稳定转成 APL。必要时可点“从APL重建中文”回对齐。</p>
-                                </div>
-                            </div>
-                        </details>
-                    </div>
-                </div>
-                <div class="sticky bottom-0 flex justify-end space-x-3 px-6 py-4 bg-gray-50 rounded-b-lg border-t border-gray-200">
-                    <button id="cancel-add-simc-profile" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-times mr-2"></i>
-                        取消
-                    </button>
-                    <button id="confirm-add-simc-profile" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-plus mr-2"></i>确认新增
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- SimC配置编辑模态框 -->
-    <div id="edit-simc-profile-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-                <div class="p-6">
-                    <h3 class="text-lg font-semibold text-gray-800 mb-4">
-                        <i class="fas fa-edit mr-2 text-green-500"></i>编辑SimC配置
-                    </h3>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">配置名称</label>
-                            <input type="text" id="edit-simc-profile-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="请输入配置名称">
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">专精</label>
-                                <select id="edit-simc-profile-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                    <option value="fury">fury</option>
-                                    <option value="arms">arms</option>
-                                    <option value="protection">protection</option>
-                                    <option value="fire">fire</option>
-                                    <option value="frost">frost</option>
-                                    <option value="arcane">arcane</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">战斗风格</label>
-                                <select id="edit-simc-profile-fight-style" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                    <option value="Patchwerk">Patchwerk</option>
-                                    <option value="HecticAddCleave">HecticAddCleave</option>
-                                    <option value="LightMovement">LightMovement</option>
-                                    <option value="HeavyMovement">HeavyMovement</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">时间(秒)</label>
-                                <input type="number" id="edit-simc-profile-time" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="40" min="1">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">目标数量</label>
-                                <input type="number" id="edit-simc-profile-target-count" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="1" min="1">
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">力量</label>
-                                <input type="number" id="edit-simc-profile-strength" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="0" min="0">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">暴击</label>
-                                <input type="number" id="edit-simc-profile-crit" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="0" min="0">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">急速</label>
-                                <input type="number" id="edit-simc-profile-haste" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="0" min="0">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">精通</label>
-                                <input type="number" id="edit-simc-profile-mastery" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="0" min="0">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">全能</label>
-                                <input type="number" id="edit-simc-profile-versatility" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="0" min="0">
-                            </div>
-                        </div>
-                        <div class="p-2 bg-indigo-50 border border-indigo-100 rounded-lg">
-                            <p id="edit-secondary-stat-preview-rule" class="text-xs text-indigo-700">属性预览结果</p>
-                            <p id="edit-secondary-stat-preview-values" class="text-xs text-indigo-900 mt-1">暴击 -- | 急速 -- | 精通 -- | 全能 --</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">天赋</label>
-                            <textarea id="edit-simc-profile-talent" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="3" placeholder="请输入天赋配置..."></textarea>
-                            <div class="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
-                                <div class="flex items-center justify-between">
-                                    <p class="text-xs text-gray-500">天赋预览（尝试）</p>
-                                    <a id="edit-talent-preview-link" href="#" target="_blank" class="text-xs text-blue-600 hover:text-blue-700">打开计算器</a>
-                                </div>
-                                <div class="mt-1.5 flex items-center gap-2">
-                                    <img id="edit-talent-preview-image" src="" alt="talent-preview" class="w-8 h-8 rounded border border-gray-200 bg-white object-cover">
-                                    <p id="edit-talent-preview-text" class="text-xs text-gray-600">输入专精和天赋后自动更新预览</p>
-                                </div>
-                                <div class="mt-2 text-center">
-                                    <iframe
-                                        id="edit-talent-preview-raidbots"
-                                        title="edit-talent-preview-raidbots"
-                                        class="w-[280px] h-[180px] border border-gray-200 rounded bg-white hidden mx-auto"
-                                        loading="lazy"
-                                        referrerpolicy="no-referrer"
-                                        scrolling="no"
-                                        style="overflow: hidden; display: block;"
-                                    ></iframe>
-                                    <p id="edit-talent-preview-raidbots-tip" class="text-xs text-gray-400 mt-1">Raidbots 缩略图：输入有效天赋串后显示</p>
-                                </div>
-                            </div>
-                        </div>
-                        <details class="border border-gray-200 rounded-lg bg-white">
-                            <summary class="px-3 py-2 cursor-pointer text-sm font-medium text-gray-700 select-none">
-                                动作列表（APL编辑，可展开）
-                            </summary>
-                            <div class="px-3 pb-3">
-                                <textarea id="edit-simc-profile-action-list" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入动作列表..."></textarea>
-                                <div class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2">
-                                        <div class="flex items-center gap-2">
-                                            <p class="text-xs text-gray-500">中文可读编辑（主编辑）</p>
-                                            <span id="edit-simc-profile-apl-preview-status" class="text-xs text-gray-400">未开始</span>
-                                        </div>
-                                        <div class="flex items-center gap-2">
-                                            <label class="text-xs text-gray-600 flex items-center gap-1">
-                                                <input id="edit-simc-profile-apl-preview-auto" type="checkbox" class="rounded border-gray-300 text-indigo-600" checked>
-                                                自动同步到APL
-                                            </label>
-                                            <button type="button" id="edit-simc-profile-apl-preview-btn" class="px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-xs">
-                                                <i class="fas fa-right-left mr-1"></i>同步到APL
-                                            </button>
-                                            <button type="button" id="edit-simc-profile-apl-preview-copy" class="px-3 py-1.5 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors duration-200 text-xs">
-                                                <i class="fas fa-copy mr-1"></i>复制中文
-                                            </button>
-                                            <button type="button" id="edit-simc-profile-apl-rebuild-cn-btn" class="px-3 py-1.5 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition-colors duration-200 text-xs">
-                                                <i class="fas fa-wand-magic-sparkles mr-1"></i>从APL重建中文
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <textarea id="edit-simc-profile-apl-preview-cn" class="w-full p-3 border border-gray-300 rounded-md text-xs bg-white" rows="14" placeholder="在这里编辑中文可读动作列表，系统会自动同步为 APL action_list"></textarea>
-                                    <p class="text-[11px] text-gray-500 mt-2">建议每行一条动作描述，便于稳定转成 APL。必要时可点“从APL重建中文”回对齐。</p>
-                                </div>
-                            </div>
-                        </details>
-                    </div>
-                </div>
-                <div class="sticky bottom-0 flex justify-end space-x-3 px-6 py-4 bg-gray-50 rounded-b-lg border-t border-gray-200">
-                    <button id="cancel-edit-simc-profile" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-times mr-2"></i>
-                        取消
-                    </button>
-                    <button id="confirm-edit-simc-profile" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-save mr-2"></i>确认保存
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- SimC模板新增模态框 -->
-    <div id="add-template-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-                <div class="p-6">
-                    <h3 class="text-lg font-semibold text-gray-800 mb-4">
-                        <i class="fas fa-plus mr-2 text-green-500"></i>新增SimC模板
-                    </h3>
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">适配专精</label>
-                            <input type="text" id="add-template-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="default" placeholder="如 fury/arms/default">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">模板内容</label>
-                            <textarea id="add-template-content" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入模板内容..."></textarea>
-                        </div>
-                    </div>
-                </div>
-                <div class="flex justify-end space-x-3 px-6 py-4 bg-gray-50 rounded-b-lg">
-                    <button id="cancel-add-template" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-times mr-2"></i>
-                        取消
-                    </button>
-                    <button id="confirm-add-template" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-save mr-2"></i>确认创建
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- SimC模板编辑模态框 -->
-    <div id="edit-template-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-                <div class="p-6">
-                    <h3 class="text-lg font-semibold text-gray-800 mb-4">
-                        <i class="fas fa-edit mr-2 text-green-500"></i>编辑SimC模板
-                    </h3>
-                    <input type="hidden" id="edit-template-id">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">适配专精</label>
-                            <input type="text" id="edit-template-spec" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="default" placeholder="如 fury/arms/default">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">模板内容</label>
-                            <textarea id="edit-template-content" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-y" rows="20" placeholder="请输入模板内容..."></textarea>
-                        </div>
-                    </div>
-                </div>
-                <div class="flex justify-end space-x-3 px-6 py-4 bg-gray-50 rounded-b-lg">
-                    <button id="cancel-edit-template" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-times mr-2"></i>
-                        取消
-                    </button>
-                    <button id="confirm-edit-template" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-save mr-2"></i>确认保存
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 模拟类型选择模态框 -->
-    <div id="simulation-type-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
-                <div class="flex items-center justify-between p-6 border-b border-gray-200">
-                    <h3 class="text-lg font-semibold text-gray-900">
-                        <i class="fas fa-play-circle text-blue-500 mr-2"></i>
-                        选择模拟类型
-                    </h3>
-                    <button onclick="closeSimulationTypeModal()" class="text-gray-400 hover:text-gray-600 transition-colors duration-200">
-                        <i class="fas fa-times text-xl"></i>
-                    </button>
-                </div>
-                <div class="p-6 overflow-y-auto max-h-[60vh]">
-                    <div class="space-y-6">
-                        <!-- 模拟类型选择 -->
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-3">模拟类型</label>
-                            <div class="space-y-3">
-                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="simulation-type" value="1" class="mr-3 text-blue-600" checked>
-                                    <div>
-                                        <div class="font-medium text-gray-900">常规模拟</div>
-                                        <div class="text-sm text-gray-500">执行标准的DPS模拟分析</div>
-                                    </div>
-                                </label>
-                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="simulation-type" value="2" class="mr-3 text-blue-600">
-                                    <div>
-                                        <div class="font-medium text-gray-900">属性模拟</div>
-                                        <div class="text-sm text-gray-500">分析不同属性组合的DPS表现</div>
-                                    </div>
-                                </label>
-                                <label class="flex items-center p-3 border border-violet-200 rounded-lg hover:bg-violet-50 cursor-pointer">
-                                    <input type="radio" name="simulation-type" value="3" class="mr-3 text-violet-600">
-                                    <div>
-                                        <div class="font-medium text-gray-900">APL候选对比模拟</div>
-                                        <div class="text-sm text-gray-500">自动生成5个候选APL + 基础方案，共6个任务并对比</div>
-                                    </div>
-                                </label>
-                            </div>
-                        </div>
-                        <div id="simulation-regular-options">
-                            <label class="block text-sm font-medium text-gray-700 mb-3">常规模拟覆盖参数（可选）</label>
-                            <div class="mb-3">
-                                <label class="block text-xs text-gray-500 mb-1">默认场景</label>
-                                <select id="simulation-regular-preset" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                    <option value="300,1">单体标准(300秒 / 1目标)</option>
-                                    <option value="300,2">双目标(300秒 / 2目标)</option>
-                                    <option value="40,5">AOE爆发(40秒 / 5目标)</option>
-                                    <option value="40,10">极限AOE(40秒 / 10目标)</option>
-                                    <option value="custom">自定义配置</option>
-                                </select>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div>
-                                    <label class="block text-xs text-gray-500 mb-1">覆盖战斗时长(秒)</label>
-                                    <input type="number" id="simulation-regular-time" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1" value="300">
-                                </div>
-                                <div>
-                                    <label class="block text-xs text-gray-500 mb-1">覆盖目标数量</label>
-                                    <input type="number" id="simulation-regular-target-count" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1" value="1">
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 属性组合选择 -->
-                        <div id="attribute-combinations" class="hidden">
-                            <label class="block text-sm font-medium text-gray-700 mb-3">属性组合选择 <span class="text-red-500">*</span></label>
-                            <div class="grid grid-cols-1 gap-3">
-                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" name="attribute-combination" value="crit_mastery" class="mr-3 text-blue-600">
-                                    <div>
-                                        <div class="font-medium text-gray-900">暴击 + 精通</div>
-                                        <div class="text-sm text-gray-500">分析暴击和精通属性的组合效果</div>
-                                    </div>
-                                </label>
-                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" name="attribute-combination" value="crit_haste" class="mr-3 text-blue-600">
-                                    <div>
-                                        <div class="font-medium text-gray-900">暴击 + 急速</div>
-                                        <div class="text-sm text-gray-500">分析暴击和急速属性的组合效果</div>
-                                    </div>
-                                </label>
-                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" name="attribute-combination" value="crit_versatility" class="mr-3 text-blue-600">
-                                    <div>
-                                        <div class="font-medium text-gray-900">暴击 + 全能</div>
-                                        <div class="text-sm text-gray-500">分析暴击和全能属性的组合效果</div>
-                                    </div>
-                                </label>
-                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" name="attribute-combination" value="mastery_haste" class="mr-3 text-blue-600">
-                                    <div>
-                                        <div class="font-medium text-gray-900">精通 + 急速</div>
-                                        <div class="text-sm text-gray-500">分析精通和急速属性的组合效果</div>
-                                    </div>
-                                </label>
-                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" name="attribute-combination" value="mastery_versatility" class="mr-3 text-blue-600">
-                                    <div>
-                                        <div class="font-medium text-gray-900">精通 + 全能</div>
-                                        <div class="text-sm text-gray-500">分析精通和全能属性的组合效果</div>
-                                    </div>
-                                </label>
-                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" name="attribute-combination" value="haste_versatility" class="mr-3 text-blue-600">
-                                    <div>
-                                        <div class="font-medium text-gray-900">急速 + 全能</div>
-                                        <div class="text-sm text-gray-500">分析急速和全能属性的组合效果</div>
-                                    </div>
-                                </label>
-                            </div>
-                            <div class="mt-3">
-                                <label class="block text-xs text-gray-500 mb-1">属性模拟步长</label>
-                                <input type="number" id="simulation-attribute-step" class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="50" min="1">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="flex justify-end space-x-3 px-6 py-4 bg-gray-50 border-t border-gray-200">
-                    <button onclick="closeSimulationTypeModal()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-times mr-2"></i>
-                        取消
-                    </button>
-                    <button id="simulation-start-btn" onclick="startSimulation()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-play mr-2"></i>开始模拟
-                    </button>
-                </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 任务日志模态框 -->
-    <div id="error-info-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
-                <div class="flex items-center justify-between p-6 border-b border-gray-200">
-                    <h3 class="text-lg font-semibold text-gray-900">
-                        <i class="fas fa-file-lines text-blue-500 mr-2"></i>
-                        任务日志 - ID: <span id="error-task-id"></span>
-                    </h3>
-                    <button onclick="document.getElementById('error-info-modal').style.display='none'" class="text-gray-400 hover:text-gray-600 transition-colors duration-200">
-                        <i class="fas fa-times text-xl"></i>
-                    </button>
-                </div>
-                <div class="p-6 overflow-y-auto max-h-[60vh]">
-                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                        <h4 class="text-sm font-medium text-blue-800 mb-3">
-                            <i class="fas fa-clipboard-list mr-1"></i>
-                            日志详情：
-                        </h4>
-                        <pre id="error-content" class="text-sm text-gray-800 whitespace-pre-wrap font-mono bg-white border border-blue-200 rounded p-3 overflow-x-auto"></pre>
-                    </div>
-                </div>
-                <div class="flex justify-end space-x-3 px-6 py-4 bg-gray-50 border-t border-gray-200">
-                    <button onclick="document.getElementById('error-info-modal').style.display='none'" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                        <i class="fas fa-times mr-2"></i>
-                        关闭
                     </button>
                 </div>
             </div>
