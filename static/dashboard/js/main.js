@@ -1392,12 +1392,15 @@ function initSimcWorkbench() {
     document.querySelectorAll('.simc-model-entry').forEach(btn => {
         btn.addEventListener('click', function() {
             switchSimcWorkbenchL1Tab('advanced');
-            const targetTab = this.getAttribute('data-simc-tab');
+            const data = this.dataset;
+            const targetTab = data.simcTab;
             if (targetTab) {
+                const model = data.simcModel;
                 switchSimcWorkbenchTab(targetTab);
-                if (this.getAttribute('data-simc-model') === 'batches' && typeof window.simcWorkbenchLoadTaskResource === 'function') {
-                    window.simcWorkbenchLoadTaskResource('batches');
+                if ((model === 'tasks' || model === 'batches') && typeof window.simcWorkbenchLoadTaskResource === 'function') {
+                    window.simcWorkbenchLoadTaskResource(model);
                 }
+                if (data.ruleSubtab) switchRuleSubtab(model);
             }
         });
     });
@@ -1423,6 +1426,7 @@ function switchSimcWorkbenchL1Tab(l1TabName, childPanelName) {
     if (typeof window.simcWorkbenchDeactivatePanel === 'function') {
         window.simcWorkbenchDeactivatePanel(activeChildPanel);
     }
+    if (activeChildPanel !== 'profiles') simcWbCancelProfileDetail(true);
     if (activeL1Tab !== 'history') stopSimcAttributeSearch();
 
     document.querySelectorAll('.simc-l1-tab').forEach(tab => {
@@ -1435,6 +1439,7 @@ function switchSimcWorkbenchL1Tab(l1TabName, childPanelName) {
         tab.classList.toggle('border', !isActive);
         tab.classList.toggle('border-gray-200', !isActive);
         tab.classList.toggle('hover:bg-gray-50', !isActive);
+        tab.setAttribute('aria-selected', String(isActive));
     });
 
     document.querySelectorAll('.simc-l1-panel').forEach(panel => {
@@ -1469,14 +1474,53 @@ function switchSimcWorkbenchTab(tabName) {
 
 }
 
+function switchRuleSubtab(resource) {
+    const selectedResource = resource === 'mastery-rules' ? 'mastery-rules' : 'secondary-rules';
+    document.querySelectorAll('[data-rule-subtab]').forEach(tab => {
+        const selected = tab.dataset.ruleSubtab === selectedResource;
+        tab.setAttribute('aria-selected', String(selected));
+        tab.classList.toggle('active', selected);
+        tab.classList.toggle('bg-blue-600', selected);
+        tab.classList.toggle('text-white', selected);
+    });
+    document.querySelectorAll('[data-rule-panel]').forEach(panel => {
+        panel.classList.toggle('hidden', panel.dataset.rulePanel !== selectedResource);
+    });
+    if (selectedResource === 'mastery-rules') loadSimcWorkbenchMastery();
+    else loadSimcWorkbenchRules();
+}
+
 /* ===== SimC 工具台 — 配置管理（profiles） ===== */
 let simcWbProfileSpecFilter = '';
 let simcWbProfilePage = 1;
 let simcWbProfileTotalPages = 1;
+let simcWbProfileListRequestSerial = 0;
+let simcWbProfileListAbortController = null;
+let simcWbProfileDetailRequestSerial = 0;
+let simcWbProfileDetailAbortController = null;
+let simcWbProfileDetailId = '';
+
+function simcWbCancelProfileDetail(clear = false) {
+    simcWbProfileDetailRequestSerial += 1;
+    if (simcWbProfileDetailAbortController) simcWbProfileDetailAbortController.abort();
+    simcWbProfileDetailAbortController = null;
+    simcWbProfileDetailId = '';
+    if (clear) {
+        const host = document.getElementById('simc-wb-profile-detail');
+        host?.classList.add('hidden');
+        host?.replaceChildren();
+    }
+}
 
 function loadSimcWorkbenchProfiles(page) {
     page = page || 1;
     simcWbProfilePage = page;
+    const requestedPage = page;
+    const requestedFilter = simcWbProfileSpecFilter;
+    const requestSerial = ++simcWbProfileListRequestSerial;
+    if (simcWbProfileListAbortController) simcWbProfileListAbortController.abort();
+    const abortController = new AbortController();
+    simcWbProfileListAbortController = abortController;
     const tbody = document.getElementById('simc-wb-profile-list');
     if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>加载中…</td></tr>';
@@ -1486,8 +1530,10 @@ function loadSimcWorkbenchProfiles(page) {
 
     fetch('/api/simc-profile/?include_inactive=1', {
         method: 'GET',
-        headers: { 'X-CSRFToken': csrf }
+        headers: { 'X-CSRFToken': csrf },
+        signal: abortController.signal,
     }).then(r => r.json()).then(data => {
+        if (requestSerial !== simcWbProfileListRequestSerial || requestedPage !== simcWbProfilePage || requestedFilter !== simcWbProfileSpecFilter) return;
         if (!data.success) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-red-500">加载失败</td></tr>';
             return;
@@ -1495,10 +1541,10 @@ function loadSimcWorkbenchProfiles(page) {
         let rows = data.data || [];
 
         // Client-side spec filtering
-        if (simcWbProfileSpecFilter) {
+        if (requestedFilter) {
             rows = rows.filter(row => {
                 const spec = (row.spec || '').toLowerCase();
-                const filter = simcWbProfileSpecFilter.toLowerCase();
+                const filter = requestedFilter.toLowerCase();
                 return spec.includes(filter) || spec === filter;
             });
         }
@@ -1506,7 +1552,7 @@ function loadSimcWorkbenchProfiles(page) {
         // Client-side pagination
         const total = rows.length;
         simcWbProfileTotalPages = Math.max(1, Math.ceil(total / 20));
-        const startIdx = (page - 1) * 20;
+        const startIdx = (requestedPage - 1) * 20;
         const endIdx = startIdx + 20;
         const pageRows = rows.slice(startIdx, endIdx);
 
@@ -1532,11 +1578,11 @@ function loadSimcWorkbenchProfiles(page) {
             const launchAction = isActive
                 ? `<button class="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded" data-profile-row-action="simulate" data-profile-id="${id}" title="启动模拟">启动模拟</button>`
                 : '<span class="inline-flex px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-500">已停用</span>';
-            const managementActions = isActive
+            const managementActions = `<button class="text-slate-700 hover:text-slate-900 text-xs" data-profile-row-action="detail" data-profile-id="${id}" title="查看">查看</button>` + (isActive
                 ? `<button class="text-green-600 hover:text-green-800 text-xs" data-profile-row-action="load" data-profile-id="${id}" title="加载到发起模拟"><i class="fas fa-arrow-right"></i></button>
                    <button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>
                    <button class="text-amber-600 hover:text-amber-800 text-xs" data-profile-row-action="deactivate" data-profile-id="${id}" title="停用"><i class="fas fa-pause"></i></button>`
-                : `<button class="text-green-600 hover:text-green-800 text-xs" data-profile-row-action="restore" data-profile-id="${id}" title="恢复"><i class="fas fa-rotate-left mr-1"></i>恢复</button>`;
+                : `<button class="text-green-600 hover:text-green-800 text-xs" data-profile-row-action="restore" data-profile-id="${id}" title="恢复"><i class="fas fa-rotate-left mr-1"></i>恢复</button>`);
             return `<tr class="hover:bg-gray-50 border-b border-gray-100 ${isActive ? '' : 'opacity-70'}">
                 <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
@@ -1554,9 +1600,40 @@ function loadSimcWorkbenchProfiles(page) {
         }).join('');
 
         renderSimcWbPagination('simc-wb-profile-pagination', simcWbProfilePage, simcWbProfileTotalPages, loadSimcWorkbenchProfiles);
-    }).catch(err => {
-        console.error('加载 SimC 配置失败:', err);
+    }).catch(error => {
+        if (error.name === 'AbortError') return;
+        if (requestSerial !== simcWbProfileListRequestSerial || requestedPage !== simcWbProfilePage || requestedFilter !== simcWbProfileSpecFilter) return;
         tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-red-500">网络错误</td></tr>';
+    }).finally(() => {
+        if (simcWbProfileListAbortController === abortController) simcWbProfileListAbortController = null;
+    });
+}
+
+function simcWbShowProfileDetail(id) {
+    const host = document.getElementById('simc-wb-profile-detail');
+    if (!host) return;
+    simcWbCancelProfileDetail();
+    const requestSerial = simcWbProfileDetailRequestSerial;
+    simcWbProfileDetailId = String(id);
+    simcWbProfileDetailAbortController = new AbortController();
+    const abortController = simcWbProfileDetailAbortController;
+    host.classList.remove('hidden');
+    host.innerHTML = '<p class="text-sm text-gray-500">正在加载配置…</p>';
+    fetch('/api/simc-workbench/profiles/' + encodeURIComponent(id) + '/', {
+        headers: { 'Content-Type': 'application/json' },
+        signal: abortController.signal,
+    }).then(response => response.json()).then(data => {
+        if (requestSerial !== simcWbProfileDetailRequestSerial || simcWbProfileDetailId !== String(id)) return;
+        if (!data.success || !data.data) throw new Error('load failed');
+        const row = data.data;
+        const inactive = row.is_active === false;
+        host.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-2"><h4 class="font-bold">配置详情：${escapeHtml(row.name || ('#' + id))}</h4><button type="button" data-profile-detail-close class="min-h-[36px] px-3">关闭</button></div>${inactive ? '<p class="mt-3 rounded bg-amber-50 p-2 text-sm text-amber-800">此配置已停用，不可加载或运行；恢复后方可使用。</p>' : ''}<dl class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm"><div>专精：${escapeHtml(row.spec || '-')}</div><div>来源：${escapeHtml(row.player_config_mode || '-')}</div><div>状态：${inactive ? '已停用' : '启用中'}</div></dl>`;
+    }).catch(error => {
+        if (error.name === 'AbortError') return;
+        if (requestSerial !== simcWbProfileDetailRequestSerial || simcWbProfileDetailId !== String(id)) return;
+        host.innerHTML = `<p class="text-sm text-red-600">配置详情加载失败</p><button type="button" data-profile-row-action="detail" data-profile-id="${escapeHtml(id)}" class="mt-2 min-h-[36px] px-3">重试</button>`;
+    }).finally(() => {
+        if (simcWbProfileDetailAbortController === abortController) simcWbProfileDetailAbortController = null;
     });
 }
 
@@ -1565,6 +1642,11 @@ function bindSimcWorkbenchProfilesControls() {
     if (profilePanel && profilePanel.dataset.formActionsBound !== '1') {
         profilePanel.dataset.formActionsBound = '1';
         profilePanel.addEventListener('click', event => {
+            const detailClose = event.target.closest('[data-profile-detail-close]');
+            if (detailClose) {
+                simcWbCancelProfileDetail(true);
+                return;
+            }
             const formActionButton = event.target.closest('[data-profile-form-action]');
             if (formActionButton && profilePanel.contains(formActionButton)) {
                 const formAction = formActionButton.dataset.profileFormAction;
@@ -1577,6 +1659,7 @@ function bindSimcWorkbenchProfilesControls() {
             if (!rowActionButton || !profilePanel.contains(rowActionButton)) return;
             const rowAction = rowActionButton.dataset.profileRowAction;
             const profileId = rowActionButton.dataset.profileId;
+            if (rowAction === 'detail') simcWbShowProfileDetail(profileId);
             if (rowAction === 'simulate') simcWbLaunchSimulation(profileId);
             if (rowAction === 'load') simcWbLoadProfileToSimulator(profileId);
             if (rowAction === 'edit') simcWbEditProfile(profileId);
@@ -1724,6 +1807,12 @@ function bindSimcWorkbenchRulesControls() {
     }
 
     document.addEventListener('click', function(e) {
+        const ruleSubtab = e.target.closest('[data-rule-subtab]');
+        if (ruleSubtab) {
+            e.preventDefault();
+            switchRuleSubtab(ruleSubtab.dataset.ruleSubtab);
+            return;
+        }
         const ruleAction = e.target.closest('[data-rule-action]');
         if (ruleAction) {
             e.preventDefault();

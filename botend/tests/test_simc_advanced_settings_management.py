@@ -51,7 +51,7 @@ class SimcAdvancedSettingsManagementTests(TestCase):
         self.assertIn(own.id, ids)
         self.assertIn(global_tpl.id, ids)
         self.assertNotIn(foreign.id, ids)
-        self.assertFalse(response.json()['can_write'])
+        self.assertTrue(response.json()['can_write'])
 
     def test_templates_get_staff_can_write_global_non_upstream_templates(self):
         global_tpl = SimcContentTemplate.objects.create(
@@ -110,7 +110,7 @@ class SimcAdvancedSettingsManagementTests(TestCase):
         self.assertEqual(data['name'], "Detail Template")
         self.assertEqual(data['content'], "test content")
 
-    def test_templates_create_requires_staff(self):
+    def test_templates_regular_user_can_create_owned_template(self):
         self.client.force_login(self.user)
         response = self.client.post(
             '/api/simc-workbench/templates/',
@@ -118,12 +118,13 @@ class SimcAdvancedSettingsManagementTests(TestCase):
                 'name': 'New Template',
                 'template_type': SimcContentTemplate.TYPE_BASE_TEMPLATE,
                 'spec': 'fury',
-                'content': 'new content',
+                'content': '{player_config}\niterations=100',
             }),
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 403)
-        self.assertIn('仅管理员可创建模板', response.json()['error'])
+        self.assertEqual(response.status_code, 200)
+        created = SimcContentTemplate.objects.get(id=response.json()['data']['id'])
+        self.assertEqual(created.owner_user_id, self.user.id)
 
     def test_templates_create_staff_succeeds(self):
         self.client.force_login(self.staff)
@@ -133,7 +134,7 @@ class SimcAdvancedSettingsManagementTests(TestCase):
                 'name': 'Staff Template',
                 'template_type': SimcContentTemplate.TYPE_BASE_TEMPLATE,
                 'spec': 'fury',
-                'content': 'staff content',
+                'content': '{player_config}\niterations=100',
                 'owner_user_id': self.staff.id,
             }),
             content_type='application/json',
@@ -151,7 +152,7 @@ class SimcAdvancedSettingsManagementTests(TestCase):
             name="Existing",
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec="fury",
-            content="first",
+            content="{player_config}\niterations=100",
             owner_user_id=self.staff.id,
             is_active=True,
         )
@@ -161,7 +162,7 @@ class SimcAdvancedSettingsManagementTests(TestCase):
                 'name': 'Duplicate',
                 'template_type': SimcContentTemplate.TYPE_BASE_TEMPLATE,
                 'spec': 'fury',
-                'content': 'second',
+                'content': '{player_config}\niterations=200',
                 'owner_user_id': self.staff.id,
             }),
             content_type='application/json',
@@ -169,40 +170,39 @@ class SimcAdvancedSettingsManagementTests(TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn('已存在', response.json()['error'])
 
-    def test_templates_edit_requires_staff(self):
+    def test_templates_owner_can_edit(self):
         tpl = SimcContentTemplate.objects.create(
             name="Edit Test",
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec="fury",
-            content="original",
+            content="{player_config}\niterations=100",
             owner_user_id=self.user.id,
         )
         self.client.force_login(self.user)
         response = self.client.put(
             f'/api/simc-workbench/templates/{tpl.id}/',
-            data=json.dumps({'content': 'updated'}),
+            data=json.dumps({'content': '{player_config}\niterations=200'}),
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 403)
-        self.assertIn('仅管理员可编辑模板', response.json()['error'])
+        self.assertEqual(response.status_code, 200)
 
     def test_templates_edit_staff_succeeds(self):
         tpl = SimcContentTemplate.objects.create(
             name="Edit Staff",
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec="fury",
-            content="original",
+            content="{player_config}\niterations=100",
             owner_user_id=self.staff.id,
         )
         self.client.force_login(self.staff)
         response = self.client.put(
             f'/api/simc-workbench/templates/{tpl.id}/',
-            data=json.dumps({'content': 'updated content', 'name': 'New Name'}),
+            data=json.dumps({'content': '{player_config}\niterations=200', 'name': 'New Name'}),
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 200)
         tpl.refresh_from_db()
-        self.assertEqual(tpl.content, 'updated content')
+        self.assertEqual(tpl.content, '{player_config}\niterations=200')
         self.assertEqual(tpl.name, 'New Name')
 
     def test_templates_staff_can_edit_system_but_not_upstream_templates(self):
@@ -210,7 +210,7 @@ class SimcAdvancedSettingsManagementTests(TestCase):
             name="System",
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec="default",
-            content="system content",
+            content="{player_config}\niterations=100",
             owner_user_id=None,
         )
         upstream_tpl = SimcContentTemplate.objects.create(
@@ -224,12 +224,12 @@ class SimcAdvancedSettingsManagementTests(TestCase):
         self.client.force_login(self.staff)
         response = self.client.put(
             f'/api/simc-workbench/templates/{system_tpl.id}/',
-            data=json.dumps({'content': 'managed system content'}),
+            data=json.dumps({'content': '{player_config}\niterations=200'}),
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 200)
         system_tpl.refresh_from_db()
-        self.assertEqual(system_tpl.content, 'managed system content')
+        self.assertEqual(system_tpl.content, '{player_config}\niterations=200')
 
         response = self.client.put(
             f'/api/simc-workbench/templates/{upstream_tpl.id}/',
@@ -241,7 +241,7 @@ class SimcAdvancedSettingsManagementTests(TestCase):
         upstream_tpl.refresh_from_db()
         self.assertNotEqual(upstream_tpl.content, 'hacked')
 
-    def test_templates_archive_restore_requires_staff(self):
+    def test_templates_owner_can_archive_restore(self):
         tpl = SimcContentTemplate.objects.create(
             name="Archive Test",
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
@@ -256,7 +256,16 @@ class SimcAdvancedSettingsManagementTests(TestCase):
             data=json.dumps({'action': 'archive'}),
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        tpl.refresh_from_db()
+        self.assertFalse(tpl.is_active)
+
+        response = self.client.post(
+            f'/api/simc-workbench/templates/{tpl.id}/',
+            data=json.dumps({'action': 'restore'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
         tpl.refresh_from_db()
         self.assertTrue(tpl.is_active)
 
@@ -490,7 +499,7 @@ class SimcAdvancedSettingsManagementTests(TestCase):
                 'name': 'Test',
                 'template_type': 'base_template',
                 'spec': 'fury',
-                'content': 'test',
+                'content': '{player_config}\niterations=100',
                 'malicious_field': 'injected',
             }),
             content_type='application/json',

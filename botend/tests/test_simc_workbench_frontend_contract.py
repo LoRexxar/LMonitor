@@ -9,6 +9,142 @@ MAIN = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
+    def test_high_risk_resource_navigation_and_aria_contract(self):
+        self.assertIn("syncTaskSubtabs(requestedResource)", JS)
+        self.assertIn("state.taskResource = normalized", JS)
+        self.assertIn("resourceUrl(requestedResource)", JS)
+        self.assertIn("aria-selected", JS)
+        self.assertIn('data-task-subtab="tasks"', HTML)
+        self.assertIn('aria-selected="true"', HTML)
+        self.assertIn("data.ruleSubtab", MAIN)
+        self.assertIn("switchRuleSubtab(model)", MAIN)
+
+    def test_batch_detail_members_have_safe_reachable_task_detail(self):
+        self.assertIn("Array.isArray(row.tasks)", JS)
+        self.assertIn('data-wb-action="detail" data-resource="tasks"', JS)
+        self.assertIn("can_view", JS)
+        self.assertIn("批次详情", JS)
+
+    def test_template_permissions_and_type_round_trip(self):
+        form_start = JS.index("function renderTemplateForm")
+        form_end = JS.index("function closeTemplateForm", form_start)
+        form_body = JS[form_start:form_end]
+        self.assertNotIn("default_player", form_body)
+        self.assertIn("payload.template_type", JS)
+        self.assertIn("!readOnly", JS)
+        self.assertIn("我的模板可编辑", JS)
+        self.assertIn("系统内置只读", JS)
+        self.assertIn("上游同步只读", JS)
+        for template_type in ("base_template", "default_apl", "custom_apl", "custom_player"):
+            self.assertIn(f"value: '{template_type}'", form_body)
+        self.assertNotIn("report_template", form_body)
+        self.assertNotIn("command_fragment", form_body)
+        template_panel = HTML[HTML.index('id="simc-workbench-templates-panel"'):HTML.index('id="simc-workbench-apl-panel"')]
+        self.assertNotIn("can_write", template_panel)
+
+    def test_keyword_detail_and_immutable_edit_contract(self):
+        self.assertIn("showAplKeywordDetail", JS)
+        self.assertIn('data-wb-action="keyword-detail"', JS)
+        self.assertIn("if (!id) payload.apl_keyword", JS)
+        self.assertIn("row ? 'readonly' : ''", JS)
+        self.assertIn('id="simc-wb-apl-keyword-detail"', HTML)
+
+    def test_profiles_always_offer_detail_and_inactive_has_no_run_actions(self):
+        self.assertIn('data-profile-row-action="detail"', MAIN)
+        self.assertIn("simcWbShowProfileDetail", MAIN)
+        self.assertIn("已停用，不可加载或运行", MAIN)
+        self.assertIn('id="simc-wb-profile-detail"', HTML)
+        detail_start = MAIN.index("function simcWbShowProfileDetail")
+        detail_end = MAIN.index("function bindSimcWorkbenchProfilesControls", detail_start)
+        detail_body = MAIN[detail_start:detail_end]
+        self.assertIn("'/api/simc-workbench/profiles/'", detail_body)
+        self.assertNotIn("'/api/simc-profile/'", detail_body)
+        for token in (
+            "simcWbProfileDetailRequestSerial",
+            "simcWbProfileDetailAbortController",
+            "simcWbProfileDetailId",
+            "new AbortController()",
+            "error.name === 'AbortError'",
+            "simcWbCancelProfileDetail",
+        ):
+            self.assertIn(token, MAIN)
+        self.assertIn("requestSerial !== simcWbProfileDetailRequestSerial", detail_body)
+        self.assertIn("simcWbProfileDetailId !== String(id)", detail_body)
+
+    def test_artifact_real_pagination_filters_and_preview_states(self):
+        for token in ("artifactPage: 1", "artifactPageSize", "artifactTaskId", "artifactType"):
+            self.assertIn(token, JS)
+        self.assertIn("page_size=${state.artifactPageSize}", JS)
+        self.assertIn("task_id", JS)
+        self.assertIn("artifact_type", JS)
+        self.assertIn('data-artifact-page="prev"', JS)
+        self.assertIn('data-artifact-page="next"', JS)
+        self.assertIn('data-artifact-preview-action="retry"', JS)
+        self.assertIn('data-artifact-preview-action="close"', JS)
+        self.assertIn('id="simc-wb-artifact-pagination"', HTML)
+        self.assertIn('data-artifact-filter="task_id"', HTML)
+        self.assertIn('data-artifact-filter="artifact_type"', HTML)
+        for artifact_type in ("html_report", "json_stats", "log"):
+            self.assertIn(f'<option value="{artifact_type}"', HTML)
+        self.assertNotIn('<option value="html">HTML 报告</option>', HTML)
+        self.assertNotIn('<option value="json">JSON 数据</option>', HTML)
+        self.assertIn("artifactTaskId", JS)
+        self.assertIn("state.artifactAbortController.abort()", JS)
+        self.assertIn("requestSerial !== state.artifactRequestSerial", JS)
+
+    def test_artifact_preview_is_only_rendered_for_supported_rows(self):
+        self.assertIn("row.can_preview === true", JS)
+        self.assertIn("a.can_preview === true", JS)
+        self.assertIn("仅供下载结果记录", JS)
+
+    def test_profile_list_ignores_aborted_and_stale_responses(self):
+        start = MAIN.index("function loadSimcWorkbenchProfiles")
+        end = MAIN.index("function simcWbShowProfileDetail", start)
+        body = MAIN[start:end]
+        for token in (
+            "simcWbProfileListRequestSerial",
+            "simcWbProfileListAbortController",
+            "new AbortController()",
+            "signal: abortController.signal",
+            "error.name === 'AbortError'",
+            "requestSerial !== simcWbProfileListRequestSerial",
+            "requestedFilter",
+            "requestedPage",
+        ):
+            self.assertIn(token, body)
+
+    def test_shared_details_abort_and_ignore_stale_responses(self):
+        for token in (
+            "detailRequestSerial",
+            "detailAbortController",
+            "beginDetailRequest",
+            "isCurrentDetailRequest",
+            "cancelDetailRequest",
+        ):
+            self.assertIn(token, JS)
+        for function_name in ("showTaskDetail", "showBatchComparison", "showTemplateDetail", "showAplKeywordDetail"):
+            start = JS.index(f"async function {function_name}")
+            body = JS[start:JS.index("\n    }", start) + 6]
+            self.assertIn("beginDetailRequest", body)
+            self.assertIn("isCurrentDetailRequest", body)
+
+    def test_loading_empty_error_retry_and_no_fake_pagination(self):
+        self.assertIn("renderState(host, 'loading'", JS)
+        self.assertIn('data-wb-retry=', JS)
+        self.assertNotIn('id="simc-wb-rules-pagination"', HTML)
+        self.assertNotIn('id="simc-wb-mastery-pagination"', HTML)
+
+    def test_compact_mobile_structure_and_business_groups(self):
+        self.assertIn('@media (max-width: 390px)', HTML)
+        self.assertIn('.simc-responsive-row', HTML)
+        self.assertIn('.simc-touch-action', HTML)
+        self.assertIn('class="simc-workflow-step"', HTML)
+        self.assertIn('<details', HTML)
+        for group in ("运行与结果", "模拟输入", "系统规则", "运行环境"):
+            self.assertIn(group, HTML)
+        workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        self.assertNotIn('p-5 h-full', workflow)
+
     def test_ten_models_have_visible_entries_in_advanced(self):
         resources = (
             "batches", "tasks", "artifacts", "profiles", "secondary-rules",
@@ -107,12 +243,16 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
 
     def test_dedicated_api_and_inline_sections(self):
         self.assertIn("const apiRoot = '/api/simc-workbench/'", JS)
-        for template_type in ("base_template", "default_apl", "custom_apl", "report_template", "command_fragment"):
+        for template_type in ("base_template", "default_apl", "custom_apl", "custom_player"):
             self.assertIn(f'data-template-type="{template_type}"', HTML)
+        self.assertNotIn('data-template-type="report_template"', HTML)
+        self.assertNotIn('data-template-type="command_fragment"', HTML)
         self.assertIn("UserAplStorage", HTML)
         self.assertIn("AplKeywordPair", HTML)
         self.assertIn('data-rule-subtab="secondary-rules"', HTML)
         self.assertIn('data-rule-subtab="mastery-rules"', HTML)
+        self.assertIn('data-rule-panel="secondary-rules"', HTML)
+        self.assertIn('data-rule-panel="mastery-rules"', HTML)
         for panel in ("tasks", "artifacts", "templates", "apl", "backend"):
             marker = f'id="simc-workbench-{panel}-panel"'
             start = HTML.index(marker)

@@ -139,10 +139,28 @@
         .news-wow-article-content img { max-width: 100%; height: auto; border-radius: 0.75rem; margin: 0.75rem auto; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12); }
         .news-wow-article-content .quote-box,
         .news-wow-article-content blockquote { border-left: 4px solid #60a5fa; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 0.75rem; margin: 1rem 0; }
+        /* SimC 紧凑响应式：操作保持可达，窄屏不产生横向滚动。 */
+        .simc-compact-panel { padding: .75rem; }
+        .simc-touch-action { min-height: 36px; padding: .4rem .65rem; border-radius: .375rem; }
+        .simc-step-title { font-size: .875rem; font-weight: 700; color: #1f2937; }
+        @media (max-width: 390px) {
+            #simc-workbench { padding: .5rem !important; overflow-x: hidden; }
+            #simc-workbench .simc-compact-panel { padding: .625rem; }
+            #simc-workbench .simc-title-actions { align-items: flex-start; flex-direction: column; }
+            #simc-workbench .simc-form-grid { grid-template-columns: minmax(0, 1fr) !important; }
+            #simc-workbench button, #simc-workbench select, #simc-workbench input { min-height: 40px; }
+            #simc-workbench .simc-responsive-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+            #simc-workbench .simc-responsive-table thead { display: none; }
+            #simc-workbench .simc-responsive-table, #simc-workbench .simc-responsive-table tbody,
+            #simc-workbench .simc-responsive-table tr, #simc-workbench .simc-responsive-table td { display: block; width: 100%; }
+            #simc-workbench .simc-responsive-table tr { padding: .5rem; border-bottom: 1px solid #e5e7eb; }
+            #simc-workbench .simc-responsive-table td { padding: .25rem !important; text-align: left !important; max-width: none !important; }
+            #simc-workbench .simc-pagination { justify-content: space-between; gap: .5rem; }
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260715o"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260715k"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260716a"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260716a"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -781,12 +799,17 @@
                         <div class="simc-workbench-panel" id="simc-workbench-import-panel" data-simc-panel="import">
                             <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
                                 <div class="xl:col-span-7">
-                                    <div class="rounded-2xl border border-blue-100 bg-blue-50/40 p-5 h-full">
+                                    <div class="rounded-2xl border border-blue-100 bg-blue-50/40 p-5">
                                         <div class="flex items-start justify-between gap-4 mb-5">
                                             <div>
                                                 <h3 class="text-xl font-bold text-gray-900">发起模拟</h3>
                                                 <p class="text-sm text-gray-600 mt-1">配置战斗场景、玩家数据和APL，一键发起SimC模拟</p>
                                             </div>
+                                        </div>
+                                        <div class="simc-responsive-row mb-5 grid grid-cols-3 gap-2" aria-label="模拟流程">
+                                            <div class="simc-workflow-step"><div class="simc-step-title">1 · 选择角色</div></div>
+                                            <div class="simc-workflow-step"><div class="simc-step-title">2 · 模拟场景</div></div>
+                                            <div class="simc-workflow-step"><div class="simc-step-title">3 · 检查并运行</div></div>
                                         </div>
 
                                         <!-- 区域0 - 专精选择 -->
@@ -948,6 +971,9 @@
                                                 <div id="simc-sim-attribute-search-status" class="hidden mt-2 text-xs"></div>
                                             </div>
                                         </div>
+                                        <details class="mb-5 rounded-xl border border-slate-200 bg-white">
+                                            <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">高级覆盖：基础模板、玩家基线与 APL</summary>
+                                            <div class="border-t border-slate-100 p-4">
                                         <div class="mb-5">
                                             <label class="block text-sm font-semibold text-gray-700 mb-2">
                                                 <i class="fas fa-file-code mr-1 text-purple-500"></i>基础模板选择
@@ -977,6 +1003,8 @@
                                                 <textarea id="apl-override" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 font-mono text-sm bg-white" rows="10" placeholder="APL 覆盖编辑区（选择 APL 后自动填充，可手动编辑）"></textarea>
                                             </div>
                                         </div>
+                                            </div>
+                                        </details>
 
                                         <!-- 主要操作按钮 -->
                                         <div class="flex flex-wrap gap-3">
@@ -990,7 +1018,7 @@
                                     </div>
                                 </div>
                                 <div class="xl:col-span-5">
-                                    <div class="rounded-2xl border border-gray-200 bg-white p-5 h-full">
+                                    <div class="rounded-2xl border border-gray-200 bg-white p-5">
                                         <!-- 已保存配置：紧凑单行选择，点击后回填左侧表单 -->
 
                                             <div class="flex items-center justify-between gap-3 mb-2">
@@ -1028,7 +1056,7 @@
                         <div class="simc-workbench-panel" id="simc-workbench-tasks-panel" data-simc-panel="tasks">
                             <div class="rounded-2xl border bg-white p-5">
                                 <div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-xl font-bold">任务与批次</h3><p class="text-sm text-gray-500">列表、行内详情和安全白名单动作均在本页完成。</p></div><button type="button" data-simc-refresh="tasks" class="rounded-lg bg-slate-100 px-3 py-2 text-sm">刷新</button></div>
-                                <div class="mt-4 flex gap-2" role="tablist"><button type="button" data-task-subtab="tasks" class="simc-task-subtab rounded-lg bg-blue-600 px-4 py-2 text-white">Task</button><button type="button" data-task-subtab="batches" class="simc-task-subtab rounded-lg border px-4 py-2">Batch</button></div>
+                                <div class="mt-4 flex gap-2" role="tablist"><button type="button" role="tab" aria-selected="true" data-task-subtab="tasks" class="simc-task-subtab active rounded-lg bg-blue-600 px-4 py-2 text-white">Task</button><button type="button" role="tab" aria-selected="false" data-task-subtab="batches" class="simc-task-subtab rounded-lg border px-4 py-2">Batch</button></div>
                                 <div id="simc-wb-task-list" class="mt-4"></div>
                                 <div id="simc-wb-task-pagination" class="mt-3"></div>
                                 <div id="simc-wb-task-detail" class="mt-4 hidden rounded-xl border bg-slate-50 p-4"></div>
@@ -1039,21 +1067,39 @@
 
                         <!-- L1 Panel: 高级设置 -->
                         <div class="simc-l1-panel hidden" id="simc-l1-advanced-panel" data-simc-l1-panel="advanced">
-                            <div class="mb-4">
-                                <div class="w-full grid grid-cols-2 md:grid-cols-5 gap-2" aria-label="SimC 十模型入口">
-                                    <button type="button" data-simc-model="batches" data-simc-tab="tasks" class="simc-model-entry rounded-lg border p-2 text-xs">TaskBatch 批次</button>
-                                    <button type="button" data-simc-model="tasks" data-simc-tab="tasks" class="simc-model-entry rounded-lg border p-2 text-xs">Task 任务</button>
-                                    <button type="button" data-simc-model="artifacts" data-simc-tab="artifacts" class="simc-model-entry rounded-lg border p-2 text-xs">Artifact 结果</button>
-                                    <button type="button" data-simc-model="profiles" data-simc-tab="profiles" class="simc-model-entry rounded-lg border p-2 text-xs">Profile 配置</button>
-                                    <button type="button" data-simc-model="secondary-rules" data-simc-tab="rules" class="simc-model-entry rounded-lg border p-2 text-xs">SecondaryStatRule</button>
-                                    <button type="button" data-simc-model="mastery-rules" data-simc-tab="rules" class="simc-model-entry rounded-lg border p-2 text-xs">MasteryCoefficient</button>
-                                    <button type="button" data-simc-model="templates" data-simc-tab="templates" class="simc-model-entry rounded-lg border p-2 text-xs">ContentTemplate</button>
-                                    <button type="button" data-simc-model="backend" data-simc-tab="backend" class="simc-model-entry rounded-lg border p-2 text-xs">BackendBinary</button>
-                                    <button type="button" data-simc-model="apl-keywords" data-simc-tab="apl" class="simc-model-entry rounded-lg border p-2 text-xs">AplKeywordPair</button>
-                                    <button type="button" data-simc-model="apl-storage" data-simc-tab="apl" class="simc-model-entry rounded-lg border p-2 text-xs">UserAplStorage</button>
-                                </div>
+                            <div class="mb-4 grid gap-3 md:grid-cols-2" aria-label="SimC 十模型入口">
+                                <section class="simc-compact-panel rounded-xl border bg-slate-50">
+                                    <h3 class="mb-2 text-sm font-bold text-slate-800">运行与结果</h3>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <button type="button" data-simc-model="batches" data-simc-tab="tasks" class="simc-model-entry rounded-lg border bg-white p-2 text-left text-xs"><strong>模拟批次</strong><span class="block text-slate-400">TaskBatch</span></button>
+                                        <button type="button" data-simc-model="tasks" data-simc-tab="tasks" class="simc-model-entry rounded-lg border bg-white p-2 text-left text-xs"><strong>模拟任务</strong><span class="block text-slate-400">Task</span></button>
+                                        <button type="button" data-simc-model="artifacts" data-simc-tab="artifacts" class="simc-model-entry rounded-lg border bg-white p-2 text-left text-xs"><strong>结果文件</strong><span class="block text-slate-400">Artifact</span></button>
+                                    </div>
+                                </section>
+                                <section class="simc-compact-panel rounded-xl border bg-slate-50">
+                                    <h3 class="mb-2 text-sm font-bold text-slate-800">模拟输入</h3>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <button type="button" data-simc-model="profiles" data-simc-tab="profiles" class="simc-model-entry rounded-lg border bg-white p-2 text-left text-xs"><strong>玩家配置</strong><span class="block text-slate-400">Profile</span></button>
+                                        <button type="button" data-simc-model="templates" data-simc-tab="templates" class="simc-model-entry rounded-lg border bg-white p-2 text-left text-xs"><strong>内容模板</strong><span class="block text-slate-400">ContentTemplate</span></button>
+                                        <button type="button" data-simc-model="apl-storage" data-simc-tab="apl" class="simc-model-entry rounded-lg border bg-white p-2 text-left text-xs"><strong>我的 APL</strong><span class="block text-slate-400">UserAplStorage</span></button>
+                                    </div>
+                                </section>
+                                <section class="simc-compact-panel rounded-xl border bg-slate-50">
+                                    <h3 class="mb-2 text-sm font-bold text-slate-800">系统规则</h3>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <button type="button" data-simc-model="secondary-rules" data-simc-tab="rules" data-rule-subtab="secondary-rules" class="simc-model-entry rounded-lg border bg-white p-2 text-left text-xs"><strong>次级属性换算</strong><span class="block text-slate-400">SecondaryStatRule</span></button>
+                                        <button type="button" data-simc-model="mastery-rules" data-simc-tab="rules" data-rule-subtab="mastery-rules" class="simc-model-entry rounded-lg border bg-white p-2 text-left text-xs"><strong>精通系数</strong><span class="block text-slate-400">MasteryCoefficient</span></button>
+                                        <button type="button" data-simc-model="apl-keywords" data-simc-tab="apl" class="simc-model-entry rounded-lg border bg-white p-2 text-left text-xs"><strong>APL 关键词</strong><span class="block text-slate-400">AplKeywordPair</span></button>
+                                    </div>
+                                </section>
+                                <section class="simc-compact-panel rounded-xl border bg-slate-50">
+                                    <h3 class="mb-2 text-sm font-bold text-slate-800">运行环境</h3>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <button type="button" data-simc-model="backend" data-simc-tab="backend" class="simc-model-entry rounded-lg border bg-white p-2 text-left text-xs"><strong>执行后端</strong><span class="block text-slate-400">BackendBinary</span></button>
+                                    </div>
+                                </section>
                             </div>
-                        <div class="simc-workbench-panel hidden" id="simc-workbench-artifacts-panel" data-simc-panel="artifacts"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">Artifact 结果中心</h3><p class="text-sm text-gray-500">站内只读安全预览，不跳出工作台。</p></div><button type="button" data-simc-refresh="artifacts" class="rounded-lg bg-slate-100 px-3 py-2 text-sm">刷新</button></div><div id="simc-wb-artifact-list" class="mt-4"></div><div id="simc-wb-artifact-detail" class="mt-4 hidden"></div></div></div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-artifacts-panel" data-simc-panel="artifacts"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">Artifact 结果中心</h3><p class="text-sm text-gray-500">站内只读安全预览，不跳出工作台。</p></div><button type="button" data-simc-refresh="artifacts" class="rounded-lg bg-slate-100 px-3 py-2 text-sm">刷新</button></div><div class="mt-4 grid gap-3 sm:grid-cols-2"><label class="text-sm text-gray-600">任务编号<input type="number" min="1" inputmode="numeric" data-artifact-filter="task_id" class="mt-1 w-full rounded-lg border px-3 py-2" placeholder="全部任务"></label><label class="text-sm text-gray-600">产物类型<select data-artifact-filter="artifact_type" class="mt-1 w-full rounded-lg border px-3 py-2"><option value="">全部类型</option><option value="html_report">HTML 报告</option><option value="json_stats">JSON 数据</option><option value="log">运行日志</option></select></label></div><div id="simc-wb-artifact-list" class="mt-4"></div><div id="simc-wb-artifact-pagination" class="simc-pagination mt-3"></div><div id="simc-wb-artifact-detail" class="mt-4 hidden"></div></div></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-profiles-panel" data-simc-panel="profiles">
                             <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
                                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
@@ -1122,7 +1168,7 @@
                                     </div>
                                 </div>
                                 <div class="overflow-x-auto">
-                                    <table class="min-w-full text-sm">
+                                    <table class="simc-responsive-table min-w-full text-sm">
                                         <thead class="bg-gray-50">
                                             <tr>
                                                 <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">编号</th>
@@ -1138,15 +1184,17 @@
                                         </tbody>
                                     </table>
                                 </div>
-                                <div id="simc-wb-profile-pagination" class="mt-4 flex items-center justify-between text-sm text-gray-500"></div>
+                                <div id="simc-wb-profile-pagination" class="simc-pagination mt-4 flex items-center justify-between text-sm text-gray-500"></div>
+                                <div id="simc-wb-profile-detail" class="mt-4 hidden rounded-xl border bg-slate-50 p-4"></div>
                             </div>
                         </div>
-                        <div class="simc-workbench-panel hidden" id="simc-workbench-templates-panel" data-simc-panel="templates"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><h3 class="text-xl font-bold">ContentTemplate 模板</h3><button type="button" data-inline-create="templates" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">内联新增</button></div><div class="mt-3 flex flex-wrap gap-3" id="simc-template-type-filters"><button data-template-type="base_template">基础模板</button><button data-template-type="default_player">默认玩家配置</button><button data-template-type="default_apl">默认 APL</button><button data-template-type="custom_apl">自定义 APL</button><button data-template-type="report_template">报告模板</button><button data-template-type="command_fragment">命令片段</button></div><div id="simc-wb-template-form" class="hidden mt-4 rounded-xl border bg-blue-50 p-4"></div><div id="simc-wb-template-list" class="mt-4"></div><div id="simc-wb-template-detail" class="mt-4 hidden rounded-xl border bg-slate-50 p-4"></div></div></div>
-                        <div class="simc-workbench-panel hidden" id="simc-workbench-apl-panel" data-simc-panel="apl"><div class="grid gap-5 xl:grid-cols-2"><section class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><h3 class="text-xl font-bold">我的 APL（UserAplStorage）</h3><button data-inline-create="apl-storage" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button></div><div id="simc-wb-apl-storage-form" class="hidden mt-3"></div><div id="simc-wb-apl-storage-list" class="mt-4"></div></section><section class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><h3 class="text-xl font-bold">APL 关键词（AplKeywordPair）</h3><button data-inline-create="apl-keywords" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button></div><p class="text-xs text-gray-500">写权限由服务端 can_write 决定。</p><div id="simc-wb-apl-keyword-form" class="hidden mt-3"></div><div id="simc-wb-apl-keyword-list" class="mt-4"></div></section></div><section class="mt-5 rounded-2xl border bg-white p-5"><h3 class="text-xl font-bold">APL 双向转换器</h3><div class="mt-3 flex gap-2"><select id="simc-wb-convert-mode" class="rounded border p-2"><option value="apl_to_cn">APL → 中文</option><option value="cn_to_apl">中文 → APL</option></select><button id="simc-wb-convert" class="rounded bg-indigo-600 px-4 py-2 text-white">转换</button></div><div class="mt-3 grid gap-3 md:grid-cols-2"><textarea id="simc-wb-convert-input" rows="10" class="rounded border p-3 font-mono"></textarea><textarea id="simc-wb-convert-output" rows="10" readonly class="rounded border bg-slate-50 p-3 font-mono"></textarea></div></section></div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-templates-panel" data-simc-panel="templates"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><h3 class="text-xl font-bold">ContentTemplate 模板</h3><button type="button" data-inline-create="templates" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">内联新增</button></div><div class="mt-3 flex flex-wrap gap-3" id="simc-template-type-filters"><button data-template-type="base_template">基础模板</button><button data-template-type="default_player">默认玩家配置</button><button data-template-type="default_apl">默认 APL</button><button data-template-type="custom_apl">自定义 APL</button><button data-template-type="custom_player">用户自定义装备</button></div><div id="simc-wb-template-form" class="hidden mt-4 rounded-xl border bg-blue-50 p-4"></div><div id="simc-wb-template-list" class="mt-4"></div><div id="simc-wb-template-detail" class="mt-4 hidden rounded-xl border bg-slate-50 p-4"></div></div></div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-apl-panel" data-simc-panel="apl"><div class="grid gap-5 xl:grid-cols-2"><section class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><h3 class="text-xl font-bold">我的 APL（UserAplStorage）</h3><button data-inline-create="apl-storage" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button></div><div id="simc-wb-apl-storage-form" class="hidden mt-3"></div><div id="simc-wb-apl-storage-list" class="mt-4"></div></section><section class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><h3 class="text-xl font-bold">APL 关键词（AplKeywordPair）</h3><button data-inline-create="apl-keywords" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button></div><p class="text-xs text-gray-500">写权限由服务端 can_write 决定。</p><div id="simc-wb-apl-keyword-form" class="hidden mt-3"></div><div id="simc-wb-apl-keyword-list" class="mt-4"></div><div id="simc-wb-apl-keyword-detail" class="mt-4 hidden rounded-xl border bg-slate-50 p-4"></div></section></div><section class="mt-5 rounded-2xl border bg-white p-5"><h3 class="text-xl font-bold">APL 双向转换器</h3><div class="mt-3 flex gap-2"><select id="simc-wb-convert-mode" class="rounded border p-2"><option value="apl_to_cn">APL → 中文</option><option value="cn_to_apl">中文 → APL</option></select><button id="simc-wb-convert" class="rounded bg-indigo-600 px-4 py-2 text-white">转换</button></div><div class="mt-3 grid gap-3 md:grid-cols-2"><textarea id="simc-wb-convert-input" rows="10" class="rounded border p-3 font-mono"></textarea><textarea id="simc-wb-convert-output" rows="10" readonly class="rounded border bg-slate-50 p-3 font-mono"></textarea></div></section></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-backend-panel" data-simc-panel="backend"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">BackendBinary 实例安全状态</h3><p class="text-sm text-gray-500">普通用户只读；维护按钮仅按 API can_write 显示。</p></div><button data-simc-refresh="backend" class="rounded bg-slate-100 px-3 py-2">刷新</button></div><div id="simc-wb-backend-status" class="mt-4"></div><div id="simc-wb-backend-actions" class="mt-4"></div></div></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-rules-panel" data-simc-panel="rules">
                             <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
                                 <div class="mb-4 flex gap-2" role="tablist" aria-label="规则类型"><button type="button" data-rule-subtab="secondary-rules" class="rounded-lg bg-blue-600 px-4 py-2 text-white">Secondary 次级属性</button><button type="button" data-rule-subtab="mastery-rules" class="rounded-lg border px-4 py-2">Mastery 精通系数</button></div>
+                                <div data-rule-panel="secondary-rules">
                                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                     <div>
                                         <h3 class="text-xl font-bold text-gray-900">绿字转换比例</h3>
@@ -1202,9 +1250,9 @@
                                         </tbody>
                                     </table>
                                 </div>
-                                <div id="simc-wb-rules-pagination" class="mt-4 flex items-center justify-between text-sm text-gray-500"></div>
+                                </div>
 
-                                <div class="mt-8 border-t border-gray-200 pt-6">
+                                <div data-rule-panel="mastery-rules" class="hidden mt-8 border-t border-gray-200 pt-6">
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                         <div>
                                             <h4 class="text-lg font-bold text-gray-900">精通系数（按专精）</h4>
@@ -1248,7 +1296,6 @@
                                             </tbody>
                                         </table>
                                     </div>
-                                    <div id="simc-wb-mastery-pagination" class="mt-4 flex items-center justify-between text-sm text-gray-500"></div>
                                 </div>
                             </div>
                         </div>

@@ -5406,6 +5406,40 @@ class SimcWorkbenchAPIView(View):
     }
 
     @staticmethod
+    def _template_is_protected(template):
+        return (
+            template.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM
+            or template.template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER
+        )
+
+    @classmethod
+    def _template_is_writable(cls, request, template):
+        if cls._template_is_protected(template):
+            return False
+        if template.owner_user_id == request.user.id:
+            return True
+        return template.owner_user_id is None and (request.user.is_staff or request.user.is_superuser)
+
+    @classmethod
+    def _get_writable_template(cls, request, object_id):
+        template = SimcContentTemplate.objects.filter(id=object_id).first()
+        if not template:
+            return None, JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
+        if template.owner_user_id is not None and template.owner_user_id != request.user.id:
+            return None, JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
+        if cls._template_is_protected(template):
+            return None, JsonResponse({'success': False, 'error': '受保护模板为只读资源'}, status=403)
+        if cls._template_is_writable(request, template):
+            return template, None
+        return None, JsonResponse({'success': False, 'error': '系统模板仅管理员可修改'}, status=403)
+
+    @staticmethod
+    def _validate_template_content(template_type, content):
+        if template_type == SimcContentTemplate.TYPE_BASE_TEMPLATE:
+            return SimcTemplateAPIView._validate_base_template(content)
+        return None
+
+    @staticmethod
     def _json_body(request):
         try:
             value = json.loads(request.body or '{}')
@@ -5472,6 +5506,24 @@ class SimcWorkbenchAPIView(View):
             'created_at': _fmt_dt(task.create_time), 'updated_at': _fmt_dt(task.modified_time),
         }
 
+    @staticmethod
+    def _artifact_row(artifact, include_task=False):
+        can_preview = artifact.artifact_type == 'html_report'
+        row = {
+            'id': artifact.id,
+            'task_id': artifact.task_id,
+            'artifact_type': artifact.artifact_type,
+            'file_name': os.path.basename(artifact.file_path),
+            'file_size': artifact.file_size,
+            'can_preview': can_preview,
+            'created_at': _fmt_dt(artifact.created_at),
+        }
+        if include_task:
+            row['task_name'] = artifact.task.name
+        if can_preview:
+            row['preview_url'] = f'/api/simc-workbench/artifacts/{artifact.id}/preview/'
+        return row
+
     def get(self, request, resource, object_id=None):
         if resource == 'tasks':
             qs = SimcTask.objects.filter(user_id=request.user.id).order_by('-modified_time')
@@ -5480,12 +5532,10 @@ class SimcWorkbenchAPIView(View):
                 if not task:
                     return JsonResponse({'success': False, 'error': '任务不存在'}, status=404)
                 row = self._task_row(task)
-                row['artifacts'] = [{
-                    'id': item.id, 'artifact_type': item.artifact_type,
-                    'file_name': os.path.basename(item.file_path), 'file_size': item.file_size,
-                    'preview_url': f'/api/simc-workbench/artifacts/{item.id}/preview/',
-                    'created_at': _fmt_dt(item.created_at),
-                } for item in task.artifacts.all().order_by('-created_at')]
+                row['artifacts'] = [
+                    self._artifact_row(item)
+                    for item in task.artifacts.all().order_by('-created_at')
+                ]
                 return JsonResponse({'success': True, 'data': row})
 
             # 分页参数白名单校验
@@ -5551,6 +5601,18 @@ class SimcWorkbenchAPIView(View):
                     'succeeded': succeeded, 'failed': failed, 'percent': percent,
                     'report_url': report_url,
                     'created_at': _fmt_dt(batch.created_at), 'updated_at': _fmt_dt(batch.updated_at),
+                    'tasks': [{
+                        'id': task.id,
+                        'name': task.name,
+                        'status': task.current_status,
+                        'status_label': self._task_status_label(task.current_status),
+                        'task_type': task.task_type,
+                        'updated_at': _fmt_dt(task.modified_time),
+                        'can_view': True,
+                        'has_report': bool(task.result_file),
+                    } for task in SimcTask.objects.filter(
+                        batch_id=batch.id, user_id=request.user.id, is_active=True,
+                    ).order_by('id')],
                 }})
 
             # 分页参数白名单校验
@@ -5605,16 +5667,39 @@ class SimcWorkbenchAPIView(View):
         if resource == 'artifacts':
             qs = SimcTaskArtifact.objects.filter(task__user_id=request.user.id).select_related('task').order_by('-created_at')
             if object_id:
-                qs = qs.filter(id=object_id)
-            rows = [{
-                'id': row.id, 'task_id': row.task_id, 'task_name': row.task.name,
-                'artifact_type': row.artifact_type, 'file_name': os.path.basename(row.file_path),
-                'file_size': row.file_size, 'preview_url': f'/api/simc-workbench/artifacts/{row.id}/preview/',
-                'created_at': _fmt_dt(row.created_at),
-            } for row in qs[:200]]
-            if object_id:
-                return JsonResponse({'success': True, 'data': rows[0]} if rows else {'success': False, 'error': '产物不存在'}, status=200 if rows else 404)
-            return JsonResponse({'success': True, 'data': rows})
+                row = qs.filter(id=object_id).first()
+                if not row:
+                    return JsonResponse({'success': False, 'error': '产物不存在'}, status=404)
+                return JsonResponse({
+                    'success': True,
+                    'data': self._artifact_row(row, include_task=True),
+                })
+            try:
+                page = int(request.GET.get('page', 1))
+                page_size = int(request.GET.get('page_size', 20))
+            except (ValueError, TypeError):
+                return JsonResponse({'success': False, 'error': '分页参数必须为整数'}, status=400)
+            page = max(1, page)
+            page_size = max(1, min(50, page_size))
+            task_id = request.GET.get('task_id')
+            if task_id not in (None, ''):
+                try:
+                    qs = qs.filter(task_id=int(task_id))
+                except (ValueError, TypeError):
+                    return JsonResponse({'success': False, 'error': 'task_id 必须为整数'}, status=400)
+            artifact_type = str(request.GET.get('artifact_type') or '').strip()
+            if artifact_type:
+                qs = qs.filter(artifact_type=artifact_type)
+            total = qs.count()
+            total_pages = (total + page_size - 1) // page_size
+            offset = (page - 1) * page_size
+            rows = [
+                self._artifact_row(row, include_task=True)
+                for row in qs[offset:offset + page_size]
+            ]
+            return JsonResponse({'success': True, 'data': rows, 'pagination': {
+                'page': page, 'page_size': page_size, 'total': total, 'total_pages': total_pages,
+            }})
 
         if resource == 'profiles':
             qs = SimcProfile.objects.filter(user_id=request.user.id).order_by('-id')
@@ -5634,18 +5719,15 @@ class SimcWorkbenchAPIView(View):
                 'type_label': row.get_template_type_display(), 'source': row.source, 'spec': row.spec,
                 'class_name': row.class_name, 'content': row.content, 'is_active': row.is_active,
                 'is_selectable': row.is_selectable, 'is_system': row.owner_user_id is None,
-                'read_only': (
-                    not request.user.is_staff
-                    or row.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM
-                ),
+                'read_only': not self._template_is_writable(request, row),
             } for row in qs]
             if object_id:
                 return JsonResponse(
-                    {'success': True, 'data': rows[0], 'can_write': request.user.is_staff}
+                    {'success': True, 'data': rows[0], 'can_write': not rows[0]['read_only']}
                     if rows else {'success': False, 'error': '模板不存在'},
                     status=200 if rows else 404,
                 )
-            return JsonResponse({'success': True, 'data': rows, 'can_write': request.user.is_staff})
+            return JsonResponse({'success': True, 'data': rows, 'can_write': True})
 
         if resource in ('secondary-rules', 'mastery-rules'):
             model = SimcSecondaryStatRule if resource == 'secondary-rules' else SimcMasteryCoefficient
@@ -5731,14 +5813,10 @@ class SimcWorkbenchAPIView(View):
             apl.save(update_fields=['is_active'])
             return JsonResponse({'success': True})
         if resource == 'templates':
-            if not request.user.is_staff:
-                return JsonResponse({'success': False, 'error': '仅管理员可创建模板'}, status=403)
             if object_id and action in ('archive', 'restore'):
-                tpl = SimcContentTemplate.objects.filter(id=object_id).first()
-                if not tpl:
-                    return JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
-                if tpl.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM:
-                    return JsonResponse({'success': False, 'error': '上游同步模板为只读，不可修改'}, status=403)
+                tpl, error_response = self._get_writable_template(request, object_id)
+                if error_response:
+                    return error_response
                 tpl.is_active = action == 'restore'
                 tpl.save(update_fields=['is_active', 'updated_at'])
                 return JsonResponse({'success': True})
@@ -5750,14 +5828,21 @@ class SimcWorkbenchAPIView(View):
                     content = str(data.get('content') or '').strip()
                     if not template_type or template_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
                         return JsonResponse({'success': False, 'error': '模板类型无效'}, status=400)
+                    if template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER:
+                        return JsonResponse({'success': False, 'error': '默认玩家模板为只读资源'}, status=403)
                     if not content:
                         return JsonResponse({'success': False, 'error': '模板内容不能为空'}, status=400)
-                    owner_user_id = data.get('owner_user_id')
+                    validation_error = self._validate_template_content(template_type, content)
+                    if validation_error:
+                        return JsonResponse({'success': False, 'error': validation_error}, status=400)
+                    owner_user_id = data.get('owner_user_id') if (request.user.is_staff or request.user.is_superuser) else request.user.id
                     if owner_user_id is not None:
                         try:
                             owner_user_id = int(owner_user_id)
                         except (TypeError, ValueError):
                             return JsonResponse({'success': False, 'error': 'owner_user_id 必须是整数'}, status=400)
+                        if owner_user_id != request.user.id:
+                            return JsonResponse({'success': False, 'error': '不能为其他用户创建私有模板'}, status=403)
                     tpl = SimcContentTemplate(
                         name=name,
                         template_type=template_type,
@@ -5855,24 +5940,36 @@ class SimcWorkbenchAPIView(View):
         except ValueError as exc:
             return JsonResponse({'success': False, 'error': str(exc)}, status=400)
         if resource == 'templates':
-            if not request.user.is_staff:
-                return JsonResponse({'success': False, 'error': '仅管理员可编辑模板'}, status=403)
             if not object_id:
                 return JsonResponse({'success': False, 'error': '缺少模板ID'}, status=400)
-            tpl = SimcContentTemplate.objects.filter(id=object_id).first()
-            if not tpl:
-                return JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
-            if tpl.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM:
-                return JsonResponse({'success': False, 'error': '上游同步模板为只读，不可编辑'}, status=403)
+            tpl, error_response = self._get_writable_template(request, object_id)
+            if error_response:
+                return error_response
             try:
+                target_type = tpl.template_type
+                if 'template_type' in data:
+                    target_type = str(data.get('template_type') or '').strip()
+                    if target_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
+                        return JsonResponse({'success': False, 'error': '模板类型无效'}, status=400)
+                    if target_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER:
+                        return JsonResponse({'success': False, 'error': '默认玩家模板为只读资源'}, status=403)
+                if 'source' in data and data.get('source') != tpl.source:
+                    return JsonResponse({'success': False, 'error': '模板来源不可修改'}, status=400)
+                target_content = str(data['content'] or '').strip() if 'content' in data else tpl.content
+                if not target_content:
+                    return JsonResponse({'success': False, 'error': '模板内容不能为空'}, status=400)
+                validation_error = self._validate_template_content(target_type, target_content)
+                if validation_error:
+                    return JsonResponse({'success': False, 'error': validation_error}, status=400)
                 if 'name' in data:
                     tpl.name = str(data['name'] or '').strip()
                 if 'content' in data:
-                    tpl.content = str(data['content'] or '').strip()
+                    tpl.content = target_content
                 if 'spec' in data:
                     tpl.spec = str(data['spec'] or 'default').strip()
                 if 'class_name' in data:
                     tpl.class_name = str(data['class_name'] or '').strip()
+                tpl.template_type = target_type
                 tpl.save()
                 return JsonResponse({'success': True})
             except Exception as e:
@@ -5889,6 +5986,8 @@ class SimcWorkbenchAPIView(View):
             if not kw:
                 return JsonResponse({'success': False, 'error': '关键词不存在'}, status=404)
             try:
+                if 'apl_keyword' in data and str(data.get('apl_keyword') or '').strip() != kw.apl_keyword:
+                    return JsonResponse({'success': False, 'error': 'apl_keyword 不可修改'}, status=400)
                 if 'cn_keyword' in data:
                     kw.cn_keyword = str(data['cn_keyword'] or '').strip()
                 if 'description' in data:
