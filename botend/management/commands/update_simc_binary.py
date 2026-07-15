@@ -59,13 +59,17 @@ class Command(BaseCommand):
         row, _ = SimcBackendBinary.objects.get_or_create(
             platform=self.platform,
             defaults={
-                'simc_path': self.simc_binary_path,
+                'simc_path': self._stored_simc_path(),
                 'current_version': '',
                 'latest_version': '',
                 'auto_update': True,
             }
         )
         return row
+
+    def _stored_simc_path(self):
+        """Return the operational path bounded for the database field."""
+        return str(self.simc_binary_path)[:500]
 
     def _set_status(self, progress=None, status=None, error='', updating=None, updated=False):
         now = timezone.now()
@@ -106,12 +110,19 @@ class Command(BaseCommand):
             self._fail(f'{status}失败', detail or f'{status}失败，退出码 {result.returncode}', progress=progress)
         return result
 
+    def _probe_binary(self, binary_path=None):
+        """运行无参数探针；由调用方按场景处理失败状态。"""
+        path = binary_path or self.simc_binary_path
+        result = subprocess.run([path], capture_output=True, text=True, timeout=10)
+        output = result.stdout + result.stderr
+        return result, output
+
     def _check_version(self):
         if not os.path.isfile(self.simc_binary_path):
             msg = f'二进制不存在: {self.simc_binary_path}'
-            self.row.simc_path = self.simc_binary_path
+            self.row.simc_path = self._stored_simc_path()
             self.row.current_version = ''
-            self.row.last_error = msg
+            self.row.last_error = msg[:500]
             self.row.is_updating = False
             self.row.update_progress = 0
             self.row.update_status = '二进制不存在'
@@ -123,10 +134,25 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(msg))
             return
 
-        result = subprocess.run([self.simc_binary_path, '--help'], capture_output=True, text=True, timeout=10)
-        output = result.stdout + result.stderr
+        try:
+            result, output = self._probe_binary()
+        except subprocess.TimeoutExpired as exc:
+            msg = f'二进制验证超时: {exc}'
+            self._set_status(progress=0, status='二进制验证超时', error=msg, updating=False)
+            self.stdout.write(self.style.WARNING(msg))
+            return
+        except Exception as exc:
+            msg = f'二进制验证失败: {exc}'
+            self._set_status(progress=0, status='二进制验证失败', error=msg, updating=False)
+            self.stdout.write(self.style.WARNING(msg))
+            return
+        if result.returncode != 0 or 'SimulationCraft' not in output:
+            msg = f'二进制验证失败: {output[:500]}'
+            self._set_status(progress=0, status='二进制验证失败', error=msg, updating=False)
+            self.stdout.write(self.style.WARNING(msg))
+            return
         version = self._parse_version(output) or self.row.current_version or '未知'
-        self.row.simc_path = self.simc_binary_path
+        self.row.simc_path = self._stored_simc_path()
         self.row.current_version = version
         self.row.last_error = ''
         self.row.is_updating = False
@@ -263,8 +289,7 @@ class Command(BaseCommand):
             self._set_status(progress=90, status='验证 SimC 二进制', error='', updating=True)
             if not os.path.isfile(self.simc_binary_path):
                 self._fail('编译产物不存在', f'编译产物不存在: {self.simc_binary_path}', progress=90)
-            result = subprocess.run([self.simc_binary_path, '--help'], capture_output=True, text=True, timeout=10)
-            binary_output = result.stdout + result.stderr
+            result, binary_output = self._probe_binary()
             if result.returncode != 0 or 'SimulationCraft' not in binary_output:
                 self._fail('二进制验证失败', f'二进制验证失败: {binary_output[:500]}', progress=90)
 
@@ -274,7 +299,7 @@ class Command(BaseCommand):
 
             self._sync_generated_inputs()
 
-            self.row.simc_path = self.simc_binary_path
+            self.row.simc_path = self._stored_simc_path()
             self.row.current_version = version
             self.row.latest_version = version
             self.row.last_error = ''

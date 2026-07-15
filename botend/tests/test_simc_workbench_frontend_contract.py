@@ -118,6 +118,16 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             start = HTML.index(marker)
             self.assertNotIn('></div>', HTML[start:start + len(marker) + 20])
 
+    def test_template_filters_include_default_player_and_default_apl(self):
+        """Template type filters must include both default_player (default player config) and default_apl."""
+        filters_start = HTML.index('id="simc-template-type-filters"')
+        filters_end = HTML.index('</div>', filters_start)
+        filters_section = HTML[filters_start:filters_end]
+        self.assertIn('data-template-type="default_player"', filters_section,
+                      "Template filters must include default_player button for default player configurations")
+        self.assertIn('data-template-type="default_apl"', filters_section,
+                      "Template filters must include default_apl button")
+
     def test_workbench_controller_has_no_unsafe_or_legacy_navigation(self):
         forbidden = (
             "window.open", 'target="_blank"', "alert(", "prompt(", "confirm(",
