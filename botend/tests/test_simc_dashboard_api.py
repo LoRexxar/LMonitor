@@ -181,7 +181,7 @@ class SimcWorkerBatchLifecycleTests(TestCase):
 
 class SimcTemplateAPIViewTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='template_user', password='pwd')
+        self.user = User.objects.create_user(username='template_user', password='pwd', is_staff=True)
         self.client = Client()
         self.client.force_login(self.user)
 
@@ -325,6 +325,26 @@ class SimcTemplateAPIViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'])
         self.assertFalse(SimcContentTemplate.objects.filter(id=user_apl.id).exists())
+    def test_non_staff_cannot_mutate_system_template(self):
+        user = User.objects.create_user(username='readonly_template_user', password='pwd')
+        self.client.force_login(user)
+        system_template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='', name='System Base', content='fight_style=Patchwerk\n{player_config}',
+        )
+
+        update = self.client.put(
+            f'/api/simc-template/?id={system_template.id}',
+            data=json.dumps({'content': 'fight_style=HecticAddCleave\n{player_config}'}),
+            content_type='application/json',
+        )
+        delete = self.client.delete(f'/api/simc-template/?id={system_template.id}')
+
+        self.assertEqual(update.status_code, 403)
+        self.assertEqual(delete.status_code, 403)
+        system_template.refresh_from_db()
+        self.assertEqual(system_template.content, 'fight_style=Patchwerk\n{player_config}')
 
 
 class SimcBackendUpdateSafetyTests(TestCase):

@@ -340,7 +340,7 @@ function initNavigation() {
                     window.loadLogFilesGlobal();
                 }
                 if (sectionId === 'simc-workbench') {
-                    switchSimcWorkbenchTab('import');
+                    switchSimcWorkbenchTab('tasks');
                 }
             }
         });
@@ -1185,15 +1185,6 @@ function renderWagoHotfixEvents(events) {
     }).join('');
 }
 
-function escapeHtml(str) {
-    return String(str || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
-
 function renderSimpleMarkdown(md) {
     const lines = String(md || '').replace(/\r\n/g, '\n').split('\n');
     const out = [];
@@ -1549,11 +1540,6 @@ function initSimcWorkbench() {
     if (!workbench || workbench.dataset.initialized === '1') return;
     workbench.dataset.initialized = '1';
 
-    moveSimcToolIntoWorkbench('simc-task-management', 'simc-workbench-tasks-panel');
-    moveSimcToolIntoWorkbench('simc-template-management', 'simc-workbench-templates-panel');
-    moveSimcToolIntoWorkbench('simc-apl-converter', 'simc-workbench-apl-panel');
-    moveSimcToolIntoWorkbench('simc-backend-upload', 'simc-workbench-backend-panel');
-
     document.querySelectorAll('.simc-workbench-tab').forEach(tab => {
         tab.addEventListener('click', function() {
             switchSimcWorkbenchTab(this.getAttribute('data-simc-tab') || 'import');
@@ -1569,16 +1555,7 @@ function initSimcWorkbench() {
             openSimcTableShortcut(this.getAttribute('data-simc-table-shortcut'));
         });
     });
-}
-
-function moveSimcToolIntoWorkbench(toolId, targetId) {
-    const tool = document.getElementById(toolId);
-    const target = document.getElementById(targetId);
-    if (!tool || !target || tool.dataset.movedToWorkbench === '1') return;
-    tool.style.display = 'block';
-    tool.classList.remove('tool-content');
-    tool.dataset.movedToWorkbench = '1';
-    target.appendChild(tool);
+    switchSimcWorkbenchTab('tasks');
 }
 
 function switchSimcWorkbenchTab(tabName) {
@@ -2395,6 +2372,12 @@ async function simcWbDeleteMastery(id) {
     } catch (e) { showMessage('删除失败: ' + e.message, 'error'); }
 }
 
+function renderSimcArtifactFrame(previewUrl, title) {
+    const safeUrl = String(previewUrl || '');
+    if (!/^\/api\/simc-workbench\/artifacts\/\d+\/preview\/$/.test(safeUrl)) return '';
+    return `<iframe class="w-full min-h-[70vh] border-0 rounded-xl bg-white" sandbox="" referrerpolicy="no-referrer" src="${escapeHtml(safeUrl)}" title="${escapeHtml(title || 'SimC 结果预览')}"></iframe>`;
+}
+
 function openSimcWorkbench() {
     const item = document.querySelector('.nav-item[data-section="simc-workbench"]');
     if (item) {
@@ -2865,9 +2848,9 @@ function pollSimcCandidateComparison(batchId, kind, button, oldLabel) {
                     return;
                 }
                 const reportUrl = '/simc-compare/?batch_id=' + encodeURIComponent(batchId);
-                showMessage(`${kind} 候选对比已完成，正在打开完整比较报告`, 'success');
+                showMessage(`${kind} 候选对比已完成，请在任务结果中心查看`, 'success');
                 fetchSimcTaskData();
-                window.open(reportUrl, '_blank');
+                switchSimcWorkbenchTab('artifacts');
                 completed = true;
             } catch (error) {
                 showMessage('候选对比已停止：' + String(error.message || error), 'error');
@@ -3772,15 +3755,6 @@ async function deleteAplCode(aplId) {
         console.error('删除APL失败:', error);
         showMessage('删除失败: ' + error.message, 'error');
     }
-}
-
-/**
- * HTML转义函数
- */
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }
 
 /**
@@ -7359,7 +7333,9 @@ function openSimcRegularCompare() {
         showMessage('请至少选择 2 个已完成的常规模拟任务进行对比', 'warning');
         return;
     }
-    window.open(`/simc-compare/?task_ids=${encodeURIComponent(ids.join(','))}`, '_blank');
+    showMessage('请在 SimC 工作台结果中心选择对应产物进行安全预览', 'info');
+    openSimcWorkbench();
+    switchSimcWorkbenchTab('artifacts');
 }
 
 function toggleSimcRegularTaskSelection(taskId, checked) {

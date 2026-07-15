@@ -28,7 +28,7 @@ from botend.dashboard.api import (
     SimcRawInspectAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView,
     OssConfigAPIView, SimcResultProxyAPIView, SimcTaskPreviewAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView,
     SimcBattlenetPreflightAPIView,
-    SimcBackendBinaryAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView,
+    SimcBackendBinaryAPIView, SimcWorkbenchAPIView, SimcArtifactPreviewAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView,
     WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView,
     WowDailyReportGenerateAPIView, WagoHotfixReportListAPIView, WagoSkillDiffRerunAPIView,
 )
@@ -70,17 +70,17 @@ urlpatterns = [
     path('portal/specs/', PortalSpecsView.as_view(), name='portal_specs'),
     path('portal/article/<int:article_id>/', PortalArticleView.as_view(), name='portal_article'),
     path('portal/talents/', PortalTalentSimulatorView.as_view(), name='portal_talent_simulator'),
-    
+
     # 认证相关路由
     path('auth/login/', LoginView.as_view(), name='login'),
     path('auth/register/', RegisterView.as_view(), name='register'),
     path('auth/logout/', LogoutView.as_view(), name='logout'),
     path('auth/change-password/', ChangePasswordView.as_view(), name='change_password'),
-    
+
     # Webhook路由
     path('webhook/gethexagram', csrf_exempt(GetHexagramView.as_view()), name="gethexagram"),
     path('webhook/gewechat', csrf_exempt(GeWechatWebhookView.as_view()), name="gewechat"),
-    
+
     # Dashboard路由
     path('dashboard/', DashboardView.as_view(), name="dashboard"),
 
@@ -110,7 +110,7 @@ urlpatterns = [
     path('portal/reports/<path:report_path>', PortalReportFileView.as_view(), name="portal_report_file"),
     path('portal/wow-hotfix-report/<int:report_id>/', PortalWowHotfixReportView.as_view(), name="portal_wow_hotfix_report"),
     path('portal/wow-skill-diff/<int:report_id>/', PortalWowSkillDiffReportView.as_view(), name="portal_wow_skill_diff_report"),
-    
+
     # API路由
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),
     path('api/keyword-manager/', csrf_exempt(KeywordManagerAPIView.as_view()), name="keyword_manager"),
@@ -127,7 +127,10 @@ urlpatterns = [
     path('api/simc-profile/<int:profile_id>/', csrf_exempt(SimcProfileAPIView.as_view()), name="simc_profile_detail"),
     path('api/simc-apl-candidates/', csrf_exempt(SimcAplCandidatesAPIView.as_view()), name="simc_apl_candidates"),
     path('api/simc-template/', csrf_exempt(SimcTemplateAPIView.as_view()), name="simc_template"),
-    path('api/simc-backend-binary/', csrf_exempt(SimcBackendBinaryAPIView.as_view()), name="simc_backend_binary"),
+    path('api/simc-backend-binary/', SimcBackendBinaryAPIView.as_view(), name="simc_backend_binary"),
+    path('api/simc-workbench/<str:resource>/', SimcWorkbenchAPIView.as_view(), name="simc_workbench"),
+    path('api/simc-workbench/<str:resource>/<int:object_id>/', SimcWorkbenchAPIView.as_view(), name="simc_workbench_detail"),
+    path('api/simc-workbench/artifacts/<int:object_id>/preview/', SimcArtifactPreviewAPIView.as_view(), name="simc_artifact_preview"),
     path('api/system-alert/', csrf_exempt(SystemAlertAPIView.as_view()), name="system_alert"),
     path('api/portal/peak/refresh/', csrf_exempt(PortalPeakSpecRankRefreshAPIView.as_view()), name="portal_peak_refresh"),
     path('api/wow-daily-report/list/', csrf_exempt(WowDailyReportListAPIView.as_view()), name="wow_daily_report_list"),
@@ -143,7 +146,7 @@ urlpatterns = [
     path('api/simc-regular-compare/', csrf_exempt(SimcRegularCompareAPIView.as_view()), name="simc_regular_compare"),
     path('api/wcl-analysis-task/', csrf_exempt(WclAnalysisTaskAPIView.as_view()), name="wcl_analysis_task"),
     path('api/wcl-analysis-task/<int:task_id>/', csrf_exempt(WclAnalysisTaskAPIView.as_view()), name="wcl_analysis_task_detail"),
-    
+
     # SimC结果查看页面
     path('simc-result/', SimcResultView.as_view(), name="simc_result"),
     path('simc-attribute-analysis/', SimcAttributeAnalysisView.as_view(), name="simc_attribute_analysis"),

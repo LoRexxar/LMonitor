@@ -9,7 +9,7 @@ class SimcTemplateDashboardFixTests(TestCase):
     """TDD tests for SimC template management dashboard fix."""
 
     def setUp(self):
-        self.user = User.objects.create_user(username='dashboard_user', password='pwd')
+        self.user = User.objects.create_user(username='dashboard_user', password='pwd', is_staff=True)
         self.client = Client()
         self.client.force_login(self.user)
 
