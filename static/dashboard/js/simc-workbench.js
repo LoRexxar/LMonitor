@@ -1,4 +1,4 @@
-/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260715p */
+/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716c */
 (() => {
     'use strict';
     const apiRoot = '/api/simc-workbench/';
@@ -421,9 +421,8 @@
         host.innerHTML = `<div class="flex justify-between mb-3"><h4 class="font-bold">${esc(row.name)}</h4><button data-template-action="close-detail" class="text-slate-500">关闭</button></div><dl class="grid gap-2 text-sm"><div>类型：${esc(row.type_label)}</div><div>专精：${esc(row.spec)}</div><div>职业：${esc(row.class_name || '-')}</div><div>来源：${esc(row.source === 'simc_upstream' ? 'SimC上游' : '用户维护')}</div><div>状态：${row.is_active ? '启用' : '已停用'}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
     }
     function renderAplKeywordForm(row = null) {
-        const host = document.getElementById('simc-wb-apl-keyword-form');
+        const host = openDialog('keyword-form');
         if (!host) return;
-        host.classList.remove('hidden');
         host.innerHTML = `<form data-apl-keyword-form class="rounded-xl border border-blue-200 bg-blue-50 p-4">
             <input type="hidden" name="id" value="${idOf(row?.id)}">
             <label class="block text-sm font-medium text-gray-700">APL 关键词<input name="apl_keyword" ${row ? 'readonly' : ''} required maxlength="100" value="${esc(row?.apl_keyword)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
@@ -433,10 +432,7 @@
         </form>`;
     }
     function closeAplKeywordForm() {
-        const host = document.getElementById('simc-wb-apl-keyword-form');
-        if (!host) return;
-        host.classList.add('hidden');
-        host.replaceChildren();
+        closeDialog();
     }
     async function saveAplKeyword(form) {
         const formData = new FormData(form);
@@ -456,10 +452,9 @@
         window.showMessage(id ? '关键词已更新' : '关键词已创建', 'success');
     }
     async function showAplKeywordDetail(id) {
-        const host = document.getElementById('simc-wb-apl-keyword-detail');
+        const host = openDialog('keyword-detail');
         if (!host) return;
         const detailRequest = beginDetailRequest(`keyword:${id}`);
-        host.classList.remove('hidden');
         renderState(host, 'loading', '正在加载关键词…');
         let data;
         try {
@@ -651,11 +646,7 @@
             if (aplKeywordAction) {
                 const actionName = aplKeywordAction.dataset.aplKeywordAction;
                 if (actionName === 'cancel') closeAplKeywordForm();
-                if (actionName === 'close-detail') {
-                    cancelDetailRequest();
-                    const detail = document.getElementById('simc-wb-apl-keyword-detail');
-                    detail?.classList.add('hidden'); detail?.replaceChildren();
-                }
+                if (actionName === 'close-detail') closeDialog();
             }
             const templateAction = event.target.closest('[data-template-action]');
             if (templateAction) {

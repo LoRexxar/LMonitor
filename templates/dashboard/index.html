@@ -168,8 +168,8 @@
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260716b"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260716a"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260716c"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260716c"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -1186,7 +1186,7 @@
                             </nav>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-backend-panel" data-simc-panel="backend"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">BackendBinary 实例安全状态</h3><p class="text-sm text-gray-500">普通用户只读；维护按钮仅按 API can_write 显示。</p></div><button data-simc-refresh="backend" class="rounded bg-slate-100 px-3 py-2">刷新</button></div><div id="simc-wb-backend-status" class="mt-4"></div><div id="simc-wb-backend-actions" class="mt-4"></div></div></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-apl-keywords-panel" data-simc-panel="apl-keywords">
-                            <section class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">APL 关键词（AplKeywordPair）</h3><p class="text-xs text-gray-500">系统转换规则；写权限由服务端 can_write 决定。</p></div><button data-inline-create="apl-keywords" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button></div><div id="simc-wb-apl-keyword-form" class="hidden mt-3"></div><div id="simc-wb-apl-keyword-list" class="mt-4"></div><div id="simc-wb-apl-keyword-detail" class="mt-4 hidden rounded-xl border bg-slate-50 p-4"></div></section>
+                            <section class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">APL 关键词（AplKeywordPair）</h3><p class="text-xs text-gray-500">系统转换规则；写权限由服务端 can_write 决定。</p></div><button data-inline-create="apl-keywords" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button></div><div id="simc-wb-apl-keyword-list" class="mt-4"></div></section>
                         </div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-rules-panel" data-simc-panel="rules">
                             <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">

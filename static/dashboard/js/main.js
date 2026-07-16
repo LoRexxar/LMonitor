@@ -1427,6 +1427,8 @@ function getTitleForDialogContent(contentType) {
         'template-detail': '模板详情',
         'template-form': '模板管理',
         'apl-form': 'APL 管理',
+        'keyword-detail': 'APL 关键词详情',
+        'keyword-form': 'APL 关键词管理',
         'task-detail': '任务详情',
         'batch-detail': '批次详情'
     };

@@ -58,7 +58,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-wb-action="keyword-detail"', JS)
         self.assertIn("if (!id) payload.apl_keyword", JS)
         self.assertIn("row ? 'readonly' : ''", JS)
-        self.assertIn('id="simc-wb-apl-keyword-detail"', HTML)
+        self.assertIn("openDialog('keyword-detail')", JS)
+        self.assertIn("openDialog('keyword-form')", JS)
+        self.assertNotIn('id="simc-wb-apl-keyword-detail"', HTML)
+        self.assertNotIn('id="simc-wb-apl-keyword-form"', HTML)
 
     def test_profiles_always_offer_detail_and_inactive_has_no_run_actions(self):
         self.assertIn('data-profile-row-action="detail"', MAIN)
@@ -505,10 +508,13 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('id="simc-wb-template-form"', HTML)
         self.assertIn("openSimcWorkbenchDialog('template-form'", JS)
 
-    def test_apl_keyword_inline_create_and_form_exists(self):
-        """APL keywords must have inline create button and form container."""
+    def test_apl_keyword_create_uses_shared_dialog_form(self):
+        """APL keywords keep the create entry and render its form in the shared dialog."""
         self.assertIn('data-inline-create="apl-keywords"', HTML)
-        self.assertIn('id="simc-wb-apl-keyword-form"', HTML)
+        self.assertNotIn('id="simc-wb-apl-keyword-form"', HTML)
+        self.assertIn("openDialog('keyword-form')", JS)
+        self.assertIn("'keyword-form': 'APL 关键词管理'", MAIN_JS)
+        self.assertIn("'keyword-detail': 'APL 关键词详情'", MAIN_JS)
 
     def test_template_click_handlers_exist(self):
         """Template edit/archive/restore/detail handlers must exist."""
