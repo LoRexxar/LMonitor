@@ -28,7 +28,7 @@ from botend.dashboard.api import (
     SimcRawInspectAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, KeywordTranslationAPIView,
     OssConfigAPIView, SimcResultProxyAPIView, SimcTaskPreviewAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView,
     SimcBattlenetPreflightAPIView,
-    SimcBackendBinaryAPIView, SimcWorkbenchAPIView, SimcArtifactPreviewAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView,
+    SimcBackendBinaryAPIView, SimcWorkbenchAPIView, SimcArtifactPreviewAPIView, SimcTaskReportPreviewAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView,
     WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView,
     WowDailyReportGenerateAPIView, WagoHotfixReportListAPIView, WagoSkillDiffRerunAPIView,
 )
@@ -129,6 +129,7 @@ urlpatterns = [
     path('api/simc-backend-binary/', SimcBackendBinaryAPIView.as_view(), name="simc_backend_binary"),
     path('api/simc-workbench/<str:resource>/', SimcWorkbenchAPIView.as_view(), name="simc_workbench"),
     path('api/simc-workbench/<str:resource>/<int:object_id>/', SimcWorkbenchAPIView.as_view(), name="simc_workbench_detail"),
+    path('api/simc-workbench/tasks/<int:object_id>/report-preview/', SimcTaskReportPreviewAPIView.as_view(), name="simc_task_report_preview"),
     path('api/simc-workbench/artifacts/<int:object_id>/preview/', SimcArtifactPreviewAPIView.as_view(), name="simc_artifact_preview"),
     path('api/system-alert/', csrf_exempt(SystemAlertAPIView.as_view()), name="system_alert"),
     path('api/portal/peak/refresh/', csrf_exempt(PortalPeakSpecRankRefreshAPIView.as_view()), name="portal_peak_refresh"),

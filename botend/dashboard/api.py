@@ -5502,7 +5502,9 @@ class SimcWorkbenchAPIView(View):
             'progress': SimcWorkbenchAPIView._task_progress(task),
             'task_type': task.task_type, 'batch_id': task.batch_id,
             'candidate_label': task.candidate_label, 'result_summary': summary,
-            'has_report': bool(task.result_file), 'is_active': task.is_active,
+            'has_report': bool(task.result_file),
+            'report_preview_url': f'/api/simc-workbench/tasks/{task.id}/report-preview/' if task.result_file else '',
+            'is_active': task.is_active,
             'created_at': _fmt_dt(task.create_time), 'updated_at': _fmt_dt(task.modified_time),
         }
 
@@ -6045,6 +6047,23 @@ class SimcWorkbenchAPIView(View):
             rule.delete()
             return JsonResponse({'success': True})
         return JsonResponse({'success': False, 'error': '不支持的资源操作'}, status=400)
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcTaskReportPreviewAPIView(View):
+    """兼容没有 Artifact 记录的旧任务，并隐藏报告文件名与存储路径。"""
+
+    def get(self, request, object_id):
+        task = SimcTask.objects.filter(id=object_id, user_id=request.user.id).first()
+        if not task or not task.result_file:
+            return JsonResponse({'success': False, 'error': '任务报告不存在'}, status=404)
+        from botend.services.simc_artifacts import _validated_result
+        validated = _validated_result(task, os.path.basename(str(task.result_file)))
+        if not validated:
+            return JsonResponse({'success': False, 'error': '任务报告不可用'}, status=404)
+        response = FileResponse(open(str(validated[0]), 'rb'), content_type='text/html; charset=utf-8')
+        response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
+        return response
 
 
 @method_decorator(login_required, name='dispatch')

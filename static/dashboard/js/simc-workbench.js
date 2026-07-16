@@ -8,7 +8,10 @@
         artifactPage: 1, artifactPageSize: 20, artifactTaskId: '', artifactType: '',
         artifactRequestSerial: 0, artifactAbortController: null,
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
+        dialogStack: [],
         templateType: '', rows: Object.create(null),
+        resourceAbortControllers: Object.create(null),
+        resourceRequestSerials: Object.create(null),
     };
     const esc = value => window.escapeHtml(String(value == null ? '' : value));
     const idOf = value => { const id = Number.parseInt(String(value), 10); return Number.isSafeInteger(id) && id > 0 ? id : 0; };
@@ -26,6 +29,55 @@
         const icon = kind === 'loading' ? '<i class="fas fa-spinner fa-spin mr-2"></i>' : '';
         const retryButton = retry ? `<button type="button" data-wb-retry="${esc(retry)}" class="simc-touch-action mt-3 rounded-lg border bg-white px-3 py-2 text-blue-700">原位重试</button>` : '';
         host.innerHTML = `<div class="rounded-xl border border-dashed p-5 text-center text-gray-500">${icon}${esc(text)}${retryButton}</div>`;
+    }
+    function captureDialogState() {
+        const dialog = document.getElementById('simc-workbench-dialog');
+        const body = document.getElementById('simc-dialog-body');
+        if (!dialog || dialog.classList.contains('hidden') || !body || !body.innerHTML.trim()) return null;
+        return {
+            html: body.innerHTML,
+            title: document.getElementById('simc-dialog-title')?.textContent || '',
+            scrollTop: document.getElementById('simc-workbench-dialog-content')?.scrollTop || 0,
+        };
+    }
+    function pushDialogState() {
+        const snapshot = captureDialogState();
+        if (snapshot) state.dialogStack.push(snapshot);
+    }
+    function restoreDialogState() {
+        const snapshot = state.dialogStack.pop();
+        if (!snapshot) return false;
+        cancelDetailRequest();
+        const body = document.getElementById('simc-dialog-body');
+        const title = document.getElementById('simc-dialog-title');
+        const panel = document.getElementById('simc-workbench-dialog-content');
+        if (body) body.innerHTML = snapshot.html;
+        if (title) title.textContent = snapshot.title;
+        if (panel) panel.scrollTop = snapshot.scrollTop;
+        return true;
+    }
+    function openDialog(type) {
+        if (typeof window.openSimcWorkbenchDialog !== 'function') throw new Error('统一详情对话框不可用');
+        state.dialogStack = [];
+        window.openSimcWorkbenchDialog(type, null);
+        return document.getElementById('simc-dialog-body');
+    }
+    function closeDialog() {
+        cancelDetailRequest();
+        if (typeof window.closeSimcWorkbenchDialog === 'function') window.closeSimcWorkbenchDialog();
+        state.dialogStack = [];
+    }
+    function beginResourceRequest(resource) {
+        const key = String(resource);
+        state.resourceRequestSerials[key] = (state.resourceRequestSerials[key] || 0) + 1;
+        if (state.resourceAbortControllers[key]) state.resourceAbortControllers[key].abort();
+        const controller = new AbortController();
+        state.resourceAbortControllers[key] = controller;
+        return { serial: state.resourceRequestSerials[key], key, controller };
+    }
+    function isCurrentResourceRequest(request) {
+        return request.serial === state.resourceRequestSerials[request.key]
+            && request.controller === state.resourceAbortControllers[request.key];
     }
     function cancelDetailRequest() {
         state.detailRequestSerial += 1;
@@ -164,9 +216,11 @@
         paginationHost.innerHTML = `<div class="flex items-center justify-between mt-3 text-sm"><div class="text-gray-600">共 ${total} 条记录，第 ${page}/${total_pages} 页</div><div class="flex gap-2">${buttons.join('')}</div></div>`;
     }
     async function showTaskDetail(resource, id) {
-        const host = document.getElementById('simc-wb-task-detail');
+        if (resource === 'batches') window.openSimcWorkbenchDialog('batch-detail', null);
+        else window.openSimcWorkbenchDialog('task-detail', null);
+        const host = document.getElementById('simc-dialog-body');
+        if (!host) return;
         const detailRequest = beginDetailRequest(`task:${resource}:${id}`);
-        host.classList.remove('hidden');
         renderState(host, 'loading', '正在加载详情…');
         let data;
         try {
@@ -178,12 +232,26 @@
         if (!isCurrentDetailRequest(detailRequest)) return;
         const row = data.data || {};
         const status = row.status_label || ({ 0: '待运行', 1: '运行中', 2: '成功', 3: '失败' }[Number(row.status)] || '未知');
+        const resultSummary = row.result_summary || {};
+        const dpsNumber = Number(resultSummary.dps);
+        const dps = Number.isFinite(dpsNumber) ? Math.round(dpsNumber).toLocaleString() : '无 DPS 数据';
         const members = resource === 'batches' && Array.isArray(row.tasks) ? row.tasks : [];
         const memberList = members.length ? `<div class="mt-4"><h5 class="font-semibold">批次成员</h5>${members.map(member => `<article class="simc-responsive-row mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white p-3"><div><b>${esc(member.name || `任务 #${idOf(member.id)}`)}</b><div class="text-xs text-gray-500">${esc(member.status_label || member.status)} · ${esc(member.updated_at)}</div></div>${member.can_view !== false ? `<button data-wb-action="detail" data-resource="tasks" data-id="${idOf(member.id)}" class="simc-touch-action rounded-lg border px-3 py-2 text-blue-700">查看任务</button>` : ''}</article>`).join('')}</div>` : (resource === 'batches' ? empty('此批次暂无可查看成员') : '');
-        const artifactButtons = (row.artifacts || []).filter(a => a.can_preview === true).map(a => `<button data-artifact-preview="${idOf(a.id)}" data-preview-url="${esc(a.preview_url)}" data-title="${esc(a.file_name)}" class="simc-touch-action mt-3 mr-2 rounded bg-blue-600 px-3 py-2 text-white">预览 ${esc(a.file_name)}</button>`).join('');
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">${resource === 'batches' ? '批次详情' : '任务详情'}：${esc(row.name || `#${id}`)}</h4><button class="simc-touch-action" data-wb-close-detail>关闭</button></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-3"><div>状态：${esc(status)}</div><div>类型：${esc(row.task_type || row.batch_type)}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${memberList}${artifactButtons}`;
+        const artifacts = Array.isArray(row.artifacts) ? row.artifacts : [];
+        const report = artifacts.find(a => a.can_preview === true && String(a.preview_url || '') === resourceUrl('artifacts', idOf(a.id)) + 'preview/');
+        const artifactList = artifacts.length ? `<div class="mt-4"><h5 class="font-semibold">结果产物</h5>${artifacts.map(a => `<div class="mt-2 text-sm">${esc(a.file_name || a.artifact_type || '产物')}${a.can_preview === true ? ` <button data-artifact-preview="${idOf(a.id)}" data-preview-url="${esc(a.preview_url)}" data-title="${esc(a.file_name)}" class="text-blue-700">在此预览</button>` : ''}</div>`).join('')}</div>` : '<p class="mt-4 text-sm text-gray-500">暂无结果产物</p>';
+        const reportFrame = report
+            ? `<div class="mt-4"><h5 class="font-semibold mb-2">模拟报告</h5>${window.renderSimcArtifactFrame(report.preview_url, report.file_name || 'SimC 报告')}</div>`
+            : (resource === 'tasks' && row.has_report === true && row.report_preview_url === `${resourceUrl('tasks', id)}report-preview/`
+                ? `<div class="mt-4"><h5 class="font-semibold mb-2">历史模拟报告</h5>${window.renderSimcArtifactFrame(row.report_preview_url, 'SimC 历史报告')}</div>`
+                : '');
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">${resource === 'batches' ? '批次详情' : '任务详情'}：${esc(row.name || `#${id}`)}</h4><button class="simc-touch-action" data-wb-close-detail>关闭</button></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-4"><div>状态：${esc(status)}</div><div>类型：${esc(row.task_type || row.batch_type)}</div><div>DPS：${esc(dps)}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${memberList}${artifactList}${reportFrame}`;
     }
     async function showBatchComparison(id) {
+        window.openSimcWorkbenchDialog('batch-detail', null);
+        const host = document.getElementById('simc-dialog-body');
+        if (!host) return;
+        renderState(host, 'loading', '正在加载批次比较…');
         const detailRequest = beginDetailRequest(`comparison:${id}`);
         let data;
         try {
@@ -194,15 +262,15 @@
         }
         if (!isCurrentDetailRequest(detailRequest)) return;
         const rows = Array.isArray(data.data?.tasks) ? data.data.tasks : [];
-        const host = document.getElementById('simc-wb-task-detail');
-        host.classList.remove('hidden');
         const tableRows = rows.map(row => {
-            const dps = row.dps == null ? '-' : Math.round(Number(row.dps)).toLocaleString();
-            const delta = row.delta_dps == null ? '-' : `${Number(row.delta_dps) >= 0 ? '+' : ''}${Math.round(Number(row.delta_dps)).toLocaleString()}`;
-            const percent = row.delta_percent == null ? '-' : `${Number(row.delta_percent) >= 0 ? '+' : ''}${row.delta_percent}%`;
+            const validDps = row.dps != null && Number.isFinite(Number(row.dps));
+            const dps = validDps ? Math.round(Number(row.dps)).toLocaleString() : (row.status === 3 || row.is_valid === false ? '无效结果' : '无 DPS 数据');
+            const deltaValue = row.delta ?? row.delta_dps;
+            const delta = validDps && deltaValue != null && Number.isFinite(Number(deltaValue)) ? `${Number(deltaValue) >= 0 ? '+' : ''}${Math.round(Number(deltaValue)).toLocaleString()}` : '-';
+            const percent = validDps && row.delta_percent != null ? `${Number(row.delta_percent) >= 0 ? '+' : ''}${row.delta_percent}%` : '-';
             return `<tr class="border-t"><td class="p-2">${esc(row.rank || '-')}</td><td class="p-2">${esc(row.label || row.name)}</td><td class="p-2 text-right">${esc(dps)}</td><td class="p-2 text-right">${esc(delta)}</td><td class="p-2 text-right">${esc(percent)}</td></tr>`;
         }).join('');
-        host.innerHTML = `<div class="flex justify-between gap-3"><div><h4 class="font-bold">结果比较</h4><p class="text-xs text-gray-500">仅展示已解析的安全结果摘要</p></div><button data-wb-close-detail>关闭</button></div><div class="mt-3 overflow-x-auto"><table class="w-full min-w-[560px] text-sm"><thead><tr class="text-left text-gray-500"><th class="p-2">排名</th><th class="p-2">方案</th><th class="p-2 text-right">DPS</th><th class="p-2 text-right">差值</th><th class="p-2 text-right">差值%</th></tr></thead><tbody>${tableRows}</tbody></table></div>`;
+        host.innerHTML = `<div class="flex justify-between gap-3"><div><h4 class="font-bold">结果比较</h4><p class="text-xs text-gray-500">仅展示已解析的安全结果摘要</p></div><button data-wb-close-detail>关闭</button></div><div class="mt-3 overflow-x-auto"><table class="w-full min-w-[560px] text-sm"><thead><tr class="text-left text-gray-500"><th class="p-2">排名</th><th class="p-2">方案</th><th class="p-2 text-right">DPS</th><th class="p-2 text-right">差值</th><th class="p-2 text-right">差值%</th></tr></thead><tbody>${tableRows || `<tr><td colspan="5" class="p-5 text-center text-gray-500">无有效成员结果</td></tr>`}</tbody></table></div>`;
     }
     async function loadArtifacts(page = state.artifactPage) {
         const host = document.getElementById('simc-wb-artifact-list');
@@ -253,11 +321,15 @@
         const id = idOf(button.dataset.artifactPreview);
         const url = String(button.dataset.previewUrl || '');
         if (!id || url !== resourceUrl('artifacts', id) + 'preview/') return;
-        const host = document.getElementById('simc-wb-artifact-detail');
+        const host = button.closest?.('#simc-dialog-body') || document.getElementById('simc-wb-artifact-detail');
+        if (!host) return;
         host.classList.remove('hidden');
+        const panel = document.getElementById('simc-workbench-dialog-content');
+        if (host.id === 'simc-dialog-body') pushDialogState();
         host.dataset.previewUrl = url;
         host.dataset.previewTitle = button.dataset.title || 'SimC 结果预览';
-        host.innerHTML = `<div class="flex flex-wrap items-start justify-between gap-2"><div><h4 class="font-bold">${esc(host.dataset.previewTitle)}</h4><p class="text-xs text-gray-500">${esc(button.dataset.meta)}</p></div><button class="simc-touch-action" data-artifact-preview-action="close">关闭预览</button></div><div data-artifact-frame class="mt-3"><div class="p-5 text-center text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>正在加载安全预览…</div>${window.renderSimcArtifactFrame(url, host.dataset.previewTitle)}</div><button class="simc-touch-action mt-3 hidden rounded border px-3 py-2 text-blue-700" data-artifact-preview-action="retry">原位重试</button>`;
+        host.innerHTML = `<div class="flex flex-wrap items-start justify-between gap-2"><div><h4 class="font-bold">${esc(host.dataset.previewTitle)}</h4><p class="text-xs text-gray-500">${esc(button.dataset.meta)}</p></div><button class="simc-touch-action" data-artifact-preview-action="close">返回任务详情</button></div><div data-artifact-frame class="mt-3"><div class="p-5 text-center text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>正在加载安全预览…</div>${window.renderSimcArtifactFrame(url, host.dataset.previewTitle)}</div><button class="simc-touch-action mt-3 hidden rounded border px-3 py-2 text-blue-700" data-artifact-preview-action="retry">原位重试</button>`;
+        if (panel) panel.scrollTop = 0;
         const frame = host.querySelector('iframe');
         const retry = host.querySelector('[data-artifact-preview-action="retry"]');
         frame?.addEventListener('load', () => host.querySelector('[data-artifact-frame] > div')?.remove(), { once: true });
@@ -265,10 +337,16 @@
     }
     async function loadTemplates() {
         const host = document.getElementById('simc-wb-template-list');
+        const request = beginResourceRequest('templates');
         renderState(host, 'loading', '正在加载模板…');
         let data;
-        try { data = await json(resourceUrl('templates')); }
-        catch (_) { renderState(host, 'error', '模板加载失败', 'templates'); return; }
+        try { data = await json(resourceUrl('templates'), { signal: request.controller.signal }); }
+        catch (error) {
+            if (error.name === 'AbortError') return;
+            if (isCurrentResourceRequest(request)) renderState(host, 'error', '模板加载失败', 'templates');
+            return;
+        }
+        if (!isCurrentResourceRequest(request)) return;
         state.rows.templates = data.data || [];
         state.canWriteTemplates = data.can_write === true;
         const rows = state.templateType ? data.data.filter(row => row.template_type === state.templateType) : data.data;
@@ -281,9 +359,9 @@
         document.querySelector('[data-inline-create="templates"]')?.classList.toggle('hidden', !state.canWriteTemplates);
     }
     function renderTemplateForm(row = null) {
-        const host = document.getElementById('simc-wb-template-form');
+        window.openSimcWorkbenchDialog('template-form', null);
+        const host = document.getElementById('simc-dialog-body');
         if (!host) return;
-        host.classList.remove('hidden');
         const typeOptions = [
             { value: 'base_template', label: '基础模板' },
             { value: 'default_apl', label: '默认 APL' },
@@ -301,17 +379,10 @@
         </form>`;
     }
     function closeTemplateForm() {
-        const host = document.getElementById('simc-wb-template-form');
-        if (!host) return;
-        host.classList.add('hidden');
-        host.replaceChildren();
+        closeDialog();
     }
     function closeTemplateDetail() {
-        cancelDetailRequest();
-        const host = document.getElementById('simc-wb-template-detail');
-        if (!host) return;
-        host.classList.add('hidden');
-        host.replaceChildren();
+        closeDialog();
     }
     async function saveTemplate(form) {
         const formData = new FormData(form);
@@ -333,6 +404,10 @@
         window.showMessage(id ? '模板已更新' : '模板已创建', 'success');
     }
     async function showTemplateDetail(id) {
+        window.openSimcWorkbenchDialog('template-detail', null);
+        const host = document.getElementById('simc-dialog-body');
+        if (!host) return;
+        renderState(host, 'loading', '正在加载模板…');
         const detailRequest = beginDetailRequest(`template:${id}`);
         let data;
         try {
@@ -343,8 +418,6 @@
         }
         if (!isCurrentDetailRequest(detailRequest)) return;
         const row = data.data || {};
-        const host = document.getElementById('simc-wb-template-detail');
-        host.classList.remove('hidden');
         host.innerHTML = `<div class="flex justify-between mb-3"><h4 class="font-bold">${esc(row.name)}</h4><button data-template-action="close-detail" class="text-slate-500">关闭</button></div><dl class="grid gap-2 text-sm"><div>类型：${esc(row.type_label)}</div><div>专精：${esc(row.spec)}</div><div>职业：${esc(row.class_name || '-')}</div><div>来源：${esc(row.source === 'simc_upstream' ? 'SimC上游' : '用户维护')}</div><div>状态：${row.is_active ? '启用' : '已停用'}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
     }
     function renderAplKeywordForm(row = null) {
@@ -400,9 +473,9 @@
         host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">规则关键词详情</h4><button class="simc-touch-action" data-apl-keyword-action="close-detail">关闭</button></div><dl class="mt-3 grid gap-2 text-sm"><div>APL 关键词：<code>${esc(row.apl_keyword)}</code></div><div>中文关键词：${esc(row.cn_keyword)}</div><div>说明：${esc(row.description || '-')}</div><div>状态：${row.is_active === false ? '已停用' : '启用'}</div></dl>`;
     }
     function renderAplStorageForm(row = null) {
-        const host = document.getElementById('simc-wb-apl-storage-form');
+        window.openSimcWorkbenchDialog('apl-form', null);
+        const host = document.getElementById('simc-dialog-body');
         if (!host) return;
-        host.classList.remove('hidden');
         host.innerHTML = `<form data-apl-storage-form class="rounded-xl border border-blue-200 bg-blue-50 p-4">
             <input type="hidden" name="id" value="${idOf(row?.id)}">
             <label class="block text-sm font-medium text-gray-700">标题<input name="title" required maxlength="255" value="${esc(row?.title)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
@@ -411,17 +484,20 @@
         </form>`;
     }
     function closeAplStorageForm() {
-        const host = document.getElementById('simc-wb-apl-storage-form');
-        if (!host) return;
-        host.classList.add('hidden');
-        host.replaceChildren();
+        closeDialog();
     }
     async function loadApl(resource, hostId) {
         const host = document.getElementById(hostId);
+        const request = beginResourceRequest('apl');
         renderState(host, 'loading', '正在加载规则数据…');
         let data;
-        try { data = await json(resourceUrl(resource)); }
-        catch (_) { renderState(host, 'error', '规则数据加载失败', resource); return; }
+        try { data = await json(resourceUrl(resource), { signal: request.controller.signal }); }
+        catch (error) {
+            if (error.name === 'AbortError') return;
+            if (isCurrentResourceRequest(request)) renderState(host, 'error', '规则数据加载失败', resource);
+            return;
+        }
+        if (!isCurrentResourceRequest(request)) return;
         state.rows[resource] = data.data || [];
         const canWrite = resource === 'apl-storage' || data.can_write === true;
         document.querySelector(`[data-inline-create="${resource}"]`)?.classList.toggle('hidden', !canWrite);
@@ -465,7 +541,14 @@
     async function loadBackend() {
         const host = document.getElementById('simc-wb-backend-status');
         const actions = document.getElementById('simc-wb-backend-actions');
-        const data = await json('/api/simc-backend-binary/');
+        const request = beginResourceRequest('backend');
+        let data;
+        try { data = await json('/api/simc-backend-binary/', { signal: request.controller.signal }); }
+        catch (error) {
+            if (error.name === 'AbortError') return;
+            return;
+        }
+        if (!isCurrentResourceRequest(request)) return;
         const info = data.data || {};
         const availableLabel = info.available ? '可用' : '不可用';
         const updateLabel = info.need_update ? '有更新' : '已同步';
@@ -510,7 +593,8 @@
         if (tab === 'tasks') loadTasks().catch(notify);
         if (tab === 'artifacts') loadArtifacts().catch(notify);
         if (tab === 'templates') loadTemplates().catch(notify);
-        if (tab === 'apl') Promise.all([loadApl('apl-storage', 'simc-wb-apl-storage-list'), loadApl('apl-keywords', 'simc-wb-apl-keyword-list')]).catch(notify);
+        if (tab === 'apl') loadApl('apl-storage', 'simc-wb-apl-storage-list').catch(notify);
+        if (tab === 'apl-keywords') loadApl('apl-keywords', 'simc-wb-apl-keyword-list').catch(notify);
         if (tab === 'backend') loadBackend().catch(notify);
     }
     function deactivate(nextPanel) {
@@ -539,10 +623,15 @@
         return loadTasks(resource, page).catch(notify);
     };
     const notify = error => window.showMessage(String(error.message || error), 'error');
+    document.addEventListener('simc-dialog-closing', event => {
+        if (event.detail?.reason === 'close') state.dialogStack = [];
+        cancelDetailRequest();
+    });
+    document.addEventListener('simc-dialog-replace', cancelDetailRequest);
     document.addEventListener('DOMContentLoaded', () => {
         const root = document.getElementById('simc-workbench');
         if (!root) return;
-        root.addEventListener('click', event => {
+        document.addEventListener('click', event => {
             const aplCreate = event.target.closest('[data-inline-create="apl-storage"]');
             if (aplCreate) renderAplStorageForm();
             const templateCreate = event.target.closest('[data-inline-create="templates"]');
@@ -588,13 +677,18 @@
             if (artifactPage) loadArtifacts(state.artifactPage + (artifactPage.dataset.artifactPage === 'prev' ? -1 : 1));
             const previewAction = event.target.closest('[data-artifact-preview-action]');
             if (previewAction) {
-                const host = document.getElementById('simc-wb-artifact-detail');
-                if (previewAction.dataset.artifactPreviewAction === 'close') { host.classList.add('hidden'); host.replaceChildren(); }
+                const dialogHost = previewAction.closest('#simc-dialog-body');
+                const host = dialogHost || document.getElementById('simc-wb-artifact-detail');
+                if (!host) return;
+                if (previewAction.dataset.artifactPreviewAction === 'close') {
+                    if (dialogHost && restoreDialogState()) return;
+                    if (dialogHost) closeDialog();
+                    else { host.classList.add('hidden'); host.replaceChildren(); }
+                }
                 if (previewAction.dataset.artifactPreviewAction === 'retry') previewArtifact({ dataset: { artifactPreview: host.dataset.previewUrl?.match(/artifacts\/(\d+)/)?.[1], previewUrl: host.dataset.previewUrl, title: host.dataset.previewTitle, meta: '' } });
             }
             if (event.target.closest('[data-wb-close-detail]')) {
-                cancelDetailRequest();
-                document.getElementById('simc-wb-task-detail').classList.add('hidden');
+                if (!restoreDialogState()) closeDialog();
             }
             const type = event.target.closest('[data-template-type]');
             if (type) { state.templateType = type.dataset.templateType || ''; loadTemplates().catch(notify); }
@@ -602,7 +696,10 @@
             if (action) {
                 const id = idOf(action.dataset.id), resource = action.dataset.resource, name = action.dataset.wbAction;
                 if (!id) return;
-                if (name === 'detail') showTaskDetail(resource, id).catch(notify);
+                if (name === 'detail') {
+                    if (action.closest('#simc-dialog-body')) pushDialogState();
+                    showTaskDetail(resource, id).catch(notify);
+                }
                 else if (name === 'compare' && resource === 'batches') showBatchComparison(id).catch(notify);
                 else if (name === 'template-detail') showTemplateDetail(id).catch(notify);
                 else if (name === 'keyword-detail') showAplKeywordDetail(id).catch(notify);
@@ -635,7 +732,7 @@
                 else if (target === 'apl-storage') loadApl(target, 'simc-wb-apl-storage-list');
             }
         });
-        root.addEventListener('change', event => {
+        document.addEventListener('change', event => {
             const artifactFilter = event.target.closest('[data-artifact-filter]');
             if (artifactFilter) {
                 state.artifactTaskId = document.querySelector('[data-artifact-filter="task_id"]')?.value.trim() || '';
@@ -647,7 +744,7 @@
                 runBackendAction({ action: 'set_auto_update', auto_update: autoUpdate.checked }).catch(notify);
             }
         });
-        root.addEventListener('submit', event => {
+        document.addEventListener('submit', event => {
             const aplStorageForm = event.target.closest('[data-apl-storage-form]');
             if (aplStorageForm) {
                 event.preventDefault();

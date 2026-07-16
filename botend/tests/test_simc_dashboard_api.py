@@ -1685,7 +1685,8 @@ class SimcNewConfigModeTests(TestCase):
         self.assertNotIn('function displaySimcTaskData(tasks)', main_js)
         self.assertNotIn('function openViewSimcTaskModal(task)', main_js)
         self.assertIn('async function showTaskDetail(resource, id)', workbench_js)
-        self.assertIn("document.getElementById('simc-wb-task-detail')", workbench_js)
+        self.assertIn("window.openSimcWorkbenchDialog('task-detail'", workbench_js)
+        self.assertIn("document.getElementById('simc-dialog-body')", workbench_js)
         self.assertNotIn('raw_simc_code', workbench_js)
         self.assertNotIn('candidate_reason', workbench_js)
         self.assertNotIn('preprocess_reasoning', workbench_js)
@@ -1875,12 +1876,13 @@ class SimcNewConfigModeTests(TestCase):
         template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
         soup = BeautifulSoup(template, 'html.parser')
         expected_groups = {
-            'simc-l1-workflow-panel': ('simc-workbench-import-panel',),
+            'simc-l1-workflow-panel': (
+                'simc-workbench-import-panel', 'simc-workbench-profiles-panel',
+                'simc-workbench-templates-panel', 'simc-workbench-apl-panel',
+            ),
             'simc-l1-history-panel': ('simc-workbench-tasks-panel',),
             'simc-l1-advanced-panel': (
-                'simc-workbench-profiles-panel', 'simc-workbench-templates-panel',
-                'simc-workbench-apl-panel', 'simc-workbench-backend-panel',
-                'simc-workbench-rules-panel',
+                'simc-workbench-backend-panel', 'simc-workbench-rules-panel',
             ),
         }
         for group_id, panel_ids in expected_groups.items():
@@ -1900,12 +1902,14 @@ class SimcNewConfigModeTests(TestCase):
         self.assertIn('row.preview', workbench_js)
         self.assertNotIn('row.content', workbench_js[workbench_js.index('async function loadTemplates()'):workbench_js.index('function renderTemplateForm')])
 
-    def test_task_history_uses_inline_safe_detail_instead_of_raw_config_modal(self):
+    def test_task_history_uses_shared_safe_dialog_instead_of_raw_config_modal(self):
         template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
         main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
         workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
 
-        self.assertIn('id="simc-wb-task-detail"', template)
+        self.assertNotIn('id="simc-wb-task-detail"', template)
+        self.assertIn('id="simc-workbench-dialog"', template)
+        self.assertIn("openSimcWorkbenchDialog('task-detail'", workbench_js)
         self.assertNotIn('查看SimC代码', template)
         self.assertNotIn('生成的SimC代码', template)
         self.assertNotIn('copy-simc-code', template)

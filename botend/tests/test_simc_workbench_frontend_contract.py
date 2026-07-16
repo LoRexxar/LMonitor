@@ -7,6 +7,17 @@ HTML = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
 JS = (ROOT / "static/dashboard/js/simc-workbench.js").read_text(encoding="utf-8")
 MAIN = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
 
+# Scope safety assertions to the complete SimC surfaces. The dashboard template
+# and main.js also contain unrelated legacy modules with their own navigation UI.
+SIMC_HTML = (
+    HTML[HTML.index('<div class="content-section" id="simc-workbench"'):HTML.index('<!-- Tools内容区域 -->')]
+    + HTML[HTML.index('<!-- SimC Workbench Unified Dialog -->'):]
+)
+SIMC_MAIN = MAIN[
+    MAIN.index('/* ===== SimC Workbench Dialog ===== */'):
+    MAIN.index('// 全局表格变量')
+]
+
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
     def test_high_risk_resource_navigation_and_aria_contract(self):
@@ -53,7 +64,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-profile-row-action="detail"', MAIN)
         self.assertIn("simcWbShowProfileDetail", MAIN)
         self.assertIn("已停用，不可加载或运行", MAIN)
-        self.assertIn('id="simc-wb-profile-detail"', HTML)
+        self.assertNotIn('id="simc-wb-profile-detail"', HTML)
+        self.assertIn("openSimcWorkbenchDialog('profile-detail'", MAIN)
         detail_start = MAIN.index("function simcWbShowProfileDetail")
         detail_end = MAIN.index("function bindSimcWorkbenchProfilesControls", detail_start)
         detail_body = MAIN[detail_start:detail_end]
@@ -71,26 +83,17 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("requestSerial !== simcWbProfileDetailRequestSerial", detail_body)
         self.assertIn("simcWbProfileDetailId !== String(id)", detail_body)
 
-    def test_artifact_real_pagination_filters_and_preview_states(self):
-        for token in ("artifactPage: 1", "artifactPageSize", "artifactTaskId", "artifactType"):
-            self.assertIn(token, JS)
-        self.assertIn("page_size=${state.artifactPageSize}", JS)
-        self.assertIn("task_id", JS)
-        self.assertIn("artifact_type", JS)
-        self.assertIn('data-artifact-page="prev"', JS)
-        self.assertIn('data-artifact-page="next"', JS)
+    def test_task_dialog_owns_artifact_preview_states(self):
+        self.assertNotIn('id="simc-workbench-artifacts-panel"', HTML)
+        self.assertNotIn('data-artifact-filter="task_id"', HTML)
+        self.assertNotIn('data-artifact-filter="artifact_type"', HTML)
+        start = JS.index('async function showTaskDetail')
+        end = JS.index('\n    async function', start + 20)
+        detail = JS[start:end]
+        self.assertIn('row.artifacts', detail)
+        self.assertIn('data-artifact-preview', detail)
         self.assertIn('data-artifact-preview-action="retry"', JS)
         self.assertIn('data-artifact-preview-action="close"', JS)
-        self.assertIn('id="simc-wb-artifact-pagination"', HTML)
-        self.assertIn('data-artifact-filter="task_id"', HTML)
-        self.assertIn('data-artifact-filter="artifact_type"', HTML)
-        for artifact_type in ("html_report", "json_stats", "log"):
-            self.assertIn(f'<option value="{artifact_type}"', HTML)
-        self.assertNotIn('<option value="html">HTML 报告</option>', HTML)
-        self.assertNotIn('<option value="json">JSON 数据</option>', HTML)
-        self.assertIn("artifactTaskId", JS)
-        self.assertIn("state.artifactAbortController.abort()", JS)
-        self.assertIn("requestSerial !== state.artifactRequestSerial", JS)
 
     def test_artifact_preview_is_only_rendered_for_supported_rows(self):
         self.assertIn("row.can_preview === true", JS)
@@ -135,27 +138,25 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('id="simc-wb-mastery-pagination"', HTML)
 
     def test_compact_mobile_structure_and_business_groups(self):
-        self.assertIn('@media (max-width: 390px)', HTML)
+        self.assertIn('@media (max-width: 640px)', HTML)
         self.assertIn('.simc-responsive-row', HTML)
         self.assertIn('.simc-touch-action', HTML)
         self.assertIn('class="simc-workflow-step"', HTML)
         self.assertIn('<details', HTML)
-        for group in ("运行与结果", "模拟输入", "系统规则", "运行环境"):
+        for group in ("模拟工作流", "历史任务", "系统规则", "运行环境"):
             self.assertIn(group, HTML)
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
         self.assertNotIn('p-5 h-full', workflow)
 
-    def test_ten_models_have_visible_entries_in_advanced(self):
-        resources = (
-            "batches", "tasks", "artifacts", "profiles", "secondary-rules",
-            "mastery-rules", "templates", "backend", "apl-keywords", "apl-storage",
-        )
-        for resource in resources:
-            self.assertIn(f'data-simc-model="{resource}"', HTML)
-        self.assertIn('data-simc-l1-panel="advanced"', HTML)
-        advanced_panel_start = HTML.index('data-simc-l1-panel="advanced"')
-        advanced_section = HTML[advanced_panel_start:advanced_panel_start + 2000]
-        self.assertIn('aria-label="SimC 十模型入口"', advanced_section)
+    def test_advanced_only_has_system_capabilities(self):
+        advanced_start = HTML.index('data-simc-l1-panel="advanced"')
+        advanced_end = HTML.index('<!-- End L1 Panel: 高级设置 -->')
+        advanced = HTML[advanced_start:advanced_end]
+        self.assertIn('aria-label="SimC 系统模型入口"', advanced)
+        for resource in ("secondary-rules", "mastery-rules", "backend", "apl-keywords"):
+            self.assertIn(f'data-simc-model="{resource}"', advanced)
+        for resource in ("batches", "tasks", "artifacts", "profiles", "apl-storage"):
+            self.assertNotIn(f'data-simc-model="{resource}"', advanced)
 
     def test_workflow_is_default_l1_with_history_and_advanced(self):
         self.assertIn('data-simc-l1-tab="workflow"', HTML)
@@ -173,8 +174,13 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('id="simc-workbench-tasks-panel"', HTML[history_panel_start:history_end])
         advanced_panel_start = HTML.index('data-simc-l1-panel="advanced"')
         advanced_end = HTML.index('<!-- End L1 Panel: 高级设置 -->')
-        self.assertIn('id="simc-workbench-profiles-panel"', HTML[advanced_panel_start:advanced_end])
-        self.assertIn('id="simc-workbench-artifacts-panel"', HTML[advanced_panel_start:advanced_end])
+        advanced = HTML[advanced_panel_start:advanced_end]
+        self.assertNotIn('id="simc-workbench-profiles-panel"', advanced)
+        self.assertNotIn('id="simc-workbench-artifacts-panel"', advanced)
+        workflow = HTML[workflow_panel_start:workflow_end]
+        self.assertIn('id="simc-workbench-profiles-panel"', workflow)
+        self.assertIn('id="simc-workbench-templates-panel"', workflow)
+        self.assertIn('id="simc-workbench-apl-panel"', workflow)
 
     def test_history_panel_has_task_batch_subtabs(self):
         self.assertIn('data-simc-panel="tasks"', HTML)
@@ -235,7 +241,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("const formWrap = document.getElementById('simc-wb-profile-form')", body)
 
     def test_artifact_uses_actual_sandbox_helper(self):
-        self.assertIn('id="simc-workbench-artifacts-panel"', HTML)
+        self.assertNotIn('id="simc-workbench-artifacts-panel"', HTML)
+        self.assertIn("openSimcWorkbenchDialog('task-detail'", JS)
         self.assertIn("window.renderSimcArtifactFrame(url", JS)
         self.assertIn('sandbox=""', MAIN)
         self.assertIn("/api/simc-workbench/", JS)
@@ -253,7 +260,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-rule-subtab="mastery-rules"', HTML)
         self.assertIn('data-rule-panel="secondary-rules"', HTML)
         self.assertIn('data-rule-panel="mastery-rules"', HTML)
-        for panel in ("tasks", "artifacts", "templates", "apl", "backend"):
+        for panel in ("tasks", "templates", "apl", "backend"):
             marker = f'id="simc-workbench-{panel}-panel"'
             start = HTML.index(marker)
             self.assertNotIn('></div>', HTML[start:start + len(marker) + 20])
@@ -270,7 +277,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
 
     def test_workbench_controller_has_no_unsafe_or_legacy_navigation(self):
         forbidden = (
-            "window.open", 'target="_blank"', "alert(", "prompt(", "confirm(",
+            "window.open(", 'target="_blank"', "alert(", "prompt(", "confirm(",
             "modal", "appendChild", "开发中", "stub", "'/dashboard/'",
         )
         lowered = JS.lower()
@@ -281,8 +288,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("startsWith('/')", JS)
         self.assertEqual(MAIN.count("function escapeHtml"), 1)
 
-    def test_apl_storage_has_inline_crud_and_simulation_loading(self):
-        self.assertIn('id="simc-wb-apl-storage-form"', HTML)
+    def test_apl_storage_has_dialog_crud_and_simulation_loading(self):
+        self.assertNotIn('id="simc-wb-apl-storage-form"', HTML)
+        self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
         self.assertIn('data-inline-create="apl-storage"', HTML)
         self.assertIn("'/api/apl-storage/'", JS)
         self.assertIn('data-apl-action="edit"', JS)
@@ -332,7 +340,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         save_start = MAIN.index('async function simcWbSaveCurrentSimulatorProfile()')
         save_end = MAIN.index('\n\n/* --- Rule CRUD --- */', save_start)
         save_body = MAIN[save_start:save_end]
-        self.assertIn("switchSimcWorkbenchL1Tab('advanced', 'profiles')", save_body)
+        self.assertIn("switchSimcWorkbenchL1Tab('workflow', 'profiles')", save_body)
         self.assertIn("simcWbToggleProfileForm('create')", save_body)
         self.assertNotIn("fetch('/api/simc-profile/'", save_body)
 
@@ -380,7 +388,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         switch_l1_body = MAIN[switch_l1_start:switch_l1_end]
         self.assertIn("workflow: 'import'", switch_l1_body)
         self.assertIn("history: 'tasks'", switch_l1_body)
-        self.assertIn("advanced: 'profiles'", switch_l1_body)
+        self.assertIn("advanced: 'backend'", switch_l1_body)
         self.assertIn("window.simcWorkbenchLoadPanel", switch_l1_body)
         self.assertNotIn("fetchSimcTaskData", switch_l1_body)
 
@@ -390,7 +398,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         switch_body = MAIN[switch_start:switch_end]
         self.assertIn("import: 'workflow'", switch_body)
         self.assertIn("tasks: 'history'", switch_body)
-        self.assertIn("artifacts: 'advanced'", switch_body)
+        self.assertIn("profiles: 'workflow'", switch_body)
+        self.assertIn("artifacts: 'history'", switch_body)
+        self.assertIn("'apl-keywords': 'advanced'", switch_body)
         self.assertIn("switchSimcWorkbenchL1Tab(parentTab, activeTab)", switch_body)
 
     def test_workbench_data_loader_has_no_duplicate_model_navigation_handler(self):
@@ -467,10 +477,11 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("can_write", MAIN)
         self.assertIn("data-simc-inline-create", HTML)
 
-    def test_template_inline_create_and_form_exists(self):
-        """Templates panel must have inline create button and form container."""
+    def test_template_create_uses_shared_dialog_form(self):
+        """Templates panel keeps the entry; the form is rendered in the shared dialog."""
         self.assertIn('data-inline-create="templates"', HTML)
-        self.assertIn('id="simc-wb-template-form"', HTML)
+        self.assertNotIn('id="simc-wb-template-form"', HTML)
+        self.assertIn("openSimcWorkbenchDialog('template-form'", JS)
 
     def test_apl_keyword_inline_create_and_form_exists(self):
         """APL keywords must have inline create button and form container."""
@@ -566,10 +577,155 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             self.assertNotIn(token, MAIN)
 
     def test_old_simc_modal_event_listeners_removed(self):
-        """Old modal button event listeners must be removed."""
+        """Old model-specific modal listeners stay removed; one shared dialog replaces them."""
         self.assertNotIn('add-simc-task-btn', MAIN)
         self.assertNotIn('cancel-add-simc-task', MAIN)
         self.assertNotIn('confirm-add-simc-task', MAIN)
         self.assertNotIn('cancel-edit-simc-task', MAIN)
         self.assertNotIn('confirm-edit-simc-task', MAIN)
         self.assertNotIn('close-view-simc-task', MAIN)
+
+
+class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
+    """Current product contract: main-flow resources and results use one workbench dialog."""
+
+    def _l1_section(self, name, end_marker):
+        start = HTML.index(f'data-simc-l1-panel="{name}"')
+        end = HTML.index(end_marker, start)
+        return HTML[start:end]
+
+    def test_workflow_owns_profiles_user_apl_and_editable_templates(self):
+        workflow = self._l1_section('workflow', '<!-- End L1 Panel: 模拟工作流 -->')
+        for panel_id in (
+            'simc-workbench-profiles-panel',
+            'simc-workbench-templates-panel',
+            'simc-workbench-apl-panel',
+        ):
+            self.assertIn(f'id="{panel_id}"', workflow)
+
+    def test_advanced_excludes_user_workflow_and_result_resources(self):
+        advanced = self._l1_section('advanced', '<!-- End L1 Panel: 高级设置 -->')
+        for resource in ('tasks', 'batches', 'artifacts', 'profiles', 'apl-storage'):
+            self.assertNotIn(f'data-simc-model="{resource}"', advanced)
+        for panel_id in (
+            'simc-workbench-profiles-panel',
+            'simc-workbench-artifacts-panel',
+            'simc-workbench-apl-panel',
+        ):
+            self.assertNotIn(f'id="{panel_id}"', advanced)
+        for resource in ('secondary-rules', 'mastery-rules', 'apl-keywords', 'backend'):
+            self.assertIn(f'data-simc-model="{resource}"', advanced)
+
+    def test_one_accessible_workbench_dialog_exists(self):
+        self.assertEqual(HTML.count('id="simc-workbench-dialog"'), 1)
+        self.assertIn('role="dialog"', HTML)
+        self.assertIn('aria-modal="true"', HTML)
+        self.assertIn('id="simc-workbench-dialog-backdrop"', HTML)
+        self.assertIn('id="simc-workbench-dialog-content"', HTML)
+        self.assertIn('data-simc-dialog-close', HTML)
+
+    def test_dialog_has_keyboard_focus_scroll_and_mobile_contract(self):
+        for token in (
+            'function openSimcWorkbenchDialog(',
+            'function closeSimcWorkbenchDialog(',
+            "event.key === 'Escape'",
+            "event.key !== 'Tab'",
+            'simcWorkbenchDialogPreviousFocus',
+            "document.body.classList.add('simc-dialog-open')",
+            "document.body.classList.remove('simc-dialog-open')",
+        ):
+            self.assertIn(token, MAIN)
+        mobile = HTML[HTML.index('@media (max-width: 640px)'):]
+        self.assertIn('.simc-workbench-dialog__viewport', mobile)
+        self.assertIn('padding: 0 !important', mobile)
+        self.assertIn('align-items: stretch !important', mobile)
+        self.assertIn('.simc-workbench-dialog__panel', mobile)
+        self.assertIn('width: 100vw !important', mobile)
+        self.assertIn('height: 100dvh !important', mobile)
+
+    def test_legacy_task_report_preview_uses_same_sandbox_allowlist(self):
+        helper_start = MAIN.index('function renderSimcArtifactFrame(')
+        helper_end = MAIN.index('function openSimcWorkbench(', helper_start)
+        helper = MAIN[helper_start:helper_end]
+        self.assertIn('tasks\\/\\d+\\/report-preview', helper)
+        self.assertIn('sandbox=""', helper)
+        self.assertNotIn('window.open', helper)
+
+    def test_dialog_close_lifecycle_clears_stack_without_breaking_nested_replace(self):
+        self.assertIn("new CustomEvent('simc-dialog-closing', { detail: { reason: 'replace' } })", MAIN)
+        self.assertIn("new CustomEvent('simc-dialog-closing', { detail: { reason: 'close' } })", MAIN)
+        self.assertIn("event.detail?.reason === 'close'", JS)
+        self.assertIn('state.dialogStack = []', JS)
+
+    def test_dialog_backdrop_receives_pointer_events_outside_panel(self):
+        self.assertIn('fixed inset-0 overflow-y-auto pointer-events-none', HTML)
+        panel_start = HTML.index('id="simc-workbench-dialog-content"')
+        panel_end = HTML.index('>', panel_start)
+        self.assertIn('simc-workbench-dialog__panel', HTML[panel_start:panel_end])
+        self.assertIn('pointer-events-auto', HTML[panel_start:panel_end])
+
+    def test_repeated_resource_loads_have_abort_or_sequence_guard(self):
+        for token in ('beginResourceRequest(\'templates\')', "beginResourceRequest('apl')", "beginResourceRequest('backend')"):
+            self.assertIn(token, JS)
+        self.assertIn('resourceAbortControllers', JS)
+        self.assertIn('resourceRequestSerials', JS)
+
+    def test_profile_detail_and_form_use_dialog_not_bottom_slots(self):
+        detail_start = MAIN.index('function simcWbShowProfileDetail')
+        detail_end = MAIN.index('function bindSimcWorkbenchProfilesControls', detail_start)
+        self.assertIn('openSimcWorkbenchDialog(', MAIN[detail_start:detail_end])
+        self.assertNotIn('id="simc-wb-profile-detail"', HTML)
+        self.assertNotIn('id="simc-wb-profile-form"', HTML)
+        self.assertIn("openSimcWorkbenchDialog('profile-form'", MAIN)
+
+    def test_template_and_apl_view_edit_use_dialog_not_bottom_slots(self):
+        self.assertIn("openSimcWorkbenchDialog('template-detail'", JS)
+        self.assertIn("openSimcWorkbenchDialog('template-form'", JS)
+        self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
+        for slot_id in (
+            'simc-wb-template-detail', 'simc-wb-template-form',
+            'simc-wb-apl-storage-form',
+        ):
+            self.assertNotIn(f'id="{slot_id}"', HTML)
+
+    def test_task_dialog_renders_real_dps_and_report_artifact(self):
+        start = JS.index('async function showTaskDetail')
+        end = JS.index('\n    async function', start + 20)
+        body = JS[start:end]
+        self.assertIn("openSimcWorkbenchDialog('task-detail'", body)
+        self.assertIn('result_summary', body)
+        self.assertIn('.dps', body)
+        self.assertIn('artifacts', body)
+        self.assertIn('renderSimcArtifactFrame', body)
+        self.assertNotIn('/simc-result/', body)
+
+    def test_batch_dialog_renders_member_dps_and_delta_without_navigation(self):
+        start = JS.index('async function showBatchComparison')
+        end = JS.index('\n    async function', start + 20)
+        body = JS[start:end]
+        self.assertIn("openSimcWorkbenchDialog('batch-detail'", body)
+        self.assertIn('.dps', body)
+        self.assertIn('delta', body)
+        self.assertNotIn('/simc-compare/', body)
+
+    def test_workbench_does_not_use_external_or_native_dialogs(self):
+        combined = SIMC_HTML + JS + SIMC_MAIN
+        for token in ('window.open(', 'target="_blank"', 'alert(', 'prompt(', 'confirm(', 'onclick='):
+            self.assertNotIn(token.lower(), combined.lower())
+
+    def test_workflow_resources_are_reachable_and_keywords_stay_in_advanced(self):
+        for resource in ('profiles', 'templates', 'apl'):
+            self.assertIn(f'data-simc-workflow-entry="{resource}"', HTML)
+        self.assertIn('id="simc-workbench-apl-keywords-panel" data-simc-panel="apl-keywords"', HTML)
+        self.assertIn('data-simc-tab="apl-keywords"', HTML)
+        workflow = self._l1_section('workflow', '<!-- End L1 Panel: 模拟工作流 -->')
+        advanced = self._l1_section('advanced', '<!-- End L1 Panel: 高级设置 -->')
+        self.assertNotIn('simc-wb-apl-keyword-list', workflow)
+        self.assertIn('simc-wb-apl-keyword-list', advanced)
+        self.assertIn("profiles: 'workflow'", MAIN)
+        self.assertIn("'apl-keywords': 'advanced'", MAIN)
+
+    def test_dialog_close_cancels_all_detail_requests(self):
+        self.assertIn("new CustomEvent('simc-dialog-closing', { detail: { reason: 'close' } })", MAIN)
+        self.assertIn("document.addEventListener('simc-dialog-closing'", JS)
+        self.assertIn('simcWbCancelProfileDetail()', MAIN)

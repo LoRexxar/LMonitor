@@ -1376,6 +1376,65 @@ function toggleTaskTypeFields(prefix, taskType) {
 }
 
 // 在DOMContentLoaded事件中初始化SimC工作台
+/* ===== SimC Workbench Dialog ===== */
+let simcWorkbenchDialogPreviousFocus = null;
+
+function openSimcWorkbenchDialog(contentType, data) {
+    const dialog = document.getElementById('simc-workbench-dialog');
+    const title = document.getElementById('simc-dialog-title');
+    const body = document.getElementById('simc-dialog-body');
+    if (!dialog || !title || !body) return;
+
+    const wasHidden = dialog.classList.contains('hidden');
+    if (!wasHidden) {
+        document.dispatchEvent(new CustomEvent('simc-dialog-replace', { detail: { reason: 'replace' } }));
+        document.dispatchEvent(new CustomEvent('simc-dialog-closing', { detail: { reason: 'replace' } }));
+    }
+    if (wasHidden) simcWorkbenchDialogPreviousFocus = document.activeElement;
+
+    title.textContent = getTitleForDialogContent(contentType);
+    body.innerHTML = '<div class="text-center py-8 text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>加载中...</div>';
+    const panel = document.getElementById('simc-workbench-dialog-content');
+    if (panel) panel.scrollTop = 0;
+
+    dialog.classList.remove('hidden');
+    document.body.classList.add('simc-dialog-open');
+
+    const firstFocusable = dialog.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (firstFocusable) firstFocusable.focus();
+}
+window.openSimcWorkbenchDialog = openSimcWorkbenchDialog;
+
+function closeSimcWorkbenchDialog() {
+    const dialog = document.getElementById('simc-workbench-dialog');
+    if (!dialog) return;
+    document.dispatchEvent(new CustomEvent('simc-dialog-closing', { detail: { reason: 'close' } }));
+    simcWbCancelProfileDetail();
+    dialog.classList.add('hidden');
+    document.body.classList.remove('simc-dialog-open');
+
+    if (simcWorkbenchDialogPreviousFocus && typeof simcWorkbenchDialogPreviousFocus.focus === 'function') {
+        simcWorkbenchDialogPreviousFocus.focus();
+    }
+    simcWorkbenchDialogPreviousFocus = null;
+}
+window.closeSimcWorkbenchDialog = closeSimcWorkbenchDialog;
+
+function getTitleForDialogContent(contentType) {
+    const titles = {
+        'profile-detail': '配置详情',
+        'profile-form': '配置管理',
+        'template-detail': '模板详情',
+        'template-form': '模板管理',
+        'apl-form': 'APL 管理',
+        'task-detail': '任务详情',
+        'batch-detail': '批次详情'
+    };
+    return titles[contentType] || '详情';
+}
+
+/* ===== SimC Workbench ===== */
+
 function initSimcWorkbench() {
     const workbench = document.getElementById('simc-workbench');
     if (!workbench || workbench.dataset.initialized === '1') return;
@@ -1385,6 +1444,11 @@ function initSimcWorkbench() {
     document.querySelectorAll('.simc-l1-tab').forEach(tab => {
         tab.addEventListener('click', function() {
             switchSimcWorkbenchL1Tab(this.getAttribute('data-simc-l1-tab') || 'workflow');
+        });
+    });
+    document.querySelectorAll('[data-simc-workflow-entry]').forEach(button => {
+        button.addEventListener('click', function() {
+            switchSimcWorkbenchL1Tab('workflow', this.dataset.simcWorkflowEntry || 'import');
         });
     });
 
@@ -1415,12 +1479,43 @@ function initSimcWorkbench() {
         });
     });
 
+    // Dialog close handlers
+    document.querySelectorAll('[data-simc-dialog-close]').forEach(btn => {
+        btn.addEventListener('click', closeSimcWorkbenchDialog);
+    });
+
+    // Keep keyboard focus inside the modal; Escape closes it.
+    document.addEventListener('keydown', function(event) {
+        const dialog = document.getElementById('simc-workbench-dialog');
+        if (!dialog || dialog.classList.contains('hidden')) return;
+        if (event.key === 'Escape') {
+            closeSimcWorkbenchDialog();
+            return;
+        }
+        if (event.key !== 'Tab') return;
+        const focusable = Array.from(dialog.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+            .filter(element => element.getClientRects().length > 0);
+        if (!focusable.length) {
+            event.preventDefault();
+            return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    });
+
     switchSimcWorkbenchL1Tab('workflow');
 }
 
 function switchSimcWorkbenchL1Tab(l1TabName, childPanelName) {
     const activeL1Tab = l1TabName || 'workflow';
-    const defaultPanels = { workflow: 'import', history: 'tasks', advanced: 'profiles' };
+    const defaultPanels = { workflow: 'import', history: 'tasks', advanced: 'backend' };
     const activeChildPanel = childPanelName || defaultPanels[activeL1Tab];
 
     if (typeof window.simcWorkbenchDeactivatePanel === 'function') {
@@ -1440,6 +1535,15 @@ function switchSimcWorkbenchL1Tab(l1TabName, childPanelName) {
         tab.classList.toggle('border-gray-200', !isActive);
         tab.classList.toggle('hover:bg-gray-50', !isActive);
         tab.setAttribute('aria-selected', String(isActive));
+    });
+
+    document.querySelectorAll('[data-simc-workflow-entry]').forEach(button => {
+        const selected = activeL1Tab === 'workflow' && button.dataset.simcWorkflowEntry === activeChildPanel;
+        button.classList.toggle('bg-blue-600', selected);
+        button.classList.toggle('text-white', selected);
+        button.classList.toggle('bg-white', !selected);
+        button.classList.toggle('text-gray-700', !selected);
+        button.setAttribute('aria-current', selected ? 'page' : 'false');
     });
 
     document.querySelectorAll('.simc-l1-panel').forEach(panel => {
@@ -1462,10 +1566,12 @@ function switchSimcWorkbenchTab(tabName) {
     const parentPanels = {
         import: 'workflow',
         tasks: 'history',
-        artifacts: 'advanced',
-        profiles: 'advanced',
-        templates: 'advanced',
-        apl: 'advanced',
+        batches: 'history',
+        artifacts: 'history',
+        profiles: 'workflow',
+        templates: 'workflow',
+        apl: 'workflow',
+        'apl-keywords': 'advanced',
         backend: 'advanced',
         rules: 'advanced'
     };
@@ -1610,15 +1716,17 @@ function loadSimcWorkbenchProfiles(page) {
 }
 
 function simcWbShowProfileDetail(id) {
-    const host = document.getElementById('simc-wb-profile-detail');
-    if (!host) return;
+    openSimcWorkbenchDialog('profile-detail', { id });
+    const body = document.getElementById('simc-dialog-body');
+    if (!body) return;
+
     simcWbCancelProfileDetail();
     const requestSerial = simcWbProfileDetailRequestSerial;
     simcWbProfileDetailId = String(id);
     simcWbProfileDetailAbortController = new AbortController();
     const abortController = simcWbProfileDetailAbortController;
-    host.classList.remove('hidden');
-    host.innerHTML = '<p class="text-sm text-gray-500">正在加载配置…</p>';
+
+    body.innerHTML = '<p class="text-sm text-gray-500">正在加载配置…</p>';
     fetch('/api/simc-workbench/profiles/' + encodeURIComponent(id) + '/', {
         headers: { 'Content-Type': 'application/json' },
         signal: abortController.signal,
@@ -1627,11 +1735,11 @@ function simcWbShowProfileDetail(id) {
         if (!data.success || !data.data) throw new Error('load failed');
         const row = data.data;
         const inactive = row.is_active === false;
-        host.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-2"><h4 class="font-bold">配置详情：${escapeHtml(row.name || ('#' + id))}</h4><button type="button" data-profile-detail-close class="min-h-[36px] px-3">关闭</button></div>${inactive ? '<p class="mt-3 rounded bg-amber-50 p-2 text-sm text-amber-800">此配置已停用，不可加载或运行；恢复后方可使用。</p>' : ''}<dl class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm"><div>专精：${escapeHtml(row.spec || '-')}</div><div>来源：${escapeHtml(row.player_config_mode || '-')}</div><div>状态：${inactive ? '已停用' : '启用中'}</div></dl>`;
+        body.innerHTML = `${inactive ? '<p class="rounded bg-amber-50 p-3 text-sm text-amber-800 mb-3">此配置已停用，不可加载或运行；恢复后方可使用。</p>' : ''}<dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm"><div><dt class="font-semibold text-gray-700">配置名</dt><dd class="mt-1">${escapeHtml(row.name || '-')}</dd></div><div><dt class="font-semibold text-gray-700">专精</dt><dd class="mt-1">${escapeHtml(row.spec || '-')}</dd></div><div><dt class="font-semibold text-gray-700">来源</dt><dd class="mt-1">${escapeHtml(row.player_config_mode || '-')}</dd></div><div><dt class="font-semibold text-gray-700">状态</dt><dd class="mt-1">${inactive ? '已停用' : '启用中'}</dd></div></dl>`;
     }).catch(error => {
         if (error.name === 'AbortError') return;
         if (requestSerial !== simcWbProfileDetailRequestSerial || simcWbProfileDetailId !== String(id)) return;
-        host.innerHTML = `<p class="text-sm text-red-600">配置详情加载失败</p><button type="button" data-profile-row-action="detail" data-profile-id="${escapeHtml(id)}" class="mt-2 min-h-[36px] px-3">重试</button>`;
+        body.innerHTML = `<p class="text-sm text-red-600">配置详情加载失败</p><button type="button" data-profile-row-action="detail" data-profile-id="${escapeHtml(id)}" class="mt-2 min-h-[36px] px-3 rounded bg-blue-600 text-white">重试</button>`;
     }).finally(() => {
         if (simcWbProfileDetailAbortController === abortController) simcWbProfileDetailAbortController = null;
     });
@@ -1639,16 +1747,17 @@ function simcWbShowProfileDetail(id) {
 
 function bindSimcWorkbenchProfilesControls() {
     const profilePanel = document.getElementById('simc-workbench-profiles-panel');
-    if (profilePanel && profilePanel.dataset.formActionsBound !== '1') {
-        profilePanel.dataset.formActionsBound = '1';
-        profilePanel.addEventListener('click', event => {
+    if (profilePanel && document.documentElement.dataset.simcProfileActionsBound !== '1') {
+        document.documentElement.dataset.simcProfileActionsBound = '1';
+        document.addEventListener('click', event => {
             const detailClose = event.target.closest('[data-profile-detail-close]');
             if (detailClose) {
                 simcWbCancelProfileDetail(true);
+                closeSimcWorkbenchDialog();
                 return;
             }
             const formActionButton = event.target.closest('[data-profile-form-action]');
-            if (formActionButton && profilePanel.contains(formActionButton)) {
+            if (formActionButton) {
                 const formAction = formActionButton.dataset.profileFormAction;
                 if (formAction === 'create') simcWbToggleProfileForm('create');
                 if (formAction === 'close') simcWbCloseProfileForm();
@@ -1656,7 +1765,7 @@ function bindSimcWorkbenchProfilesControls() {
                 return;
             }
             const rowActionButton = event.target.closest('[data-profile-row-action]');
-            if (!rowActionButton || !profilePanel.contains(rowActionButton)) return;
+            if (!rowActionButton) return;
             const rowAction = rowActionButton.dataset.profileRowAction;
             const profileId = rowActionButton.dataset.profileId;
             if (rowAction === 'detail') simcWbShowProfileDetail(profileId);
@@ -1665,6 +1774,11 @@ function bindSimcWorkbenchProfilesControls() {
             if (rowAction === 'edit') simcWbEditProfile(profileId);
             if (rowAction === 'deactivate') simcWbSetProfileActive(profileId, false);
             if (rowAction === 'restore') simcWbSetProfileActive(profileId, true);
+        });
+        document.addEventListener('change', event => {
+            if (event.target.matches('#simc-wb-profile-form select[name="player_config_mode"]')) {
+                simcWbSyncProfileFormMode();
+            }
         });
     }
     /* 填充专精下拉选项 - 使用真实专精 key */
@@ -1986,8 +2100,13 @@ let simcWbRuleFormEditId = null;
 
 /* --- Profile CRUD --- */
 function simcWbToggleProfileForm(mode, profileData) {
-    const formWrap = document.getElementById('simc-wb-profile-form');
+    openSimcWorkbenchDialog('profile-form', { mode, profileData });
+    const body = document.getElementById('simc-dialog-body');
+    if (!body) return;
+
+    const formWrap = document.getElementById('simc-wb-profile-form-source');
     if (!formWrap) return;
+
     simcWbProfileFormMode = mode;
     if (mode === 'create') {
         simcWbProfileFormEditId = null;
@@ -2025,13 +2144,19 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="gear_mastery"]').value = profileData.gear_mastery || 0;
         formWrap.querySelector('input[name="gear_versatility"]').value = profileData.gear_versatility || 0;
     }
-    formWrap.classList.remove('hidden');
-    simcWbSyncProfileFormMode();
-    formWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    body.innerHTML = '';
+    const dialogForm = formWrap.cloneNode(true);
+    dialogForm.id = 'simc-wb-profile-form';
+    body.appendChild(dialogForm);
+    const clonedForm = body.querySelector('#simc-wb-profile-form');
+    if (clonedForm) {
+        clonedForm.classList.remove('hidden');
+        simcWbSyncProfileFormMode();
+    }
 }
 function simcWbCloseProfileForm() {
-    const f = document.getElementById('simc-wb-profile-form');
-    if (f) f.classList.add('hidden');
+    closeSimcWorkbenchDialog();
     simcWbProfileFormEditId = null;
 }
 function simcWbSyncProfileFormMode() {
@@ -2220,7 +2345,7 @@ async function simcWbSaveCurrentSimulatorProfile() {
     if (mode === 'attribute_only' && !payload.player_equipment.trim()) {
         showMessage('属性配置需要填写冻结的玩家装备基线', 'error'); return;
     }
-    switchSimcWorkbenchL1Tab('advanced', 'profiles');
+    switchSimcWorkbenchL1Tab('workflow', 'profiles');
     simcWbToggleProfileForm('create');
     const formWrap = document.getElementById('simc-wb-profile-form');
     if (!formWrap) return;
@@ -2465,7 +2590,7 @@ async function simcWbDeleteMastery(id, trigger) {
 
 function renderSimcArtifactFrame(previewUrl, title) {
     const safeUrl = String(previewUrl || '');
-    if (!/^\/api\/simc-workbench\/artifacts\/\d+\/preview\/$/.test(safeUrl)) return '';
+    if (!/^\/api\/simc-workbench\/(artifacts\/\d+\/preview\/|tasks\/\d+\/report-preview\/)$/.test(safeUrl)) return '';
     return `<iframe class="w-full min-h-[70vh] border-0 rounded-xl bg-white" sandbox="" referrerpolicy="no-referrer" src="${escapeHtml(safeUrl)}" title="${escapeHtml(title || 'SimC 结果预览')}"></iframe>`;
 }
 

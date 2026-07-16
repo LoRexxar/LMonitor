@@ -1,4 +1,7 @@
 import json
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -276,3 +279,43 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         payload = self.client.get(
             '/api/simc-workbench/artifacts/?page_size=999').json()
         self.assertEqual(payload['pagination']['page_size'], 50)
+
+    def test_archived_task_report_remains_available_to_owner(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            name='Archived report',
+            simc_profile_id=0,
+            result_file='archived-report.html',
+            is_active=False,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_path = Path(temp_dir) / 'archived-report.html'
+            report_path.write_text('<html>archived</html>', encoding='utf-8')
+            with patch(
+                'botend.services.simc_artifacts._validated_result',
+                return_value=(report_path, 'simc_results/archived-report.html'),
+            ):
+                response = self.client.get(
+                    f'/api/simc-workbench/tasks/{task.id}/report-preview/'
+                )
+        self.assertEqual(response.status_code, 200)
+
+    def test_legacy_task_report_preview_is_owner_scoped_and_sandbox_safe(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='Legacy report', simc_profile_id=0,
+            current_status=2, result_file='simc_task_42.html')
+        foreign = SimcTask.objects.create(
+            user_id=self.other.id, name='Foreign report', simc_profile_id=0,
+            current_status=2, result_file='simc_task_99.html')
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / 'simc_task_42.html'
+            report.write_text('<html><body>123 DPS</body></html>', encoding='utf-8')
+            with patch('botend.services.simc_artifacts._validated_result', return_value=(report, 'simc_results/simc_task_42.html')):
+                response = self.client.get(f'/api/simc-workbench/tasks/{task.id}/report-preview/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/html; charset=utf-8')
+        self.assertIn("default-src 'none'", response['Content-Security-Policy'])
+        self.assertEqual(
+            self.client.get(f'/api/simc-workbench/tasks/{foreign.id}/report-preview/').status_code,
+            404,
+        )
