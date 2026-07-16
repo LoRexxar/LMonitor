@@ -279,7 +279,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             self.assertIn(f'data-template-type="{template_type}"', HTML)
         self.assertNotIn('data-template-type="report_template"', HTML)
         self.assertNotIn('data-template-type="command_fragment"', HTML)
-        self.assertIn("UserAplStorage", HTML)
+        self.assertIn('id="simc-unified-apl-list"', HTML)
         self.assertIn("AplKeywordPair", HTML)
         self.assertIn('data-rule-subtab="secondary-rules"', HTML)
         self.assertIn('data-rule-subtab="mastery-rules"', HTML)
@@ -360,8 +360,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         apl_panel_start = HTML.index('id="simc-workbench-apl-panel"')
         apl_panel_end = HTML.index('<!-- End L1 Panel: 模拟工作流', apl_panel_start)
         my_apl_section = HTML[apl_panel_start:apl_panel_end]
-        self.assertIn('我的 APL', my_apl_section)
-        self.assertIn('id="simc-my-apl-search"', my_apl_section)
+        self.assertIn('APL 列表', my_apl_section)
+        self.assertIn('id="simc-apl-search"', my_apl_section)
         self.assertIn('placeholder="搜索', my_apl_section)
         self.assertIn('showMyAplDetail', JS)
         self.assertIn("openDialog('apl-detail'", JS)
@@ -378,14 +378,29 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('beginDetailRequest', detail_body)
         self.assertIn('isCurrentDetailRequest', detail_body)
 
-    def test_default_apl_library_shows_active_selectable_templates_with_spec(self):
-        """Default APL library must show active+selectable default_apl templates with class/spec display."""
+    def test_apl_resources_share_one_list_with_spec_and_source_markers(self):
+        """Personal and default APL resources belong in one searchable list, not side-by-side columns."""
         apl_panel_start = HTML.index('id="simc-workbench-apl-panel"')
         apl_panel_end = HTML.index('<!-- End L1 Panel: 模拟工作流', apl_panel_start)
         apl_section = HTML[apl_panel_start:apl_panel_end]
-        self.assertIn('默认 APL 库', apl_section)
-        self.assertIn('id="simc-default-apl-list"', apl_section)
-        self.assertIn('id="simc-default-apl-search"', apl_section)
+        self.assertIn('id="simc-apl-search"', apl_section)
+        self.assertIn('id="simc-unified-apl-list"', apl_section)
+        self.assertNotIn('xl:grid-cols-2', apl_section)
+        self.assertNotIn('id="simc-my-apl-search"', apl_section)
+        self.assertNotIn('id="simc-default-apl-search"', apl_section)
+        self.assertNotIn('id="simc-default-apl-list"', apl_section)
+        self.assertIn('renderUnifiedAplList', JS)
+        self.assertIn("kind: 'personal'", JS)
+        self.assertIn("kind: 'default'", JS)
+        self.assertIn("row.kind === 'personal' ? row.apl_code : ''", JS)
+        self.assertIn('专精', JS)
+        self.assertIn('来源：个人', JS)
+        self.assertIn("'系统默认' : '个人模板'", JS)
+        self.assertIn('个人 APL 加载失败，已保留其他可用资源', JS)
+        self.assertIn('系统默认 APL 加载失败，已保留其他可用资源', JS)
+
+    def test_default_apl_library_shows_active_selectable_templates_with_spec(self):
+        """Default APL library must show active+selectable default_apl templates with class/spec display."""
         self.assertIn('loadDefaultAplLibrary', JS)
         self.assertIn("library: 'default_apl'", JS)
         self.assertNotIn("template_type: 'default_apl'", JS)
@@ -395,6 +410,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-default-apl-action="copy"', JS)
         self.assertIn('.class_name', JS)
         self.assertIn('.spec', JS)
+        self.assertIn('data-my-apl-action="edit"', JS)
 
     def test_default_apl_copy_uses_backend_api_not_client_content(self):
         """Copy default APL must POST copy_template_id to backend, not send content from browser."""

@@ -237,11 +237,14 @@ class SimcComposerAplSlotResolutionTests(TestCase):
         self.client = Client()
         self.client.force_login(self.user)
 
-        self.default_apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+        from botend.models import SimcApl
+        self.default_apl = SimcApl.objects.create(
+            name='Default Fury APL',
             spec='warrior_fury',
+            class_name='warrior',
             content='actions+=/bloodthirst\nactions+=/rampage',
+            source='simc_upstream',
+            is_system=True,
             is_active=True,
         )
 
@@ -606,11 +609,14 @@ class SimcComposerNonWarriorSpecTests(TestCase):
             is_active=True,
         )
 
-        self.mage_apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+        from botend.models import SimcApl
+        self.mage_apl = SimcApl.objects.create(
+            name='Default Fire APL',
             spec='mage_fire',
+            class_name='mage',
             content='actions+=/fireball\nactions+=/pyroblast',
+            source='simc_upstream',
+            is_system=True,
             is_active=True,
         )
 
@@ -756,12 +762,14 @@ class SimcComposerUserContentIsolationTests(TestCase):
             owner_user_id=None,  # Global
             is_active=True,
         )
-        self.user1_apl = SimcContentTemplate.objects.create(
+        from botend.models import SimcApl
+        self.user1_apl = SimcApl.objects.create(
             name='User1 private APL',
-            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
-            source=SimcContentTemplate.SOURCE_USER,
             spec='warrior_fury',
+            class_name='warrior',
             content='actions=/bloodthirst',
+            source='user',
+            is_system=False,
             owner_user_id=self.user1.id,
             is_active=True,
         )

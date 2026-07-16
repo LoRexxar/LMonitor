@@ -17,7 +17,7 @@ from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
-from botend.models import SimcContentTemplate, SimcTask
+from botend.models import SimcApl, SimcContentTemplate, SimcTask
 
 
 class UpdateSimcBinarySyncContractTests(TestCase):
@@ -165,11 +165,14 @@ class SimcTaskAplSnapshotTests(TestCase):
             is_active=True,
         )
 
-        apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='默认 APL',
+        from botend.models import SimcApl
+        apl = SimcApl.objects.create(
+            name='默认 APL',
+            spec='warrior_fury',
+            class_name='warrior',
             content='actions+=/bloodthirst\nactions+=/rampage\nactions+=/execute',
+            source='simc_upstream',
+            is_system=True,
             is_active=True,
         )
 
@@ -201,11 +204,14 @@ class SimcTaskAplSnapshotTests(TestCase):
             is_active=True,
         )
 
-        apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='可变 APL',
+        from botend.models import SimcApl
+        apl = SimcApl.objects.create(
+            name='可变 APL',
+            spec='warrior_fury',
+            class_name='warrior',
             content='actions+=/bloodthirst\nactions+=/rampage',
+            source='simc_upstream',
+            is_system=True,
             is_active=True,
         )
 
@@ -247,10 +253,15 @@ class SimcTaskAplSnapshotTests(TestCase):
             is_active=True,
         )
 
-        apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='默认 APL', content='actions+=/bloodthirst', is_active=True,
+        from botend.models import SimcApl
+        apl = SimcApl.objects.create(
+            name='默认 APL',
+            spec='warrior_fury',
+            class_name='warrior',
+            content='actions+=/bloodthirst',
+            source='simc_upstream',
+            is_system=True,
+            is_active=True,
         )
         response = self.client.post('/api/simc-task/', data=json.dumps({
             'name': 'Explicit empty APL', 'task_type': 1,
@@ -339,11 +350,15 @@ class SimcTaskAutoSelectionTests(TestCase):
             is_active=True,
         )
 
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='唯一 APL',
-            content='actions+=/execute', is_active=True,
+        from botend.models import SimcApl
+        SimcApl.objects.create(
+            name='唯一 APL',
+            spec='warrior_fury',
+            class_name='warrior',
+            content='actions+=/execute',
+            source='simc_upstream',
+            is_system=True,
+            is_active=True,
         )
 
         response = self.client.post('/api/simc-task/', data=json.dumps({
@@ -371,18 +386,21 @@ class SimcTaskAutoSelectionTests(TestCase):
             content='{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n{stat_overrides}\n{action_list}\n{output_options}',
             is_active=True,
         )
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='Global APL',
-            content='actions+=/execute', is_active=True,
+        SimcApl.objects.create(
+            name='Global APL',
+            spec='warrior_fury',
+            content='actions+=/execute',
+            source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True,
+            is_active=True,
         )
-        owned = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_USER,
+        owned = SimcApl.objects.create(
+            name='User APL',
+            spec='warrior_fury',
+            content='actions+=/whirlwind',
+            source=SimcApl.SOURCE_USER,
             owner_user_id=self.user.id,
-            spec='warrior_fury', name='User APL',
-            content='actions+=/whirlwind', is_active=True,
+            is_active=True,
         )
 
         response = self.client.post('/api/simc-task/', data=json.dumps({

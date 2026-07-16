@@ -7,7 +7,7 @@ import json
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
-from botend.models import SimcContentTemplate, SimcAplKeywordPair
+from botend.models import SimcContentTemplate, SimcAplKeywordPair, SimcApl
 
 
 class SimcAdvancedSettingsManagementTests(TestCase):
@@ -31,14 +31,14 @@ class SimcAdvancedSettingsManagementTests(TestCase):
         )
         global_tpl = SimcContentTemplate.objects.create(
             name="Global Template",
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
             spec="default",
-            content="global apl",
+            content="global player",
             owner_user_id=None,
         )
         foreign = SimcContentTemplate.objects.create(
             name="Foreign Template",
-            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+            template_type=SimcContentTemplate.TYPE_CUSTOM_PLAYER,
             spec="arms",
             content="foreign content",
             owner_user_id=self.other.id,
@@ -213,13 +213,13 @@ class SimcAdvancedSettingsManagementTests(TestCase):
             content="{player_config}\niterations=100",
             owner_user_id=None,
         )
-        upstream_tpl = SimcContentTemplate.objects.create(
+        upstream_apl = SimcApl.objects.create(
             name="Upstream",
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
             spec="fury",
             content="upstream apl",
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            owner_user_id=self.staff.id,
+            source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True,
+            owner_user_id=None,
         )
         self.client.force_login(self.staff)
         response = self.client.put(
@@ -232,14 +232,14 @@ class SimcAdvancedSettingsManagementTests(TestCase):
         self.assertEqual(system_tpl.content, '{player_config}\niterations=200')
 
         response = self.client.put(
-            f'/api/simc-workbench/templates/{upstream_tpl.id}/',
+            f'/api/simc-workbench/apls/{upstream_apl.id}/',
             data=json.dumps({'content': 'hacked'}),
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 403)
         self.assertIn('只读', response.json()['error'])
-        upstream_tpl.refresh_from_db()
-        self.assertNotEqual(upstream_tpl.content, 'hacked')
+        upstream_apl.refresh_from_db()
+        self.assertNotEqual(upstream_apl.content, 'hacked')
 
     def test_templates_owner_can_archive_restore(self):
         tpl = SimcContentTemplate.objects.create(

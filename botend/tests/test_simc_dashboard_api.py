@@ -13,7 +13,7 @@ from botend.dashboard.api import SimcAplCandidatesAPIView, SimcBatchTaskAPIView,
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates
-from botend.models import SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, WowItemSnapshot
+from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, WowItemSnapshot
 
 
 class SimcWorkerBatchLifecycleTests(TestCase):
@@ -192,10 +192,13 @@ class SimcTemplateAPIViewTests(TestCase):
             source=SimcContentTemplate.SOURCE_USER,
             spec='fury', name='基础模板', content='warrior="Template"', is_active=True,
         )
-        apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='默认 APL', content='actions+=/bloodthirst', is_active=True,
+        apl = SimcApl.objects.create(
+            name='默认 APL',
+            spec='warrior_fury',
+            content='actions+=/bloodthirst',
+            source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True,
+            is_active=True,
         )
         response = self.client.get('/api/simc-template/?template_type=base_template')
         self.assertEqual(response.status_code, 200)
@@ -205,7 +208,8 @@ class SimcTemplateAPIViewTests(TestCase):
         self.assertEqual(payload['templates'][0]['template_type'], 'base_template')
         self.assertNotIn('template_content', payload['templates'][0])
         self.assertNotIn('content', payload['templates'][0])
-        self.assertNotEqual(apl.id, base.id)
+        self.assertTrue(SimcApl.objects.filter(id=apl.id).exists())
+        self.assertTrue(SimcContentTemplate.objects.filter(id=base.id).exists())
 
     def test_default_player_cannot_create_or_mutate_identity_fields(self):
         """default_player 不允许通过 API 创建或改变 template_type/source/spec 身份字段。"""
@@ -308,20 +312,21 @@ class SimcTemplateAPIViewTests(TestCase):
             source=SimcContentTemplate.SOURCE_USER,
             spec='', name='My Base', content='fight_style=Patchwerk\n{player_config}',
         )
-        user_apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
-            source=SimcContentTemplate.SOURCE_USER,
-            spec='warrior_fury', name='My APL', content='actions=/auto_attack',
+        user_apl = SimcApl.objects.create(
+            name='My APL',
+            spec='warrior_fury',
+            content='actions=/auto_attack',
+            source=SimcApl.SOURCE_USER,
+            owner_user_id=self.user.id,
         )
         response = self.client.delete(f'/api/simc-template/?id={user_base.id}')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'])
         self.assertFalse(SimcContentTemplate.objects.filter(id=user_base.id).exists())
 
-        response = self.client.delete(f'/api/simc-template/?id={user_apl.id}')
+        response = self.client.delete(f'/api/simc-workbench/apls/{user_apl.id}/')
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()['success'])
-        self.assertFalse(SimcContentTemplate.objects.filter(id=user_apl.id).exists())
+        self.assertFalse(SimcApl.objects.filter(id=user_apl.id).exists())
     def test_non_staff_cannot_mutate_system_template(self):
         user = User.objects.create_user(username='readonly_template_user', password='pwd')
         self.client.force_login(user)
@@ -396,13 +401,13 @@ class SimcRawInspectTests(TestCase):
         self.client.force_login(self.user)
 
     def test_inspect_raw_simc_code_detects_profile_and_default_apl(self):
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+        SimcApl.objects.create(
+            name='默认APL hunter_beast_mastery',
             spec='hunter_beast_mastery',
             class_name='hunter',
-            name='默认APL hunter_beast_mastery',
             content='actions+=/kill_command',
+            source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True,
             is_active=True,
             is_selectable=True,
         )
@@ -498,12 +503,12 @@ class SimcBatchVariableCompareTests(TestCase):
             ),
             is_active=True,
         )
-        self.default_apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury',
+        self.default_apl = SimcApl.objects.create(
             name='Batch contract APL',
+            spec='warrior_fury',
             content='actions=/auto_attack',
+            source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True,
             is_active=True,
         )
 
@@ -838,10 +843,13 @@ finger1=,id=299002,ilevel=655
             source=SimcContentTemplate.SOURCE_USER,
             spec='fury', name='Frozen base', content='warrior="DB_CHANGED"', is_active=True,
         )
-        apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='Frozen APL', content='actions=/DB_CHANGED', is_active=True,
+        apl = SimcApl.objects.create(
+            name='Frozen APL',
+            spec='warrior_fury',
+            content='actions=/DB_CHANGED',
+            source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True,
+            is_active=True,
         )
         batch = SimcTaskBatch.objects.create(
             user_id=self.user.id, name='Frozen input batch',
@@ -908,10 +916,13 @@ finger1=,id=299002,ilevel=655
                 '{action_list}\n{output_options}\n'
             ), is_active=True,
         )
-        apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='Fury APL', content='actions=/bloodthirst', is_active=True,
+        apl = SimcApl.objects.create(
+            name='Fury APL',
+            spec='warrior_fury',
+            content='actions=/bloodthirst',
+            source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True,
+            is_active=True,
         )
         profile = SimcProfile.objects.create(
             user_id=self.user.id, name='Saved fury', spec='fury', talent='BUILD',
@@ -1564,11 +1575,12 @@ class SimcNewConfigModeTests(TestCase):
             content='{player_identity}\n{equipment}\n{action_list}\n{simulation_options}\n{stat_overrides}\n{output_options}',
             is_active=True,
         )
-        self.default_apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_USER,
+        self.default_apl = SimcApl.objects.create(
+            name='Default APL',
             spec='warrior_fury',
             content='actions=/auto_attack\nactions+=/bloodthirst',
+            source=SimcApl.SOURCE_USER,
+            owner_user_id=self.user.id,
             is_active=True,
         )
 
@@ -2342,11 +2354,12 @@ html=simc_task_99.html
             spec='fury',
             content='optimal_raid=0\noverride.battle_shout=1',
         )
-        apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+        apl = SimcApl.objects.create(
+            name='Migration APL',
             spec='warrior_fury',
             content='# optimal_raid=0 must not alter APL content',
+            source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True,
         )
         historical_model = SimpleNamespace(objects=SimcContentTemplate.objects)
         apps = SimpleNamespace(get_model=lambda *args: historical_model)
@@ -2523,11 +2536,12 @@ class SimcPlayerConfigDetailTests(TestCase):
             content='{player_identity}\n{equipment}\n{action_list}\n{simulation_options}\n{stat_overrides}\n{output_options}',
             is_active=True,
         )
-        self.default_apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_USER,
+        self.default_apl = SimcApl.objects.create(
+            name='Player Detail APL',
             spec='warrior_fury',
             content='actions=/auto_attack\nactions+=/bloodthirst',
+            source=SimcApl.SOURCE_USER,
+            owner_user_id=self.user.id,
             is_active=True,
         )
 

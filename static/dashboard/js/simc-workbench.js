@@ -11,7 +11,11 @@
         dialogStack: [],
         templateType: '', rows: Object.create(null),
         aplKeywordQuery: '', aplKeywordCanWrite: false,
-        myAplQuery: '', defaultAplQuery: '',
+        aplQuery: '',
+        aplLoadState: {
+            personal: { loading: false, error: '' },
+            default: { loading: false, error: '' },
+        },
         converterMode: 'apl_to_cn', converterRequestSerial: 0,
         defaultAplCopyInFlight: new Set(),
         resourceAbortControllers: Object.create(null),
@@ -477,7 +481,8 @@
         if (!host) return;
         host.innerHTML = `<form data-apl-storage-form class="rounded-xl border border-blue-200 bg-blue-50 p-4">
             <input type="hidden" name="id" value="${idOf(row?.id)}">
-            <label class="block text-sm font-medium text-gray-700">标题<input name="title" required maxlength="255" value="${esc(row?.title)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
+            <label class="block text-sm font-medium text-gray-700">标题<input name="title" required maxlength="200" value="${esc(row?.title)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
+            <label class="mt-3 block text-sm font-medium text-gray-700">专精标识<input name="spec" maxlength="100" placeholder="例如 warrior_fury" value="${esc(row?.spec)}" class="mt-1 w-full rounded-lg border bg-white p-2"><span class="mt-1 block text-xs text-gray-500">用于在列表中标记和筛选适用专精。</span></label>
             <label class="mt-3 block text-sm font-medium text-gray-700">APL 内容<textarea name="apl_code" required rows="12" class="mt-1 w-full rounded-lg border bg-white p-3 font-mono text-xs">${esc(row?.apl_code)}</textarea></label>
             <div class="mt-3 flex gap-2"><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-white">保存</button><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2">取消</button></div>
         </form>`;
@@ -531,54 +536,78 @@
             </table>
         </div>`;
     }
-    function renderMyAplList() {
-        const host = document.getElementById('simc-wb-apl-storage-list');
+    function renderUnifiedAplList() {
+        const host = document.getElementById('simc-unified-apl-list');
         if (!host) return;
-        const rows = state.rows['apl-storage'] || [];
-        const query = state.myAplQuery.trim().toLowerCase();
-        const filteredRows = query ? rows.filter(row => {
-            const searchable = [row.title, row.apl_code].map(v => String(v || '').toLowerCase()).join('\n');
+        const personalRows = (state.rows['apl-storage'] || []).map(row => ({ ...row, kind: 'personal' }));
+        const defaultRows = (state.rows['default-apl'] || []).map(row => ({ ...row, kind: 'default' }));
+        const allRows = [...personalRows, ...defaultRows];
+        const query = state.aplQuery.trim().toLowerCase();
+        const filteredRows = query ? allRows.filter(row => {
+            const searchable = [
+                row.title, row.name,
+                row.kind === 'personal' ? row.apl_code : '',
+                row.class_name, row.spec
+            ].map(v => String(v || '').toLowerCase()).join('\n');
             return searchable.includes(query);
-        }) : rows;
-        if (!filteredRows.length) {
-            host.innerHTML = empty(query ? '无匹配结果' : '暂无数据');
-            return;
+        }) : allRows;
+        const statusParts = [];
+        if (state.aplLoadState.personal.loading || state.aplLoadState.default.loading) {
+            statusParts.push('<div class="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700">正在加载 APL 资源…</div>');
         }
-        host.innerHTML = filteredRows.map(row => {
-            const active = row.is_active !== false;
-            return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.title)}</b><div class="text-xs text-gray-500">${active ? '启用中' : '已停用'}</div></div><div class="flex flex-wrap gap-2">${active ? `<button data-my-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">详情</button><button data-my-apl-action="use" data-id="${idOf(row.id)}" class="simc-touch-action text-emerald-700">用于模拟</button><button data-my-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">编辑</button><button data-my-apl-action="archive" data-id="${idOf(row.id)}" class="simc-touch-action text-amber-700">停用</button>` : `<button data-my-apl-action="restore" data-id="${idOf(row.id)}" class="simc-touch-action text-emerald-700">恢复</button>`}</div></article>`;
+        if (state.aplLoadState.personal.error) {
+            statusParts.push(`<div class="mb-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">${esc(state.aplLoadState.personal.error)}</div>`);
+        }
+        if (state.aplLoadState.default.error) {
+            statusParts.push(`<div class="mb-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">${esc(state.aplLoadState.default.error)}</div>`);
+        }
+        const rowsHtml = filteredRows.map(row => {
+            if (row.kind === 'personal') {
+                const active = row.is_active !== false;
+                const sourceTag = '<span class="inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">来源：个人</span>';
+                const specTag = `<span class="inline-block rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">专精：${esc(row.spec || '未标记')}</span>`;
+                return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.title)}</b><div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">${sourceTag} ${specTag} ${active ? '<span class="text-emerald-600">启用中</span>' : '<span class="text-gray-400">已停用</span>'}</div></div><div class="flex flex-wrap gap-2">${active ? `<button data-my-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">详情</button><button data-my-apl-action="use" data-id="${idOf(row.id)}" class="simc-touch-action text-emerald-700">用于模拟</button><button data-my-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">编辑</button><button data-my-apl-action="archive" data-id="${idOf(row.id)}" class="simc-touch-action text-amber-700">停用</button>` : `<button data-my-apl-action="restore" data-id="${idOf(row.id)}" class="simc-touch-action text-emerald-700">恢复</button>`}</div></article>`;
+            } else {
+                const sourceTag = `<span class="inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">来源：${row.is_system ? '系统默认' : '个人模板'}</span>`;
+                const specTag = `<span class="inline-block rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">专精：${esc(row.spec || '未标记')}</span>`;
+                return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.name)}</b><div class="mt-1 flex flex-wrap items-center gap-2 text-xs">${sourceTag} ${specTag}</div></div><div class="flex flex-wrap gap-2"><button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">查看</button><button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">复制</button></div></article>`;
+            }
         }).join('');
+        host.innerHTML = statusParts.join('') + (rowsHtml || empty(query ? '无匹配结果' : '暂无数据'));
+    }
+    function renderMyAplList() {
+        renderUnifiedAplList();
     }
     function renderDefaultAplList() {
-        const host = document.getElementById('simc-default-apl-list');
-        if (!host) return;
-        const rows = state.rows['default-apl'] || [];
-        const query = state.defaultAplQuery.trim().toLowerCase();
-        const filteredRows = query ? rows.filter(row => {
-            const searchable = [row.name, row.class_name, row.spec].map(v => String(v || '').toLowerCase()).join('\n');
-            return searchable.includes(query);
-        }) : rows;
-        if (!filteredRows.length) {
-            host.innerHTML = empty(query ? '无匹配结果' : '暂无数据');
-            return;
-        }
-        host.innerHTML = filteredRows.map(row => {
-            return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.name)}</b><div class="text-xs text-gray-500">${esc(row.class_name)} · ${esc(row.spec)}</div></div><div class="flex flex-wrap gap-2"><button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">查看</button><button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">复制到我的APL</button></div></article>`;
-        }).join('');
+        renderUnifiedAplList();
     }
     async function loadApl(resource, hostId) {
         const host = document.getElementById(hostId);
         const request = beginResourceRequest('apl');
-        renderState(host, 'loading', '正在加载规则数据…');
+        const unifiedApl = resource === 'apl-storage';
+        if (unifiedApl) {
+            state.aplLoadState.personal = { loading: true, error: '' };
+            renderUnifiedAplList();
+        } else {
+            renderState(host, 'loading', '正在加载规则数据…');
+        }
         let data;
         try { data = await json(resourceUrl(resource), { signal: request.controller.signal }); }
         catch (error) {
             if (error.name === 'AbortError') return;
-            if (isCurrentResourceRequest(request)) renderState(host, 'error', '规则数据加载失败', resource);
+            if (isCurrentResourceRequest(request)) {
+                if (unifiedApl) {
+                    state.aplLoadState.personal = { loading: false, error: '个人 APL 加载失败，已保留其他可用资源。' };
+                    renderUnifiedAplList();
+                } else {
+                    renderState(host, 'error', '规则数据加载失败', resource);
+                }
+            }
             return;
         }
         if (!isCurrentResourceRequest(request)) return;
         state.rows[resource] = data.data || [];
+        if (unifiedApl) state.aplLoadState.personal = { loading: false, error: '' };
         const canWrite = resource === 'apl-storage' || data.can_write === true;
         document.querySelector(`[data-inline-create="${resource}"]`)?.classList.toggle('hidden', !canWrite);
         if (resource === 'apl-keywords') {
@@ -586,24 +615,30 @@
             renderAplKeywordTable();
             return;
         }
-        renderMyAplList();
+        renderUnifiedAplList();
     }
     async function loadDefaultAplLibrary() {
-        const host = document.getElementById('simc-default-apl-list');
+        const host = document.getElementById('simc-unified-apl-list');
         const request = beginResourceRequest('default-apl');
-        renderState(host, 'loading', '正在加载默认APL库…');
+        if (!host) return;
+        state.aplLoadState.default = { loading: true, error: '' };
+        renderUnifiedAplList();
         let data;
         const params = new URLSearchParams({ library: 'default_apl' });
         try {
             data = await json(`${resourceUrl('templates')}?${params.toString()}`, { signal: request.controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') return;
-            if (isCurrentResourceRequest(request)) renderState(host, 'error', '默认APL库加载失败', 'default-apl');
+            if (isCurrentResourceRequest(request)) {
+                state.aplLoadState.default = { loading: false, error: '系统默认 APL 加载失败，已保留其他可用资源。' };
+                renderUnifiedAplList();
+            }
             return;
         }
         if (!isCurrentResourceRequest(request)) return;
         state.rows['default-apl'] = data.data || [];
-        renderDefaultAplList();
+        state.aplLoadState.default = { loading: false, error: '' };
+        renderUnifiedAplList();
     }
     async function fetchAplStorageDetail(id) {
         return (await json(`/api/apl-storage/${id}/`)).data;
@@ -622,7 +657,7 @@
         }
         if (!isCurrentDetailRequest(detailRequest)) return;
         const row = data.data || {};
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">我的APL详情</h4><button class="simc-touch-action" data-my-apl-detail-action="close">关闭</button></div><dl class="grid gap-2 text-sm"><div>标题：${esc(row.title)}</div><div>状态：${row.is_active !== false ? '启用' : '已停用'}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">APL内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.apl_code)}</pre></div>`;
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">我的APL详情</h4><button class="simc-touch-action" data-my-apl-detail-action="close">关闭</button></div><dl class="grid gap-2 text-sm"><div>标题：${esc(row.title)}</div><div>专精：${esc(row.spec || '未标记')}</div><div>状态：${row.is_active !== false ? '启用' : '已停用'}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">APL内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.apl_code)}</pre></div>`;
     }
     async function showDefaultAplDetail(id) {
         const host = openDialog('default-apl-detail');
@@ -650,7 +685,7 @@
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
                 body: JSON.stringify({ copy_template_id: templateId }),
             });
-            await loadApl('apl-storage', 'simc-wb-apl-storage-list');
+            await loadApl('apl-storage', 'simc-unified-apl-list');
             window.showMessage('已复制到我的APL', 'success');
         } finally {
             state.defaultAplCopyInFlight.delete(templateId);
@@ -660,7 +695,11 @@
     async function saveAplStorage(form) {
         const formData = new FormData(form);
         const id = idOf(formData.get('id'));
-        const payload = { title: String(formData.get('title') || '').trim(), apl_code: String(formData.get('apl_code') || '').trim() };
+        const payload = {
+            title: String(formData.get('title') || '').trim(),
+            spec: String(formData.get('spec') || '').trim(),
+            apl_code: String(formData.get('apl_code') || '').trim(),
+        };
         if (id) payload.id = id;
         await json('/api/apl-storage/', {
             method: id ? 'PUT' : 'POST',
@@ -668,7 +707,7 @@
             body: JSON.stringify(payload),
         });
         closeAplStorageForm();
-        await loadApl('apl-storage', 'simc-wb-apl-storage-list');
+        await loadApl('apl-storage', 'simc-unified-apl-list');
         window.showMessage(id ? 'APL 已更新' : 'APL 已新增', 'success');
     }
     async function useAplForSimulation(id) {
@@ -681,7 +720,7 @@
         editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
         window.showMessage(`已加载“${row.title}”用于本次模拟`, 'success');
     }
-    window.loadSimcWorkbenchApl = () => loadApl('apl-storage', 'simc-wb-apl-storage-list').catch(notify);
+    window.loadSimcWorkbenchApl = () => loadApl('apl-storage', 'simc-unified-apl-list').catch(notify);
     async function loadBackend() {
         const host = document.getElementById('simc-wb-backend-status');
         const actions = document.getElementById('simc-wb-backend-actions');
@@ -728,7 +767,7 @@
     async function lifecycle(resource, id, action) {
         await json(resourceUrl(resource, id), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() }, body: JSON.stringify({ action }) });
         if (resource === 'tasks' || resource === 'batches') await loadTasks(resource);
-        else if (resource === 'apl-storage') await loadApl(resource, 'simc-wb-apl-storage-list');
+        else if (resource === 'apl-storage') await loadApl(resource, 'simc-unified-apl-list');
         else if (resource === 'apl-keywords') await loadApl(resource, 'simc-wb-apl-keyword-list');
         else if (resource === 'templates') await loadTemplates();
     }
@@ -738,7 +777,7 @@
         if (tab === 'artifacts') loadArtifacts().catch(notify);
         if (tab === 'templates') loadTemplates().catch(notify);
         if (tab === 'apl') {
-            loadApl('apl-storage', 'simc-wb-apl-storage-list').catch(notify);
+            loadApl('apl-storage', 'simc-unified-apl-list').catch(notify);
             loadDefaultAplLibrary().catch(notify);
         }
         if (tab === 'apl-keywords') loadApl('apl-keywords', 'simc-wb-apl-keyword-list').catch(notify);
@@ -939,7 +978,7 @@
                 else if (target === 'artifacts') loadArtifacts(state.artifactPage);
                 else if (target === 'templates') loadTemplates();
                 else if (target === 'apl-keywords') loadApl(target, 'simc-wb-apl-keyword-list');
-                else if (target === 'apl-storage') loadApl(target, 'simc-wb-apl-storage-list');
+                else if (target === 'apl-storage') loadApl(target, 'simc-unified-apl-list');
             }
         });
         function updateConverterStats() {
@@ -965,16 +1004,10 @@
                 renderAplKeywordTable();
                 return;
             }
-            const myAplSearch = event.target.closest('#simc-my-apl-search');
-            if (myAplSearch) {
-                state.myAplQuery = myAplSearch.value || '';
-                renderMyAplList();
-                return;
-            }
-            const defaultAplSearch = event.target.closest('#simc-default-apl-search');
-            if (defaultAplSearch) {
-                state.defaultAplQuery = defaultAplSearch.value || '';
-                renderDefaultAplList();
+            const aplSearch = event.target.closest('#simc-apl-search');
+            if (aplSearch) {
+                state.aplQuery = aplSearch.value || '';
+                renderUnifiedAplList();
                 return;
             }
             const converterInput = event.target.closest('#simc-converter-input, #simc-converter-output');

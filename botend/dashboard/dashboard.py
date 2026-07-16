@@ -26,9 +26,9 @@ import re
 from django.conf import settings
 
 from utils.log import logger
-from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask, 
-                          WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask, 
-                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask)
+from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask,
+                          WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask,
+                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl)
 
 from botend.services.simc_attribute_results import parse_attribute_result_filename
 
@@ -67,8 +67,8 @@ MODEL_DESCRIPTIONS = {
     'GeWechatAuth': '微信登录信息',
     'GeWechatRoomList': '微信群列表',
     'GeWechatTask': '微信任务',
-    'UserAplStorage': 'APL保存记录',
-    'SimcContentTemplate': 'SimC模板/APL',
+    'SimcApl': 'APL管理',
+    'SimcContentTemplate': 'SimC模板',
     'SimcBackendBinary': 'SimC后端软件',
     'WclAnalysisTask': 'WCL分析任务',
     'SystemAlert': '系统报警',
@@ -170,7 +170,7 @@ class DashboardView(View):
         'SimcTask', 'SimcTaskBatch', 'SimcTaskArtifact', 'SimcProfile',
         'SimcContentTemplate', 'SimcSecondaryStatRule',
         'SimcMasteryCoefficient', 'SimcAplKeywordPair',
-        'UserAplStorage', 'SimcBackendBinary',
+        'SimcApl', 'SimcBackendBinary',
     }
     
     def get(self, request):

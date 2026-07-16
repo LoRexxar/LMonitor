@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, UserAplStorage, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
+from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, SimcApl, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
 from botend.alerting import upsert_system_alert
 from django.db import models, transaction
 from core.glm import GLMClient
@@ -1335,28 +1335,26 @@ class SimcTaskAPIView(View):
         if override_action_list_provided:
             base['override_action_list'] = str(override_action_list or '')
             if selected_apl_id not in (None, ''):
-                apl_obj = _get_simc_content_by_id(
-                    selected_apl_id,
-                    allowed_types=[SimcContentTemplate.TYPE_DEFAULT_APL, SimcContentTemplate.TYPE_CUSTOM_APL],
-                    owner_user_id=owner_user_id,
-                )
+                apl_obj = SimcApl.objects.filter(id=selected_apl_id, is_active=True).filter(
+                    models.Q(is_system=True, owner_user_id__isnull=True)
+                    | models.Q(is_system=False, owner_user_id=owner_user_id)
+                ).first()
                 if not apl_obj:
                     raise Exception('选择的 APL 不存在或已禁用')
                 base['selected_apl_id'] = apl_obj.id
                 base['override_action_list_name'] = apl_obj.name or apl_obj.spec
-                base['override_action_list_type'] = apl_obj.template_type
+                base['override_action_list_type'] = 'default_apl' if apl_obj.is_system else 'custom_apl'
         elif selected_apl_id not in (None, ''):
-            apl_obj = _get_simc_content_by_id(
-                selected_apl_id,
-                allowed_types=[SimcContentTemplate.TYPE_DEFAULT_APL, SimcContentTemplate.TYPE_CUSTOM_APL],
-                owner_user_id=owner_user_id,
-            )
+            apl_obj = SimcApl.objects.filter(id=selected_apl_id, is_active=True).filter(
+                models.Q(is_system=True, owner_user_id__isnull=True)
+                | models.Q(is_system=False, owner_user_id=owner_user_id)
+            ).first()
             if not apl_obj:
                 raise Exception('选择的 APL 不存在或已禁用')
             base['selected_apl_id'] = apl_obj.id
             base['override_action_list'] = apl_obj.content
             base['override_action_list_name'] = apl_obj.name or apl_obj.spec
-            base['override_action_list_type'] = apl_obj.template_type
+            base['override_action_list_type'] = 'default_apl' if apl_obj.is_system else 'custom_apl'
         elif not base.get('selected_apl_id') and not base.get('override_action_list') and spec:
             # 没有 APL ID/override 时，当前用户默认 APL 优先于全局上游默认。
             apl_obj = _get_unique_default_apl_for_spec(spec, owner_user_id=owner_user_id)
@@ -2246,11 +2244,13 @@ def _get_active_simc_content(template_type, spec=None, source=None, class_name=N
     return qs.order_by('id').first()
 
 
-def _list_selectable_apl_for_spec(spec_key='', class_name='', spec=''):
-    qs = SimcContentTemplate.objects.filter(
-        template_type__in=[SimcContentTemplate.TYPE_DEFAULT_APL, SimcContentTemplate.TYPE_CUSTOM_APL],
+def _list_selectable_apl_for_spec(spec_key='', class_name='', spec='', owner_user_id=None):
+    qs = SimcApl.objects.filter(
         is_active=True,
         is_selectable=True,
+    ).filter(
+        models.Q(is_system=True, owner_user_id__isnull=True)
+        | models.Q(is_system=False, owner_user_id=owner_user_id)
     )
     specs = [v for v in [spec_key, spec] if v]
     if specs:
@@ -2261,16 +2261,15 @@ def _list_selectable_apl_for_spec(spec_key='', class_name='', spec=''):
     if class_name:
         qs = qs.filter(models.Q(class_name='') | models.Q(class_name=class_name))
     rows = []
-    for item in qs.order_by('template_type', 'source', 'name', 'id')[:50]:
+    for item in qs.order_by('source', 'name', 'id')[:50]:
         rows.append({
             'id': item.id,
             'name': item.name or item.spec,
-            'template_type': item.template_type,
             'source': item.source,
             'spec': item.spec,
             'class_name': item.class_name,
             'content_length': len(item.content or ''),
-            'is_default': item.template_type == SimcContentTemplate.TYPE_DEFAULT_APL,
+            'is_default': item.is_system,
         })
     return rows
 
@@ -2292,16 +2291,17 @@ def _get_unique_default_apl_for_spec(spec, owner_user_id=None):
     """返回当前用户可见的默认 APL；用户模板优先于全局上游模板。"""
     spec_value = str(spec or '').strip().lower()
     spec_key = f'warrior_{spec_value}' if spec_value in ('fury', 'arms', 'protection') else spec_value
-    candidates = SimcContentTemplate.objects.filter(
-        template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-        is_active=True,
-        spec=spec_key,
-    ).filter(models.Q(owner_user_id__isnull=True) | models.Q(owner_user_id=owner_user_id))
+    candidates = SimcApl.objects.filter(is_active=True, spec=spec_key)
     if owner_user_id is not None:
-        owned = candidates.filter(owner_user_id=owner_user_id).first()
-        if owned:
-            return owned
-    return candidates.filter(owner_user_id__isnull=True).first()
+        owned = candidates.filter(owner_user_id=owner_user_id, is_system=False)
+        if owned.count() > 1:
+            raise Exception(f'专精 {spec_key} 存在多个可用的个人 APL，请明确选择一个')
+        if owned.count() == 1:
+            return owned.first()
+    global_defaults = candidates.filter(owner_user_id__isnull=True, is_system=True)
+    if global_defaults.count() > 1:
+        raise Exception(f'专精 {spec_key} 存在多个系统默认 APL，请明确选择一个')
+    return global_defaults.first()
 
 
 def inspect_raw_simc_code(raw_simc_code):
@@ -2359,13 +2359,13 @@ def inspect_raw_simc_code(raw_simc_code):
     spec = result['spec']
     if class_name and spec:
         result['spec_key'] = f'{class_name}_{spec}'
-        apl = _get_active_simc_content(
-            SimcContentTemplate.TYPE_DEFAULT_APL,
-            spec=result['spec_key'],
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            class_name=class_name,
-            selectable=True,
+        apl = None
+        apl_candidates = SimcApl.objects.filter(
+            spec=result['spec_key'], source='simc_upstream', is_active=True, is_selectable=True,
+            is_system=True, owner_user_id__isnull=True,
         )
+        if apl_candidates.count() == 1:
+            apl = apl_candidates.first()
         if apl:
             result['default_apl_id'] = apl.id
             result['default_apl_available'] = True
@@ -2374,6 +2374,7 @@ def inspect_raw_simc_code(raw_simc_code):
             spec_key=result['spec_key'],
             class_name=class_name,
             spec=spec,
+            owner_user_id=None,
         )
     else:
         if not class_name:
@@ -2663,23 +2664,24 @@ class AplStorageAPIView(View):
         """获取用户的APL列表"""
         try:
             user = request.user
-            apl_list = UserAplStorage.objects.filter(
-                user_id=user.id, 
+            apl_list = SimcApl.objects.filter(
+                owner_user_id=user.id,
                 is_active=True
             ).order_by('-id')
-            
+
             result = []
             for apl in apl_list:
                 result.append({
                     'id': apl.id,
-                    'title': apl.title
+                    'title': apl.name,
+                    'spec': apl.spec,
                 })
-            
+
             return JsonResponse({
                 'success': True,
                 'data': result
             })
-            
+
         except Exception as e:
             logger.error(f"获取APL列表失败: {str(e)}")
             return JsonResponse({
@@ -2694,10 +2696,10 @@ class AplStorageAPIView(View):
             copy_template_id = data.get('copy_template_id')
 
             if copy_template_id:
-                template = SimcContentTemplate.objects.filter(
+                template = SimcApl.objects.filter(
                     models.Q(owner_user_id=request.user.id) | models.Q(owner_user_id__isnull=True),
                     id=copy_template_id,
-                    template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+                    is_system=True,
                     is_active=True,
                     is_selectable=True,
                 ).first()
@@ -2710,18 +2712,22 @@ class AplStorageAPIView(View):
                 base_title = template.name or 'APL'
                 title = base_title
                 counter = 1
-                while UserAplStorage.objects.filter(
-                    user_id=request.user.id,
-                    title=title,
+                while SimcApl.objects.filter(
+                    owner_user_id=request.user.id,
+                    name=title,
                     is_active=True
                 ).exists():
                     title = f"{base_title} 副本 {counter}"
                     counter += 1
 
-                apl_storage = UserAplStorage.objects.create(
-                    user_id=request.user.id,
-                    title=title,
-                    apl_code=template.content
+                apl_storage = SimcApl.objects.create(
+                    owner_user_id=request.user.id,
+                    name=title,
+                    spec=template.spec or '',
+                    class_name=template.class_name or '',
+                    content=template.content,
+                    source='user',
+                    is_system=False,
                 )
 
                 return JsonResponse({
@@ -2729,11 +2735,13 @@ class AplStorageAPIView(View):
                     'message': 'APL 复制成功',
                     'data': {
                         'id': apl_storage.id,
-                        'title': apl_storage.title
+                        'title': apl_storage.name,
+                        'spec': apl_storage.spec,
                     }
                 })
 
             title = data.get('title', '').strip()
+            spec = data.get('spec', '').strip()[:100]
             apl_code = data.get('apl_code', '').strip()
 
             if not title:
@@ -2749,9 +2757,9 @@ class AplStorageAPIView(View):
                 })
 
             # 检查标题是否重复
-            if UserAplStorage.objects.filter(
-                user_id=request.user.id,
-                title=title,
+            if SimcApl.objects.filter(
+                owner_user_id=request.user.id,
+                name=title,
                 is_active=True
             ).exists():
                 return JsonResponse({
@@ -2760,10 +2768,13 @@ class AplStorageAPIView(View):
                 })
 
             # 创建新的APL存储记录
-            apl_storage = UserAplStorage.objects.create(
-                user_id=request.user.id,
-                title=title,
-                apl_code=apl_code
+            apl_storage = SimcApl.objects.create(
+                owner_user_id=request.user.id,
+                name=title,
+                spec=spec,
+                content=apl_code,
+                source='user',
+                is_system=False,
             )
 
             return JsonResponse({
@@ -2771,7 +2782,8 @@ class AplStorageAPIView(View):
                 'message': 'APL保存成功',
                 'data': {
                     'id': apl_storage.id,
-                    'title': apl_storage.title
+                    'title': apl_storage.name,
+                    'spec': apl_storage.spec,
                 }
             })
 
@@ -2788,60 +2800,62 @@ class AplStorageAPIView(View):
             data = json.loads(request.body)
             apl_id = data.get('id')
             title = data.get('title', '').strip()
+            spec = data.get('spec', '').strip()[:100]
             apl_code = data.get('apl_code', '').strip()
-            
+
             if not apl_id:
                 return JsonResponse({
                     'success': False,
                     'error': 'APL ID不能为空'
                 })
-            
+
             if not title:
                 return JsonResponse({
                     'success': False,
                     'error': 'APL标题不能为空'
                 })
-            
+
             if not apl_code:
                 return JsonResponse({
                     'success': False,
                     'error': 'APL代码不能为空'
                 })
-            
+
             try:
-                apl_storage = UserAplStorage.objects.get(
-                    id=apl_id, 
-                    user_id=request.user.id, 
+                apl_storage = SimcApl.objects.get(
+                    id=apl_id,
+                    owner_user_id=request.user.id,
                     is_active=True
                 )
-                
+
                 # 检查标题是否与其他记录重复
-                if UserAplStorage.objects.filter(
-                    user_id=request.user.id, 
-                    title=title, 
+                if SimcApl.objects.filter(
+                    owner_user_id=request.user.id,
+                    name=title,
                     is_active=True
                 ).exclude(id=apl_id).exists():
                     return JsonResponse({
                         'success': False,
                         'error': '该标题已存在，请使用其他标题'
                     })
-                
+
                 # 更新记录
-                apl_storage.title = title
-                apl_storage.apl_code = apl_code
-                apl_storage.save()
-                
+                apl_storage.name = title
+                apl_storage.spec = spec
+                apl_storage.content = apl_code
+                apl_storage.save(update_fields=['name', 'spec', 'content', 'updated_at'])
+
                 return JsonResponse({
                     'success': True,
                     'message': 'APL更新成功'
                 })
-                
-            except UserAplStorage.DoesNotExist:
+
+            except SimcApl.DoesNotExist:
                 return JsonResponse({
                     'success': False,
                     'error': 'APL记录不存在'
                 })
-                
+
         except Exception as e:
             logger.error(f"更新APL失败: {str(e)}")
             return JsonResponse({
@@ -2854,35 +2868,35 @@ class AplStorageAPIView(View):
         try:
             data = json.loads(request.body)
             apl_id = data.get('id')
-            
+
             if not apl_id:
                 return JsonResponse({
                     'success': False,
                     'error': 'APL ID不能为空'
                 })
-            
+
             try:
-                apl_storage = UserAplStorage.objects.get(
-                    id=apl_id, 
-                    user_id=request.user.id, 
+                apl_storage = SimcApl.objects.get(
+                    id=apl_id,
+                    owner_user_id=request.user.id,
                     is_active=True
                 )
-                
+
                 # 软删除
                 apl_storage.is_active = False
                 apl_storage.save()
-                
+
                 return JsonResponse({
                     'success': True,
                     'message': 'APL删除成功'
                 })
-                
-            except UserAplStorage.DoesNotExist:
+
+            except SimcApl.DoesNotExist:
                 return JsonResponse({
                     'success': False,
                     'error': 'APL记录不存在'
                 })
-                
+
         except Exception as e:
             logger.error(f"删除APL失败: {str(e)}")
             return JsonResponse({
@@ -2900,22 +2914,23 @@ class AplDetailAPIView(View):
     def get(self, request, apl_id):
         """获取APL详情"""
         try:
-            apl_storage = UserAplStorage.objects.get(
-                id=apl_id, 
-                user_id=request.user.id, 
+            apl_storage = SimcApl.objects.get(
+                id=apl_id,
+                owner_user_id=request.user.id,
                 is_active=True
             )
-            
+
             return JsonResponse({
                 'success': True,
                 'data': {
                     'id': apl_storage.id,
-                    'title': apl_storage.title,
-                    'apl_code': apl_storage.apl_code
+                    'title': apl_storage.name,
+                    'spec': apl_storage.spec,
+                    'apl_code': apl_storage.content
                 }
             })
-            
-        except UserAplStorage.DoesNotExist:
+
+        except SimcApl.DoesNotExist:
             return JsonResponse({
                 'success': False,
                 'error': 'APL记录不存在'
@@ -3719,6 +3734,7 @@ class SimcAplCandidatesAPIView(View):
                 spec_key=spec_key,
                 class_name=class_token,
                 spec=spec_token,
+                owner_user_id=request.user.id,
             )
             return JsonResponse({'success': True, 'data': data})
         except Exception as e:
@@ -5360,7 +5376,7 @@ class SimcTemplateAPIView(View):
             if template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER:
                 return self._protected_response()
             source = SimcContentTemplate.SOURCE_USER
-            template_name = str(data.get('name') or '').strip() or ('个人APL' if template_type == SimcContentTemplate.TYPE_CUSTOM_APL else '基础模板')
+            template_name = str(data.get('name') or '').strip() or '基础模板'
             class_name = str(data.get('class_name') or '').strip().lower()
             is_selectable = data.get('is_selectable')
 
@@ -5754,15 +5770,61 @@ class SimcWorkbenchAPIView(View):
                 return JsonResponse({'success': True, 'data': rows[0]} if rows else {'success': False, 'error': '配置不存在'}, status=200 if rows else 404)
             return JsonResponse({'success': True, 'data': rows})
 
+        if resource == 'apls':
+            qs = SimcApl.objects.filter(
+                models.Q(is_system=True, owner_user_id__isnull=True)
+                | models.Q(is_system=False, owner_user_id=request.user.id)
+            ).order_by('is_system', 'spec', 'name')
+            if object_id:
+                apl = qs.filter(id=object_id).first()
+                if not apl:
+                    return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+                return JsonResponse({'success': True, 'data': {
+                    'id': apl.id, 'name': apl.name, 'spec': apl.spec,
+                    'class_name': apl.class_name, 'source': apl.source,
+                    'is_system': apl.is_system, 'is_active': apl.is_active,
+                    'is_selectable': apl.is_selectable, 'content': apl.content,
+                    'read_only': apl.is_system,
+                }, 'can_write': not apl.is_system})
+            return JsonResponse({'success': True, 'data': [{
+                'id': apl.id, 'name': apl.name, 'spec': apl.spec,
+                'class_name': apl.class_name, 'source': apl.source,
+                'is_system': apl.is_system, 'is_active': apl.is_active,
+                'is_selectable': apl.is_selectable,
+            } for apl in qs], 'can_write': True})
+
         if resource == 'templates':
             qs = SimcContentTemplate.objects.filter(models.Q(owner_user_id=request.user.id) | models.Q(owner_user_id__isnull=True)).order_by('template_type', 'spec', 'name')
             default_apl_library = request.GET.get('library') == 'default_apl'
             if default_apl_library:
-                qs = qs.filter(
-                    template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+                # Redirect to SimcApl for default_apl library
+                apl_qs = SimcApl.objects.filter(
+                    models.Q(owner_user_id=request.user.id) | models.Q(owner_user_id__isnull=True),
+                    is_system=True,
                     is_active=True,
                     is_selectable=True,
-                )
+                ).order_by('spec', 'name')
+                if object_id:
+                    apl_qs = apl_qs.filter(id=object_id)
+                rows = []
+                for row in apl_qs:
+                    item = {
+                        'id': row.id, 'name': row.name, 'template_type': 'default_apl',
+                        'type_label': '默认APL', 'source': row.source, 'spec': row.spec,
+                        'class_name': row.class_name, 'is_active': row.is_active,
+                        'is_selectable': row.is_selectable, 'is_system': row.owner_user_id is None,
+                        'read_only': row.owner_user_id is None or row.owner_user_id != request.user.id,
+                    }
+                    if object_id:
+                        item['content'] = row.content
+                    rows.append(item)
+                if object_id:
+                    return JsonResponse(
+                        {'success': True, 'data': rows[0], 'can_write': not rows[0]['read_only']}
+                        if rows else {'success': False, 'error': '模板不存在'},
+                        status=200 if rows else 404,
+                    )
+                return JsonResponse({'success': True, 'data': rows, 'can_write': True})
             if object_id:
                 qs = qs.filter(id=object_id)
             rows = []
@@ -5774,7 +5836,7 @@ class SimcWorkbenchAPIView(View):
                     'is_selectable': row.is_selectable, 'is_system': row.owner_user_id is None,
                     'read_only': not self._template_is_writable(request, row),
                 }
-                if object_id or not default_apl_library:
+                if object_id:
                     item['content'] = row.content
                 rows.append(item)
             if object_id:
@@ -5806,14 +5868,28 @@ class SimcWorkbenchAPIView(View):
             return JsonResponse({'success': True, 'data': list(qs.values(*fields)), 'can_write': request.user.is_staff})
 
         if resource == 'apl-storage':
-            qs = UserAplStorage.objects.filter(user_id=request.user.id).order_by('-id')
-            fields = ('id', 'title', 'apl_code', 'is_active')
+            qs = SimcApl.objects.filter(owner_user_id=request.user.id).order_by('-id')
             if object_id:
-                row = qs.filter(id=object_id).values(*fields).first()
+                row = qs.filter(id=object_id).first()
                 if not row:
                     return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
-                return JsonResponse({'success': True, 'data': row})
-            return JsonResponse({'success': True, 'data': list(qs.values(*fields))})
+                return JsonResponse({'success': True, 'data': {
+                    'id': row.id,
+                    'title': row.name,
+                    'spec': row.spec,
+                    'apl_code': row.content,
+                    'is_active': row.is_active,
+                }})
+            rows = []
+            for row in qs:
+                rows.append({
+                    'id': row.id,
+                    'title': row.name,
+                    'spec': row.spec,
+                    'apl_code': row.content,
+                    'is_active': row.is_active,
+                })
+            return JsonResponse({'success': True, 'data': rows})
 
         if resource == 'backends':
             return SimcBackendBinaryAPIView().get(request)
@@ -5862,7 +5938,7 @@ class SimcWorkbenchAPIView(View):
             profile.save(update_fields=['is_active'])
             return JsonResponse({'success': True})
         if resource == 'apl-storage' and object_id and action in ('archive', 'restore'):
-            apl = UserAplStorage.objects.filter(id=object_id, user_id=request.user.id).first()
+            apl = SimcApl.objects.filter(id=object_id, owner_user_id=request.user.id).first()
             if not apl:
                 return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
             apl.is_active = action == 'restore'
@@ -5995,6 +6071,26 @@ class SimcWorkbenchAPIView(View):
             data = self._json_body(request)
         except ValueError as exc:
             return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+        if resource == 'apls':
+            if not object_id:
+                return JsonResponse({'success': False, 'error': '缺少 APL ID'}, status=400)
+            apl = SimcApl.objects.filter(id=object_id).first()
+            if not apl:
+                return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+            if apl.is_system:
+                return JsonResponse({'success': False, 'error': '系统默认 APL 为只读资源'}, status=403)
+            if apl.owner_user_id != request.user.id:
+                return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+            for field in ('name', 'spec', 'class_name', 'content'):
+                if field in data:
+                    setattr(apl, field, str(data[field] or '').strip())
+            try:
+                apl.save()
+            except Exception as exc:
+                if 'active_unique_key' in str(exc) or 'UNIQUE' in str(exc):
+                    return JsonResponse({'success': False, 'error': '同一专精下已存在同名 APL'}, status=409)
+                raise
+            return JsonResponse({'success': True})
         if resource == 'templates':
             if not object_id:
                 return JsonResponse({'success': False, 'error': '缺少模板ID'}, status=400)
@@ -6085,6 +6181,18 @@ class SimcWorkbenchAPIView(View):
         return JsonResponse({'success': False, 'error': '不支持的资源操作'}, status=400)
 
     def delete(self, request, resource, object_id=None):
+        if resource == 'apls':
+            if not object_id:
+                return JsonResponse({'success': False, 'error': '缺少 APL ID'}, status=400)
+            apl = SimcApl.objects.filter(id=object_id).first()
+            if not apl:
+                return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+            if apl.is_system:
+                return JsonResponse({'success': False, 'error': '系统默认 APL 为只读资源'}, status=403)
+            if apl.owner_user_id != request.user.id:
+                return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+            apl.delete()
+            return JsonResponse({'success': True})
         if resource == 'templates':
             return JsonResponse({'success': False, 'error': '模板不支持真实删除，请使用停用操作'}, status=400)
         if resource == 'apl-keywords':

@@ -4,17 +4,19 @@ from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import TestCase
 
-from botend.models import SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, UserAplStorage
+from botend.models import SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, SimcApl
 
 
 class CleanupLegacySimcTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='cleanup-user')
         self.profile = SimcProfile.objects.create(user_id=self.user.id, name='protected', spec='fury')
-        self.apl = UserAplStorage.objects.create(user_id=self.user.id, title='protected', apl_code='actions=/wait')
+        self.apl = SimcApl.objects.create(
+            owner_user_id=self.user.id, name='protected', spec='fury',
+            content='actions=/wait', source='user', is_system=False)
         self.template = SimcContentTemplate.objects.create(
-            owner_user_id=self.user.id, name='protected', template_type='custom_apl',
-            spec='fury', content='actions=/wait')
+            owner_user_id=self.user.id, name='protected', template_type='custom_player',
+            spec='fury', content='warrior="test"')
         self.empty_batch = SimcTaskBatch.objects.create(user_id=self.user.id, name='empty')
         self.bad = SimcTask.objects.create(
             user_id=self.user.id, name='legacy', simc_profile_id=self.profile.id,
@@ -31,7 +33,7 @@ class CleanupLegacySimcTests(TestCase):
         self.assertTrue(SimcTask.objects.filter(id=self.good.id).exists())
         self.assertFalse(SimcTaskBatch.objects.filter(id=self.empty_batch.id).exists())
         self.assertTrue(SimcProfile.objects.filter(id=self.profile.id).exists())
-        self.assertTrue(UserAplStorage.objects.filter(id=self.apl.id).exists())
+        self.assertTrue(SimcApl.objects.filter(id=self.apl.id).exists())
         self.assertTrue(SimcContentTemplate.objects.filter(id=self.template.id).exists())
         call_command('cleanup_legacy_simc', apply=True, stdout=io.StringIO())
         self.assertTrue(SimcTask.objects.filter(id=self.good.id).exists())

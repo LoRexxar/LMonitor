@@ -23,7 +23,7 @@ class SimcWorkbenchTemplateResourceTests(TestCase):
         self.staff = User.objects.create_user(username='wb-staff', password='pwd', is_staff=True)
         self.client.force_login(self.owner)
 
-    def _template(self, *, owner_id, name, template_type='custom_apl', source='user', content='actions=/wait'):
+    def _template(self, *, owner_id, name, template_type='custom_player', source='user', content='warrior="Test"'):
         return SimcContentTemplate.objects.create(
             owner_user_id=owner_id, name=name, template_type=template_type,
             source=source, spec=name.lower().replace(' ', '_'), content=content,
@@ -81,12 +81,12 @@ class SimcWorkbenchTemplateResourceTests(TestCase):
         self.assertIn('{player_config}', template.content)
 
         update = self._put(f'/api/simc-workbench/templates/{template.id}/', {
-            'name': 'Personal APL', 'template_type': 'custom_apl', 'content': 'actions=/charge',
+            'name': 'Personal Player', 'template_type': 'custom_player', 'content': 'warrior="test"',
         })
         self.assertEqual(update.status_code, 200, update.content)
         template.refresh_from_db()
-        self.assertEqual(template.template_type, SimcContentTemplate.TYPE_CUSTOM_APL)
-        self.assertEqual(template.content, 'actions=/charge')
+        self.assertEqual(template.template_type, SimcContentTemplate.TYPE_CUSTOM_PLAYER)
+        self.assertEqual(template.content, 'warrior="test"')
 
         for action, expected in (('archive', False), ('restore', True)):
             response = self._post(

@@ -2,7 +2,7 @@ import json
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
-from botend.models import SimcContentTemplate
+from botend.models import SimcApl, SimcContentTemplate
 
 
 class SimcTemplateDashboardFixTests(TestCase):
@@ -13,23 +13,13 @@ class SimcTemplateDashboardFixTests(TestCase):
         self.client = Client()
         self.client.force_login(self.user)
 
-    def test_template_management_can_filter_by_all_four_types(self):
-        """模板管理必须能按四种类型筛选：base_template、default_apl、custom_apl、default_player。"""
+    def test_template_management_can_filter_by_base_and_player_types(self):
+        """模板管理必须能按两种类型筛选：base_template、default_player。APL 已迁移到独立 API。"""
         base = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='default', name='基础运行框架', content='fight_style={fight_style}\n{player_config}\n{action_list}',
             is_active=True,
-        )
-        default_apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='默认 APL', content='actions+=/bloodthirst', is_active=True,
-        )
-        custom_apl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
-            source=SimcContentTemplate.SOURCE_USER,
-            spec='warrior_fury', name='个人 APL', content='actions+=/custom', is_active=True,
         )
         default_player = SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
@@ -40,8 +30,6 @@ class SimcTemplateDashboardFixTests(TestCase):
 
         for template_type, expected_id in [
             ('base_template', base.id),
-            ('default_apl', default_apl.id),
-            ('custom_apl', custom_apl.id),
             ('default_player', default_player.id),
         ]:
             response = self.client.get(f'/api/simc-template/?template_type={template_type}')
@@ -51,6 +39,33 @@ class SimcTemplateDashboardFixTests(TestCase):
             self.assertEqual(len(payload['templates']), 1, f'{template_type} 应返回恰好 1 个模板')
             self.assertEqual(payload['templates'][0]['id'], expected_id)
             self.assertEqual(payload['templates'][0]['template_type'], template_type)
+
+    def test_apl_management_uses_separate_api(self):
+        """APL 管理使用独立的 /api/simc-workbench/apls/ 端点。"""
+        default_apl = SimcApl.objects.create(
+            name='默认 APL',
+            spec='warrior_fury',
+            content='actions+=/bloodthirst',
+            source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True,
+            is_active=True,
+        )
+        custom_apl = SimcApl.objects.create(
+            name='个人 APL',
+            spec='warrior_fury',
+            content='actions+=/custom',
+            source=SimcApl.SOURCE_USER,
+            owner_user_id=self.user.id,
+            is_active=True,
+        )
+
+        # APL 列表使用新端点
+        response = self.client.get('/api/simc-workbench/apls/')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        ids = {item['id'] for item in payload['data']}
+        self.assertIn(default_apl.id, ids)
+        self.assertIn(custom_apl.id, ids)
 
     def test_authenticated_dashboard_user_can_list_and_view_default_player_detail(self):
         """已登录 Dashboard 用户可列表和查看 default_player 详情，但不能通过通用 API 创建/改身份/删除。"""

@@ -37,14 +37,14 @@ class SimcWorkbenchSecurityContractTests(TestCase):
     def test_old_template_api_never_mutates_upstream_rows_even_for_staff(self):
         staff = User.objects.create_user(username="simc-staff", password="test-password", is_staff=True)
         upstream = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec="warrior_fury", name="Upstream", content="actions=/bloodthirst",
+            spec="warrior_fury", name="Upstream", content="iterations=10000",
             is_active=True,
         )
         self.client.force_login(staff)
         requests = (
-            ("put", {"name": "Changed", "content": "actions=/changed"}),
+            ("put", {"name": "Changed", "content": "iterations=5000"}),
             ("patch", {"is_active": False}),
             ("delete", {}),
         )
@@ -57,7 +57,7 @@ class SimcWorkbenchSecurityContractTests(TestCase):
                 self.assertEqual(response.status_code, 403)
                 upstream.refresh_from_db()
                 self.assertEqual(upstream.name, "Upstream")
-                self.assertEqual(upstream.content, "actions=/bloodthirst")
+                self.assertEqual(upstream.content, "iterations=10000")
                 self.assertTrue(upstream.is_active)
 
     def test_generic_dashboard_cannot_mutate_simc_resources(self):
@@ -93,7 +93,7 @@ class SimcWorkbenchSecurityContractTests(TestCase):
         simc_models = (
             "SimcTask", "SimcTaskBatch", "SimcTaskArtifact", "SimcProfile",
             "SimcContentTemplate", "SimcSecondaryStatRule", "SimcMasteryCoefficient",
-            "SimcAplKeywordPair", "UserAplStorage", "SimcBackendBinary",
+            "SimcAplKeywordPair", "SimcApl", "SimcBackendBinary",
         )
         for model_name in simc_models:
             with self.subTest(model_name=model_name):
@@ -115,6 +115,6 @@ class SimcWorkbenchSecurityContractTests(TestCase):
         self.assertTrue(visible_tables.isdisjoint({
             "SimcTask", "SimcTaskBatch", "SimcTaskArtifact", "SimcProfile",
             "SimcContentTemplate", "SimcSecondaryStatRule", "SimcMasteryCoefficient",
-            "SimcAplKeywordPair", "UserAplStorage", "SimcBackendBinary",
+            "SimcAplKeywordPair", "SimcBackendBinary",
         }))
         self.assertNotContains(response, 'data-table="SimcAplKeywordPair"')

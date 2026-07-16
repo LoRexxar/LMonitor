@@ -666,20 +666,67 @@ class SimcAplKeywordPair(models.Model):
         return f"{self.apl_keyword} <-> {self.cn_keyword}"
 
 
-class UserAplStorage(models.Model):
+class SimcApl(models.Model):
     """
-    用户APL代码存储表
+    SimC APL 统一存储：默认 APL（系统/个人维护）与个人 APL 共用一张表。
+    通过 source/is_system/owner_user_id 区分。
     """
-    user_id = models.IntegerField(help_text="用户ID")
-    title = models.CharField(max_length=200, help_text="APL标题/标识")
-    apl_code = models.TextField(help_text="APL代码内容")
+    id = models.BigAutoField(primary_key=True)
+    SOURCE_SIMC_UPSTREAM = 'simc_upstream'
+    SOURCE_USER = 'user'
+    SOURCE_CHOICES = (
+        (SOURCE_SIMC_UPSTREAM, 'SimC源码同步'),
+        (SOURCE_USER, '用户维护'),
+    )
+
+    name = models.CharField(max_length=200, help_text="APL名称")
+    spec = models.CharField(max_length=100, help_text="适用专精标识，如 warrior_fury")
+    class_name = models.CharField(max_length=50, default='', blank=True, help_text="职业英文名，如 warrior")
+    content = models.TextField(help_text="APL代码内容")
+    source = models.CharField(max_length=32, choices=SOURCE_CHOICES, default=SOURCE_USER, help_text="内容来源")
+    is_system = models.BooleanField(default=False, help_text="是否为系统默认APL（只读）")
+    owner_user_id = models.BigIntegerField(null=True, blank=True, help_text="所属用户ID，NULL表示全局默认APL")
     is_active = models.BooleanField(default=True, help_text="是否启用")
-    
+    is_selectable = models.BooleanField(default=True, help_text="任务发起时是否可选择")
+    sync_version = models.CharField(max_length=128, default='', blank=True, help_text="同步来源版本/提交")
+    active_unique_key = models.CharField(
+        max_length=255, null=True, blank=True, unique=True,
+        help_text="活跃 APL 唯一键；停用时为 NULL",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     class Meta:
-        db_table = 'user_apl_storage'
-        verbose_name = '用户APL存储'
-        verbose_name_plural = '用户APL存储'
-    
+        db_table = 'simc_apl'
+        verbose_name = 'SimC APL'
+        verbose_name_plural = 'SimC APL'
+        indexes = [
+            models.Index(fields=['spec', 'is_active'], name='simc_apl_sp_ac_idx'),
+            models.Index(fields=['owner_user_id', '-created_at'], name='simc_apl_ow_cr_idx'),
+            models.Index(fields=['source', 'is_system'], name='simc_apl_so_sy_idx'),
+        ]
+
+    def _compute_active_unique_key(self):
+        if not self.is_active:
+            return None
+        owner = 'global' if self.owner_user_id is None else str(self.owner_user_id)
+        spec = str(self.spec or 'unknown').strip().lower()
+        if self.is_system:
+            return f'system:{owner}:{self.source}:{spec}'
+        normalized_name = ' '.join(str(self.name or '').strip().lower().split())
+        name_hash = hashlib.sha256(normalized_name.encode('utf-8')).hexdigest()
+        return f'user:{owner}:{spec}:{name_hash}'
+
+    def save(self, *args, **kwargs):
+        self.active_unique_key = self._compute_active_unique_key()
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None and 'active_unique_key' not in update_fields:
+            kwargs['update_fields'] = list(update_fields) + ['active_unique_key']
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.name} ({self.spec})'
+
 
 
 class SimcTaskBatch(models.Model):
@@ -820,17 +867,14 @@ class SimcMasteryCoefficient(models.Model):
 
 class SimcContentTemplate(models.Model):
     """
-    SimC 统一内容模板：基础输入模板、默认 APL、个人 APL 共用一张表。
+    SimC 统一内容模板：基础输入模板、默认玩家装备、个人玩家装备共用一张表。
+    APL 已迁移至 SimcApl 独立表。
     """
     TYPE_BASE_TEMPLATE = 'base_template'
-    TYPE_DEFAULT_APL = 'default_apl'
-    TYPE_CUSTOM_APL = 'custom_apl'
     TYPE_DEFAULT_PLAYER = 'default_player'
     TYPE_CUSTOM_PLAYER = 'custom_player'
     TEMPLATE_TYPE_CHOICES = (
         (TYPE_BASE_TEMPLATE, '基础模板'),
-        (TYPE_DEFAULT_APL, '默认APL'),
-        (TYPE_CUSTOM_APL, '个人APL'),
         (TYPE_DEFAULT_PLAYER, '默认玩家装备模板'),
         (TYPE_CUSTOM_PLAYER, '用户自定义装备'),
     )
@@ -857,15 +901,15 @@ class SimcContentTemplate(models.Model):
 
     class Meta:
         db_table = 'simc_content_template'
-        verbose_name = 'SimC模板/APL'
-        verbose_name_plural = 'SimC模板/APL'
+        verbose_name = 'SimC模板'
+        verbose_name_plural = 'SimC模板'
         indexes = [
             models.Index(fields=['template_type', 'spec', 'is_active']),
             models.Index(fields=['source', 'template_type']),
         ]
 
     def _normalize_name(self):
-        """Normalize name for custom_apl uniqueness check (lowercase, strip whitespace)."""
+        """Normalize name for custom_player uniqueness check (lowercase, strip whitespace)."""
         if not self.name:
             return ''
         return self.name.lower().strip()
@@ -882,11 +926,7 @@ class SimcContentTemplate(models.Model):
         owner = 'global' if self.owner_user_id is None else self.owner_user_id
         spec = self.spec or 'default'
 
-        if template_type == self.TYPE_CUSTOM_APL:
-            normalized_name = self._normalize_name()
-            name_hash = hashlib.sha256(normalized_name.encode('utf-8')).hexdigest()[:16]
-            return f'{template_type}:{owner}:{spec}:{name_hash}'
-        elif template_type in (self.TYPE_BASE_TEMPLATE, self.TYPE_DEFAULT_APL, self.TYPE_DEFAULT_PLAYER):
+        if template_type in (self.TYPE_BASE_TEMPLATE, self.TYPE_DEFAULT_PLAYER):
             if owner == 'global':
                 return f'{template_type}:global:{spec}'
             else:

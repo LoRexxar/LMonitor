@@ -21,7 +21,8 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
-from botend.models import SimcContentTemplate
+from django.db import models
+from botend.models import SimcContentTemplate, SimcApl
 from botend.services.simc_player_config import SPEC_CLASS
 
 
@@ -499,10 +500,13 @@ class SimcComposer:
         # Selected APL by ID - must check user_id isolation
         if selected_apl_id:
             try:
-                apl = self._load_template_with_access_check(
-                    selected_apl_id,
-                    SimcContentTemplate.TYPE_DEFAULT_APL
-                )
+                apl = SimcApl.objects.filter(
+                    id=selected_apl_id,
+                    is_active=True,
+                ).filter(
+                    models.Q(is_system=True, owner_user_id__isnull=True)
+                    | models.Q(is_system=False, owner_user_id=self.user_id)
+                ).first()
                 if apl:
                     content_hash = hashlib.sha256(apl.content.encode('utf-8')).hexdigest()
                     return SlotResolution(
@@ -523,7 +527,7 @@ class SimcComposer:
                         status='missing',
                         error=f'APL ID {selected_apl_id} 不存在或无权访问'
                     )
-            except SimcContentTemplate.DoesNotExist:
+            except Exception as e:
                 return SlotResolution(
                     slot_name='action_list',
                     value=None,
@@ -536,11 +540,12 @@ class SimcComposer:
         class_name = SPEC_CLASS.get(spec, 'warrior')
         spec_key = f'{class_name}_{spec}'
 
-        apls = SimcContentTemplate.objects.filter(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+        apls = SimcApl.objects.filter(
             spec=spec_key,
             is_active=True,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM  # Only global defaults
+            is_system=True,
+            source='simc_upstream',  # Only global defaults
+            owner_user_id__isnull=True
         )
 
         count = apls.count()

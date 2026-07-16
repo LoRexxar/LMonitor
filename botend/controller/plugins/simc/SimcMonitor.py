@@ -17,7 +17,7 @@ import json
 import re
 import platform as py_platform
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 from utils.log import logger
 from botend.models import SimcTask, SimcTaskBatch, SimcProfile, SimcBackendBinary
@@ -845,33 +845,23 @@ class SimcMonitor(BaseScan):
 
     def _load_default_apl(self, spec):
         """
-        从统一 SimC 内容模板表加载默认 APL（按专精自动匹配）。
-        :param spec: 专精标识（如 fury, arms, balance）
-        :return: APL 文本或 None
+        从统一 SimC APL 表加载唯一系统默认 APL；候选冲突时 fail-closed。
         """
         try:
-            from botend.models import SimcContentTemplate
+            from botend.models import SimcApl
             spec_value = str(spec or '').strip().lower()
             if not spec_value:
                 return None
-            apl = SimcContentTemplate.objects.filter(
-                is_active=True,
-                template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-                source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-                spec__endswith=f'_{spec_value}'
-            ).order_by('id').first()
-            if not apl:
-                apl = SimcContentTemplate.objects.filter(
-                    is_active=True,
-                    template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-                    source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-                    spec=spec_value
-                ).order_by('id').first()
-            if apl:
-                logger.info(f"[SimC Monitor] 自动加载默认 APL: {apl.spec}")
-                return apl.content
-            logger.warning(f"[SimC Monitor] 未找到专精 {spec_value} 的默认 APL")
-            return None
+            candidates = SimcApl.objects.filter(
+                is_active=True, is_system=True, source='simc_upstream',
+                owner_user_id__isnull=True,
+            ).filter(models.Q(spec=spec_value) | models.Q(spec__endswith=f'_{spec_value}'))
+            if candidates.count() != 1:
+                logger.error(f"[SimC Monitor] 专精 {spec_value} 默认 APL 数量异常: {candidates.count()}")
+                return None
+            apl = candidates.first()
+            logger.info(f"[SimC Monitor] 自动加载默认 APL: {apl.spec}")
+            return apl.content
         except Exception as e:
             logger.error(f"[SimC Monitor] 加载默认 APL 失败: {e}")
             return None

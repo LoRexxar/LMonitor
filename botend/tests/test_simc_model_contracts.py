@@ -3,17 +3,21 @@ SimC Model Contract Tests
 
 Tests for SimcContentTemplate active_unique_key logic and SimcTaskBatch fields:
 - Global templates: one active per (type, spec)
-- User templates: one active per (owner, type, spec) for base/default_apl/default_player/custom_player
-- custom_apl: multiple different names allowed, but same normalized name rejected
+- User templates: one active per (owner, type, spec) for base/default_player/custom_player
 - Different users don't conflict
 - Inactive templates can duplicate
 - Batch can store request_manifest
 - Task associates with batch
+
+Tests for SimcApl uniqueness and naming:
+- Global system APLs: one active per spec
+- User APLs: multiple different names allowed per (owner, spec)
+- Same normalized name rejected within (owner, spec)
 """
 import json
 from django.test import TestCase
 from django.db import IntegrityError, transaction
-from botend.models import SimcContentTemplate, SimcTaskBatch, SimcTask
+from botend.models import SimcApl, SimcContentTemplate, SimcTaskBatch, SimcTask
 
 
 class SimcContentTemplateGlobalUniqueTests(TestCase):
@@ -33,26 +37,6 @@ class SimcContentTemplateGlobalUniqueTests(TestCase):
             with transaction.atomic():
                 SimcContentTemplate.objects.create(
                     template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
-                    spec='warrior_fury',
-                    content='second',
-                    is_active=True,
-                    owner_user_id=None,
-                )
-
-    def test_global_default_apl_second_active_same_spec_rejected(self):
-        """Second active global default_apl with same spec must fail."""
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
-            spec='warrior_fury',
-            content='first',
-            is_active=True,
-            owner_user_id=None,
-        )
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                SimcContentTemplate.objects.create(
-                    template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
                     spec='warrior_fury',
                     content='second',
                     is_active=True,
@@ -186,34 +170,33 @@ class SimcContentTemplateUserIsolationTests(TestCase):
                 )
 
 
-class SimcContentTemplateCustomAplNamingTests(TestCase):
-    """Test custom_apl naming uniqueness rules."""
+class SimcAplNamingTests(TestCase):
+    """Test SimcApl naming uniqueness rules."""
 
     def test_same_user_custom_apl_different_names_same_spec_allowed(self):
-        """Same user can have multiple custom_apl with different names for same spec."""
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+        """Same user can have multiple custom APLs with different names for same spec."""
+        SimcApl.objects.create(
             name='Single Target',
             spec='warrior_fury',
             content='actions+=/bloodthirst',
-            is_active=True,
+            source=SimcApl.SOURCE_USER,
             owner_user_id=1001,
+            is_active=True,
         )
 
         # Should succeed with different name
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+        SimcApl.objects.create(
             name='AoE Build',
             spec='warrior_fury',
             content='actions+=/whirlwind',
-            is_active=True,
+            source=SimcApl.SOURCE_USER,
             owner_user_id=1001,
+            is_active=True,
         )
 
         # Verify both exist
         self.assertEqual(
-            SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+            SimcApl.objects.filter(
                 spec='warrior_fury',
                 owner_user_id=1001,
                 is_active=True,
@@ -222,74 +205,73 @@ class SimcContentTemplateCustomAplNamingTests(TestCase):
         )
 
     def test_same_user_custom_apl_normalized_same_name_rejected(self):
-        """Same user cannot have custom_apl with same normalized name (case/whitespace)."""
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+        """Same user cannot have custom APL with same normalized name (case/whitespace)."""
+        SimcApl.objects.create(
             name='Single Target',
             spec='warrior_fury',
             content='first',
-            is_active=True,
+            source=SimcApl.SOURCE_USER,
             owner_user_id=1001,
+            is_active=True,
         )
 
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                SimcContentTemplate.objects.create(
-                    template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+                SimcApl.objects.create(
                     name='single target',  # Same normalized name
                     spec='warrior_fury',
                     content='second',
-                    is_active=True,
+                    source=SimcApl.SOURCE_USER,
                     owner_user_id=1001,
+                    is_active=True,
                 )
 
     def test_same_user_custom_apl_whitespace_variation_rejected(self):
-        """Same user cannot have custom_apl with whitespace-only name difference."""
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+        """Same user cannot have custom APL with whitespace-only name difference."""
+        SimcApl.objects.create(
             name='MyBuild',
             spec='warrior_fury',
             content='first',
-            is_active=True,
+            source=SimcApl.SOURCE_USER,
             owner_user_id=1001,
+            is_active=True,
         )
 
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                SimcContentTemplate.objects.create(
-                    template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+                SimcApl.objects.create(
                     name=' MyBuild ',  # Same after stripping
                     spec='warrior_fury',
                     content='second',
-                    is_active=True,
+                    source=SimcApl.SOURCE_USER,
                     owner_user_id=1001,
+                    is_active=True,
                 )
 
     def test_different_users_custom_apl_same_name_allowed(self):
-        """Different users can have custom_apl with same name for same spec."""
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+        """Different users can have custom APL with same name for same spec."""
+        SimcApl.objects.create(
             name='Raid Build',
             spec='warrior_fury',
             content='user1 content',
-            is_active=True,
+            source=SimcApl.SOURCE_USER,
             owner_user_id=1001,
+            is_active=True,
         )
 
         # Should succeed
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+        SimcApl.objects.create(
             name='Raid Build',
             spec='warrior_fury',
             content='user2 content',
-            is_active=True,
+            source=SimcApl.SOURCE_USER,
             owner_user_id=1002,
+            is_active=True,
         )
 
         # Verify both exist
         self.assertEqual(
-            SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_CUSTOM_APL,
+            SimcApl.objects.filter(
                 spec='warrior_fury',
                 name='Raid Build',
                 is_active=True,
