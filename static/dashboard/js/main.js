@@ -1546,6 +1546,9 @@ function switchSimcWorkbenchL1Tab(l1TabName, childPanelName) {
         button.setAttribute('aria-current', selected ? 'page' : 'false');
     });
 
+    const activeRuleSubtab = document.querySelector('[data-rule-subtab][aria-selected="true"]')?.dataset.ruleSubtab || 'secondary-rules';
+    updateSimcAdvancedEntryState(activeL1Tab, activeChildPanel, activeRuleSubtab);
+
     document.querySelectorAll('.simc-l1-panel').forEach(panel => {
         panel.classList.toggle('hidden', panel.getAttribute('data-simc-l1-panel') !== activeL1Tab);
     });
@@ -1559,6 +1562,21 @@ function switchSimcWorkbenchL1Tab(l1TabName, childPanelName) {
     }
     if (activeChildPanel === 'profiles') loadSimcWorkbenchProfiles();
     if (activeChildPanel === 'rules') { loadSimcWorkbenchRules(); loadSimcWorkbenchMastery(); }
+}
+
+function updateSimcAdvancedEntryState(activeL1Tab, activeChildPanel, activeRuleSubtab) {
+    document.querySelectorAll('.simc-model-entry').forEach(button => {
+        const targetPanel = button.dataset.simcTab;
+        const targetRule = button.dataset.ruleSubtab;
+        const selected = activeL1Tab === 'advanced'
+            && targetPanel === activeChildPanel
+            && (targetPanel !== 'rules' || targetRule === activeRuleSubtab);
+        button.classList.toggle('bg-blue-600', selected);
+        button.classList.toggle('text-white', selected);
+        button.classList.toggle('bg-white', !selected);
+        button.classList.toggle('text-gray-700', !selected);
+        button.setAttribute('aria-current', selected ? 'page' : 'false');
+    });
 }
 
 function switchSimcWorkbenchTab(tabName) {
@@ -1592,6 +1610,7 @@ function switchRuleSubtab(resource) {
     document.querySelectorAll('[data-rule-panel]').forEach(panel => {
         panel.classList.toggle('hidden', panel.dataset.rulePanel !== selectedResource);
     });
+    updateSimcAdvancedEntryState('advanced', 'rules', selectedResource);
     if (selectedResource === 'mastery-rules') loadSimcWorkbenchMastery();
     else loadSimcWorkbenchRules();
 }

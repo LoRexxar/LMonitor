@@ -143,7 +143,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('.simc-touch-action', HTML)
         self.assertIn('class="simc-workflow-step"', HTML)
         self.assertIn('<details', HTML)
-        for group in ("模拟工作流", "历史任务", "系统规则", "运行环境"):
+        for group in ("模拟工作流", "历史任务", "高级设置", "执行后端"):
             self.assertIn(group, HTML)
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
         self.assertNotIn('p-5 h-full', workflow)
@@ -157,6 +157,16 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             self.assertIn(f'data-simc-model="{resource}"', advanced)
         for resource in ("batches", "tasks", "artifacts", "profiles", "apl-storage"):
             self.assertNotIn(f'data-simc-model="{resource}"', advanced)
+
+    def test_advanced_capabilities_use_same_tab_navigation_as_workflow(self):
+        advanced_start = HTML.index('data-simc-l1-panel="advanced"')
+        advanced_end = HTML.index('<!-- End L1 Panel: 高级设置 -->')
+        advanced = HTML[advanced_start:advanced_end]
+        self.assertIn('<nav class="mb-4 flex flex-wrap gap-2" aria-label="SimC 系统模型入口">', advanced)
+        self.assertNotIn('simc-compact-panel', advanced)
+        for resource in ("backend", "secondary-rules", "mastery-rules", "apl-keywords"):
+            self.assertIn(f'data-simc-model="{resource}"', advanced)
+        self.assertIn('updateSimcAdvancedEntryState(activeL1Tab, activeChildPanel, activeRuleSubtab)', MAIN)
 
     def test_workflow_is_default_l1_with_history_and_advanced(self):
         self.assertIn('data-simc-l1-tab="workflow"', HTML)
