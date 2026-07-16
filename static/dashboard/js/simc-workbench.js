@@ -1,4 +1,4 @@
-/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716d */
+/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716e */
 (() => {
     'use strict';
     const apiRoot = '/api/simc-workbench/';
@@ -11,6 +11,9 @@
         dialogStack: [],
         templateType: '', rows: Object.create(null),
         aplKeywordQuery: '', aplKeywordCanWrite: false,
+        myAplQuery: '', defaultAplQuery: '',
+        converterMode: 'apl_to_cn', converterRequestSerial: 0,
+        defaultAplCopyInFlight: new Set(),
         resourceAbortControllers: Object.create(null),
         resourceRequestSerials: Object.create(null),
     };
@@ -528,6 +531,41 @@
             </table>
         </div>`;
     }
+    function renderMyAplList() {
+        const host = document.getElementById('simc-wb-apl-storage-list');
+        if (!host) return;
+        const rows = state.rows['apl-storage'] || [];
+        const query = state.myAplQuery.trim().toLowerCase();
+        const filteredRows = query ? rows.filter(row => {
+            const searchable = [row.title, row.apl_code].map(v => String(v || '').toLowerCase()).join('\n');
+            return searchable.includes(query);
+        }) : rows;
+        if (!filteredRows.length) {
+            host.innerHTML = empty(query ? '无匹配结果' : '暂无数据');
+            return;
+        }
+        host.innerHTML = filteredRows.map(row => {
+            const active = row.is_active !== false;
+            return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.title)}</b><div class="text-xs text-gray-500">${active ? '启用中' : '已停用'}</div></div><div class="flex flex-wrap gap-2">${active ? `<button data-my-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">详情</button><button data-my-apl-action="use" data-id="${idOf(row.id)}" class="simc-touch-action text-emerald-700">用于模拟</button><button data-my-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">编辑</button><button data-my-apl-action="archive" data-id="${idOf(row.id)}" class="simc-touch-action text-amber-700">停用</button>` : `<button data-my-apl-action="restore" data-id="${idOf(row.id)}" class="simc-touch-action text-emerald-700">恢复</button>`}</div></article>`;
+        }).join('');
+    }
+    function renderDefaultAplList() {
+        const host = document.getElementById('simc-default-apl-list');
+        if (!host) return;
+        const rows = state.rows['default-apl'] || [];
+        const query = state.defaultAplQuery.trim().toLowerCase();
+        const filteredRows = query ? rows.filter(row => {
+            const searchable = [row.name, row.class_name, row.spec].map(v => String(v || '').toLowerCase()).join('\n');
+            return searchable.includes(query);
+        }) : rows;
+        if (!filteredRows.length) {
+            host.innerHTML = empty(query ? '无匹配结果' : '暂无数据');
+            return;
+        }
+        host.innerHTML = filteredRows.map(row => {
+            return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.name)}</b><div class="text-xs text-gray-500">${esc(row.class_name)} · ${esc(row.spec)}</div></div><div class="flex flex-wrap gap-2"><button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">查看</button><button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">复制到我的APL</button></div></article>`;
+        }).join('');
+    }
     async function loadApl(resource, hostId) {
         const host = document.getElementById(hostId);
         const request = beginResourceRequest('apl');
@@ -548,13 +586,76 @@
             renderAplKeywordTable();
             return;
         }
-        host.innerHTML = state.rows[resource].length ? state.rows[resource].map(row => {
-            const active = row.is_active !== false;
-            return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div><b>${esc(row.title)}</b><div class="text-xs text-gray-500">${active ? '启用中' : '已停用'}</div></div><div class="flex flex-wrap gap-3">${active ? `<button data-apl-action="use" data-id="${idOf(row.id)}" class="text-emerald-700">用于模拟</button><button data-apl-action="edit" data-id="${idOf(row.id)}" class="text-blue-700">编辑</button><button data-apl-action="archive" data-id="${idOf(row.id)}" class="text-amber-700">停用</button>` : `<button data-apl-action="restore" data-id="${idOf(row.id)}" class="text-emerald-700">恢复</button>`}</div></article>`;
-        }).join('') : empty('暂无数据');
+        renderMyAplList();
+    }
+    async function loadDefaultAplLibrary() {
+        const host = document.getElementById('simc-default-apl-list');
+        const request = beginResourceRequest('default-apl');
+        renderState(host, 'loading', '正在加载默认APL库…');
+        let data;
+        const params = new URLSearchParams({ library: 'default_apl' });
+        try {
+            data = await json(`${resourceUrl('templates')}?${params.toString()}`, { signal: request.controller.signal });
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            if (isCurrentResourceRequest(request)) renderState(host, 'error', '默认APL库加载失败', 'default-apl');
+            return;
+        }
+        if (!isCurrentResourceRequest(request)) return;
+        state.rows['default-apl'] = data.data || [];
+        renderDefaultAplList();
     }
     async function fetchAplStorageDetail(id) {
         return (await json(`/api/apl-storage/${id}/`)).data;
+    }
+    async function showMyAplDetail(id) {
+        const host = openDialog('apl-detail');
+        if (!host) return;
+        const detailRequest = beginDetailRequest(`my-apl:${id}`);
+        renderState(host, 'loading', '正在加载APL详情…');
+        let data;
+        try {
+            data = await json(`/api/apl-storage/${id}/`, { signal: detailRequest.controller.signal });
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            throw error;
+        }
+        if (!isCurrentDetailRequest(detailRequest)) return;
+        const row = data.data || {};
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">我的APL详情</h4><button class="simc-touch-action" data-my-apl-detail-action="close">关闭</button></div><dl class="grid gap-2 text-sm"><div>标题：${esc(row.title)}</div><div>状态：${row.is_active !== false ? '启用' : '已停用'}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">APL内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.apl_code)}</pre></div>`;
+    }
+    async function showDefaultAplDetail(id) {
+        const host = openDialog('default-apl-detail');
+        if (!host) return;
+        const detailRequest = beginDetailRequest(`default-apl:${id}`);
+        renderState(host, 'loading', '正在加载默认APL详情…');
+        let data;
+        try {
+            data = await json(`${resourceUrl('templates', id)}?library=default_apl`, { signal: detailRequest.controller.signal });
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            throw error;
+        }
+        if (!isCurrentDetailRequest(detailRequest)) return;
+        const row = data.data || {};
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">默认APL详情</h4><button class="simc-touch-action" data-default-apl-detail-action="close">关闭</button></div><dl class="grid gap-2 text-sm"><div>名称：${esc(row.name)}</div><div>职业：${esc(row.class_name)}</div><div>专精：${esc(row.spec)}</div><div>来源：${esc(row.source === 'simc_upstream' ? 'SimC上游' : '其他')}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">内容（只读）</label><pre readonly class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
+    }
+    async function copyDefaultAplToMy(templateId, button) {
+        if (state.defaultAplCopyInFlight.has(templateId)) return;
+        state.defaultAplCopyInFlight.add(templateId);
+        if (button) button.disabled = true;
+        try {
+            await json('/api/apl-storage/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+                body: JSON.stringify({ copy_template_id: templateId }),
+            });
+            await loadApl('apl-storage', 'simc-wb-apl-storage-list');
+            window.showMessage('已复制到我的APL', 'success');
+        } finally {
+            state.defaultAplCopyInFlight.delete(templateId);
+            if (button) button.disabled = false;
+        }
     }
     async function saveAplStorage(form) {
         const formData = new FormData(form);
@@ -636,7 +737,10 @@
         if (tab === 'tasks') loadTasks().catch(notify);
         if (tab === 'artifacts') loadArtifacts().catch(notify);
         if (tab === 'templates') loadTemplates().catch(notify);
-        if (tab === 'apl') loadApl('apl-storage', 'simc-wb-apl-storage-list').catch(notify);
+        if (tab === 'apl') {
+            loadApl('apl-storage', 'simc-wb-apl-storage-list').catch(notify);
+            loadDefaultAplLibrary().catch(notify);
+        }
         if (tab === 'apl-keywords') loadApl('apl-keywords', 'simc-wb-apl-keyword-list').catch(notify);
         if (tab === 'backend') loadBackend().catch(notify);
     }
@@ -681,6 +785,73 @@
             if (templateCreate) renderTemplateForm();
             const aplKeywordCreate = event.target.closest('[data-inline-create="apl-keywords"]');
             if (aplKeywordCreate) renderAplKeywordForm();
+            const myAplAction = event.target.closest('[data-my-apl-action]');
+            if (myAplAction) {
+                const id = idOf(myAplAction.dataset.id);
+                const actionName = myAplAction.dataset.myAplAction;
+                if (actionName === 'detail' && id) showMyAplDetail(id).catch(notify);
+                else if (actionName === 'use' && id) useAplForSimulation(id).catch(notify);
+                else if (actionName === 'edit' && id) fetchAplStorageDetail(id).then(renderAplStorageForm).catch(notify);
+                else if ((actionName === 'archive' || actionName === 'restore') && id) lifecycle('apl-storage', id, actionName).catch(notify);
+            }
+            const myAplDetailAction = event.target.closest('[data-my-apl-detail-action]');
+            if (myAplDetailAction && myAplDetailAction.dataset.myAplDetailAction === 'close') closeDialog();
+            const defaultAplAction = event.target.closest('[data-default-apl-action]');
+            if (defaultAplAction) {
+                const id = idOf(defaultAplAction.dataset.id);
+                const actionName = defaultAplAction.dataset.defaultAplAction;
+                if (actionName === 'view' && id) showDefaultAplDetail(id).catch(notify);
+                else if (actionName === 'copy' && id) copyDefaultAplToMy(id, defaultAplAction).catch(notify);
+            }
+            const defaultAplDetailAction = event.target.closest('[data-default-apl-detail-action]');
+            if (defaultAplDetailAction && defaultAplDetailAction.dataset.defaultAplDetailAction === 'close') closeDialog();
+            const converterAction = event.target.closest('[data-converter-action]');
+            if (converterAction) {
+                const actionName = converterAction.dataset.converterAction;
+                if (actionName === 'switch') {
+                    state.converterRequestSerial += 1;
+                    const select = document.getElementById('simc-converter-mode');
+                    if (select) {
+                        select.value = select.value === 'apl_to_cn' ? 'cn_to_apl' : 'apl_to_cn';
+                        state.converterMode = select.value;
+                    }
+                } else if (actionName === 'execute') {
+                    const input = document.getElementById('simc-converter-input');
+                    const output = document.getElementById('simc-converter-output');
+                    const status = document.getElementById('simc-converter-status');
+                    const mode = document.getElementById('simc-converter-mode')?.value || state.converterMode;
+                    if (input && output && status) {
+                        const requestSerial = ++state.converterRequestSerial;
+                        status.textContent = '转换中…';
+                        window.convertText(input.value, mode).then(result => {
+                            if (requestSerial !== state.converterRequestSerial) return;
+                            output.value = result;
+                            status.textContent = '转换完成';
+                            updateConverterStats();
+                        }).catch(error => {
+                            if (requestSerial !== state.converterRequestSerial) return;
+                            status.textContent = '转换失败';
+                            notify(error);
+                        });
+                    }
+                } else if (actionName === 'copy-output') {
+                    const output = document.getElementById('simc-converter-output');
+                    if (output && output.value) {
+                        navigator.clipboard.writeText(output.value).then(() => {
+                            window.showMessage('已复制到剪贴板', 'success');
+                        }).catch(notify);
+                    }
+                } else if (actionName === 'clear') {
+                    state.converterRequestSerial += 1;
+                    const input = document.getElementById('simc-converter-input');
+                    const output = document.getElementById('simc-converter-output');
+                    const status = document.getElementById('simc-converter-status');
+                    if (input) input.value = '';
+                    if (output) output.value = '';
+                    if (status) status.textContent = '准备就绪';
+                    updateConverterStats();
+                }
+            }
             const aplAction = event.target.closest('[data-apl-action]');
             if (aplAction) {
                 const id = idOf(aplAction.dataset.id);
@@ -771,11 +942,43 @@
                 else if (target === 'apl-storage') loadApl(target, 'simc-wb-apl-storage-list');
             }
         });
+        function updateConverterStats() {
+            const input = document.getElementById('simc-converter-input');
+            const output = document.getElementById('simc-converter-output');
+            const inputStats = document.getElementById('simc-converter-input-stats');
+            const outputStats = document.getElementById('simc-converter-output-stats');
+            if (input && inputStats) {
+                const chars = input.value.length;
+                const lines = input.value ? input.value.split('\n').length : 0;
+                inputStats.textContent = `${chars} 字符 · ${lines} 行`;
+            }
+            if (output && outputStats) {
+                const chars = output.value.length;
+                const lines = output.value ? output.value.split('\n').length : 0;
+                outputStats.textContent = `${chars} 字符 · ${lines} 行`;
+            }
+        }
         document.addEventListener('input', event => {
             const keywordSearch = event.target.closest('#simc-wb-apl-keyword-search');
-            if (!keywordSearch) return;
-            state.aplKeywordQuery = keywordSearch.value || '';
-            renderAplKeywordTable();
+            if (keywordSearch) {
+                state.aplKeywordQuery = keywordSearch.value || '';
+                renderAplKeywordTable();
+                return;
+            }
+            const myAplSearch = event.target.closest('#simc-my-apl-search');
+            if (myAplSearch) {
+                state.myAplQuery = myAplSearch.value || '';
+                renderMyAplList();
+                return;
+            }
+            const defaultAplSearch = event.target.closest('#simc-default-apl-search');
+            if (defaultAplSearch) {
+                state.defaultAplQuery = defaultAplSearch.value || '';
+                renderDefaultAplList();
+                return;
+            }
+            const converterInput = event.target.closest('#simc-converter-input, #simc-converter-output');
+            if (converterInput) updateConverterStats();
         });
         document.addEventListener('change', event => {
             const artifactFilter = event.target.closest('[data-artifact-filter]');
@@ -788,6 +991,8 @@
             if (autoUpdate && !autoUpdate.disabled) {
                 runBackendAction({ action: 'set_auto_update', auto_update: autoUpdate.checked }).catch(notify);
             }
+            const converterMode = event.target.closest('#simc-converter-mode');
+            if (converterMode) state.converterMode = converterMode.value;
         });
         document.addEventListener('submit', event => {
             const aplStorageForm = event.target.closest('[data-apl-storage-form]');
@@ -808,9 +1013,6 @@
                 saveAplKeyword(aplKeywordForm).catch(notify);
                 return;
             }
-        });
-        document.getElementById('simc-wb-convert')?.addEventListener('click', async () => {
-            try { document.getElementById('simc-wb-convert-output').value = await window.convertText(document.getElementById('simc-wb-convert-input').value, document.getElementById('simc-wb-convert-mode').value); } catch (error) { notify(error); }
         });
     });
 })();

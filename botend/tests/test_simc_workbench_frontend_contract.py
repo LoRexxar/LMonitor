@@ -318,13 +318,105 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
         self.assertIn('data-inline-create="apl-storage"', HTML)
         self.assertIn("'/api/apl-storage/'", JS)
-        self.assertIn('data-apl-action="edit"', JS)
-        self.assertIn('data-apl-action="archive"', JS)
-        self.assertIn('data-apl-action="restore"', JS)
-        self.assertIn('data-apl-action="use"', JS)
+        self.assertIn('data-my-apl-action="edit"', JS)
+        self.assertIn('data-my-apl-action="archive"', JS)
+        self.assertIn('data-my-apl-action="restore"', JS)
+        self.assertIn('data-my-apl-action="use"', JS)
         self.assertIn("window.loadSimcWorkbenchApl", JS)
         self.assertNotIn("confirm(", JS)
         self.assertNotIn("onclick=", JS.lower())
+
+    def test_apl_converter_is_independent_workflow_panel_not_in_my_apl(self):
+        """APL converter must be independent workflow panel, not nested in 我的APL section."""
+        apl_panel_start = HTML.index('id="simc-workbench-apl-panel"')
+        apl_panel_end = HTML.index('<!-- End L1 Panel: 模拟工作流', apl_panel_start)
+        apl_panel_section = HTML[apl_panel_start:apl_panel_end]
+        self.assertNotIn('APL 双向转换器', apl_panel_section)
+        self.assertNotIn('simc-wb-convert-', apl_panel_section)
+
+        workflow_start = HTML.index('data-simc-l1-panel="workflow"')
+        workflow_end = HTML.index('<!-- End L1 Panel: 模拟工作流', workflow_start)
+        workflow_section = HTML[workflow_start:workflow_end]
+        self.assertIn('id="simc-workbench-apl-converter-panel"', workflow_section)
+        self.assertIn('data-simc-panel="apl-converter"', workflow_section)
+        self.assertIn('data-simc-workflow-entry="apl-converter"', workflow_section)
+
+    def test_apl_converter_has_full_control_and_mobile_safe_layout(self):
+        """Independent converter must have direction switch, copy output, clear, status, char/line counts."""
+        converter_start = HTML.index('id="simc-workbench-apl-converter-panel"')
+        next_panel = HTML.index('id="simc-workbench-profiles-panel"', converter_start)
+        converter_section = HTML[converter_start:next_panel]
+        self.assertIn('data-converter-action="switch"', converter_section)
+        self.assertIn('data-converter-action="execute"', converter_section)
+        self.assertIn('data-converter-action="copy-output"', converter_section)
+        self.assertIn('data-converter-action="clear"', converter_section)
+        self.assertIn('id="simc-converter-status"', converter_section)
+        self.assertIn('id="simc-converter-input"', converter_section)
+        self.assertIn('id="simc-converter-output"', converter_section)
+        self.assertIn('max-width: 640px', HTML)
+
+    def test_my_apl_has_search_and_all_crud_in_dialog(self):
+        """My APL must have search input, detail/edit dialogs, archive/restore actions."""
+        apl_panel_start = HTML.index('id="simc-workbench-apl-panel"')
+        apl_panel_end = HTML.index('<!-- End L1 Panel: 模拟工作流', apl_panel_start)
+        my_apl_section = HTML[apl_panel_start:apl_panel_end]
+        self.assertIn('我的 APL', my_apl_section)
+        self.assertIn('id="simc-my-apl-search"', my_apl_section)
+        self.assertIn('placeholder="搜索', my_apl_section)
+        self.assertIn('showMyAplDetail', JS)
+        self.assertIn("openDialog('apl-detail'", JS)
+        self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
+        self.assertIn('data-my-apl-action="detail"', JS)
+        self.assertIn('data-my-apl-action="edit"', JS)
+        self.assertIn('data-my-apl-action="use"', JS)
+        self.assertIn('data-my-apl-action="archive"', JS)
+        self.assertIn('data-my-apl-action="restore"', JS)
+        detail_start = JS.index('async function showMyAplDetail')
+        detail_end = JS.index('\n    async function', detail_start + 20)
+        detail_body = JS[detail_start:detail_end]
+        self.assertIn("`/api/apl-storage/${id}/`", detail_body)
+        self.assertIn('beginDetailRequest', detail_body)
+        self.assertIn('isCurrentDetailRequest', detail_body)
+
+    def test_default_apl_library_shows_active_selectable_templates_with_spec(self):
+        """Default APL library must show active+selectable default_apl templates with class/spec display."""
+        apl_panel_start = HTML.index('id="simc-workbench-apl-panel"')
+        apl_panel_end = HTML.index('<!-- End L1 Panel: 模拟工作流', apl_panel_start)
+        apl_section = HTML[apl_panel_start:apl_panel_end]
+        self.assertIn('默认 APL 库', apl_section)
+        self.assertIn('id="simc-default-apl-list"', apl_section)
+        self.assertIn('id="simc-default-apl-search"', apl_section)
+        self.assertIn('loadDefaultAplLibrary', JS)
+        self.assertIn("library: 'default_apl'", JS)
+        self.assertNotIn("template_type: 'default_apl'", JS)
+        self.assertNotIn('is_active: true', JS)
+        self.assertNotIn('is_selectable: true', JS)
+        self.assertIn('data-default-apl-action="view"', JS)
+        self.assertIn('data-default-apl-action="copy"', JS)
+        self.assertIn('.class_name', JS)
+        self.assertIn('.spec', JS)
+
+    def test_default_apl_copy_uses_backend_api_not_client_content(self):
+        """Copy default APL must POST copy_template_id to backend, not send content from browser."""
+        self.assertIn('copy_template_id', JS)
+        self.assertIn("'/api/apl-storage/'", JS)
+        self.assertIn("method: 'POST'", JS)
+        copy_handler_start = JS.index('data-default-apl-action="copy"')
+        copy_section = JS[copy_handler_start:copy_handler_start + 2000]
+        self.assertNotIn('content:', copy_section)
+        self.assertNotIn('apl_code:', copy_section)
+
+    def test_default_apl_library_view_shows_readonly_detail(self):
+        """View default APL must show readonly detail in dialog with source/spec info."""
+        self.assertIn('showDefaultAplDetail', JS)
+        self.assertIn("openDialog('default-apl-detail'", JS)
+        detail_start = JS.index('async function showDefaultAplDetail')
+        detail_end = JS.index('\n    async function', detail_start + 20)
+        detail_body = JS[detail_start:detail_end]
+        self.assertIn("`${resourceUrl('templates', id)}?library=default_apl`", detail_body)
+        self.assertIn('readonly', detail_body)
+        self.assertIn('.source', detail_body)
+        self.assertIn('.spec', detail_body)
 
     def test_script_is_really_loaded(self):
         self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}", HTML)

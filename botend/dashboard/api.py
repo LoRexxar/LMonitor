@@ -2688,42 +2688,84 @@ class AplStorageAPIView(View):
             })
     
     def post(self, request):
-        """保存新的APL"""
+        """保存新的APL或从默认模板复制"""
         try:
             data = json.loads(request.body)
+            copy_template_id = data.get('copy_template_id')
+
+            if copy_template_id:
+                template = SimcContentTemplate.objects.filter(
+                    models.Q(owner_user_id=request.user.id) | models.Q(owner_user_id__isnull=True),
+                    id=copy_template_id,
+                    template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+                    is_active=True,
+                    is_selectable=True,
+                ).first()
+                if not template:
+                    return JsonResponse({
+                        'success': False,
+                        'error': '模板不存在或不可复制'
+                    }, status=404)
+
+                base_title = template.name or 'APL'
+                title = base_title
+                counter = 1
+                while UserAplStorage.objects.filter(
+                    user_id=request.user.id,
+                    title=title,
+                    is_active=True
+                ).exists():
+                    title = f"{base_title} 副本 {counter}"
+                    counter += 1
+
+                apl_storage = UserAplStorage.objects.create(
+                    user_id=request.user.id,
+                    title=title,
+                    apl_code=template.content
+                )
+
+                return JsonResponse({
+                    'success': True,
+                    'message': 'APL 复制成功',
+                    'data': {
+                        'id': apl_storage.id,
+                        'title': apl_storage.title
+                    }
+                })
+
             title = data.get('title', '').strip()
             apl_code = data.get('apl_code', '').strip()
-            
+
             if not title:
                 return JsonResponse({
                     'success': False,
                     'error': 'APL标题不能为空'
                 })
-            
+
             if not apl_code:
                 return JsonResponse({
                     'success': False,
                     'error': 'APL代码不能为空'
                 })
-            
+
             # 检查标题是否重复
             if UserAplStorage.objects.filter(
-                user_id=request.user.id, 
-                title=title, 
+                user_id=request.user.id,
+                title=title,
                 is_active=True
             ).exists():
                 return JsonResponse({
                     'success': False,
                     'error': '该标题已存在，请使用其他标题'
                 })
-            
+
             # 创建新的APL存储记录
             apl_storage = UserAplStorage.objects.create(
                 user_id=request.user.id,
                 title=title,
                 apl_code=apl_code
             )
-            
+
             return JsonResponse({
                 'success': True,
                 'message': 'APL保存成功',
@@ -2732,7 +2774,7 @@ class AplStorageAPIView(View):
                     'title': apl_storage.title
                 }
             })
-            
+
         except Exception as e:
             logger.error(f"保存APL失败: {str(e)}")
             return JsonResponse({
@@ -5714,15 +5756,27 @@ class SimcWorkbenchAPIView(View):
 
         if resource == 'templates':
             qs = SimcContentTemplate.objects.filter(models.Q(owner_user_id=request.user.id) | models.Q(owner_user_id__isnull=True)).order_by('template_type', 'spec', 'name')
+            default_apl_library = request.GET.get('library') == 'default_apl'
+            if default_apl_library:
+                qs = qs.filter(
+                    template_type=SimcContentTemplate.TYPE_DEFAULT_APL,
+                    is_active=True,
+                    is_selectable=True,
+                )
             if object_id:
                 qs = qs.filter(id=object_id)
-            rows = [{
-                'id': row.id, 'name': row.name, 'template_type': row.template_type,
-                'type_label': row.get_template_type_display(), 'source': row.source, 'spec': row.spec,
-                'class_name': row.class_name, 'content': row.content, 'is_active': row.is_active,
-                'is_selectable': row.is_selectable, 'is_system': row.owner_user_id is None,
-                'read_only': not self._template_is_writable(request, row),
-            } for row in qs]
+            rows = []
+            for row in qs:
+                item = {
+                    'id': row.id, 'name': row.name, 'template_type': row.template_type,
+                    'type_label': row.get_template_type_display(), 'source': row.source, 'spec': row.spec,
+                    'class_name': row.class_name, 'is_active': row.is_active,
+                    'is_selectable': row.is_selectable, 'is_system': row.owner_user_id is None,
+                    'read_only': not self._template_is_writable(request, row),
+                }
+                if object_id or not default_apl_library:
+                    item['content'] = row.content
+                rows.append(item)
             if object_id:
                 return JsonResponse(
                     {'success': True, 'data': rows[0], 'can_write': not rows[0]['read_only']}

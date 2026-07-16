@@ -177,7 +177,7 @@
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260716c"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260716d"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260716f"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -816,6 +816,7 @@
                                 <button type="button" data-simc-workflow-entry="profiles" class="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">玩家配置</button>
                                 <button type="button" data-simc-workflow-entry="templates" class="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">内容模板</button>
                                 <button type="button" data-simc-workflow-entry="apl" class="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">我的 APL</button>
+                                <button type="button" data-simc-workflow-entry="apl-converter" class="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">APL 转换器</button>
                             </nav>
                             <div class="space-y-6">
                                 <!-- Workflow continues with import panel content below -->
@@ -1072,6 +1073,48 @@
                         </div>
 
                         <!-- Main workflow resources: Profiles, Templates, APL -->
+                        <!-- APL Converter Panel (Independent) -->
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-apl-converter-panel" data-simc-panel="apl-converter">
+                            <div class="rounded-2xl border bg-white p-5">
+                                <h3 class="text-xl font-bold mb-4">APL 双向转换器</h3>
+                                <div class="flex flex-wrap items-center gap-3 mb-4">
+                                    <select id="simc-converter-mode" class="rounded border px-3 py-2 text-sm">
+                                        <option value="apl_to_cn">APL → 中文</option>
+                                        <option value="cn_to_apl">中文 → APL</option>
+                                    </select>
+                                    <button type="button" data-converter-action="switch" class="rounded border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                                        <i class="fas fa-exchange-alt mr-1"></i>切换方向
+                                    </button>
+                                    <button type="button" data-converter-action="execute" class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">
+                                        <i class="fas fa-language mr-1"></i>转换
+                                    </button>
+                                    <button type="button" data-converter-action="copy-output" class="rounded border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                                        <i class="fas fa-copy mr-1"></i>复制输出
+                                    </button>
+                                    <button type="button" data-converter-action="clear" class="rounded border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                                        <i class="fas fa-eraser mr-1"></i>清空
+                                    </button>
+                                    <span id="simc-converter-status" class="text-xs text-gray-500">准备就绪</span>
+                                </div>
+                                <div class="grid gap-4 lg:grid-cols-2">
+                                    <div>
+                                        <div class="mb-2 flex justify-between text-xs text-gray-500">
+                                            <span>输入</span>
+                                            <span id="simc-converter-input-stats">0 字符 · 0 行</span>
+                                        </div>
+                                        <textarea id="simc-converter-input" rows="15" class="w-full rounded border p-3 font-mono text-sm" placeholder="在此输入待转换内容"></textarea>
+                                    </div>
+                                    <div>
+                                        <div class="mb-2 flex justify-between text-xs text-gray-500">
+                                            <span>输出</span>
+                                            <span id="simc-converter-output-stats">0 字符 · 0 行</span>
+                                        </div>
+                                        <textarea id="simc-converter-output" rows="15" readonly class="w-full rounded border bg-slate-50 p-3 font-mono text-sm" placeholder="转换结果将显示在此"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="simc-workbench-panel hidden" id="simc-workbench-profiles-panel" data-simc-panel="profiles">
                             <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
                                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
@@ -1162,8 +1205,23 @@
                         <div class="simc-workbench-panel hidden" id="simc-workbench-templates-panel" data-simc-panel="templates"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><h3 class="text-xl font-bold">ContentTemplate 模板</h3><button type="button" data-inline-create="templates" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button></div><div class="mt-3 flex flex-wrap gap-3" id="simc-template-type-filters"><button data-template-type="base_template">基础模板</button><button data-template-type="default_player">默认玩家配置</button><button data-template-type="default_apl">默认 APL</button><button data-template-type="custom_apl">自定义 APL</button><button data-template-type="custom_player">用户自定义装备</button></div><div id="simc-wb-template-list" class="mt-4"></div></div></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-apl-panel" data-simc-panel="apl">
                             <div class="grid gap-5 xl:grid-cols-2">
-                                <section class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><h3 class="text-xl font-bold">我的 APL（UserAplStorage）</h3><button data-inline-create="apl-storage" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button></div><div id="simc-wb-apl-storage-list" class="mt-4"></div></section>
-                                <section class="rounded-2xl border bg-white p-5"><h3 class="text-xl font-bold">APL 双向转换器</h3><div class="mt-3 flex gap-2"><select id="simc-wb-convert-mode" class="rounded border p-2"><option value="apl_to_cn">APL → 中文</option><option value="cn_to_apl">中文 → APL</option></select><button id="simc-wb-convert" class="rounded bg-indigo-600 px-4 py-2 text-white">转换</button></div><div class="mt-3 grid gap-3 md:grid-cols-2"><textarea id="simc-wb-convert-input" rows="10" class="rounded border p-3 font-mono"></textarea><textarea id="simc-wb-convert-output" rows="10" readonly class="rounded border bg-slate-50 p-3 font-mono"></textarea></div></section>
+                                <section class="rounded-2xl border bg-white p-5">
+                                    <div class="flex justify-between mb-4">
+                                        <h3 class="text-xl font-bold">我的 APL（UserAplStorage）</h3>
+                                        <button data-inline-create="apl-storage" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button>
+                                    </div>
+                                    <div class="mb-3">
+                                        <input type="search" id="simc-my-apl-search" placeholder="搜索标题或内容" class="w-full rounded border px-3 py-2 text-sm" />
+                                    </div>
+                                    <div id="simc-wb-apl-storage-list" class="mt-4"></div>
+                                </section>
+                                <section class="rounded-2xl border bg-white p-5">
+                                    <h3 class="text-xl font-bold mb-4">默认 APL 库</h3>
+                                    <div class="mb-3">
+                                        <input type="search" id="simc-default-apl-search" placeholder="搜索职业、专精或名称" class="w-full rounded border px-3 py-2 text-sm" />
+                                    </div>
+                                    <div id="simc-default-apl-list" class="mt-4"></div>
+                                </section>
                             </div>
                         </div>
 
