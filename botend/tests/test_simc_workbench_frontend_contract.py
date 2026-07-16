@@ -171,6 +171,15 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('aria-label="规则类型"', advanced)
         self.assertIn('updateSimcAdvancedEntryState(activeL1Tab, activeChildPanel, activeRuleSubtab)', MAIN)
 
+    def test_all_l1_panels_share_the_same_padded_container(self):
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(HTML, "html.parser")
+        panels = [soup.select_one(f'[data-simc-l1-panel="{name}"]') for name in ("workflow", "history", "advanced")]
+        self.assertTrue(all(panel is not None for panel in panels))
+        self.assertTrue(all(panel.parent is panels[0].parent for panel in panels))
+        self.assertIn("p-5", panels[0].parent.get("class", []))
+
     def test_workflow_is_default_l1_with_history_and_advanced(self):
         self.assertIn('data-simc-l1-tab="workflow"', HTML)
         self.assertIn('data-simc-l1-tab="history"', HTML)
