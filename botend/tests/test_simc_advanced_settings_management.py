@@ -205,7 +205,7 @@ class SimcAdvancedSettingsManagementTests(TestCase):
         self.assertEqual(tpl.content, '{player_config}\niterations=200')
         self.assertEqual(tpl.name, 'New Name')
 
-    def test_templates_staff_can_edit_system_but_not_upstream_templates(self):
+    def test_templates_staff_can_edit_system_and_upstream_apls(self):
         system_tpl = SimcContentTemplate.objects.create(
             name="System",
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
@@ -236,10 +236,9 @@ class SimcAdvancedSettingsManagementTests(TestCase):
             data=json.dumps({'content': 'hacked'}),
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 403)
-        self.assertIn('只读', response.json()['error'])
+        self.assertEqual(response.status_code, 200)
         upstream_apl.refresh_from_db()
-        self.assertNotEqual(upstream_apl.content, 'hacked')
+        self.assertEqual(upstream_apl.content, 'hacked')
 
     def test_templates_owner_can_archive_restore(self):
         tpl = SimcContentTemplate.objects.create(

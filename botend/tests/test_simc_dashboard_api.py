@@ -9,7 +9,7 @@ from django.contrib.auth.models import User
 from django.test import Client, RequestFactory, TestCase
 from django.utils import timezone
 
-from botend.dashboard.api import SimcAplCandidatesAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, inspect_raw_simc_code
+from botend.dashboard.api import SimcAplCandidatesAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, SimcSpecOptionsAPIView, inspect_raw_simc_code
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates
@@ -347,6 +347,54 @@ class SimcTemplateAPIViewTests(TestCase):
         self.assertEqual(delete.status_code, 403)
         system_template.refresh_from_db()
         self.assertEqual(system_template.content, 'fight_style=Patchwerk\n{player_config}')
+
+
+class SimcAplCanonicalSpecPermissionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='apl-owner', password='pwd')
+        self.admin = User.objects.create_user(username='lorexxar', password='pwd', is_staff=True)
+        self.client.force_login(self.user)
+        self.system_apl = SimcApl.objects.create(
+            name='System Fury', spec='warrior_fury', class_name='warrior',
+            content='actions+=/bloodthirst', source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True, is_active=True,
+        )
+        self.other_apl = SimcApl.objects.create(
+            name='Other Fury', spec='warrior_fury', class_name='warrior',
+            content='actions+=/whirlwind', source=SimcApl.SOURCE_USER,
+            owner_user_id=self.admin.id, is_system=False, is_active=True,
+        )
+
+    def test_spec_options_are_canonical_and_include_midnight_devourer(self):
+        response = self.client.get('/api/simc-spec-options/')
+        self.assertEqual(response.status_code, 200)
+        values = {row['value'] for row in response.json()['data']}
+        self.assertIn('warrior_fury', values)
+        self.assertIn('demonhunter_devourer', values)
+        self.assertNotIn('demon_hunter_devourer', values)
+
+    def test_apl_update_rejects_unknown_spec(self):
+        self.client.force_login(self.admin)
+        response = self.client.put(
+            f'/api/simc-workbench/apls/{self.system_apl.id}/',
+            data=json.dumps({'spec': 'not_a_real_spec'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.system_apl.refresh_from_db()
+        self.assertEqual(self.system_apl.spec, 'warrior_fury')
+
+    def test_admin_can_update_and_delete_system_and_other_user_apl(self):
+        self.client.force_login(self.admin)
+        update = self.client.put(
+            f'/api/simc-workbench/apls/{self.system_apl.id}/',
+            data=json.dumps({'name': 'Updated Fury', 'spec': 'warrior_fury', 'content': 'actions+=/raging_blow'}),
+            content_type='application/json',
+        )
+        self.assertEqual(update.status_code, 200)
+        delete = self.client.delete(f'/api/simc-workbench/apls/{self.other_apl.id}/')
+        self.assertEqual(delete.status_code, 200)
+        self.assertFalse(SimcApl.objects.filter(id=self.other_apl.id).exists())
 
 
 class SimcBackendUpdateSafetyTests(TestCase):

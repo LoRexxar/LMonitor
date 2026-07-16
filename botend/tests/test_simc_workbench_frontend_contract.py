@@ -318,10 +318,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
         self.assertIn('data-inline-create="apl-storage"', HTML)
         self.assertIn("'/api/apl-storage/'", JS)
-        self.assertIn('data-my-apl-action="edit"', JS)
-        self.assertIn('data-my-apl-action="archive"', JS)
-        self.assertIn('data-my-apl-action="restore"', JS)
-        self.assertIn('data-my-apl-action="use"', JS)
+        self.assertIn('data-apl-action="detail"', JS)
+        self.assertIn('data-apl-action="edit"', JS)
+        self.assertIn('data-apl-action="delete"', JS)
+        self.assertIn('data-apl-action="confirm-delete"', JS)
         self.assertIn("window.loadSimcWorkbenchApl", JS)
         self.assertNotIn("confirm(", JS)
         self.assertNotIn("onclick=", JS.lower())
@@ -356,27 +356,23 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('max-width: 640px', HTML)
 
     def test_my_apl_has_search_and_all_crud_in_dialog(self):
-        """My APL must have search input, detail/edit dialogs, archive/restore actions."""
+        """Unified APL resources must have search and authenticated detail/edit/delete dialogs."""
         apl_panel_start = HTML.index('id="simc-workbench-apl-panel"')
         apl_panel_end = HTML.index('<!-- End L1 Panel: 模拟工作流', apl_panel_start)
         my_apl_section = HTML[apl_panel_start:apl_panel_end]
         self.assertIn('APL 列表', my_apl_section)
         self.assertIn('id="simc-apl-search"', my_apl_section)
         self.assertIn('placeholder="搜索', my_apl_section)
-        self.assertIn('showMyAplDetail', JS)
+        self.assertIn('showManagedAplDetail', JS)
         self.assertIn("openDialog('apl-detail'", JS)
         self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
-        self.assertIn('data-my-apl-action="detail"', JS)
-        self.assertIn('data-my-apl-action="edit"', JS)
-        self.assertIn('data-my-apl-action="use"', JS)
-        self.assertIn('data-my-apl-action="archive"', JS)
-        self.assertIn('data-my-apl-action="restore"', JS)
-        detail_start = JS.index('async function showMyAplDetail')
+        self.assertIn('data-apl-action="detail"', JS)
+        self.assertIn('data-apl-action="edit"', JS)
+        self.assertIn('data-apl-action="delete"', JS)
+        detail_start = JS.index('async function fetchManagedAplDetail')
         detail_end = JS.index('\n    async function', detail_start + 20)
         detail_body = JS[detail_start:detail_end]
-        self.assertIn("`/api/apl-storage/${id}/`", detail_body)
-        self.assertIn('beginDetailRequest', detail_body)
-        self.assertIn('isCurrentDetailRequest', detail_body)
+        self.assertIn("resourceUrl('apls', id)", detail_body)
 
     def test_apl_resources_share_one_list_with_spec_and_source_markers(self):
         """Personal and default APL resources belong in one searchable list, not side-by-side columns."""
@@ -410,7 +406,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-default-apl-action="copy"', JS)
         self.assertIn('.class_name', JS)
         self.assertIn('.spec', JS)
-        self.assertIn('data-my-apl-action="edit"', JS)
+        self.assertIn('data-apl-action="edit"', JS)
 
     def test_default_apl_copy_uses_backend_api_not_client_content(self):
         """Copy default APL must POST copy_template_id to backend, not send content from browser."""

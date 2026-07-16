@@ -18,6 +18,7 @@
         },
         converterMode: 'apl_to_cn', converterRequestSerial: 0,
         defaultAplCopyInFlight: new Set(),
+        specOptions: [],
         resourceAbortControllers: Object.create(null),
         resourceRequestSerials: Object.create(null),
     };
@@ -479,10 +480,12 @@
         window.openSimcWorkbenchDialog('apl-form', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
-        host.innerHTML = `<form data-apl-storage-form class="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        const specOptions = state.specOptions.length ? state.specOptions : [{ value: row?.spec || '', label: row?.spec || '请选择专精' }];
+        const specHtml = specOptions.map(option => `<option value="${esc(option.value)}" ${option.value === row?.spec ? 'selected' : ''}>${esc(option.label)}</option>`).join('');
+        host.innerHTML = `<form data-apl-storage-form data-managed-apl="${row?.id ? '1' : '0'}" data-system-apl="${row?.is_system ? '1' : '0'}" class="rounded-xl border border-blue-200 bg-blue-50 p-4">
             <input type="hidden" name="id" value="${idOf(row?.id)}">
             <label class="block text-sm font-medium text-gray-700">标题<input name="title" required maxlength="200" value="${esc(row?.title)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
-            <label class="mt-3 block text-sm font-medium text-gray-700">专精标识<input name="spec" maxlength="100" placeholder="例如 warrior_fury" value="${esc(row?.spec)}" class="mt-1 w-full rounded-lg border bg-white p-2"><span class="mt-1 block text-xs text-gray-500">用于在列表中标记和筛选适用专精。</span></label>
+            <label class="mt-3 block text-sm font-medium text-gray-700">专精<select name="spec" required class="mt-1 w-full rounded-lg border bg-white p-2">${specHtml}</select><span class="mt-1 block text-xs text-gray-500">统一使用“职业_专精”标识，可与其他 SimC 表直接查询。</span></label>
             <label class="mt-3 block text-sm font-medium text-gray-700">APL 内容<textarea name="apl_code" required rows="12" class="mt-1 w-full rounded-lg border bg-white p-3 font-mono text-xs">${esc(row?.apl_code)}</textarea></label>
             <div class="mt-3 flex gap-2"><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-white">保存</button><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2">取消</button></div>
         </form>`;
@@ -539,8 +542,8 @@
     function renderUnifiedAplList() {
         const host = document.getElementById('simc-unified-apl-list');
         if (!host) return;
-        const personalRows = (state.rows['apl-storage'] || []).map(row => ({ ...row, kind: 'personal' }));
-        const defaultRows = (state.rows['default-apl'] || []).map(row => ({ ...row, kind: 'default' }));
+        const personalRows = (state.rows.apls || []).filter(row => !row.is_system).map(row => ({ ...row, title: row.name, apl_code: '', kind: 'personal', managedViaResource: true }));
+        const defaultRows = (state.rows.apls || []).filter(row => row.is_system).map(row => ({ ...row, kind: 'default', managedViaResource: true }));
         const allRows = [...personalRows, ...defaultRows];
         const query = state.aplQuery.trim().toLowerCase();
         const filteredRows = query ? allRows.filter(row => {
@@ -566,11 +569,13 @@
                 const active = row.is_active !== false;
                 const sourceTag = '<span class="inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">来源：个人</span>';
                 const specTag = `<span class="inline-block rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">专精：${esc(row.spec || '未标记')}</span>`;
-                return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.title)}</b><div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">${sourceTag} ${specTag} ${active ? '<span class="text-emerald-600">启用中</span>' : '<span class="text-gray-400">已停用</span>'}</div></div><div class="flex flex-wrap gap-2">${active ? `<button data-my-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">详情</button><button data-my-apl-action="use" data-id="${idOf(row.id)}" class="simc-touch-action text-emerald-700">用于模拟</button><button data-my-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">编辑</button><button data-my-apl-action="archive" data-id="${idOf(row.id)}" class="simc-touch-action text-amber-700">停用</button>` : `<button data-my-apl-action="restore" data-id="${idOf(row.id)}" class="simc-touch-action text-emerald-700">恢复</button>`}</div></article>`;
+                const rowActions = row.read_only ? '<span class="text-xs text-slate-400">只读</span>' : `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700">删除</button>`;
+                return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.title)}</b><div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">${sourceTag} ${specTag} ${active ? '<span class="text-emerald-600">启用中</span>' : '<span class="text-gray-400">已停用</span>'}</div></div><div class="flex flex-wrap gap-2"><button data-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">详情</button>${rowActions}</div></article>`;
             } else {
                 const sourceTag = `<span class="inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">来源：${row.is_system ? '系统默认' : '个人模板'}</span>`;
                 const specTag = `<span class="inline-block rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">专精：${esc(row.spec || '未标记')}</span>`;
-                return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.name)}</b><div class="mt-1 flex flex-wrap items-center gap-2 text-xs">${sourceTag} ${specTag}</div></div><div class="flex flex-wrap gap-2"><button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">查看</button><button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">复制</button></div></article>`;
+                const actions = row.read_only ? '<span class="text-xs text-slate-400">只读</span>' : `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700">删除</button>`;
+                return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.name)}</b><div class="mt-1 flex flex-wrap items-center gap-2 text-xs">${sourceTag} ${specTag}</div></div><div class="flex flex-wrap gap-2"><button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">查看</button>${row.read_only ? `<button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">复制</button>` : actions}</div></article>`;
             }
         }).join('');
         host.innerHTML = statusParts.join('') + (rowsHtml || empty(query ? '无匹配结果' : '暂无数据'));
@@ -608,7 +613,7 @@
         if (!isCurrentResourceRequest(request)) return;
         state.rows[resource] = data.data || [];
         if (unifiedApl) state.aplLoadState.personal = { loading: false, error: '' };
-        const canWrite = resource === 'apl-storage' || data.can_write === true;
+        const canWrite = resource === 'apl-storage' || resource === 'apls' || data.can_write === true;
         document.querySelector(`[data-inline-create="${resource}"]`)?.classList.toggle('hidden', !canWrite);
         if (resource === 'apl-keywords') {
             state.aplKeywordCanWrite = canWrite;
@@ -685,7 +690,7 @@
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
                 body: JSON.stringify({ copy_template_id: templateId }),
             });
-            await loadApl('apl-storage', 'simc-unified-apl-list');
+            await loadApl('apls', 'simc-unified-apl-list');
             window.showMessage('已复制到我的APL', 'success');
         } finally {
             state.defaultAplCopyInFlight.delete(templateId);
@@ -701,13 +706,14 @@
             apl_code: String(formData.get('apl_code') || '').trim(),
         };
         if (id) payload.id = id;
-        await json('/api/apl-storage/', {
+        const managedApl = form.dataset.managedApl === '1';
+        await json(managedApl ? resourceUrl('apls', id) : '/api/apl-storage/', {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(managedApl ? { name: payload.title, spec: payload.spec, content: payload.apl_code } : payload),
         });
         closeAplStorageForm();
-        await loadApl('apl-storage', 'simc-unified-apl-list');
+        await loadApl('apls', 'simc-unified-apl-list');
         window.showMessage(id ? 'APL 已更新' : 'APL 已新增', 'success');
     }
     async function useAplForSimulation(id) {
@@ -771,14 +777,63 @@
         else if (resource === 'apl-keywords') await loadApl(resource, 'simc-wb-apl-keyword-list');
         else if (resource === 'templates') await loadTemplates();
     }
+    async function fetchManagedAplDetail(id, options = {}) {
+        const row = (await json(resourceUrl('apls', id), options)).data || {};
+        return { ...row, title: row.name, apl_code: row.content };
+    }
+    async function showManagedAplDetail(id) {
+        const host = openDialog('apl-detail');
+        if (!host) return;
+        const request = beginDetailRequest(`managed-apl-detail:${id}`);
+        renderState(host, 'loading', '正在加载 APL 详情…');
+        let row;
+        try {
+            row = await fetchManagedAplDetail(id, { signal: request.controller.signal });
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            throw error;
+        }
+        if (!isCurrentDetailRequest(request)) return;
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">APL 详情</h4><button class="simc-touch-action" data-apl-action="cancel">关闭</button></div><dl class="grid gap-2 text-sm"><div>名称：${esc(row.name)}</div><div>专精：${esc(row.spec)}</div><div>来源：${esc(row.is_system ? '系统默认' : '个人')}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">APL 内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
+    }
+    async function editManagedApl(id) {
+        const host = openDialog('apl-form');
+        if (!host) return;
+        const request = beginDetailRequest(`managed-apl-edit:${id}`);
+        renderState(host, 'loading', '正在加载 APL 编辑器…');
+        let row;
+        try {
+            row = await fetchManagedAplDetail(id, { signal: request.controller.signal });
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            throw error;
+        }
+        if (!isCurrentDetailRequest(request)) return;
+        renderAplStorageForm(row);
+    }
+    function confirmDeleteApl(id) {
+        const host = openDialog('apl-delete');
+        if (!host) return;
+        host.innerHTML = `<div class="rounded-xl border border-red-200 bg-red-50 p-4"><h4 class="font-bold text-red-800">确认删除 APL？</h4><p class="mt-2 text-sm text-red-700">删除后无法恢复。</p><div class="mt-4 flex gap-2"><button data-apl-action="confirm-delete" data-id="${idOf(id)}" class="rounded-lg bg-red-600 px-4 py-2 text-white">确认删除</button><button data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2">取消</button></div></div>`;
+    }
+    async function deleteApl(id) {
+        await json(resourceUrl('apls', id), { method: 'DELETE', headers: { 'X-CSRFToken': window.getCSRFToken() } });
+        await loadApl('apls', 'simc-unified-apl-list');
+        await loadDefaultAplLibrary();
+        window.showMessage('APL 已删除', 'success');
+    }
+    async function loadSpecOptions() {
+        const data = await json('/api/simc-spec-options/');
+        state.specOptions = data.data || [];
+    }
     function activate(tab) {
         state.activePanel = tab || '';
         if (tab === 'tasks') loadTasks().catch(notify);
         if (tab === 'artifacts') loadArtifacts().catch(notify);
         if (tab === 'templates') loadTemplates().catch(notify);
         if (tab === 'apl') {
-            loadApl('apl-storage', 'simc-unified-apl-list').catch(notify);
-            loadDefaultAplLibrary().catch(notify);
+            loadApl('apls', 'simc-unified-apl-list').catch(notify);
+            loadSpecOptions().catch(notify);
         }
         if (tab === 'apl-keywords') loadApl('apl-keywords', 'simc-wb-apl-keyword-list').catch(notify);
         if (tab === 'backend') loadBackend().catch(notify);
@@ -896,6 +951,10 @@
                 const id = idOf(aplAction.dataset.id);
                 const actionName = aplAction.dataset.aplAction;
                 if (actionName === 'cancel') closeAplStorageForm();
+                else if (actionName === 'detail' && id) showManagedAplDetail(id).catch(notify);
+                else if (actionName === 'edit' && id) editManagedApl(id).catch(notify);
+                else if (actionName === 'delete' && id) confirmDeleteApl(id);
+                else if (actionName === 'confirm-delete' && id) deleteApl(id).then(closeDialog).catch(notify);
                 else if (actionName === 'use' && id) useAplForSimulation(id).catch(notify);
                 else if (actionName === 'edit' && id) fetchAplStorageDetail(id).then(renderAplStorageForm).catch(notify);
                 else if ((actionName === 'archive' || actionName === 'restore') && id) lifecycle('apl-storage', id, actionName).catch(notify);

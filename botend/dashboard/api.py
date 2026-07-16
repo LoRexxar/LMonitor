@@ -43,6 +43,38 @@ from botend.services.simc_player_config import EQUIPMENT_SLOT_ALIASES, resolve_a
 from botend.services.simc_composer import SimcComposer
 from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN
+
+
+def _simc_spec_options():
+    """统一返回所有 SimC 资源使用的 class_spec 专精标识。"""
+    rows = []
+    for class_name, specs in CLASS_SPEC_MAP.items():
+        class_key = re.sub(r'(?<!^)(?=[A-Z])', '_', class_name).lower()
+        class_key = {'death_knight': 'deathknight', 'demon_hunter': 'demonhunter'}.get(class_key, class_key)
+        for spec_name in specs:
+            spec_key = re.sub(r'(?<!^)(?=[A-Z])', '_', spec_name).lower()
+            rows.append({
+                'value': f'{class_key}_{spec_key}',
+                'class_name': class_key,
+                'class_label': CLASS_CN.get(class_name, class_name),
+                'spec_label': SPEC_CN.get(spec_name, spec_name),
+                'label': f'{CLASS_CN.get(class_name, class_name)} · {SPEC_CN.get(spec_name, spec_name)}',
+            })
+    return rows
+
+
+SIMC_SPEC_OPTIONS = _simc_spec_options()
+SIMC_SPEC_VALUES = frozenset(row['value'] for row in SIMC_SPEC_OPTIONS)
+
+
+def _canonical_simc_spec(value):
+    normalized = str(value or '').strip().lower()
+    return normalized if normalized in SIMC_SPEC_VALUES else None
+
+
+def _is_simc_admin(user):
+    return bool(user.is_staff or user.is_superuser)
 
 
 def _fmt_dt(dt):
@@ -2944,6 +2976,12 @@ class AplDetailAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
+class SimcSpecOptionsAPIView(View):
+    def get(self, request):
+        return JsonResponse({'success': True, 'data': SIMC_SPEC_OPTIONS})
+
+
+@method_decorator(login_required, name='dispatch')
 class SimcBattlenetPreflightAPIView(View):
     """Fetch and validate Battle.net character data before it is saved or simulated."""
 
@@ -5771,10 +5809,14 @@ class SimcWorkbenchAPIView(View):
             return JsonResponse({'success': True, 'data': rows})
 
         if resource == 'apls':
-            qs = SimcApl.objects.filter(
-                models.Q(is_system=True, owner_user_id__isnull=True)
-                | models.Q(is_system=False, owner_user_id=request.user.id)
-            ).order_by('is_system', 'spec', 'name')
+            if _is_simc_admin(request.user):
+                qs = SimcApl.objects.all()
+            else:
+                qs = SimcApl.objects.filter(
+                    models.Q(is_system=True, owner_user_id__isnull=True)
+                    | models.Q(is_system=False, owner_user_id=request.user.id)
+                )
+            qs = qs.order_by('is_system', 'spec', 'name')
             if object_id:
                 apl = qs.filter(id=object_id).first()
                 if not apl:
@@ -5784,13 +5826,14 @@ class SimcWorkbenchAPIView(View):
                     'class_name': apl.class_name, 'source': apl.source,
                     'is_system': apl.is_system, 'is_active': apl.is_active,
                     'is_selectable': apl.is_selectable, 'content': apl.content,
-                    'read_only': apl.is_system,
-                }, 'can_write': not apl.is_system})
+                    'read_only': apl.is_system and not _is_simc_admin(request.user),
+                }, 'can_write': _is_simc_admin(request.user) or not apl.is_system})
             return JsonResponse({'success': True, 'data': [{
                 'id': apl.id, 'name': apl.name, 'spec': apl.spec,
                 'class_name': apl.class_name, 'source': apl.source,
                 'is_system': apl.is_system, 'is_active': apl.is_active,
                 'is_selectable': apl.is_selectable,
+                'read_only': apl.is_system and not _is_simc_admin(request.user),
             } for apl in qs], 'can_write': True})
 
         if resource == 'templates':
@@ -6077,10 +6120,12 @@ class SimcWorkbenchAPIView(View):
             apl = SimcApl.objects.filter(id=object_id).first()
             if not apl:
                 return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
-            if apl.is_system:
+            if apl.is_system and not _is_simc_admin(request.user):
                 return JsonResponse({'success': False, 'error': '系统默认 APL 为只读资源'}, status=403)
-            if apl.owner_user_id != request.user.id:
+            if not apl.is_system and apl.owner_user_id != request.user.id and not _is_simc_admin(request.user):
                 return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+            if 'spec' in data and not _canonical_simc_spec(data.get('spec')):
+                return JsonResponse({'success': False, 'error': '专精标识无效'}, status=400)
             for field in ('name', 'spec', 'class_name', 'content'):
                 if field in data:
                     setattr(apl, field, str(data[field] or '').strip())
@@ -6187,9 +6232,9 @@ class SimcWorkbenchAPIView(View):
             apl = SimcApl.objects.filter(id=object_id).first()
             if not apl:
                 return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
-            if apl.is_system:
+            if apl.is_system and not _is_simc_admin(request.user):
                 return JsonResponse({'success': False, 'error': '系统默认 APL 为只读资源'}, status=403)
-            if apl.owner_user_id != request.user.id:
+            if not apl.is_system and apl.owner_user_id != request.user.id and not _is_simc_admin(request.user):
                 return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
             apl.delete()
             return JsonResponse({'success': True})

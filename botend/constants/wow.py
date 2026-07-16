@@ -6,7 +6,7 @@ WoW 职业专精常量
 # 职业 → 专精列表
 CLASS_SPEC_MAP = {
     "DeathKnight": ["Blood", "Frost", "Unholy"],
-    "DemonHunter": ["Havoc", "Vengeance"],
+    "DemonHunter": ["Havoc", "Vengeance", "Devourer"],
     "Druid":       ["Balance", "Feral", "Guardian", "Restoration"],
     "Hunter":      ["BeastMastery", "Marksmanship", "Survival"],
     "Mage":        ["Arcane", "Fire", "Frost"],
