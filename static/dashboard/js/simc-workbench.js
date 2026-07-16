@@ -1,4 +1,4 @@
-/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716c */
+/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716d */
 (() => {
     'use strict';
     const apiRoot = '/api/simc-workbench/';
@@ -10,6 +10,7 @@
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
         dialogStack: [],
         templateType: '', rows: Object.create(null),
+        aplKeywordQuery: '', aplKeywordCanWrite: false,
         resourceAbortControllers: Object.create(null),
         resourceRequestSerials: Object.create(null),
     };
@@ -481,6 +482,52 @@
     function closeAplStorageForm() {
         closeDialog();
     }
+    function renderAplKeywordTable() {
+        const host = document.getElementById('simc-wb-apl-keyword-list');
+        const summary = document.getElementById('simc-wb-apl-keyword-summary');
+        if (!host) return;
+        const rows = state.rows['apl-keywords'] || [];
+        const query = state.aplKeywordQuery.trim().toLocaleLowerCase();
+        const filteredRows = query ? rows.filter(row => {
+            const searchable = [row.apl_keyword, row.cn_keyword, row.description]
+                .map(value => String(value || '').toLocaleLowerCase())
+                .join('\n');
+            return searchable.includes(query);
+        }) : rows;
+        if (summary) {
+            summary.textContent = query
+                ? `共 ${rows.length} 条 · 筛选后 ${filteredRows.length} 条`
+                : `共 ${rows.length} 条`;
+        }
+        if (!filteredRows.length) {
+            host.innerHTML = empty(query ? '无匹配结果' : '暂无数据');
+            return;
+        }
+        const body = filteredRows.map(row => {
+            const active = row.is_active !== false;
+            const description = row.description || '-';
+            const actions = `<div class="flex flex-wrap gap-1 sm:justify-end">
+                <button data-wb-action="keyword-detail" data-resource="apl-keywords" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button>
+                ${state.aplKeywordCanWrite ? `<button data-wb-action="keyword-edit" data-resource="apl-keywords" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="apl-keywords" data-id="${idOf(row.id)}" class="simc-touch-action ${active ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}">${active ? '停用' : '恢复'}</button>` : ''}
+            </div>`;
+            return `<tr class="align-top transition-colors hover:bg-slate-50">
+                <td class="px-3 py-2.5"><span class="simc-table-cell-label">APL 关键词</span><code class="break-all rounded bg-slate-100 px-1.5 py-1 text-xs text-slate-800">${esc(row.apl_keyword)}</code></td>
+                <td class="px-3 py-2.5 text-slate-700"><span class="simc-table-cell-label">中文关键词</span><span>${esc(row.cn_keyword || '-')}</span></td>
+                <td class="max-w-0 px-3 py-2.5 text-slate-500"><span class="simc-table-cell-label">说明</span><span class="simc-apl-description block" title="${esc(description)}">${esc(description)}</span></td>
+                <td class="px-3 py-2.5"><span class="simc-table-cell-label">状态</span><span class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${active ? '启用' : '已停用'}</span></td>
+                <td class="px-3 py-1.5 text-right"><span class="simc-table-cell-label">操作</span>${actions}</td>
+            </tr>`;
+        }).join('');
+        host.innerHTML = `<div class="overflow-hidden rounded-xl border border-slate-200">
+            <table class="simc-responsive-table w-full table-fixed text-sm">
+                <colgroup><col class="w-[25%]"><col class="w-[18%]"><col class="w-[27%]"><col class="w-[12%]"><col class="w-[18%]"></colgroup>
+                <thead class="bg-slate-50 text-xs font-medium text-slate-500"><tr>
+                    <th class="border-b px-3 py-2.5 text-left">APL 关键词</th><th class="border-b px-3 py-2.5 text-left">中文关键词</th><th class="border-b px-3 py-2.5 text-left">说明</th><th class="border-b px-3 py-2.5 text-left">状态</th><th class="border-b px-3 py-2.5 text-right">操作</th>
+                </tr></thead>
+                <tbody class="divide-y divide-slate-100">${body}</tbody>
+            </table>
+        </div>`;
+    }
     async function loadApl(resource, hostId) {
         const host = document.getElementById(hostId);
         const request = beginResourceRequest('apl');
@@ -496,13 +543,14 @@
         state.rows[resource] = data.data || [];
         const canWrite = resource === 'apl-storage' || data.can_write === true;
         document.querySelector(`[data-inline-create="${resource}"]`)?.classList.toggle('hidden', !canWrite);
-        host.innerHTML = data.data.length ? data.data.map(row => {
-            if (resource === 'apl-storage') {
-                const active = row.is_active !== false;
-                return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div><b>${esc(row.title)}</b><div class="text-xs text-gray-500">${active ? '启用中' : '已停用'}</div></div><div class="flex flex-wrap gap-3">${active ? `<button data-apl-action="use" data-id="${idOf(row.id)}" class="text-emerald-700">用于模拟</button><button data-apl-action="edit" data-id="${idOf(row.id)}" class="text-blue-700">编辑</button><button data-apl-action="archive" data-id="${idOf(row.id)}" class="text-amber-700">停用</button>` : `<button data-apl-action="restore" data-id="${idOf(row.id)}" class="text-emerald-700">恢复</button>`}</div></article>`;
-            }
+        if (resource === 'apl-keywords') {
+            state.aplKeywordCanWrite = canWrite;
+            renderAplKeywordTable();
+            return;
+        }
+        host.innerHTML = state.rows[resource].length ? state.rows[resource].map(row => {
             const active = row.is_active !== false;
-            return `<article class="simc-responsive-row flex flex-wrap justify-between gap-3 border-b p-3"><div><b>${esc(row.apl_keyword)}</b><div class="text-xs text-gray-500">${esc(row.cn_keyword || '')} ${esc(row.description || '')}</div></div><div class="flex flex-wrap gap-2"><button data-wb-action="keyword-detail" data-resource="apl-keywords" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">查看</button>${canWrite ? `<button data-wb-action="keyword-edit" data-resource="apl-keywords" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">编辑</button><button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="apl-keywords" data-id="${idOf(row.id)}" class="simc-touch-action text-amber-700">${active ? '停用' : '恢复'}</button>` : ''}</div></article>`;
+            return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div><b>${esc(row.title)}</b><div class="text-xs text-gray-500">${active ? '启用中' : '已停用'}</div></div><div class="flex flex-wrap gap-3">${active ? `<button data-apl-action="use" data-id="${idOf(row.id)}" class="text-emerald-700">用于模拟</button><button data-apl-action="edit" data-id="${idOf(row.id)}" class="text-blue-700">编辑</button><button data-apl-action="archive" data-id="${idOf(row.id)}" class="text-amber-700">停用</button>` : `<button data-apl-action="restore" data-id="${idOf(row.id)}" class="text-emerald-700">恢复</button>`}</div></article>`;
         }).join('') : empty('暂无数据');
     }
     async function fetchAplStorageDetail(id) {
@@ -722,6 +770,12 @@
                 else if (target === 'apl-keywords') loadApl(target, 'simc-wb-apl-keyword-list');
                 else if (target === 'apl-storage') loadApl(target, 'simc-wb-apl-storage-list');
             }
+        });
+        document.addEventListener('input', event => {
+            const keywordSearch = event.target.closest('#simc-wb-apl-keyword-search');
+            if (!keywordSearch) return;
+            state.aplKeywordQuery = keywordSearch.value || '';
+            renderAplKeywordTable();
         });
         document.addEventListener('change', event => {
             const artifactFilter = event.target.closest('[data-artifact-filter]');

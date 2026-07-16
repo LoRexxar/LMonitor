@@ -143,6 +143,8 @@
         .simc-compact-panel { padding: .75rem; }
         .simc-touch-action { min-height: 36px; padding: .4rem .65rem; border-radius: .375rem; }
         .simc-step-title { font-size: .875rem; font-weight: 700; color: #1f2937; }
+        .simc-table-cell-label { display: none; }
+        .simc-apl-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         /* SimC Workbench Dialog */
         body.simc-dialog-open { overflow: hidden; }
@@ -164,12 +166,18 @@
             #simc-workbench .simc-responsive-table tr, #simc-workbench .simc-responsive-table td { display: block; width: 100%; }
             #simc-workbench .simc-responsive-table tr { padding: .5rem; border-bottom: 1px solid #e5e7eb; }
             #simc-workbench .simc-responsive-table td { padding: .25rem !important; text-align: left !important; max-width: none !important; }
+            #simc-workbench-apl-keywords-panel .simc-responsive-table tr { padding: .65rem; border: 1px solid #e5e7eb; border-radius: .75rem; margin-bottom: .625rem; background: #fff; }
+            #simc-workbench-apl-keywords-panel .simc-responsive-table td { display: grid; grid-template-columns: 5.75rem minmax(0, 1fr); gap: .5rem; align-items: start; padding: .3rem .25rem !important; max-width: none !important; }
+            #simc-workbench-apl-keywords-panel .simc-responsive-table td:last-child { margin-top: .25rem; padding-top: .5rem !important; border-top: 1px solid #f1f5f9; }
+            #simc-workbench-apl-keywords-panel .simc-table-cell-label { display: block; color: #64748b; font-size: .75rem; font-weight: 600; }
+            #simc-workbench-apl-keywords-panel .simc-responsive-table td > :last-child { min-width: 0; overflow-wrap: anywhere; }
+            #simc-workbench-apl-keywords-panel .simc-apl-description { white-space: normal; overflow-wrap: anywhere; }
             #simc-workbench .simc-pagination { justify-content: space-between; gap: .5rem; }
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260716c"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260716c"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260716d"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -1186,7 +1194,24 @@
                             </nav>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-backend-panel" data-simc-panel="backend"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">BackendBinary 实例安全状态</h3><p class="text-sm text-gray-500">普通用户只读；维护按钮仅按 API can_write 显示。</p></div><button data-simc-refresh="backend" class="rounded bg-slate-100 px-3 py-2">刷新</button></div><div id="simc-wb-backend-status" class="mt-4"></div><div id="simc-wb-backend-actions" class="mt-4"></div></div></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-apl-keywords-panel" data-simc-panel="apl-keywords">
-                            <section class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">APL 关键词（AplKeywordPair）</h3><p class="text-xs text-gray-500">系统转换规则；写权限由服务端 can_write 决定。</p></div><button data-inline-create="apl-keywords" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button></div><div id="simc-wb-apl-keyword-list" class="mt-4"></div></section>
+                            <section class="rounded-2xl border bg-white p-5">
+                                <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                    <div>
+                                        <h3 class="text-xl font-bold">APL 关键词（AplKeywordPair）</h3>
+                                        <p class="text-xs text-gray-500">系统转换规则；写权限由服务端 can_write 决定。</p>
+                                    </div>
+                                    <button data-inline-create="apl-keywords" class="hidden self-start rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button>
+                                </div>
+                                <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <label class="relative block w-full sm:max-w-sm">
+                                        <span class="sr-only">搜索 APL 关键词</span>
+                                        <i class="fas fa-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></i>
+                                        <input type="search" id="simc-wb-apl-keyword-search" aria-label="搜索 APL 关键词" autocomplete="off" placeholder="搜索 APL、中文关键词或说明" class="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                                    </label>
+                                    <p id="simc-wb-apl-keyword-summary" class="text-xs text-gray-500" aria-live="polite">共 0 条</p>
+                                </div>
+                                <div id="simc-wb-apl-keyword-list" class="mt-3"></div>
+                            </section>
                         </div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-rules-panel" data-simc-panel="rules">
                             <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
@@ -1299,6 +1324,7 @@
                         <!-- End L1 Panel: 高级设置 -->
                     </div>
                 </div>
+            </div>
 
             <!-- Tools内容区域 -->
             <div class="content-section" id="tools" style="display: none;">

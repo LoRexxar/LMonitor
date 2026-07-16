@@ -513,8 +513,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-inline-create="apl-keywords"', HTML)
         self.assertNotIn('id="simc-wb-apl-keyword-form"', HTML)
         self.assertIn("openDialog('keyword-form')", JS)
-        self.assertIn("'keyword-form': 'APL 关键词管理'", MAIN_JS)
-        self.assertIn("'keyword-detail': 'APL 关键词详情'", MAIN_JS)
+        self.assertIn("'keyword-form': 'APL 关键词管理'", MAIN)
+        self.assertIn("'keyword-detail': 'APL 关键词详情'", MAIN)
 
     def test_template_click_handlers_exist(self):
         """Template edit/archive/restore/detail handlers must exist."""
@@ -527,6 +527,24 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         """APL keyword edit/archive/restore/cancel handlers must exist."""
         self.assertIn('data-apl-keyword-action="cancel"', JS)
         self.assertIn('data-apl-keyword-action=', JS)
+
+    def test_apl_keyword_table_has_search_count_and_responsive_columns(self):
+        """Large keyword lists must be searchable and remain readable on desktop/mobile."""
+        keyword_panel = HTML[
+            HTML.index('id="simc-workbench-apl-keywords-panel"'):
+            HTML.index('id="simc-workbench-rules-panel"')
+        ]
+        self.assertIn('id="simc-wb-apl-keyword-search"', keyword_panel)
+        self.assertIn('id="simc-wb-apl-keyword-summary"', keyword_panel)
+        self.assertIn('aria-label="搜索 APL 关键词"', keyword_panel)
+        self.assertIn('function renderAplKeywordTable(', JS)
+        self.assertIn("row.apl_keyword, row.cn_keyword, row.description", JS)
+        self.assertIn("closest('#simc-wb-apl-keyword-search')", JS)
+        self.assertIn('class="simc-responsive-table', JS)
+        for heading in ('APL 关键词', '中文关键词', '说明', '状态', '操作'):
+            self.assertIn(heading, JS)
+        self.assertIn('筛选后', JS)
+        self.assertIn('无匹配结果', JS)
 
     def test_template_submit_handler_exists(self):
         """Template form submission must be handled."""
