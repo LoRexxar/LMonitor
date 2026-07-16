@@ -166,6 +166,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('simc-compact-panel', advanced)
         for resource in ("backend", "secondary-rules", "mastery-rules", "apl-keywords"):
             self.assertIn(f'data-simc-model="{resource}"', advanced)
+        self.assertEqual(advanced.count('data-rule-subtab="secondary-rules"'), 1)
+        self.assertEqual(advanced.count('data-rule-subtab="mastery-rules"'), 1)
+        self.assertNotIn('aria-label="规则类型"', advanced)
         self.assertIn('updateSimcAdvancedEntryState(activeL1Tab, activeChildPanel, activeRuleSubtab)', MAIN)
 
     def test_workflow_is_default_l1_with_history_and_advanced(self):
