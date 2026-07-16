@@ -144,49 +144,6 @@
         .simc-touch-action { min-height: 36px; padding: .4rem .65rem; border-radius: .375rem; }
         .simc-step-title { font-size: .875rem; font-weight: 700; color: #1f2937; }
 
-        .simc-model-tabs {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: .375rem;
-            width: 100%;
-            padding: .375rem;
-            border: 1px solid #e2e8f0;
-            border-radius: .875rem;
-            background: #f1f5f9;
-        }
-        .simc-model-tabs .simc-model-entry {
-            display: flex;
-            min-width: 0;
-            min-height: 46px;
-            align-items: center;
-            justify-content: center;
-            gap: .5rem;
-            padding: .625rem .75rem;
-            border: 1px solid #e2e8f0;
-            border-radius: .625rem;
-            background: rgba(255, 255, 255, .82);
-            color: #475569;
-            box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
-            font-size: .875rem;
-            font-weight: 650;
-            line-height: 1.2;
-            white-space: nowrap;
-            transition: background-color .16s ease, color .16s ease, box-shadow .16s ease, transform .16s ease;
-        }
-        .simc-model-tabs .simc-model-entry:hover {
-            background: rgba(255, 255, 255, .82);
-            color: #1d4ed8;
-        }
-        .simc-model-tabs .simc-model-entry[aria-current="page"] {
-            border-color: #2563eb;
-            background: #2563eb;
-            color: #fff;
-            box-shadow: 0 5px 12px rgba(37, 99, 235, .22);
-            transform: translateY(-1px);
-        }
-        .simc-model-tabs .simc-model-entry[aria-current="page"]:hover { background: #1d4ed8; color: #fff; }
-        .simc-model-tabs .simc-model-entry i { width: 1rem; flex: 0 0 1rem; text-align: center; }
-
         /* SimC Workbench Dialog */
         body.simc-dialog-open { overflow: hidden; }
         .simc-workbench-dialog__panel { max-width: 4xl; }
@@ -197,8 +154,6 @@
 
         @media (max-width: 640px) {
             #simc-workbench { padding: .5rem !important; overflow-x: hidden; }
-            #simc-workbench .simc-model-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            #simc-workbench .simc-model-entry { white-space: normal; }
             #simc-workbench .simc-compact-panel { padding: .625rem; }
             #simc-workbench .simc-title-actions { align-items: flex-start; flex-direction: column; }
             #simc-workbench .simc-form-grid { grid-template-columns: minmax(0, 1fr) !important; }
@@ -1224,11 +1179,11 @@
 
                         <!-- L1 Panel: 高级设置 -->
                         <div class="simc-l1-panel hidden" id="simc-l1-advanced-panel" data-simc-l1-panel="advanced">
-                            <nav class="simc-model-tabs mb-4" aria-label="SimC 系统模型入口">
-                                <button type="button" data-simc-model="backend" data-simc-tab="backend" class="simc-model-entry" aria-current="page"><i class="fas fa-server" aria-hidden="true"></i><span>执行后端</span></button>
-                                <button type="button" data-simc-model="secondary-rules" data-simc-tab="rules" data-rule-subtab="secondary-rules" class="simc-model-entry" aria-current="false"><i class="fas fa-sliders-h" aria-hidden="true"></i><span>次级属性换算</span></button>
-                                <button type="button" data-simc-model="mastery-rules" data-simc-tab="rules" data-rule-subtab="mastery-rules" class="simc-model-entry" aria-current="false"><i class="fas fa-chart-line" aria-hidden="true"></i><span>精通系数</span></button>
-                                <button type="button" data-simc-model="apl-keywords" data-simc-tab="apl-keywords" class="simc-model-entry" aria-current="false"><i class="fas fa-code" aria-hidden="true"></i><span>APL 关键词</span></button>
+                            <nav class="mb-4 flex flex-wrap gap-2" aria-label="SimC 系统模型入口">
+                                <button type="button" data-simc-model="backend" data-simc-tab="backend" class="simc-model-entry rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">执行后端</button>
+                                <button type="button" data-simc-model="secondary-rules" data-simc-tab="rules" data-rule-subtab="secondary-rules" class="simc-model-entry rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">次级属性换算</button>
+                                <button type="button" data-simc-model="mastery-rules" data-simc-tab="rules" data-rule-subtab="mastery-rules" class="simc-model-entry rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">精通系数</button>
+                                <button type="button" data-simc-model="apl-keywords" data-simc-tab="apl-keywords" class="simc-model-entry rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">APL 关键词</button>
                             </nav>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-backend-panel" data-simc-panel="backend"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">BackendBinary 实例安全状态</h3><p class="text-sm text-gray-500">普通用户只读；维护按钮仅按 API can_write 显示。</p></div><button data-simc-refresh="backend" class="rounded bg-slate-100 px-3 py-2">刷新</button></div><div id="simc-wb-backend-status" class="mt-4"></div><div id="simc-wb-backend-actions" class="mt-4"></div></div></div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-apl-keywords-panel" data-simc-panel="apl-keywords">

@@ -162,10 +162,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         advanced_start = HTML.index('data-simc-l1-panel="advanced"')
         advanced_end = HTML.index('<!-- End L1 Panel: 高级设置 -->')
         advanced = HTML[advanced_start:advanced_end]
-        self.assertIn('<nav class="simc-model-tabs mb-4" aria-label="SimC 系统模型入口">', advanced)
-        self.assertIn('grid-template-columns: repeat(4, minmax(0, 1fr));', HTML)
-        self.assertIn('.simc-model-entry[aria-current="page"]', HTML)
-        self.assertIn('@media (max-width: 640px)', HTML)
+        self.assertIn('<nav class="mb-4 flex flex-wrap gap-2" aria-label="SimC 系统模型入口">', advanced)
         self.assertNotIn('simc-compact-panel', advanced)
         for resource in ("backend", "secondary-rules", "mastery-rules", "apl-keywords"):
             self.assertIn(f'data-simc-model="{resource}"', advanced)
