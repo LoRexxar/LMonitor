@@ -45,33 +45,50 @@ def parse_simc_html_report(html_content):
                     if heading_dps:
                         document["dps"] = int(heading_dps.group(1).replace(",", ""))
 
+            # Current SimC reports keep heavy player details as escaped HTML in
+            # .toggle-content, then expand it with JavaScript in the browser.
+            # Parse that fragment separately without touching the source file.
+            player_detail = player
+            toggle_content = player.select_one(":scope > .toggle-content")
+            if toggle_content:
+                fragment_text = toggle_content.get_text("", strip=False)
+                if "<" in fragment_text and ">" in fragment_text:
+                    player_detail = BeautifulSoup(fragment_text, "html.parser")
+
             character_fields = {
                 "Race:": "race", "Class:": "class", "Spec:": "spec", "Level:": "level",
             }
-            for item in player.select(".params li"):
+            for item in player_detail.select(".params li"):
                 text = item.get_text(" ", strip=True)
                 for prefix, key in character_fields.items():
                     if prefix in text:
                         document["character"][key] = text.split(":", 1)[1].strip()[:200]
                         break
 
-            talent_row = player.select_one("tr.left td")
-            if talent_row:
-                talent_string = talent_row.get_text(" ", strip=True)
-                if talent_string:
-                    document["talents"]["string"] = talent_string[:2000]
+            for row in player_detail.select("table.spec tr"):
+                cells = row.find_all(["th", "td"], recursive=False)
+                if len(cells) < 2:
+                    continue
+                label = cells[0].get_text(" ", strip=True)
+                value = cells[1].get_text(" ", strip=True)
+                if label == "Talent" and value:
+                    document["talents"]["string"] = value[:2000]
+                elif label == "Set Bonus" and value:
+                    document["talents"]["set_bonuses"] = [
+                        part.strip()[:500] for part in value.splitlines() if part.strip()
+                    ][:20]
             set_bonuses = [
                 item.get_text(" ", strip=True)[:500]
-                for item in player.select("tr.left.nowrap td li")
+                for item in player_detail.select("tr.left.nowrap td li")
                 if item.get_text(strip=True)
             ]
             if set_bonuses:
                 document["talents"]["set_bonuses"] = set_bonuses[:20]
 
-            abilities_table = player.select_one("table.sc.sort") or soup.select_one("table.sc.sort")
+            abilities_table = player_detail.select_one("table.sc.sort") or soup.select_one("table.sc.sort")
             abilities = []
             if abilities_table:
-                for row in abilities_table.select("tbody tr.toprow:not(.childrow)"):
+                for row in abilities_table.select("tr.toprow:not(.childrow)"):
                     cells = row.find_all("td", recursive=False)
                     if len(cells) < 3:
                         cells = row.find_all("td")
