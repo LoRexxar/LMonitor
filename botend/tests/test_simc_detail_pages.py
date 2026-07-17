@@ -51,8 +51,12 @@ class SimcDetailPageFrontendContractTests(TestCase):
         script = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')
         self.assertIn('simc-detail.js', template)
         self.assertIn('@media (max-width: 720px)', template)
-        for token in ('角色', 'DPS', '模拟参数', '主要技能', '天赋与套装', '执行轮次', 'Artifact', '引用版本'):
+        for token in ('角色', 'DPS', '模拟参数', '主要技能构成', '天赋与套装', '执行轮次', 'Artifact', '引用版本'):
             self.assertIn(token, script)
+        for token in ('primary-link', 'share-track', 'talent-code', 'status-dot'):
+            self.assertIn(token, template)
+        self.assertIn('查看完整原生报告', script)
+        self.assertIn('percentNumber(item.dps_percent)', script)
         self.assertIn('report.talents', script)
         self.assertIn('simulation.timestamp', script)
         self.assertIn('/api/simc-workbench/${kind}/${objectId}/', script)
