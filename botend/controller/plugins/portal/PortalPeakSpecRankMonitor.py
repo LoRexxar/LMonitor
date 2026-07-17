@@ -1,6 +1,9 @@
+import re
 import time
 
 import requests
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from botend.controller.BaseScan import BaseScan
 from botend.models import PortalPeakSpecRankRow
@@ -45,10 +48,25 @@ class PortalPeakSpecRankMonitor(BaseScan):
                 return "season-mn-1"
             payload = resp.json() or {}
             seasons = payload.get("seasons") or []
-            if seasons:
-                slug = (seasons[0].get("slug") or "").strip()
-                if slug:
-                    return slug
+            now = timezone.now()
+            current = []
+            started = []
+            for season in seasons:
+                slug = (season.get("slug") or "").strip()
+                starts = parse_datetime(((season.get("starts") or {}).get("us") or "").strip())
+                ends = parse_datetime(((season.get("ends") or {}).get("us") or "").strip())
+                if starts and timezone.is_naive(starts):
+                    starts = timezone.make_aware(starts, timezone.utc)
+                if ends and timezone.is_naive(ends):
+                    ends = timezone.make_aware(ends, timezone.utc)
+                if not re.fullmatch(r'season-[a-z0-9]+-\d+', slug) or not starts or starts > now:
+                    continue
+                started.append((starts, slug))
+                if not ends or now < ends:
+                    current.append((starts, slug))
+            candidates = current or started
+            if candidates:
+                return max(candidates)[1]
         except Exception:
             return "season-mn-1"
         return "season-mn-1"
@@ -125,7 +143,8 @@ class PortalPeakSpecRankMonitor(BaseScan):
             time.sleep(0.2)
 
         if not top_rows:
-            return True
+            logger.warning(f"[PortalPeakSpecRankMonitor] empty rankings: {class_slug}/{spec_slug} season={season}")
+            return False
 
         if len(top_rows) < 3:
             logger.warning(f"[PortalPeakSpecRankMonitor] not enough rows: {class_slug}/{spec_slug} rows={len(top_rows)}")

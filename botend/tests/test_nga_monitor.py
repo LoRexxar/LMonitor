@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
@@ -16,7 +16,59 @@ NGA_GB18030_HTML = """
 """.encode("gb18030")
 
 
-class NgaMonitorRequestTests(TestCase):
+class NgaMonitorTests(TestCase):
+    @patch('botend.controller.plugins.wow.ngaMonitor.upsert_system_alert')
+    @patch('botend.controller.plugins.wow.ngaMonitor.TargetAuth.objects.filter')
+    def test_scan_tries_both_nga_domains_and_accepts_first_topic_page(self, auth_filter, alert):
+        auth_filter.return_value.first.return_value = None
+        req = Mock()
+        forbidden = Mock(status_code=403, content=b'forbidden')
+        success = Mock(status_code=200, content=NGA_GB18030_HTML)
+        req.get.side_effect = [forbidden, success, success]
+        monitor = ngaMonitor(req, Mock(flag=''))
+        monitor.resolve_data = Mock()
+
+        self.assertTrue(monitor.scan(''))
+
+        self.assertEqual(req.get.call_count, 3)
+        self.assertIn('nga.178.com', req.get.call_args_list[0].args[0])
+        self.assertIn('bbs.nga.cn', req.get.call_args_list[1].args[0])
+        self.assertEqual(monitor.resolve_data.call_count, 2)
+        monitor.resolve_data.assert_any_call(NGA_GB18030_HTML, '前瞻区', 10)
+        alert.assert_not_called()
+
+    @patch('botend.controller.plugins.wow.ngaMonitor.upsert_system_alert')
+    @patch('botend.controller.plugins.wow.ngaMonitor.TargetAuth.objects.filter')
+    def test_scan_returns_false_and_reports_cookie_alert_when_both_domains_forbidden(self, auth_filter, alert):
+        auth_filter.return_value.first.return_value = None
+        req = Mock()
+        req.get.return_value = Mock(status_code=403, content=b'forbidden')
+        monitor = ngaMonitor(req, Mock(flag=''))
+        monitor.target_list = {'前瞻区': monitor.target_list['前瞻区']}
+
+        self.assertFalse(monitor.scan(''))
+        self.assertEqual(req.get.call_count, 2)
+        alert.assert_called_once_with(
+            category='NGA_COOKIE_REQUIRED',
+            subject='前瞻区',
+            level=3,
+            title='NGA 前瞻区抓取失败',
+            content='认证失败（HTTP 403），请更新 TargetAuth 的 NGA 登录 Cookie',
+        )
+
+    @patch('botend.controller.plugins.wow.ngaMonitor.upsert_system_alert')
+    @patch('botend.controller.plugins.wow.ngaMonitor.TargetAuth.objects.filter')
+    def test_scan_reports_response_change_for_200_without_topicrows(self, auth_filter, alert):
+        auth_filter.return_value.first.return_value = None
+        req = Mock()
+        req.get.return_value = Mock(status_code=200, content=b'<html>challenge</html>')
+        monitor = ngaMonitor(req, Mock(flag=''))
+        monitor.target_list = {'前瞻区': monitor.target_list['前瞻区']}
+
+        self.assertFalse(monitor.scan(''))
+        alert.assert_called_once()
+        self.assertEqual(alert.call_args.kwargs['category'], 'NGA_RESPONSE_CHANGED')
+
     def test_scan_uses_saved_nga_cookie_for_forum_requests(self):
         TargetAuth.objects.create(
             domain="nga.178.com",
@@ -24,7 +76,7 @@ class NgaMonitorRequestTests(TestCase):
             is_login=True,
         )
         req = Mock()
-        req.get.return_value = b'<div id="topicrows"></div>'
+        req.get.return_value = Mock(status_code=200, content=b'<div id="topicrows"></div>')
         task = Mock()
         monitor = ngaMonitor(req, task)
 
@@ -32,7 +84,7 @@ class NgaMonitorRequestTests(TestCase):
 
         self.assertEqual(req.get.call_count, 2)
         for call in req.get.call_args_list:
-            self.assertEqual(call.args[1:3], ("Resp", 0))
+            self.assertEqual(call.args[1:3], ("Response", 0))
             self.assertEqual(call.args[3], "ngaPassportUid=123; ngaPassportCid=token")
 
     def test_resolve_data_decodes_nga_gb18030_html(self):

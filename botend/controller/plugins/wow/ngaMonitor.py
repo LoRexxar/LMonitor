@@ -16,6 +16,7 @@ from botend.controller.BaseScan import BaseScan
 from botend.interface.xxxbot import xxxbotInterface
 
 from botend.models import TargetAuth, WowArticle
+from botend.alerting import upsert_system_alert
 
 
 class ngaMonitor(BaseScan):
@@ -49,16 +50,51 @@ class ngaMonitor(BaseScan):
         :param url:
         :return:
         """
-        auth = TargetAuth.objects.filter(domain="nga.178.com", is_login=True).first()
-        cookies = auth.cookie if auth and auth.cookie else ""
-
+        all_success = True
         for title in self.target_list:
-            url = self.target_list[title]["url"]
-            html = self.req.get(url, 'Resp', 0, cookies)
-            # 处理返回内容
+            primary_url = self.target_list[title]["url"]
+            urls = [primary_url]
+            if "nga.178.com" in primary_url:
+                urls.append(primary_url.replace("nga.178.com", "bbs.nga.cn"))
+            html = None
+            last_status = None
+            for candidate_url in urls:
+                domain = "bbs.nga.cn" if "bbs.nga.cn" in candidate_url else "nga.178.com"
+                auth = TargetAuth.objects.filter(domain=domain, is_login=True).first()
+                if not auth and domain == "bbs.nga.cn":
+                    auth = TargetAuth.objects.filter(domain="nga.178.com", is_login=True).first()
+                cookies = auth.cookie if auth and auth.cookie else ""
+                response = self.req.get(candidate_url, 'Response', 0, cookies)
+                last_status = getattr(response, 'status_code', None)
+                content = getattr(response, 'content', b'') if response else b''
+                if last_status == 200 and content and b'topicrows' in content:
+                    html = content
+                    break
+            if not html:
+                all_success = False
+                if last_status in (401, 403):
+                    category = 'NGA_COOKIE_REQUIRED'
+                    reason = f'认证失败（HTTP {last_status}），请更新 TargetAuth 的 NGA 登录 Cookie'
+                elif last_status == 429:
+                    category = 'NGA_RATE_LIMITED'
+                    reason = 'NGA 请求被限流（HTTP 429）'
+                elif last_status == 200:
+                    category = 'NGA_RESPONSE_CHANGED'
+                    reason = 'NGA 返回页面中未找到 topicrows，可能是页面结构或反爬响应变化'
+                else:
+                    category = 'NGA_UPSTREAM_ERROR'
+                    reason = f'NGA 请求失败（HTTP {last_status or "无响应"}）'
+                upsert_system_alert(
+                    category=category,
+                    subject=title,
+                    level=3,
+                    title=f'NGA {title}抓取失败',
+                    content=reason,
+                )
+                continue
             self.resolve_data(html, title, self.target_list[title]["limit"])
 
-        return True
+        return all_success
 
     def resolve_data(self, html, title="", limit=10):
 
