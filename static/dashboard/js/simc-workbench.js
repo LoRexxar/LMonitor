@@ -254,7 +254,12 @@
             : (resource === 'tasks' && row.has_report === true && row.report_preview_url === `${resourceUrl('tasks', id)}report-preview/`
                 ? `<div class="mt-4"><h5 class="font-semibold mb-2">历史模拟报告</h5>${window.renderSimcArtifactFrame(row.report_preview_url, 'SimC 历史报告')}</div>`
                 : '');
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">${resource === 'batches' ? '批次详情' : '任务详情'}：${esc(row.name || `#${id}`)}</h4><button class="simc-touch-action" data-wb-close-detail>关闭</button></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-4"><div>状态：${esc(status)}</div><div>类型：${esc(row.task_type || row.batch_type)}</div><div>DPS：${esc(dps)}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${memberList}${artifactList}${reportFrame}`;
+            const modeParams = row.mode_params || {};
+            const simulationParams = row.simulation_params || {};
+            const editable = resource === 'tasks' && row.profile_id && row.template_id && row.apl_id && row.profile_version_id && row.template_version_id && row.apl_version_id;
+            const rerunButton = editable ? `<button data-task-rerun="${idOf(row.id)}" class="simc-touch-action rounded-lg border px-3 py-2 text-blue-700">编辑后重跑</button>` : '';
+            const componentSummary = editable ? `<div class="mt-4 rounded-lg border bg-gray-50 p-3 text-sm"><h5 class="font-semibold">任务组件引用</h5><div class="mt-2 grid gap-1 md:grid-cols-3"><span>Profile #${esc(row.profile_id)} · v${esc(row.profile_version_id)}</span><span>模板 #${esc(row.template_id)} · v${esc(row.template_version_id)}</span><span>APL #${esc(row.apl_id)} · v${esc(row.apl_version_id)}</span></div><pre class="mt-2 overflow-auto text-xs">${esc(JSON.stringify({simulation_params: simulationParams, mode_params: modeParams}, null, 2))}</pre></div>` : '';
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">${resource === 'batches' ? '批次详情' : '任务详情'}：${esc(row.name || `#${id}`)}</h4><div class="flex gap-2">${rerunButton}<button class="simc-touch-action" data-wb-close-detail>关闭</button></div></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-4"><div>状态：${esc(status)}</div><div>类型：${esc(row.task_type || row.batch_type)}</div><div>DPS：${esc(dps)}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${componentSummary}${memberList}${artifactList}${reportFrame}`;
     }
     async function showBatchComparison(id) {
         window.openSimcWorkbenchDialog('batch-detail', null);
@@ -280,6 +285,27 @@
             return `<tr class="border-t"><td class="p-2">${esc(row.rank || '-')}</td><td class="p-2">${esc(row.label || row.name)}</td><td class="p-2 text-right">${esc(dps)}</td><td class="p-2 text-right">${esc(delta)}</td><td class="p-2 text-right">${esc(percent)}</td></tr>`;
         }).join('');
         host.innerHTML = `<div class="flex justify-between gap-3"><div><h4 class="font-bold">结果比较</h4><p class="text-xs text-gray-500">仅展示已解析的安全结果摘要</p></div><button data-wb-close-detail>关闭</button></div><div class="mt-3 overflow-x-auto"><table class="w-full min-w-[560px] text-sm"><thead><tr class="text-left text-gray-500"><th class="p-2">排名</th><th class="p-2">方案</th><th class="p-2 text-right">DPS</th><th class="p-2 text-right">差值</th><th class="p-2 text-right">差值%</th></tr></thead><tbody>${tableRows || `<tr><td colspan="5" class="p-5 text-center text-gray-500">无有效成员结果</td></tr>`}</tbody></table></div>`;
+    }
+    function renderTaskRerunForm(taskId) {
+        pushDialogState();
+        window.openSimcWorkbenchDialog('task-rerun', null);
+        const host = document.getElementById('simc-dialog-body');
+        if (!host) return;
+        host.innerHTML = `<form data-task-rerun-form data-task-id="${idOf(taskId)}" class="space-y-4"><div><h4 class="font-bold">编辑后重跑</h4><p class="mt-1 text-sm text-gray-500">将创建新的引用型任务，原任务和结果保持不变。</p></div><label class="block text-sm font-medium text-gray-700">迭代次数（留空保持原值）<input name="iterations" type="number" min="1" class="mt-1 w-full rounded-lg border px-3 py-2" placeholder="保持原值"></label><div class="flex gap-2"><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-white">创建重跑任务</button><button type="button" data-task-rerun-cancel class="rounded-lg border bg-white px-4 py-2">取消</button></div></form>`;
+    }
+    async function submitTaskRerun(form) {
+        const taskId = idOf(form.dataset.taskId);
+        const iterations = Number.parseInt(String(new FormData(form).get('iterations') || ''), 10);
+        const body = { id: taskId, action: 'rerun' };
+        if (Number.isFinite(iterations) && iterations > 0) body.simulation_params = { iterations };
+        const result = await json('/api/simc-task/', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+            body: JSON.stringify(body),
+        });
+        window.showMessage(result.message || '已创建新的引用型任务', 'success');
+        state.dialogStack = [];
+        await showTaskDetail('tasks', idOf(result.data?.id));
     }
     async function loadArtifacts(page = state.artifactPage) {
         const host = document.getElementById('simc-wb-artifact-list');
@@ -872,7 +898,7 @@
     document.addEventListener('DOMContentLoaded', () => {
         const root = document.getElementById('simc-workbench');
         if (!root) return;
-        document.addEventListener('click', event => {
+        document.addEventListener('click', async event => {
             const aplCreate = event.target.closest('[data-inline-create="apl-storage"]');
             if (aplCreate) renderAplStorageForm();
             const templateCreate = event.target.closest('[data-inline-create="templates"]');
@@ -1000,6 +1026,15 @@
             }
             const type = event.target.closest('[data-template-type]');
             if (type) { state.templateType = type.dataset.templateType || ''; loadTemplates().catch(notify); }
+            const rerunAction = event.target.closest('[data-task-rerun]');
+            if (rerunAction) {
+                renderTaskRerunForm(rerunAction.dataset.taskRerun);
+                return;
+            }
+            if (event.target.closest('[data-task-rerun-cancel]')) {
+                if (!restoreDialogState()) closeDialog();
+                return;
+            }
             const action = event.target.closest('[data-wb-action]');
             if (action) {
                 const id = idOf(action.dataset.id), resource = action.dataset.resource, name = action.dataset.wbAction;
@@ -1087,6 +1122,12 @@
             if (converterMode) state.converterMode = converterMode.value;
         });
         document.addEventListener('submit', event => {
+            const taskRerunForm = event.target.closest('[data-task-rerun-form]');
+            if (taskRerunForm) {
+                event.preventDefault();
+                submitTaskRerun(taskRerunForm).catch(notify);
+                return;
+            }
             const aplStorageForm = event.target.closest('[data-apl-storage-form]');
             if (aplStorageForm) {
                 event.preventDefault();

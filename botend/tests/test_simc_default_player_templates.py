@@ -8,7 +8,7 @@ from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import Client, TestCase
 
-from botend.models import SimcContentTemplate, SimcProfile, SimcTask
+from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask
 
 
 DEFAULT_GEAR = '''head=,id=212048,ilevel=639
@@ -34,7 +34,12 @@ spec=fury
 talents=UPSTREAM_BUILD
 flask=flask_of_alchemical_chaos
 ''' + DEFAULT_GEAR + '\n'
-EXPLICIT_PLAYER = DEFAULT_PLAYER.replace('Upstream Fury', 'Explicit').replace('id=212048', 'id=299001')
+
+BASE_TEMPLATE = (
+    '{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n'
+    '{stat_overrides}\n{action_list}\n{output_options}'
+)
+APL_CONTENT = 'actions=/auto_attack\nactions+=/bloodthirst'
 
 
 class ImportSimcPlayerTemplatesTests(TestCase):
@@ -74,8 +79,7 @@ class ImportSimcPlayerTemplatesTests(TestCase):
 
     def test_rejects_profile_whose_actor_or_spec_does_not_match_filename(self):
         with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp)
-            source.joinpath('MID1_Warrior_Fury.simc').write_text(
+            Path(tmp, 'MID1_Warrior_Fury.simc').write_text(
                 DEFAULT_PLAYER.replace('warrior=', 'mage=').replace('spec=fury', 'spec=fire'),
                 encoding='utf-8',
             )
@@ -105,13 +109,30 @@ class ImportSimcPlayerTemplatesTests(TestCase):
                 self.assertFalse(SimcContentTemplate.objects.exists())
 
 
-class DefaultPlayerTemplateAPITests(TestCase):
+class DefaultPlayerReferenceContractTests(TestCase):
+    """Default-player imports remain source material; Tasks only use explicit resources."""
+
     def setUp(self):
         self.user = User.objects.create_user(username='default_player_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
+        self.default_player = self.add_default_player()
+        # Edited temporary text is persisted as selectable resources before Task creation.
+        self.template = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            owner_user_id=self.user.id,
+            spec='warrior_fury', name='Saved base template', content=BASE_TEMPLATE,
+            is_active=True, is_selectable=True,
+        )
+        self.apl = SimcApl.objects.create(
+            source=SimcApl.SOURCE_USER,
+            owner_user_id=self.user.id,
+            spec='warrior_fury', name='Saved APL', content=APL_CONTENT,
+            is_active=True, is_selectable=True,
+        )
 
-    def add_template(self, content=DEFAULT_PLAYER):
+    def add_default_player(self, content=DEFAULT_PLAYER):
         return SimcContentTemplate.objects.create(
             template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
@@ -121,70 +142,89 @@ class DefaultPlayerTemplateAPITests(TestCase):
 
     def task_payload(self, **overrides):
         payload = {
-            'name': 'Fury default baseline', 'task_type': 1, 'spec': 'fury',
-            'player_config_mode': 'attribute_only', 'talent': 'USER_BUILD',
-            'base_template_content': '{simulation_options}\n{player_config}\n{action_list}\n{output_options}',
-            'gear_strength': 5000, 'gear_crit': 1000, 'gear_haste': 2000,
-            'gear_mastery': 3000, 'gear_versatility': 4000,
+            'name': 'Fury reference task',
+            'profile_name': 'Fury explicit profile',
+            'task_type': 1,
+            'spec': 'warrior_fury',
+            'player_config_mode': 'manual_equipment',
+            'player_equipment': DEFAULT_PLAYER,
+            'talent': 'USER_BUILD',
+            'base_template_id': self.template.id,
+            'selected_apl_id': self.apl.id,
         }
         payload.update(overrides)
         return payload
 
-    def test_profile_save_freezes_default_player_template(self):
-        self.add_template()
-        response = self.client.post('/api/simc-profile/', data=json.dumps({
-            **self.task_payload(), 'name': 'saved default',
-        }), content_type='application/json')
+    def test_task_references_saved_resources_and_immutable_versions(self):
+        response = self.client.post(
+            '/api/simc-task/', data=json.dumps(self.task_payload()), content_type='application/json'
+        )
         self.assertTrue(response.json()['success'], response.json())
-        profile = SimcProfile.objects.get(id=response.json()['data']['id'])
-        self.assertEqual(profile.player_equipment, DEFAULT_PLAYER.strip())
 
-    def test_regular_task_freezes_default_and_template_update_does_not_change_task(self):
-        template = self.add_template()
-        response = self.client.post('/api/simc-task/', data=json.dumps(self.task_payload()), content_type='application/json')
+        task = SimcTask.objects.select_related(
+            'profile_version', 'template_version', 'apl_version'
+        ).get(id=response.json()['data']['id'])
+        self.assertEqual(task.profile.name, 'Fury explicit profile')
+        self.assertEqual(task.template_id, self.template.id)
+        self.assertEqual(task.apl_id, self.apl.id)
+        self.assertEqual(task.profile_version.resource_id, task.profile_id)
+        self.assertEqual(task.template_version.resource_id, self.template.id)
+        self.assertEqual(task.apl_version.resource_id, self.apl.id)
+        self.assertEqual(task.profile_version.payload['player_equipment'].strip(), DEFAULT_PLAYER.strip())
+        self.assertEqual(task.template_version.payload['content'], BASE_TEMPLATE)
+        self.assertEqual(task.apl_version.payload['content'], APL_CONTENT)
+        self.assertNotIn('player_equipment', json.loads(task.ext or '{}'))
+        self.assertNotIn('base_template_content', json.loads(task.ext or '{}'))
+        self.assertNotIn('override_action_list', json.loads(task.ext or '{}'))
+
+    def test_default_player_is_not_implicitly_selected_for_task(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps(self.task_payload(player_equipment='')),
+            content_type='application/json',
+        )
         self.assertTrue(response.json()['success'], response.json())
-        task = SimcTask.objects.get(id=response.json()['data']['id'])
-        frozen = json.loads(task.ext)['player_equipment']
-        template.content = DEFAULT_PLAYER.replace('id=212048', 'id=999999')
-        template.save(update_fields=['content'])
-        task.refresh_from_db()
-        self.assertEqual(json.loads(task.ext)['player_equipment'], frozen)
-        self.assertIn('id=212048', frozen)
+        task = SimcTask.objects.select_related('profile_version').get(id=response.json()['data']['id'])
+        self.assertEqual(task.profile_version.payload['player_equipment'], '')
+        self.assertNotIn('Upstream Fury', json.dumps(task.profile_version.payload))
 
-    def test_explicit_player_baseline_has_priority(self):
-        self.add_template()
-        response = self.client.post('/api/simc-task/', data=json.dumps(
-            self.task_payload(player_equipment=EXPLICIT_PLAYER)
-        ), content_type='application/json')
-        self.assertTrue(response.json()['success'], response.json())
-        ext = json.loads(SimcTask.objects.get(id=response.json()['data']['id']).ext)
-        self.assertIn('warrior="Explicit"', ext['player_equipment'])
-        self.assertIn('id=299001', ext['player_equipment'])
-
-    def test_missing_default_template_returns_clear_error(self):
-        response = self.client.post('/api/simc-task/', data=json.dumps(self.task_payload()), content_type='application/json')
-        self.assertFalse(response.json()['success'])
-        self.assertIn('默认玩家装备模板', response.json()['error'])
+    def test_task_rejects_temporary_template_and_apl_bodies(self):
+        for field, value, error_fragment in (
+            ('base_template_content', BASE_TEMPLATE, 'base_template_content'),
+            ('override_action_list', APL_CONTENT, 'override_action_list'),
+        ):
+            with self.subTest(field=field):
+                response = self.client.post(
+                    '/api/simc-task/',
+                    data=json.dumps(self.task_payload(**{field: value})),
+                    content_type='application/json',
+                )
+                self.assertFalse(response.json()['success'])
+                self.assertIn(error_fragment, response.json()['error'])
         self.assertFalse(SimcTask.objects.exists())
 
+    def test_new_profile_requires_explicit_profile_name(self):
+        payload = self.task_payload()
+        payload.pop('profile_name')
+        response = self.client.post(
+            '/api/simc-task/', data=json.dumps(payload), content_type='application/json'
+        )
+        self.assertFalse(response.json()['success'])
+        self.assertIn('profile_name', response.json()['error'])
+        self.assertFalse(SimcTask.objects.exists())
+        self.assertFalse(SimcProfile.objects.filter(user_id=self.user.id).exists())
+
     def test_duplicate_active_default_templates_are_rejected_by_unique_constraint(self):
-        self.add_template()
         with self.assertRaises(IntegrityError), transaction.atomic():
-            self.add_template()
-        self.assertEqual(SimcContentTemplate.objects.count(), 1)
+            self.add_default_player()
+        self.assertEqual(
+            SimcContentTemplate.objects.filter(
+                template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER
+            ).count(),
+            1,
+        )
 
-    def test_attribute_batch_freezes_default_into_every_task(self):
-        self.add_template()
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
-            **self.task_payload(), 'kind': 'attribute_variants', 'attribute_step': 50,
-        }), content_type='application/json')
-        self.assertTrue(response.json()['success'], response.json())
-        task_ids = response.json()['data']['task_ids']
-        frozen = {json.loads(row.ext)['player_equipment'] for row in SimcTask.objects.filter(id__in=task_ids)}
-        self.assertEqual(frozen, {DEFAULT_PLAYER.strip()})
-
-    def test_empty_attribute_detail_uses_default_without_returning_raw_template_field(self):
-        self.add_template()
+    def test_attribute_detail_can_read_default_without_returning_raw_template_field(self):
         response = self.client.post('/api/simc-player-config-detail/', data=json.dumps({
             'spec': 'fury', 'player_config_mode': 'attribute_only', 'talent': 'USER_BUILD',
             'gear_crit': 1000, 'gear_haste': 2000, 'gear_mastery': 3000, 'gear_versatility': 4000,
@@ -194,19 +234,3 @@ class DefaultPlayerTemplateAPITests(TestCase):
         self.assertEqual(payload['data']['identity']['name'], 'Upstream Fury')
         self.assertNotIn('player_equipment', payload['data'])
         self.assertNotIn('template_content', payload['data'])
-
-    def test_dashboard_death_knight_alias_resolves_exact_default_template(self):
-        content = DEFAULT_PLAYER.replace('warrior=', 'deathknight=').replace('spec=fury', 'spec=frost')
-        template = self.add_template(content)
-        template.spec = 'deathknight_frost'
-        template.class_name = 'deathknight'
-        template.save(update_fields=['spec', 'class_name'])
-
-        response = self.client.post('/api/simc-task/', data=json.dumps(
-            self.task_payload(spec='frost_dk')
-        ), content_type='application/json')
-
-        self.assertTrue(response.json()['success'], response.json())
-        frozen = json.loads(SimcTask.objects.get().ext)['player_equipment']
-        self.assertIn('deathknight="Upstream Fury"', frozen)
-        self.assertIn('spec=frost', frozen)

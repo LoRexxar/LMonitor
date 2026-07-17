@@ -12,13 +12,15 @@ Key rules:
 - User class/spec vs BNet: consistent merge, conflict reject
 - Explicit empty APL stays empty (no fallback)
 - One actor only in final content
-- Task creation freezes manifest; Worker reads frozen final_simc_content only
+- Execution is assembled at run time from immutable resource versions; Task rows do not store frozen SimC bodies.
 - No client-provided _bnet_* fields trusted; server validates Battle.net
 - Templates filtered by user_id + active status
 - No arbitrary .first() fallback; 0 or >1 defaults fail explicitly
 """
 import hashlib
 import json
+import math
+import re
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 from django.db import models
@@ -94,6 +96,10 @@ class SimcComposer:
 
         Returns: (final_simc_content, manifest, error_message)
         """
+        options_error = self._validate_simulation_options(request_data)
+        if options_error:
+            return None, None, options_error
+
         # Step 1: Resolve equipment slot FIRST (identity depends on whether equipment has actor)
         equipment_result = self._resolve_equipment(request_data)
         if equipment_result.status == 'conflict':
@@ -580,19 +586,21 @@ class SimcComposer:
             )
 
     def _resolve_simulation_options(self, request_data: Dict[str, Any]) -> SlotResolution:
-        """Resolve simulation_options slot (fight_style, time, target_count, etc)."""
-        options = []
-
-        fight_style = request_data.get('fight_style', 'Patchwerk')
-        time_sec = request_data.get('time', 300)
-        target_count = request_data.get('target_count', 1)
-
-        options.append(f'fight_style={fight_style}')
-        options.append(f'max_time={time_sec}')
-        options.append(f'desired_targets={target_count}')
-        options.append('optimal_raid=0')
-        options.append('override.battle_shout=1')
-        options.append('iterations=10000')
+        """Resolve and render the complete supported simulation option contract."""
+        options = [
+            f"fight_style={request_data.get('fight_style', 'Patchwerk')}",
+            f"max_time={request_data.get('time', 300)}",
+            f"desired_targets={request_data.get('target_count', 1)}",
+            'optimal_raid=0',
+            'override.battle_shout=1',
+            f"iterations={request_data.get('iterations', 10000)}",
+        ]
+        if request_data.get('target_error') is not None:
+            options.append(f"target_error={request_data['target_error']}")
+        if request_data.get('vary_combat_length') is not None:
+            options.append(f"vary_combat_length={request_data['vary_combat_length']}")
+        if request_data.get('enemy_type'):
+            options.append(f"enemy={request_data['enemy_type']}")
         options.append('threads=4')
 
         content = '\n'.join(options)
@@ -602,6 +610,43 @@ class SimcComposer:
             value=SlotValue(content=content, source='user_input', content_hash=content_hash),
             status='resolved'
         )
+
+    @staticmethod
+    def _validate_simulation_options(request_data: Dict[str, Any]) -> str:
+        """Reject invalid values rather than allowing persisted options to become code."""
+        def integer(name, default, minimum, maximum):
+            value = request_data.get(name, default)
+            if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+                return f'{name} 必须是 {minimum} 到 {maximum} 之间的整数'
+            return ''
+
+        def number(name, minimum, maximum):
+            value = request_data.get(name)
+            if value is None:
+                return ''
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return f'{name} 必须是数字'
+            value = float(value)
+            if not math.isfinite(value) or not minimum <= value <= maximum:
+                return f'{name} 必须在 {minimum} 到 {maximum} 之间'
+            return ''
+
+        for error in (
+            integer('iterations', 10000, 1, 100000000),
+            integer('time', 300, 1, 86400),
+            integer('target_count', 1, 1, 1000),
+            number('target_error', 0, 1),
+            number('vary_combat_length', 0, 1),
+        ):
+            if error:
+                return error
+        for name, default in (('fight_style', 'Patchwerk'), ('enemy_type', '')):
+            value = request_data.get(name, default)
+            if value is None and name == 'enemy_type':
+                value = ''
+            if not isinstance(value, str) or (value and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', value)):
+                return f'{name} 包含无效值'
+        return ''
 
     def _resolve_stat_overrides(self, request_data: Dict[str, Any]) -> SlotResolution:
         """Resolve stat_overrides slot (gear_crit, gear_haste, etc)."""

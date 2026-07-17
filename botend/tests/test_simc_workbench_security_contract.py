@@ -19,7 +19,6 @@ class SimcWorkbenchSecurityContractTests(TestCase):
             ("post", "/api/simc-task/", {"name": "csrf-task"}),
             ("post", "/api/simc-task/batch/", {"name": "csrf-batch"}),
             ("post", "/api/simc-profile/", {"name": "csrf-profile"}),
-            ("post", "/api/simc-profile/inspect-raw/", {"raw_simc_code": "warrior=csrf"}),
             ("post", "/api/simc-player-config-detail/", {"player_config_mode": "manual_equipment"}),
             ("post", "/api/simc-battlenet-preflight/", {"region": "us", "realm": "x", "character": "y"}),
             ("post", "/api/simc-apl-candidates/", {"spec": "fury"}),

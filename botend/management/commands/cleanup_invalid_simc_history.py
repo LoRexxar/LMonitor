@@ -43,11 +43,19 @@ class Command(BaseCommand):
 
     @staticmethod
     def _has_trustworthy_task_state(task):
+        """
+        判断任务是否有可信的执行结果状态。
+
+        只依据 result_summary、result_file、artifacts 和 SimulationRun。
+        不访问已删除的 final_simc_content 字段。
+        """
+        from botend.models import SimulationRun
+
         return any((
             str(task.result_summary or '').strip(),
             str(task.result_file or '').strip(),
-            str(task.final_simc_content or '').strip(),
             task.artifacts.exists(),
+            SimulationRun.objects.filter(task_id=task.id).exists(),
         ))
 
     def handle(self, *args, **options):

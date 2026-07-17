@@ -11,28 +11,62 @@ from botend.dashboard.api import (
     SimcRegularCompareAPIView,
     SimcWorkbenchAPIView,
 )
-from botend.models import SimcProfile, SimcTask, SimcTaskArtifact, SimcTaskBatch
+from botend.models import (
+    SimcApl,
+    SimcContentTemplate,
+    SimcProfile,
+    SimcTask,
+    SimcTaskArtifact,
+    SimcTaskBatch,
+)
 from botend.services.simc_artifacts import upsert_task_html_artifact
+from botend.services.simc_task_service import create_task
 
 
 class SimcReviewFixTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="simc_review_owner")
         self.other = User.objects.create_user(username="simc_review_other")
-        self.profile = SimcProfile.objects.create(user_id=self.user.id, name="review", spec="fury")
+        self.profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name="review",
+            spec="fury",
+            player_config_mode="manual_equipment",
+            player_equipment='warrior="Review"\nspec=fury',
+        )
+        self.template = SimcContentTemplate.objects.create(
+            name="review template",
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            spec="fury",
+            content="{player_config}\n{action_list}",
+            is_active=True,
+            is_selectable=True,
+        )
+        self.apl = SimcApl.objects.create(
+            name="review apl",
+            spec="fury",
+            content="actions=/auto_attack",
+            owner_user_id=self.user.id,
+            is_active=True,
+            is_selectable=True,
+        )
         self.factory = RequestFactory()
 
     def _task(self, **values):
-        defaults = {
-            "user_id": self.user.id,
-            "simc_profile_id": self.profile.id,
-            "name": "review task",
-            "task_type": 1,
-            "current_status": 2,
-            "is_active": True,
-        }
-        defaults.update(values)
-        return SimcTask.objects.create(**defaults)
+        batch = values.pop("batch", None)
+        task = create_task(
+            user_id=self.user.id,
+            name=values.pop("name", "review task"),
+            profile_id=self.profile.id,
+            template_id=self.template.id,
+            apl_id=self.apl.id,
+            candidate_label=values.pop("candidate_label", ""),
+            batch_id=batch.id if batch else None,
+        )
+        for field, value in {"current_status": 2, **values}.items():
+            setattr(task, field, value)
+        task.save()
+        return task
 
     def test_worker_artifact_upsert_accepts_only_task_bound_result(self):
         with tempfile.TemporaryDirectory() as base_dir:

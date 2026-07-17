@@ -206,8 +206,8 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
             error_detail='SECRET TRACEBACK', status=1)
         task = SimcTask.objects.create(
             user_id=self.user.id, batch=batch, name='Safe Task', simc_profile_id=0,
-            current_status=3, task_type=2, final_simc_content='SECRET SIMC',
-            error_detail='SECRET ERROR', ext='{"raw_simc":"SECRET RAW"}',
+            current_status=3, task_type=2,
+            error_detail='SECRET ERROR', ext='{"diagnostic":"SECRET EXT"}',
             result_file='/secret/server/path.html')
         foreign_member = SimcTask.objects.create(
             user_id=self.other.id, batch=batch, name='Foreign Member', simc_profile_id=0)
@@ -219,7 +219,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         for field in ('id', 'name', 'status', 'status_label', 'task_type', 'updated_at', 'can_view'):
             self.assertIn(field, member)
         serialized = json.dumps(payload, ensure_ascii=False)
-        for secret in ('SECRET MANIFEST', 'SECRET TRACEBACK', 'SECRET SIMC', 'SECRET ERROR', 'SECRET RAW', '/secret/server/path.html'):
+        for secret in ('SECRET MANIFEST', 'SECRET TRACEBACK', 'SECRET ERROR', 'SECRET EXT', '/secret/server/path.html'):
             self.assertNotIn(secret, serialized)
         self.assertNotIn(foreign_member.id, [row['id'] for row in payload['tasks']])
 

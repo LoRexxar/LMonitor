@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import TestCase
 
-from botend.models import SimcProfile, SimcTask, SimcTaskArtifact, SimcTaskBatch
+from botend.models import SimcProfile, SimcTask, SimcTaskArtifact, SimcTaskBatch, SimulationRun
 
 
 VALID_PLAYER = '''warrior="Valid"
@@ -79,11 +79,17 @@ class CleanupInvalidSimcHistoryCommandTests(TestCase):
         self.assertTrue(SimcProfile.objects.filter(id=valid_manual.id).exists())
         self.assertTrue(SimcProfile.objects.filter(id=valid_bn.id).exists())
 
-    def test_preserves_historical_tasks_with_result_or_frozen_content(self):
-        invalid = self._profile('legacy missing baseline')
+    def test_preserves_historical_tasks_with_result_artifact_or_run(self):
+        invalid = self._profile('missing baseline')
         with_summary = self._task(invalid, 'has summary', current_status=2, result_summary='{"dps": 12345}')
-        with_file = self._task(invalid, 'has report', current_status=2, result_file='legacy.html')
-        with_frozen = self._task(invalid, 'has frozen input', current_status=2, final_simc_content='warrior="X"\nlevel=90')
+        with_file = self._task(invalid, 'has report', current_status=2, result_file='report.html')
+        with_run = self._task(invalid, 'has run', current_status=2)
+        SimulationRun.objects.create(
+            task=with_run,
+            status='completed',
+            input_hash='a' * 64,
+            result_summary={'dps': 12345},
+        )
         with_artifact = self._task(invalid, 'has artifact', current_status=2)
         SimcTaskArtifact.objects.create(
             task=with_artifact,
@@ -94,7 +100,7 @@ class CleanupInvalidSimcHistoryCommandTests(TestCase):
         call_command('cleanup_invalid_simc_history', apply=True, stdout=StringIO())
 
         self.assertFalse(SimcProfile.objects.filter(id=invalid.id).exists())
-        for task in (with_summary, with_file, with_frozen, with_artifact):
+        for task in (with_summary, with_file, with_run, with_artifact):
             self.assertTrue(SimcTask.objects.filter(id=task.id).exists())
 
     def test_preserves_pending_and_running_tasks_and_their_profiles(self):

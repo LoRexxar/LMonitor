@@ -420,7 +420,6 @@ class SimcTaskBatchAssociationTests(TestCase):
             simc_profile_id=1,
             batch=batch,
             task_type=1,
-            final_simc_content='warrior="Test"\nspec=fury',
         )
 
         # Verify association
@@ -442,7 +441,6 @@ class SimcTaskBatchAssociationTests(TestCase):
             simc_profile_id=1,
             batch=batch,
             task_type=1,
-            final_simc_content='warrior="Test"\nspec=fury',
         )
 
         batch.delete()

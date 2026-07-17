@@ -647,6 +647,47 @@ class GeWechatTask(models.Model):
     is_active = models.BooleanField(default=True)
 
 
+class SimcResourceVersion(models.Model):
+    """
+    SimC 资源不可变版本快照 - 冻结 Profile/Template/APL 内容用于任务执行。
+
+    每次创建任务时，根据 resource_type + resource_id + content_hash 生成或复用版本记录。
+    版本行创建后禁止修改，确保历史任务可重现。
+    """
+    id = models.BigAutoField(primary_key=True)
+    resource_type = models.CharField(max_length=20, help_text="资源类型: profile/template/apl")
+    resource_id = models.BigIntegerField(help_text="资源ID（对应 SimcProfile.id/SimcContentTemplate.id/SimcApl.id）")
+    content_hash = models.CharField(max_length=64, help_text="内容SHA256，用于版本去重")
+    payload = models.JSONField(help_text="冻结的资源内容和元数据")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="创建时间")
+
+    class Meta:
+        db_table = 'simc_resource_version'
+        verbose_name = 'SimC资源版本'
+        verbose_name_plural = 'SimC资源版本'
+        unique_together = (('resource_type', 'resource_id', 'content_hash'),)
+        indexes = [
+            models.Index(fields=['resource_type', 'resource_id', '-created_at']),
+            models.Index(fields=['content_hash']),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            try:
+                existing = SimcResourceVersion.objects.get(pk=self.pk)
+            except SimcResourceVersion.DoesNotExist:
+                pass
+            else:
+                if (existing.resource_type != self.resource_type or
+                    existing.resource_id != self.resource_id or
+                    existing.content_hash != self.content_hash or
+                    existing.payload != self.payload):
+                    raise ValueError(
+                        f"SimcResourceVersion {self.pk} is immutable and cannot be modified"
+                    )
+        super().save(*args, **kwargs)
+
+
 class SimcAplKeywordPair(models.Model):
     """
     SimC APL关键字对照表
@@ -656,12 +697,12 @@ class SimcAplKeywordPair(models.Model):
     description = models.CharField(max_length=500, null=True, blank=True, help_text="描述")
     create_time = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True, help_text="是否启用")
-    
+
     class Meta:
         db_table = 'simc_apl_keyword_pair'
         verbose_name = 'SimC APL关键字对'
         verbose_name_plural = 'SimC APL关键字对'
-    
+
     def __str__(self):
         return f"{self.apl_keyword} <-> {self.cn_keyword}"
 
@@ -754,7 +795,7 @@ class SimcTaskBatch(models.Model):
 
 class SimcTask(models.Model):
     """
-    SimC任务模型 - Phase 1重构：冻结final_simc_content，manifest v2记录槽位来源
+    SimC任务模型 - Phase 2重构：引用型任务保存模块引用和参数，不保存最终正文
     """
     user_id = models.IntegerField(help_text="用户ID")
     name = models.CharField(max_length=200, help_text="任务名称")
@@ -766,9 +807,20 @@ class SimcTask(models.Model):
     batch = models.ForeignKey(SimcTaskBatch, null=True, blank=True, on_delete=models.SET_NULL, help_text="所属批次")
     candidate_label = models.CharField(max_length=200, default='', blank=True, help_text="对比任务标签，如 crit+1000")
 
-    final_simc_content = models.TextField(null=True, blank=True, help_text="冻结的完整SimC输入正文，Worker直接执行")
-    input_hash = models.CharField(max_length=64, default='', blank=True, help_text="final_simc_content的SHA256，用于去重")
-    fragment_manifest = models.TextField(null=True, blank=True, help_text="JSON manifest v2: 记录各槽位来源和版本")
+    # Reference-based fields (live resource FKs)
+    profile = models.ForeignKey('SimcProfile', null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks', help_text="引用的玩家配置")
+    template = models.ForeignKey('SimcContentTemplate', null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks', help_text="引用的基础模板")
+    apl = models.ForeignKey('SimcApl', null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks', help_text="引用的APL")
+
+    # NEW: Version FKs (immutable snapshots)
+    profile_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.SET_NULL, related_name='profile_tasks', help_text="Profile版本快照")
+    template_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.SET_NULL, related_name='template_tasks', help_text="Template版本快照")
+    apl_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.SET_NULL, related_name='apl_tasks', help_text="APL版本快照")
+
+    mode = models.CharField(max_length=50, default='normal', blank=True, help_text="任务模式：normal/comparison/attribute_sweep")
+    simulation_params = models.JSONField(null=True, blank=True, help_text="模拟参数：iterations, fight_style等")
+    mode_params = models.JSONField(null=True, blank=True, help_text="模式参数：对比项、寻优范围等")
+    source_task = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='reruns', help_text="重跑来源任务")
 
     error_detail = models.TextField(null=True, blank=True, help_text="创建或执行错误详情")
     result_summary = models.TextField(null=True, blank=True, help_text="结果摘要JSON：DPS/HPS等关键指标")
@@ -788,7 +840,6 @@ class SimcTask(models.Model):
         indexes = [
             models.Index(fields=['user_id', '-create_time']),
             models.Index(fields=['batch', '-create_time']),
-            models.Index(fields=['input_hash']),
         ]
 
 
@@ -807,7 +858,46 @@ class SimcTaskArtifact(models.Model):
         indexes = [
             models.Index(fields=['task', 'artifact_type']),
         ]
-    
+
+
+class SimulationRun(models.Model):
+    """
+    SimulationRun - 单次 SimC 进程执行记录
+    每个 Task 可能有多个 Run（多候选/多轮），每个 Run 是一次真实执行
+    """
+    task = models.ForeignKey(SimcTask, on_delete=models.CASCADE, related_name='simulation_runs', help_text="所属任务")
+    sequence = models.IntegerField(default=1, help_text="执行序号（轮次/候选编号）")
+    candidate_label = models.CharField(max_length=200, default='', blank=True, help_text="候选标签，如 baseline/crit+1000/apl_variant_2")
+
+    status = models.CharField(max_length=20, default='pending', help_text="状态：pending/running/completed/failed")
+    input_hash = models.CharField(max_length=64, default='', blank=True, help_text="本次输入的SHA256")
+    resource_manifest = models.JSONField(null=True, blank=True, help_text="本次执行时解析的资源版本元数据")
+
+    result_summary = models.JSONField(null=True, blank=True, help_text="结果摘要：DPS/HPS等关键指标")
+    error_detail = models.TextField(null=True, blank=True, help_text="执行错误详情")
+
+    started_at = models.DateTimeField(null=True, blank=True, help_text="开始时间")
+    completed_at = models.DateTimeField(null=True, blank=True, help_text="完成时间")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="创建时间")
+
+    class Meta:
+        db_table = 'simc_simulation_run'
+        verbose_name = 'SimC执行记录'
+        verbose_name_plural = 'SimC执行记录'
+        ordering = ['task', 'sequence']
+        indexes = [
+            models.Index(fields=['task', 'sequence']),
+            models.Index(fields=['status']),
+            models.Index(fields=['input_hash']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['task', 'sequence'],
+                name='simc_run_task_sequence_uniq',
+            ),
+        ]
+
+
 class SimcProfile(models.Model):
     """
     SimC配置模型 - 玩家配置预设，绑定专精并保存 Battle.net 或手动装备块导入信息。

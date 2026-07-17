@@ -41,6 +41,8 @@ from botend.wow_daily_report.generator import generate_wow_daily_report
 from botend.services.simc_attribute_results import parse_attribute_result_filename
 from botend.services.simc_player_config import EQUIPMENT_SLOT_ALIASES, resolve_attribute_player_baseline, validate_player_baseline
 from botend.services.simc_composer import SimcComposer
+from botend.services.simc_task_service import create_task, TaskCreationError
+from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN
@@ -633,6 +635,13 @@ class SimcTaskAPIView(View):
             for task in tasks:
                 ext_detail = self._task_ext_summary(task.task_type, task.ext)
                 profile_info = profile_map.get(task.simc_profile_id) or {}
+                reference_detail = {
+                    'profile_id': task.profile_id, 'template_id': task.template_id, 'apl_id': task.apl_id,
+                    'profile_version_id': task.profile_version_id, 'template_version_id': task.template_version_id,
+                    'apl_version_id': task.apl_version_id, 'mode': task.mode,
+                    'simulation_params': task.simulation_params or {}, 'mode_params': task.mode_params or {},
+                    'batch_id': task.batch_id, 'candidate_label': task.candidate_label,
+                } if task.profile_id and task.profile_version_id else {}
                 tasks_data.append({
                     'id': task.id,
                     'name': task.name,
@@ -645,6 +654,7 @@ class SimcTaskAPIView(View):
                     'task_type': task.task_type,
                     # 任务列表只需安全的结构化摘要；原始 SimC 文本只能留在执行快照中，
                     # 不得通过列表或前端内嵌 JSON 回显给浏览器。
+                    'reference': reference_detail,
                     'ext_detail': ext_detail,
                     'create_time': _fmt_dt(task.create_time),
                     'modified_time': _fmt_dt(task.modified_time),
@@ -669,22 +679,14 @@ class SimcTaskAPIView(View):
             data = json.loads(request.body)
             name = data.get('name', '').strip()
             simc_profile_id = data.get('simc_profile_id')
-            # 原始 SimC 输入是任务执行快照的一部分：保留首尾空白和末尾换行，不能静默改写。
             raw_simc_code = str(data.get('raw_simc_code') or '')
-            current_status = data.get('current_status', 0)
             task_type = data.get('task_type', 1)
-            ext = data.get('ext', '')
-            regular_time = data.get('regular_time')
-            regular_target_count = data.get('regular_target_count')
-            selected_attributes = data.get('selected_attributes')
-            attribute_step = data.get('attribute_step')
             selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
             base_template_id = data.get('base_template_id')
             base_template_content = data.get('base_template_content') if 'base_template_content' in data else None
             override_action_list = data.get('override_action_list') if 'override_action_list' in data else None
-            override_action_list_provided = 'override_action_list' in data
 
-            # 新版字段：SimC 工作台只接收"玩家信息块"，完整 simc 由后端模板拼装
+            # 新版字段
             fight_style = data.get('fight_style')
             fight_time = data.get('time')
             target_count = data.get('target_count')
@@ -703,234 +705,114 @@ class SimcTaskAPIView(View):
             gear_versatility = data.get('gear_versatility')
             talent = data.get('talent', '').strip()
             spec = data.get('spec', '').strip()
-            
+
             if not name:
                 return JsonResponse({
                     'success': False,
                     'error': '任务名称不能为空'
                 })
-            
-            # 属性型 Profile 只保存天赋与副属性，不要求角色标识或装备行。
-            if player_config_mode and player_config_mode not in ('battlenet', 'manual_equipment', 'attribute_only', 'addon_full_export'):
-                return JsonResponse({
-                    'success': False,
-                    'error': '玩家信息导入方式必须是 battlenet、manual_equipment、addon_full_export 或 attribute_only'
-                })
-            
-            if player_config_mode == 'manual_equipment' and not player_equipment:
-                return JsonResponse({
-                    'success': False,
-                    'error': '手动装备模式下玩家装备配置不能为空'
-                })
-            
-            if player_config_mode == 'battlenet':
-                if battlenet_region not in ('us', 'eu', 'kr', 'tw', 'cn') or not battlenet_realm or not battlenet_character:
-                    return JsonResponse({
-                        'success': False,
-                        'error': 'Battle.net 导入需要提供 region、realm 和 character'
-                    })
-            
-            # 如果提供了 simc_profile_id，用 profile 填充缺失字段
-            if simc_profile_id:
-                try:
-                    profile = SimcProfile.objects.get(
-                        id=simc_profile_id,
-                        user_id=request.user.id,
-                        is_active=True
-                    )
-                    if not spec:
-                        spec = profile.spec
-                    if not talent:
-                        talent = profile.talent
-                    if not player_equipment:
-                        player_equipment = str(getattr(profile, 'player_equipment', '') or '').strip()
-                    if gear_strength is None:
-                        gear_strength = profile.gear_strength
-                    if gear_crit is None:
-                        gear_crit = profile.gear_crit
-                    if gear_haste is None:
-                        gear_haste = profile.gear_haste
-                    if gear_mastery is None:
-                        gear_mastery = profile.gear_mastery
-                    if gear_versatility is None:
-                        gear_versatility = profile.gear_versatility
-                except SimcProfile.DoesNotExist:
-                    return JsonResponse({
-                        'success': False,
-                        'error': '指定的SimC配置不存在'
-                    })
 
-            if player_config_mode == 'attribute_only':
-                try:
-                    player_equipment = resolve_attribute_player_baseline(spec, player_equipment)
-                except ValueError as e:
-                    return JsonResponse({'success': False, 'error': str(e)})
-            
-            # 直接 SimC 代码模式：仅常规模拟允许不选 profile；属性模拟仍必须基于 profile。
-            if raw_simc_code and int(task_type or 1) == 2:
+            # ========== 引用型任务切片：拒绝旧模式 ==========
+
+            # 1. 拒绝 raw_simc_code
+            if raw_simc_code.strip():
                 return JsonResponse({
                     'success': False,
-                    'error': '直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟'
+                    'error': '不再支持直接 SimC 代码模式。请使用基础模板 + APL 引用方式创建任务。'
                 })
-            if raw_simc_code and int(task_type or 1) == 1:
-                simc_profile_id = 0  # 占位
-            elif not simc_profile_id:
-                # 新版模式：如果提供了 player_config_mode，不需要 profile
-                if not player_config_mode:
-                    return JsonResponse({
-                        'success': False,
-                        'error': 'SimC配置不能为空'
-                    })
 
+            # 2. 拒绝 task_type=2（属性寻优）
             if int(task_type or 1) == 2:
-                valid_combinations = {
-                    'crit_mastery', 'crit_haste', 'crit_versatility',
-                    'mastery_haste', 'mastery_versatility', 'haste_versatility',
-                    'haste_mastery',
-                }
-                if str(selected_attributes or '').strip() not in valid_combinations:
-                    return JsonResponse({'success': False, 'error': '属性模拟需要选择两项有效副属性'})
-                try:
-                    attribute_step = int(attribute_step) if attribute_step not in (None, '') else 50
-                except (TypeError, ValueError):
-                    return JsonResponse({'success': False, 'error': '属性模拟步长必须是整数'})
-                if attribute_step != 50:
-                    return JsonResponse({'success': False, 'error': '四属性自动寻优固定使用 50 绿字步长'})
+                return JsonResponse({
+                    'success': False,
+                    'error': '旧版属性寻优（task_type=2）已停用。后续切片将提供基于 Batch 的新版属性寻优。'
+                })
 
-            # 生成result_file：player_config_mode 新流程由 SimC 执行后自动检测，
-            # 不预生成，避免预生成的文件名与 SimC 实际输出不一致。
-            if player_config_mode:
-                result_file = ''
-            else:
-                timestamp = str(int(time.time()))
-                content_to_hash = timestamp + name + str(request.user.id)
-                result_file = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
+            # 3. 拒绝临时正文字段
+            if base_template_content is not None:
+                return JsonResponse({
+                    'success': False,
+                    'error': '不再支持 base_template_content 临时正文。请先保存为模板资源，然后传递 base_template_id。'
+                })
 
-            normalized_ext = self._build_task_ext(
-                task_type=task_type,
-                ext=ext,
-                owner_user_id=request.user.id,
-                regular_time=regular_time,
-                regular_target_count=regular_target_count,
-                selected_attributes=selected_attributes,
-                attribute_step=attribute_step,
-                raw_simc_code=raw_simc_code,
-                selected_apl_id=selected_apl_id,
-                base_template_id=base_template_id,
-                base_template_content=base_template_content,
-                override_action_list=override_action_list,
-                override_action_list_provided=override_action_list_provided,
-                # 新版字段
-                fight_style=fight_style,
-                time=fight_time,
-                target_count=target_count,
-                player_config_mode=player_config_mode,
-                player_equipment=player_equipment,
-                gear_strength=gear_strength,
-                gear_crit=gear_crit,
-                gear_haste=gear_haste,
-                gear_mastery=gear_mastery,
-                gear_versatility=gear_versatility,
-                talent=talent,
-                spec=spec,
-                battlenet_region=battlenet_region,
-                battlenet_realm=battlenet_realm,
-                battlenet_character=battlenet_character
-            )
+            if override_action_list is not None:
+                return JsonResponse({
+                    'success': False,
+                    'error': '不再支持 override_action_list 临时正文。请先保存为 APL 资源，然后传递 selected_apl_id。'
+                })
 
-            # Phase 1: Use composer to generate frozen final_simc_content for new tasks
-            final_simc_content = None
-            input_hash = ''
-            fragment_manifest = None
+            # 4. 要求必填字段
+            if not base_template_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': '必须提供 base_template_id（基础模板 ID）'
+                })
 
-            if player_config_mode and int(task_type or 1) == 1:
-                timestamp = str(int(time.time()))
-                content_to_hash = timestamp + name + str(request.user.id)
-                result_file_name = hashlib.md5(content_to_hash.encode('utf-8')).hexdigest() + '.html'
-                # Keep the frozen html= target identical to SimcTask.result_file.
-                # The worker resolves this relative name under simc_results/.
-                result_file_path = result_file_name
+            if not selected_apl_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': '必须提供 selected_apl_id（APL ID）'
+                })
 
-                # For battlenet mode, fetch server-side preflight
-                server_preflight = None
-                if player_config_mode == 'battlenet' and battlenet_region and battlenet_realm and battlenet_character:
-                    try:
-                        preflight_result = fetch_battlenet_character_preflight(
-                            region=battlenet_region,
-                            realm=battlenet_realm,
-                            character=battlenet_character,
-                            requested_spec=spec
-                        )
-                        # Convert preflight to server_preflight structure
-                        server_preflight = {
-                            'character': {
-                                'class': preflight_result.get('identity', {}).get('class_name', ''),
-                                'spec': preflight_result.get('spec', {}).get('key', ''),
-                                'level': preflight_result.get('identity', {}).get('level', 80),
-                            }
-                        }
-                        # If preflight has warnings, reject early
-                        if not preflight_result.get('simc_ready'):
-                            return JsonResponse({
-                                'success': False,
-                                'error': '角色信息不完整：' + '；'.join(preflight_result.get('warnings', []))
-                            })
-                    except Exception as e:
-                        return JsonResponse({
-                            'success': False,
-                            'error': f'Battle.net 预检失败: {str(e)}'
-                        })
+            # ========== 使用引用型服务创建任务 ==========
 
-                # Build request data for composer
-                composer_request = {
-                    'spec': spec,
-                    'player_import_mode': player_config_mode,
-                    'player_equipment': player_equipment,
-                    'talent': talent,
-                    'fight_style': fight_style or 'Patchwerk',
-                    'time': fight_time or 300,
-                    'target_count': target_count or 1,
-                    'gear_crit': gear_crit,
-                    'gear_haste': gear_haste,
-                    'gear_mastery': gear_mastery,
-                    'gear_versatility': gear_versatility,
-                    'selected_apl_id': selected_apl_id,
-                    'override_action_list': override_action_list,
-                    'base_template_id': base_template_id,
-                    'base_template_content': base_template_content,
-                    'battlenet_region': battlenet_region,
-                    'battlenet_realm': battlenet_realm,
-                    'battlenet_character': battlenet_character,
-                    '_result_file_path': result_file_path,
-                    '_server_preflight': server_preflight,
-                }
+            # 构建 profile_fields
+            profile_fields = {
+                'spec': spec or 'fury',
+                'player_config_mode': player_config_mode or 'manual_equipment',
+                'battlenet_region': battlenet_region,
+                'battlenet_realm': battlenet_realm,
+                'battlenet_character': battlenet_character,
+                'player_equipment': player_equipment,
+                'talent': talent,
+                'gear_strength': gear_strength or 0,
+                'gear_crit': gear_crit or 0,
+                'gear_haste': gear_haste or 0,
+                'gear_mastery': gear_mastery or 0,
+                'gear_versatility': gear_versatility or 0,
+            }
 
-                # Compose final content
-                composer = SimcComposer(user_id=request.user.id)
-                final_content, manifest, error = composer.compose(composer_request)
+            # 如果提供了 simc_profile_id，则更新该 Profile
+            if simc_profile_id:
+                profile_fields['simc_profile_id'] = simc_profile_id
 
-                if error:
-                    return JsonResponse({'success': False, 'error': error})
+            # 处理 Profile name：新建 Profile 必须显式提供，不能借用任务名称。
+            profile_name_from_request = data.get('profile_name', '').strip()
+            if profile_name_from_request:
+                profile_fields['name'] = profile_name_from_request
+            elif not simc_profile_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': '新建玩家配置时必须显式提供 profile_name',
+                })
 
-                final_simc_content = final_content
-                fragment_manifest = manifest.to_json() if manifest else None
-                input_hash = SimcComposer.compute_input_hash(final_content)
-                result_file = result_file_name
+            # 构建 simulation_params
+            simulation_params = {}
+            if fight_style:
+                simulation_params['fight_style'] = fight_style
+            if fight_time is not None:
+                simulation_params['max_time'] = fight_time
+            if target_count is not None:
+                simulation_params['desired_targets'] = target_count
 
-            # 创建新任务
-            task = SimcTask.objects.create(
-                user_id=request.user.id,
-                name=name,
-                simc_profile_id=simc_profile_id or 0,
-                current_status=current_status,
-                result_file=result_file,
-                task_type=task_type,
-                ext=normalized_ext,
-                final_simc_content=final_simc_content,
-                input_hash=input_hash,
-                fragment_manifest=fragment_manifest
-            )
-            
+            # 调用 create_task_from_request
+            from botend.services.simc_task_service import create_task_from_request, TaskCreationError
+
+            try:
+                task = create_task_from_request(
+                    user_id=request.user.id,
+                    profile_fields=profile_fields,
+                    base_template_id=base_template_id,
+                    selected_apl_id=selected_apl_id,
+                    simulation_params=simulation_params if simulation_params else None,
+                    name=name,
+                )
+            except TaskCreationError as e:
+                return JsonResponse({
+                    'success': False,
+                    'error': str(e)
+                })
+
             return JsonResponse({
                 'success': True,
                 'message': 'SimC任务创建成功',
@@ -941,12 +823,11 @@ class SimcTaskAPIView(View):
                     'current_status': task.current_status,
                     'result_file': self._task_result_file_summary(task),
                     'task_type': task.task_type,
-                    'ext_detail': self._task_ext_summary(task.task_type, task.ext),
                     'create_time': _fmt_dt(task.create_time),
                     'modified_time': _fmt_dt(task.modified_time),
                 }
             })
-            
+
         except json.JSONDecodeError:
             return JsonResponse({
                 'success': False,
@@ -1015,11 +896,19 @@ class SimcTaskAPIView(View):
                     }
                 })
 
+            if int(task_type or 1) == 2:
+                return JsonResponse({'success': False, 'error': '旧版属性寻优（task_type=2）已停用。后续切片将提供基于 Batch 的新版属性寻优。'})
+
+            # Legacy frozen tasks must never be rebuilt through the obsolete API.
+            if not (task.profile_id and task.template_id and task.apl_id and
+                    task.profile_version_id and task.template_version_id and task.apl_version_id):
+                return JsonResponse({'success': False, 'error': '旧版冻结任务不支持更新；请使用新的引用型任务流程'})
+
             # 旧版任务才允许更新其运行字段。
             if raw_simc_code and int(task_type or 1) == 2:
                 return JsonResponse({'success': False, 'error': '直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟'})
             if raw_simc_code and int(task_type or 1) == 1:
-                simc_profile_id = 0
+                return JsonResponse({'success': False, 'error': '不再支持直接 SimC 代码模式'})
             elif not simc_profile_id:
                 return JsonResponse({'success': False, 'error': 'SimC配置不能为空'})
             if not (raw_simc_code and int(task_type or 1) == 1):
@@ -1152,17 +1041,28 @@ class SimcTaskAPIView(View):
             try:
                 task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
             except SimcTask.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': '任务不存在或无权限访问'
-                })
-            
-            # 检查任务是否可以重跑（只有已完成或失败的任务才能重跑）
-            if task.current_status not in [2, 3]:  # 2=已完成, 3=失败
+                return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'})
+
+            if task.current_status not in [2, 3]:  # 2=已完成或3=失败的任务才能重跑
                 return JsonResponse({
                     'success': False,
                     'error': '只有已完成或失败的任务才能重跑'
                 })
+
+            if action == 'rerun' and task.profile_id and task.profile_version_id:
+                from botend.services.task_rerun import create_rerun as service_create_rerun
+                overrides = {
+                    'name': data.get('name') or f'{task.name} (rerun)',
+                    'simulation_params': data.get('simulation_params', task.simulation_params or {}),
+                    'mode_params': data.get('mode_params', task.mode_params or {}),
+                }
+                rerun_task = service_create_rerun(task.id, request.user.id, overrides)
+                return JsonResponse({'success': True, 'message': '已创建新的引用型任务', 'data': {
+                    'id': rerun_task.id, 'source_task_id': task.id, 'current_status': rerun_task.current_status,
+                    'profile_version_id': rerun_task.profile_version_id,
+                    'template_version_id': rerun_task.template_version_id,
+                    'apl_version_id': rerun_task.apl_version_id,
+                }})
 
             ext_payload = {}
             try:
@@ -1210,18 +1110,30 @@ class SimcTaskAPIView(View):
 
     @staticmethod
     def create_rerun(task):
-        """Create a clean queue row and retain only immutable execution inputs."""
-        rerun_task = SimcTask.objects.create(
-            user_id=task.user_id, name=task.name, simc_profile_id=task.simc_profile_id,
-            current_status=0, result_file='', task_type=task.task_type, ext=task.ext,
-            # A member rerun is independent. Reusing the old batch would mutate that
-            # comparison's totals and ranking after it had already completed.
-            batch_id=None, candidate_label=task.candidate_label,
-            final_simc_content=task.final_simc_content, input_hash=task.input_hash,
-            fragment_manifest=task.fragment_manifest, error_detail=None, result_summary=None,
-            started_at=None, completed_at=None, is_active=True,
-        )
-        return rerun_task
+        """
+        Create a rerun from an existing task.
+
+        For reference-based tasks: delegates to unified rerun service.
+        For old frozen tasks: prevented - old Batch creation is frozen.
+        """
+        # Check if this is a reference task or legacy frozen task
+        if task.profile_id and task.template_id and task.apl_id and \
+           task.profile_version_id and task.template_version_id and task.apl_version_id:
+            # Reference-based task: use unified service
+            from botend.services.task_rerun import create_rerun as service_create_rerun, TaskRerunError
+            try:
+                return service_create_rerun(
+                    source_task_id=task.id,
+                    user_id=task.user_id,
+                    overrides={},
+                )
+            except TaskRerunError as e:
+                raise ValueError(f'重跑失败: {e}')
+        else:
+            # Legacy frozen task: prevent rerun
+            raise ValueError(
+                '旧版冻结任务不支持重跑。只有完整引用型任务（profile/template/apl + versions）才能重跑。'
+            )
 
     def _task_ext_summary(self, task_type, ext):
         """Return only the browser fields needed to render a task context.
@@ -1611,17 +1523,16 @@ class SimcBatchTaskAPIView(View):
 
     @classmethod
     def _attribute_search_history(cls, tasks):
-        """Read historical centres from task manifests; no extra model fields required."""
+        """Read visited centres from reference mode_params only."""
         history = set()
         for task in tasks:
-            ext = cls._parse_task_ext(task.ext)
-            manifest = ext.get('batch_compare') or {}
-            candidate = manifest.get('candidate') or {}
-            if not manifest.get('is_base'):
+            params = task.mode_params if isinstance(task.mode_params, dict) else {}
+            if not params.get('is_base'):
                 continue
-            step = candidate.get('step')
-            ratings = {stat: ext.get(f'gear_{stat}') for stat in cls.ATTRIBUTE_STATS}
-            if step in (None, '') or any(value is None for value in ratings.values()):
+            search = params.get('search') or {}
+            ratings = params.get('attribute_ratings') or {}
+            step = search.get('step')
+            if step in (None, '') or any(ratings.get(stat) is None for stat in cls.ATTRIBUTE_STATS):
                 continue
             try:
                 history.add(cls._attribute_center_signature(ratings, step))
@@ -1640,120 +1551,66 @@ class SimcBatchTaskAPIView(View):
         return parsed if isinstance(parsed, dict) else {}
 
     @staticmethod
-    def _create_frozen_atom(*, user_id, batch, name, candidate_label,
-                            composer_request, batch_compare):
-        """Compose and persist one immutable v2 atom in an existing batch."""
-        result_file = f'{uuid.uuid4().hex}.html'
-        request_data = dict(composer_request)
-        request_data['_result_file_path'] = result_file
-        composer = SimcComposer(user_id=user_id)
-        final_content, manifest, error = composer.compose(request_data)
-        if error:
-            raise ValueError(f'{candidate_label}: {error}')
-        if not final_content or manifest is None:
-            raise ValueError(f'{candidate_label}: Composer 未生成冻结任务正文')
-
-        # ext remains compatibility/audit metadata for existing result pages.
-        # It is not an execution source for manifest-v2 tasks.
-        ext_payload = {
-            key: value for key, value in composer_request.items()
-            if not key.startswith('_') and value is not None
-        }
-        ext_payload['player_config_mode'] = composer_request.get('player_import_mode', '')
-        resolved_base_template = getattr(composer, '_base_template_content', None)
-        if resolved_base_template is not None:
-            ext_payload['base_template_content'] = resolved_base_template
-        action_slot = composer.slots.get('action_list')
-        if action_slot and action_slot.value is not None:
-            # Preserve even an explicitly empty action list. The presence of this
-            # key, not its truthiness, blocks mutable APL fallback in later rounds.
-            ext_payload['override_action_list'] = action_slot.value.content
-        ext_payload['batch_compare'] = batch_compare
-        return SimcTask.objects.create(
-            user_id=user_id,
-            name=name,
-            simc_profile_id=0,
-            current_status=0,
-            result_file=result_file,
-            task_type=1,
-            ext=json.dumps(ext_payload, ensure_ascii=False),
-            batch=batch,
-            candidate_label=candidate_label,
-            final_simc_content=final_content,
-            input_hash=SimcComposer.compute_input_hash(final_content),
-            fragment_manifest=manifest.to_json(),
-        )
-
-    @staticmethod
-    def _parse_manifest_round(manifest):
+    def _parse_manifest_round(mode_params):
         try:
-            return int((manifest.get('candidate') or {}).get('round') or 1)
+            return int((mode_params.get('search') or {}).get('round') or 1)
         except (AttributeError, TypeError, ValueError):
             return 1
 
     @transaction.atomic
     def _create_attribute_round(self, request, payload, parent_batch_id):
-        """Create the next isolated four-stat search round from completed batch data."""
-        source_rows = []
-        source_manifest = None
-        source_ext = None
-        batch = None
+        """Analyze one completed reference round and prepare the next candidates."""
         try:
             batch = SimcTaskBatch.objects.select_for_update().get(
-                id=int(parent_batch_id), user_id=request.user.id, is_active=True,
+                id=int(parent_batch_id), user_id=request.user.id,
+                is_active=True, batch_type='attribute_sweep',
             )
         except (TypeError, ValueError, SimcTaskBatch.DoesNotExist):
-            # Historical UUID batches have no FK. They remain readable and may be
-            # continued once, but every newly created task is still Composer-frozen.
-            batch = None
-        if batch is not None:
-            batch_tasks = list(SimcTask.objects.select_for_update().filter(
-                user_id=request.user.id, is_active=True, task_type=1, batch=batch,
-            ).order_by('id'))
-        else:
-            batch_tasks = list(SimcTask.objects.select_for_update().filter(
-                user_id=request.user.id, is_active=True, task_type=1,
-                ext__contains=f'"batch_id": "{parent_batch_id}"',
-            ).order_by('id'))
-            batch_tasks = [
-                task for task in batch_tasks
-                if (self._parse_task_ext(task.ext).get('batch_compare') or {}).get('batch_id') == parent_batch_id
-                and (self._parse_task_ext(task.ext).get('batch_compare') or {}).get('kind') == 'attribute_variants'
-            ]
-        source_task_name = ''
-        for task in batch_tasks:
-            ext = self._parse_task_ext(task.ext)
-            manifest = ext.get('batch_compare') or {}
-            source_manifest = source_manifest or manifest
-            source_ext = source_ext or ext
-            source_task_name = source_task_name or task.name
-        if not source_manifest:
             raise ValueError('当前属性搜索批次不存在或无权限访问')
-        current_round = max(
-            self._parse_manifest_round((self._parse_task_ext(task.ext).get('batch_compare') or {}))
-            for task in batch_tasks
-        )
-        round_manifest = None
-        for task in batch_tasks:
-            ext = self._parse_task_ext(task.ext)
-            manifest = ext.get('batch_compare') or {}
-            if self._parse_manifest_round(manifest) != current_round:
-                continue
-            round_manifest = round_manifest or manifest
+
+        batch_tasks = list(SimcTask.objects.select_for_update().filter(
+            user_id=request.user.id,
+            is_active=True,
+            batch=batch,
+            mode='attribute_sweep',
+        ).order_by('id'))
+        if not batch_tasks:
+            raise ValueError('当前属性搜索批次不存在或无权限访问')
+        if any(not all((
+            task.profile_id, task.template_id, task.apl_id,
+            task.profile_version_id, task.template_version_id, task.apl_version_id,
+        )) for task in batch_tasks):
+            raise ValueError('当前属性搜索批次不是完整引用型任务')
+
+        current_round = max(self._parse_manifest_round(task.mode_params or {}) for task in batch_tasks)
+        round_tasks = [
+            task for task in batch_tasks
+            if self._parse_manifest_round(task.mode_params or {}) == current_round
+        ]
+        source_rows = []
+        for task in round_tasks:
             if task.current_status != 2 or not task.result_file:
                 raise ValueError('当前属性搜索轮次尚未全部完成')
             html_content = SimcRegularCompareAPIView()._get_result_file_content(task.result_file)
             parsed = SimcRegularCompareAPIView()._parse_regular_result(html_content) if html_content else {}
             dps = parsed.get('dps')
-            ratings = {stat: ext.get(f'gear_{stat}') for stat in self.ATTRIBUTE_STATS}
-            if dps is None or any(value is None for value in ratings.values()):
+            params = task.mode_params if isinstance(task.mode_params, dict) else {}
+            ratings = params.get('attribute_ratings') or {}
+            if dps is None or any(ratings.get(stat) is None for stat in self.ATTRIBUTE_STATS):
                 raise ValueError('当前属性搜索轮次存在无法解析 DPS 或绿字的任务')
-            source_rows.append({'ratings': ratings, 'dps': dps, 'is_center': bool(manifest.get('is_base'))})
+            source_rows.append({
+                'ratings': {stat: ratings[stat] for stat in self.ATTRIBUTE_STATS},
+                'dps': dps,
+                'is_center': bool(params.get('is_base')),
+            })
         if len(source_rows) < 2:
             raise ValueError('当前属性搜索轮次没有足够完成结果')
-        current_step = (round_manifest or {}).get('candidate', {}).get('step')
+
+        source_task = round_tasks[0]
+        current_step = ((source_task.mode_params or {}).get('search') or {}).get('step')
         candidate = self._next_attribute_search_center(
-            source_rows, current_step, payload.get('min_attribute_step', self.DEFAULT_MIN_ATTRIBUTE_STEP)
+            source_rows, current_step,
+            payload.get('min_attribute_step', self.DEFAULT_MIN_ATTRIBUTE_STEP),
         )
         if candidate['converged']:
             return None, candidate
@@ -1766,82 +1623,65 @@ class SimcBatchTaskAPIView(View):
             candidate['converged'] = True
             candidate['stop_reason'] = stop_reason
             return None, candidate
-        specs = self._attribute_variants(candidate['ratings'], candidate['step'], round_number=next_round, mark_base=True)
-        return (specs, candidate, source_ext, source_task_name, batch), None
+        specs = self._attribute_variants(
+            candidate['ratings'], candidate['step'],
+            round_number=next_round, mark_base=True,
+        )
+        return (specs, candidate, source_task, batch), None
 
     @transaction.atomic
     def _continue_attribute_search(self, request, data, continue_batch_id):
-        """Advance one attribute-search batch while its current task rows stay locked."""
+        """Create a new reference Task per candidate while preserving source versions."""
         continuation, converged = self._create_attribute_round(request, data, continue_batch_id)
         if converged:
-            try:
-                batch = SimcTaskBatch.objects.select_for_update().get(
-                    id=int(continue_batch_id), user_id=request.user.id, is_active=True,
-                )
-            except (TypeError, ValueError, SimcTaskBatch.DoesNotExist):
-                batch = None
-            if batch is not None:
-                batch.status = 2
-                batch.completed_at = timezone.now()
-                batch.save(update_fields=['status', 'completed_at', 'updated_at'])
-            return {'batch_id': continue_batch_id, 'accepted': 0, 'converged': True, 'recommendation': converged}
-        specs, recommendation, source_ext, source_task_name, batch = continuation
-        if batch is None:
-            batch = SimcTaskBatch.objects.create(
-                user_id=request.user.id,
-                name=f'{source_task_name.rsplit(" · ", 1)[0]} · 续跑',
-                batch_type='attribute_sweep',
-                request_manifest=json.dumps({
-                    'version': 2, 'kind': 'attribute_variants',
-                    'legacy_parent_batch_id': continue_batch_id,
-                    'frozen_source': source_ext,
-                }, ensure_ascii=False),
-                status=1,
+            batch = SimcTaskBatch.objects.select_for_update().get(
+                id=int(continue_batch_id), user_id=request.user.id, is_active=True,
             )
-        effective_batch_id = str(batch.id)
+            batch.status = 2
+            batch.completed_at = timezone.now()
+            batch.save(update_fields=['status', 'completed_at', 'updated_at'])
+            return {
+                'batch_id': continue_batch_id, 'accepted': 0,
+                'converged': True, 'recommendation': converged,
+            }
+
+        specs, recommendation, source_task, batch = continuation
+        base_name = source_task.name.rsplit(' · ', 1)[0]
         created = []
-        for index, (label, gear, is_base, candidate_data) in enumerate(specs):
-            candidate = dict(candidate_data)
-            candidate['search_center'] = recommendation['ratings']
-            candidate['parent_batch_id'] = continue_batch_id
-            batch_compare = {
-                'version': 2, 'batch_id': effective_batch_id,
-                'parent_batch_id': continue_batch_id,
-                'kind': 'attribute_variants', 'index': index,
-                'label': label, 'is_base': is_base, 'candidate': candidate,
-            }
-            composer_request = {
-                'fight_style': source_ext.get('fight_style', 'Patchwerk'),
-                'time': source_ext.get('time', 300),
-                'target_count': source_ext.get('target_count', 1),
-                'player_import_mode': 'attribute_only',
-                'spec': source_ext.get('spec', ''),
-                'player_equipment': source_ext.get('player_equipment', ''),
-                'talent': source_ext.get('talent', ''),
-                'gear_strength': source_ext.get('gear_strength'),
-                'base_template_id': source_ext.get('base_template_id'),
-                'base_template_content': source_ext.get('base_template_content'),
-                'selected_apl_id': source_ext.get('selected_apl_id'),
-            }
-            if 'override_action_list' in source_ext:
-                composer_request['override_action_list'] = source_ext.get('override_action_list')
-                composer_request['override_action_list_provided'] = True
-            composer_request.update({f'gear_{stat}': gear[stat] for stat in self.ATTRIBUTE_STATS})
-            task = self._create_frozen_atom(
+        for index, (label, ratings, is_base, search) in enumerate(specs):
+            search = dict(search)
+            search['search_center'] = recommendation['ratings']
+            search['parent_batch_id'] = str(continue_batch_id)
+            task = create_rerun(
+                source_task_id=source_task.id,
                 user_id=request.user.id,
-                batch=batch,
-                name=f'{source_task_name.rsplit(" · ", 1)[0]} · 第{candidate["round"]}轮 {label}',
-                candidate_label=label,
-                composer_request=composer_request,
-                batch_compare=batch_compare,
+                overrides={
+                    'name': f'{base_name} · 第{search["round"]}轮 {label}',
+                    'candidate_label': label,
+                    'simulation_params': source_task.simulation_params,
+                    'mode_params': {
+                        'candidate_type': 'attribute_ratings',
+                        'is_base': is_base,
+                        'batch_index': index,
+                        'attribute_ratings': ratings,
+                        'search': search,
+                    },
+                },
             )
+            # This endpoint creates the next coordinated batch round, not a
+            # user-requested single-task rerun. Reattach only these newly
+            # generated candidates after the rerun service has preserved the
+            # source's exact immutable resource versions.
+            task.mode = 'attribute_sweep'
+            task.batch = batch
+            task.save(update_fields=['mode', 'batch'])
             created.append(task)
         batch.status = 1
         batch.completed_at = None
         batch.save(update_fields=['status', 'completed_at', 'updated_at'])
         return {
-            'batch_id': effective_batch_id,
-            'parent_batch_id': continue_batch_id,
+            'batch_id': str(batch.id),
+            'parent_batch_id': str(continue_batch_id),
             'task_ids': [task.id for task in created],
             'accepted': len(created),
             'recommendation': recommendation,
@@ -2089,7 +1929,17 @@ class SimcBatchTaskAPIView(View):
                                 lines.append(line)
                         if not replaced:
                             raise ValueError(f'基准玩家块未包含可替换的装备槽位: {row["slot"]}')
-                        specs.append({'label': row['name'] or f"{row['slot']} #{row['item_id']}", 'is_base': False, 'player_equipment': '\n'.join(lines), 'talent': base_talent, 'candidate': {'type': 'gear_swap', 'slot': row['slot'], 'item_id': row['item_id'], 'source': row['source']}})
+                        specs.append({
+                            'label': row['name'] or f"{row['slot']} #{row['item_id']}",
+                            'is_base': False,
+                            'player_equipment': '\n'.join(lines),
+                            'talent': base_talent,
+                            'candidate': {
+                                'type': 'gear_swap', 'slot': row['slot'],
+                                'raw_value': row['raw_value'], 'item_id': row['item_id'],
+                                'source': row['source'],
+                            },
+                        })
                 else:
                     trusted = {row['talent']: row for row in parsed['talent_candidates']}
                     submitted_talents = [str(candidate.get('talent') or '') for candidate in submitted]
@@ -2115,6 +1965,41 @@ class SimcBatchTaskAPIView(View):
                 raise ValueError('可生成的比较任务不足2个；请提高可转移绿字或选择候选')
             created = []
             with transaction.atomic():
+                profile_id = data.get('simc_profile_id')
+                profile_values = {
+                    'spec': spec,
+                    'player_config_mode': mode,
+                    'player_equipment': player_equipment,
+                    'talent': str(data.get('talent') or (specs[0].get('talent') if specs else '') or '').strip(),
+                    'gear_strength': self._int(data.get('gear_strength', 0), '主属性'),
+                    **{
+                        f'gear_{stat}': self._int(data.get(f'gear_{stat}', 0), f'{stat}绿字')
+                        for stat in self.ATTRIBUTE_STATS
+                    },
+                }
+                if profile_id:
+                    try:
+                        profile = SimcProfile.objects.select_for_update().get(
+                            id=int(profile_id), user_id=request.user.id, is_active=True,
+                        )
+                    except (TypeError, ValueError, SimcProfile.DoesNotExist):
+                        raise ValueError('玩家配置不存在或无权使用')
+                    for field, value in profile_values.items():
+                        setattr(profile, field, value)
+                    profile_name = str(data.get('profile_name') or '').strip()
+                    if profile_name:
+                        profile.name = profile_name
+                    profile.save()
+                else:
+                    profile_name = str(data.get('profile_name') or '').strip()
+                    if not profile_name:
+                        raise ValueError('新建玩家配置时必须显式提供 profile_name')
+                    profile = SimcProfile.objects.create(
+                        user_id=request.user.id,
+                        name=profile_name,
+                        is_active=True,
+                        **profile_values,
+                    )
                 batch = SimcTaskBatch.objects.create(
                     user_id=request.user.id,
                     name=name,
@@ -2134,33 +2019,41 @@ class SimcBatchTaskAPIView(View):
                         'is_base': item['is_base'],
                         'candidate': item['candidate'],
                     }
-                    composer_request = {
-                        'fight_style': fight_style,
-                        'time': fight_time,
-                        'target_count': target_count,
-                        'player_import_mode': mode,
-                        'spec': spec,
-                        'talent': item.get('talent', str(data.get('talent') or '')),
-                        'base_template_id': base_template_id,
-                        'base_template_content': base_template_content,
-                        'selected_apl_id': selected_apl_id,
-                        'player_equipment': item['player_equipment'],
+                    candidate = item['candidate']
+                    candidate_type = candidate.get('type') or 'base'
+                    mode_params = {
+                        'candidate_type': candidate_type,
+                        'is_base': item['is_base'],
+                        'batch_index': index,
                     }
-                    if override_action_list_provided:
-                        composer_request['override_action_list'] = override_action_list
-                    if mode == 'attribute_only':
-                        composer_request['gear_strength'] = self._int(data.get('gear_strength', 0), '主属性')
-                        composer_request.update({
-                            f'gear_{stat}': item['gear'][stat]
-                            for stat in self.ATTRIBUTE_STATS
-                        })
-                    task = self._create_frozen_atom(
+                    task_mode = 'attribute_sweep' if kind == 'attribute_variants' else 'comparison'
+                    if candidate_type == 'gear_swap':
+                        mode_params['gear_swap'] = {
+                            key: candidate.get(key)
+                            for key in ('slot', 'raw_value', 'item_id', 'source')
+                        }
+                    elif candidate_type == 'talent':
+                        mode_params['candidate_type'] = 'talent_override'
+                        mode_params['talent_override'] = candidate.get('talent')
+                    elif kind == 'attribute_variants':
+                        mode_params['candidate_type'] = 'attribute_ratings'
+                        mode_params['attribute_ratings'] = item['gear']
+                        mode_params['search'] = candidate
+                    task = create_task(
                         user_id=request.user.id,
-                        batch=batch,
                         name=f'{name} · {item["label"]}',
+                        profile_id=profile.id,
+                        template_id=base_template_id,
+                        apl_id=selected_apl_id,
+                        mode=task_mode,
+                        simulation_params={
+                            'fight_style': fight_style,
+                            'max_time': fight_time,
+                            'desired_targets': target_count,
+                        },
+                        mode_params=mode_params,
                         candidate_label=item['label'],
-                        composer_request=composer_request,
-                        batch_compare=batch_compare,
+                        batch_id=batch.id,
                     )
                     created.append(task)
             return JsonResponse({'success': True, 'data': {'batch_id': batch_id, 'task_ids': [task.id for task in created], 'accepted': len(created)}})
@@ -2337,7 +2230,8 @@ def _get_unique_default_apl_for_spec(spec, owner_user_id=None):
 
 
 def inspect_raw_simc_code(raw_simc_code):
-    """Parse a pasted SimulationCraft profile enough for dashboard task creation."""
+    """Removed obsolete raw-code inspection entry point."""
+    raise ValueError('不再支持直接 SimC 代码模式；请使用引用型 Profile、模板和 APL')
     text = str(raw_simc_code or '').replace('\r\n', '\n').replace('\r', '\n').strip()
     if not text:
         raise ValueError('SimC代码不能为空')
@@ -2457,18 +2351,7 @@ class SimcRawInspectAPIView(View):
     """Inspect pasted raw SimulationCraft code and return safe task plans."""
 
     def post(self, request):
-        try:
-            data = json.loads(request.body or '{}')
-            raw_simc_code = data.get('raw_simc_code', '')
-            payload = inspect_raw_simc_code(raw_simc_code)
-            return JsonResponse({'success': True, 'data': payload})
-        except json.JSONDecodeError:
-            return JsonResponse({'success': False, 'error': '无效的JSON数据'})
-        except ValueError as e:
-            return JsonResponse({'success': False, 'error': str(e)})
-        except Exception as e:
-            logger.error(f"解析SimC原始代码失败: {str(e)}\n{traceback.format_exc()}")
-            return JsonResponse({'success': False, 'error': f'解析SimC代码失败: {str(e)}'})
+        return JsonResponse({'success': False, 'error': '该接口已停用，请使用引用型 Profile、模板和 APL'}, status=410)
 
 
 @method_decorator(login_required, name='dispatch')
@@ -3172,8 +3055,8 @@ class SimcProfileAPIView(View):
             
             # 检查是否为一键模拟操作
             simulate_now = data.get('simulate_now', False)
-            profile_id = data.get('profile_id')
-            
+            profile_id = data.get('profile_id') or data.get('simc_profile_id')
+
             # 如果是一键模拟操作且提供了profile_id，直接创建任务
             if simulate_now and profile_id:
                 try:
@@ -3182,39 +3065,43 @@ class SimcProfileAPIView(View):
                         user_id=request.user.id,
                         is_active=True
                     )
-                    
+
                     task_type = data.get('task_type', 1)
                     selected_attributes = data.get('selected_attributes')
                     regular_time = data.get('regular_time')
                     regular_target_count = data.get('regular_target_count')
                     attribute_step = data.get('attribute_step')
-                    
+                    base_template_id = data.get('base_template_id')
+                    selected_apl_id = data.get('selected_apl_id')
+
                     task_result = self._create_simulation_task(
-                        request.user.id, 
-                        profile, 
+                        request.user.id,
+                        profile,
                         task_type=task_type,
                         selected_attributes=selected_attributes,
                         regular_time=regular_time,
                         regular_target_count=regular_target_count,
-                        attribute_step=attribute_step
+                        attribute_step=attribute_step,
+                        base_template_id=base_template_id,
+                        selected_apl_id=selected_apl_id
                     )
-                    
+
                     if task_result['success']:
                         return JsonResponse({
                             'success': True,
                             'message': '模拟任务创建成功',
-                            'task_id': task_result['data']['id']
+                            'task_data': task_result['data']
                         })
                     else:
                         return JsonResponse({
                             'success': False,
-                            'message': '模拟任务创建失败: ' + task_result['error']
+                            'error': task_result['error']
                         })
-                        
+
                 except SimcProfile.DoesNotExist:
                     return JsonResponse({
                         'success': False,
-                        'message': 'SimC配置不存在'
+                        'error': 'SimC配置不存在'
                     })
             
             # 原有的创建配置逻辑
@@ -3239,6 +3126,53 @@ class SimcProfileAPIView(View):
             
             # 检查是否为复制操作
             copy_from_id = data.get('copy_from_id')
+
+            # 新建 Profile 并立即模拟必须走统一原子服务；资源校验失败时不保留 Profile。
+            if simulate_now and not copy_from_id:
+                try:
+                    values = self._validate_profile_payload(data)
+                    numeric_values = self._profile_numeric_values(data)
+                    from botend.services.simc_task_service import create_task_from_request, TaskCreationError
+
+                    profile_fields = {
+                        'name': name,
+                        'spec': values['spec'],
+                        'player_config_mode': values['mode'],
+                        'battlenet_region': values['battlenet_region'],
+                        'battlenet_realm': values['battlenet_realm'],
+                        'battlenet_character': values['battlenet_character'],
+                        'player_equipment': values['player_equipment'],
+                        'talent': values['talent'],
+                        **numeric_values,
+                    }
+                    simulation_params = {}
+                    if data.get('regular_time') is not None:
+                        simulation_params['max_time'] = int(data['regular_time'])
+                    if data.get('regular_target_count') is not None:
+                        simulation_params['desired_targets'] = int(data['regular_target_count'])
+
+                    task = create_task_from_request(
+                        user_id=request.user.id,
+                        profile_fields=profile_fields,
+                        base_template_id=data.get('base_template_id'),
+                        selected_apl_id=data.get('selected_apl_id'),
+                        simulation_params=simulation_params or None,
+                        name=f'{name}_常规模拟',
+                    )
+                except (ValueError, TaskCreationError) as e:
+                    return JsonResponse({'success': False, 'error': str(e)})
+
+                return JsonResponse({
+                    'success': True,
+                    'message': 'SimC配置创建成功，模拟任务已创建',
+                    'data': {'id': task.profile_id, 'name': task.profile.name},
+                    'task_data': {
+                        'id': task.id,
+                        'name': task.name,
+                        'current_status': task.current_status,
+                        'result_file': task.result_file,
+                    },
+                })
             
             if copy_from_id:
                 try:
@@ -3350,14 +3284,18 @@ class SimcProfileAPIView(View):
                     regular_time = data.get('regular_time')
                     regular_target_count = data.get('regular_target_count')
                     attribute_step = data.get('attribute_step')
+                    base_template_id = data.get('base_template_id')
+                    selected_apl_id = data.get('selected_apl_id')
                     task_result = self._create_simulation_task(
-                        request.user.id, 
-                        profile, 
+                        request.user.id,
+                        profile,
                         task_type=task_type,
                         selected_attributes=selected_attributes,
                         regular_time=regular_time,
                         regular_target_count=regular_target_count,
-                        attribute_step=attribute_step
+                        attribute_step=attribute_step,
+                        base_template_id=base_template_id,
+                        selected_apl_id=selected_apl_id
                     )
                     if task_result['success']:
                         response_data['message'] += '，模拟任务已创建'
@@ -3372,169 +3310,79 @@ class SimcProfileAPIView(View):
                 'success': False,
                 'error': '无效的JSON数据'
             })
-        except Exception as e:
-            logger.error(f"创建SimC配置失败: {str(e)}")
+        except ValueError as e:
             return JsonResponse({
                 'success': False,
-                'error': '创建SimC配置失败'
+                'error': str(e)
+            })
+        except Exception as e:
+            logger.error(f"创建SimC配置失败: {str(e)}\n{traceback.format_exc()}")
+            return JsonResponse({
+                'success': False,
+                'error': f'创建SimC配置失败: {str(e)}'
             })
     
-    def _create_simulation_task(self, user_id, profile, task_type=1, selected_attributes=None, regular_time=None, regular_target_count=None, attribute_step=None):
+    def _create_simulation_task(self, user_id, profile, task_type=1, selected_attributes=None, regular_time=None, regular_target_count=None, attribute_step=None, base_template_id=None, selected_apl_id=None):
         """创建模拟任务的辅助方法"""
-        try:
-            task_type = int(task_type or 1)
-            frozen_player_equipment = profile.player_equipment or ''
-            if self._profile_mode(profile) == 'attribute_only':
-                frozen_player_equipment = resolve_attribute_player_baseline(profile.spec, frozen_player_equipment)
-            if task_type not in (1, 2):
-                raise ValueError('任务类型无效')
-            if task_type == 2:
-                selected_attributes = str(selected_attributes or '').strip()
-                if not selected_attributes:
-                    raise ValueError('属性模拟需要选择两项副属性')
-                selected = SimcMonitor(None, None).parse_selected_attributes(selected_attributes)
-                if len(selected) != 2:
-                    raise ValueError('属性模拟需要选择两项有效副属性')
-                try:
-                    step = int(attribute_step) if attribute_step not in (None, '') else 50
-                except (TypeError, ValueError):
-                    raise ValueError('属性模拟步长必须是整数')
-                if step != 50:
-                    raise ValueError('四属性自动寻优固定使用 50 绿字步长')
-                attribute_step = step
+        from botend.services.simc_task_service import create_task_from_request, TaskCreationError
 
-            # 新流程由执行器使用任务专属输出名并在实际生成后回写 result_file；不能预填 MD5 名阻断真实结果检测。
-            result_file = ''
-            
-            # 根据任务类型生成任务名称
-            if task_type == 2 and selected_attributes:
-                task_name = f"{profile.name}_属性模拟_{selected_attributes}"
-            else:
-                try:
-                    display_time = max(1, int(regular_time)) if regular_time not in (None, '') else 300
-                except Exception:
-                    display_time = 300
-                try:
-                    display_target_count = max(1, int(regular_target_count)) if regular_target_count not in (None, '') else 1
-                except Exception:
-                    display_target_count = 1
-                task_name = f"{profile.name}_常规模拟_{display_time}s_{display_target_count}目标"
-            
-            ext_payload = {
+        try:
+            # ========== 引用型任务切片：拒绝旧模式 ==========
+
+            task_type = int(task_type or 1)
+
+            # 1. 拒绝 task_type=2（属性寻优）
+            if task_type == 2:
+                raise ValueError('旧版属性寻优（task_type=2）已停用。后续切片将提供基于 Batch 的新版属性寻优。')
+
+            if task_type not in (1,):
+                raise ValueError('任务类型无效，当前只支持 task_type=1（常规模拟）')
+
+            # 2. 要求显式提供 template 和 APL
+            if not base_template_id or not selected_apl_id:
+                raise ValueError(
+                    'simulate_now 必须提供显式的 base_template_id 和 selected_apl_id。'
+                    '当前版本不支持自动选择默认模板/APL。'
+                )
+
+            # ========== 使用引用型服务创建任务 ==========
+
+            # 构建 profile_fields（使用现有 profile 的 ID）
+            profile_fields = {
+                'simc_profile_id': profile.id,
                 'spec': profile.spec,
-                'talent': profile.talent or '',
-                'player_config_mode': self._profile_mode(profile),
-                'player_import_mode': self._profile_mode(profile),
-                'player_equipment': frozen_player_equipment,
+                'player_config_mode': profile.player_config_mode,
                 'battlenet_region': profile.battlenet_region or '',
                 'battlenet_realm': profile.battlenet_realm or '',
                 'battlenet_character': profile.battlenet_character or '',
+                'player_equipment': profile.player_equipment or '',
+                'talent': profile.talent or '',
                 'gear_strength': profile.gear_strength,
                 'gear_crit': profile.gear_crit,
                 'gear_haste': profile.gear_haste,
                 'gear_mastery': profile.gear_mastery,
                 'gear_versatility': profile.gear_versatility,
             }
-            if task_type == 2:
-                if selected_attributes:
-                    ext_payload['selected_attributes'] = selected_attributes
-                if attribute_step not in (None, ''):
-                    ext_payload['attribute_step'] = max(1, int(attribute_step))
-            else:
-                # 常规模拟始终固化"最终生效"的时长和目标数，避免后续查看/执行链路歧义
-                try:
-                    effective_time = max(1, int(regular_time)) if regular_time not in (None, '') else 300
-                except Exception:
-                    effective_time = 300
-                try:
-                    effective_target_count = max(1, int(regular_target_count)) if regular_target_count not in (None, '') else 1
-                except Exception:
-                    effective_target_count = 1
-                ext_payload['regular_time'] = effective_time
-                ext_payload['regular_target_count'] = effective_target_count
-                ext_payload['time'] = effective_time
-                ext_payload['target_count'] = effective_target_count
-                ext_payload['fight_style'] = 'Patchwerk'
 
-            # 已保存配置的"立即模拟"也必须冻结三类执行输入，避免 Worker 执行时
-            # 因基础模板或默认 APL 后续更新而改变已创建任务的语义。
-            ext_payload = json.loads(SimcTaskAPIView()._build_task_ext(
-                task_type=task_type,
-                ext=ext_payload,
-                owner_user_id=user_id,
-                regular_time=regular_time,
-                regular_target_count=regular_target_count,
-                selected_attributes=selected_attributes,
-                attribute_step=attribute_step,
-                fight_style=ext_payload.get('fight_style'),
-                time=ext_payload.get('time'),
-                target_count=ext_payload.get('target_count'),
-                player_config_mode=ext_payload.get('player_config_mode'),
-                player_equipment=frozen_player_equipment,
-                gear_strength=profile.gear_strength,
-                gear_crit=profile.gear_crit,
-                gear_haste=profile.gear_haste,
-                gear_mastery=profile.gear_mastery,
-                gear_versatility=profile.gear_versatility,
-                talent=profile.talent or '',
-                spec=profile.spec,
-                battlenet_region=profile.battlenet_region or '',
-                battlenet_realm=profile.battlenet_realm or '',
-                battlenet_character=profile.battlenet_character or '',
-            ))
+            # 构建 simulation_params
+            simulation_params = {}
+            if regular_time is not None:
+                simulation_params['max_time'] = int(regular_time)
+            if regular_target_count is not None:
+                simulation_params['desired_targets'] = int(regular_target_count)
 
-            # 已保存配置的常规模拟必须在创建时生成不可变 v2 原子任务。
-            # task_type=2 仍由属性扫描执行器负责展开多个点，不能误冻结成单次常规模拟。
-            final_simc_content = None
-            input_hash = ''
-            fragment_manifest = None
-            if task_type == 1 and ext_payload.get('player_config_mode') != 'battlenet':
-                result_file = f'{uuid.uuid4().hex}.html'
-                composer_request = {
-                    'spec': profile.spec,
-                    'player_import_mode': ext_payload.get('player_config_mode'),
-                    'player_equipment': frozen_player_equipment,
-                    'talent': profile.talent or '',
-                    'fight_style': ext_payload.get('fight_style', 'Patchwerk'),
-                    'time': ext_payload.get('time', 300),
-                    'target_count': ext_payload.get('target_count', 1),
-                    'gear_strength': profile.gear_strength,
-                    'gear_crit': profile.gear_crit,
-                    'gear_haste': profile.gear_haste,
-                    'gear_mastery': profile.gear_mastery,
-                    'gear_versatility': profile.gear_versatility,
-                    'selected_apl_id': ext_payload.get('selected_apl_id'),
-                    'override_action_list': ext_payload.get('override_action_list'),
-                    'base_template_id': ext_payload.get('base_template_id'),
-                    'base_template_content': ext_payload.get('base_template_content'),
-                    'battlenet_region': profile.battlenet_region or '',
-                    'battlenet_realm': profile.battlenet_realm or '',
-                    'battlenet_character': profile.battlenet_character or '',
-                    '_result_file_path': result_file,
-                }
-                composer = SimcComposer(user_id=user_id)
-                final_simc_content, manifest, error = composer.compose(composer_request)
-                if error:
-                    raise ValueError(error)
-                if not final_simc_content or manifest is None:
-                    raise ValueError('Composer 未生成冻结任务正文')
-                input_hash = SimcComposer.compute_input_hash(final_simc_content)
-                fragment_manifest = manifest.to_json()
+            # 生成任务名称
+            task_name = f"{profile.name}_常规模拟"
 
-            # 创建SimcTask
-            task = SimcTask.objects.create(
+            task = create_task_from_request(
                 user_id=user_id,
+                profile_fields=profile_fields,
+                base_template_id=base_template_id,
+                selected_apl_id=selected_apl_id,
+                simulation_params=simulation_params if simulation_params else None,
                 name=task_name,
-                simc_profile_id=profile.id,
-                current_status=0,  # 待执行
-                result_file=result_file,
-                task_type=task_type,
-                ext=json.dumps(ext_payload, ensure_ascii=False),
-                final_simc_content=final_simc_content,
-                input_hash=input_hash,
-                fragment_manifest=fragment_manifest,
             )
-            
+
             return {
                 'success': True,
                 'data': {
@@ -3544,13 +3392,14 @@ class SimcProfileAPIView(View):
                     'result_file': task.result_file
                 }
             }
-            
+
+        except TaskCreationError as e:
+            return {'success': False, 'error': str(e)}
+        except ValueError as e:
+            return {'success': False, 'error': str(e)}
         except Exception as e:
-            logger.error(f"创建模拟任务失败: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            logger.error(f"创建模拟任务失败: {str(e)}\n{traceback.format_exc()}")
+            return {'success': False, 'error': f'创建模拟任务失败: {str(e)}'}
     
     def put(self, request):
         """更新SimC配置"""
@@ -4317,6 +4166,20 @@ class SimcTaskPreviewAPIView(View):
         except (SimcTask.DoesNotExist, TypeError, ValueError):
             return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'})
         manifest = SimcTaskAPIView()._normalize_task_ext(task.task_type, task.ext)
+        if task.profile_id and task.template_id and task.apl_id and task.profile_version_id and task.template_version_id and task.apl_version_id:
+            return JsonResponse({'success': True, 'data': {
+                'id': task.id, 'name': task.name, 'task_type': task.task_type,
+                'mode': task.mode, 'status': task.current_status,
+                'profile_id': task.profile_id, 'template_id': task.template_id, 'apl_id': task.apl_id,
+                'profile_version_id': task.profile_version_id,
+                'template_version_id': task.template_version_id,
+                'apl_version_id': task.apl_version_id,
+                'simulation_params': task.simulation_params or {},
+                'mode_params': task.mode_params or {},
+                'batch_id': task.batch_id,
+                'candidate_label': task.candidate_label,
+                'result_file': SimcTaskAPIView()._task_result_file_summary(task),
+            }})
         profile = None
         if not manifest and task.simc_profile_id:
             profile = SimcProfile.objects.filter(id=task.simc_profile_id, user_id=request.user.id).first()

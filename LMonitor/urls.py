@@ -25,7 +25,7 @@ from botend.dashboard.dashboard import DashboardView, SimcResultView, SimcAttrib
 from botend.dashboard.api import (
     ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView,
     SimcTaskAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcPlayerConfigDetailAPIView,
-    SimcRawInspectAPIView, SimcTemplateAPIView, SimcAplCandidatesAPIView, SimcSpecOptionsAPIView, KeywordTranslationAPIView,
+    SimcTemplateAPIView, SimcAplCandidatesAPIView, SimcSpecOptionsAPIView, KeywordTranslationAPIView,
     OssConfigAPIView, SimcResultProxyAPIView, SimcTaskPreviewAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView,
     SimcBattlenetPreflightAPIView,
     SimcBackendBinaryAPIView, SimcWorkbenchAPIView, SimcArtifactPreviewAPIView, SimcTaskReportPreviewAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView,
@@ -120,7 +120,7 @@ urlpatterns = [
     path('api/simc-task/batch/', SimcBatchTaskAPIView.as_view(), name="simc_task_batch"),
     path('api/simc-task/preview/', SimcTaskPreviewAPIView.as_view(), name="simc_task_preview"),
     path('api/simc-profile/', SimcProfileAPIView.as_view(), name="simc_profile"),
-    path('api/simc-profile/inspect-raw/', SimcRawInspectAPIView.as_view(), name="simc_profile_inspect_raw"),
+
     path('api/simc-player-config-detail/', SimcPlayerConfigDetailAPIView.as_view(), name="simc_player_config_detail"),
     path('api/simc-battlenet-preflight/', SimcBattlenetPreflightAPIView.as_view(), name="simc_battlenet_preflight"),
     path('api/simc-profile/<int:profile_id>/', SimcProfileAPIView.as_view(), name="simc_profile_detail"),

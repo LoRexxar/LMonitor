@@ -23,7 +23,14 @@ from utils.log import logger
 from botend.models import SimcTask, SimcTaskBatch, SimcProfile, SimcBackendBinary
 from botend.alerting import upsert_system_alert
 from botend.controller.BaseScan import BaseScan
-from botend.services.simc_player_config import authoritative_player_baseline, validate_player_baseline
+from botend.services.simc_player_config import (
+    EQUIPMENT_SLOT_ALIASES,
+    authoritative_player_baseline,
+    validate_player_baseline,
+)
+from botend.services.simc_composer import SimcComposer
+from botend.services.task_resolver import resolve_task, is_reference_task, TaskResolutionError
+from botend.models import SimulationRun
 
 
 class SimcMonitor(BaseScan):
@@ -236,10 +243,8 @@ class SimcMonitor(BaseScan):
                 )
                 if not statuses:
                     resolved_status = 0
-                elif any(status == 3 for status in statuses):
-                    resolved_status = 3
-                elif all(status == 2 for status in statuses):
-                    resolved_status = 2
+                elif all(status in (2, 3) for status in statuses):
+                    resolved_status = 3 if any(status == 3 for status in statuses) else 2
                 else:
                     resolved_status = 1
 
@@ -291,6 +296,7 @@ class SimcMonitor(BaseScan):
                 )
 
             simc_task.current_status = 3
+            simc_task.error_detail = detail
             simc_task.save()
             self.sync_batch_lifecycle(simc_task.batch_id)
         except Exception as save_err:
@@ -416,11 +422,8 @@ class SimcMonitor(BaseScan):
                 logger.info("[SimC Monitor] No pending SimC task.")
                 return True
 
-            first_ext = self.parse_task_ext(first_task.ext)
-            if not isinstance(first_ext, dict):
-                first_ext = {}
-            first_manifest = first_ext.get('batch_compare') if isinstance(first_ext.get('batch_compare'), dict) else {}
-            legacy_batch_id = str(first_manifest.get('batch_id') or '').strip()
+            # Batch membership is authoritative only through the database FK. Legacy
+            # ext.batch_compare.batch_id strings are intentionally not used for dispatch.
             pending_tasks = [first_task]
             if first_task.batch_id:
                 pending_tasks = list(SimcTask.objects.filter(
@@ -428,19 +431,6 @@ class SimcMonitor(BaseScan):
                     current_status=0,
                     batch_id=first_task.batch_id,
                 ).order_by('modified_time', 'id'))
-            elif legacy_batch_id:
-                pending_tasks = []
-                for candidate in SimcTask.objects.filter(
-                    is_active=True,
-                    current_status=0,
-                    batch__isnull=True,
-                ).order_by('modified_time', 'id'):
-                    candidate_ext = self.parse_task_ext(candidate.ext)
-                    if not isinstance(candidate_ext, dict):
-                        candidate_ext = {}
-                    manifest = candidate_ext.get('batch_compare') if isinstance(candidate_ext.get('batch_compare'), dict) else {}
-                    if str(manifest.get('batch_id') or '').strip() == legacy_batch_id:
-                        pending_tasks.append(candidate)
 
             for simc_task in pending_tasks:
                 logger.info(f"[SimC Monitor] Processing task: {simc_task.name} (ID: {simc_task.id})")
@@ -454,29 +444,256 @@ class SimcMonitor(BaseScan):
         return True
 
     @staticmethod
-    def is_frozen_manifest_v2(simc_task):
-        """Return whether the task declares the immutable v2 execution contract."""
-        try:
-            manifest = json.loads(simc_task.fragment_manifest or '{}')
-        except (TypeError, ValueError):
-            return False
-        return isinstance(manifest, dict) and manifest.get('manifest_version') == 'v2'
+    def is_reference_task(simc_task):
+        """
+        检查任务是否是完整引用型任务（新架构）。
+        必须同时具有所有六个引用字段。
+        """
+        return is_reference_task(simc_task)
 
     @staticmethod
-    def validate_frozen_task_input(simc_task):
-        """Validate and return the exact immutable SimC body owned by a v2 task."""
-        content = simc_task.final_simc_content
-        if not isinstance(content, str) or not content.strip():
-            raise ValueError('manifest v2 任务缺少冻结的 final_simc_content')
-        expected_hash = str(simc_task.input_hash or '').strip().lower()
-        if not re.fullmatch(r'[0-9a-f]{64}', expected_hash):
-            raise ValueError('manifest v2 任务缺少有效 input_hash')
-        actual_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
-        if actual_hash != expected_hash:
-            raise ValueError(
-                f'冻结正文 hash 校验失败: expected={expected_hash}, actual={actual_hash}'
+    def apply_candidate_overrides(composer_request, mode_params):
+        """Apply one Batch candidate to an in-memory Composer request.
+
+        Immutable resource payloads remain untouched; only this execution request
+        is changed before composition.
+        """
+        request_data = dict(composer_request or {})
+        params = mode_params or {}
+        candidate_type = params.get('candidate_type') or 'base'
+
+        if candidate_type == 'gear_swap':
+            swap = params.get('gear_swap') or {}
+            slot = str(swap.get('slot') or '').strip().lower()
+            raw_value = str(swap.get('raw_value') or '').strip()
+            if not slot or not raw_value:
+                raise ValueError('装备候选缺少 slot 或 raw_value')
+            lines = []
+            replaced = False
+            in_candidate_section = False
+            for line in str(request_data.get('player_equipment') or '').splitlines():
+                stripped = line.strip()
+                if stripped.startswith('###'):
+                    in_candidate_section = True
+                current = line.partition('=')[0].strip().lower()
+                canonical = EQUIPMENT_SLOT_ALIASES.get(current, current)
+                if canonical == slot and not replaced and not in_candidate_section:
+                    lines.append(f'{current}={raw_value}')
+                    replaced = True
+                else:
+                    lines.append(line)
+            if not replaced:
+                raise ValueError(f'基准玩家块未包含可替换的装备槽位: {slot}')
+            request_data['player_equipment'] = '\n'.join(lines)
+
+        elif candidate_type == 'talent_override':
+            talent = str(params.get('talent_override') or '').strip()
+            if not talent:
+                raise ValueError('天赋候选缺少构筑码')
+            lines = []
+            replaced = False
+            for line in str(request_data.get('player_equipment') or '').splitlines():
+                if line.partition('=')[0].strip().lower() in ('talent', 'talents') and not replaced:
+                    lines.append(f'talents={talent}')
+                    replaced = True
+                else:
+                    lines.append(line)
+            if not replaced:
+                raise ValueError('基准玩家块未包含 talents 行，无法应用天赋候选')
+            request_data['player_equipment'] = '\n'.join(lines)
+            request_data['talent'] = talent
+
+        elif candidate_type == 'apl_override':
+            request_data['override_action_list'] = str(params.get('apl_override') or '')
+
+        elif candidate_type == 'attribute_ratings':
+            ratings = params.get('attribute_ratings') or {}
+            for stat in ('crit', 'haste', 'mastery', 'versatility'):
+                if stat not in ratings:
+                    raise ValueError(f'属性候选缺少 {stat}')
+                request_data[f'gear_{stat}'] = int(ratings[stat])
+
+        elif candidate_type != 'base':
+            raise ValueError(f'不支持的候选类型: {candidate_type}')
+
+        return request_data
+
+    def process_reference_task(self, simc_task):
+        """
+        Process reference-based task with immutable version snapshots.
+
+        Contract:
+        1. Only accepts complete 6-reference tasks
+        2. Calls task_resolver.resolve_task for version payloads
+        3. Uses SimcComposer.compose() to generate SimC input
+        4. Creates SimulationRun with input_hash and metadata
+        5. Uses existing execute_simc_command
+        """
+        run = None
+        try:
+            # Validate complete 6-reference task
+            if not is_reference_task(simc_task):
+                self.mark_task_failed(
+                    simc_task,
+                    "引用型任务必须包含完整的六个引用字段",
+                    Exception("任务缺少 profile/template/apl 的 FK 或 version FK")
+                )
+                return False
+
+            # Allocate under a lock on the parent row. Locking an empty child
+            # queryset does not serialize first-run allocation.
+            with transaction.atomic():
+                SimcTask.objects.select_for_update().get(pk=simc_task.pk)
+                max_sequence = SimulationRun.objects.filter(task=simc_task).aggregate(
+                    value=models.Max('sequence')
+                )['value'] or 0
+                run = SimulationRun.objects.create(
+                    task=simc_task,
+                    sequence=max_sequence + 1,
+                    candidate_label=simc_task.candidate_label or '',
+                    status='running',
+                    input_hash='',
+                    resource_manifest={},
+                    started_at=timezone.now(),
+                )
+
+            # Resolve task to version payloads
+            try:
+                resolved = resolve_task(simc_task)
+            except TaskResolutionError as e:
+                run.status = 'failed'
+                run.error_detail = str(e)
+                run.completed_at = timezone.now()
+                run.save(update_fields=['status', 'error_detail', 'completed_at'])
+                self.mark_task_failed(simc_task, "任务引用解析失败", e)
+                return False
+
+            # Extract profile spec from resource metadata
+            profile_metadata = resolved.resource_metadata.get('profile', {})
+            profile_payload = resolved.profile_payload
+            profile_spec = profile_metadata.get('spec', 'fury')
+
+            # Build Composer input exclusively from immutable version payloads.
+            composer_request = {
+                'spec': resolved.simulation_params.get('spec') or profile_spec,
+                'fight_style': resolved.simulation_params.get('fight_style', 'Patchwerk'),
+                'time': resolved.simulation_params.get('max_time', 300),
+                'target_count': resolved.simulation_params.get('desired_targets', 1),
+                'iterations': resolved.simulation_params.get('iterations', 10000),
+                'target_error': resolved.simulation_params.get('target_error'),
+                'vary_combat_length': resolved.simulation_params.get('vary_combat_length'),
+                'enemy_type': resolved.simulation_params.get('enemy_type'),
+                'player_import_mode': profile_payload.get('player_config_mode', ''),
+                'player_equipment': profile_payload.get('player_equipment', ''),
+                'battlenet_region': profile_payload.get('battlenet_region', ''),
+                'battlenet_realm': profile_payload.get('battlenet_realm', ''),
+                'battlenet_character': profile_payload.get('battlenet_character', ''),
+                'talent': profile_payload.get('talent', ''),
+                'gear_strength': profile_payload.get('gear_strength'),
+                'gear_crit': profile_payload.get('gear_crit'),
+                'gear_haste': profile_payload.get('gear_haste'),
+                'gear_mastery': profile_payload.get('gear_mastery'),
+                'gear_versatility': profile_payload.get('gear_versatility'),
+                'base_template_content': resolved.template_content or '',
+                'override_action_list': resolved.apl_content or '',
+                '_result_file_path': simc_task.result_file or f'{simc_task.id}.html',
+            }
+            composer_request = self.apply_candidate_overrides(
+                composer_request,
+                resolved.mode_params,
             )
-        return content
+            run.resource_manifest = resolved.resource_metadata
+            run.save(update_fields=['resource_manifest'])
+
+            # Compose final SimC input using SimcComposer
+            composer = SimcComposer(simc_task.user_id)
+            simc_code, composition_manifest, compose_error = composer.compose(composer_request)
+
+            if compose_error or simc_code is None:
+                # Compose failed - mark run as failed
+                run.status = 'failed'
+                run.error_detail = compose_error or 'SimC composition failed'
+                run.completed_at = timezone.now()
+                run.save(update_fields=['status', 'error_detail', 'completed_at'])
+
+                self.mark_task_failed(simc_task, "SimC 组合失败", Exception(compose_error or 'Composition returned None'))
+                return False
+
+            # Compute input hash
+            input_hash = hashlib.sha256(simc_code.encode('utf-8')).hexdigest()
+            run.input_hash = input_hash
+            run.save(update_fields=['input_hash'])
+
+            # Write temporary SimC file
+            result_file = simc_task.result_file or f'{simc_task.id}.html'
+            simc_file_path = os.path.join(self.result_path, f'temp_{simc_task.id}_run_{run.id}.simc')
+
+            try:
+                with open(simc_file_path, 'w', encoding='utf-8') as f:
+                    f.write(simc_code)
+
+                # Execute SimC using existing command
+                success = self.execute_simc_command(simc_file_path, simc_task, result_file)
+
+                # Update THIS run based on execution result
+                if success:
+                    simc_task.refresh_from_db()
+                    ext_payload = self.parse_task_ext(simc_task.ext)
+                    result_summary = ext_payload.get('semantic_validation') or {}
+                    run.status = 'completed'
+                    run.result_summary = result_summary
+                    run.completed_at = timezone.now()
+                    run.save(update_fields=['status', 'result_summary', 'completed_at'])
+
+                    # Mark task as completed and expose the same semantic summary.
+                    simc_task.current_status = 2
+                    simc_task.result_summary = json.dumps(result_summary, ensure_ascii=False)
+                    simc_task.error_detail = None
+                    simc_task.completed_at = timezone.now()
+                    simc_task.save(update_fields=['current_status', 'result_summary', 'error_detail', 'completed_at'])
+                    return True
+                else:
+                    simc_task.refresh_from_db()
+                    detail = str(simc_task.error_detail or '').strip()
+                    if not detail:
+                        ext_payload = self.parse_task_ext(simc_task.ext)
+                        detail = str(ext_payload.get('simc_error_summary') or 'SimC execution failed')
+                        simc_task.error_detail = detail
+                        simc_task.save(update_fields=['error_detail'])
+                    run.status = 'failed'
+                    run.error_detail = detail
+                    run.completed_at = timezone.now()
+                    run.save(update_fields=['status', 'error_detail', 'completed_at'])
+
+                    # Ensure task is marked as failed
+                    simc_task.refresh_from_db()
+                    if simc_task.current_status != 3:
+                        simc_task.current_status = 3
+                        simc_task.save(update_fields=['current_status'])
+                    return False
+
+            finally:
+                # Clean up temporary file
+                if os.path.exists(simc_file_path):
+                    os.remove(simc_file_path)
+
+        except Exception as e:
+            logger.error(f"[SimC Monitor] Error processing reference task {simc_task.id}: {str(e)}")
+
+            # Only update THIS run if it was created in this execution
+            if run is not None:
+                try:
+                    run.refresh_from_db()
+                    if run.status != 'completed':
+                        run.status = 'failed'
+                        run.error_detail = str(e)
+                        run.completed_at = timezone.now()
+                        run.save(update_fields=['status', 'error_detail', 'completed_at'])
+                except Exception:
+                    pass
+
+            self.mark_task_failed(simc_task, "引用型任务处理异常", e)
+            return False
 
     def process_simc_task(self, simc_task):
         """
@@ -499,53 +716,18 @@ class SimcMonitor(BaseScan):
             self.clear_simc_error_details(simc_task)
             simc_task.save(update_fields=['ext', 'modified_time'])
 
-            # manifest v2 is the only execution authority for newly composed atoms.
-            # Validate before reading ext or querying mutable Profile/template/APL rows.
-            if self.is_frozen_manifest_v2(simc_task):
-                try:
-                    self.validate_frozen_task_input(simc_task)
-                except ValueError as exc:
-                    self.mark_task_failed(simc_task, '冻结任务输入校验失败', exc)
-                    return False
-                return self.process_regular_simulation(simc_task, None)
-            
-            ext_payload = self.parse_task_ext(simc_task.ext)
-            raw_simc_code = str(ext_payload.get('raw_simc_code') or '').strip()
+            # 引用型任务：新架构，动态 Composer + SimulationRun
+            if self.is_reference_task(simc_task):
+                return self.process_reference_task(simc_task)
 
-            # 直接 SimC 代码只支持常规模拟，不依赖 SimcProfile。
-            if raw_simc_code and int(simc_task.task_type or 1) == 1:
-                return self.process_regular_simulation(simc_task, None)
+            # ── All non-reference tasks rejected ──
+            self.mark_task_failed(
+                simc_task,
+                '只支持完整引用型任务',
+                Exception('任务必须包含完整的六个引用字段（profile/template/apl + versions）')
+            )
+            return False
 
-            if raw_simc_code and int(simc_task.task_type or 1) == 2:
-                self.mark_task_failed(simc_task, "直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟")
-                return False
-
-            # 新版 manifest 已固化玩家配置，不依赖可变 SimcProfile。
-            # 属性扫描仍必须进入属性执行器；不能因为存在 player_config_mode
-            # 被误当作常规任务，否则会丢失 selected_attributes/step 的扫描语义。
-            if ext_payload.get('player_config_mode'):
-                if int(simc_task.task_type or 1) == 2:
-                    return self.process_attribute_simulation(simc_task, None)
-                return self.process_regular_simulation(simc_task, None)
-
-            # 旧版 Profile + 模板模式、属性模拟都需要 SimcProfile。
-            simc_profile = SimcProfile.objects.filter(
-                id=simc_task.simc_profile_id,
-                user_id=simc_task.user_id,
-                is_active=True
-            ).first()
-
-            if not simc_profile:
-                logger.error(f"[SimC Monitor] SimC profile not found for task {simc_task.id}")
-                self.mark_task_failed(simc_task, "未找到对应的SimC配置，可能已被删除或禁用")
-                return False
-
-            # 根据任务类型选择处理方式
-            if simc_task.task_type == 2:  # 属性模拟
-                return self.process_attribute_simulation(simc_task, simc_profile)
-            else:  # 常规模拟
-                return self.process_regular_simulation(simc_task, simc_profile)
-            
         except Exception as e:
             logger.error(f"[SimC Monitor] Error processing task {simc_task.id}: {str(e)}")
             self.mark_task_failed(simc_task, "任务处理失败", e)
@@ -554,132 +736,7 @@ class SimcMonitor(BaseScan):
             self.sync_batch_lifecycle(getattr(simc_task, 'batch_id', None))
 
         return True
-    
-    def process_regular_simulation(self, simc_task, simc_profile):
-        """
-        处理常规模拟任务
-        :param simc_task: SimcTask对象
-        :param simc_profile: SimcProfile对象（可选，用于兼容旧任务）
-        :return: 执行是否成功
-        """
-        try:
-            frozen_v2 = self.is_frozen_manifest_v2(simc_task)
-            if frozen_v2:
-                # Defence in depth for direct callers that bypass process_simc_task().
-                simc_code = self.validate_frozen_task_input(simc_task)
-            else:
-                simc_code = ''
 
-            ext_payload = self.parse_task_ext(simc_task.ext)
-            # Every regular task owns one deterministic report path. Batch comparisons
-            # must never discover a directory-neighbour's report after SimC exits.
-            result_file = self.ensure_regular_result_file(simc_task)
-
-            # ── Frozen final_simc_content (manifest v2) ──
-            if frozen_v2:
-                logger.info(f"[SimC Monitor] Task {simc_task.id}: using frozen final_simc_content ({len(simc_code)} chars)")
-
-            # ── Legacy: 直接 SimC 代码模式 ──
-            elif ext_payload.get('raw_simc_code') and str(ext_payload.get('raw_simc_code')).strip():
-                raw_simc_code = ext_payload.get('raw_simc_code')
-                logger.info(f"[SimC Monitor] Task {simc_task.id}: using raw simc code ({len(raw_simc_code)} chars)")
-                simc_code = str(raw_simc_code).strip()
-                override_action_list = ext_payload.get('override_action_list')
-                if override_action_list:
-                    simc_code = self.apply_action_list_override_to_raw(simc_code, override_action_list)
-                simc_code = self.ensure_result_file_directive(simc_code, result_file)
-
-            # ── Legacy: 新版任务配置模式（从 ext JSON 读取所有配置） ──
-            elif ext_payload.get('player_config_mode'):
-                    # 快照冻结：优先使用 ext.base_template_content
-                    spec_value = ext_payload.get('spec') or (simc_profile.spec if simc_profile else 'fury')
-                    template = ext_payload.get('base_template_content')
-                    if not template:
-                        raise Exception("任务快照缺少基础模板内容")
-                    
-                    # 构建 task_config 字典
-                    task_config = {
-                        'spec': spec_value,
-                        'talent': ext_payload.get('talent') or (simc_profile.talent if simc_profile else ''),
-                        'fight_style': ext_payload.get('fight_style', 'Patchwerk'),
-                        'time': ext_payload.get('time', 300),
-                        'target_count': ext_payload.get('target_count', 1),
-                        'player_config_mode': ext_payload.get('player_config_mode'),
-                        'player_import_mode': ext_payload.get('player_import_mode') or ext_payload.get('player_config_mode'),
-                        'player_equipment': ext_payload.get('player_equipment', ''),
-                        'battlenet_region': ext_payload.get('battlenet_region', ''),
-                        'battlenet_realm': ext_payload.get('battlenet_realm', ''),
-                        'battlenet_character': ext_payload.get('battlenet_character', ''),
-                        'gear_strength': ext_payload.get('gear_strength', 0),
-                        'gear_crit': ext_payload.get('gear_crit', 0),
-                        'gear_haste': ext_payload.get('gear_haste', 0),
-                        'gear_mastery': ext_payload.get('gear_mastery', 0),
-                        'gear_versatility': ext_payload.get('gear_versatility', 0),
-                        'override_action_list': ext_payload.get('override_action_list', ''),
-                    }
-                    
-                    simc_code = self.apply_template(
-                        template_content=template,
-                        task_config={**task_config, 'result_file': result_file}
-                    )
-
-            # ── Legacy: 兼容旧版 Profile + 模板模式 ──
-            else:
-                if not simc_profile:
-                    self.mark_task_failed(simc_task, "未找到对应的SimC配置，可能已被删除或禁用")
-                    return False
-
-                override_time = ext_payload.get('regular_time')
-                override_target_count = ext_payload.get('regular_target_count')
-                override_action_list = ext_payload.get('override_action_list')
-                logger.info(
-                    f"[SimC Monitor] Regular overrides for task {simc_task.id}: "
-                    f"time={override_time}, targets={override_target_count}"
-                )
-
-                # 生成SimC代码
-                simc_code = self.generate_simc_code(
-                    simc_profile,
-                    result_file,
-                    override_time=override_time,
-                    override_target_count=override_target_count,
-                    override_action_list=override_action_list
-                )
-
-                if not isinstance(simc_code, str) or not simc_code.strip():
-                    raise Exception("生成SimC配置失败：模板渲染结果为空")
-
-            self.persist_final_config_validation(simc_task, simc_code)
-            
-            # 创建临时SimC文件
-            simc_file_path = os.path.join(self.result_path, f"temp_{simc_task.id}.simc")
-            
-            with open(simc_file_path, 'w', encoding='utf-8') as f:
-                f.write(simc_code)
-            
-            # 执行SimC命令；明确传递本任务唯一结果名，禁止目录扫描回退。
-            success = self.execute_simc_command(simc_file_path, simc_task, result_file)
-            
-            # 清理临时文件
-            if os.path.exists(simc_file_path):
-                os.remove(simc_file_path)
-            
-            # 更新任务状态
-            if success:
-                simc_task.current_status = 2  # 完成
-                logger.info(f"[SimC Monitor] Regular simulation task {simc_task.id} completed successfully")
-            else:
-                simc_task.current_status = 3  # 失败
-                logger.error(f"[SimC Monitor] Regular simulation task {simc_task.id} failed")
-            
-            simc_task.save()
-            return success
-            
-        except Exception as e:
-            logger.error(f"[SimC Monitor] Error in regular simulation for task {simc_task.id}: {str(e)}")
-            self.mark_task_failed(simc_task, "常规模拟执行异常", e)
-            return False
-    
     def build_attribute_test_points(self, total_value, base_value, requested_step):
         """Build an exact requested-step two-stat curve, retaining endpoints and baseline.
 
@@ -697,217 +754,6 @@ class SimcMonitor(BaseScan):
         if points[-1] != total:
             points.append(total)
         return sorted(set(points + [baseline]) )
-
-    def process_attribute_simulation(self, simc_task, simc_profile):
-        """
-        :param simc_task: SimcTask对象
-        :param simc_profile: SimcProfile对象
-        :return: 执行是否成功
-        """
-        try:
-            ext_payload = self.parse_task_ext(simc_task.ext)
-            selected_combination = ext_payload.get('selected_attributes') or simc_task.ext
-            step_size = ext_payload.get('attribute_step') or 50
-            try:
-                step_size = max(1, int(step_size))
-            except Exception:
-                step_size = 50
-
-            # 任务 manifest 已在创建时固化玩家配置；属性扫描也不得回读可变的 Profile。
-            if ext_payload.get('player_config_mode'):
-                from types import SimpleNamespace
-                snapshot = SimpleNamespace(
-                    spec=ext_payload.get('spec') or (simc_profile.spec if simc_profile else ''),
-                    talent=ext_payload.get('talent') or '',
-                    player_config_mode=ext_payload.get('player_config_mode'),
-                    player_import_mode=ext_payload.get('player_import_mode') or ext_payload.get('player_config_mode'),
-                    player_equipment=ext_payload.get('player_equipment') or '',
-                    battlenet_region=ext_payload.get('battlenet_region') or '',
-                    battlenet_realm=ext_payload.get('battlenet_realm') or '',
-                    battlenet_character=ext_payload.get('battlenet_character') or '',
-                    gear_strength=ext_payload.get('gear_strength', 0),
-                    gear_crit=ext_payload.get('gear_crit', 0),
-                    gear_haste=ext_payload.get('gear_haste', 0),
-                    gear_mastery=ext_payload.get('gear_mastery', 0),
-                    gear_versatility=ext_payload.get('gear_versatility', 0),
-                )
-                if not snapshot.spec:
-                    self.mark_task_failed(simc_task, '属性模拟任务快照缺少专精')
-                    return False
-                simc_profile = snapshot
-            elif not simc_profile:
-                self.mark_task_failed(simc_task, '未找到对应的SimC配置，可能已被删除或禁用')
-                return False
-
-            # 解析属性组合
-            selected_attributes = self.parse_selected_attributes(selected_combination)
-            if len(selected_attributes) != 2:
-                logger.error(f"[SimC Monitor] Attribute simulation requires exactly 2 attributes, got {len(selected_attributes)} for task {simc_task.id}")
-                self.mark_task_failed(simc_task, f"属性模拟参数错误：需要2个属性，当前为{len(selected_attributes)}个")
-                return False
-            
-            # 获取基础属性值
-            base_attributes = self.get_base_attributes(simc_profile)
-            
-            # 获取两个属性及其总和
-            attr1, attr2 = selected_attributes[0], selected_attributes[1]
-            attr1_base = base_attributes[attr1]
-            attr2_base = base_attributes[attr2]
-            total_value = attr1_base + attr2_base
-            
-            logger.info(f"[SimC Monitor] Starting attribute simulation for {attr1} and {attr2}, total: {total_value}, task {simc_task.id}")
-            
-            # 执行分阶段模拟
-            result_files = []
-            stage = 0
-            
-            # Preserve endpoints and the equipped allocation using the requested fixed step.
-            test_points = self.build_attribute_test_points(total_value, attr1_base, step_size)
-            logger.info(
-                f"[SimC Monitor] Attribute task {simc_task.id}: {len(test_points)} exact-step points "
-                f"(step={step_size})"
-            )
-            
-            for attr1_value in test_points:
-                attr2_value = total_value - attr1_value
-                
-                stage_result_file = f"{simc_task.id}_{attr1}_{attr1_value}_{attr2}_{attr2_value}.html"
-                
-                # 生成当前阶段的SimC代码
-                modified_attributes = base_attributes.copy()
-                modified_attributes[attr1] = attr1_value
-                modified_attributes[attr2] = attr2_value
-                
-                simc_code = self.generate_attribute_simc_code(simc_profile, modified_attributes, stage_result_file, ext_payload)
-                if not isinstance(simc_code, str) or not simc_code.strip():
-                    raise Exception(f"生成属性模拟配置失败：stage={stage}")
-                
-                # 创建临时SimC文件
-                simc_file_path = os.path.join(self.result_path, f"temp_{simc_task.id}_{stage}.simc")
-                
-                with open(simc_file_path, 'w', encoding='utf-8') as f:
-                    f.write(simc_code)
-                
-                # 执行SimC命令
-                success = self.execute_simc_command(simc_file_path, simc_task, stage_result_file)
-                
-                # 清理临时文件
-                if os.path.exists(simc_file_path):
-                    os.remove(simc_file_path)
-                
-                if success:
-                    result_files.append(stage_result_file)
-                    logger.info(f"[SimC Monitor] Stage {stage} ({attr1}:{attr1_value}, {attr2}:{attr2_value}) completed for task {simc_task.id}")
-                else:
-                    logger.error(f"[SimC Monitor] Stage {stage} ({attr1}:{attr1_value}, {attr2}:{attr2_value}) failed for task {simc_task.id}")
-                
-                stage += 1
-            
-            # 保存所有结果文件名（以逗号分割）
-            simc_task.result_file = ','.join(result_files)
-            
-            # 更新任务状态
-            if result_files:
-                simc_task.current_status = 2  # 完成
-                logger.info(f"[SimC Monitor] Attribute simulation task {simc_task.id} completed with {len(result_files)} result files")
-            else:
-                self.mark_task_failed(simc_task, "属性模拟未生成任何结果文件")
-                logger.error(f"[SimC Monitor] Attribute simulation task {simc_task.id} failed - no results generated")
-            
-            if simc_task.current_status == 2:
-                simc_task.save()
-            return len(result_files) > 0
-            
-        except Exception as e:
-            logger.error(f"[SimC Monitor] Error in attribute simulation for task {simc_task.id}: {str(e)}")
-            self.mark_task_failed(simc_task, "属性模拟执行异常", e)
-            return False
-
-    def apply_action_list_override_to_raw(self, simc_code, override_action_list):
-        """在 raw SimC 模式下用选中的 APL 覆盖原 action list。"""
-        code = str(simc_code or '').strip()
-        action_list = str(override_action_list or '').strip()
-        if not code or not action_list:
-            return code
-        kept_lines = []
-        removed = 0
-        for line in code.splitlines():
-            text = line.strip()
-            if text.startswith('actions') or text.startswith('action_list'):
-                removed += 1
-                continue
-            kept_lines.append(line)
-        if removed:
-            logger.info(f"[SimC Monitor] raw SimC 已移除 {removed} 行旧 APL，使用任务选择的 APL")
-        else:
-            logger.info("[SimC Monitor] raw SimC 未发现旧 APL，追加任务选择的 APL")
-        return '\n'.join(kept_lines).rstrip() + '\n\n' + action_list + '\n'
-
-    def _load_default_apl(self, spec):
-        """
-        从统一 SimC APL 表加载唯一系统默认 APL；候选冲突时 fail-closed。
-        """
-        try:
-            from botend.models import SimcApl
-            spec_value = str(spec or '').strip().lower()
-            if not spec_value:
-                return None
-            candidates = SimcApl.objects.filter(
-                is_active=True, is_system=True, source='simc_upstream',
-                owner_user_id__isnull=True,
-            ).filter(models.Q(spec=spec_value) | models.Q(spec__endswith=f'_{spec_value}'))
-            if candidates.count() != 1:
-                logger.error(f"[SimC Monitor] 专精 {spec_value} 默认 APL 数量异常: {candidates.count()}")
-                return None
-            apl = candidates.first()
-            logger.info(f"[SimC Monitor] 自动加载默认 APL: {apl.spec}")
-            return apl.content
-        except Exception as e:
-            logger.error(f"[SimC Monitor] 加载默认 APL 失败: {e}")
-            return None
-
-    def generate_simc_code(self, profile, result_file, override_time=None, override_target_count=None, override_action_list=None):
-        """
-        生成SimC代码（从数据库模板 + profile 配置）
-        :param profile: SimcProfile对象
-        :param result_file: 结果文件名
-        :return: 生成的SimC代码字符串
-        """
-        try:
-            # ── 自动 APL：当用户未指定 override_action_list 时加载默认 APL ──
-            if not override_action_list:
-                override_action_list = self._load_default_apl(profile.spec)
-
-            # 从数据库获取统一基础模板
-            template_obj = self.select_template_by_spec(profile.spec)
-            if not template_obj:
-                raise Exception("未找到启用的SimC模板")
-            template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
-            
-            # 构建 task_config 字典
-            task_config = {
-                'spec': profile.spec or 'fury',
-                'talent': profile.talent or '',
-                'fight_style': 'Patchwerk',
-                'time': override_time or 300,
-                'target_count': override_target_count or 1,
-                'player_config_mode': 'stats',
-                'gear_crit': profile.gear_crit or 10730,
-                'gear_haste': profile.gear_haste or 18641,
-                'gear_mastery': profile.gear_mastery or 21785,
-                'gear_versatility': profile.gear_versatility or 6757,
-                'override_action_list': override_action_list or '',
-                'result_file': result_file,
-            }
-            
-            return self.apply_template(
-                template_content=template,
-                task_config=task_config
-            )
-            
-        except Exception as e:
-            logger.error(f"[SimC Monitor] Error generating SimC code: {str(e)}")
-            raise e
 
     def ensure_regular_result_file(self, simc_task):
         """Allocate the one report filename a regular SimC task is allowed to use."""
@@ -1007,7 +853,8 @@ class SimcMonitor(BaseScan):
             manifest = {}
         manifest['semantic_validation'] = validation
         simc_task.ext = json.dumps(manifest, ensure_ascii=False)
-        simc_task.save(update_fields=['ext'])
+        simc_task.result_summary = json.dumps(validation, ensure_ascii=False)
+        simc_task.save(update_fields=['ext', 'result_summary'])
 
     def execute_simc_command(self, simc_file_path, simc_task, result_file_name=None):
         """
@@ -1094,8 +941,9 @@ class SimcMonitor(BaseScan):
                 if result.stdout:
                     error_info += f"标准输出: {result.stdout}\n"
                 
-                # 直接将错误信息存储到result_file字段
+                # Preserve legacy result_file visibility while writing the canonical error field.
                 simc_task.result_file = error_info
+                simc_task.error_detail = error_info
                 self.save_simc_error_details(
                     simc_task,
                     summary=f"SimC执行失败（返回码: {result.returncode}）",
@@ -1109,8 +957,9 @@ class SimcMonitor(BaseScan):
         except subprocess.TimeoutExpired:
             error_info = f"SimC执行超时\n任务ID: {simc_task.id}\n超时时间: 300秒"
             logger.error(f"[SimC Monitor] SimC execution timeout for task {simc_task.id}")
-            # 直接将错误信息存储到result_file字段
+            # Preserve legacy result_file visibility while writing the canonical error field.
             simc_task.result_file = error_info
+            simc_task.error_detail = error_info
             self.save_simc_error_details(
                 simc_task,
                 summary="SimC执行超时（300秒）"
@@ -1120,8 +969,9 @@ class SimcMonitor(BaseScan):
         except Exception as e:
             error_info = f"SimC执行异常\n任务ID: {simc_task.id}\n异常信息: {str(e)}"
             logger.error(f"[SimC Monitor] Error executing SimC command: {str(e)}")
-            # 直接将错误信息存储到result_file字段
+            # Preserve legacy result_file visibility while writing the canonical error field.
             simc_task.result_file = error_info
+            simc_task.error_detail = error_info
             self.save_simc_error_details(
                 simc_task,
                 summary="SimC执行异常",
@@ -1224,59 +1074,6 @@ class SimcMonitor(BaseScan):
             'gear_mastery': _value('gear_mastery'),
             'gear_versatility': _value('gear_versatility'),
         }
-    
-    def generate_attribute_simc_code(self, profile, attributes, result_file, task_ext=None):
-        """
-        生成属性模拟的SimC代码（从数据库模板 + profile 配置）
-        :param profile: SimcProfile对象
-        :param attributes: 修改后的属性字典
-        :param result_file: 结果文件名
-        :return: 生成的SimC代码字符串
-        """
-        try:
-            manifest = task_ext if isinstance(task_ext, dict) else {}
-            template = manifest.get('base_template_content')
-            if not template:
-                # 只兼容未迁移的历史调用；新建任务都必须携带冻结模板快照。
-                template_obj = self.select_template_by_spec(profile.spec)
-                if not template_obj:
-                    raise Exception("属性模拟任务快照缺少基础模板内容")
-                template = getattr(template_obj, 'content', None) or getattr(template_obj, 'template_content', '')
-
-            def _snapshot_value(field, default=''):
-                if field in manifest:
-                    return manifest[field]
-                return getattr(profile, field, default)
-
-            task_config = {
-                'spec': _snapshot_value('spec') or 'fury',
-                'talent': _snapshot_value('talent') or '',
-                'fight_style': manifest.get('fight_style', 'Patchwerk'),
-                'time': manifest.get('time', 300),
-                'target_count': manifest.get('target_count', 1),
-                'player_config_mode': manifest.get('player_config_mode') or getattr(profile, 'player_config_mode', '') or 'attribute_only',
-                'player_import_mode': manifest.get('player_import_mode') or getattr(profile, 'player_import_mode', '') or manifest.get('player_config_mode') or 'attribute_only',
-                'player_equipment': _snapshot_value('player_equipment') or '',
-                'battlenet_region': _snapshot_value('battlenet_region') or '',
-                'battlenet_realm': _snapshot_value('battlenet_realm') or '',
-                'battlenet_character': _snapshot_value('battlenet_character') or '',
-                'gear_strength': attributes.get('gear_strength', 0),
-                'gear_crit': attributes.get('gear_crit', 0),
-                'gear_haste': attributes.get('gear_haste', 0),
-                'gear_mastery': attributes.get('gear_mastery', 0),
-                'gear_versatility': attributes.get('gear_versatility', 0),
-                'override_action_list': manifest.get('override_action_list', ''),
-                'result_file': result_file,
-            }
-            
-            return self.apply_template(
-                template_content=template,
-                task_config=task_config
-            )
-            
-        except Exception as e:
-            logger.error(f"[SimC Monitor] Error generating attribute SimC code: {str(e)}")
-            raise e
 
     def select_template_by_spec(self, spec, player_config_mode=None):
         from botend.models import SimcContentTemplate
