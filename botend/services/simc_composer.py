@@ -774,6 +774,18 @@ class SimcComposer:
         All placeholders must be replaced.
         """
         result = template_content
+        if request_data.get('player_import_mode') == 'battlenet':
+            # Legacy upstream base templates contain a static actor before
+            # ``{player_config}``.  Battle.net resolves that slot to an armory
+            # actor, so retaining the template actor creates two actors.
+            actor_pattern = '|'.join(
+                ['warrior', 'mage', 'priest', 'paladin', 'druid', 'hunter',
+                 'rogue', 'shaman', 'warlock', 'monk', 'demonhunter',
+                 'demon_hunter', 'deathknight', 'death_knight', 'evoker']
+            )
+            result = re.sub(
+                rf'(?mi)^\s*(?:{actor_pattern})\s*=.*(?:\n|$)', '', result,
+            )
 
         # Replace slot placeholders
         placeholders = {
@@ -787,6 +799,12 @@ class SimcComposer:
 
             # Legacy placeholders for migration boundary
             '{player_config}': self._build_legacy_player_config(),
+            '{spec}': request_data.get('spec', ''),
+            '{talent}': request_data.get('talent', ''),
+            '{gear_crit}': str(request_data.get('gear_crit', 0)),
+            '{gear_haste}': str(request_data.get('gear_haste', 0)),
+            '{gear_mastery}': str(request_data.get('gear_mastery', 0)),
+            '{gear_versatility}': str(request_data.get('gear_versatility', 0)),
             '{fight_style}': request_data.get('fight_style', 'Patchwerk'),
             '{time}': str(request_data.get('time', 300)),
             '{target_count}': str(request_data.get('target_count', 1)),

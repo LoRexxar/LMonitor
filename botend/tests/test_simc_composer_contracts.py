@@ -133,6 +133,31 @@ class SimcComposerIdentitySlotResolutionTests(ComposerTestCase):
         self.assertEqual([line for line in final.splitlines() if line.startswith("armory=")],
                          ["armory=us,area-52,testchar"])
 
+    def test_battlenet_identity_replaces_static_actor_in_legacy_base_template(self):
+        self.base.content = (
+            'warrior="LMonitor_SimC"\n'
+            'spec={spec}\n'
+            'fight_style={fight_style}\n'
+            'max_time={time}\n'
+            'html={result_file}\n'
+            'desired_targets={target_count}\n\n'
+            '{player_config}\n\n'
+            '{action_list}'
+        )
+        self.base.save(update_fields=["content"])
+        final, _, error = self.compose(
+            self.base,
+            player_import_mode="battlenet",
+            player_equipment="",
+            battlenet_region="eu",
+            battlenet_realm="Blackmoore",
+            battlenet_character="Zornfalte",
+            _server_preflight={"character": {"class": "warrior", "spec": "fury"}},
+        )
+        self.assertIsNone(error)
+        self.assertIn("armory=eu,Blackmoore,Zornfalte", final)
+        self.assertNotIn('warrior="LMonitor_SimC"', final)
+
     def test_battlenet_spec_conflict_is_rejected(self):
         final, manifest, error = self.compose(
             self.base,
