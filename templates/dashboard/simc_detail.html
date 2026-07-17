@@ -1,0 +1,26 @@
+{% load static %}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ detail_title }} · SimC</title>
+  <style>
+    :root{color-scheme:light;--ink:#172033;--muted:#687386;--line:#dfe5ee;--blue:#2563eb;--wash:#f5f7fb;--card:#fff}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top right,#dbeafe 0,transparent 34%),var(--wash);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+    a{color:var(--blue);text-decoration:none}.shell{width:min(1180px,calc(100% - 32px));margin:0 auto;padding:28px 0 56px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}.crumb{color:var(--muted)}
+    .hero{padding:28px;border-radius:24px;color:white;background:linear-gradient(125deg,#0f172a,#1d4ed8);box-shadow:0 18px 45px #1e3a8a2b}.hero h1{margin:6px 0;font-size:clamp(25px,4vw,40px)}.hero-meta{display:flex;flex-wrap:wrap;gap:10px}.pill{padding:5px 11px;border-radius:999px;background:#ffffff24}.pill.warning{background:rgba(245,158,11,.24);color:#fef3c7}.analysis-warning{margin:18px 0 0;border:1px solid #fcd34d;background:#fffbeb;color:#92400e;border-radius:14px;padding:13px 16px;display:flex;flex-wrap:wrap;gap:5px 12px}.analysis-warning span{color:#a16207}
+    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px;margin-top:18px}.card{grid-column:span 6;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 8px 24px #0f172a0a}.card.wide{grid-column:1/-1}.card h2{margin:0 0 14px;font-size:17px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.metric{padding:14px;border-radius:14px;background:#f8fafc}.metric b{display:block;font-size:22px}.metric span,.muted{color:var(--muted);font-size:13px}dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}dt{color:var(--muted);font-size:12px}dd{margin:2px 0 0;font-weight:600;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{padding:10px;border-top:1px solid var(--line);text-align:left}th{color:var(--muted);font-size:12px}.right{text-align:right}.empty{padding:24px;text-align:center;color:var(--muted)}details{margin-top:14px;color:var(--muted)}.error{padding:25px;border:1px solid #fecaca;border-radius:16px;background:#fef2f2;color:#991b1b}
+    @media (max-width: 720px){.shell{width:min(100% - 20px,1180px);padding-top:14px}.top{align-items:flex-start}.hero{padding:20px;border-radius:18px}.card{grid-column:1/-1;padding:16px}.metrics{grid-template-columns:repeat(2,1fr)}dl{grid-template-columns:1fr}.table-scroll{overflow-x:auto}table{min-width:560px}}
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="top"><a href="/dashboard/#simc-workbench">← 返回 SimC 工作台</a><span class="crumb">独立详情 · 安全摘要</span></header>
+  <div id="simc-detail-root" data-simc-detail-kind="{{ detail_kind }}" data-simc-detail-id="{{ detail_id }}">
+    <section class="hero"><span class="pill">正在加载</span><h1>{{ detail_title }}</h1><p>正在从鉴权 JSON API 获取结果摘要…</p></section>
+  </div>
+</main>
+<script src="{% static 'dashboard/js/simc-detail.js' %}"></script>
+</body>
+</html>

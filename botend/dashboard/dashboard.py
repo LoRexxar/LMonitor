@@ -10,7 +10,7 @@
 
 from django.views import View
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.db.models import Count, Q
 from django.db.utils import OperationalError, ProgrammingError
 from django.apps import apps
@@ -28,7 +28,7 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask,
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask,
-                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl)
+                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcTaskBatch, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl)
 
 from botend.services.simc_attribute_results import parse_attribute_result_filename
 
@@ -971,6 +971,24 @@ class DashboardView(View):
         if size_bytes < 1024 * 1024 * 1024:
             return f"{size_bytes / (1024 * 1024):.2f} MB"
         return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcWorkbenchDetailPageView(View):
+    """Owner-scoped HTML shell; safe details are loaded through the existing API."""
+
+    model_by_kind = {'tasks': SimcTask, 'batches': SimcTaskBatch}
+
+    def get(self, request, kind, object_id):
+        model = self.model_by_kind.get(kind)
+        if model is None:
+            return HttpResponse(status=404)
+        obj = get_object_or_404(model, id=object_id, user_id=request.user.id)
+        return render(request, 'dashboard/simc_detail.html', {
+            'detail_kind': kind,
+            'detail_id': obj.id,
+            'detail_title': obj.name,
+        })
 
 
 @method_decorator(login_required, name='dispatch')

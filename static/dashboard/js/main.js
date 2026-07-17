@@ -2995,7 +2995,7 @@ async function startSelectedSimcCandidateComparisons() {
         if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较 Batch 失败');
         if (!isCurrentSimcCandidateControl(control)) return;
         showMessage('比较 Batch 已创建', 'success');
-        window.simcWorkbenchShowTaskDetail('batches', Number(payload.data.batch_id));
+        window.location.assign(`/dashboard/simc/batches/${Number(payload.data.batch_id)}/`);
     } catch (error) {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
     } finally {
@@ -3043,7 +3043,7 @@ async function startSimcAttributeSearch() {
         const data = await submitSimcAttributeSearch(simcAttributeSearchRequestBody(), control.controller.signal);
         if (simcAttributeSearchControl !== control) return;
         showMessage('属性寻优 Batch 已创建', 'success');
-        window.simcWorkbenchShowTaskDetail('batches', Number(data.batch_id));
+        window.location.assign(`/dashboard/simc/batches/${Number(data.batch_id)}/`);
     } catch (error) {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
     } finally {
@@ -3068,7 +3068,7 @@ async function createSimcAplCandidateBatch() {
     const payload = await response.json();
     if (!response.ok || !payload.success) throw new Error(payload.error || '创建 APL 候选 Batch 失败');
     showMessage('APL 候选 Batch 已创建', 'success');
-    window.simcWorkbenchShowTaskDetail('batches', Number(payload.data.batch_id));
+    window.location.assign(`/dashboard/simc/batches/${Number(payload.data.batch_id)}/`);
 }
 
 async function createSimcSimulationTask() {
@@ -3092,7 +3092,7 @@ async function createSimcSimulationTask() {
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || '创建任务失败');
         showMessage('模拟任务已创建', 'success');
-        window.simcWorkbenchShowTaskDetail('tasks', Number(payload.data.id));
+        window.location.assign(`/dashboard/simc/tasks/${Number(payload.data.id)}/`);
     } catch (error) {
         showMessage(String(error.message || error), 'error');
     } finally {

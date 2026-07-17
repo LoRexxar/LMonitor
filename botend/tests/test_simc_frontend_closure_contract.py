@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HTML = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
 MAIN = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
 WB = (ROOT / "static/dashboard/js/simc-workbench.js").read_text(encoding="utf-8")
+DETAIL = (ROOT / "static/dashboard/js/simc-detail.js").read_text(encoding="utf-8")
 SIM = MAIN[MAIN.index("/* === 发起模拟 (新 SimC 模拟面板) === */"):MAIN.index("// 全局表格变量")]
 WORKFLOW = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
 
@@ -38,8 +39,10 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertNotIn('id="simc-sim-save-profile-btn"', WORKFLOW)
 
     def test_normal_run_opens_created_task_and_batches_open_real_batch_detail(self):
-        self.assertIn("window.simcWorkbenchShowTaskDetail('tasks',", SIM)
-        self.assertIn("window.simcWorkbenchShowTaskDetail('batches',", SIM)
+        self.assertIn("window.location.assign(`/dashboard/simc/tasks/", SIM)
+        self.assertIn("window.location.assign(`/dashboard/simc/batches/", SIM)
+        self.assertNotIn("window.simcWorkbenchShowTaskDetail('tasks',", SIM)
+        self.assertNotIn("window.simcWorkbenchShowTaskDetail('batches',", SIM)
         self.assertNotIn("switchSimcWorkbenchTab('artifacts')", SIM)
         self.assertNotIn("loadArtifacts", SIM)
 
@@ -66,10 +69,9 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, WB)
 
     def test_batch_detail_is_permanent_result_home(self):
-        detail = WB[WB.index("async function showTaskDetail"):WB.index("async function showBatchComparison")]
-        for token in ("批次进度", "批次成员", "DPS 排名", "距最佳", "候选任务", "结果产物"):
-            self.assertIn(token, detail)
-        self.assertIn("attribute_report", detail)
+        for token in ("批次进度", "批次成员", "DPS 排名", "Artifact / 原生报告"):
+            self.assertIn(token, DETAIL)
+        self.assertIn('/dashboard/simc/tasks/${member.id}/', DETAIL)
         self.assertNotIn("function loadArtifacts", WB)
         self.assertNotIn("artifactPage", WB)
 

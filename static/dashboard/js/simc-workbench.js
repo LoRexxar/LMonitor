@@ -142,7 +142,7 @@
             const progressBar = hasProgress ? `<div class="mt-1 flex items-center gap-2"><div class="h-1.5 flex-1 rounded-full bg-gray-200"><div class="h-1.5 rounded-full bg-blue-600" style="width:${Number(row.progress)}%"></div></div><span class="text-xs text-gray-500">${Number(row.progress)}%</span></div>` : '';
             const resource = row.detail_resource === 'batches' ? 'batches' : 'tasks';
             const rerunButton = resource === 'tasks' && [2, 3].includes(Number(row.status)) ? `<button data-wb-action="rerun" data-resource="tasks" data-id="${idOf(row.id)}" class="simc-touch-action text-emerald-700">重跑</button>` : '';
-            return `<article class="simc-responsive-row flex flex-wrap justify-between gap-3 border-b p-3"><div class="flex-1 min-w-0"><b>${esc(row.name || `#${idOf(row.id)}`)}</b><div class="text-xs text-gray-500">${esc(row.status_label)} · ${esc(row.created_at)}</div>${progressBar}</div><div class="flex gap-3"><button data-wb-action="detail" data-resource="${resource}" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">查看任务</button>${rerunButton}</div></article>`;
+            return `<article class="simc-responsive-row flex flex-wrap justify-between gap-3 border-b p-3"><div class="flex-1 min-w-0"><b>${esc(row.name || `#${idOf(row.id)}`)}</b><div class="text-xs text-gray-500">${esc(row.status_label)} · ${esc(row.created_at)}</div>${progressBar}</div><div class="flex gap-3"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" class="simc-touch-action text-blue-700">查看任务</a>${rerunButton}</div></article>`;
         }).join('') : empty('暂无记录');
 
         renderPagination(data.pagination || {}, requestedPage);
@@ -243,7 +243,7 @@
         const artifactList = artifacts.length ? artifacts.map(artifact => `<div class="mt-2 text-sm">${esc(artifact.file_name || artifact.artifact_type || '产物')}${artifact.can_preview === true ? ` <a href="${esc(artifact.preview_url)}" class="text-blue-700">打开报告</a>` : ''}</div>`).join('') : '<p class="mt-2 text-sm text-gray-500">暂无结果产物</p>';
         if (resource === 'batches') {
             const members = Array.isArray(row.tasks) ? row.tasks : [];
-            const memberList = members.length ? members.map(member => `<article class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"><div><b>${esc(member.name || `任务 #${member.id}`)}</b><div class="text-xs text-gray-500">${esc(member.status_label || member.status)} · ${esc(member.updated_at)}</div></div><button data-wb-action="detail" data-resource="tasks" data-id="${idOf(member.id)}" class="text-blue-700">查看任务</button></article>`).join('') : empty('此批次暂无成员');
+            const memberList = members.length ? members.map(member => `<article class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"><div><b>${esc(member.name || `任务 #${member.id}`)}</b><div class="text-xs text-gray-500">${esc(member.status_label || member.status)} · ${esc(member.updated_at)}</div></div><a href="/dashboard/simc/tasks/${idOf(member.id)}/" class="text-blue-700">查看任务</a></article>`).join('') : empty('此批次暂无成员');
             const compareButton = row.report_url ? `<button data-wb-action="compare" data-resource="batches" data-id="${idOf(row.id || id)}" class="rounded-lg border px-3 py-2 text-purple-700">查看对比结果</button>` : '';
             host.innerHTML = `<div class="flex justify-between gap-3"><h4 class="font-bold">任务详情：${esc(row.name || `#${id}`)}</h4><div>${compareButton}<button class="ml-2" data-wb-close-detail>关闭</button></div></div>
                 <section class="mt-4"><h5 class="font-semibold">批次进度</h5><div class="mt-2 h-2 rounded bg-gray-200"><div class="h-2 rounded bg-blue-600" style="width:${Number(row.percent || 0)}%"></div></div><p class="mt-1 text-xs text-gray-500">${Number(row.succeeded || 0)}/${Number(row.total || 0)} 成功 · ${Number(row.running || 0)} 运行 · ${Number(row.pending || 0)} 等待 · ${Number(row.failed || 0)} 失败</p></section>
@@ -354,7 +354,7 @@
         });
         window.showMessage('已创建新的引用型任务', 'success');
         state.dialogStack = [];
-        await showTaskDetail('tasks', idOf(result.data?.id));
+        window.location.assign(`/dashboard/simc/tasks/${idOf(result.data?.id)}/`);
     }
 
 
