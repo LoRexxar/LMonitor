@@ -157,6 +157,13 @@ class SimcComposerIdentitySlotResolutionTests(ComposerTestCase):
         self.assertIsNone(error)
         self.assertIn("armory=eu,Blackmoore,Zornfalte", final)
         self.assertNotIn('warrior="LMonitor_SimC"', final)
+        lines = [line.strip() for line in final.splitlines() if line.strip()]
+        self.assertEqual(lines.count("armory=eu,Blackmoore,Zornfalte"), 1)
+        self.assertLess(
+            lines.index("armory=eu,Blackmoore,Zornfalte"),
+            lines.index("spec=fury"),
+            "Battle.net armory actor 必须替换模板静态 actor，不能插到 actor 参数之后",
+        )
 
     def test_battlenet_spec_conflict_is_rejected(self):
         final, manifest, error = self.compose(

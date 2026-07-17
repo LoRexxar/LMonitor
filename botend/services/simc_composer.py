@@ -774,23 +774,32 @@ class SimcComposer:
         All placeholders must be replaced.
         """
         result = template_content
+        battlenet_actor_replaced = False
         if request_data.get('player_import_mode') == 'battlenet':
-            # Legacy upstream base templates contain a static actor before
-            # ``{player_config}``.  Battle.net resolves that slot to an armory
-            # actor, so retaining the template actor creates two actors.
+            # Legacy upstream base templates contain the actor-scoped options
+            # immediately after a static actor. Replace that actor in place with
+            # the armory actor; deleting it and inserting armory later would make
+            # spec/race/consumables global options and SimC would ignore them.
             actor_pattern = '|'.join(
                 ['warrior', 'mage', 'priest', 'paladin', 'druid', 'hunter',
                  'rogue', 'shaman', 'warlock', 'monk', 'demonhunter',
                  'demon_hunter', 'deathknight', 'death_knight', 'evoker']
             )
-            result = re.sub(
-                rf'(?mi)^\s*(?:{actor_pattern})\s*=.*(?:\n|$)', '', result,
+            armory_actor = self._get_slot_content('player_identity')
+            result, replaced_count = re.subn(
+                rf'(?mi)^\s*(?:{actor_pattern})\s*=.*$',
+                armory_actor,
+                result,
+                count=1,
             )
+            battlenet_actor_replaced = replaced_count == 1
 
         # Replace slot placeholders
         placeholders = {
             '{simulation_options}': self._get_slot_content('simulation_options'),
-            '{player_identity}': self._get_slot_content('player_identity'),
+            '{player_identity}': (
+                '' if battlenet_actor_replaced else self._get_slot_content('player_identity')
+            ),
             '{equipment}': self._get_slot_content('equipment'),
             '{talents}': self._get_slot_content('talents'),
             '{stat_overrides}': self._get_slot_content('stat_overrides'),
@@ -798,7 +807,9 @@ class SimcComposer:
             '{output_options}': self._get_slot_content('output_options'),
 
             # Legacy placeholders for migration boundary
-            '{player_config}': self._build_legacy_player_config(),
+            '{player_config}': self._build_legacy_player_config(
+                include_identity=not battlenet_actor_replaced,
+            ),
             '{spec}': request_data.get('spec', ''),
             '{talent}': request_data.get('talent', ''),
             '{gear_crit}': str(request_data.get('gear_crit', 0)),
@@ -830,12 +841,12 @@ class SimcComposer:
             return ''
         return resolution.value.content
 
-    def _build_legacy_player_config(self) -> str:
+    def _build_legacy_player_config(self, *, include_identity: bool = True) -> str:
         """Build legacy {player_config} for migration boundary."""
         parts = []
 
         identity = self._get_slot_content('player_identity')
-        if identity:
+        if include_identity and identity:
             parts.append(identity)
 
         equipment = self._get_slot_content('equipment')
