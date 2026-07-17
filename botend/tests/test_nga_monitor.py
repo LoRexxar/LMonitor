@@ -19,27 +19,27 @@ NGA_GB18030_HTML = """
 class NgaMonitorTests(TestCase):
     @patch('botend.controller.plugins.wow.ngaMonitor.upsert_system_alert')
     @patch('botend.controller.plugins.wow.ngaMonitor.TargetAuth.objects.filter')
-    def test_scan_tries_both_nga_domains_and_accepts_first_topic_page(self, auth_filter, alert):
+    def test_scan_uses_bbs_domain_only(self, auth_filter, alert):
         auth_filter.return_value.first.return_value = None
         req = Mock()
-        forbidden = Mock(status_code=403, content=b'forbidden')
         success = Mock(status_code=200, content=NGA_GB18030_HTML)
-        req.get.side_effect = [forbidden, success, success]
+        req.get.side_effect = [success, success]
         monitor = ngaMonitor(req, Mock(flag=''))
         monitor.resolve_data = Mock()
 
         self.assertTrue(monitor.scan(''))
 
-        self.assertEqual(req.get.call_count, 3)
-        self.assertIn('nga.178.com', req.get.call_args_list[0].args[0])
-        self.assertIn('bbs.nga.cn', req.get.call_args_list[1].args[0])
+        self.assertEqual(req.get.call_count, 2)
+        for call in req.get.call_args_list:
+            self.assertIn('bbs.nga.cn', call.args[0])
+            self.assertNotIn('nga.178.com', call.args[0])
         self.assertEqual(monitor.resolve_data.call_count, 2)
         monitor.resolve_data.assert_any_call(NGA_GB18030_HTML, '前瞻区', 10)
         alert.assert_not_called()
 
     @patch('botend.controller.plugins.wow.ngaMonitor.upsert_system_alert')
     @patch('botend.controller.plugins.wow.ngaMonitor.TargetAuth.objects.filter')
-    def test_scan_returns_false_and_reports_cookie_alert_when_both_domains_forbidden(self, auth_filter, alert):
+    def test_scan_returns_false_and_reports_cookie_alert_when_bbs_domain_forbidden(self, auth_filter, alert):
         auth_filter.return_value.first.return_value = None
         req = Mock()
         req.get.return_value = Mock(status_code=403, content=b'forbidden')
@@ -47,7 +47,7 @@ class NgaMonitorTests(TestCase):
         monitor.target_list = {'前瞻区': monitor.target_list['前瞻区']}
 
         self.assertFalse(monitor.scan(''))
-        self.assertEqual(req.get.call_count, 2)
+        self.assertEqual(req.get.call_count, 1)
         alert.assert_called_once_with(
             category='NGA_COOKIE_REQUIRED',
             subject='前瞻区',
@@ -71,7 +71,7 @@ class NgaMonitorTests(TestCase):
 
     def test_scan_uses_saved_nga_cookie_for_forum_requests(self):
         TargetAuth.objects.create(
-            domain="nga.178.com",
+            domain="bbs.nga.cn",
             cookie="ngaPassportUid=123; ngaPassportCid=token",
             is_login=True,
         )
@@ -87,6 +87,14 @@ class NgaMonitorTests(TestCase):
             self.assertEqual(call.args[1:3], ("Response", 0))
             self.assertEqual(call.args[3], "ngaPassportUid=123; ngaPassportCid=token")
 
+    def test_normalize_nga_url_rewrites_legacy_absolute_url(self):
+        monitor = ngaMonitor(Mock(), Mock())
+
+        self.assertEqual(
+            monitor.normalize_nga_url('https://nga.178.com/read.php?tid=123'),
+            'https://bbs.nga.cn/read.php?tid=123',
+        )
+
     def test_resolve_data_decodes_nga_gb18030_html(self):
         task = Mock()
         monitor = ngaMonitor(Mock(), task)
@@ -94,14 +102,14 @@ class NgaMonitorTests(TestCase):
 
         monitor.resolve_data(NGA_GB18030_HTML, "前瞻区", 10)
 
-        article = WowArticle.objects.get(url="https://nga.178.com/read.php?tid=123")
+        article = WowArticle.objects.get(url="https://bbs.nga.cn/read.php?tid=123")
         self.assertEqual(article.title, "前瞻测试标题")
         self.assertEqual(article.author, "nga前瞻区")
 
     def test_resolve_data_marks_existing_hot_article_as_nga_preview(self):
         article = WowArticle.objects.create(
             title="旧标题",
-            url="https://nga.178.com/read.php?tid=123",
+            url="https://bbs.nga.cn/read.php?tid=123",
             source="nga",
             category="hot",
             author=None,
@@ -120,7 +128,7 @@ class NgaMonitorTests(TestCase):
     def test_water_scan_does_not_overwrite_preview_classification(self):
         article = WowArticle.objects.create(
             title="前瞻测试标题",
-            url="https://nga.178.com/read.php?tid=123",
+            url="https://bbs.nga.cn/read.php?tid=123",
             source="nga",
             category="nga",
             author="nga前瞻区",

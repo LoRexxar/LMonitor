@@ -54,7 +54,7 @@ class Command(BaseCommand):
         if not links:
             preset = [
                 ('灵魂复苏前瞻资讯', 'https://www.ngasb.com/', '魔兽蓝贴&资讯&新闻'),
-                ('NGA 魔兽世界', 'https://nga.178.com/thread.php?fid=7', '社区论坛'),
+                ('NGA 魔兽世界', 'https://bbs.nga.cn/thread.php?fid=7', '社区论坛'),
                 ('Wowhead', 'https://www.wowhead.com/', '数据库与新闻'),
                 ('MythicStats', 'https://mythicstats.com/dps', '职业排名统计'),
                 ('法反列表', 'https://tinyurl.com/TWWreflects', '每赛季更新的法反列表'),
@@ -146,7 +146,7 @@ class Command(BaseCommand):
         if not uniq:
             preset = [
                 ('灵魂复苏前瞻资讯', 'https://www.ngasb.com/', '魔兽蓝贴&资讯&新闻'),
-                ('NGA 魔兽世界', 'https://nga.178.com/thread.php?fid=7', '社区论坛'),
+                ('NGA 魔兽世界', 'https://bbs.nga.cn/thread.php?fid=7', '社区论坛'),
                 ('Wowhead', 'https://www.wowhead.com/', '数据库与新闻'),
                 ('MythicStats', 'https://mythicstats.com/dps', '职业排名统计'),
                 ('法反列表', 'https://tinyurl.com/TWWreflects', '每赛季更新的法反列表'),

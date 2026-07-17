@@ -31,6 +31,13 @@ class PortalPostMonitor(BaseScan):
         self.translation_service = build_translation_service()
         self._translate_budget = 3
 
+    @staticmethod
+    def _normalize_nga_url(url):
+        url = str(url or '').strip()
+        if url.startswith('https://nga.178.com/'):
+            return 'https://bbs.nga.cn/' + url[len('https://nga.178.com/'):]
+        return urljoin('https://bbs.nga.cn/', url)
+
     def scan(self, url):
         self.update_blueposts()
         self.update_exwind_latest()
@@ -82,7 +89,7 @@ class PortalPostMonitor(BaseScan):
                 cookies = auth.cookie
         except Exception:
             cookies = ''
-        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://nga.178.com/'}
+        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://bbs.nga.cn/'}
         html_text = ''
         try:
             resp = self.req.get(url, 'Response', 0, cookies, headers=headers)
@@ -504,7 +511,7 @@ class PortalPostMonitor(BaseScan):
     def update_nga_hot(self):
         try:
             if self.req and getattr(self.req, 'is_chrome', False):
-                driver = self.req.get('https://nga.178.com/thread.php?fid=7', 'RespByChrome', 0, '', is_origin=1)
+                driver = self.req.get('https://bbs.nga.cn/thread.php?fid=7', 'RespByChrome', 0, '', is_origin=1)
                 if not driver:
                     return
                 time.sleep(3)
@@ -528,7 +535,7 @@ class PortalPostMonitor(BaseScan):
                         continue
                     try:
                         title_ele = tds[1].ele('.:topic')
-                        post_link = title_ele.link
+                        post_link = self._normalize_nga_url(title_ele.link)
                         post_name = title_ele.text
                     except Exception:
                         continue
@@ -579,13 +586,10 @@ class PortalPostMonitor(BaseScan):
             black_list = ["公益", "代工", "支持跨服"]
             added = 0
 
-            urls = [
-                'https://bbs.nga.cn/thread.php?fid=7',
-                'https://nga.178.com/thread.php?fid=7',
-            ]
+            urls = ['https://bbs.nga.cn/thread.php?fid=7']
             html_text = ''
             had_forbidden = False
-            last_domain = 'nga.178.com'
+            last_domain = 'bbs.nga.cn'
             for u in urls:
                 cookies = ''
                 try:
@@ -596,7 +600,7 @@ class PortalPostMonitor(BaseScan):
                         cookies = auth.cookie
                 except Exception:
                     cookies = ''
-                headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://nga.178.com/'}
+                headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://bbs.nga.cn/'}
                 resp = self.req.get(u, 'Response', 0, cookies, headers=headers)
                 if resp and resp.status_code == 200 and (resp.text or '').strip():
                     html_text = resp.text
@@ -622,7 +626,7 @@ class PortalPostMonitor(BaseScan):
                 title = html.unescape(title).strip()
                 if not href or not title:
                     continue
-                post_link = urljoin('https://nga.178.com/', href)
+                post_link = self._normalize_nga_url(href)
                 post_name = title
                 bad = False
                 for b in black_list:

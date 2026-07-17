@@ -30,19 +30,26 @@ class ngaMonitor(BaseScan):
         self.black_list = ["公益", "代工", "支持跨服"]
         self.target_list = {
             "前瞻区": {
-                "url": "https://nga.178.com/thread.php?fid=310&ff=7",
+                "url": "https://bbs.nga.cn/thread.php?fid=310&ff=7",
                 "limit": 10
             },
             # "cos区": {
-            #     "url": "https://nga.178.com/thread.php?fid=472",
+            #     "url": "https://bbs.nga.cn/thread.php?fid=472",
             #     "limit": 10
             # },
             "水区": {
-                "url": "https://nga.178.com/thread.php?fid=7",
+                "url": "https://bbs.nga.cn/thread.php?fid=7",
                 "limit": 200
             }
         }
         self.task = task
+
+    @staticmethod
+    def normalize_nga_url(url):
+        url = str(url or '').strip()
+        if url.startswith('https://nga.178.com/'):
+            return 'https://bbs.nga.cn/' + url[len('https://nga.178.com/'):]
+        return urljoin('https://bbs.nga.cn/', url)
 
     def scan(self, url):
         """
@@ -54,15 +61,11 @@ class ngaMonitor(BaseScan):
         for title in self.target_list:
             primary_url = self.target_list[title]["url"]
             urls = [primary_url]
-            if "nga.178.com" in primary_url:
-                urls.append(primary_url.replace("nga.178.com", "bbs.nga.cn"))
             html = None
             last_status = None
             for candidate_url in urls:
-                domain = "bbs.nga.cn" if "bbs.nga.cn" in candidate_url else "nga.178.com"
+                domain = "bbs.nga.cn"
                 auth = TargetAuth.objects.filter(domain=domain, is_login=True).first()
-                if not auth and domain == "bbs.nga.cn":
-                    auth = TargetAuth.objects.filter(domain="nga.178.com", is_login=True).first()
                 cookies = auth.cookie if auth and auth.cookie else ""
                 response = self.req.get(candidate_url, 'Response', 0, cookies)
                 last_status = getattr(response, 'status_code', None)
@@ -139,7 +142,7 @@ class ngaMonitor(BaseScan):
                 if not post_head:
                     continue
                 post_link = post_head.get('href')
-                post_link = urljoin('https://nga.178.com/', str(post_link or '').strip())
+                post_link = self.normalize_nga_url(post_link)
                 post_name = post_head.get_text(" ", strip=True)
                 post_date_ele = tds[2].select_one('.silver.postdate') if len(tds) > 2 else None
                 post_date = post_date_ele.get_text(" ", strip=True) if post_date_ele else ""
