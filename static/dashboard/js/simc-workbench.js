@@ -490,19 +490,35 @@
         const row = data.data || {};
         host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">规则关键词详情</h4><button class="simc-touch-action" data-apl-keyword-action="close-detail">关闭</button></div><dl class="mt-3 grid gap-2 text-sm"><div>APL 关键词：<code>${esc(row.apl_keyword)}</code></div><div>中文关键词：${esc(row.cn_keyword)}</div><div>说明：${esc(row.description || '-')}</div><div>状态：${row.is_active === false ? '已停用' : '启用'}</div></dl>`;
     }
+    function codeStats(value) {
+        const text = String(value || '');
+        return `${text ? text.split('\n').length : 0} 行 · ${text.length} 字符`;
+    }
     function renderAplStorageForm(row = null) {
         window.openSimcWorkbenchDialog('apl-form', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
         const specOptions = state.specOptions.length ? state.specOptions : [{ value: row?.spec || '', label: row?.spec || '请选择专精' }];
         const specHtml = specOptions.map(option => `<option value="${esc(option.value)}" ${option.value === row?.spec ? 'selected' : ''}>${esc(option.label)}</option>`).join('');
-        host.innerHTML = `<form data-apl-storage-form data-managed-apl="${row?.id ? '1' : '0'}" data-system-apl="${row?.is_system ? '1' : '0'}" class="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        const content = row?.apl_code || '';
+        host.innerHTML = `<form data-apl-storage-form data-managed-apl="${row?.id ? '1' : '0'}" data-system-apl="${row?.is_system ? '1' : '0'}" class="simc-editor-form space-y-4">
             <input type="hidden" name="id" value="${idOf(row?.id)}">
-            <label class="block text-sm font-medium text-gray-700">标题<input name="title" required maxlength="200" value="${esc(row?.title)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
-            <label class="mt-3 block text-sm font-medium text-gray-700">专精<select name="spec" required class="mt-1 w-full rounded-lg border bg-white p-2">${specHtml}</select><span class="mt-1 block text-xs text-gray-500">统一使用“职业_专精”标识，可与其他 SimC 表直接查询。</span></label>
-            <label class="mt-3 block text-sm font-medium text-gray-700">APL 内容<textarea name="apl_code" required rows="12" class="mt-1 w-full rounded-lg border bg-white p-3 font-mono text-xs">${esc(row?.apl_code)}</textarea></label>
-            <div class="mt-3 flex gap-2"><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-white">保存</button><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2">取消</button></div>
+            <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><h4 class="text-lg font-bold">${row?.id ? '编辑 APL' : '新建 APL'}</h4><p class="mt-1 text-xs leading-5 text-indigo-100">维护名称、适用专精和完整 action priority list。历史 Task 继续绑定原资源版本。</p></div>
+            <section class="simc-editor-section">
+                <div class="grid gap-4 p-4 sm:grid-cols-2">
+                    <label class="simc-editor-label">名称<input name="title" required maxlength="200" value="${esc(row?.title)}" class="simc-editor-input" placeholder="例如：Fury 单目标"></label>
+                    <label class="simc-editor-label">适用专精<select name="spec" required class="simc-editor-input">${specHtml}</select><span class="simc-editor-help">统一使用“职业_专精”标识，便于任务引用与筛选。</span></label>
+                </div>
+            </section>
+            <section class="simc-editor-section">
+                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">支持 Tab 缩进；编辑区可纵向拉伸，内容按原始换行保存。</p></div><span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">SimC</span></div>
+                <textarea name="apl_code" required spellcheck="false" autocomplete="off" autocapitalize="off" class="simc-code-editor" placeholder="actions=...&#10;actions+=/..."></textarea>
+                <div class="simc-code-editor-toolbar"><span data-code-editor-stats>${codeStats(content)}</span><span>Tab 缩进 · 等宽字体 · 不自动换行</span></div>
+            </section>
+            <div class="simc-editor-actions"><span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后，新任务将引用新的不可变版本。</span><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2 text-sm text-slate-700">取消</button><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存 APL</button></div>
         </form>`;
+        const editor = host.querySelector('textarea[name="apl_code"]');
+        if (editor) editor.value = content;
     }
     function closeAplStorageForm() {
         closeDialog();
@@ -1063,8 +1079,22 @@
                 renderUnifiedAplList();
                 return;
             }
+            const codeEditor = event.target.closest('.simc-code-editor');
+            if (codeEditor) {
+                const stats = codeEditor.closest('.simc-editor-section')?.querySelector('[data-code-editor-stats]');
+                if (stats) stats.textContent = codeStats(codeEditor.value);
+            }
             const converterInput = event.target.closest('#simc-converter-input, #simc-converter-output');
             if (converterInput) updateConverterStats();
+        });
+        document.addEventListener('keydown', event => {
+            const editor = event.target.closest('.simc-code-editor');
+            if (!editor || event.key !== 'Tab') return;
+            event.preventDefault();
+            const start = editor.selectionStart;
+            const end = editor.selectionEnd;
+            editor.setRangeText('    ', start, end, 'end');
+            editor.dispatchEvent(new Event('input', { bubbles: true }));
         });
         document.addEventListener('change', event => {
             const autoUpdate = event.target.closest('[data-backend-auto-update]');

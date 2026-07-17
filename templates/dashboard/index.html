@@ -149,9 +149,28 @@
         /* SimC Workbench Dialog */
         body.simc-dialog-open { overflow: hidden; }
         .simc-workbench-dialog__panel { max-width: 4xl; }
+        .simc-editor-form { margin: -.25rem; }
+        .simc-editor-section { border: 1px solid #e2e8f0; border-radius: 1rem; background: #fff; overflow: hidden; }
+        .simc-editor-section__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.125rem; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+        .simc-editor-label { display: block; color: #334155; font-size: .8125rem; font-weight: 700; }
+        .simc-editor-help { display: block; margin-top: .3rem; color: #64748b; font-size: .75rem; line-height: 1.5; font-weight: 400; }
+        .simc-editor-input { width: 100%; margin-top: .4rem; border: 1px solid #cbd5e1; border-radius: .7rem; background: #fff; padding: .65rem .75rem; color: #0f172a; outline: none; transition: border-color .15s, box-shadow .15s; }
+        .simc-editor-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, .12); }
+        .simc-code-editor { width: 100%; min-height: 22rem; resize: vertical; border: 0; border-radius: 0; background: #0f172a; color: #dbeafe; padding: 1rem 1.125rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: .8125rem; line-height: 1.65; tab-size: 4; white-space: pre; overflow: auto; outline: none; caret-color: #93c5fd; }
+        .simc-code-editor:focus { box-shadow: inset 0 0 0 2px #3b82f6; }
+        .simc-code-editor::placeholder { color: #64748b; }
+        .simc-code-editor-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; padding: .55rem 1rem; border-top: 1px solid #1e293b; background: #111c31; color: #94a3b8; font-size: .72rem; }
+        .simc-editor-actions { display: flex; align-items: center; justify-content: flex-end; gap: .65rem; margin: 1rem -.25rem -.25rem; padding: .85rem 1rem; border-top: 1px solid #e2e8f0; background: #fff; }
+        .simc-profile-form { margin: -.25rem; }
+        .simc-profile-form .simc-profile-section { border: 1px solid #e2e8f0; border-radius: 1rem; background: #fff; padding: 1rem; }
+        .simc-profile-form .simc-profile-section-title { margin-bottom: .8rem; color: #0f172a; font-size: .8125rem; font-weight: 800; letter-spacing: .02em; }
         @media (max-width: 640px) {
             .simc-workbench-dialog__viewport { padding: 0 !important; align-items: stretch !important; }
             .simc-workbench-dialog__panel { width: 100vw !important; height: 100dvh !important; max-width: 100vw !important; max-height: 100dvh !important; border-radius: 0 !important; }
+            #simc-dialog-body { padding: 1rem !important; }
+            .simc-code-editor { min-height: 48dvh; font-size: .78rem; padding: .85rem; }
+            .simc-editor-section__heading { padding: .85rem; }
+            .simc-editor-actions { margin-left: -1rem; margin-right: -1rem; margin-bottom: -1rem; padding: .8rem 1rem max(.8rem, env(safe-area-inset-bottom)); }
         }
 
         @media (max-width: 640px) {
@@ -176,8 +195,8 @@
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260716c"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260716g"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260717d"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260717h"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -1065,12 +1084,13 @@
                                     </div>
                                 </div>
                                 <!-- Hidden source cloned into the unified dialog by main.js. -->
-                                <div id="simc-wb-profile-form-source" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
-                                    <div class="flex items-center justify-between mb-3">
-                                        <h4 class="simc-wb-form-title text-base font-semibold text-blue-800">新增配置</h4>
-                                        <button type="button" data-profile-form-action="close" class="text-gray-400 hover:text-gray-600" aria-label="关闭配置表单"><i class="fas fa-times"></i></button>
+                                <div id="simc-wb-profile-form-source" class="simc-profile-form hidden space-y-4">
+                                    <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-blue-950 p-4 text-white">
+                                        <div><h4 class="simc-wb-form-title text-lg font-bold">新增配置</h4><p class="mt-1 text-xs leading-5 text-blue-100">选择一种玩家来源；只填写当前来源对应的信息，执行时由 Composer 动态组装。</p></div>
                                     </div>
-                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                    <section class="simc-profile-section">
+                                    <h5 class="simc-profile-section-title"><i class="fas fa-id-card mr-2 text-blue-600"></i>基本信息与来源</h5>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                         <label class="block"><span class="text-gray-600">名称 *</span><input name="name" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="配置名"></label>
                                         <label class="block"><span class="text-gray-600">专精 *</span>
                                             <select name="spec" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
@@ -1099,17 +1119,27 @@
                                         <label class="block" data-profile-mode-section="battlenet"><span class="text-gray-600">地区</span><input name="battlenet_region" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="cn/eu/us"></label>
                                         <label class="block" data-profile-mode-section="battlenet"><span class="text-gray-600">服务器</span><input name="battlenet_realm" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Kazzak / 白银之手"></label>
                                         <label class="block" data-profile-mode-section="battlenet"><span class="text-gray-600">角色名</span><input name="battlenet_character" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="角色名"></label>
-                                        <label class="block col-span-2 md:col-span-4" data-profile-mode-section="manual_equipment"><span class="text-gray-600">手动装备/天赋玩家块</span><textarea name="player_equipment" rows="5" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-xs" placeholder="manual_equipment 模式填写：talents=... / head=... / neck=..."></textarea></label>
-                                        <label class="block col-span-2 md:col-span-4"><span class="text-gray-600">天赋码（旧字段兼容）</span><input name="talent" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" placeholder="可选"></label>
+                                    </div>
+                                    </section>
+                                    <section class="simc-profile-section" data-profile-mode-section="manual_equipment">
+                                        <h5 class="simc-profile-section-title"><i class="fas fa-code mr-2 text-indigo-600"></i>玩家装备块</h5>
+                                        <label class="block"><span class="text-xs text-gray-500">粘贴 SimC 导出的玩家装备与天赋行；保留原始换行。</span><textarea name="player_equipment" rows="12" class="simc-code-editor mt-3 rounded-xl border border-slate-700" placeholder="talents=...&#10;head=...&#10;neck=..."></textarea></label>
+                                    </section>
+                                    <section class="simc-profile-section">
+                                    <h5 class="simc-profile-section-title"><i class="fas fa-sliders mr-2 text-emerald-600"></i>天赋与属性</h5>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                        <label class="block sm:col-span-2 md:col-span-4"><span class="text-gray-600">天赋码（可选）</span><input name="talent" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-xs" placeholder="仅在当前来源需要单独覆盖天赋时填写"></label>
                                         <label class="block"><span class="text-gray-600">力量</span><input name="gear_strength" type="number" value="0" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">暴击</span><input name="gear_crit" type="number" value="8730" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">急速</span><input name="gear_haste" type="number" value="20141" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">精通</span><input name="gear_mastery" type="number" value="21785" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                         <label class="block"><span class="text-gray-600">全能</span><input name="gear_versatility" type="number" value="7257" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></label>
                                     </div>
-                                    <div class="flex items-center gap-2 mt-3">
-                                        <button type="button" data-profile-form-action="save" class="simc-wb-form-save px-4 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存</button>
-                                        <button type="button" data-profile-form-action="close" class="px-4 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">取消</button>
+                                    </section>
+                                    <div class="simc-editor-actions">
+                                        <span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后仅影响新任务；历史 Task 不会被改写。</span>
+                                        <button type="button" data-profile-form-action="close" class="px-4 py-2 text-sm rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-700">取消</button>
+                                        <button type="button" data-profile-form-action="save" class="simc-wb-form-save px-4 py-2 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"><i class="fas fa-save mr-1"></i>保存配置</button>
                                     </div>
                                 </div>
                                 <div class="overflow-x-auto">

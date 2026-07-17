@@ -801,6 +801,20 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         ):
             self.assertNotIn(f'id="{slot_id}"', HTML)
 
+    def test_profile_and_apl_forms_use_structured_code_editors(self):
+        profile = HTML[HTML.index('id="simc-wb-profile-form-source"'):HTML.index('id="simc-wb-profile-list"')]
+        self.assertIn('simc-profile-section', profile)
+        self.assertIn('simc-code-editor', profile)
+        self.assertIn('simc-editor-actions', profile)
+        apl_start = JS.index('function renderAplStorageForm')
+        apl_end = JS.index('function closeAplStorageForm', apl_start)
+        apl_form = JS[apl_start:apl_end]
+        for token in ('simc-editor-section', 'simc-code-editor', 'data-code-editor-stats', 'spellcheck="false"'):
+            self.assertIn(token, apl_form)
+        self.assertIn("event.key !== 'Tab'", JS)
+        self.assertIn("editor.setRangeText('    '", JS)
+        self.assertIn('min-height: 48dvh', HTML)
+
 
     def test_batch_dialog_renders_member_dps_and_delta_without_navigation(self):
         start = JS.index('async function showBatchComparison')
