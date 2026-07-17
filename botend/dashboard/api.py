@@ -6380,7 +6380,7 @@ class SimcTaskReportPreviewAPIView(View):
         if not validated:
             return JsonResponse({'success': False, 'error': '任务报告不可用'}, status=404)
         response = FileResponse(open(str(validated[0]), 'rb'), content_type='text/html; charset=utf-8')
-        response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
+        response['Content-Security-Policy'] = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; sandbox allow-scripts; frame-ancestors 'self'"
         return response
 
 
@@ -6403,7 +6403,7 @@ class SimcArtifactPreviewAPIView(View):
         full_path = str(validated[0])
         content_type = 'text/html; charset=utf-8'
         response = FileResponse(open(full_path, 'rb'), content_type=content_type)
-        response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
+        response['Content-Security-Policy'] = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; sandbox allow-scripts; frame-ancestors 'self'"
         return response
 
 

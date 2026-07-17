@@ -362,8 +362,38 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
                 response = self.client.get(f'/api/simc-workbench/tasks/{task.id}/report-preview/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'text/html; charset=utf-8')
-        self.assertIn("default-src 'none'", response['Content-Security-Policy'])
+        csp = response['Content-Security-Policy']
+        self.assertIn("default-src 'none'", csp)
+        self.assertIn("script-src 'unsafe-inline'", csp)
+        self.assertIn('sandbox allow-scripts', csp)
+        self.assertNotIn('allow-same-origin', csp)
+        self.assertNotIn('https:', csp)
         self.assertEqual(
             self.client.get(f'/api/simc-workbench/tasks/{foreign.id}/report-preview/').status_code,
             404,
         )
+
+    def test_run_bound_artifact_preview_allows_only_inline_report_scripts(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='Interactive artifact', simc_profile_id=0,
+            current_status=2, result_file='interactive_run_1.html')
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, status='completed', result_summary={'dps': 95132})
+        artifact = SimcTaskArtifact.objects.create(
+            task=task, run=run, artifact_type='html_report',
+            file_path='simc_results/interactive_run_1.html')
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / 'interactive_run_1.html'
+            report.write_text('<html><script>window.simcReport = true;</script></html>', encoding='utf-8')
+            with patch(
+                'botend.services.simc_artifacts._validated_result',
+                return_value=(report, 'simc_results/interactive_run_1.html'),
+            ):
+                response = self.client.get(
+                    f'/api/simc-workbench/artifacts/{artifact.id}/preview/')
+        self.assertEqual(response.status_code, 200)
+        csp = response['Content-Security-Policy']
+        self.assertIn("script-src 'unsafe-inline'", csp)
+        self.assertIn('sandbox allow-scripts', csp)
+        self.assertNotIn('allow-same-origin', csp)
+        self.assertNotIn('https:', csp)
