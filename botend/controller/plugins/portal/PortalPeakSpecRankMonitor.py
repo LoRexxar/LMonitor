@@ -1,12 +1,9 @@
-import re
 import time
 
 import requests
-from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 from botend.controller.BaseScan import BaseScan
-from botend.models import PortalPeakSpecRankRow
+from botend.models import PortalPeakSpecRankRow, SeasonMeta
 from utils.log import logger
 
 
@@ -17,6 +14,9 @@ class PortalPeakSpecRankMonitor(BaseScan):
 
     def scan(self, url):
         season = self._resolve_season()
+        if not season:
+            logger.error("[PortalPeakSpecRankMonitor] 活跃 SeasonMeta.rio_season 为空，跳过巅峰榜刷新")
+            return False
         region = "world"
         ok = True
 
@@ -38,38 +38,8 @@ class PortalPeakSpecRankMonitor(BaseScan):
         return ok
 
     def _resolve_season(self):
-        try:
-            resp = requests.get(
-                "https://raider.io/api/v1/mythic-plus/static-data?expansion_id=11",
-                timeout=25,
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            if resp.status_code != 200:
-                return "season-mn-1"
-            payload = resp.json() or {}
-            seasons = payload.get("seasons") or []
-            now = timezone.now()
-            current = []
-            started = []
-            for season in seasons:
-                slug = (season.get("slug") or "").strip()
-                starts = parse_datetime(((season.get("starts") or {}).get("us") or "").strip())
-                ends = parse_datetime(((season.get("ends") or {}).get("us") or "").strip())
-                if starts and timezone.is_naive(starts):
-                    starts = timezone.make_aware(starts, timezone.utc)
-                if ends and timezone.is_naive(ends):
-                    ends = timezone.make_aware(ends, timezone.utc)
-                if not re.fullmatch(r'season-[a-z0-9]+-\d+', slug) or not starts or starts > now:
-                    continue
-                started.append((starts, slug))
-                if not ends or now < ends:
-                    current.append((starts, slug))
-            candidates = current or started
-            if candidates:
-                return max(candidates)[1]
-        except Exception:
-            return "season-mn-1"
-        return "season-mn-1"
+        season = SeasonMeta.objects.filter(is_active=True).first()
+        return (season.rio_season or "").strip() if season else ""
 
     def _fetch_and_upsert(self, *, season, region, class_slug, spec_slug):
         api = "https://raider.io/api/mythic-plus/rankings/specs"
