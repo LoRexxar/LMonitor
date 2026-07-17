@@ -7,6 +7,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 
 from botend.models import (
+    SimulationRun,
     SimcAplKeywordPair,
     SimcContentTemplate,
     SimcProfile,
@@ -299,6 +300,51 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
                     f'/api/simc-workbench/tasks/{task.id}/report-preview/'
                 )
         self.assertEqual(response.status_code, 200)
+
+    def test_task_detail_parses_summary_from_latest_run_bound_artifact(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='Detailed report', simc_profile_id=0,
+            current_status=2, result_file='latest-task-pointer.html')
+        old_run = SimulationRun.objects.create(
+            task=task, sequence=1, status='completed', result_summary={'dps': 111})
+        latest_run = SimulationRun.objects.create(
+            task=task, sequence=2, status='completed', result_summary={'dps': 95132})
+        SimcTaskArtifact.objects.create(
+            task=task, run=old_run, artifact_type='html_report',
+            file_path='simc_results/old_run_1.html')
+        latest_artifact = SimcTaskArtifact.objects.create(
+            task=task, run=latest_run, artifact_type='html_report',
+            file_path='simc_results/current_run_2.html')
+        report_html = '''<html><body>
+          <div id="masthead"><ul class="params">
+            <li>Iterations: 1000</li><li>Fight Length: 300</li><li>Fight Style: Patchwerk</li>
+          </ul></div>
+          <div class="player"><h2>Zornfalte: 95,132 dps</h2><ul class="params">
+            <li>Race: Orc</li><li>Class: Warrior</li><li>Spec: Fury</li><li>Level: 90</li>
+          </ul><table class="sc sort"><tbody>
+            <tr class="toprow"><td>Rampage</td><td>20,000</td><td>21.0%</td></tr>
+          </tbody></table></div>
+        </body></html>'''
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_path = Path(temp_dir) / 'current_run_2.html'
+            report_path.write_text(report_html, encoding='utf-8')
+            with patch(
+                'botend.services.simc_artifacts._validated_result',
+                return_value=(report_path, 'simc_results/current_run_2.html'),
+            ) as validated:
+                response = self.client.get(f'/api/simc-workbench/tasks/{task.id}/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()['data']
+        detail = payload['report_summary']
+        self.assertEqual(detail['dps'], 95132)
+        self.assertEqual(detail['character'], {
+            'name': 'Zornfalte', 'race': 'Orc', 'class': 'Warrior',
+            'spec': 'Fury', 'level': '90'})
+        self.assertEqual(detail['simulation']['fight_style'], 'Patchwerk')
+        self.assertEqual(detail['top_abilities'][0]['name'], 'Rampage')
+        validated.assert_called_once_with(task, 'current_run_2.html', run=latest_run)
+        self.assertEqual(payload['report_artifact_id'], latest_artifact.id)
 
     def test_legacy_task_report_preview_is_owner_scoped_and_sandbox_safe(self):
         task = SimcTask.objects.create(

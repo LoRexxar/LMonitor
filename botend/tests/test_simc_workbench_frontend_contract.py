@@ -96,6 +96,16 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-artifact-preview-action="retry"', JS)
         self.assertIn('data-artifact-preview-action="close"', JS)
 
+    def test_task_detail_renders_structured_report_summary(self):
+        start = JS.index('async function showTaskDetail')
+        end = JS.index('\n    async function', start + 20)
+        detail = JS[start:end]
+        for token in (
+            'row.report_summary', 'report?.character', 'report?.simulation',
+            'report?.top_abilities', '原生报告', '主要技能',
+        ):
+            self.assertIn(token, detail)
+
 
     def test_profile_list_ignores_aborted_and_stale_responses(self):
         start = MAIN.index("function loadSimcWorkbenchProfiles")

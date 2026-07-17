@@ -5680,17 +5680,28 @@ class SimcWorkbenchAPIView(View):
                     'mode_summary': self._safe_mode_summary(task.mode_params),
                     'source_task_id': task.source_task_id,
                 })
-                row['artifacts'] = [
-                    self._artifact_row(item)
-                    for item in task.artifacts.all().order_by('-created_at')
-                ]
+                artifacts = list(task.artifacts.all().order_by('-created_at'))
+                runs = list(task.simulation_runs.all().order_by('-sequence'))
+                latest_run = runs[0] if runs else None
+                report_artifact = next((
+                    artifact for artifact in artifacts
+                    if latest_run and artifact.run_id == latest_run.id
+                    and artifact.artifact_type == 'html_report'
+                ), None)
+                report_summary = None
+                if report_artifact:
+                    from botend.services.simc_result_analysis import analyze_run_artifact
+                    report_summary = analyze_run_artifact(task, report_artifact)
+                row['report_summary'] = report_summary
+                row['report_artifact_id'] = report_artifact.id if report_artifact else None
+                row['artifacts'] = [self._artifact_row(item) for item in artifacts]
                 row['runs'] = [{
                     'id': run.id, 'sequence': run.sequence, 'candidate_label': run.candidate_label,
                     'status': run.status, 'input_hash': run.input_hash,
                     'result_summary': self._safe_summary(run.result_summary or {}),
                     'error_summary': '任务执行失败' if run.status == 'failed' else '',
                     'started_at': _fmt_dt(run.started_at), 'completed_at': _fmt_dt(run.completed_at),
-                } for run in task.simulation_runs.all().order_by('-sequence')]
+                } for run in runs]
                 return JsonResponse({'success': True, 'data': row})
 
             # 分页参数白名单校验
