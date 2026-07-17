@@ -51,7 +51,11 @@ def parse_simc_html_report(html_content):
             player_detail = player
             toggle_content = player.find("div", class_="toggle-content", recursive=False)
             if toggle_content:
-                fragment_text = toggle_content.get_text("", strip=False)
+                deferred = toggle_content.find("script", attrs={"type": "text/x-deferred-html"})
+                if deferred:
+                    fragment_text = deferred.string or deferred.decode_contents()
+                else:
+                    fragment_text = toggle_content.get_text("", strip=False)
                 if "<" in fragment_text and ">" in fragment_text:
                     player_detail = BeautifulSoup(fragment_text, "html.parser")
 

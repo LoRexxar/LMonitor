@@ -319,13 +319,13 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
           <div id="masthead"><ul class="params">
             <li>Iterations: 1000</li><li>Fight Length: 300</li><li>Fight Style: Patchwerk</li>
           </ul></div>
-          <div class="player"><h2>Zornfalte: 95,132 dps</h2><div class="toggle-content">&lt;ul class="params"&gt;
-            &lt;li&gt;&lt;b&gt;Race:&lt;/b&gt; Orc&lt;/li&gt;&lt;li&gt;&lt;b&gt;Class:&lt;/b&gt; Warrior&lt;/li&gt;&lt;li&gt;&lt;b&gt;Spec:&lt;/b&gt; Fury&lt;/li&gt;&lt;li&gt;&lt;b&gt;Level:&lt;/b&gt; 90&lt;/li&gt;
-          &lt;/ul&gt;&lt;table class="sc spec"&gt;&lt;tr&gt;&lt;th&gt;Talent&lt;/th&gt;&lt;td&gt;CgEA-test&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
-          &lt;table class="sc sort stripetoprow"&gt;
-            &lt;tr&gt;&lt;th&gt;Damage Stats&lt;/th&gt;&lt;th&gt;DPS&lt;/th&gt;&lt;th&gt;DPS%&lt;/th&gt;&lt;/tr&gt;
-            &lt;tr class="toprow"&gt;&lt;td&gt;Rampage&lt;/td&gt;&lt;td&gt;20,000&lt;/td&gt;&lt;td&gt;21.0%&lt;/td&gt;&lt;/tr&gt;
-          &lt;/table&gt;&lt;/div&gt;&lt;/div&gt;
+          <div class="player"><h2>Zornfalte: 95,132 dps</h2><div class="toggle-content"><script type="text/x-deferred-html"><ul class="params">
+            <li><b>Race:</b> Orc</li><li><b>Class:</b> Warrior</li><li><b>Spec:</b> Fury</li><li><b>Level:</b> 90</li>
+          </ul><table class="sc spec"><tr><th>Talent</th><td>CgEA-test</td></tr></table>
+          <table class="sc sort stripetoprow">
+            <tr><th>Damage Stats</th><th>DPS</th><th>DPS%</th></tr>
+            <tr class="toprow"><td>Rampage</td><td>20,000</td><td>21.0%</td></tr>
+          </table></script></div></div>
         </body></html>'''
         with tempfile.TemporaryDirectory() as temp_dir:
             report_path = Path(temp_dir) / 'current_run_2.html'
