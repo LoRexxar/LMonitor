@@ -49,7 +49,7 @@ def parse_simc_html_report(html_content):
             # .toggle-content, then expand it with JavaScript in the browser.
             # Parse that fragment separately without touching the source file.
             player_detail = player
-            toggle_content = player.select_one(":scope > .toggle-content")
+            toggle_content = player.find("div", class_="toggle-content", recursive=False)
             if toggle_content:
                 fragment_text = toggle_content.get_text("", strip=False)
                 if "<" in fragment_text and ">" in fragment_text:
