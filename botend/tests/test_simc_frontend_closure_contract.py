@@ -19,6 +19,13 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
             "calculateTotalRecords",
         ):
             self.assertIn(f"function {function_name}(", MAIN)
+        for declaration in (
+            "let currentPage = 1;",
+            "let pageSize = 50;",
+            "let totalPages = 1;",
+            "let totalCount = 0;",
+        ):
+            self.assertIn(declaration, MAIN)
 
     def test_run_forms_are_reference_only_and_validate_all_three_references(self):
         for token in ("simc_profile_id", "base_template_id", "selected_apl_id"):

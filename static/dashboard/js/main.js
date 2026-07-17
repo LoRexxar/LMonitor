@@ -3143,6 +3143,12 @@ function syncSimcFightPresetFromInputs() {
     preset.value = Array.from(preset.options).some(option => option.value === expected) ? expected : 'custom';
 }
 
+// 全局分页变量
+let currentPage = 1;
+let pageSize = 50;
+let totalPages = 1;
+let totalCount = 0;
+
 // 全局表格变量
 let currentTableName = '';
 let currentTableColumns = [];
