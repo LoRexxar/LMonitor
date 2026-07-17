@@ -84,7 +84,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("requestSerial !== simcWbProfileDetailRequestSerial", detail_body)
         self.assertIn("simcWbProfileDetailId !== String(id)", detail_body)
 
-    def test_task_dialog_owns_artifact_preview_states(self):
+    def test_task_dialog_links_artifacts_as_standalone_pages(self):
         self.assertNotIn('id="simc-workbench-artifacts-panel"', HTML)
         self.assertNotIn('data-artifact-filter="task_id"', HTML)
         self.assertNotIn('data-artifact-filter="artifact_type"', HTML)
@@ -92,9 +92,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         end = JS.index('\n    async function', start + 20)
         detail = JS[start:end]
         self.assertIn('row.artifacts', detail)
-        self.assertIn('data-artifact-preview', detail)
-        self.assertIn('data-artifact-preview-action="retry"', JS)
-        self.assertIn('data-artifact-preview-action="close"', JS)
+        self.assertIn('href="${esc(artifact.preview_url)}"', detail)
+        self.assertNotIn('data-artifact-preview', detail)
+        self.assertNotIn('data-artifact-preview-action=', JS)
 
     def test_task_detail_renders_structured_report_summary(self):
         start = JS.index('async function showTaskDetail')
@@ -754,13 +754,15 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn('width: 100vw !important', mobile)
         self.assertIn('height: 100dvh !important', mobile)
 
-    def test_legacy_task_report_preview_uses_same_sandbox_allowlist(self):
-        helper_start = MAIN.index('function renderSimcArtifactFrame(')
-        helper_end = MAIN.index('function openSimcWorkbench(', helper_start)
-        helper = MAIN[helper_start:helper_end]
-        self.assertIn('tasks\\/\\d+\\/report-preview', helper)
-        self.assertIn('sandbox=""', helper)
-        self.assertNotIn('window.open', helper)
+    def test_simc_reports_open_as_standalone_authenticated_pages(self):
+        detail_start = JS.index('async function showTaskDetail')
+        detail_end = JS.index('async function showBatchComparison', detail_start)
+        detail = JS[detail_start:detail_end]
+        self.assertIn('href="${esc(artifact.preview_url)}"', detail)
+        self.assertIn('查看原生报告', detail)
+        self.assertNotIn('data-artifact-preview=', detail)
+        self.assertNotIn('renderSimcArtifactFrame(', detail)
+        self.assertNotIn('<iframe', detail)
 
     def test_dialog_close_lifecycle_clears_stack_without_breaking_nested_replace(self):
         self.assertIn("new CustomEvent('simc-dialog-closing', { detail: { reason: 'replace' } })", MAIN)

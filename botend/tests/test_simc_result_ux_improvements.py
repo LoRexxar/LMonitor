@@ -106,15 +106,15 @@ class SimcResultUXTests(TestCase):
         self.assertIn('nativeReportFrame.srcdoc = html', result)
         self.assertIn('buildNativeReportOutline', result)
 
-    def test_task_result_uses_owned_artifact_safe_preview(self):
+    def test_task_result_opens_owned_artifact_as_standalone_report(self):
         with open('static/dashboard/js/simc-workbench.js', encoding='utf-8') as f:
             workbench_js = f.read()
         with open('templates/simc_result_view.html', encoding='utf-8') as f:
             result = f.read()
 
-        self.assertIn('data-artifact-preview', workbench_js)
-        self.assertIn('window.renderSimcArtifactFrame', workbench_js)
-        self.assertIn("url !== resourceUrl('artifacts', id) + 'preview/'", workbench_js)
+        self.assertIn('href="${esc(artifact.preview_url)}"', workbench_js)
+        self.assertNotIn('data-artifact-preview', workbench_js)
+        self.assertNotIn('renderSimcArtifactFrame', workbench_js)
         self.assertNotIn('window.open(', workbench_js)
         self.assertIn('id="native-report-frame"', result)
         self.assertIn('sandbox="allow-same-origin"', result)

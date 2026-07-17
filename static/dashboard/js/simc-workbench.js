@@ -240,7 +240,7 @@
         if (!isCurrentDetailRequest(detailRequest)) return;
         const row = data.data || {};
         const artifacts = Array.isArray(row.artifacts) ? row.artifacts : [];
-        const artifactList = artifacts.length ? artifacts.map(artifact => `<div class="mt-2 text-sm">${esc(artifact.file_name || artifact.artifact_type || '产物')}${artifact.can_preview === true ? ` <button data-artifact-preview="${idOf(artifact.id)}" data-preview-url="${esc(artifact.preview_url)}" data-title="${esc(artifact.file_name)}" class="text-blue-700">在此预览</button>` : ''}</div>`).join('') : '<p class="mt-2 text-sm text-gray-500">暂无结果产物</p>';
+        const artifactList = artifacts.length ? artifacts.map(artifact => `<div class="mt-2 text-sm">${esc(artifact.file_name || artifact.artifact_type || '产物')}${artifact.can_preview === true ? ` <a href="${esc(artifact.preview_url)}" class="text-blue-700">打开报告</a>` : ''}</div>`).join('') : '<p class="mt-2 text-sm text-gray-500">暂无结果产物</p>';
         if (resource === 'batches') {
             const members = Array.isArray(row.tasks) ? row.tasks : [];
             const memberList = members.length ? members.map(member => `<article class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"><div><b>${esc(member.name || `任务 #${member.id}`)}</b><div class="text-xs text-gray-500">${esc(member.status_label || member.status)} · ${esc(member.updated_at)}</div></div><button data-wb-action="detail" data-resource="tasks" data-id="${idOf(member.id)}" class="text-blue-700">查看任务</button></article>`).join('') : empty('此批次暂无成员');
@@ -267,7 +267,7 @@
         const simulation = report?.simulation || {};
         const abilities = Array.isArray(report?.top_abilities) ? report.top_abilities : [];
         const abilityRows = abilities.length ? abilities.map(ability => `<tr class="border-t"><td class="p-2">${esc(ability.name)}</td><td class="p-2 text-right">${esc(ability.dps || '-')}</td><td class="p-2 text-right">${esc(ability.dps_percent || '-')}</td></tr>`).join('') : '<tr><td colspan="3" class="p-3 text-center text-gray-500">报告中未解析到技能明细</td></tr>';
-        const nativeReportButton = reportArtifact?.can_preview === true ? `<button data-artifact-preview="${idOf(reportArtifact.id)}" data-preview-url="${esc(reportArtifact.preview_url)}" data-title="${esc(reportArtifact.file_name)}" class="rounded border px-3 py-2 text-blue-700">查看原生报告</button>` : '';
+        const nativeReportButton = reportArtifact?.can_preview === true ? `<a href="${esc(reportArtifact.preview_url)}" class="rounded border px-3 py-2 text-blue-700">查看原生报告</a>` : '';
         const analysisDocument = report ? `<section class="mt-4 rounded-lg border bg-white p-4"><div class="flex flex-wrap items-center justify-between gap-2"><div><h5 class="font-semibold">结果分析文档</h5><p class="text-xs text-gray-500">只读解析精确 Run 的原始 SimC Artifact；原始文件未做任何改动。</p></div>${nativeReportButton}</div><dl class="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><span class="text-gray-500">角色</span><div class="font-medium">${esc(character.name || '-')}</div></div><div><span class="text-gray-500">职业 / 专精</span><div class="font-medium">${esc(character.class || '-')} / ${esc(character.spec || '-')}</div></div><div><span class="text-gray-500">种族 / 等级</span><div class="font-medium">${esc(character.race || '-')} / ${esc(character.level || '-')}</div></div><div><span class="text-gray-500">DPS</span><div class="font-medium">${esc(report.dps ?? '-')}</div></div><div><span class="text-gray-500">战斗模型</span><div>${esc(simulation.fight_style || '-')}</div></div><div><span class="text-gray-500">战斗时长</span><div>${esc(simulation.fight_length || '-')}</div></div><div><span class="text-gray-500">迭代次数</span><div>${esc(simulation.iterations || '-')}</div></div><div><span class="text-gray-500">时间戳</span><div>${esc(simulation.timestamp || '-')}</div></div></dl><div class="mt-4 overflow-x-auto"><h6 class="mb-2 text-sm font-semibold">主要技能</h6><table class="w-full min-w-[420px] text-sm"><thead><tr class="text-left text-gray-500"><th class="p-2">技能</th><th class="p-2 text-right">DPS</th><th class="p-2 text-right">占比</th></tr></thead><tbody>${abilityRows}</tbody></table></div></section>` : '<section class="mt-4 rounded-lg border p-4 text-sm text-gray-500">暂无可用的结果分析文档；原生 Artifact 仍可在结果产物中查看。</section>';
         host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">任务详情：${esc(row.name || `#${id}`)}</h4><div>${rerunButton}<button class="ml-2" data-wb-close-detail>关闭</button></div></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-3"><div>状态：${esc(row.status_label)}</div><div>DPS：${esc(row.result_summary?.dps ?? '-')}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${analysisDocument}${editable ? `<div class="mt-4 rounded-lg border bg-gray-50 p-3 text-sm"><div>Profile #${esc(row.profile_id)} · v${esc(row.profile_version_id)}</div><div>模板 #${esc(row.template_id)} · v${esc(row.template_version_id)}</div><div>APL #${esc(row.apl_id)} · v${esc(row.apl_version_id)}</div><pre class="mt-2 overflow-auto text-xs">${esc(JSON.stringify(params, null, 2))}</pre></div>` : ''}<section class="mt-4"><h5 class="font-semibold">执行轮次</h5>${runList}</section><section class="mt-4"><h5 class="font-semibold">结果产物</h5>${artifactList}</section>`;
     }
@@ -357,24 +357,7 @@
         await showTaskDetail('tasks', idOf(result.data?.id));
     }
 
-    function previewArtifact(button) {
-        const id = idOf(button.dataset.artifactPreview);
-        const url = String(button.dataset.previewUrl || '');
-        if (!id || url !== resourceUrl('artifacts', id) + 'preview/') return;
-        const host = button.closest?.('#simc-dialog-body') || document.getElementById('simc-wb-artifact-detail');
-        if (!host) return;
-        host.classList.remove('hidden');
-        const panel = document.getElementById('simc-workbench-dialog-content');
-        if (host.id === 'simc-dialog-body') pushDialogState();
-        host.dataset.previewUrl = url;
-        host.dataset.previewTitle = button.dataset.title || 'SimC 结果预览';
-        host.innerHTML = `<div class="flex flex-wrap items-start justify-between gap-2"><div><h4 class="font-bold">${esc(host.dataset.previewTitle)}</h4><p class="text-xs text-gray-500">${esc(button.dataset.meta)}</p></div><button class="simc-touch-action" data-artifact-preview-action="close">返回任务详情</button></div><div data-artifact-frame class="mt-3"><div class="p-5 text-center text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>正在加载安全预览…</div>${window.renderSimcArtifactFrame(url, host.dataset.previewTitle)}</div><button class="simc-touch-action mt-3 hidden rounded border px-3 py-2 text-blue-700" data-artifact-preview-action="retry">原位重试</button>`;
-        if (panel) panel.scrollTop = 0;
-        const frame = host.querySelector('iframe');
-        const retry = host.querySelector('[data-artifact-preview-action="retry"]');
-        frame?.addEventListener('load', () => host.querySelector('[data-artifact-frame] > div')?.remove(), { once: true });
-        frame?.addEventListener('error', () => { host.querySelector('[data-artifact-frame]').innerHTML = '<p class="p-5 text-center text-red-600">预览加载失败</p>'; retry?.classList.remove('hidden'); }, { once: true });
-    }
+
     async function loadTemplates() {
         const host = document.getElementById('simc-wb-template-list');
         const request = beginResourceRequest('templates');
@@ -997,20 +980,6 @@
             if (paginationBtn) {
                 const page = parseInt(paginationBtn.dataset.paginationPage, 10);
                 if (page > 0) loadTasks(page).catch(notify);
-            }
-            const preview = event.target.closest('[data-artifact-preview]');
-            if (preview) previewArtifact(preview);
-            const previewAction = event.target.closest('[data-artifact-preview-action]');
-            if (previewAction) {
-                const dialogHost = previewAction.closest('#simc-dialog-body');
-                const host = dialogHost || document.getElementById('simc-wb-artifact-detail');
-                if (!host) return;
-                if (previewAction.dataset.artifactPreviewAction === 'close') {
-                    if (dialogHost && restoreDialogState()) return;
-                    if (dialogHost) closeDialog();
-                    else { host.classList.add('hidden'); host.replaceChildren(); }
-                }
-                if (previewAction.dataset.artifactPreviewAction === 'retry') previewArtifact({ dataset: { artifactPreview: host.dataset.previewUrl?.match(/artifacts\/(\d+)/)?.[1], previewUrl: host.dataset.previewUrl, title: host.dataset.previewTitle, meta: '' } });
             }
             if (event.target.closest('[data-wb-close-detail]')) {
                 if (!restoreDialogState()) closeDialog();

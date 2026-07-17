@@ -1529,12 +1529,12 @@ class SimcNewConfigModeTests(TestCase):
         self.assertFalse(forbidden.json()['success'])
         self.assertIn('无权限', forbidden.json()['error'])
 
-    def test_task_detail_is_inline_and_old_modal_is_removed(self):
+    def test_task_detail_uses_workbench_dialog_and_old_modal_is_removed(self):
         main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
         workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
         self.assertNotIn('function openViewSimcTaskModal(task)', main_js)
         self.assertIn('async function showTaskDetail(resource, id)', workbench_js)
-        self.assertIn("host.classList.remove('hidden')", workbench_js)
+        self.assertIn("window.openSimcWorkbenchDialog(resource === 'batches' ? 'batch-detail' : 'task-detail', null)", workbench_js)
         self.assertNotIn('modal.style.display', workbench_js)
 
     def test_dashboard_sections_stay_inside_main_content(self):
