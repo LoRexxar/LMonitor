@@ -225,6 +225,50 @@ function initDashboard() {
 }
 
 /**
+ * 初始化侧栏中的可折叠菜单。
+ *
+ * 这是整个 Dashboard 的通用初始化函数，不能随 SimC 工作流代码一起删除；
+ * 否则 DOMContentLoaded 会在绑定数据库表和其他页面入口前中断。
+ */
+function initSubmenuToggle() {
+    document.querySelectorAll('.has-submenu').forEach(item => {
+        const mainLink = item.querySelector('a');
+        const submenu = item.querySelector('.submenu');
+        const chevron = item.querySelector('.fa-chevron-down');
+        if (!mainLink || !submenu || mainLink.dataset.submenuBound === '1') return;
+
+        mainLink.dataset.submenuBound = '1';
+        mainLink.addEventListener('click', event => {
+            event.preventDefault();
+            const willOpen = !item.classList.contains('open');
+            item.classList.toggle('open', willOpen);
+            submenu.style.maxHeight = willOpen ? `${submenu.scrollHeight}px` : '0';
+            if (chevron) chevron.classList.toggle('rotate-180', willOpen);
+        });
+    });
+}
+
+/**
+ * 初始化数据库表概览。
+ */
+function initTableSelection() {
+    calculateTotalRecords();
+}
+
+function calculateTotalRecords() {
+    const totalRecordsElement = document.getElementById('total-records');
+    if (!totalRecordsElement) return;
+
+    let totalRecords = 0;
+    document.querySelectorAll('.table-overview-item').forEach(item => {
+        const countText = item.querySelector('p:last-child')?.textContent || '';
+        const count = Number.parseInt(countText.replace('记录数: ', ''), 10);
+        if (Number.isFinite(count)) totalRecords += count;
+    });
+    totalRecordsElement.textContent = totalRecords.toLocaleString();
+}
+
+/**
  * 刷新仪表盘数据
  */
 function refreshData() {

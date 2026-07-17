@@ -11,6 +11,15 @@ WORKFLOW = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- 
 
 
 class SimcFrontendClosureContractTests(unittest.TestCase):
+    def test_dashboard_bootstrap_dependencies_are_preserved(self):
+        """SimC 重构不能删除首页及数据库导航依赖的全局初始化函数。"""
+        for function_name in (
+            "initSubmenuToggle",
+            "initTableSelection",
+            "calculateTotalRecords",
+        ):
+            self.assertIn(f"function {function_name}(", MAIN)
+
     def test_run_forms_are_reference_only_and_validate_all_three_references(self):
         for token in ("simc_profile_id", "base_template_id", "selected_apl_id"):
             self.assertIn(token, SIM)
