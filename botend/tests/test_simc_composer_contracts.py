@@ -137,10 +137,20 @@ class SimcComposerIdentitySlotResolutionTests(ComposerTestCase):
         self.base.content = (
             'warrior="LMonitor_SimC"\n'
             'spec={spec}\n'
+            'level=80\n'
+            'race=mechagnome\n'
+            'role=attack\n'
+            'position=back\n'
             'fight_style={fight_style}\n'
             'max_time={time}\n'
             'html={result_file}\n'
             'desired_targets={target_count}\n\n'
+            'talents={talent}\n'
+            'potion=tempered_potion_3\n'
+            'flask=flask_of_alchemical_chaos_3\n'
+            'food=the_sushi_special\n'
+            'augmentation=crystallized\n'
+            'temporary_enchant=main_hand:algari_mana_oil_3\n\n'
             '{player_config}\n\n'
             '{action_list}'
         )
@@ -157,13 +167,17 @@ class SimcComposerIdentitySlotResolutionTests(ComposerTestCase):
         self.assertIsNone(error)
         self.assertIn("armory=eu,Blackmoore,Zornfalte", final)
         self.assertNotIn('warrior="LMonitor_SimC"', final)
+        for stale_player_line in (
+            'spec=fury', 'level=80', 'race=mechagnome', 'role=attack', 'position=back',
+            'talents=', 'potion=tempered_potion_3', 'flask=flask_of_alchemical_chaos_3',
+            'food=the_sushi_special', 'augmentation=crystallized',
+            'temporary_enchant=main_hand:algari_mana_oil_3',
+        ):
+            self.assertNotIn(stale_player_line, final)
         lines = [line.strip() for line in final.splitlines() if line.strip()]
         self.assertEqual(lines.count("armory=eu,Blackmoore,Zornfalte"), 1)
-        self.assertLess(
-            lines.index("armory=eu,Blackmoore,Zornfalte"),
-            lines.index("spec=fury"),
-            "Battle.net armory actor 必须替换模板静态 actor，不能插到 actor 参数之后",
-        )
+        self.assertIn('fight_style=Patchwerk', lines)
+        self.assertIn('desired_targets=1', lines)
 
     def test_battlenet_spec_conflict_is_rejected(self):
         final, manifest, error = self.compose(
@@ -255,6 +269,10 @@ class SimcComposerTemplateRenderingTests(ComposerTestCase):
             self.assertNotIn(placeholder, final)
         self.assertIn("gear_crit_rating=123", final)
         self.assertIn("html=simc/result.html", final)
+        self.assertEqual(
+            [line for line in final.splitlines() if line.startswith('html=')],
+            ['html=simc/result.html'],
+        )
 
     def test_final_content_has_one_actor_and_one_spec(self):
         final, _, error = self.compose(self.template())

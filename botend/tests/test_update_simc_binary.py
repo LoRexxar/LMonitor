@@ -119,6 +119,41 @@ class UpdateSimcBinaryCommandTests(TestCase):
             self.assertTrue(template.is_selectable)
             self.assertEqual(template.content, 'iterations=2000\n')
 
+    def test_sync_default_template_deactivates_legacy_upstream_spec_templates(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        legacy = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='fury',
+            name='基础模板 fury',
+            content='warrior="Legacy"\nlevel=80\n{player_config}\n{action_list}',
+            is_active=True,
+            is_selectable=True,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            template_path = Path(tmpdir) / 'simc_template.txt'
+            template_path.write_text(
+                '{simulation_options}\n{player_identity}\n{action_list}\n',
+                encoding='utf-8',
+            )
+            command = Command()
+            command.stdout = StringIO()
+            with override_settings(SIMC_CONFIG={'simc_template': str(template_path)}):
+                command._sync_default_template()
+
+        legacy.refresh_from_db()
+        canonical = SimcContentTemplate.objects.get(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='default',
+            name='基础模板 default',
+        )
+        self.assertFalse(legacy.is_active)
+        self.assertFalse(legacy.is_selectable)
+        self.assertTrue(canonical.is_active)
+        self.assertTrue(canonical.is_selectable)
+
     def test_update_success_reuses_safe_probe_not_help(self):
         """After successful update, verification must reuse _probe_binary() not --help."""
         with tempfile.TemporaryDirectory() as tmpdir:

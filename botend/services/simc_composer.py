@@ -793,6 +793,22 @@ class SimcComposer:
                 count=1,
             )
             battlenet_actor_replaced = replaced_count == 1
+            if battlenet_actor_replaced:
+                # Armory is authoritative for player-scoped fields. Legacy base
+                # templates may still carry a complete player from an old
+                # expansion; retaining it would overwrite the imported actor.
+                stale_player_keys = (
+                    'spec', 'level', 'race', 'role', 'position', 'professions',
+                    'talents', 'potion', 'flask', 'food', 'augmentation',
+                    'temporary_enchant', 'gear_crit_rating', 'gear_haste_rating',
+                    'gear_mastery_rating', 'gear_versatility_rating',
+                )
+                stale_pattern = '|'.join(re.escape(key) for key in stale_player_keys)
+                result = re.sub(
+                    rf'(?mi)^\s*(?:{stale_pattern})\s*=.*(?:\n|$)',
+                    '',
+                    result,
+                )
 
         # Replace slot placeholders
         placeholders = {

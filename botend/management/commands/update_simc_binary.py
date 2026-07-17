@@ -179,7 +179,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f'默认模板文件为空，跳过同步: {template_path}'))
             return
 
-        _, created = SimcContentTemplate.objects.update_or_create(
+        template, created = SimcContentTemplate.objects.update_or_create(
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='default',
@@ -191,6 +191,10 @@ class Command(BaseCommand):
                 'is_selectable': True,
             }
         )
+        SimcContentTemplate.objects.filter(
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+        ).exclude(id=template.id).update(is_active=False, is_selectable=False)
         action = '创建' if created else '更新'
         self.stdout.write(self.style.SUCCESS(f'{action}默认 SimC 基础模板: spec=default'))
 

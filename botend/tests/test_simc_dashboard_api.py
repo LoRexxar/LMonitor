@@ -2695,7 +2695,7 @@ class SimcBatchTaskAPIViewGetTests(TestCase):
         self.assertIn('taskRequestSerial', task_js)
         self.assertIn('setTimeout(', task_js)
         self.assertIn('[0, 1, 4].includes(Number(row.status))', task_js)
-        self.assertIn('Number(row.pending || 0) > 0', task_js)
+        self.assertNotIn('Number(row.pending || 0) > 0', task_js)
         self.assertIn('scheduleTaskRefresh(hasActive)', task_js)
         self.assertIn('暂无记录', task_js)
 

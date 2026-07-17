@@ -3,8 +3,6 @@
 
 {simulation_options}
 
-html={result_file}
-
 {player_identity}
 
 {equipment}
@@ -16,10 +14,3 @@ html={result_file}
 {action_list}
 
 {output_options}
-
-# Legacy placeholders for migration boundary - kept for existing ext-based tasks
-# New tasks use manifest v2 renderer above
-# {player_config}
-# {fight_style}
-# {time}
-# {target_count}
