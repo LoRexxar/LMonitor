@@ -10,7 +10,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
-from botend.models import SimcBackendBinary
+from botend.models import SimcBackendBinary, SimcContentTemplate
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
@@ -90,6 +90,34 @@ class UpdateSimcBinaryCommandTests(TestCase):
         row = SimcBackendBinary.objects.get(platform='linux64')
         self.assertEqual(row.update_status, '二进制验证失败')
         self.assertLessEqual(len(row.last_error), 500)
+
+    def test_sync_default_template_creates_and_updates_selectable_template(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            template_path = Path(tmpdir) / 'simc_template.txt'
+            template_path.write_text('iterations=1000\n', encoding='utf-8')
+            command = Command()
+            command.stdout = StringIO()
+
+            with override_settings(SIMC_CONFIG={'simc_template': str(template_path)}):
+                command._sync_default_template()
+                template = SimcContentTemplate.objects.get(
+                    template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+                    source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                    spec='default',
+                    name='基础模板 default',
+                )
+                self.assertTrue(template.is_selectable)
+
+                template.is_selectable = False
+                template.save(update_fields=['is_selectable'])
+                template_path.write_text('iterations=2000\n', encoding='utf-8')
+                command._sync_default_template()
+
+            template.refresh_from_db()
+            self.assertTrue(template.is_selectable)
+            self.assertEqual(template.content, 'iterations=2000\n')
 
     def test_update_success_reuses_safe_probe_not_help(self):
         """After successful update, verification must reuse _probe_binary() not --help."""

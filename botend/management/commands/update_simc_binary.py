@@ -188,7 +188,7 @@ class Command(BaseCommand):
                 'class_name': '',
                 'content': content,
                 'is_active': True,
-                'is_selectable': False,
+                'is_selectable': True,
             }
         )
         action = '创建' if created else '更新'
