@@ -20,13 +20,16 @@ SIMC_MAIN = MAIN[
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
-    def test_high_risk_resource_navigation_and_aria_contract(self):
-        self.assertIn("syncTaskSubtabs(requestedResource)", JS)
-        self.assertIn("state.taskResource = normalized", JS)
-        self.assertIn("resourceUrl(requestedResource)", JS)
-        self.assertIn("aria-selected", JS)
-        self.assertIn('data-task-subtab="tasks"', HTML)
-        self.assertIn('aria-selected="true"', HTML)
+    def test_history_uses_one_task_list_without_batch_classification(self):
+        history_start = HTML.index('data-simc-l1-panel="history"')
+        history_end = HTML.index('<!-- End L1 Panel: 历史任务 -->')
+        history = HTML[history_start:history_end]
+        self.assertIn('>任务列表<', history)
+        self.assertNotIn('data-task-subtab=', history)
+        self.assertNotIn('任务与批次', history)
+        self.assertNotIn('>Batch<', history)
+        self.assertIn("resourceUrl('history')", JS)
+        self.assertNotIn('syncTaskSubtabs', JS)
         self.assertIn("data.ruleSubtab", MAIN)
         self.assertIn("switchRuleSubtab(model)", MAIN)
 
@@ -198,10 +201,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('id="simc-workbench-templates-panel"', workflow)
         self.assertIn('id="simc-workbench-apl-panel"', workflow)
 
-    def test_history_panel_has_task_batch_subtabs(self):
+    def test_history_panel_has_one_unified_task_list(self):
         self.assertIn('data-simc-panel="tasks"', HTML)
-        self.assertIn('data-task-subtab="tasks"', HTML)
-        self.assertIn('data-task-subtab="batches"', HTML)
+        self.assertNotIn('data-task-subtab=', HTML)
         self.assertIn("window.simcWorkbenchLoadPanel = activate", JS)
 
     def test_history_polling_is_cancelled_and_stale_responses_are_ignored(self):
@@ -209,7 +211,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("scheduleTaskRefresh(false)", JS)
         self.assertIn("state.taskRequestSerial += 1", JS)
         self.assertIn("requestSerial !== state.taskRequestSerial || state.activePanel !== 'tasks'", JS)
-        self.assertIn("resource !== state.taskResource || page !== state.taskPage", JS)
+        self.assertIn("page !== state.taskPage", JS)
         self.assertIn("window.simcWorkbenchDeactivatePanel(activeChildPanel)", MAIN)
 
     def test_history_fetch_is_aborted_on_deactivation(self):

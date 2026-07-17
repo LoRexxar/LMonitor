@@ -82,6 +82,35 @@ class SimcHistoryBackendPaginationTests(TestCase):
             is_active=True
         )
 
+    def test_history_endpoint_unifies_standalone_and_grouped_tasks(self):
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='属性模拟', batch_type='attribute_sweep',
+            status=1, is_active=True,
+        )
+        grouped = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, batch=batch,
+            name='候选子任务', current_status=0, is_active=True,
+        )
+        standalone = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id,
+            name='单次模拟', current_status=2, is_active=True,
+        )
+
+        request = self.factory.get('/api/simc-workbench/history/')
+        request.user = self.user
+        data = json.loads(self.view.get(request, resource='history').content)
+
+        self.assertTrue(data['success'])
+        self.assertEqual(data['pagination']['total'], 2)
+        rows = {row['name']: row for row in data['data']}
+        self.assertIn(standalone.name, rows)
+        self.assertIn(batch.name, rows)
+        self.assertNotIn(grouped.name, rows)
+        self.assertEqual(rows[standalone.name]['detail_resource'], 'tasks')
+        self.assertEqual(rows[batch.name]['detail_resource'], 'batches')
+        self.assertEqual(rows[batch.name]['status_label'], '运行中')
+        self.assertEqual(rows[batch.name]['progress'], 0)
+
     def test_page_defaults_to_1_if_not_provided(self):
         """page 参数未提供时默认为 1"""
         request = self.factory.get('/api/simc-workbench/tasks/')

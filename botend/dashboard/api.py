@@ -5604,6 +5604,66 @@ class SimcWorkbenchAPIView(View):
         return row
 
     def get(self, request, resource, object_id=None):
+        if resource == 'history':
+            try:
+                page = int(request.GET.get('page', 1))
+                page_size = int(request.GET.get('page_size', 20))
+            except (ValueError, TypeError):
+                return JsonResponse({'success': False, 'error': '分页参数必须为整数'}, status=400)
+            page = max(1, page)
+            page_size = max(1, min(50, page_size))
+
+            rows = []
+            for task in SimcTask.objects.filter(
+                user_id=request.user.id, batch__isnull=True,
+            ).order_by('-modified_time'):
+                rows.append({
+                    'id': task.id,
+                    'name': task.name,
+                    'status': task.current_status,
+                    'status_label': self._task_status_label(task.current_status),
+                    'progress': self._task_progress(task),
+                    'created_at': task.modified_time,
+                    'detail_resource': 'tasks',
+                })
+
+            member_filter = models.Q(simctask__user_id=request.user.id, simctask__is_active=True)
+            batches = SimcTaskBatch.objects.filter(user_id=request.user.id).annotate(
+                task_total=models.Count('simctask', filter=member_filter),
+                task_pending=models.Count('simctask', filter=member_filter & models.Q(simctask__current_status=0)),
+                task_running=models.Count('simctask', filter=member_filter & models.Q(simctask__current_status__in=(1, 4))),
+                task_succeeded=models.Count('simctask', filter=member_filter & models.Q(simctask__current_status=2)),
+                task_failed=models.Count('simctask', filter=member_filter & models.Q(simctask__current_status=3)),
+            ).order_by('-updated_at')
+            for batch in batches:
+                completed = batch.task_succeeded + batch.task_failed
+                progress = int(completed / batch.task_total * 100) if batch.task_total else 0
+                rows.append({
+                    'id': batch.id,
+                    'name': batch.name,
+                    'status': batch.status,
+                    'status_label': self._task_status_label(batch.status),
+                    'progress': progress,
+                    'created_at': batch.updated_at,
+                    'detail_resource': 'batches',
+                })
+
+            rows.sort(key=lambda row: row['created_at'], reverse=True)
+            total = len(rows)
+            total_pages = (total + page_size - 1) // page_size
+            offset = (page - 1) * page_size
+            page_rows = rows[offset:offset + page_size]
+            return JsonResponse({
+                'success': True,
+                'data': [{**row, 'created_at': _fmt_dt(row['created_at'])} for row in page_rows],
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total': total,
+                    'total_pages': total_pages,
+                },
+            })
+
         if resource == 'tasks':
             qs = SimcTask.objects.filter(user_id=request.user.id).order_by('-modified_time')
             if object_id:
