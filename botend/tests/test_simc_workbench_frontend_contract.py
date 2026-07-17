@@ -20,6 +20,39 @@ SIMC_MAIN = MAIN[
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
+    def test_home_creation_flow_is_spec_driven_and_single_submit(self):
+        workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        self.assertLess(workflow.index('id="simc-sim-spec"'), workflow.index('id="simc-sim-profile-select"'))
+        self.assertNotIn('disabled class=', workflow[workflow.index('id="simc-sim-spec"'):workflow.index('id="simc-sim-profile-select"')])
+        self.assertLess(workflow.index('id="simc-sim-apl-list"'), workflow.index('id="simc-sim-fight-style"'))
+        self.assertIn('id="simc-sim-mode"', workflow)
+        self.assertIn('value="normal"', workflow)
+        self.assertIn('value="attribute"', workflow)
+        self.assertIn('value="comparison"', workflow)
+        self.assertEqual(workflow.count('id="simc-sim-submit-btn"'), 1)
+        self.assertNotIn('id="simc-sim-attribute-optimize-btn"', workflow)
+        self.assertNotIn('id="simc-sim-apl-candidates-btn"', workflow)
+        self.assertNotIn('id="simc-sim-saved-profiles"', workflow)
+        self.assertNotIn('id="base-template-select"', workflow)
+
+    def test_home_creation_flow_uses_backend_defaults_filters_profiles_and_opens_history(self):
+        workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        self.assertIn('profile.spec', MAIN)
+        self.assertIn('normalizeSimcSpecKey(profile.spec) === normalizedSpec', MAIN)
+        self.assertIn('row.is_default === true', MAIN)
+        self.assertNotIn("${index === 0 ? 'checked' : ''}", MAIN)
+        self.assertIn('payload.default_template_id', MAIN)
+        self.assertIn("switchSimcWorkbenchL1Tab('history')", MAIN)
+        self.assertIn('submitSimcHomeCreation', MAIN)
+        self.assertIn("mode === 'normal'", MAIN)
+        self.assertIn("mode === 'attribute'", MAIN)
+        self.assertIn("mode === 'comparison'", MAIN)
+        self.assertIn("['simc-sim-submit-btn', submitSimcHomeCreation]", MAIN)
+        self.assertIn("spec.addEventListener('change'", MAIN)
+        self.assertEqual(workflow.count('id="simc-sim-player-detail-refresh-btn"'), 1)
+        self.assertNotIn('simc-comparison-submit', MAIN)
+        self.assertNotIn('window.location.assign(`/dashboard/simc/batches/', SIMC_MAIN)
+
     def test_history_uses_one_task_list_without_batch_classification(self):
         history_start = HTML.index('data-simc-l1-panel="history"')
         history_end = HTML.index('<!-- End L1 Panel: 历史任务 -->')
@@ -148,11 +181,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('@media (max-width: 640px)', HTML)
         self.assertIn('.simc-responsive-row', HTML)
         self.assertIn('.simc-touch-action', HTML)
-        self.assertIn('class="simc-workflow-step"', HTML)
-        self.assertIn('<details', HTML)
         for group in ("模拟工作流", "历史任务", "高级设置", "执行后端"):
             self.assertIn(group, HTML)
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        self.assertNotIn('<details', workflow)
         self.assertNotIn('p-5 h-full', workflow)
 
     def test_advanced_only_has_system_capabilities(self):

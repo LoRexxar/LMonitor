@@ -846,30 +846,17 @@
                                         <div class="flex items-start justify-between gap-4 mb-5">
                                             <div>
                                                 <h3 class="text-xl font-bold text-gray-900">发起模拟</h3>
-                                                <p class="text-sm text-gray-600 mt-1">选择已保存的 Profile、基础模板和 APL，再配置模拟参数。</p>
+                                                <p class="text-sm text-gray-600 mt-1">先选择目标专精，再选择匹配的玩家配置、APL、战斗参数与模拟模式。</p>
                                             </div>
                                         </div>
-                                        <div class="simc-responsive-row mb-5 grid grid-cols-3 gap-2" aria-label="模拟流程">
-                                            <div class="simc-workflow-step"><div class="simc-step-title">1 · 选择角色</div></div>
-                                            <div class="simc-workflow-step"><div class="simc-step-title">2 · 模拟场景</div></div>
-                                            <div class="simc-workflow-step"><div class="simc-step-title">3 · 检查并运行</div></div>
-                                        </div>
 
-                                        <div class="mb-5">
-                                            <label class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-user-check mr-1 text-blue-500"></i>已有 Profile</label>
-                                            <select id="simc-sim-profile-select" class="w-full p-2.5 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white">
-                                                <option value="">-- 请选择已有 Profile --</option>
-                                            </select>
-                                            <p class="text-xs text-gray-500 mt-1">任务只引用已保存的 Profile；新增或修改请前往 Profile 管理。</p>
-                                        </div>
-
-                                        <!-- 区域0 - Profile 专精（由已保存 Profile 决定） -->
+                                        <!-- 第一步：目标专精驱动后续 Profile 与资源候选 -->
                                         <div class="mb-5">
                                             <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                                <i class="fas fa-star mr-1 text-yellow-500"></i>Profile 专精
+                                                <i class="fas fa-star mr-1 text-yellow-500"></i>目标专精
                                             </label>
-                                            <select id="simc-sim-spec" disabled class="w-full p-2.5 border border-blue-200 rounded-xl bg-gray-100 text-gray-600">
-                                                <option value="">-- 请先选择 Profile --</option>
+                                            <select id="simc-sim-spec" class="w-full p-2.5 border border-blue-200 rounded-xl bg-white">
+                                                <option value="">-- 请选择目标专精 --</option>
                                                 <option value="arms">Arms (武器战)</option>
                                                 <option value="fury">Fury (狂怒战)</option>
                                                 <option value="protection">Protection (防战)</option>
@@ -908,6 +895,20 @@
                                                 <option value="frost_dk">Frost (冰霜DK)</option>
                                                 <option value="unholy">Unholy (邪恶)</option>
                                             </select>
+                                        </div>
+
+                                        <div class="mb-5">
+                                            <label class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-user-check mr-1 text-blue-500"></i>玩家配置</label>
+                                            <select id="simc-sim-profile-select" class="w-full p-2.5 border border-blue-200 rounded-xl bg-white">
+                                                <option value="">-- 请先选择目标专精 --</option>
+                                            </select>
+                                            <p class="text-xs text-gray-500 mt-1">仅显示目标专精匹配的已保存 Profile。</p>
+                                        </div>
+
+                                        <div class="mb-5">
+                                            <label class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-list-ol mr-1 text-green-500"></i>APL</label>
+                                            <div id="simc-sim-apl-list" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">请选择目标专精以加载 APL。</div>
+                                            <p class="mt-1 text-xs text-gray-500">系统默认 APL 由后端明确标记；基础模板由后端自动解析。</p>
                                         </div>
 
                                         <!-- 区域1 - 战斗配置 -->
@@ -949,43 +950,24 @@
 
                                         <div class="mb-5 rounded-xl border border-blue-100 bg-white p-4">
                                             <h4 class="font-semibold text-gray-800"><i class="fas fa-link mr-1 text-blue-600"></i>引用型输入</h4>
-                                            <p class="mt-1 text-xs text-gray-500">玩家、装备、天赋和属性均来自所选 Profile 的不可变版本；任务创建不会修改 Profile。</p>
-                                            <div class="mt-3 flex flex-wrap gap-3">
-                                                <button type="button" id="simc-sim-player-detail-refresh-btn" class="rounded-lg border px-3 py-2 text-sm text-blue-700">查看 Profile 详情</button>
-                                                <button type="button" id="simc-sim-attribute-optimize-btn" class="rounded-lg bg-amber-600 px-3 py-2 text-sm text-white">四属性寻优 Batch</button>
-                                            </div>
+                                            <p class="mt-1 text-xs text-gray-500">玩家、装备、天赋和属性均来自所选 Profile 的不可变版本；基础模板由后端确定性解析。</p>
                                             <div id="simc-sim-attribute-search-status" class="hidden mt-2 text-xs"></div>
                                         </div>
-                                        <details class="mb-5 rounded-xl border border-slate-200 bg-white" open>
-                                            <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">资源引用：基础模板与 APL</summary>
-                                            <div class="border-t border-slate-100 p-4">
-                                        <div class="mb-5">
-                                            <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                                <i class="fas fa-file-code mr-1 text-purple-500"></i>基础模板选择
-                                                <span class="text-xs text-gray-400 font-normal ml-1">(需要先选专精)</span>
-                                            </label>
-                                            <select id="base-template-select" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500">
-                                                <option value="">-- 请选择基础模板 --</option>
+
+                                        <div class="mb-5 rounded-xl border bg-white p-4">
+                                            <label class="block text-sm font-semibold text-gray-700 mb-2">任务模式</label>
+                                            <select id="simc-sim-mode" class="w-full rounded-lg border p-2.5">
+                                                <option value="normal">普通模拟</option>
+                                                <option value="attribute">属性寻优</option>
+                                                <option value="comparison">候选对比</option>
                                             </select>
+                                            <div id="simc-sim-mode-options" class="mt-3 text-xs text-gray-500">普通模拟将创建一个引用型任务。</div>
                                         </div>
-                                        <div class="mb-5">
-                                            <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                                <i class="fas fa-list-ol mr-1 text-green-500"></i>APL 选择与覆盖
-                                                <span class="text-xs text-gray-400 font-normal ml-1">(需要先选专精)</span>
-                                            </label>
-                                            <div id="simc-sim-apl-list" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500 mb-3">
-                                                请先选择专精以加载 APL 列表。
-                                            </div>
-                                            <p class="text-xs text-gray-500">仅提交所选 APL ID；如需修改内容，请先在 APL 管理中保存为独立资源。</p>
-                                            <button type="button" id="simc-sim-apl-candidates-btn" class="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white">生成 APL 候选 Batch</button>
-                                        </div>
-                                            </div>
-                                        </details>
 
                                         <!-- 主要操作按钮 -->
                                         <div class="flex flex-wrap gap-3">
                                             <button type="button" id="simc-sim-submit-btn" class="px-6 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors duration-200 shadow-sm">
-                                                <i class="fas fa-play-circle mr-2"></i>发起模拟
+                                                <i class="fas fa-play-circle mr-2"></i>创建任务
                                             </button>
                                         </div>
                                     </div>
@@ -994,15 +976,7 @@
                                     <div class="rounded-2xl border border-gray-200 bg-white p-5">
                                         <!-- 已保存配置：紧凑单行选择，点击后回填左侧表单 -->
 
-                                            <div class="flex items-center justify-between gap-3 mb-2">
-                                                <div class="font-semibold text-gray-800"><i class="fas fa-database mr-1 text-purple-500"></i>加载保存配置</div>
-                                                <button type="button" id="simc-sim-refresh-profiles-btn" class="shrink-0 text-xs px-2.5 py-1 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700">
-                                                    <i class="fas fa-sync-alt mr-1"></i>刷新
-                                                </button>
-                                            </div>
-                                            <div id="simc-sim-saved-profiles" class="text-sm text-gray-500 max-h-52 overflow-y-auto">
-                                                加载中...
-                                            </div>
+                                            <div class="font-semibold text-gray-800"><i class="fas fa-user mr-1 text-purple-500"></i>本次玩家详情</div>
                                         </div>
                                         <!-- 玩家配置详情：仅解析当前输入和本地快照，不联网、不创建任务 -->
                                         <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
@@ -1150,12 +1124,11 @@
                                                 <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">配置名</th>
                                                 <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">专精</th>
                                                 <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-500 border-b">玩家来源</th>
-                                                <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">快捷操作</th>
                                                 <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-500 border-b">操作</th>
                                             </tr>
                                         </thead>
                                         <tbody id="simc-wb-profile-list" class="divide-y divide-gray-100">
-                                            <tr><td colspan="6" class="text-center py-8 text-gray-400"><i class="fas fa-cog text-3xl mb-2"></i><p>加载中…</p></td></tr>
+                                            <tr><td colspan="5" class="text-center py-8 text-gray-400"><i class="fas fa-cog text-3xl mb-2"></i><p>加载中…</p></td></tr>
                                         </tbody>
                                     </table>
                                 </div>

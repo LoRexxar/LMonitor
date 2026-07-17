@@ -2268,9 +2268,37 @@ def _list_selectable_apl_for_spec(spec_key='', class_name='', spec='', owner_use
             'spec': item.spec,
             'class_name': item.class_name,
             'content_length': len(item.content or ''),
-            'is_default': item.is_system,
+            'is_default': False,
         })
     return rows
+
+
+def _resolve_home_creation_defaults(spec_key, class_name='', owner_user_id=None):
+    """Resolve the one explicit system APL and base template for the home flow."""
+    default_apls = SimcApl.objects.filter(
+        is_active=True, is_selectable=True, is_system=True,
+        owner_user_id__isnull=True, spec=spec_key,
+    )
+    if class_name:
+        default_apls = default_apls.filter(models.Q(class_name='') | models.Q(class_name=class_name))
+    apl_count = default_apls.count()
+    if apl_count != 1:
+        raise ValueError(f'专精 {spec_key} 需要且只能有一个系统默认 APL，当前为 {apl_count} 个')
+    default_apl = default_apls.get()
+
+    templates = SimcContentTemplate.objects.filter(
+        template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+        is_active=True, is_selectable=True,
+    ).filter(models.Q(owner_user_id__isnull=True) | models.Q(owner_user_id=owner_user_id))
+    if class_name:
+        templates = templates.filter(models.Q(class_name='') | models.Q(class_name=class_name))
+    exact = templates.filter(spec=spec_key)
+    candidates = exact if exact.exists() else templates.filter(spec__in=('default', 'all', '*'))
+    template_count = candidates.count()
+    if template_count != 1:
+        detail = '缺少' if template_count == 0 else f'存在多个（{template_count} 个）'
+        raise ValueError(f'专精 {spec_key} 基础模板{detail}，需要且只能解析到一个')
+    return default_apl, candidates.get()
 
 
 def _get_simc_content_by_id(content_id, allowed_types=None, owner_user_id=None):
@@ -3697,7 +3725,19 @@ class SimcAplCandidatesAPIView(View):
                 spec=spec_token,
                 owner_user_id=request.user.id,
             )
-            return JsonResponse({'success': True, 'data': data})
+            default_apl, default_template = _resolve_home_creation_defaults(
+                spec_key, class_name=class_token, owner_user_id=request.user.id,
+            )
+            for row in data:
+                row['is_default'] = row['id'] == default_apl.id
+            return JsonResponse({
+                'success': True,
+                'data': data,
+                'default_apl_id': default_apl.id,
+                'default_template_id': default_template.id,
+            })
+        except ValueError as e:
+            return JsonResponse({'success': False, 'error': str(e)}, status=409)
         except Exception as e:
             return JsonResponse({'success': False, 'error': str(e)})
 

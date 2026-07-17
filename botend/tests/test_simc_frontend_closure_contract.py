@@ -38,13 +38,15 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertNotIn('id="apl-override"', WORKFLOW)
         self.assertNotIn('id="simc-sim-save-profile-btn"', WORKFLOW)
 
-    def test_normal_run_opens_created_task_and_batches_open_real_batch_detail(self):
-        self.assertIn("window.location.assign(`/dashboard/simc/tasks/", SIM)
-        self.assertIn("window.location.assign(`/dashboard/simc/batches/", SIM)
-        self.assertNotIn("window.simcWorkbenchShowTaskDetail('tasks',", SIM)
-        self.assertNotIn("window.simcWorkbenchShowTaskDetail('batches',", SIM)
-        self.assertNotIn("switchSimcWorkbenchTab('artifacts')", SIM)
-        self.assertNotIn("loadArtifacts", SIM)
+    def test_home_creation_success_returns_to_unified_history(self):
+        creation = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function bindSimcWorkbenchSimulationControls")]
+        self.assertGreaterEqual(creation.count("switchSimcWorkbenchL1Tab('history')"), 3)
+        self.assertNotIn("window.location.assign(`/dashboard/simc/tasks/", creation)
+        self.assertNotIn("window.location.assign(`/dashboard/simc/batches/", creation)
+        self.assertNotIn("window.simcWorkbenchShowTaskDetail('tasks',", creation)
+        self.assertNotIn("window.simcWorkbenchShowTaskDetail('batches',", creation)
+        self.assertNotIn("switchSimcWorkbenchTab('artifacts')", creation)
+        self.assertNotIn("loadArtifacts", creation)
 
     def test_candidate_and_attribute_requests_share_reference_contract(self):
         candidate = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function stopSimcCandidateComparisonPolling")]

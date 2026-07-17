@@ -1746,12 +1746,8 @@ function loadSimcWorkbenchProfiles(page) {
             const sourceTitle = escapeHtml(sourceText || '-');
             const offset = startIdx + idx + 1;
             const isActive = row.is_active !== false;
-            const launchAction = isActive
-                ? `<button class="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded" data-profile-row-action="simulate" data-profile-id="${id}" title="启动模拟">启动模拟</button>`
-                : '<span class="inline-flex px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-500">已停用</span>';
             const managementActions = `<button class="text-slate-700 hover:text-slate-900 text-xs" data-profile-row-action="detail" data-profile-id="${id}" title="查看">查看</button>` + (isActive
-                ? `<button class="text-green-600 hover:text-green-800 text-xs" data-profile-row-action="load" data-profile-id="${id}" title="加载到发起模拟"><i class="fas fa-arrow-right"></i></button>
-                   <button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>
+                ? `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>
                    <button class="text-amber-600 hover:text-amber-800 text-xs" data-profile-row-action="deactivate" data-profile-id="${id}" title="停用"><i class="fas fa-pause"></i></button>`
                 : `<button class="text-green-600 hover:text-green-800 text-xs" data-profile-row-action="restore" data-profile-id="${id}" title="恢复"><i class="fas fa-rotate-left mr-1"></i>恢复</button>`);
             return `<tr class="hover:bg-gray-50 border-b border-gray-100 ${isActive ? '' : 'opacity-70'}">
@@ -1759,9 +1755,6 @@ function loadSimcWorkbenchProfiles(page) {
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
                 <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(spec)}</td>
                 <td class="px-3 py-3 text-xs text-gray-500 max-w-[220px] truncate" title="${sourceTitle}">${sourceTitle}</td>
-                <td class="px-3 py-3 text-center">
-                    ${launchAction}
-                </td>
                 <td class="px-3 py-3 text-center">
                     <div class="flex items-center justify-center gap-1 flex-wrap">
                         ${managementActions}
@@ -1834,8 +1827,6 @@ function bindSimcWorkbenchProfilesControls() {
             const rowAction = rowActionButton.dataset.profileRowAction;
             const profileId = rowActionButton.dataset.profileId;
             if (rowAction === 'detail') simcWbShowProfileDetail(profileId);
-            if (rowAction === 'simulate') simcWbLaunchSimulation(profileId);
-            if (rowAction === 'load') simcWbLoadProfileToSimulator(profileId);
             if (rowAction === 'edit') simcWbEditProfile(profileId);
             if (rowAction === 'deactivate') simcWbSetProfileActive(profileId, false);
             if (rowAction === 'restore') simcWbSetProfileActive(profileId, true);
@@ -2232,27 +2223,6 @@ function simcWbSyncProfileFormMode() {
         el.classList.toggle('hidden', el.getAttribute('data-profile-mode-section') !== mode);
     });
 }
-async function simcWbLaunchSimulation(profileId) {
-    const csrf = getCSRFToken();
-    if (!csrf) { showMessage('无法获取 CSRF Token', 'error'); return; }
-    try {
-        const resp = await fetch('/api/simc-profile/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-            body: JSON.stringify({ simulate_now: true, profile_id: profileId })
-        });
-        const data = await resp.json();
-        if (data.success) {
-            showMessage('已创建模拟任务并入队，请在任务列表查看', 'success');
-            switchSimcWorkbenchL1Tab('history');
-        } else {
-            showMessage('启动模拟失败: ' + (data.message || data.error || '未知错误'), 'error');
-        }
-    } catch (e) {
-        showMessage('启动模拟失败: ' + e.message, 'error');
-    }
-}
-
 async function simcWbSaveProfile() {
     const formWrap = document.getElementById('simc-wb-profile-form');
     if (!formWrap) return;
@@ -2339,41 +2309,6 @@ async function simcWbEditProfile(id) {
             showMessage('未找到配置', 'error');
         }
     } catch (e) { showMessage('加载配置失败: ' + e.message, 'error'); }
-}
-
-async function simcWbLoadProfileToSimulator(id) {
-    try {
-        const resp = await fetch(`/api/simc-profile/${id}/`, {
-            method: 'GET',
-            headers: { 'X-CSRFToken': getCSRFToken() }
-        });
-        const data = await resp.json();
-        if (!data.success) { showMessage('未找到配置', 'error'); return; }
-        const profile = data;
-        const specEl = document.getElementById('simc-sim-spec');
-        if (specEl && profile.spec) {
-            specEl.value = normalizeSimcSpecKey(profile.spec || '');
-            specEl.dispatchEvent(new Event('change'));
-        }
-        const mode = profile.player_config_mode || 'battlenet';
-        document.querySelectorAll('input[name="simc-player-import-mode"]').forEach(r => { r.checked = r.value === mode; });
-        if (typeof switchSimcPlayerImportMode === 'function') switchSimcPlayerImportMode(mode);
-        simcWbAttributeOnlyConfig = mode === 'attribute_only' ? {
-            talent: profile.talent || '', gear_strength: Number(profile.gear_strength || 0), gear_crit: Number(profile.gear_crit || 0),
-            gear_haste: Number(profile.gear_haste || 0), gear_mastery: Number(profile.gear_mastery || 0),
-            gear_versatility: Number(profile.gear_versatility || 0), profile_id: profile.id,
-        } : null;
-        if (mode === 'attribute_only') fillSimcAttributeOnlyInputs(simcWbAttributeOnlyConfig);
-        const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
-        setVal('simc-sim-battlenet-region', profile.battlenet_region || 'eu');
-        setVal('simc-sim-battlenet-realm', profile.battlenet_realm || '');
-        setVal('simc-sim-battlenet-character', profile.battlenet_character || '');
-        showMessage('已加载配置：' + (profile.name || ('#' + id)), 'success');
-        switchSimcWorkbenchL1Tab('workflow');
-        setTimeout(() => refreshSimcPlayerDetail(), 0);
-    } catch (e) {
-        showMessage('加载配置失败: ' + e.message, 'error');
-    }
 }
 
 async function simcWbSaveCurrentSimulatorProfile() {
@@ -2732,9 +2667,11 @@ function selectedSimcReferenceValue(selector) {
     return Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
+let simcResolvedBaseTemplateId = 0;
+
 function requireSimcRunReferences() {
     const simc_profile_id = selectedSimcReferenceValue('#simc-sim-profile-select');
-    const base_template_id = selectedSimcReferenceValue('#base-template-select');
+    const base_template_id = simcResolvedBaseTemplateId;
     const selected_apl_id = selectedSimcReferenceValue('input[name="simc-sim-apl"]:checked');
     if (!simc_profile_id) throw new Error('请选择已有 Profile');
     if (!base_template_id) throw new Error('请选择基础模板');
@@ -2752,6 +2689,8 @@ function currentSimcScenario() {
 
 let simcProfileSwitchGeneration = 0;
 let simcProfileSwitchAbortController = null;
+let simcTargetSpecGeneration = 0;
+let simcTargetSpecAbortController = null;
 let simcPlayerDetailRequestSerial = 0;
 let simcPlayerDetailAbortController = null;
 
@@ -2760,6 +2699,24 @@ function isCurrentSimcProfileSwitch(control) {
         && control.generation === simcProfileSwitchGeneration
         && control.controller === simcProfileSwitchAbortController
         && selectedSimcReferenceValue('#simc-sim-profile-select') === control.profileId);
+}
+
+function isCurrentSimcResourceControl(control) {
+    if (!control) return true;
+    if (control.kind === 'target-spec') {
+        return control.generation === simcTargetSpecGeneration
+            && control.controller === simcTargetSpecAbortController
+            && normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '') === control.spec;
+    }
+    return isCurrentSimcProfileSwitch(control);
+}
+
+function beginSimcTargetSpecLoad(spec) {
+    simcTargetSpecAbortController?.abort();
+    const controller = new AbortController();
+    const control = { kind: 'target-spec', generation: ++simcTargetSpecGeneration, spec, controller };
+    simcTargetSpecAbortController = controller;
+    return control;
 }
 
 function beginSimcProfileSwitch(profileId) {
@@ -2783,7 +2740,7 @@ function beginSimcProfileSwitch(profileId) {
 async function loadSimcAplCandidates(spec, control = null) {
     const container = document.getElementById('simc-sim-apl-list');
     if (!container) return;
-    if (control && !isCurrentSimcProfileSwitch(control)) return;
+    if (!isCurrentSimcResourceControl(control)) return;
     if (!spec) {
         container.innerHTML = '请选择 Profile 以加载 APL。';
         return;
@@ -2797,77 +2754,69 @@ async function loadSimcAplCandidates(spec, control = null) {
         const response = await fetch('/api/simc-apl-candidates/?' + query.toString(), options);
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || '加载 APL 失败');
-        if (control && !isCurrentSimcProfileSwitch(control)) return;
+        if (!isCurrentSimcResourceControl(control)) return;
         const rows = Array.isArray(payload.data) ? payload.data : [];
-        container.innerHTML = rows.length ? rows.map((row, index) => `
+        simcResolvedBaseTemplateId = Number(payload.default_template_id) || 0;
+        const defaults = rows.filter(row => row.is_default === true);
+        if (defaults.length !== 1 || !simcResolvedBaseTemplateId) throw new Error('后端未返回唯一默认 APL 和基础模板');
+        container.innerHTML = rows.length ? rows.map(row => `
             <label class="mb-2 flex cursor-pointer items-start gap-2 rounded-xl border bg-white p-3">
-                <input type="radio" name="simc-sim-apl" value="${Number(row.id) || ''}" ${index === 0 ? 'checked' : ''}>
+                <input type="radio" name="simc-sim-apl" value="${Number(row.id) || ''}" ${row.is_default === true ? 'checked' : ''}>
                 <span><b>${escapeHtml(row.name || `APL #${row.id}`)}</b><span class="block text-xs text-gray-500">${escapeHtml(row.spec || '')} · ${escapeHtml(row.source || '')}</span></span>
             </label>`).join('') : '<span class="text-amber-700">当前 Profile 专精没有可选 APL。</span>';
     } catch (error) {
-        if (error.name === 'AbortError' || (control && !isCurrentSimcProfileSwitch(control))) return;
+        simcResolvedBaseTemplateId = 0;
+        if (error.name === 'AbortError' || !isCurrentSimcResourceControl(control)) return;
         container.innerHTML = `<span class="text-red-700">${escapeHtml(String(error.message || error))}</span>`;
     }
 }
 
-async function loadSimcSnapshotDefaults(spec, control = null) {
-    const select = document.getElementById('base-template-select');
-    if (!select) return;
-    if (control && !isCurrentSimcProfileSwitch(control)) return;
-    select.innerHTML = '<option value="">加载中…</option>';
-    if (!spec) {
-        select.innerHTML = '<option value="">请选择 Profile</option>';
-        return;
-    }
-    let payload;
-    try {
-        const options = control ? { signal: control.controller.signal } : {};
-        const response = await fetch('/api/simc-template/?template_type=base_template', options);
-        payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || '加载基础模板失败');
-    } catch (error) {
-        if (error.name === 'AbortError' || (control && !isCurrentSimcProfileSwitch(control))) return;
-        select.innerHTML = `<option value="">${escapeHtml(String(error.message || error))}</option>`;
-        return;
-    }
-    if (control && !isCurrentSimcProfileSwitch(control)) return;
-    const normalized = normalizeSimcSpecKey(spec);
-    const rows = (payload.templates || []).filter(row => {
-        if (row.is_active === false || row.is_selectable === false) return false;
-        const rawSpec = String(row.spec || '').trim().toLowerCase();
-        return ['default', 'all', '*'].includes(rawSpec) || normalizeSimcSpecKey(rawSpec) === normalized;
-    });
-    select.innerHTML = '<option value="">-- 请选择基础模板 --</option>' + rows.map(row =>
-        `<option value="${Number(row.id) || ''}">${escapeHtml(row.name || `模板 #${row.id}`)}</option>`
-    ).join('');
-    const exact = rows.filter(row => normalizeSimcSpecKey(row.spec) === normalized);
-    if (exact.length === 1) select.value = String(exact[0].id);
-    else if (rows.length === 1) select.value = String(rows[0].id);
-}
-
-async function simcWbFetchProfilesForWorkbench() {
-    const response = await fetch('/api/simc-profile/');
+async function simcWbFetchProfilesForWorkbench(signal = undefined) {
+    const response = await fetch('/api/simc-profile/', signal ? { signal } : {});
     const payload = await response.json();
     if (!response.ok || !payload.success) throw new Error(payload.error || '加载 Profile 失败');
     return Array.isArray(payload.data) ? payload.data : [];
 }
 
-async function loadSimcSimProfileSelect(preferredId = 0) {
+async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
     const select = document.getElementById('simc-sim-profile-select');
     if (!select) return;
     const previous = String(preferredId || select.value || '');
     select.innerHTML = '<option value="">加载中…</option>';
     try {
-        const profiles = await simcWbFetchProfilesForWorkbench();
-        select.innerHTML = '<option value="">-- 请选择已有 Profile --</option>' + profiles.map(profile =>
+        const profiles = await simcWbFetchProfilesForWorkbench(control?.controller?.signal);
+        if (!isCurrentSimcResourceControl(control)) return;
+        const normalizedSpec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
+        const matchingProfiles = profiles.filter(profile => normalizeSimcSpecKey(profile.spec) === normalizedSpec);
+        select.innerHTML = '<option value="">-- 请选择匹配的 Profile --</option>' + matchingProfiles.map(profile =>
             `<option value="${Number(profile.id) || ''}" data-spec="${escapeHtml(profile.spec || '')}">${escapeHtml(profile.name || `Profile #${profile.id}`)} (${escapeHtml(profile.spec || '-')})</option>`
         ).join('');
-        if (profiles.some(profile => String(profile.id) === previous)) select.value = previous;
+        if (matchingProfiles.some(profile => String(profile.id) === previous)) select.value = previous;
         if (select.value) await onSimcProfileSelect();
     } catch (error) {
+        if (error.name === 'AbortError' || !isCurrentSimcResourceControl(control)) return;
         select.innerHTML = '<option value="">加载失败</option>';
         showMessage(String(error.message || error), 'error');
     }
+}
+
+async function onSimcTargetSpecChange() {
+    const spec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
+    const select = document.getElementById('simc-sim-profile-select');
+    beginSimcProfileSwitch(0);
+    const control = beginSimcTargetSpecLoad(spec);
+    simcResolvedBaseTemplateId = 0;
+    if (select) {
+        select.value = '';
+        select.disabled = !spec;
+    }
+    const apl = document.getElementById('simc-sim-apl-list');
+    if (!spec) {
+        if (select) select.innerHTML = '<option value="">-- 请先选择目标专精 --</option>';
+        if (apl) apl.innerHTML = '请选择目标专精以加载 APL。';
+        return;
+    }
+    await Promise.all([loadSimcSimProfileSelect(0, control), loadSimcAplCandidates(spec, control)]);
 }
 
 async function loadSimcSimSavedProfiles() {
@@ -2899,13 +2848,16 @@ async function onSimcProfileSelect() {
     const option = select?.selectedOptions?.[0];
     const profileId = selectedSimcReferenceValue('#simc-sim-profile-select');
     const control = beginSimcProfileSwitch(profileId);
-    const spec = normalizeSimcSpecKey(option?.dataset.spec || '');
-    const specSelect = document.getElementById('simc-sim-spec');
-    if (specSelect) specSelect.value = spec;
-    await Promise.all([
-        loadSimcSnapshotDefaults(spec, control),
-        loadSimcAplCandidates(spec, control),
-    ]);
+    const spec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
+    const profileSpec = normalizeSimcSpecKey(option?.dataset.spec || '');
+    if (profileId && profileSpec !== spec) {
+        select.value = '';
+        showMessage('所选 Profile 专精与目标专精不匹配', 'error');
+        return;
+    }
+    if (!profileId) return;
+    await loadSimcAplCandidates(spec, control);
+    refreshSimcPlayerDetail();
 }
 
 function renderSimcComparisonCandidates(comparison) {
@@ -2920,9 +2872,21 @@ function renderSimcComparisonCandidates(comparison) {
     }
     const gearRows = gear.map(row => `<label class="flex gap-2 rounded border bg-white p-2 text-xs"><input class="simc-comparison-candidate" type="checkbox" data-kind="gear_candidates" data-slot="${escapeHtml(row.slot || '')}" data-item-id="${Number(row.item_id) || 0}" data-source="${escapeHtml(row.source || '')}"><span>${escapeHtml(row.name || `${row.slot} #${row.item_id}`)}</span></label>`).join('');
     const talentRows = talents.map(row => `<label class="flex gap-2 rounded border bg-white p-2 text-xs"><input class="simc-comparison-candidate" type="checkbox" data-kind="talent_candidates" data-talent="${escapeHtml(row.talent || '')}" data-source="${escapeHtml(row.source || '')}"><span>${escapeHtml(row.name || '候选天赋')}</span></label>`).join('');
-    container.classList.remove('hidden');
-    container.innerHTML = `<div class="font-semibold">候选任务</div><p class="mt-1 text-xs text-gray-500">候选从已保存 Profile 服务端解析；请求只提交引用和候选标识。</p><div class="mt-2 grid gap-2">${gearRows}${talentRows}</div><button type="button" class="simc-comparison-submit mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-xs text-white">创建对比 Batch</button>`;
-    container.querySelector('.simc-comparison-submit')?.addEventListener('click', startSelectedSimcCandidateComparisons);
+    container.innerHTML = `<div class="font-semibold">候选任务</div><p class="mt-1 text-xs text-gray-500">候选从已保存 Profile 服务端解析；勾选后由页面底部唯一的“创建任务”按钮提交。</p><div class="mt-2 grid gap-2">${gearRows}${talentRows}</div>`;
+    container.classList.toggle('hidden', document.getElementById('simc-sim-mode')?.value !== 'comparison');
+}
+
+function updateSimcHomeMode() {
+    const mode = document.getElementById('simc-sim-mode')?.value || 'normal';
+    const descriptions = {
+        normal: '普通模拟将创建一个引用型原子任务。',
+        attribute: '属性寻优将创建任务组，并生成只改变属性差异的候选任务。',
+        comparison: '候选对比将使用右侧玩家详情中勾选的同类候选创建任务组。',
+    };
+    const options = document.getElementById('simc-sim-mode-options');
+    if (options) options.textContent = descriptions[mode] || '';
+    const candidates = document.getElementById('simc-sim-comparison-candidates');
+    if (candidates) candidates.classList.toggle('hidden', mode !== 'comparison' || !candidates.innerHTML.trim());
 }
 
 async function refreshSimcPlayerDetail() {
@@ -2995,7 +2959,7 @@ async function startSelectedSimcCandidateComparisons() {
         if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较 Batch 失败');
         if (!isCurrentSimcCandidateControl(control)) return;
         showMessage('比较 Batch 已创建', 'success');
-        window.location.assign(`/dashboard/simc/batches/${Number(payload.data.batch_id)}/`);
+        switchSimcWorkbenchL1Tab('history');
     } catch (error) {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
     } finally {
@@ -3043,7 +3007,7 @@ async function startSimcAttributeSearch() {
         const data = await submitSimcAttributeSearch(simcAttributeSearchRequestBody(), control.controller.signal);
         if (simcAttributeSearchControl !== control) return;
         showMessage('属性寻优 Batch 已创建', 'success');
-        window.location.assign(`/dashboard/simc/batches/${Number(data.batch_id)}/`);
+        switchSimcWorkbenchL1Tab('history');
     } catch (error) {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
     } finally {
@@ -3068,7 +3032,7 @@ async function createSimcAplCandidateBatch() {
     const payload = await response.json();
     if (!response.ok || !payload.success) throw new Error(payload.error || '创建 APL 候选 Batch 失败');
     showMessage('APL 候选 Batch 已创建', 'success');
-    window.location.assign(`/dashboard/simc/batches/${Number(payload.data.batch_id)}/`);
+    switchSimcWorkbenchL1Tab('history');
 }
 
 async function createSimcSimulationTask() {
@@ -3092,7 +3056,7 @@ async function createSimcSimulationTask() {
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || '创建任务失败');
         showMessage('模拟任务已创建', 'success');
-        window.location.assign(`/dashboard/simc/tasks/${Number(payload.data.id)}/`);
+        switchSimcWorkbenchL1Tab('history');
     } catch (error) {
         showMessage(String(error.message || error), 'error');
     } finally {
@@ -3100,16 +3064,42 @@ async function createSimcSimulationTask() {
     }
 }
 
+async function submitSimcHomeCreation() {
+    const mode = document.getElementById('simc-sim-mode')?.value || 'normal';
+    try {
+        requireSimcRunReferences();
+        if (mode === 'normal') {
+            await createSimcSimulationTask();
+        } else if (mode === 'attribute') {
+            await startSimcAttributeSearch();
+        } else if (mode === 'comparison') {
+            await startSelectedSimcCandidateComparisons();
+        } else {
+            throw new Error('未知的模拟模式');
+        }
+    } catch (error) {
+        showMessage(String(error.message || error), 'warning');
+    }
+}
+
 function bindSimcWorkbenchSimulationControls() {
+    const spec = document.getElementById('simc-sim-spec');
+    if (spec && spec.dataset.bound !== '1') {
+        spec.dataset.bound = '1';
+        spec.addEventListener('change', () => onSimcTargetSpecChange().catch(error => showMessage(String(error.message || error), 'error')));
+    }
     const profile = document.getElementById('simc-sim-profile-select');
     if (profile && profile.dataset.bound !== '1') {
         profile.dataset.bound = '1';
         profile.addEventListener('change', () => onSimcProfileSelect().catch(error => showMessage(String(error.message || error), 'error')));
     }
+    const mode = document.getElementById('simc-sim-mode');
+    if (mode && mode.dataset.bound !== '1') {
+        mode.dataset.bound = '1';
+        mode.addEventListener('change', updateSimcHomeMode);
+    }
     const bindings = [
-        ['simc-sim-submit-btn', createSimcSimulationTask],
-        ['simc-sim-attribute-optimize-btn', startSimcAttributeSearch],
-        ['simc-sim-apl-candidates-btn', () => createSimcAplCandidateBatch().catch(error => showMessage(String(error.message || error), 'error'))],
+        ['simc-sim-submit-btn', submitSimcHomeCreation],
         ['simc-sim-player-detail-refresh-btn', refreshSimcPlayerDetail],
         ['simc-sim-refresh-profiles-btn', refreshSimcSavedProfiles],
     ];
@@ -3122,8 +3112,8 @@ function bindSimcWorkbenchSimulationControls() {
     });
     const preset = document.getElementById('simc-sim-fight-preset');
     preset?.addEventListener('change', () => applySimcFightPreset(preset.value));
-    loadSimcSimProfileSelect();
-    loadSimcSimSavedProfiles();
+    updateSimcHomeMode();
+    onSimcTargetSpecChange().catch(error => showMessage(String(error.message || error), 'error'));
 }
 
 function applySimcFightPreset(presetValue) {

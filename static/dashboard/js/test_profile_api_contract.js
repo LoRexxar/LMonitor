@@ -13,11 +13,8 @@ const mainJsContent = fs.readFileSync(mainJsPath, 'utf-8');
 // Extract profile management API functions (excludes helper/UI functions)
 const profileFunctions = [
     'loadSimcWorkbenchProfiles',
-    'simcWbLaunchSimulation',
     'simcWbSaveProfile',
-    'simcWbDeleteProfile',
     'simcWbEditProfile',
-    'simcWbLoadProfileToSimulator',
     'simcWbSaveCurrentSimulatorProfile',
     'simcWbFetchProfilesForWorkbench'
 ];
@@ -86,25 +83,7 @@ if (profileBlock.includes('/api/simc-profile/${id}/') || profileBlock.includes('
     failed++;
 }
 
-// Test 4: Uses POST with simulate_now
-if (profileBlock.includes('simulate_now: true')) {
-    console.log('✓ Has simulate_now flag for launch simulation');
-    passed++;
-} else {
-    console.log('✗ Missing simulate_now flag for launch simulation');
-    failed++;
-}
-
-// Test 5: Uses DELETE with JSON body
-if (profileBlock.includes("method: 'DELETE'") && profileBlock.includes('body: JSON.stringify({ id:')) {
-    console.log('✓ Uses DELETE /api/simc-profile/ with JSON body');
-    passed++;
-} else {
-    console.log('✗ Missing DELETE /api/simc-profile/ with JSON body');
-    failed++;
-}
-
-// Test 6: Uses PUT for update
+// Test 4: Uses PUT for update
 if (profileBlock.includes("method: 'PUT'")) {
     console.log('✓ Uses PUT /api/simc-profile/ for updates');
     passed++;
@@ -113,7 +92,7 @@ if (profileBlock.includes("method: 'PUT'")) {
     failed++;
 }
 
-// Test 7: Uses POST for create
+// Test 5: Uses POST for create
 if (profileBlock.includes("method: 'POST'") && profileBlock.includes('/api/simc-profile/')) {
     console.log('✓ Uses POST /api/simc-profile/ for creation');
     passed++;
@@ -122,7 +101,7 @@ if (profileBlock.includes("method: 'POST'") && profileBlock.includes('/api/simc-
     failed++;
 }
 
-// Test 8: Client-side filtering
+// Test 6: Client-side filtering
 if (profileBlock.includes('simcWbProfileSpecFilter') && profileBlock.includes('.filter(')) {
     console.log('✓ Implements client-side spec filtering');
     passed++;
@@ -131,7 +110,7 @@ if (profileBlock.includes('simcWbProfileSpecFilter') && profileBlock.includes('.
     failed++;
 }
 
-// Test 9: Client-side pagination
+// Test 7: Client-side pagination
 if (profileBlock.includes('.slice(') && profileBlock.includes('startIdx') && profileBlock.includes('endIdx')) {
     console.log('✓ Implements client-side pagination');
     passed++;
@@ -140,16 +119,7 @@ if (profileBlock.includes('.slice(') && profileBlock.includes('startIdx') && pro
     failed++;
 }
 
-// Test 10: Has launch simulation button handler
-if (profileBlock.includes('simcWbLaunchSimulation') && profileBlock.includes('simc-wb-profile-simulate')) {
-    console.log('✓ Has launch simulation button and handler');
-    passed++;
-} else {
-    console.log('✗ Missing launch simulation button or handler');
-    failed++;
-}
-
-// Test 11: Workbench saved-profile loader is defined and uses the dedicated API.
+// Test 8: Workbench saved-profile loader is defined and uses the dedicated API.
 if (profileBlock.includes('async function simcWbFetchProfilesForWorkbench') && profileBlock.includes("fetch('/api/simc-profile/'")) {
     console.log('✓ Provides the workbench saved-profile loader');
     passed++;
@@ -158,7 +128,7 @@ if (profileBlock.includes('async function simcWbFetchProfilesForWorkbench') && p
     failed++;
 }
 
-console.log(`\n${passed}/11 tests passed`);
+console.log(`\n${passed}/8 tests passed`);
 
 if (failed > 0) {
     console.log(`\n❌ ${failed} test(s) failed`);
