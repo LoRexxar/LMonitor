@@ -30,11 +30,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("data.ruleSubtab", MAIN)
         self.assertIn("switchRuleSubtab(model)", MAIN)
 
-    def test_batch_detail_members_have_safe_reachable_task_detail(self):
-        self.assertIn("Array.isArray(row.tasks)", JS)
-        self.assertIn('data-wb-action="detail" data-resource="tasks"', JS)
-        self.assertIn("can_view", JS)
-        self.assertIn("批次详情", JS)
 
     def test_template_permissions_and_type_round_trip(self):
         form_start = JS.index("function renderTemplateForm")
@@ -98,10 +93,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-artifact-preview-action="retry"', JS)
         self.assertIn('data-artifact-preview-action="close"', JS)
 
-    def test_artifact_preview_is_only_rendered_for_supported_rows(self):
-        self.assertIn("row.can_preview === true", JS)
-        self.assertIn("a.can_preview === true", JS)
-        self.assertIn("仅供下载结果记录", JS)
 
     def test_profile_list_ignores_aborted_and_stale_responses(self):
         start = MAIN.index("function loadSimcWorkbenchProfiles")
@@ -228,50 +219,15 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("state.taskAbortController.abort()", JS)
         self.assertIn("error.name === 'AbortError'", JS)
 
-    def test_leaving_workbench_stops_all_history_and_candidate_polling(self):
-        self.assertIn("function deactivateSimcWorkbench()", MAIN)
-        self.assertIn("if (sectionId !== 'simc-workbench') deactivateSimcWorkbench();", MAIN)
-        self.assertIn("window.simcWorkbenchDeactivatePanel('')", MAIN)
-        self.assertIn("stopSimcCandidateComparisonPolling()", MAIN)
-        self.assertIn("clearTimeout(simcCandidatePollControl.timer)", MAIN)
-        self.assertIn("control.resolve(false)", MAIN)
 
-    def test_candidate_comparison_post_and_poll_share_cancellation(self):
-        self.assertIn("let simcCandidateGeneration = 0", MAIN)
-        self.assertIn("controller: new AbortController()", MAIN)
-        self.assertIn("signal: control.controller.signal", MAIN)
-        self.assertIn("control.controller.abort()", MAIN)
-        self.assertIn("isCurrentSimcCandidateControl(control)", MAIN)
-        self.assertIn("control.button.disabled = false", MAIN)
-        self.assertIn("control.button.innerHTML = control.oldLabel", MAIN)
 
-    def test_attribute_search_generation_cancels_get_and_continue_post(self):
-        self.assertIn("let simcAttributeSearchGeneration = 0", MAIN)
-        self.assertIn("function stopSimcAttributeSearch()", MAIN)
-        self.assertIn("isCurrentSimcAttributeSearch(generation)", MAIN)
-        self.assertIn("submitSimcAttributeSearch(payload, signal)", MAIN)
-        self.assertIn("signal: simcAttributeSearchControl.controller.signal", MAIN)
-        self.assertIn("stopSimcAttributeSearch()", MAIN)
-        self.assertIn("oldLabel: button?.innerHTML", MAIN)
-        self.assertIn("control.button.disabled = false", MAIN)
-        self.assertIn("control.button.innerHTML = control.oldLabel", MAIN)
 
-    def test_legacy_task_loader_is_fully_removed(self):
-        self.assertNotIn("fetchSimcTaskData", MAIN)
-        self.assertIn("window.simcWorkbenchLoadTaskResource('batches')", MAIN)
 
     def test_profile_mode_sync_defines_form_wrapper(self):
         start = MAIN.index("function simcWbSyncProfileFormMode()")
         body = MAIN[start:MAIN.index("\n}", start) + 2]
         self.assertIn("const formWrap = document.getElementById('simc-wb-profile-form')", body)
 
-    def test_artifact_uses_actual_sandbox_helper(self):
-        self.assertNotIn('id="simc-workbench-artifacts-panel"', HTML)
-        self.assertIn("openSimcWorkbenchDialog('task-detail'", JS)
-        self.assertIn("window.renderSimcArtifactFrame(url", JS)
-        self.assertIn('sandbox=""', MAIN)
-        self.assertIn("/api/simc-workbench/", JS)
-        self.assertIn("artifacts", JS)
 
     def test_dedicated_api_and_inline_sections(self):
         self.assertIn("const apiRoot = '/api/simc-workbench/'", JS)
@@ -452,13 +408,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('status_only: true', MAIN)
         self.assertNotIn('function simcWbDeleteProfile', MAIN)
 
-    def test_workflow_import_mode_uses_delegated_change_handler(self):
-        start = HTML.index('id="simc-workbench-import-panel"')
-        end = HTML.index('<!-- End L1 Panel: 模拟工作流 -->', start)
-        workflow_panel = HTML[start:end]
-        self.assertNotIn('onchange=', workflow_panel)
-        self.assertIn('name="simc-player-import-mode"', workflow_panel)
-        self.assertIn("closest('input[name=\"simc-player-import-mode\"]')", MAIN)
 
     def test_workbench_profile_and_rule_actions_do_not_use_native_dialogs(self):
         start = MAIN.index('/* --- Profile CRUD --- */')
@@ -838,16 +787,6 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         ):
             self.assertNotIn(f'id="{slot_id}"', HTML)
 
-    def test_task_dialog_renders_real_dps_and_report_artifact(self):
-        start = JS.index('async function showTaskDetail')
-        end = JS.index('\n    async function', start + 20)
-        body = JS[start:end]
-        self.assertIn("openSimcWorkbenchDialog('task-detail'", body)
-        self.assertIn('result_summary', body)
-        self.assertIn('.dps', body)
-        self.assertIn('artifacts', body)
-        self.assertIn('renderSimcArtifactFrame', body)
-        self.assertNotIn('/simc-result/', body)
 
     def test_batch_dialog_renders_member_dps_and_delta_without_navigation(self):
         start = JS.index('async function showBatchComparison')

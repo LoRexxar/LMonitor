@@ -131,6 +131,15 @@ class DefaultPlayerReferenceContractTests(TestCase):
             spec='warrior_fury', name='Saved APL', content=APL_CONTENT,
             is_active=True, is_selectable=True,
         )
+        self.profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='Fury explicit profile',
+            spec='warrior_fury',
+            player_config_mode='manual_equipment',
+            player_equipment=DEFAULT_PLAYER,
+            talent='USER_BUILD',
+            is_active=True,
+        )
 
     def add_default_player(self, content=DEFAULT_PLAYER):
         return SimcContentTemplate.objects.create(
@@ -143,12 +152,8 @@ class DefaultPlayerReferenceContractTests(TestCase):
     def task_payload(self, **overrides):
         payload = {
             'name': 'Fury reference task',
-            'profile_name': 'Fury explicit profile',
+            'simc_profile_id': self.profile.id,
             'task_type': 1,
-            'spec': 'warrior_fury',
-            'player_config_mode': 'manual_equipment',
-            'player_equipment': DEFAULT_PLAYER,
-            'talent': 'USER_BUILD',
             'base_template_id': self.template.id,
             'selected_apl_id': self.apl.id,
         }
@@ -178,9 +183,11 @@ class DefaultPlayerReferenceContractTests(TestCase):
         self.assertNotIn('override_action_list', json.loads(task.ext or '{}'))
 
     def test_default_player_is_not_implicitly_selected_for_task(self):
+        self.profile.player_equipment = ''
+        self.profile.save(update_fields=['player_equipment'])
         response = self.client.post(
             '/api/simc-task/',
-            data=json.dumps(self.task_payload(player_equipment='')),
+            data=json.dumps(self.task_payload()),
             content_type='application/json',
         )
         self.assertTrue(response.json()['success'], response.json())
@@ -203,16 +210,16 @@ class DefaultPlayerReferenceContractTests(TestCase):
                 self.assertIn(error_fragment, response.json()['error'])
         self.assertFalse(SimcTask.objects.exists())
 
-    def test_new_profile_requires_explicit_profile_name(self):
+    def test_task_requires_existing_profile_reference(self):
         payload = self.task_payload()
-        payload.pop('profile_name')
+        payload.pop('simc_profile_id')
         response = self.client.post(
             '/api/simc-task/', data=json.dumps(payload), content_type='application/json'
         )
         self.assertFalse(response.json()['success'])
-        self.assertIn('profile_name', response.json()['error'])
+        self.assertIn('simc_profile_id', response.json()['error'])
         self.assertFalse(SimcTask.objects.exists())
-        self.assertFalse(SimcProfile.objects.filter(user_id=self.user.id).exists())
+        self.assertEqual(SimcProfile.objects.filter(user_id=self.user.id).count(), 1)
 
     def test_duplicate_active_default_templates_are_rejected_by_unique_constraint(self):
         with self.assertRaises(IntegrityError), transaction.atomic():

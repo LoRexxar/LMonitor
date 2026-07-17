@@ -571,6 +571,19 @@ class SimcBatchVariableCompareTests(TestCase):
             source=SimcApl.SOURCE_SIMC_UPSTREAM,
             is_system=True,
             is_active=True,
+            is_selectable=True,
+        )
+        self.profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='Batch contract Profile',
+            spec='warrior_fury',
+            player_config_mode='manual_equipment',
+            player_equipment=(
+                'warrior="Batcher"\nlevel=90\nspec=fury\ntalents=BASE\n'
+                'head=,id=212048\nmain_hand=,id=222222'
+            ),
+            talent='BASE',
+            is_active=True,
         )
 
 
@@ -638,34 +651,22 @@ finger1=,id=299002,ilevel=655
 
 
     def test_auto_attribute_batch_rejects_missing_frozen_player_baseline(self):
+        self.profile.player_config_mode = 'attribute_only'
+        self.profile.player_equipment = ''
+        self.profile.save(update_fields=['player_config_mode', 'player_equipment'])
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({
-            'kind': 'attribute_variants', 'name': 'Fury 自动属性比较', 'spec': 'fury',
-            'player_config_mode': 'attribute_only', 'talent': 'ATTRIBUTE_BUILD',
-            'gear_strength': 5000,
-            'gear_crit': 1000, 'gear_haste': 2000, 'gear_mastery': 3000, 'gear_versatility': 4000,
+            'kind': 'attribute_variants', 'name': 'Fury 自动属性比较',
+            'simc_profile_id': self.profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
             'attribute_step': 50, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
         }), content_type='application/json')
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['success'])
         self.assertIn('玩家装备基线', response.json()['error'])
         self.assertFalse(SimcTask.objects.exists())
 
-    def test_attribute_search_ui_submits_the_visible_frozen_player_baseline(self):
-        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        start = main_js.index('function simcAttributeSearchRequestBody()')
-        end = main_js.index('async function submitSimcAttributeSearch', start)
-        request_builder = main_js[start:end]
 
-        self.assertIn("document.getElementById('simc-sim-equipment')", request_builder)
-        self.assertIn('player_equipment:', request_builder)
-        self.assertIn('玩家装备基线', request_builder)
-
-    def test_player_detail_refresh_submits_attribute_frozen_player_baseline(self):
-        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        start = main_js.index('async function refreshSimcPlayerDetail()')
-        end = main_js.index('function simcAttributeSearchRequestBody()', start)
-        refresh = main_js[start:end]
-        self.assertIn('requestBody.player_equipment', refresh)
-        self.assertIn("document.getElementById('simc-sim-equipment')", refresh)
 
 
     def test_auto_attribute_batch_projects_anchor_direction_to_boundary_instead_of_dropping_it(self):
@@ -985,6 +986,8 @@ finger1=,id=299002,ilevel=655
         self.assertGreater(validation['non_auto_dps'], 0)
 
     def test_attribute_search_rejects_any_non_50_step(self):
+        self.profile.player_config_mode = 'attribute_only'
+        self.profile.save(update_fields=['player_config_mode'])
         results = [
             {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 100000, 'is_center': True},
             {'ratings': {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000}, 'dps': 100100, 'is_center': False},
@@ -992,10 +995,10 @@ finger1=,id=299002,ilevel=655
         with self.assertRaisesRegex(ValueError, '固定使用 50'):
             SimcBatchTaskAPIView._next_attribute_search_center(results, step=100, min_step=50)
         bad_response = self.client.post('/api/simc-task/batch/', data=json.dumps({
-            'kind': 'attribute_variants', 'name': '错误步长', 'spec': 'fury',
-            'player_config_mode': 'attribute_only', 'talent': 'ATTRIBUTE_BUILD',
-            'player_equipment': 'warrior="Frozen"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
-            'gear_crit': 1000, 'gear_haste': 2000, 'gear_mastery': 3000, 'gear_versatility': 4000,
+            'kind': 'attribute_variants', 'name': '错误步长',
+            'simc_profile_id': self.profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
             'attribute_step': 100,
         }), content_type='application/json')
         self.assertFalse(bad_response.json()['success'])
@@ -1008,36 +1011,15 @@ finger1=,id=299002,ilevel=655
         self.assertEqual(stop, 'max_rounds_reached')
 
 
-    def test_candidate_comparison_ui_allows_independent_trinket_gear_and_talent_selection(self):
-        """候选入口按变更维度分批，不能把饰品、其他装备和天赋混成同一排名。"""
-        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        ui_start = main_js.index('function renderSimcComparisonCandidates(comparison)')
-        ui_end = main_js.index('async function preflightSimcBattlenet()', ui_start)
-        candidate_ui = main_js[ui_start:ui_end]
-
-        self.assertIn('simc-comparison-kind="trinket_candidates"', candidate_ui)
-        self.assertIn('simc-comparison-kind="gear_candidates"', candidate_ui)
-        self.assertIn('simc-comparison-kind="talent_candidates"', candidate_ui)
-        self.assertIn('startSelectedSimcCandidateComparisons', candidate_ui)
-        self.assertIn("kind === 'trinket_candidates'", candidate_ui)
-        self.assertIn("kind === 'gear_candidates'", candidate_ui)
-        self.assertIn('for (const kind of selectedKinds)', candidate_ui)
-        self.assertIn("kind: requestKind", candidate_ui)
-        self.assertIn("category: kind", candidate_ui)
-        self.assertIn('const completed = await pollSimcCandidateComparison', candidate_ui)
-        self.assertIn('if (!completed || !isCurrentSimcCandidateControl(control)) return;', candidate_ui)
-        self.assertIn('finish(true);', candidate_ui)
-        self.assertIn("switchSimcWorkbenchL1Tab('history')", candidate_ui)
-        self.assertIn("'/api/simc-regular-compare/?batch_id='", candidate_ui)
-        self.assertIn("switchSimcWorkbenchTab('artifacts')", candidate_ui)
-        self.assertNotIn("'/simc-compare/?batch_id='", candidate_ui)
-        self.assertNotIn("window.open(", candidate_ui)
-        self.assertIn('resolve(completed);', candidate_ui)
 
 
     def test_batch_rejects_unsupported_source_and_oversized_candidate_selection(self):
-        base = {'name': 'Manual candidate compare', 'spec': 'fury', 'player_config_mode': 'manual_equipment',
-                'player_equipment': 'warrior="Batcher"\nspec=fury\ntalents=BASE\nhead=,id=212048'}
+        base = {
+            'name': 'Manual candidate compare',
+            'simc_profile_id': self.profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+        }
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({**base, 'kind': 'gear_candidates', 'candidates': [{'slot': 'head', 'item_id': 1, 'source': 'external'}]}), content_type='application/json')
         self.assertFalse(response.json()['success'])
         self.assertIn('来源', response.json()['error'])
@@ -1389,18 +1371,6 @@ class SimcNewConfigModeTests(TestCase):
         self.assertIn('不再支持直接 SimC 代码模式', payload['error'])
         self.assertNotIn('create-secret', json.dumps(payload, ensure_ascii=False))
 
-    def test_task_management_uses_new_inline_safe_history_ui(self):
-        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
-        self.assertNotIn('function displaySimcTaskData(tasks)', main_js)
-        self.assertNotIn('function openViewSimcTaskModal(task)', main_js)
-        self.assertIn('async function showTaskDetail(resource, id)', workbench_js)
-        self.assertIn("window.openSimcWorkbenchDialog('task-detail'", workbench_js)
-        self.assertIn("document.getElementById('simc-dialog-body')", workbench_js)
-        self.assertNotIn('raw_simc_code', workbench_js)
-        self.assertNotIn('candidate_reason', workbench_js)
-        self.assertNotIn('preprocess_reasoning', workbench_js)
-        self.assertNotIn('simc_error_native', workbench_js)
 
     def test_task_ext_summary_drops_raw_simc_code_from_browser_response(self):
         summary = SimcTaskAPIView()._task_ext_summary(1, json.dumps({
@@ -1603,31 +1573,7 @@ class SimcNewConfigModeTests(TestCase):
                 self.assertIsNotNone(panel, panel_id)
                 self.assertIn(group, panel.parents, panel_id)
 
-    def test_template_list_uses_dedicated_api_preview_and_inline_detail(self):
-        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
-        self.assertNotIn('function displayTemplateList(templates)', main_js)
-        self.assertIn('async function loadTemplates()', workbench_js)
-        self.assertIn('async function showTemplateDetail(id)', workbench_js)
-        self.assertIn('row.preview', workbench_js)
-        self.assertNotIn('row.content', workbench_js[workbench_js.index('async function loadTemplates()'):workbench_js.index('function renderTemplateForm')])
 
-    def test_task_history_uses_shared_safe_dialog_instead_of_raw_config_modal(self):
-        template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
-        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
-
-        self.assertNotIn('id="simc-wb-task-detail"', template)
-        self.assertIn('id="simc-workbench-dialog"', template)
-        self.assertIn("openSimcWorkbenchDialog('task-detail'", workbench_js)
-        self.assertNotIn('查看SimC代码', template)
-        self.assertNotIn('生成的SimC代码', template)
-        self.assertNotIn('copy-simc-code', template)
-        self.assertNotIn('view-simc-task-code', main_js)
-        self.assertIn('async function showTaskDetail(resource, id)', workbench_js)
-        self.assertIn('状态：', workbench_js)
-        self.assertIn('更新时间：', workbench_js)
-        self.assertNotIn('final_simc_content', workbench_js)
 
     def test_final_execution_config_validation_summarizes_rendered_simc_without_raw_content(self):
         rendered = '''warrior="AuditActor"
@@ -1816,138 +1762,9 @@ html=simc_task_99.html
         self.assertIn('旧版属性寻优（task_type=2）已停用', payload['error'])
 
 
-    def test_create_task_with_manual_equipment_mode(self):
-        """Manual equipment mode now requires base_template_id and selected_apl_id."""
-        response = self.client.post(
-            '/api/simc-task/',
-            data=json.dumps({
-                'name': 'Fury Manual Equipment',
-                'profile_name': 'Manual Equipment Profile',
-                'task_type': 1,
-                'player_import_mode': 'manual_equipment',
-                'player_equipment': 'talents=TEST\nhead=,id=212048',
-                'base_template_id': self.base_template.id,
-                'selected_apl_id': self.default_apl.id,
-                'fight_style': 'Patchwerk',
-                'time': 300,
-                'target_count': 1,
-                'spec': 'fury',
-                'talent': 'TEST',
-            }),
-            content_type='application/json',
-        )
 
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload['success'], payload)
-        task = SimcTask.objects.get(id=payload['data']['id'])
-        self.assertEqual(task.template_id, self.base_template.id)
-        self.assertEqual(task.apl_id, self.default_apl.id)
-        self.assertIsNotNone(task.profile_id)
-        self.assertIsNotNone(task.profile_version_id)
-        self.assertIsNotNone(task.template_version_id)
-        self.assertIsNotNone(task.apl_version_id)
 
-    def test_create_task_with_dungeon_preset_values_persists_exact_combat_combination(self):
-        """战斗组合预设只是前端预填，任务端必须按选择后的精确值固化。"""
-        response = self.client.post(
-            '/api/simc-task/',
-            data=json.dumps({
-                'name': 'Fury DungeonSlice 300s 5目标',
-                'profile_name': 'Dungeon Profile',
-                'task_type': 1,
-                'player_import_mode': 'attribute_only',
-                'player_equipment': 'warrior="Frozen"\nlevel=90\nspec=fury\ntalents=DUNGEON_BUILD\nhead=,id=212048\nmain_hand=,id=222222',
-                'base_template_id': self.base_template.id,
-                'selected_apl_id': self.default_apl.id,
-                'spec': 'fury',
-                'talent': 'DUNGEON_BUILD',
-                'gear_crit': 400,
-                'gear_haste': 1100,
-                'gear_mastery': 1140,
-                'gear_versatility': 100,
-                'fight_style': 'DungeonSlice',
-                'time': 300,
-                'target_count': 5,
-            }),
-            content_type='application/json',
-        )
 
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload['success'], payload)
-        task = SimcTask.objects.get(id=payload['data']['id'])
-        self.assertEqual(task.simulation_params.get('fight_style'), 'DungeonSlice')
-        self.assertEqual(task.simulation_params.get('max_time'), 300)
-        self.assertEqual(task.simulation_params.get('desired_targets'), 5)
-
-    def test_create_task_with_legacy_equipment_alias_maps_to_manual_equipment(self):
-        """Legacy 'equipment' mode now requires base_template_id and apl_id."""
-        response = self.client.post(
-            '/api/simc-task/',
-            data=json.dumps({
-                'name': 'Legacy Equipment Alias',
-                'profile_name': 'Legacy Equipment Profile',
-                'task_type': 1,
-                'player_config_mode': 'equipment',
-                'player_equipment': 'talents=TEST\nneck=,id=224433',
-                'base_template_id': self.base_template.id,
-                'selected_apl_id': self.default_apl.id,
-                'spec': 'fury',
-            }),
-            content_type='application/json',
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload['success'], payload)
-        task = SimcTask.objects.get(id=payload['data']['id'])
-        # Verify it's mapped to manual_equipment in the profile
-        from botend.models import SimcProfile
-        profile = SimcProfile.objects.get(id=task.profile_id)
-        self.assertEqual(profile.player_config_mode, 'manual_equipment')
-
-    @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
-    def test_create_task_with_battlenet_mode(self, preflight):
-        """Battle.net mode now requires base_template_id and apl_id."""
-        preflight.return_value = {
-            'identity': {'class_name': 'warrior', 'level': 80},
-            'spec': {'key': 'fury'},
-            'simc_ready': True,
-            'warnings': [],
-        }
-        response = self.client.post(
-            '/api/simc-task/',
-            data=json.dumps({
-                'name': 'Fury Battle.net Import',
-                'profile_name': 'Bloodmastêr',
-                'task_type': 1,
-                'player_import_mode': 'battlenet',
-                'battlenet_region': 'EU',
-                'battlenet_realm': 'Kazzak',
-                'battlenet_character': 'Bloodmastêr',
-                'base_template_id': self.base_template.id,
-                'selected_apl_id': self.default_apl.id,
-                'fight_style': 'Patchwerk',
-                'time': 300,
-                'target_count': 1,
-                'spec': 'fury',
-            }),
-            content_type='application/json',
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload['success'], payload)
-        task = SimcTask.objects.get(id=payload['data']['id'])
-        self.assertIsNotNone(task.profile_id)
-        # Verify it's a battlenet profile
-        from botend.models import SimcProfile
-        profile = SimcProfile.objects.get(id=task.profile_id)
-        self.assertEqual(profile.player_config_mode, 'battlenet')
-        self.assertEqual(profile.battlenet_region, 'eu')
-        self.assertEqual(profile.battlenet_realm, 'Kazzak')
-        self.assertEqual(profile.battlenet_character, 'Bloodmastêr')
 
 
 
@@ -2239,6 +2056,18 @@ class SimcPlayerConfigDetailTests(TestCase):
             source=SimcApl.SOURCE_USER,
             owner_user_id=self.user.id,
             is_active=True,
+            is_selectable=True,
+        )
+
+    def _create_profile(self, name, player_block):
+        return SimcProfile.objects.create(
+            user_id=self.user.id,
+            name=name,
+            spec='warrior_fury',
+            player_config_mode='manual_equipment',
+            player_equipment=player_block,
+            talent='ACTIVE_BUILD',
+            is_active=True,
         )
 
     def test_player_config_detail_returns_structured_manual_player_detail_with_items_and_stats(self):
@@ -2339,10 +2168,10 @@ trinket1=,id=111,ilevel=639
 # Saved Loadout: Cleave
 # talents=CLEAVE_BUILD
 '''
+        profile = self._create_profile('Talent Replacement Test', player_block)
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({
-            'kind': 'talent_candidates', 'name': 'Fury 天赋对比', 'spec': 'fury',
-            'profile_name': 'Talent Replacement Test',
-            'player_config_mode': 'manual_equipment', 'player_equipment': player_block,
+            'kind': 'talent_candidates', 'name': 'Fury 天赋对比',
+            'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
             'candidates': [{'talent': 'CLEAVE_BUILD'}],
@@ -2370,9 +2199,12 @@ head=,id=111,ilevel=639
 # Candidate ring (645)
 finger1=,id=222,ilevel=645
 '''
+        profile = self._create_profile('Gear missing-slot Test', player_block)
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({
-            'kind': 'gear_candidates', 'name': 'Fury 装备对比', 'spec': 'fury',
-            'player_config_mode': 'manual_equipment', 'player_equipment': player_block,
+            'kind': 'gear_candidates', 'name': 'Fury 装备对比',
+            'simc_profile_id': profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
             'candidates': [{'slot': 'finger1', 'item_id': 222, 'source': 'bags'}],
         }), content_type='application/json')
         self.assertEqual(response.status_code, 200)
@@ -2390,9 +2222,12 @@ head=,id=222,ilevel=645
 # Saved Loadout: Cleave
 # talents=CLEAVE_BUILD
 '''
+        profile = self._create_profile('Duplicate candidate Test', player_block)
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({
-            'kind': 'gear_candidates', 'name': 'Fury 装备对比', 'spec': 'fury',
-            'player_config_mode': 'manual_equipment', 'player_equipment': player_block,
+            'kind': 'gear_candidates', 'name': 'Fury 装备对比',
+            'simc_profile_id': profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
             'candidates': [
                 {'slot': 'head', 'item_id': 222, 'source': 'bags'},
                 {'slot': 'head', 'item_id': 222, 'source': 'bags'},

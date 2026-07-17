@@ -827,7 +827,7 @@
                                         <div class="flex items-start justify-between gap-4 mb-5">
                                             <div>
                                                 <h3 class="text-xl font-bold text-gray-900">发起模拟</h3>
-                                                <p class="text-sm text-gray-600 mt-1">配置战斗场景、玩家数据和APL，一键发起SimC模拟</p>
+                                                <p class="text-sm text-gray-600 mt-1">选择已保存的 Profile、基础模板和 APL，再配置模拟参数。</p>
                                             </div>
                                         </div>
                                         <div class="simc-responsive-row mb-5 grid grid-cols-3 gap-2" aria-label="模拟流程">
@@ -836,13 +836,21 @@
                                             <div class="simc-workflow-step"><div class="simc-step-title">3 · 检查并运行</div></div>
                                         </div>
 
-                                        <!-- 区域0 - 专精选择 -->
+                                        <div class="mb-5">
+                                            <label class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-user-check mr-1 text-blue-500"></i>已有 Profile</label>
+                                            <select id="simc-sim-profile-select" class="w-full p-2.5 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white">
+                                                <option value="">-- 请选择已有 Profile --</option>
+                                            </select>
+                                            <p class="text-xs text-gray-500 mt-1">任务只引用已保存的 Profile；新增或修改请前往 Profile 管理。</p>
+                                        </div>
+
+                                        <!-- 区域0 - Profile 专精（由已保存 Profile 决定） -->
                                         <div class="mb-5">
                                             <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                                <i class="fas fa-star mr-1 text-yellow-500"></i>专精选择
+                                                <i class="fas fa-star mr-1 text-yellow-500"></i>Profile 专精
                                             </label>
-                                            <select id="simc-sim-spec" class="w-full p-2.5 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white">
-                                                <option value="">-- 请选择专精 --</option>
+                                            <select id="simc-sim-spec" disabled class="w-full p-2.5 border border-blue-200 rounded-xl bg-gray-100 text-gray-600">
+                                                <option value="">-- 请先选择 Profile --</option>
                                                 <option value="arms">Arms (武器战)</option>
                                                 <option value="fury">Fury (狂怒战)</option>
                                                 <option value="protection">Protection (防战)</option>
@@ -920,83 +928,17 @@
                                             </div>
                                         </div>
 
-                                        <!-- 区域2 - 玩家信息导入：只输入玩家信息块，不输入完整 simc -->
-                                        <div class="mb-5">
-                                            <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                                <i class="fas fa-user mr-1 text-blue-500"></i>玩家信息导入
-                                            </label>
-                                            <div class="flex flex-wrap gap-4 mb-3">
-                                                <label class="flex items-center gap-2 cursor-pointer">
-                                                    <input type="radio" name="simc-player-import-mode" value="battlenet" checked class="h-4 w-4 text-blue-600 border-gray-300">
-                                                    <span class="text-sm text-gray-700">Battle.net 角色拉取</span>
-                                                </label>
-                                                <label class="flex items-center gap-2 cursor-pointer">
-                                                    <input type="radio" name="simc-player-import-mode" value="manual_equipment" class="h-4 w-4 text-blue-600 border-gray-300">
-                                                    <span class="text-sm text-gray-700">手动输入装备配置</span>
-                                                </label>
-                                                <label class="flex items-center gap-2 cursor-pointer">
-                                                    <input type="radio" name="simc-player-import-mode" value="attribute_only" class="h-4 w-4 text-blue-600 border-gray-300">
-                                                    <span class="text-sm text-gray-700">冻结玩家基线与绿字覆盖</span>
-                                                </label>
+                                        <div class="mb-5 rounded-xl border border-blue-100 bg-white p-4">
+                                            <h4 class="font-semibold text-gray-800"><i class="fas fa-link mr-1 text-blue-600"></i>引用型输入</h4>
+                                            <p class="mt-1 text-xs text-gray-500">玩家、装备、天赋和属性均来自所选 Profile 的不可变版本；任务创建不会修改 Profile。</p>
+                                            <div class="mt-3 flex flex-wrap gap-3">
+                                                <button type="button" id="simc-sim-player-detail-refresh-btn" class="rounded-lg border px-3 py-2 text-sm text-blue-700">查看 Profile 详情</button>
+                                                <button type="button" id="simc-sim-attribute-optimize-btn" class="rounded-lg bg-amber-600 px-3 py-2 text-sm text-white">四属性寻优 Batch</button>
                                             </div>
-
-                                            <!-- 模式A: Battle.net 角色导入 -->
-                                            <div id="simc-player-battlenet-section" class="rounded-xl border border-blue-100 bg-white p-4">
-                                                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                                    <div>
-                                                        <label class="block text-xs font-semibold text-gray-600 mb-1">地区</label>
-                                                        <select id="simc-sim-battlenet-region" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                                                            <option value="cn">CN</option>
-                                                            <option value="us">US</option>
-                                                            <option value="eu">EU</option>
-                                                            <option value="kr">KR</option>
-                                                            <option value="tw">TW</option>
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label class="block text-xs font-semibold text-gray-600 mb-1">服务器</label>
-                                                        <input id="simc-sim-battlenet-realm" type="text" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="例如：Kazzak / 白银之手">
-                                                    </div>
-                                                    <div>
-                                                        <label class="block text-xs font-semibold text-gray-600 mb-1">角色名</label>
-                                                        <input id="simc-sim-battlenet-character" type="text" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="例如：Bloodmastêr">
-                                                    </div>
-                                                </div>
-                                                <p class="text-xs text-gray-500 mt-2">先获取并验证角色配置：会读取当前角色、职业/专精和已装备物品；仅保存三元组并不代表已导入。</p>
-                                                <div class="mt-3 flex flex-wrap items-center gap-3">
-                                                    <button type="button" id="simc-sim-battlenet-preflight-btn" class="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold"><i class="fas fa-cloud-download-alt mr-1"></i>获取配置并验证</button>
-                                                    <span id="simc-sim-battlenet-preflight-status" class="text-xs text-gray-500">尚未验证</span>
-                                                </div>
-                                            </div>
-
-                                            <!-- 模式B: 手动装备配置 -->
-                                            <div id="simc-player-equipment-section" class="hidden">
-                                                <textarea id="simc-sim-equipment" class="w-full p-3 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm bg-white" rows="10" placeholder="只粘贴玩家信息块，不要粘完整 simc。示例：&#10;talents=...&#10;head=,id=212048,enchant_id=71543,...&#10;neck=,id=224433,...&#10;shoulder=,id=212050,..."></textarea>
-                                                <p class="text-xs text-gray-500 mt-2">这里只填写玩家装备/天赋相关行；iterations、fight_style、targets、APL 等由系统按选项拼装。</p>
-                                            </div>
-
-                                            <!-- 模式C: 仅天赋与绿字属性 / 同页四属性寻优 -->
-                                            <div id="simc-player-attribute-only-section" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-4">
-                                                <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
-                                                    <div><h4 class="font-semibold text-amber-950"><i class="fas fa-compass text-amber-600 mr-1"></i>冻结玩家基线与属性覆盖</h4><p class="text-xs text-amber-800 mt-1">沿用上方完整玩家、装备和天赋基线，再用这里的天赋、主属性和四项副属性作为最终覆盖值；所有寻优候选冻结同一玩家块。</p></div>
-                                                    <div class="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900">寻优固定 50 rating 两两交换</div>
-                                                </div>
-                                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">天赋构筑码</label><input id="simc-sim-attribute-talent" type="text" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 font-mono text-sm bg-white" placeholder="talent build code"></div>
-                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">主属性（Strength）</label><input id="simc-sim-attribute-strength" type="number" min="0" value="0" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"></div>
-                                                </div>
-                                                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">暴击绿字</label><input id="simc-sim-attribute-crit" type="number" min="0" value="0" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"></div>
-                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">急速绿字</label><input id="simc-sim-attribute-haste" type="number" min="0" value="0" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"></div>
-                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">精通绿字</label><input id="simc-sim-attribute-mastery" type="number" min="0" value="0" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"></div>
-                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">全能绿字</label><input id="simc-sim-attribute-versatility" type="number" min="0" value="0" class="w-full p-2.5 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"></div>
-                                                </div>
-                                                <div class="mt-4 flex flex-wrap items-center gap-3"><button type="button" id="simc-sim-attribute-optimize-btn" class="px-5 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold"><i class="fas fa-compass mr-1"></i>自动寻优四属性</button><span class="text-xs text-amber-800">保持四项副属性总和不变；内点最多创建 13 个独立常规模拟。</span></div>
-                                                <div id="simc-sim-attribute-search-status" class="hidden mt-2 text-xs"></div>
-                                            </div>
+                                            <div id="simc-sim-attribute-search-status" class="hidden mt-2 text-xs"></div>
                                         </div>
-                                        <details class="mb-5 rounded-xl border border-slate-200 bg-white">
-                                            <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">高级覆盖：基础模板、玩家基线与 APL</summary>
+                                        <details class="mb-5 rounded-xl border border-slate-200 bg-white" open>
+                                            <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">资源引用：基础模板与 APL</summary>
                                             <div class="border-t border-slate-100 p-4">
                                         <div class="mb-5">
                                             <label class="block text-sm font-semibold text-gray-700 mb-2">
@@ -1004,16 +946,8 @@
                                                 <span class="text-xs text-gray-400 font-normal ml-1">(需要先选专精)</span>
                                             </label>
                                             <select id="base-template-select" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500">
-                                                <option value="">使用默认基础模板</option>
+                                                <option value="">-- 请选择基础模板 --</option>
                                             </select>
-                                            <textarea id="base-template-content" class="w-full mt-3 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 font-mono text-sm bg-white" rows="10" placeholder="选择模板后自动加载，可在创建任务前编辑；提交后将冻结为任务快照。"></textarea>
-                                        </div>
-                                        <div class="mb-5">
-                                            <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                                <i class="fas fa-user-edit mr-1 text-blue-500"></i>默认玩家基线配置
-                                                <span class="text-xs text-gray-400 font-normal ml-1">(可编辑覆盖)</span>
-                                            </label>
-                                            <textarea id="player-baseline-config" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-sm bg-white" rows="8" placeholder="玩家装备基线将在专精变化时自动加载..."></textarea>
                                         </div>
                                         <div class="mb-5">
                                             <label class="block text-sm font-semibold text-gray-700 mb-2">
@@ -1023,9 +957,8 @@
                                             <div id="simc-sim-apl-list" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500 mb-3">
                                                 请先选择专精以加载 APL 列表。
                                             </div>
-                                            <div id="apl-override-editor">
-                                                <textarea id="apl-override" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 font-mono text-sm bg-white" rows="10" placeholder="APL 覆盖编辑区（选择 APL 后自动填充，可手动编辑）"></textarea>
-                                            </div>
+                                            <p class="text-xs text-gray-500">仅提交所选 APL ID；如需修改内容，请先在 APL 管理中保存为独立资源。</p>
+                                            <button type="button" id="simc-sim-apl-candidates-btn" class="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white">生成 APL 候选 Batch</button>
                                         </div>
                                             </div>
                                         </details>
@@ -1034,9 +967,6 @@
                                         <div class="flex flex-wrap gap-3">
                                             <button type="button" id="simc-sim-submit-btn" class="px-6 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors duration-200 shadow-sm">
                                                 <i class="fas fa-play-circle mr-2"></i>发起模拟
-                                            </button>
-                                            <button type="button" id="simc-sim-save-profile-btn" class="px-6 py-2.5 rounded-xl bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-colors duration-200 shadow-sm">
-                                                <i class="fas fa-save mr-2"></i>保存当前配置
                                             </button>
                                         </div>
                                     </div>

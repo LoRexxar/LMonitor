@@ -138,6 +138,19 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.user = User.objects.create_user(username='reference_batch_api', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
+        self.profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='API Batch Profile',
+            spec='fury',
+            player_config_mode='manual_equipment',
+            player_equipment=(
+                'warrior="Batcher"\nlevel=90\nspec=fury\ntalents=BASE\n'
+                'head=,id=212048\nmain_hand=,id=222222\n'
+                '### Gear from Bags\nhead=,id=299001'
+            ),
+            talent='BASE',
+            is_active=True,
+        )
         self.template = SimcContentTemplate.objects.create(
             name='API Batch Base Template',
             template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
@@ -159,14 +172,7 @@ class ReferenceBatchAPIViewTests(TestCase):
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({
             'kind': 'gear_candidates',
             'name': 'Reference gear batch',
-            'profile_name': 'Reference gear profile',
-            'spec': 'fury',
-            'player_config_mode': 'manual_equipment',
-            'player_equipment': (
-                'warrior="Batcher"\nlevel=90\nspec=fury\ntalents=BASE\n'
-                'head=,id=212048\nmain_hand=,id=222222\n'
-                '### Gear from Bags\nhead=,id=299001'
-            ),
+            'simc_profile_id': self.profile.id,
             'candidates': [{'slot': 'head', 'item_id': 299001, 'source': 'bags'}],
             'base_template_id': self.template.id,
             'selected_apl_id': self.apl.id,
@@ -271,6 +277,112 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertEqual({task.apl_version_id for task in next_tasks}, {source_apl_version_id})
         self.assertEqual({task.mode_params['search']['round'] for task in next_tasks}, {2})
         self.assertTrue(all(task.ext in (None, '') for task in next_tasks))
+
+        # Only the highest round gates continuation. A historical failed row must
+        # neither poison the current round nor enter its DPS recommendation.
+        source_tasks[0].current_status = 3
+        source_tasks[0].save(update_fields=['current_status'])
+        for task in next_tasks:
+            task.current_status = 2
+            task.result_file = f'attribute_{task.id}.html'
+            task.save(update_fields=['current_status', 'result_file'])
+        round_two_dps = iter([100000, 101500] + [100100] * (len(next_tasks) - 2))
+        with patch('botend.dashboard.api.SimcRegularCompareAPIView._get_result_file_content', return_value='<html></html>'), \
+                patch('botend.dashboard.api.SimcRegularCompareAPIView._parse_regular_result', side_effect=lambda _html: {'dps': next(round_two_dps)}):
+            third = api._continue_attribute_search(request, {}, str(batch.id))
+        self.assertEqual({
+            task.mode_params['search']['round']
+            for task in SimcTask.objects.filter(id__in=third['task_ids'])
+        }, {3})
+
+    def test_attribute_continuation_requires_success_parseable_dps_and_consistent_current_versions(self):
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Guarded continuation', batch_type='attribute_sweep', status=1,
+        )
+        api = __import__('botend.dashboard.api', fromlist=['SimcBatchTaskAPIView']).SimcBatchTaskAPIView()
+        rows = api._attribute_variants(
+            {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 50,
+        )[:2]
+        tasks = []
+        for index, (label, ratings, is_base, candidate) in enumerate(rows):
+            task = create_task(
+                user_id=self.user.id, name=label, profile_id=self.profile.id,
+                template_id=self.template.id, apl_id=self.apl.id,
+                mode='attribute_sweep', batch_id=batch.id, candidate_label=label,
+                mode_params={'candidate_type': 'attribute_ratings', 'is_base': is_base,
+                             'batch_index': index, 'attribute_ratings': ratings, 'search': candidate},
+            )
+            task.current_status = 2
+            task.result_file = f'attribute_{task.id}.html'
+            task.save(update_fields=['current_status', 'result_file'])
+            tasks.append(task)
+        request = RequestFactory().post('/api/simc-task/batch/', data='{}', content_type='application/json')
+        request.user = self.user
+
+        tasks[1].current_status = 3
+        tasks[1].save(update_fields=['current_status'])
+        with self.assertRaisesRegex(ValueError, '全部成功'):
+            api._continue_attribute_search(request, {}, str(batch.id))
+        tasks[1].current_status = 2
+        tasks[1].save(update_fields=['current_status'])
+
+        with patch('botend.dashboard.api.SimcRegularCompareAPIView._get_result_file_content', return_value='<html></html>'), \
+                patch('botend.dashboard.api.SimcRegularCompareAPIView._parse_regular_result', return_value={}):
+            with self.assertRaisesRegex(ValueError, 'DPS'):
+                api._continue_attribute_search(request, {}, str(batch.id))
+
+        tasks[1].profile_version_id = tasks[0].template_version_id
+        tasks[1].save(update_fields=['profile_version'])
+        with self.assertRaisesRegex(ValueError, '资源版本不一致'):
+            api._continue_attribute_search(request, {}, str(batch.id))
+
+    def test_complete_reference_task_put_only_renames_and_cannot_reset_status_or_inputs(self):
+        task = create_task(
+            user_id=self.user.id, name='Immutable run', profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
+            simulation_params={'iterations': 100},
+        )
+        task.current_status = 2
+        task.save(update_fields=['current_status'])
+
+        response = self.client.put('/api/simc-task/', data=json.dumps({
+            'id': task.id, 'name': 'Renamed only', 'current_status': 0,
+            'simc_profile_id': 0, 'task_type': 2, 'ext': 'tampered',
+        }), content_type='application/json')
+
+        self.assertTrue(response.json()['success'], response.json())
+        task.refresh_from_db()
+        self.assertEqual(task.name, 'Renamed only')
+        self.assertEqual(task.current_status, 2)
+        self.assertEqual(task.profile_id, self.profile.id)
+        self.assertEqual(task.simulation_params, {'iterations': 100})
+
+    def test_complete_reference_task_post_rerun_creates_new_edited_execution(self):
+        task = create_task(
+            user_id=self.user.id, name='Immutable source', profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
+            simulation_params={'iterations': 100},
+        )
+        task.current_status = 2
+        task.save(update_fields=['current_status'])
+
+        response = self.client.post('/api/simc-task/', data=json.dumps({
+            'id': task.id, 'action': 'rerun', 'name': 'Edited rerun',
+            'simulation_params': {'iterations': 200},
+        }), content_type='application/json')
+
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        rerun = SimcTask.objects.get(id=payload['data']['id'])
+        self.assertNotEqual(rerun.id, task.id)
+        self.assertEqual(rerun.source_task_id, task.id)
+        self.assertEqual(rerun.simulation_params, {'iterations': 200})
+        self.assertEqual(rerun.profile_version_id, task.profile_version_id)
+        self.assertEqual(rerun.template_version_id, task.template_version_id)
+        self.assertEqual(rerun.apl_version_id, task.apl_version_id)
+        task.refresh_from_db()
+        self.assertEqual(task.simulation_params, {'iterations': 100})
+
     def test_task_preview_uses_reference_versions_and_never_ext_body(self):
         """Reference task detail exposes component refs/params, not frozen manifest text."""
         from botend.services.simc_task_service import create_task

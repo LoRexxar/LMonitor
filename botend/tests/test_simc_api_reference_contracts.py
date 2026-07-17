@@ -191,17 +191,14 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         self.assertIn('必须提供 selected_apl_id', data['error'])
 
     def test_api_creates_task_with_complete_references(self):
-        """RED: API should create task with profile/template/apl + version FKs."""
+        """API creates a Task from three existing resource references."""
         request = self.factory.post(
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'Test Task',
-                'profile_name': 'New Test Profile',
+                'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
-                'spec': 'warrior_fury',
-                'player_equipment': 'warrior="New"\nlevel=80',
-                'talent': 'ABC',
             }),
             content_type='application/json',
         )
@@ -232,11 +229,9 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'Task',
-                'profile_name': 'Composer-free Profile',
+                'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
-                'spec': 'warrior_fury',
-                'player_equipment': 'warrior="Test"\nlevel=80',
             }),
             content_type='application/json',
         )
@@ -270,10 +265,9 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'Task',
-                'profile_name': 'Cross-user Test Profile',
+                'simc_profile_id': self.profile.id,
                 'base_template_id': other_template.id,
                 'selected_apl_id': self.apl.id,
-                'spec': 'warrior_fury',
             }),
             content_type='application/json',
         )
@@ -294,10 +288,9 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'Task',
-                'profile_name': 'Inactive-template Test Profile',
+                'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
-                'spec': 'warrior_fury',
             }),
             content_type='application/json',
         )
@@ -318,10 +311,9 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'Task',
-                'profile_name': 'Unselectable-APL Test Profile',
+                'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
-                'spec': 'warrior_fury',
             }),
             content_type='application/json',
         )
@@ -333,8 +325,10 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         self.assertFalse(data['success'])
         self.assertIn('not selectable', data['error'].lower())
 
-    def test_api_updates_existing_profile(self):
-        """RED: API should update existing profile when simc_profile_id provided."""
+    def test_api_does_not_update_existing_profile(self):
+        """Task creation selects an existing Profile and never mutates it."""
+        original_equipment = self.profile.player_equipment
+        original_talent = self.profile.talent
         request = self.factory.post(
             '/api/simc-task/',
             data=json.dumps({
@@ -355,10 +349,9 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
 
         self.assertTrue(data['success'])
 
-        # Verify profile was updated
         self.profile.refresh_from_db()
-        self.assertIn('UPDATED', self.profile.player_equipment)
-        self.assertEqual(self.profile.talent, 'XYZ')
+        self.assertEqual(self.profile.player_equipment, original_equipment)
+        self.assertEqual(self.profile.talent, original_talent)
 
     def test_api_preserves_profile_name_when_no_explicit_profile_name(self):
         """RED: API should preserve Profile.name when profile_name not explicitly provided."""
@@ -387,8 +380,8 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.name, original_name)
 
-    def test_api_updates_profile_name_when_explicit_profile_name(self):
-        """RED: API should update Profile.name only when profile_name explicitly provided."""
+    def test_api_does_not_update_profile_name_when_profile_name_is_supplied(self):
+        """Task payload cannot rename the referenced Profile."""
         request = self.factory.post(
             '/api/simc-task/',
             data=json.dumps({
@@ -408,12 +401,11 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
 
         self.assertTrue(data['success'])
 
-        # Verify profile name was updated
         self.profile.refresh_from_db()
-        self.assertEqual(self.profile.name, 'New Profile Name')
+        self.assertEqual(self.profile.name, 'Test Profile')
 
-    def test_api_requires_profile_name_for_new_profile(self):
-        """API must not silently reuse the task name as a new Profile name."""
+    def test_api_requires_existing_profile_reference(self):
+        """The run form cannot create a Profile implicitly."""
         initial_profile_count = SimcProfile.objects.count()
         initial_version_count = SimcResourceVersion.objects.count()
         request = self.factory.post(
@@ -433,7 +425,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         data = json.loads(response.content)
 
         self.assertFalse(data['success'])
-        self.assertIn('profile_name', data['error'])
+        self.assertIn('simc_profile_id', data['error'])
         self.assertEqual(SimcTask.objects.count(), 0)
         self.assertEqual(SimcProfile.objects.count(), initial_profile_count)
         self.assertEqual(SimcResourceVersion.objects.count(), initial_version_count)

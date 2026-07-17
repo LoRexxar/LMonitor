@@ -16,6 +16,7 @@ import time
 import json
 import re
 import platform as py_platform
+from dataclasses import asdict, is_dataclass
 from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
@@ -602,12 +603,19 @@ class SimcMonitor(BaseScan):
                 composer_request,
                 resolved.mode_params,
             )
-            run.resource_manifest = resolved.resource_metadata
-            run.save(update_fields=['resource_manifest'])
-
             # Compose final SimC input using SimcComposer
             composer = SimcComposer(simc_task.user_id)
             simc_code, composition_manifest, compose_error = composer.compose(composer_request)
+            serializable_manifest = (
+                asdict(composition_manifest)
+                if is_dataclass(composition_manifest)
+                else (composition_manifest or {})
+            )
+            run.resource_manifest = {
+                **(resolved.resource_metadata or {}),
+                'composition_manifest': serializable_manifest,
+            }
+            run.save(update_fields=['resource_manifest'])
 
             if compose_error or simc_code is None:
                 # Compose failed - mark run as failed
@@ -633,6 +641,7 @@ class SimcMonitor(BaseScan):
                     f.write(simc_code)
 
                 # Execute SimC using existing command
+                self._active_run = run
                 success = self.execute_simc_command(simc_file_path, simc_task, result_file)
 
                 # Update THIS run based on execution result
@@ -644,7 +653,6 @@ class SimcMonitor(BaseScan):
                     run.result_summary = result_summary
                     run.completed_at = timezone.now()
                     run.save(update_fields=['status', 'result_summary', 'completed_at'])
-
                     # Mark task as completed and expose the same semantic summary.
                     simc_task.current_status = 2
                     simc_task.result_summary = json.dumps(result_summary, ensure_ascii=False)
@@ -673,6 +681,7 @@ class SimcMonitor(BaseScan):
                     return False
 
             finally:
+                self._active_run = None
                 # Clean up temporary file
                 if os.path.exists(simc_file_path):
                     os.remove(simc_file_path)
@@ -856,7 +865,7 @@ class SimcMonitor(BaseScan):
         simc_task.result_summary = json.dumps(validation, ensure_ascii=False)
         simc_task.save(update_fields=['ext', 'result_summary'])
 
-    def execute_simc_command(self, simc_file_path, simc_task, result_file_name=None):
+    def execute_simc_command(self, simc_file_path, simc_task, result_file_name=None, run=None):
         """
         执行SimC命令
         :param simc_file_path: SimC文件路径
@@ -870,7 +879,12 @@ class SimcMonitor(BaseScan):
             # profile, not `cwd`. Force the task-owned absolute output path on the
             # command line; this overrides the profile directive and is the exact file
             # verified below.
-            target_result_file = str(result_file_name or simc_task.result_file or '').strip()
+            active_run = run or getattr(self, '_active_run', None)
+            if active_run is not None:
+                from botend.services.simc_artifacts import result_filename_for_run
+                target_result_file = result_filename_for_run(simc_task, active_run) or ''
+            else:
+                target_result_file = str(result_file_name or simc_task.result_file or '').strip()
             if not target_result_file or not target_result_file.endswith('.html'):
                 raise RuntimeError('SimC任务未配置唯一 HTML 结果文件')
             result_file_path = os.path.join(self.result_path, target_result_file)
@@ -915,7 +929,11 @@ class SimcMonitor(BaseScan):
                     simc_task.save(update_fields=['result_file', 'modified_time'])
                 if isinstance(simc_task, SimcTask):
                     from botend.services.simc_artifacts import upsert_task_html_artifact
-                    artifact = upsert_task_html_artifact(simc_task, target_result_file)
+                    artifact = upsert_task_html_artifact(
+                        simc_task,
+                        target_result_file,
+                        run=active_run,
+                    )
                     if artifact is None:
                         raise RuntimeError('SimC结果文件未通过任务产物安全校验')
                 try:

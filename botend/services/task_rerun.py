@@ -52,6 +52,13 @@ def create_rerun(
         TaskRerunError: If source task doesn't exist, validation fails, or source lacks references
     """
     overrides = overrides or {}
+    allowed_override_keys = {'name', 'simulation_params', 'mode_params', 'profile_id', 'template_id', 'apl_id'}
+    unknown = set(overrides) - allowed_override_keys
+    if unknown:
+        raise TaskRerunError(f"Unsupported rerun overrides: {', '.join(sorted(unknown))}")
+    for resource_key in ('profile_id', 'template_id', 'apl_id'):
+        if resource_key in overrides and overrides[resource_key] in (None, 0, ''):
+            raise TaskRerunError(f"Rerun override {resource_key} must be a non-zero resource ID")
 
     try:
         source = SimcTask.objects.get(pk=source_task_id)
@@ -158,12 +165,14 @@ def _create_reference_rerun(
     # Ordinary reruns are independent normal tasks. Batch orchestration may
     # explicitly attach a rerun to a newly-created/current batch; merely
     # inheriting from a historical candidate never does so.
-    rerun_mode = overrides.get('mode', 'normal')
-    rerun_batch_id = overrides.get('batch_id') if 'batch_id' in overrides else None
+    rerun_mode = 'normal'
+    rerun_batch_id = None
     rerun = SimcTask.objects.create(
         user_id=user_id,
         name=overrides.get('name', f"{source.name} (rerun)"),
-        simc_profile_id=source.simc_profile_id,
+        # Keep the legacy profile pointer aligned whenever the live Profile is
+        # explicitly replaced. Some old readers still consume this integer.
+        simc_profile_id=profile_id if profile_overridden else source.simc_profile_id,
         task_type=source.task_type,
 
         # Live resource FKs
@@ -183,7 +192,7 @@ def _create_reference_rerun(
 
         # Task metadata
         batch_id=rerun_batch_id,
-        candidate_label=overrides.get('candidate_label', source.candidate_label),
+        candidate_label=source.candidate_label,
         current_status=0,
         is_active=True,
         source_task_id=source.id,

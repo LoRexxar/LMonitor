@@ -5,8 +5,6 @@
     const state = {
         activePanel: '', taskResource: 'tasks', taskPage: 1, taskFetchInFlight: false,
         taskRequestSerial: 0, taskPollTimer: null, taskAbortController: null,
-        artifactPage: 1, artifactPageSize: 20, artifactTaskId: '', artifactType: '',
-        artifactRequestSerial: 0, artifactAbortController: null,
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
         dialogStack: [],
         templateType: '', rows: Object.create(null),
@@ -224,9 +222,40 @@
 
         paginationHost.innerHTML = `<div class="flex items-center justify-between mt-3 text-sm"><div class="text-gray-600">共 ${total} 条记录，第 ${page}/${total_pages} 页</div><div class="flex gap-2">${buttons.join('')}</div></div>`;
     }
+    function renderBatchRanking(rows) {
+        const ranking = Array.isArray(rows) ? rows : [];
+        if (!ranking.length) return '<p class="mt-2 text-sm text-gray-500">暂无可排名的 DPS 结果</p>';
+        const best = Math.max(...ranking.map(row => Number(row.dps)).filter(Number.isFinite));
+        const body = [...ranking].sort((a, b) => (Number(a.rank) || 9999) - (Number(b.rank) || 9999)).map(row => {
+            const dps = Number(row.dps);
+            const gap = Number.isFinite(dps) && Number.isFinite(best) ? best - dps : null;
+            return `<tr class="border-t"><td class="p-2">${esc(row.rank || '-')}</td><td class="p-2">${esc(row.label || row.name || `任务 #${row.id}`)}</td><td class="p-2 text-right">${Number.isFinite(dps) ? Math.round(dps).toLocaleString() : '-'}</td><td class="p-2 text-right">${gap == null ? '-' : Math.round(gap).toLocaleString()}</td></tr>`;
+        }).join('');
+        return `<div class="mt-2 overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-gray-500"><th class="p-2">排名</th><th class="p-2">候选任务</th><th class="p-2 text-right">DPS 排名</th><th class="p-2 text-right">距最佳</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    }
+
+    function renderAttributeReport(report) {
+        if (!report || typeof report !== 'object') return '<p class="mt-2 text-sm text-gray-500">本批次没有 attribute_report</p>';
+        const candidates = Array.isArray(report.candidates) ? report.candidates : [];
+        const candidateRows = candidates.map(candidate => `<tr class="border-t"><td class="p-2">${esc(candidate.round ?? '-')}</td><td class="p-2">${esc(candidate.label || `#${candidate.id || '-'}`)}</td><td class="p-2">${esc(JSON.stringify(candidate.ratings || {}))}</td><td class="p-2 text-right">${esc(candidate.dps ?? '-')}</td></tr>`).join('');
+        const safePath = (Array.isArray(report.search_path) ? report.search_path : []).map(point => ({
+            round: point?.round ?? null,
+            ratings: point?.ratings && typeof point.ratings === 'object' ? point.ratings : {},
+            dps: point?.dps ?? null,
+        }));
+        return `<div class="mt-2 rounded-lg border bg-amber-50 p-3 text-sm"><div>算法：${esc(report.algorithm || '-')} ${esc(report.algorithm_version || '')} · 步长 ${esc(report.step ?? '-')} · 容差 ${esc(report.tolerance ?? '-')}</div><div class="mt-1">轮次：${esc(report.rounds_completed ?? 0)} / ${esc(report.current_round ?? '-')} · 状态：${esc(report.stop_reason || '运行中')} · 局部最优：${report.local_optimum === true ? '是' : report.local_optimum === false ? '否' : '-'}</div><div class="mt-1">初始属性：<code>${esc(JSON.stringify(report.initial_ratings || {}))}</code> · 总评分：${esc(report.total_rating ?? '-')}</div><div class="mt-3 overflow-x-auto"><table class="w-full text-xs"><thead><tr class="text-left text-gray-500"><th class="p-2">轮次</th><th class="p-2">候选</th><th class="p-2">属性</th><th class="p-2 text-right">DPS</th></tr></thead><tbody>${candidateRows || '<tr><td colspan="4" class="p-2 text-gray-500">暂无候选摘要</td></tr>'}</tbody></table></div>${safePath.length ? `<details class="mt-2"><summary>搜索路径（安全摘要）</summary><pre class="mt-1 overflow-auto text-xs">${esc(JSON.stringify(safePath, null, 2))}</pre></details>` : ''}</div>`;
+    }
+
+    function safeRunErrorSummary(run) {
+        if (!run || run.status !== 'failed') return '';
+        // error_detail may contain commands, paths or stderr. The browser audit only
+        // exposes the API's dedicated safe summary when present, otherwise a fixed label.
+        const summary = typeof run.error_summary === 'string' ? run.error_summary.trim().slice(0, 200) : '';
+        return summary || '执行失败（详细错误已隐藏）';
+    }
+
     async function showTaskDetail(resource, id) {
-        if (resource === 'batches') window.openSimcWorkbenchDialog('batch-detail', null);
-        else window.openSimcWorkbenchDialog('task-detail', null);
+        window.openSimcWorkbenchDialog(resource === 'batches' ? 'batch-detail' : 'task-detail', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
         const detailRequest = beginDetailRequest(`task:${resource}:${id}`);
@@ -240,26 +269,28 @@
         }
         if (!isCurrentDetailRequest(detailRequest)) return;
         const row = data.data || {};
-        const status = row.status_label || ({ 0: '待运行', 1: '运行中', 2: '成功', 3: '失败' }[Number(row.status)] || '未知');
-        const resultSummary = row.result_summary || {};
-        const dpsNumber = Number(resultSummary.dps);
-        const dps = Number.isFinite(dpsNumber) ? Math.round(dpsNumber).toLocaleString() : '无 DPS 数据';
-        const members = resource === 'batches' && Array.isArray(row.tasks) ? row.tasks : [];
-        const memberList = members.length ? `<div class="mt-4"><h5 class="font-semibold">批次成员</h5>${members.map(member => `<article class="simc-responsive-row mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white p-3"><div><b>${esc(member.name || `任务 #${idOf(member.id)}`)}</b><div class="text-xs text-gray-500">${esc(member.status_label || member.status)} · ${esc(member.updated_at)}</div></div>${member.can_view !== false ? `<button data-wb-action="detail" data-resource="tasks" data-id="${idOf(member.id)}" class="simc-touch-action rounded-lg border px-3 py-2 text-blue-700">查看任务</button>` : ''}</article>`).join('')}</div>` : (resource === 'batches' ? empty('此批次暂无可查看成员') : '');
         const artifacts = Array.isArray(row.artifacts) ? row.artifacts : [];
-        const report = artifacts.find(a => a.can_preview === true && String(a.preview_url || '') === resourceUrl('artifacts', idOf(a.id)) + 'preview/');
-        const artifactList = artifacts.length ? `<div class="mt-4"><h5 class="font-semibold">结果产物</h5>${artifacts.map(a => `<div class="mt-2 text-sm">${esc(a.file_name || a.artifact_type || '产物')}${a.can_preview === true ? ` <button data-artifact-preview="${idOf(a.id)}" data-preview-url="${esc(a.preview_url)}" data-title="${esc(a.file_name)}" class="text-blue-700">在此预览</button>` : ''}</div>`).join('')}</div>` : '<p class="mt-4 text-sm text-gray-500">暂无结果产物</p>';
-        const reportFrame = report
-            ? `<div class="mt-4"><h5 class="font-semibold mb-2">模拟报告</h5>${window.renderSimcArtifactFrame(report.preview_url, report.file_name || 'SimC 报告')}</div>`
-            : (resource === 'tasks' && row.has_report === true && row.report_preview_url === `${resourceUrl('tasks', id)}report-preview/`
-                ? `<div class="mt-4"><h5 class="font-semibold mb-2">历史模拟报告</h5>${window.renderSimcArtifactFrame(row.report_preview_url, 'SimC 历史报告')}</div>`
-                : '');
-            const modeParams = row.mode_params || {};
-            const simulationParams = row.simulation_params || {};
-            const editable = resource === 'tasks' && row.profile_id && row.template_id && row.apl_id && row.profile_version_id && row.template_version_id && row.apl_version_id;
-            const rerunButton = editable ? `<button data-task-rerun="${idOf(row.id)}" class="simc-touch-action rounded-lg border px-3 py-2 text-blue-700">编辑后重跑</button>` : '';
-            const componentSummary = editable ? `<div class="mt-4 rounded-lg border bg-gray-50 p-3 text-sm"><h5 class="font-semibold">任务组件引用</h5><div class="mt-2 grid gap-1 md:grid-cols-3"><span>Profile #${esc(row.profile_id)} · v${esc(row.profile_version_id)}</span><span>模板 #${esc(row.template_id)} · v${esc(row.template_version_id)}</span><span>APL #${esc(row.apl_id)} · v${esc(row.apl_version_id)}</span></div><pre class="mt-2 overflow-auto text-xs">${esc(JSON.stringify({simulation_params: simulationParams, mode_params: modeParams}, null, 2))}</pre></div>` : '';
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">${resource === 'batches' ? '批次详情' : '任务详情'}：${esc(row.name || `#${id}`)}</h4><div class="flex gap-2">${rerunButton}<button class="simc-touch-action" data-wb-close-detail>关闭</button></div></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-4"><div>状态：${esc(status)}</div><div>类型：${esc(row.task_type || row.batch_type)}</div><div>DPS：${esc(dps)}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${componentSummary}${memberList}${artifactList}${reportFrame}`;
+        const artifactList = artifacts.length ? artifacts.map(artifact => `<div class="mt-2 text-sm">${esc(artifact.file_name || artifact.artifact_type || '产物')}${artifact.can_preview === true ? ` <button data-artifact-preview="${idOf(artifact.id)}" data-preview-url="${esc(artifact.preview_url)}" data-title="${esc(artifact.file_name)}" class="text-blue-700">在此预览</button>` : ''}</div>`).join('') : '<p class="mt-2 text-sm text-gray-500">暂无结果产物</p>';
+        if (resource === 'batches') {
+            const members = Array.isArray(row.tasks) ? row.tasks : [];
+            const memberList = members.length ? members.map(member => `<article class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"><div><b>${esc(member.name || `任务 #${member.id}`)}</b><div class="text-xs text-gray-500">${esc(member.status_label || member.status)} · ${esc(member.updated_at)}</div></div><button data-wb-action="detail" data-resource="tasks" data-id="${idOf(member.id)}" class="text-blue-700">查看任务</button></article>`).join('') : empty('此批次暂无成员');
+            host.innerHTML = `<div class="flex justify-between gap-3"><h4 class="font-bold">批次详情：${esc(row.name || `#${id}`)}</h4><button data-wb-close-detail>关闭</button></div>
+                <section class="mt-4"><h5 class="font-semibold">批次进度</h5><div class="mt-2 h-2 rounded bg-gray-200"><div class="h-2 rounded bg-blue-600" style="width:${Number(row.percent || 0)}%"></div></div><p class="mt-1 text-xs text-gray-500">${Number(row.succeeded || 0)}/${Number(row.total || 0)} 成功 · ${Number(row.running || 0)} 运行 · ${Number(row.pending || 0)} 等待 · ${Number(row.failed || 0)} 失败</p></section>
+                <section class="mt-4"><h5 class="font-semibold">DPS 排名 · 距最佳 · 候选任务</h5>${renderBatchRanking(row.ranking)}</section>
+                <section class="mt-4"><h5 class="font-semibold">批次成员</h5>${memberList}</section>
+                <section class="mt-4"><h5 class="font-semibold">结果产物</h5>${artifactList}</section>
+                <section class="mt-4"><h5 class="font-semibold">attribute_report</h5>${renderAttributeReport(row.attribute_report)}</section>`;
+            return;
+        }
+        const params = row.simulation_params || {};
+        const editable = row.profile_id && row.template_id && row.apl_id && row.profile_version_id && row.template_version_id && row.apl_version_id;
+        const rerunButton = editable ? `<button data-task-rerun="${idOf(row.id)}" class="rounded-lg border px-3 py-2 text-blue-700">编辑后重跑</button>` : '';
+        const runs = Array.isArray(row.runs) ? row.runs : [];
+        const runList = runs.length ? runs.map(run => {
+            const errorSummary = safeRunErrorSummary(run);
+            return `<article class="mt-2 rounded border p-3 text-xs"><div class="font-medium">Run #${esc(run.sequence)} · ${esc(run.status)} · DPS ${esc(run.result_summary?.dps ?? '-')}</div><dl class="mt-2 grid gap-1 md:grid-cols-2"><div>input_hash：<code class="break-all">${esc(run.input_hash || '-')}</code></div><div>开始：${esc(run.started_at || '-')}</div><div>完成：${esc(run.completed_at || '-')}</div>${errorSummary ? `<div class="text-red-700">错误摘要：${esc(errorSummary)}</div>` : ''}</dl></article>`;
+        }).join('') : '<p class="mt-2 text-sm text-gray-500">暂无执行轮次</p>';
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">任务详情：${esc(row.name || `#${id}`)}</h4><div>${rerunButton}<button class="ml-2" data-wb-close-detail>关闭</button></div></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-3"><div>状态：${esc(row.status_label)}</div><div>DPS：${esc(row.result_summary?.dps ?? '-')}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${editable ? `<div class="mt-4 rounded-lg border bg-gray-50 p-3 text-sm"><div>Profile #${esc(row.profile_id)} · v${esc(row.profile_version_id)}</div><div>模板 #${esc(row.template_id)} · v${esc(row.template_version_id)}</div><div>APL #${esc(row.apl_id)} · v${esc(row.apl_version_id)}</div><pre class="mt-2 overflow-auto text-xs">${esc(JSON.stringify(params, null, 2))}</pre></div>` : ''}<section class="mt-4"><h5 class="font-semibold">执行轮次</h5>${runList}</section><section class="mt-4"><h5 class="font-semibold">结果产物</h5>${artifactList}</section>`;
     }
     async function showBatchComparison(id) {
         window.openSimcWorkbenchDialog('batch-detail', null);
@@ -276,6 +307,7 @@
         }
         if (!isCurrentDetailRequest(detailRequest)) return;
         const rows = Array.isArray(data.data?.tasks) ? data.data.tasks : [];
+        const attributeReport = data.data?.attribute_report || null;
         const tableRows = rows.map(row => {
             const validDps = row.dps != null && Number.isFinite(Number(row.dps));
             const dps = validDps ? Math.round(Number(row.dps)).toLocaleString() : (row.status === 3 || row.is_valid === false ? '无效结果' : '无 DPS 数据');
@@ -284,74 +316,68 @@
             const percent = validDps && row.delta_percent != null ? `${Number(row.delta_percent) >= 0 ? '+' : ''}${row.delta_percent}%` : '-';
             return `<tr class="border-t"><td class="p-2">${esc(row.rank || '-')}</td><td class="p-2">${esc(row.label || row.name)}</td><td class="p-2 text-right">${esc(dps)}</td><td class="p-2 text-right">${esc(delta)}</td><td class="p-2 text-right">${esc(percent)}</td></tr>`;
         }).join('');
-        host.innerHTML = `<div class="flex justify-between gap-3"><div><h4 class="font-bold">结果比较</h4><p class="text-xs text-gray-500">仅展示已解析的安全结果摘要</p></div><button data-wb-close-detail>关闭</button></div><div class="mt-3 overflow-x-auto"><table class="w-full min-w-[560px] text-sm"><thead><tr class="text-left text-gray-500"><th class="p-2">排名</th><th class="p-2">方案</th><th class="p-2 text-right">DPS</th><th class="p-2 text-right">差值</th><th class="p-2 text-right">差值%</th></tr></thead><tbody>${tableRows || `<tr><td colspan="5" class="p-5 text-center text-gray-500">无有效成员结果</td></tr>`}</tbody></table></div>`;
+        host.innerHTML = `<div class="flex justify-between gap-3"><div><h4 class="font-bold">结果比较</h4><p class="text-xs text-gray-500">仅展示已解析的安全 JSON 摘要；不会把 HTML 报告地址当作 JSON 请求。</p></div><button data-wb-close-detail>关闭</button></div><div class="mt-3 overflow-x-auto"><table class="w-full min-w-[560px] text-sm"><thead><tr class="text-left text-gray-500"><th class="p-2">排名</th><th class="p-2">方案</th><th class="p-2 text-right">DPS</th><th class="p-2 text-right">差值</th><th class="p-2 text-right">差值%</th></tr></thead><tbody>${tableRows || `<tr><td colspan="5" class="p-5 text-center text-gray-500">无有效成员结果</td></tr>`}</tbody></table></div><section class="mt-4"><h5 class="font-semibold">attribute_report</h5>${renderAttributeReport(attributeReport)}</section>`;
     }
-    function renderTaskRerunForm(taskId) {
+    async function resourceOptions(resource, selectedId) {
+        const payload = await json(resourceUrl(resource));
+        const originalId = idOf(selectedId);
+        return (payload.data || []).filter(row => idOf(row.id) === originalId || (row.is_active !== false && row.is_selectable !== false)).map(row => `<option value="${idOf(row.id)}" ${idOf(row.id) === originalId ? 'selected' : ''}>${esc(row.name || row.title || `#${row.id}`)}</option>`).join('');
+    }
+
+    async function renderTaskRerunForm(taskId) {
         pushDialogState();
         window.openSimcWorkbenchDialog('task-rerun', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
-        host.innerHTML = `<form data-task-rerun-form data-task-id="${idOf(taskId)}" class="space-y-4"><div><h4 class="font-bold">编辑后重跑</h4><p class="mt-1 text-sm text-gray-500">将创建新的引用型任务，原任务和结果保持不变。</p></div><label class="block text-sm font-medium text-gray-700">迭代次数（留空保持原值）<input name="iterations" type="number" min="1" class="mt-1 w-full rounded-lg border px-3 py-2" placeholder="保持原值"></label><div class="flex gap-2"><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-white">创建重跑任务</button><button type="button" data-task-rerun-cancel class="rounded-lg border bg-white px-4 py-2">取消</button></div></form>`;
+        renderState(host, 'loading', '正在加载重跑表单…');
+        const task = (await json(resourceUrl('tasks', taskId))).data || {};
+        const [profiles, templates, apls] = await Promise.all([
+            resourceOptions('profiles', task.profile_id),
+            resourceOptions('templates', task.template_id),
+            resourceOptions('apls', task.apl_id),
+        ]);
+        const params = task.simulation_params || {};
+        host.innerHTML = `<form data-task-rerun-form data-task-id="${idOf(taskId)}" class="space-y-4">
+            <div><h4 class="font-bold">编辑后重跑</h4><p class="text-sm text-gray-500">提交 allowedPatch，创建新 Task，不修改旧 Task。</p></div>
+            <label class="block text-sm">名称<input name="name" required value="${esc(task.name || '')} (rerun)" class="mt-1 w-full rounded border px-3 py-2"></label>
+            <div class="grid gap-3 md:grid-cols-2"><label class="text-sm">iterations<input name="iterations" type="number" min="1" value="${esc(params.iterations || '')}" class="mt-1 w-full rounded border px-3 py-2"></label><label class="text-sm">fight_style<input name="fight_style" value="${esc(params.fight_style || 'Patchwerk')}" class="mt-1 w-full rounded border px-3 py-2"></label><label class="text-sm">max_time<input name="max_time" type="number" min="1" value="${esc(params.max_time || 300)}" class="mt-1 w-full rounded border px-3 py-2"></label><label class="text-sm">desired_targets<input name="desired_targets" type="number" min="1" value="${esc(params.desired_targets || 1)}" class="mt-1 w-full rounded border px-3 py-2"></label></div>
+            <div class="grid gap-3 md:grid-cols-3"><label class="text-sm">Profile<select name="simc_profile_id" data-original-id="${idOf(task.profile_id)}" class="mt-1 w-full rounded border px-3 py-2">${profiles}</select><span class="block text-xs text-gray-500">未改选时复用 profile_version_id ${esc(task.profile_version_id)}</span></label><label class="text-sm">基础模板<select name="base_template_id" data-original-id="${idOf(task.template_id)}" class="mt-1 w-full rounded border px-3 py-2">${templates}</select><span class="block text-xs text-gray-500">未改选时复用 template_version_id ${esc(task.template_version_id)}</span></label><label class="text-sm">APL<select name="selected_apl_id" data-original-id="${idOf(task.apl_id)}" class="mt-1 w-full rounded border px-3 py-2">${apls}</select><span class="block text-xs text-gray-500">未改选时复用 apl_version_id ${esc(task.apl_version_id)}</span></label></div>
+            <div class="flex gap-2"><button type="submit" class="rounded bg-blue-600 px-4 py-2 text-white">创建新 Task</button><button type="button" data-task-rerun-cancel class="rounded border px-4 py-2">取消</button></div>
+        </form>`;
     }
+
     async function submitTaskRerun(form) {
-        const taskId = idOf(form.dataset.taskId);
-        const iterations = Number.parseInt(String(new FormData(form).get('iterations') || ''), 10);
-        const body = { id: taskId, action: 'rerun' };
-        if (Number.isFinite(iterations) && iterations > 0) body.simulation_params = { iterations };
-        const result = await json('/api/simc-task/', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
-            body: JSON.stringify(body),
+        const values = new FormData(form);
+        const intOrNull = name => { const value = Number.parseInt(String(values.get(name) || ''), 10); return Number.isSafeInteger(value) && value > 0 ? value : null; };
+        const allowedPatch = {
+            name: String(values.get('name') || '').trim(),
+            simulation_params: {
+                iterations: intOrNull('iterations'), fight_style: String(values.get('fight_style') || '').trim(),
+                max_time: intOrNull('max_time'), desired_targets: intOrNull('desired_targets'),
+            },
+        };
+        const changedResource = inputName => {
+            const select = form.elements.namedItem(inputName);
+            const selected = intOrNull(inputName);
+            const original = idOf(select?.dataset.originalId);
+            return selected && selected !== original ? selected : null;
+        };
+        const profileOverride = changedResource('simc_profile_id');
+        const templateOverride = changedResource('base_template_id');
+        const aplOverride = changedResource('selected_apl_id');
+        if (profileOverride) allowedPatch.profile_id = profileOverride;
+        if (templateOverride) allowedPatch.template_id = templateOverride;
+        if (aplOverride) allowedPatch.apl_id = aplOverride;
+        Object.keys(allowedPatch.simulation_params).forEach(key => { if (allowedPatch.simulation_params[key] == null || allowedPatch.simulation_params[key] === '') delete allowedPatch.simulation_params[key]; });
+        const result = await json(resourceUrl('tasks', idOf(form.dataset.taskId)), {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+            body: JSON.stringify({ action: 'rerun', ...allowedPatch }),
         });
-        window.showMessage(result.message || '已创建新的引用型任务', 'success');
+        window.showMessage('已创建新的引用型任务', 'success');
         state.dialogStack = [];
         await showTaskDetail('tasks', idOf(result.data?.id));
     }
-    async function loadArtifacts(page = state.artifactPage) {
-        const host = document.getElementById('simc-wb-artifact-list');
-        if (!host) return;
-        state.artifactPage = Math.max(1, Number.parseInt(String(page), 10) || 1);
-        const requestedPage = state.artifactPage;
-        const requestSerial = ++state.artifactRequestSerial;
-        const query = new URLSearchParams({ page: String(requestedPage), page_size: String(state.artifactPageSize) });
-        if (state.artifactTaskId) query.set('task_id', state.artifactTaskId);
-        if (state.artifactType) query.set('artifact_type', state.artifactType);
-        // Keep the explicit request shape visible for contract review: page_size=${state.artifactPageSize}.
-        renderState(host, 'loading', '正在加载结果产物…');
-        if (state.artifactAbortController) state.artifactAbortController.abort();
-        const controller = new AbortController();
-        state.artifactAbortController = controller;
-        let data;
-        try {
-            data = await json(`${resourceUrl('artifacts')}?${query.toString()}`, { signal: controller.signal });
-        } catch (error) {
-            if (error.name === 'AbortError') return;
-            if (requestSerial === state.artifactRequestSerial && state.activePanel === 'artifacts') {
-                renderState(host, 'error', '结果产物加载失败', 'artifacts');
-            }
-            return;
-        } finally {
-            if (requestSerial === state.artifactRequestSerial && state.artifactAbortController === controller) {
-                state.artifactAbortController = null;
-            }
-        }
-        if (requestSerial !== state.artifactRequestSerial || state.activePanel !== 'artifacts') return;
-        const rows = Array.isArray(data.data) ? data.data : [];
-        host.innerHTML = rows.length ? rows.map(row => {
-            const previewButton = row.can_preview === true
-                ? `<button data-artifact-preview="${idOf(row.id)}" data-preview-url="${esc(row.preview_url)}" data-title="${esc(row.file_name)}" data-meta="${esc(`${row.task_name || ''} · ${row.artifact_type || ''} · ${row.created_at || ''}`)}" class="simc-touch-action text-blue-700">安全预览</button>`
-                : '<span class="text-xs text-gray-400">仅供下载结果记录</span>';
-            return `<article class="simc-responsive-row flex flex-wrap justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-all">${esc(row.file_name)}</b><div class="text-xs text-gray-500">任务 ${esc(row.task_name)} · ${esc(row.artifact_type)} · ${esc(row.file_size)} bytes · ${esc(row.created_at)}</div></div>${previewButton}</article>`;
-        }).join('') : empty('当前筛选条件下暂无结果产物');
-        renderArtifactPagination(data.pagination || {});
-    }
-    function renderArtifactPagination(pagination) {
-        const host = document.getElementById('simc-wb-artifact-pagination');
-        if (!host) return;
-        const page = Number(pagination.page || state.artifactPage);
-        const pages = Number(pagination.total_pages || 0);
-        host.innerHTML = pages > 1 ? `<div class="simc-pagination flex flex-wrap items-center justify-between gap-2 text-sm"><span>第 ${page}/${pages} 页 · 共 ${Number(pagination.total || 0)} 项</span><div class="flex gap-2">${page > 1 ? '<button class="simc-touch-action rounded border px-3 py-2" data-artifact-page="prev">上一页</button>' : ''}${page < pages ? '<button class="simc-touch-action rounded border px-3 py-2" data-artifact-page="next">下一页</button>' : ''}</div></div>` : '';
-    }
+
     function previewArtifact(button) {
         const id = idOf(button.dataset.artifactPreview);
         const url = String(button.dataset.previewUrl || '');
@@ -744,13 +770,12 @@
     }
     async function useAplForSimulation(id) {
         const row = await fetchAplStorageDetail(id);
-        const editor = document.getElementById('apl-override');
-        if (!editor) throw new Error('模拟工作流的 APL 编辑区不存在');
-        editor.value = row.apl_code || '';
-        document.querySelectorAll('input[name="simc-sim-apl"]').forEach(input => { input.checked = false; });
         document.querySelector('.simc-l1-tab[data-simc-l1-tab="workflow"]')?.click();
-        editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        window.showMessage(`已加载“${row.title}”用于本次模拟`, 'success');
+        const radio = Array.from(document.querySelectorAll('input[name="simc-sim-apl"]'))
+            .find(input => idOf(input.value) === idOf(id));
+        if (!radio) throw new Error('当前 Profile 专精下没有该 APL 引用');
+        radio.checked = true;
+        window.showMessage(`已选择“${row.title}”作为 APL 引用`, 'success');
     }
     window.loadSimcWorkbenchApl = () => loadApl('apl-storage', 'simc-unified-apl-list').catch(notify);
     async function loadBackend() {
@@ -855,7 +880,6 @@
     function activate(tab) {
         state.activePanel = tab || '';
         if (tab === 'tasks') loadTasks().catch(notify);
-        if (tab === 'artifacts') loadArtifacts().catch(notify);
         if (tab === 'templates') loadTemplates().catch(notify);
         if (tab === 'apl') {
             loadApl('apls', 'simc-unified-apl-list').catch(notify);
@@ -874,14 +898,10 @@
             state.taskFetchInFlight = false;
             scheduleTaskRefresh(false);
         }
-        if (nextPanel !== 'artifacts') {
-            state.artifactRequestSerial += 1;
-            if (state.artifactAbortController) state.artifactAbortController.abort();
-            state.artifactAbortController = null;
-        }
     }
     window.simcWorkbenchLoadPanel = activate;
     window.simcWorkbenchDeactivatePanel = deactivate;
+    window.simcWorkbenchShowTaskDetail = (resource, id) => showTaskDetail(resource, id).catch(notify);
     window.simcWorkbenchLoadTaskResource = (resource, page = 1) => {
         state.activePanel = 'tasks';
         const normalized = resource === 'batches' ? 'batches' : 'tasks';
@@ -1007,8 +1027,6 @@
             }
             const preview = event.target.closest('[data-artifact-preview]');
             if (preview) previewArtifact(preview);
-            const artifactPage = event.target.closest('[data-artifact-page]');
-            if (artifactPage) loadArtifacts(state.artifactPage + (artifactPage.dataset.artifactPage === 'prev' ? -1 : 1));
             const previewAction = event.target.closest('[data-artifact-preview-action]');
             if (previewAction) {
                 const dialogHost = previewAction.closest('#simc-dialog-body');
@@ -1069,7 +1087,6 @@
             if (retry) {
                 const target = retry.dataset.wbRetry;
                 if (target === 'tasks') loadTasks(state.taskResource, state.taskPage);
-                else if (target === 'artifacts') loadArtifacts(state.artifactPage);
                 else if (target === 'templates') loadTemplates();
                 else if (target === 'apl-keywords') loadApl(target, 'simc-wb-apl-keyword-list');
                 else if (target === 'apl-storage') loadApl(target, 'simc-unified-apl-list');
@@ -1108,12 +1125,6 @@
             if (converterInput) updateConverterStats();
         });
         document.addEventListener('change', event => {
-            const artifactFilter = event.target.closest('[data-artifact-filter]');
-            if (artifactFilter) {
-                state.artifactTaskId = document.querySelector('[data-artifact-filter="task_id"]')?.value.trim() || '';
-                state.artifactType = document.querySelector('[data-artifact-filter="artifact_type"]')?.value || '';
-                loadArtifacts(1);
-            }
             const autoUpdate = event.target.closest('[data-backend-auto-update]');
             if (autoUpdate && !autoUpdate.disabled) {
                 runBackendAction({ action: 'set_auto_update', auto_update: autoUpdate.checked }).catch(notify);

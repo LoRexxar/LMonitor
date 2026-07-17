@@ -467,8 +467,9 @@ class TaskRerunWithVersionsTests(TestCase):
         original.save(update_fields=['current_status'])
         rerun = create_rerun(original.id, user_id=self.user_id)
 
-        # Rerun should copy same version FK
+        # Rerun should copy the exact immutable version FKs.
         self.assertEqual(rerun.profile_version_id, original.profile_version_id)
+        self.assertEqual(rerun.template_version_id, original.template_version_id)
         self.assertEqual(rerun.apl_version_id, original.apl_version_id)
 
     def test_rerun_with_override_generates_new_version(self):
@@ -504,6 +505,50 @@ class TaskRerunWithVersionsTests(TestCase):
         # Rerun should have new APL version
         self.assertNotEqual(rerun.apl_version_id, original.apl_version_id)
         self.assertEqual(rerun.apl_id, new_apl.id)
+
+    def test_rerun_rejects_explicit_empty_resource_overrides(self):
+        """An explicit null/zero override must not pair an old version with no live FK."""
+        from botend.services.simc_task_service import create_task
+        from botend.services.task_rerun import create_rerun, TaskRerunError
+
+        original = create_task(
+            user_id=self.user_id, name="Original", profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
+        )
+        original.current_status = 2
+        original.save(update_fields=['current_status'])
+
+        for field in ('profile_id', 'template_id', 'apl_id'):
+            for empty_value in (None, 0):
+                with self.subTest(field=field, empty_value=empty_value):
+                    with self.assertRaises(TaskRerunError):
+                        create_rerun(
+                            original.id, user_id=self.user_id,
+                            overrides={field: empty_value},
+                        )
+        self.assertEqual(SimcTask.objects.count(), 1)
+
+    def test_profile_override_keeps_legacy_profile_id_in_sync(self):
+        from botend.services.simc_task_service import create_task
+        from botend.services.task_rerun import create_rerun
+
+        original = create_task(
+            user_id=self.user_id, name="Original", profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
+        )
+        replacement = SimcProfile.objects.create(
+            user_id=self.user_id, name='Replacement', spec='warrior_fury', is_active=True,
+        )
+        original.current_status = 2
+        original.save(update_fields=['current_status'])
+
+        rerun = create_rerun(
+            original.id, user_id=self.user_id,
+            overrides={'profile_id': replacement.id},
+        )
+
+        self.assertEqual(rerun.profile_id, replacement.id)
+        self.assertEqual(rerun.simc_profile_id, replacement.id)
 
     def test_rerun_with_cross_user_apl_override_raises_error(self):
         """RED: create_rerun should reject APL override belonging to different user."""

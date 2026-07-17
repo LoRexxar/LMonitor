@@ -846,6 +846,8 @@ class SimcTask(models.Model):
 class SimcTaskArtifact(models.Model):
     """SimC任务产物 - 分离存储HTML报告、JSON统计等文件路径"""
     task = models.ForeignKey(SimcTask, on_delete=models.CASCADE, related_name='artifacts')
+    run = models.ForeignKey('SimulationRun', null=True, blank=True, on_delete=models.PROTECT,
+                            related_name='artifacts', help_text="生成该产物的具体执行轮次")
     artifact_type = models.CharField(max_length=50, help_text="产物类型：html_report/json_stats/log")
     file_path = models.CharField(max_length=500, help_text="相对static/的文件路径")
     file_size = models.BigIntegerField(default=0, help_text="文件大小（字节）")

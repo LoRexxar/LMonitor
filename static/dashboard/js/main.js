@@ -2324,7 +2324,6 @@ async function simcWbLoadProfileToSimulator(id) {
         setVal('simc-sim-battlenet-region', profile.battlenet_region || 'eu');
         setVal('simc-sim-battlenet-realm', profile.battlenet_realm || '');
         setVal('simc-sim-battlenet-character', profile.battlenet_character || '');
-        setVal('simc-sim-equipment', ['manual_equipment', 'attribute_only'].includes(mode) ? (profile.player_equipment || '') : '');
         showMessage('已加载配置：' + (profile.name || ('#' + id)), 'success');
         switchSimcWorkbenchL1Tab('workflow');
         setTimeout(() => refreshSimcPlayerDetail(), 0);
@@ -2639,72 +2638,6 @@ function openSimcTableShortcut(tableName) {
 
 /* === 发起模拟 (新 SimC 模拟面板) === */
 
-function syncSimcAttributeOnlyConfigFromInputs() {
-    const value = id => (document.getElementById(id)?.value || '').trim();
-    simcWbAttributeOnlyConfig = {
-        talent: value('simc-sim-attribute-talent'),
-        gear_strength: Math.max(0, parseInt(value('simc-sim-attribute-strength'), 10) || 0),
-        gear_crit: Math.max(0, parseInt(value('simc-sim-attribute-crit'), 10) || 0),
-        gear_haste: Math.max(0, parseInt(value('simc-sim-attribute-haste'), 10) || 0),
-        gear_mastery: Math.max(0, parseInt(value('simc-sim-attribute-mastery'), 10) || 0),
-        gear_versatility: Math.max(0, parseInt(value('simc-sim-attribute-versatility'), 10) || 0),
-        profile_id: simcWbAttributeOnlyConfig?.profile_id || null,
-    };
-    return simcWbAttributeOnlyConfig;
-}
-
-function fillSimcAttributeOnlyInputs(config) {
-    const value = config || {};
-    const setValue = (id, input) => { const el = document.getElementById(id); if (el) el.value = input ?? ''; };
-    setValue('simc-sim-attribute-talent', value.talent || '');
-    setValue('simc-sim-attribute-strength', value.gear_strength || 0);
-    setValue('simc-sim-attribute-crit', value.gear_crit || 0);
-    setValue('simc-sim-attribute-haste', value.gear_haste || 0);
-    setValue('simc-sim-attribute-mastery', value.gear_mastery || 0);
-    setValue('simc-sim-attribute-versatility', value.gear_versatility || 0);
-}
-
-function switchSimcPlayerImportMode(mode) {
-    const battlenetSection = document.getElementById('simc-player-battlenet-section');
-    const equipmentSection = document.getElementById('simc-player-equipment-section');
-    const attributeSection = document.getElementById('simc-player-attribute-only-section');
-    if (battlenetSection) battlenetSection.classList.toggle('hidden', mode !== 'battlenet');
-    if (equipmentSection) equipmentSection.classList.toggle('hidden', !['manual_equipment', 'attribute_only'].includes(mode));
-    if (attributeSection) attributeSection.classList.toggle('hidden', mode !== 'attribute_only');
-    if (mode === 'attribute_only') {
-        fillSimcAttributeOnlyInputs(simcWbAttributeOnlyConfig);
-    }
-}
-
-function parseSpecFromPlayerBlock(playerBlock) {
-    if (!playerBlock) return null;
-    const text = String(playerBlock).toLowerCase();
-    const specMatch = text.match(/^\s*spec\s*=\s*(\w+)/m);
-    return specMatch ? specMatch[1] : null;
-}
-
-function autoSelectSpecIfSafe(parsedSpec) {
-    if (!parsedSpec) return false;
-    const normalized = normalizeSimcSpecKey(parsedSpec);
-    if (!normalized) return false;
-    const specEl = document.getElementById('simc-sim-spec');
-    if (!specEl) return false;
-    const currentSpec = (specEl.value || '').trim();
-    if (currentSpec && currentSpec !== normalized) return false;
-    specEl.value = normalized;
-    specEl.dispatchEvent(new Event('change'));
-    return true;
-}
-
-function switchSimcPlayerConfigMode(mode) {
-    // 兼容旧入口：旧 equipment 视为手动装备。
-    if (mode === 'equipment') mode = 'manual_equipment';
-    if (mode === 'battlenet' || mode === 'manual_equipment' || mode === 'attribute_only') {
-        switchSimcPlayerImportMode(mode);
-        return;
-    }
-}
-
 const SIMC_SPEC_CLASS_MAP = {
     arms: 'warrior', fury: 'warrior', protection: 'warrior',
     blood: 'death_knight', frost_dk: 'death_knight', unholy: 'death_knight',
@@ -2714,8 +2647,7 @@ const SIMC_SPEC_CLASS_MAP = {
     beast_mastery: 'hunter', marksmanship: 'hunter', survival: 'hunter',
     arcane: 'mage', fire: 'mage', frost: 'mage',
     brewmaster: 'monk', mistweaver: 'monk', windwalker: 'monk',
-    holy: 'priest', discipline: 'priest', shadow: 'priest',
-    retribution: 'paladin',
+    holy: 'priest', discipline: 'priest', shadow: 'priest', retribution: 'paladin',
     assassination: 'rogue', outlaw: 'rogue', subtlety: 'rogue',
     elemental: 'shaman', enhancement: 'shaman', restoration_shaman: 'shaman',
     affliction: 'warlock', demonology: 'warlock', destruction: 'warlock',
@@ -2724,15 +2656,14 @@ const SIMC_SPEC_CLASS_MAP = {
 function normalizeSimcSpecKey(spec) {
     let key = String(spec || '').trim().toLowerCase();
     if (!key) return '';
-    // 数据库里的 APL/旧配置可能是 warrior_fury 这类 class_spec，导入区统一用短专精过滤。
-    const directAliases = {
+    const aliases = {
         deathknight_frost: 'frost_dk', death_knight_frost: 'frost_dk', dk_frost: 'frost_dk',
         shaman_restoration: 'restoration_shaman', resto_shaman: 'restoration_shaman',
     };
-    if (directAliases[key]) return directAliases[key];
+    if (aliases[key]) return aliases[key];
     if (SIMC_SPEC_CLASS_MAP[key]) return key;
     const parts = key.split('_');
-    for (let i = 1; i < parts.length; i++) {
+    for (let i = 1; i < parts.length; i += 1) {
         const suffix = parts.slice(i).join('_');
         if (SIMC_SPEC_CLASS_MAP[suffix]) return suffix;
     }
@@ -2743,963 +2674,430 @@ function getSimcSpecClass(spec) {
     return SIMC_SPEC_CLASS_MAP[normalizeSimcSpecKey(spec)] || '';
 }
 
-function getCurrentSimcWorkbenchSpecFilter() {
-    const spec = normalizeSimcSpecKey((document.getElementById('simc-sim-spec') || {}).value || '');
-    return { spec, className: getSimcSpecClass(spec) };
+function switchSimcPlayerImportMode() {
+    // 任务发起区只选择已保存的 Profile；Profile 内容在配置管理中维护。
 }
 
-function filterSimcProfilesForCurrentImport(profiles) {
-    const filter = getCurrentSimcWorkbenchSpecFilter();
-    if (!filter.spec) return { profiles, filter };
-    const exact = profiles.filter(p => normalizeSimcSpecKey(p.spec) === filter.spec);
-    if (exact.length) return { profiles: exact, filter };
-    const sameClass = profiles.filter(p => getSimcSpecClass(p.spec) && getSimcSpecClass(p.spec) === filter.className);
-    return { profiles: sameClass, filter };
+function fillSimcAttributeOnlyInputs() {
+    // 兼容旧的配置加载调用；引用型工作流不回填任务正文。
 }
 
-async function loadSimcAplCandidates(spec) {
+function selectedSimcReferenceValue(selector) {
+    const element = document.querySelector(selector);
+    const value = Number.parseInt(String(element?.value || ''), 10);
+    return Number.isSafeInteger(value) && value > 0 ? value : 0;
+}
+
+function requireSimcRunReferences() {
+    const simc_profile_id = selectedSimcReferenceValue('#simc-sim-profile-select');
+    const base_template_id = selectedSimcReferenceValue('#base-template-select');
+    const selected_apl_id = selectedSimcReferenceValue('input[name="simc-sim-apl"]:checked');
+    if (!simc_profile_id) throw new Error('请选择已有 Profile');
+    if (!base_template_id) throw new Error('请选择基础模板');
+    if (!selected_apl_id) throw new Error('请选择 APL');
+    return { simc_profile_id, base_template_id, selected_apl_id };
+}
+
+function currentSimcScenario() {
+    return {
+        fight_style: document.getElementById('simc-sim-fight-style')?.value || 'Patchwerk',
+        time: Math.max(1, Number.parseInt(document.getElementById('simc-sim-time')?.value || '300', 10) || 300),
+        target_count: Math.max(1, Number.parseInt(document.getElementById('simc-sim-target-count')?.value || '1', 10) || 1),
+    };
+}
+
+let simcProfileSwitchGeneration = 0;
+let simcProfileSwitchAbortController = null;
+let simcPlayerDetailRequestSerial = 0;
+let simcPlayerDetailAbortController = null;
+
+function isCurrentSimcProfileSwitch(control) {
+    return Boolean(control
+        && control.generation === simcProfileSwitchGeneration
+        && control.controller === simcProfileSwitchAbortController
+        && selectedSimcReferenceValue('#simc-sim-profile-select') === control.profileId);
+}
+
+function beginSimcProfileSwitch(profileId) {
+    if (simcProfileSwitchAbortController) {
+        const controller = simcProfileSwitchAbortController;
+        controller.abort();
+    }
+    if (simcPlayerDetailAbortController) simcPlayerDetailAbortController.abort();
+    simcPlayerDetailAbortController = null;
+    simcPlayerDetailRequestSerial += 1;
+    stopSimcCandidateComparisonPolling();
+    const controller = new AbortController();
+    const control = { generation: ++simcProfileSwitchGeneration, profileId, controller };
+    simcProfileSwitchAbortController = controller;
+    const detailHost = document.getElementById('simc-sim-player-detail');
+    if (detailHost) detailHost.innerHTML = '';
+    renderSimcComparisonCandidates({});
+    return control;
+}
+
+async function loadSimcAplCandidates(spec, control = null) {
     const container = document.getElementById('simc-sim-apl-list');
-    const editor = document.getElementById('apl-override');
     if (!container) return;
-    if (editor) editor.value = '';
+    if (control && !isCurrentSimcProfileSwitch(control)) return;
     if (!spec) {
-        container.className = 'rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500';
-        container.innerHTML = '请先选择专精以加载 APL 列表。';
+        container.innerHTML = '请选择 Profile 以加载 APL。';
         return;
     }
-    container.className = 'rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500';
     container.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>加载 APL 列表中…';
     try {
+        const query = new URLSearchParams({ spec });
         const className = getSimcSpecClass(spec);
-        const qs = new URLSearchParams({ spec: spec });
-        if (className) qs.set('class_name', className);
-        const resp = await fetch('/api/simc-apl-candidates/?' + qs.toString());
-        const data = await resp.json();
-        if (!resp.ok || !data.success) throw new Error(data.error || data.message || '加载失败');
-        const candidates = Array.isArray(data.data) ? data.data : (data.candidates || []);
-        if (!candidates.length) {
-            container.className = 'rounded-xl bg-amber-50 border border-amber-200 text-amber-800 p-4 text-sm';
-            container.innerHTML = '当前专精没有可选 APL，将按默认逻辑运行。';
-            return;
-        }
-        container.className = 'rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-gray-700';
-        container.innerHTML = candidates.map(apl => `
-            <label class="flex items-start gap-2 rounded-xl border border-gray-200 bg-white p-3 mb-2 cursor-pointer hover:bg-gray-50 transition-colors">
-                <input type="radio" name="simc-sim-apl" value="${escapeHtml(String(apl.id || ''))}" class="mt-1 h-4 w-4 text-blue-600 border-gray-300" ${candidates.length === 1 ? 'checked' : ''}>
-                <span>
-                    <span class="font-semibold text-gray-900">${escapeHtml(apl.name || apl.spec || 'APL')}</span>
-                    <span class="ml-2 text-xs px-2 py-0.5 rounded-full ${apl.template_type === 'default_apl' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}">${apl.template_type === 'default_apl' ? '默认自动同步' : '个人维护'}</span>
-                    <span class="block text-xs text-gray-500">${escapeHtml(apl.spec || '')} · ${escapeHtml(apl.source || '')} · ${apl.content_length || 0} 字符</span>
-                </span>
-            </label>
-        `).join('');
-        container.querySelectorAll('input[name="simc-sim-apl"]').forEach((radio) => {
-            radio.addEventListener('change', () => loadSimcAplOverride(radio.value));
-        });
-        const selected = container.querySelector('input[name="simc-sim-apl"]:checked');
-        if (selected) await loadSimcAplOverride(selected.value);
-    } catch (err) {
-        console.error('Load APL candidates failed:', err);
-        container.className = 'rounded-xl bg-red-50 border border-red-200 text-red-800 p-4 text-sm';
-        container.innerHTML = '加载 APL 失败：' + escapeHtml(String(err.message || err));
+        if (className) query.set('class_name', className);
+        const options = control ? { signal: control.controller.signal } : {};
+        const response = await fetch('/api/simc-apl-candidates/?' + query.toString(), options);
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '加载 APL 失败');
+        if (control && !isCurrentSimcProfileSwitch(control)) return;
+        const rows = Array.isArray(payload.data) ? payload.data : [];
+        container.innerHTML = rows.length ? rows.map((row, index) => `
+            <label class="mb-2 flex cursor-pointer items-start gap-2 rounded-xl border bg-white p-3">
+                <input type="radio" name="simc-sim-apl" value="${Number(row.id) || ''}" ${index === 0 ? 'checked' : ''}>
+                <span><b>${escapeHtml(row.name || `APL #${row.id}`)}</b><span class="block text-xs text-gray-500">${escapeHtml(row.spec || '')} · ${escapeHtml(row.source || '')}</span></span>
+            </label>`).join('') : '<span class="text-amber-700">当前 Profile 专精没有可选 APL。</span>';
+    } catch (error) {
+        if (error.name === 'AbortError' || (control && !isCurrentSimcProfileSwitch(control))) return;
+        container.innerHTML = `<span class="text-red-700">${escapeHtml(String(error.message || error))}</span>`;
     }
 }
 
-async function loadSimcAplOverride(aplId) {
-    const editor = document.getElementById('apl-override');
-    if (!editor) return;
-    if (!aplId) { editor.value = ''; return; }
-    const response = await fetch('/api/simc-template/?id=' + encodeURIComponent(aplId));
-    const payload = await response.json();
-    if (!response.ok || !payload.success) throw new Error(payload.error || '加载 APL 内容失败');
-    editor.value = payload.content || payload.template_content || '';
-}
-
-async function loadSimcBaseTemplateContent(templateId) {
-    const editor = document.getElementById('base-template-content');
-    if (!editor) return;
-    if (!templateId) { editor.value = ''; return; }
-    const response = await fetch('/api/simc-template/?id=' + encodeURIComponent(templateId));
-    const payload = await response.json();
-    if (!response.ok || !payload.success) throw new Error(payload.error || '加载基础模板内容失败');
-    editor.value = payload.content || payload.template_content || '';
-}
-
-async function loadSimcSnapshotDefaults(spec) {
-    const baseSelect = document.getElementById('base-template-select');
-    const baseEditor = document.getElementById('base-template-content');
-    const baselineEditor = document.getElementById('player-baseline-config');
+async function loadSimcSnapshotDefaults(spec, control = null) {
+    const select = document.getElementById('base-template-select');
+    if (!select) return;
+    if (control && !isCurrentSimcProfileSwitch(control)) return;
+    select.innerHTML = '<option value="">加载中…</option>';
     if (!spec) {
-        if (baseSelect) baseSelect.innerHTML = '<option value="">使用默认基础模板</option>';
-        if (baseEditor) baseEditor.value = '';
-        if (baselineEditor) baselineEditor.value = '';
+        select.innerHTML = '<option value="">请选择 Profile</option>';
         return;
     }
-    if (baseSelect) {
-        const response = await fetch('/api/simc-template/?template_type=base_template');
-        const payload = await response.json();
+    let payload;
+    try {
+        const options = control ? { signal: control.controller.signal } : {};
+        const response = await fetch('/api/simc-template/?template_type=base_template', options);
+        payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || '加载基础模板失败');
-        const normalized = normalizeSimcSpecKey(spec);
-        const rows = (payload.templates || []).filter((row) => {
-            if (row.is_active === false) return false;
-            const rowSpec = normalizeSimcSpecKey(row.spec || '');
-            const rawSpec = String(row.spec || '').trim().toLowerCase();
-            return !rowSpec || ['default', 'all', '*'].includes(rawSpec) || rowSpec === normalized;
-        });
-        baseSelect.innerHTML = '<option value="">使用唯一启用的默认基础模板</option>' + rows.map((row) =>
-            `<option value="${escapeHtml(String(row.id))}">${escapeHtml(row.name || row.spec || ('模板 #' + row.id))}</option>`
-        ).join('');
-        const exactRows = rows.filter((row) => normalizeSimcSpecKey(row.spec || '') === normalized);
-        if (exactRows.length === 1) baseSelect.value = String(exactRows[0].id);
-        else if (rows.length === 1) baseSelect.value = String(rows[0].id);
-        baseSelect.onchange = () => loadSimcBaseTemplateContent(baseSelect.value).catch((err) => {
-            console.error('Load base template content failed:', err);
-            showMessage('加载基础模板内容失败：' + String(err.message || err), 'error');
-        });
-        await loadSimcBaseTemplateContent(baseSelect.value);
+    } catch (error) {
+        if (error.name === 'AbortError' || (control && !isCurrentSimcProfileSwitch(control))) return;
+        select.innerHTML = `<option value="">${escapeHtml(String(error.message || error))}</option>`;
+        return;
     }
-    if (baselineEditor) {
-        const response = await fetch('/api/simc-player-config-detail/?spec=' + encodeURIComponent(spec));
-        const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || '加载默认玩家基线失败');
-        baselineEditor.value = (payload.data || {}).player_equipment || '';
-        const legacyEditor = document.getElementById('simc-sim-equipment');
-        if (legacyEditor && !legacyEditor.value.trim()) legacyEditor.value = baselineEditor.value;
-    }
+    if (control && !isCurrentSimcProfileSwitch(control)) return;
+    const normalized = normalizeSimcSpecKey(spec);
+    const rows = (payload.templates || []).filter(row => {
+        if (row.is_active === false || row.is_selectable === false) return false;
+        const rawSpec = String(row.spec || '').trim().toLowerCase();
+        return ['default', 'all', '*'].includes(rawSpec) || normalizeSimcSpecKey(rawSpec) === normalized;
+    });
+    select.innerHTML = '<option value="">-- 请选择基础模板 --</option>' + rows.map(row =>
+        `<option value="${Number(row.id) || ''}">${escapeHtml(row.name || `模板 #${row.id}`)}</option>`
+    ).join('');
+    const exact = rows.filter(row => normalizeSimcSpecKey(row.spec) === normalized);
+    if (exact.length === 1) select.value = String(exact[0].id);
+    else if (rows.length === 1) select.value = String(rows[0].id);
 }
 
 async function simcWbFetchProfilesForWorkbench() {
-    const response = await fetch('/api/simc-profile/', {
-        method: 'GET',
-        headers: { 'X-CSRFToken': getCSRFToken() },
-    });
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-        throw new Error(data.error || data.message || '加载保存配置失败');
-    }
-    return Array.isArray(data.data) ? data.data : (data.profiles || []);
+    const response = await fetch('/api/simc-profile/');
+    const payload = await response.json();
+    if (!response.ok || !payload.success) throw new Error(payload.error || '加载 Profile 失败');
+    return Array.isArray(payload.data) ? payload.data : [];
 }
 
-async function loadSimcSimProfileSelect() {
+async function loadSimcSimProfileSelect(preferredId = 0) {
     const select = document.getElementById('simc-sim-profile-select');
     if (!select) return;
+    const previous = String(preferredId || select.value || '');
     select.innerHTML = '<option value="">加载中…</option>';
     try {
-        const resp = await fetch('/api/simc-profile/');
-        const data = await resp.json();
-        if (!resp.ok || !data.success) throw new Error(data.error || '加载失败');
-        const profiles = Array.isArray(data.data) ? data.data : (data.profiles || []);
-        if (!profiles.length) {
-            select.innerHTML = '<option value="">暂无已保存配置</option>';
-            return;
-        }
-        select.innerHTML = '<option value="">-- 请选择配置 --</option>' +
-            profiles.map(p => `<option value="${p.id}" data-spec="${escapeHtml(p.spec || '')}" data-talent="${escapeHtml(p.talent || '')}" data-gear-crit="${p.gear_crit || 0}" data-gear-haste="${p.gear_haste || 0}" data-gear-mastery="${p.gear_mastery || 0}" data-gear-versatility="${p.gear_versatility || 0}">${escapeHtml(p.name || '配置#' + p.id)} (${escapeHtml(p.spec || '')})</option>`).join('');
-    } catch (err) {
-        console.error('Load profiles failed:', err);
+        const profiles = await simcWbFetchProfilesForWorkbench();
+        select.innerHTML = '<option value="">-- 请选择已有 Profile --</option>' + profiles.map(profile =>
+            `<option value="${Number(profile.id) || ''}" data-spec="${escapeHtml(profile.spec || '')}">${escapeHtml(profile.name || `Profile #${profile.id}`)} (${escapeHtml(profile.spec || '-')})</option>`
+        ).join('');
+        if (profiles.some(profile => String(profile.id) === previous)) select.value = previous;
+        if (select.value) await onSimcProfileSelect();
+    } catch (error) {
         select.innerHTML = '<option value="">加载失败</option>';
+        showMessage(String(error.message || error), 'error');
     }
 }
 
 async function loadSimcSimSavedProfiles() {
     const container = document.getElementById('simc-sim-saved-profiles');
     if (!container) return;
-    const filter = getCurrentSimcWorkbenchSpecFilter();
-    const filterText = filter.spec ? `（${filter.spec}${filter.className ? ' / ' + filter.className : ''}）` : '';
-    container.innerHTML = `<div class="text-gray-400 py-1 text-xs"><i class="fas fa-spinner fa-spin mr-1"></i>加载保存配置${escapeHtml(filterText)}…</div>`;
     try {
-        const allProfiles = await simcWbFetchProfilesForWorkbench();
-        const filtered = filterSimcProfilesForCurrentImport(allProfiles);
-        const profiles = filtered.profiles;
-        if (!profiles.length) {
-            const hint = filtered.filter.spec
-                ? `当前专精 ${escapeHtml(filtered.filter.spec)} 没有已保存配置。请切换专精、在“配置管理”新增，或直接填写玩家信息后保存当前。`
-                : '暂无已保存配置';
-            container.innerHTML = `<div class="text-gray-400 py-1 text-xs">${hint}</div>`;
-            return;
-        }
-        container.innerHTML = profiles.map(p => {
-            const mode = getSimcProfileMode(p);
-            const source = mode === 'manual_equipment'
-                ? ('手动配置 ' + (p.player_equipment ? String(p.player_equipment).split('\n').filter(Boolean).length + ' 行' : ''))
-                : mode === 'attribute_only'
-                    ? ('冻结玩家基线 + 绿字覆盖 ' + (p.player_equipment ? String(p.player_equipment).split('\n').filter(Boolean).length + ' 行' : '（历史配置缺少基线）'))
-                    : ('Battle.net ' + [p.battlenet_region, p.battlenet_realm, p.battlenet_character].filter(Boolean).join('/'));
-            const spec = normalizeSimcSpecKey(p.spec || '');
-            const className = getSimcSpecClass(p.spec || '');
-            return `
-            <button type="button" class="simc-sim-load-profile flex w-full items-center gap-2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 mb-1 text-left text-xs hover:border-blue-300 hover:bg-blue-50" data-profile-id="${p.id}" title="${escapeHtml(source || '-')}">
-                <span class="min-w-0 flex-1 truncate font-medium text-gray-800">${escapeHtml(p.name || '配置#' + p.id)}</span>
-                <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">${escapeHtml(spec || p.spec || '-')}</span>
-                <span class="max-w-24 shrink-0 truncate text-[10px] text-gray-400">${escapeHtml(source || '-')}</span>
-            </button>`;
-        }).join('');
-        container.querySelectorAll('.simc-sim-load-profile').forEach(btn => btn.addEventListener('click', () => simcWbLoadProfileToSimulator(btn.dataset.profileId)));
-    } catch (err) {
-        console.error('Load saved SimC profiles failed:', err);
-        container.innerHTML = '<div class="text-red-500 text-center py-2">加载失败：' + escapeHtml(String(err.message || err)) + '</div>';
+        const profiles = await simcWbFetchProfilesForWorkbench();
+        container.innerHTML = profiles.length ? profiles.map(profile => `
+            <button type="button" class="simc-sim-load-profile mb-1 flex w-full items-center gap-2 rounded-md border bg-white px-2.5 py-1.5 text-left text-xs" data-profile-id="${Number(profile.id) || ''}">
+                <span class="min-w-0 flex-1 truncate font-medium">${escapeHtml(profile.name || `Profile #${profile.id}`)}</span>
+                <span class="text-gray-500">${escapeHtml(profile.spec || '-')}</span>
+            </button>`).join('') : '<div class="text-xs text-gray-500">暂无 Profile，请先在 Profile 管理中创建。</div>';
+        container.querySelectorAll('.simc-sim-load-profile').forEach(button => button.addEventListener('click', async () => {
+            const select = document.getElementById('simc-sim-profile-select');
+            if (select) select.value = button.dataset.profileId || '';
+            await onSimcProfileSelect();
+        }));
+    } catch (error) {
+        container.innerHTML = `<div class="text-xs text-red-600">${escapeHtml(String(error.message || error))}</div>`;
     }
 }
 
 function refreshSimcSavedProfiles() {
-    return loadSimcSimSavedProfiles();
+    return Promise.all([loadSimcSimProfileSelect(), loadSimcSimSavedProfiles()]);
 }
 
-function getSimcProfileMode(profile) {
-    const storedMode = (profile.player_config_mode || profile.player_import_mode || '').trim();
-    const hasEquipment = Boolean(profile.player_equipment);
-    const hasBattlenetIdentity = Boolean(profile.battlenet_region || profile.battlenet_realm || profile.battlenet_character);
-    // 迁移前的属性型记录会被新增字段默认标记为 battlenet。不能只信 mode：
-    // 没有 Battle.net 三元组、没有装备时，真实的 talent + ratings 才是配置来源。
-    if (storedMode === 'attribute_only') return 'attribute_only';
-    if (hasEquipment) return 'manual_equipment';
-    if (hasBattlenetIdentity) return 'battlenet';
-    return 'attribute_only';
-}
-
-function onSimcProfileSelect() {
-    // 已保存配置由右侧列表载入，具体回填由 simcWbLoadProfileToSimulator 处理。
-}
-
-function renderSimcPlayerDetail(detail) {
-    const container = document.getElementById('simc-sim-player-detail');
-    if (!container) return;
-    if (!detail) { container.textContent = '暂无可展示的玩家配置。'; return; }
-    const identity = detail.identity || {};
-    const talents = detail.talents || {};
-    const stats = detail.stats || {};
-    const source = detail.source || {};
-    const esc = value => escapeHtml(String(value == null || value === '' ? '-' : value));
-    const professionText = Object.entries(identity.professions || {}).map(([name, level]) => `${esc(name)} ${esc(level)}`).join(' / ');
-    const savedLoadouts = (talents.saved_loadouts || []).filter(loadout => loadout.build_code).map(loadout => `<div class="mt-1 text-xs text-gray-600"><b>${esc(loadout.name)}</b>：<span class="font-mono break-all">${esc(loadout.build_code)}</span></div>`).join('');
-    const omniumTalents = (detail.omnium_talents || []).length ? `<div class="mt-1 text-xs text-gray-600">永恒天赋：${detail.omnium_talents.map(t => '#' + esc(t.id) + ' ×' + esc(t.rank)).join('、')}</div>` : '';
-    const secondaryLabels = { crit: '暴击', haste: '急速', mastery: '精通', versatility: '全能' };
-    const secondaryRows = Object.entries(stats.secondary || {}).map(([key, stat]) =>
-        `<div class="rounded bg-white/80 border border-emerald-100 px-2 py-1"><span class="text-gray-500">${secondaryLabels[key] || key}</span> <b class="text-gray-800">${esc(stat.rating)}</b> <span class="text-gray-500">绿字${stat.percent == null ? '' : ' / ' + esc(stat.percent) + '%'}</span></div>`
-    ).join('') || '<span class="text-gray-400">未提供副属性绿字</span>';
-    const equipment = (detail.equipment || []).map(item => {
-        const ench = item.enchant ? `<div class="text-[11px] text-violet-700">附魔：${esc(item.enchant.display_name)}</div>` : '';
-        const gems = (item.gems || []).length ? `<div class="text-[11px] text-cyan-700">宝石：${item.gems.map(g => esc(g.display_name)).join('、')}</div>` : '';
-        const crafted = (item.crafted_stats || []).length ? `<div class="text-[11px] text-orange-700">制作属性：${item.crafted_stats.map(esc).join(' / ')}${item.crafting_quality ? ' · 品质 ' + esc(item.crafting_quality) : ''}</div>` : '';
-        const name = item.wowhead_url ? `<a class="text-blue-700 hover:underline" href="${esc(item.wowhead_url)}">${esc(item.display_name)}</a>` : esc(item.display_name);
-        return `<div class="rounded-lg bg-white border border-emerald-100 p-2"><div class="text-[11px] text-gray-500">${esc(item.slot_label)}</div><div class="font-medium text-gray-800">${name} <span class="text-xs text-gray-400">${item.item_level ? 'ilvl ' + esc(item.item_level) : '#' + esc(item.id)}</span></div>${ench}${gems}${crafted}</div>`;
-    }).join('') || '<div class="text-gray-400">未解析到装备槽位。</div>';
-    const missing = (detail.missing_fields || []).map(text => `<li>${esc(text)}</li>`).join('');
-    const comparison = detail.comparison_candidates || {};
-    renderSimcComparisonCandidates(comparison);
-    container.innerHTML = `
-        <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 mb-3"><span>来源：<b>${esc(source.label)}</b></span><span>角色：<b>${esc(identity.name)}</b></span><span>职业/专精：<b>${esc(identity.class_name)} / ${esc(identity.spec)}</b></span>${identity.race ? `<span>种族：<b>${esc(identity.race)}</b></span>` : ''}${identity.level ? `<span>等级：<b>${esc(identity.level)}</b></span>` : ''}${identity.role ? `<span>定位：<b>${esc(identity.role)}</b></span>` : ''}${identity.region ? `<span>地区/服务器：<b>${esc(identity.region)} / ${esc(identity.realm)}</b></span>` : ''}${professionText ? `<span>专业：<b>${professionText}</b></span>` : ''}</div>
-        <div class="grid md:grid-cols-2 gap-3 mb-3"><div class="rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500">当前天赋构筑码</div><div class="font-mono text-xs break-all text-gray-800">${esc(talents.build_code)}</div>${savedLoadouts}${omniumTalents}</div><div class="rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500 mb-1">主属性</div><div class="text-xs text-gray-700">${Object.entries(stats.primary || {}).map(([key, value]) => esc(key) + ' ' + esc(value)).join(' · ') || '导出块未包含主属性数值'}</div></div></div>
-        <div class="mb-3"><div class="text-xs text-gray-500 mb-1">副属性（rating / 按规则换算百分比）</div><div class="grid grid-cols-2 gap-2 text-xs">${secondaryRows}</div></div>
-        <div><div class="text-xs text-gray-500 mb-1">装备、附魔与宝石</div><div class="grid md:grid-cols-2 gap-2">${equipment}</div></div>
-        ${missing ? `<ul class="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 list-disc list-inside">${missing}</ul>` : ''}`;
+async function onSimcProfileSelect() {
+    const select = document.getElementById('simc-sim-profile-select');
+    const option = select?.selectedOptions?.[0];
+    const profileId = selectedSimcReferenceValue('#simc-sim-profile-select');
+    const control = beginSimcProfileSwitch(profileId);
+    const spec = normalizeSimcSpecKey(option?.dataset.spec || '');
+    const specSelect = document.getElementById('simc-sim-spec');
+    if (specSelect) specSelect.value = spec;
+    await Promise.all([
+        loadSimcSnapshotDefaults(spec, control),
+        loadSimcAplCandidates(spec, control),
+    ]);
 }
 
 function renderSimcComparisonCandidates(comparison) {
     const container = document.getElementById('simc-sim-comparison-candidates');
     if (!container) return;
-    const gear = Array.isArray(comparison.gear) ? comparison.gear : [];
-    const trinkets = gear.filter(row => ['trinket1', 'trinket2'].includes(String(row.slot || '').toLowerCase()));
-    const otherGear = gear.filter(row => !['trinket1', 'trinket2'].includes(String(row.slot || '').toLowerCase()));
-    const talents = Array.isArray(comparison.talents) ? comparison.talents : [];
-    if (!gear.length && !talents.length) { container.classList.add('hidden'); container.innerHTML = ''; return; }
-    const max = Math.max(1, Number(comparison.max_selectable || 7));
-    const esc = value => escapeHtml(String(value == null ? '' : value));
-    const gearRows = (rows, cssClass) => rows.map(row => `<label class="flex gap-2 items-start text-xs rounded border border-gray-200 bg-white p-2"><input class="${cssClass} mt-0.5" type="checkbox" data-slot="${esc(row.slot)}" data-item-id="${esc(row.item_id)}" data-source="${esc(row.source)}"><span><b>${esc(row.name || `${row.slot} #${row.item_id}`)}</b><span class="block text-gray-500">${esc(row.slot)} · #${esc(row.item_id)} · ${esc(row.source)}</span></span></label>`).join('');
-    const talentRows = talents.map(row => `<label class="flex gap-2 items-start text-xs rounded border border-gray-200 bg-white p-2"><input class="simc-comparison-talent mt-0.5" type="checkbox" data-talent="${esc(row.talent)}"><span><b>${esc(row.name || '候选天赋')}</b><span class="block font-mono break-all text-gray-500">${esc(row.talent)}</span></span></label>`).join('');
-    const categoryHeader = kind => ({
-        trinket_candidates: '<div class="flex items-center gap-2"><input id="simc-comparison-kind-trinket_candidates" type="checkbox" class="simc-comparison-kind-toggle" data-simc-comparison-kind="trinket_candidates"><label for="simc-comparison-kind-trinket_candidates" class="text-xs font-semibold text-gray-700">饰品候选</label></div>',
-        gear_candidates: '<div class="flex items-center gap-2"><input id="simc-comparison-kind-gear_candidates" type="checkbox" class="simc-comparison-kind-toggle" data-simc-comparison-kind="gear_candidates"><label for="simc-comparison-kind-gear_candidates" class="text-xs font-semibold text-gray-700">其他装备候选</label></div>',
-        talent_candidates: '<div class="flex items-center gap-2"><input id="simc-comparison-kind-talent_candidates" type="checkbox" class="simc-comparison-kind-toggle" data-simc-comparison-kind="talent_candidates"><label for="simc-comparison-kind-talent_candidates" class="text-xs font-semibold text-gray-700">天赋候选</label></div>',
-    })[kind] || '';
+    const gear = Array.isArray(comparison?.gear) ? comparison.gear : [];
+    const talents = Array.isArray(comparison?.talents) ? comparison.talents : [];
+    if (!gear.length && !talents.length) {
+        container.classList.add('hidden');
+        container.innerHTML = '';
+        return;
+    }
+    const gearRows = gear.map(row => `<label class="flex gap-2 rounded border bg-white p-2 text-xs"><input class="simc-comparison-candidate" type="checkbox" data-kind="gear_candidates" data-slot="${escapeHtml(row.slot || '')}" data-item-id="${Number(row.item_id) || 0}" data-source="${escapeHtml(row.source || '')}"><span>${escapeHtml(row.name || `${row.slot} #${row.item_id}`)}</span></label>`).join('');
+    const talentRows = talents.map(row => `<label class="flex gap-2 rounded border bg-white p-2 text-xs"><input class="simc-comparison-candidate" type="checkbox" data-kind="talent_candidates" data-talent="${escapeHtml(row.talent || '')}" data-source="${escapeHtml(row.source || '')}"><span>${escapeHtml(row.name || '候选天赋')}</span></label>`).join('');
     container.classList.remove('hidden');
-    container.innerHTML = `<div class="font-semibold text-gray-800"><i class="fas fa-code-branch text-indigo-600 mr-1"></i>多方案对比</div><p class="text-xs text-gray-500 mt-1">候选仅来自当前已加载的手动玩家块；勾选类别后会各自创建独立批次和排名，不会混合饰品、其他装备与天赋。</p>${trinkets.length ? `<div class="mt-3">${categoryHeader('trinket_candidates')}<div class="grid gap-2 mt-2">${gearRows(trinkets, 'simc-comparison-trinket')}</div></div>` : ''}${otherGear.length ? `<div class="mt-3">${categoryHeader('gear_candidates')}<div class="grid gap-2 mt-2">${gearRows(otherGear, 'simc-comparison-gear')}</div></div>` : ''}${talents.length ? `<div class="mt-3">${categoryHeader('talent_candidates')}<div class="grid gap-2 mt-2">${talentRows}</div></div>` : ''}<div class="mt-3 flex items-center justify-between gap-2"><span class="text-xs text-gray-500">每个类别最多 ${max} 个候选（含基准最多 ${max + 1} 个方案）。</span><button type="button" class="simc-comparison-submit px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs">对比已勾选类别</button></div>`;
-    container.querySelector('.simc-comparison-submit')?.addEventListener('click', () => startSelectedSimcCandidateComparisons(max));
+    container.innerHTML = `<div class="font-semibold">候选任务</div><p class="mt-1 text-xs text-gray-500">候选从已保存 Profile 服务端解析；请求只提交引用和候选标识。</p><div class="mt-2 grid gap-2">${gearRows}${talentRows}</div><button type="button" class="simc-comparison-submit mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-xs text-white">创建对比 Batch</button>`;
+    container.querySelector('.simc-comparison-submit')?.addEventListener('click', startSelectedSimcCandidateComparisons);
 }
 
-function getSelectedSimcComparisonCandidates(kind) {
-    if (kind === 'trinket_candidates') return Array.from(document.querySelectorAll('.simc-comparison-trinket:checked')).map(el => ({ slot: el.dataset.slot, item_id: Number(el.dataset.itemId), source: el.dataset.source }));
-    if (kind === 'gear_candidates') return Array.from(document.querySelectorAll('.simc-comparison-gear:checked')).map(el => ({ slot: el.dataset.slot, item_id: Number(el.dataset.itemId), source: el.dataset.source }));
-    return Array.from(document.querySelectorAll('.simc-comparison-talent:checked')).map(el => ({ talent: el.dataset.talent }));
+async function refreshSimcPlayerDetail() {
+    const simc_profile_id = selectedSimcReferenceValue('#simc-sim-profile-select');
+    if (!simc_profile_id) {
+        showMessage('请先选择已有 Profile', 'warning');
+        return;
+    }
+    if (simcPlayerDetailAbortController) simcPlayerDetailAbortController.abort();
+    const controller = new AbortController();
+    const requestSerial = ++simcPlayerDetailRequestSerial;
+    simcPlayerDetailAbortController = controller;
+    const host = document.getElementById('simc-sim-player-detail');
+    if (host) host.innerHTML = '<span class="text-xs text-gray-500">正在加载角色详情…</span>';
+    let payload;
+    try {
+        const response = await fetch(`/api/simc-player-config-detail/?profile_id=${simc_profile_id}`, { signal: controller.signal });
+        payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '加载 Profile 详情失败');
+    } catch (error) {
+        if (error.name === 'AbortError') return;
+        if (requestSerial === simcPlayerDetailRequestSerial) showMessage(String(error.message || error), 'error');
+        return;
+    } finally {
+        if (simcPlayerDetailAbortController === controller) simcPlayerDetailAbortController = null;
+    }
+    if (requestSerial !== simcPlayerDetailRequestSerial
+        || selectedSimcReferenceValue('#simc-sim-profile-select') !== simc_profile_id) return;
+    const detail = payload.data || {};
+    const identity = detail.identity || {};
+    const stats = detail.stats || {};
+    if (host) host.innerHTML = `<dl class="grid gap-2 text-xs md:grid-cols-2"><div>角色：<b>${escapeHtml(identity.name || '-')}</b></div><div>职业/专精：<b>${escapeHtml(identity.class_name || '-')} / ${escapeHtml(identity.spec || '-')}</b></div><div>来源：${escapeHtml(detail.source?.label || '-')}</div><div>副属性：${escapeHtml(JSON.stringify(stats.secondary || {}))}</div></dl>`;
+    renderSimcComparisonCandidates(detail.comparison_candidates || {});
 }
 
 let simcCandidatePollControl = null;
 let simcCandidateGeneration = 0;
 
 function isCurrentSimcCandidateControl(control) {
-    return Boolean(control && !control.cancelled && simcCandidatePollControl === control && control.generation === simcCandidateGeneration);
+    return Boolean(control && simcCandidatePollControl === control && control.generation === simcCandidateGeneration);
 }
 
-async function startSelectedSimcCandidateComparisons(maxSelectable) {
-    const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
-    const playerEquipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
-    const selectedKinds = Array.from(document.querySelectorAll('.simc-comparison-kind-toggle:checked')).map(el => el.dataset.simcComparisonKind);
-    if (!spec || !playerEquipment) { showMessage('请先选择专精并填写手动装备玩家块', 'warning'); return; }
-    if (!selectedKinds.length) { showMessage('请至少勾选一个候选类别', 'warning'); return; }
-    const selections = Object.fromEntries(selectedKinds.map(kind => [kind, getSelectedSimcComparisonCandidates(kind)]));
-    const emptyKind = selectedKinds.find(kind => !selections[kind].length);
-    if (emptyKind) { showMessage('已勾选的类别请至少选择一个候选方案', 'warning'); return; }
-    const oversizedKind = selectedKinds.find(kind => selections[kind].length > maxSelectable);
-    if (oversizedKind) { showMessage(`每个类别最多选择 ${maxSelectable} 个候选（含基准最多 ${maxSelectable + 1} 个方案）`, 'warning'); return; }
+async function startSelectedSimcCandidateComparisons() {
+    let references;
+    try { references = requireSimcRunReferences(); }
+    catch (error) { showMessage(String(error.message || error), 'warning'); return; }
+    const { simc_profile_id, base_template_id, selected_apl_id } = references;
+    const selected = Array.from(document.querySelectorAll('.simc-comparison-candidate:checked'));
+    if (!selected.length) { showMessage('请至少选择一个候选', 'warning'); return; }
+    const kinds = [...new Set(selected.map(element => element.dataset.kind))];
+    if (kinds.length !== 1) { showMessage('装备与天赋候选请分别创建 Batch', 'warning'); return; }
+    const kind = kinds[0];
+    const candidates = selected.map(element => kind === 'talent_candidates'
+        ? { talent: element.dataset.talent, source: element.dataset.source }
+        : { slot: element.dataset.slot, item_id: Number(element.dataset.itemId), source: element.dataset.source });
     stopSimcCandidateComparisonPolling();
-    const button = document.querySelector('.simc-comparison-submit');
-    const old = button?.innerHTML;
-    const control = { timer: null, resolve: null, button, oldLabel: old, cancelled: false, controller: new AbortController(), generation: ++simcCandidateGeneration };
+    const control = { generation: ++simcCandidateGeneration, controller: new AbortController() };
     simcCandidatePollControl = control;
     try {
-        if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>创建批次中…'; }
-        const apl = document.querySelector('input[name="simc-sim-apl"]:checked');
-        const baseTemplate = document.getElementById('base-template-select');
-        const baseTemplateEditor = document.getElementById('base-template-content');
-        const aplOverride = document.getElementById('apl-override');
-        // 类别按用户勾选顺序串行：前一个批次创建/运行失败时，不再继续创建后续类别。
-        const batches = [];
-        for (const kind of selectedKinds) {
-            if (!isCurrentSimcCandidateControl(control)) return;
-            const requestKind = kind === 'trinket_candidates' ? 'gear_candidates' : kind;
-            const response = await fetch('/api/simc-task/batch/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, signal: control.controller.signal, body: JSON.stringify({ kind: requestKind, category: kind, name: `${spec} ${kind === 'trinket_candidates' ? '饰品' : kind === 'gear_candidates' ? '其他装备' : '天赋'}候选对比`, spec, player_config_mode: 'manual_equipment', player_equipment: playerEquipment, candidates: selections[kind], fight_style: (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk', time: parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300, target_count: parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1, selected_apl_id: apl?.value ? parseInt(apl.value, 10) : undefined, override_action_list: aplOverride ? aplOverride.value : undefined, base_template_id: baseTemplate?.value ? parseInt(baseTemplate.value, 10) : undefined, base_template_content: baseTemplateEditor ? baseTemplateEditor.value : undefined }) });
-            const payload = await response.json();
-            if (!isCurrentSimcCandidateControl(control)) return;
-            if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较批次失败');
-            const batch = { batchId: payload.data.batch_id, kind, accepted: payload.data.accepted };
-            batches.push(batch);
-            showMessage(`已创建 ${kind} 独立比较批次，正在等待模拟完成…`, 'success');
-            switchSimcWorkbenchL1Tab('history');
-            if (!isCurrentSimcCandidateControl(control)) return;
-            const completed = await pollSimcCandidateComparison(batch.batchId, batch.kind, control);
-            if (!completed || !isCurrentSimcCandidateControl(control)) return;
-        }
-        if (isCurrentSimcCandidateControl(control)) showMessage(`已完成 ${batches.length} 个已勾选类别的独立比较`, 'success');
+        const response = await fetch('/api/simc-task/batch/', {
+            method: 'POST', signal: control.controller.signal,
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({
+                kind, name: `${document.getElementById('simc-sim-spec')?.value || 'SimC'} 候选对比`,
+                simc_profile_id, base_template_id, selected_apl_id, candidates,
+                ...currentSimcScenario(),
+            }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较 Batch 失败');
+        if (!isCurrentSimcCandidateControl(control)) return;
+        showMessage('比较 Batch 已创建', 'success');
+        window.simcWorkbenchShowTaskDetail('batches', Number(payload.data.batch_id));
     } catch (error) {
-        if (error.name !== 'AbortError' && isCurrentSimcCandidateControl(control)) showMessage('创建多方案对比失败：' + String(error.message || error), 'error');
+        if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
     } finally {
-        if (isCurrentSimcCandidateControl(control)) {
-            if (button) { delete button.dataset.simcPolling; button.disabled = false; button.innerHTML = old; }
-            simcCandidatePollControl = null;
-        }
+        if (isCurrentSimcCandidateControl(control)) simcCandidatePollControl = null;
     }
 }
 
 function stopSimcCandidateComparisonPolling() {
-    if (!simcCandidatePollControl) return;
-    const control = simcCandidatePollControl;
-    control.cancelled = true;
     simcCandidateGeneration += 1;
-    control.controller.abort();
-    if (simcCandidatePollControl.timer) clearTimeout(simcCandidatePollControl.timer);
+    simcCandidatePollControl?.controller.abort();
     simcCandidatePollControl = null;
-    if (control.resolve) control.resolve(false);
-    if (control.button) {
-        delete control.button.dataset.simcPolling;
-        control.button.disabled = false;
-        control.button.innerHTML = control.oldLabel;
-    }
-}
-
-function pollSimcCandidateComparison(batchId, kind, control) {
-    if (!batchId || !isCurrentSimcCandidateControl(control)) return Promise.resolve(false);
-    if (control.button) { control.button.dataset.simcPolling = '1'; control.button.disabled = true; }
-    return new Promise(resolve => {
-        control.resolve = resolve;
-        const finish = completed => {
-            if (control.resolve !== resolve) return;
-            control.resolve = null;
-            resolve(completed);
-        };
-        const poll = async () => {
-            if (!isCurrentSimcCandidateControl(control)) return;
-            try {
-                const response = await fetch('/api/simc-regular-compare/?batch_id=' + encodeURIComponent(batchId), { signal: control.controller.signal });
-                const payload = await response.json();
-                if (!isCurrentSimcCandidateControl(control)) return;
-                if (!response.ok || !payload.success) throw new Error(payload.error || '获取候选对比进度失败');
-                const batch = payload.data.batch || {};
-                const status = batch.current_round_status || batch;
-                const done = Number(status.succeeded || 0);
-                const total = Number(batch.current_round_total || batch.total || 0);
-                if (control.button) control.button.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>${kind} 模拟中 ${done}/${total}`;
-                if (status.failed) throw new Error(`有 ${status.failed} 个候选模拟失败，未生成比较报告`);
-                if (status.pending || status.running) {
-                    control.timer = setTimeout(poll, 5000);
-                    return;
-                }
-                showMessage(`${kind} 候选对比已完成，请在任务结果中心查看`, 'success');
-                switchSimcWorkbenchTab('artifacts');
-                finish(true);
-            } catch (error) {
-                if (error.name === 'AbortError' || !isCurrentSimcCandidateControl(control)) return;
-                showMessage('候选对比已停止：' + String(error.message || error), 'error');
-                finish(false);
-            }
-        };
-        poll();
-    });
-}
-
-async function preflightSimcBattlenet() {
-    const button = document.getElementById('simc-sim-battlenet-preflight-btn');
-    const status = document.getElementById('simc-sim-battlenet-preflight-status');
-    const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
-    const region = ((document.getElementById('simc-sim-battlenet-region') || {}).value || '').trim();
-    const realm = ((document.getElementById('simc-sim-battlenet-realm') || {}).value || '').trim();
-    const character = ((document.getElementById('simc-sim-battlenet-character') || {}).value || '').trim();
-    if (!spec || !region || !realm || !character) {
-        showMessage('请先选择专精并填写 Battle.net 地区、服务器和角色名', 'warning');
-        return;
-    }
-    if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>获取中…'; }
-    if (status) { status.className = 'text-xs text-blue-600'; status.textContent = '正在获取角色配置并验证…'; }
-    try {
-        const response = await fetch('/api/simc-battlenet-preflight/', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-            body: JSON.stringify({ region, realm, character, spec }),
-        });
-        const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || '角色预检失败');
-        const data = payload.data || {};
-        const identity = data.identity || {}, profileSpec = data.spec || {}, equipment = data.equipment || {};
-        const warnings = Array.isArray(data.warnings) ? data.warnings : [];
-        if (status) {
-            status.className = `text-xs ${data.simc_ready ? 'text-emerald-700' : 'text-amber-700'}`;
-            const statSummary = data.stats?.secondary ? Object.entries(data.stats.secondary).map(([name, row]) => `${name} ${row?.rating ?? '-'}`).join(' · ') : '';
-            const warningText = warnings.length ? `；${warnings.join('；')}` : '';
-            status.textContent = data.simc_ready
-                ? `已验证角色与装备：${identity.name || character} · ${profileSpec.name || profileSpec.key || '-'} · ${equipment.count || 0} 件装备，平均装等 ${equipment.item_level || '-'}${statSummary ? ' · ' + statSummary : ''}${warningText}`
-                : `已获取但不可直接模拟：${warnings.join('；') || '角色配置不完整'}`;
-        }
-        if (data.simc_ready) showMessage('Battle.net 角色、装备与属性已获取；保存后会在 SimC 执行时通过 armory 导入当前构筑。', 'success');
-        else showMessage('Battle.net 角色已获取，但当前不能直接启动模拟', 'warning');
-    } catch (error) {
-        if (status) { status.className = 'text-xs text-red-600'; status.textContent = '预检失败：' + String(error.message || error); }
-        showMessage('获取 Battle.net 配置失败：' + String(error.message || error), 'error');
-    } finally {
-        if (button) { button.disabled = false; button.innerHTML = '<i class="fas fa-cloud-download-alt mr-1"></i>获取配置并验证'; }
-    }
-}
-
-async function refreshSimcPlayerDetail() {
-    const refreshBtn = document.getElementById('simc-sim-player-detail-refresh-btn');
-    const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
-    if (!spec) { showMessage('请先选择专精', 'warning'); return; }
-    const checkedMode = document.querySelector('input[name="simc-player-import-mode"]:checked');
-    const mode = checkedMode ? checkedMode.value : 'battlenet';
-    const requestBody = { spec, player_import_mode: mode, player_config_mode: mode };
-    if (mode === 'manual_equipment') {
-        requestBody.player_equipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
-        if (!requestBody.player_equipment) { showMessage('请粘贴玩家装备/天赋信息块', 'warning'); return; }
-    } else if (mode === 'attribute_only') {
-        const config = syncSimcAttributeOnlyConfigFromInputs();
-        if (!config.talent) { showMessage('请填写天赋构筑码', 'warning'); return; }
-        requestBody.player_equipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
-        if (!requestBody.player_equipment) { showMessage('请填写冻结的玩家装备基线', 'warning'); return; }
-        Object.assign(requestBody, config);
-    } else {
-        requestBody.battlenet_region = ((document.getElementById('simc-sim-battlenet-region') || {}).value || '').trim();
-        requestBody.battlenet_realm = ((document.getElementById('simc-sim-battlenet-realm') || {}).value || '').trim();
-        requestBody.battlenet_character = ((document.getElementById('simc-sim-battlenet-character') || {}).value || '').trim();
-        if (!requestBody.battlenet_region || !requestBody.battlenet_realm || !requestBody.battlenet_character) {
-            showMessage('请填写 Battle.net 地区、服务器和角色名', 'warning'); return;
-        }
-    }
-
-    if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>刷新中…'; }
-    try {
-        const resp = await fetch('/api/simc-player-config-detail/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-            body: JSON.stringify(requestBody),
-        });
-        const payload = await resp.json();
-        if (!resp.ok || !payload.success) throw new Error(payload.error || payload.message || '刷新详情失败');
-        renderSimcPlayerDetail(payload.data || {});
-    } catch (error) {
-
-    } finally {
-        if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i>刷新详情'; }
-    }
-}
-
-
-let simcAttributeSearchTimer = null;
-let simcAttributeSearchGeneration = 0;
-let simcAttributeSearchControl = null;
-
-function isCurrentSimcAttributeSearch(generation) {
-    return Boolean(simcAttributeSearchControl && generation === simcAttributeSearchGeneration && simcAttributeSearchControl.generation === generation);
-}
-
-function stopSimcAttributeSearch() {
-    simcAttributeSearchGeneration += 1;
-    if (simcAttributeSearchTimer) clearTimeout(simcAttributeSearchTimer);
-    simcAttributeSearchTimer = null;
-    if (simcAttributeSearchControl) {
-        const control = simcAttributeSearchControl;
-        control.controller.abort();
-        if (control.button) {
-            control.button.disabled = false;
-            control.button.innerHTML = control.oldLabel;
-        }
-    }
-    simcAttributeSearchControl = null;
-}
-
-function setSimcAttributeSearchStatus(message, tone = 'text-amber-800') {
-    const el = document.getElementById('simc-sim-attribute-search-status');
-    if (!el) return;
-    el.className = `mt-2 text-xs ${tone}`;
-    el.classList.remove('hidden');
-    el.innerHTML = message;
 }
 
 function simcAttributeSearchRequestBody() {
-    const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
-    const config = syncSimcAttributeOnlyConfigFromInputs();
-    const step = 50;
-    if (!spec) throw new Error('请先在“发起模拟”选择专精');
-    if (!config.talent) throw new Error('请填写天赋构筑码');
-    const playerBaseline = ((document.getElementById('player-baseline-config') || {}).value || '').trim();
-    const playerEquipment = playerBaseline
-        || ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
-    if (!playerEquipment) throw new Error('请填写冻结的玩家装备基线');
-    const fightStyle = (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk';
-    const time = parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300;
-    const targetCount = parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1;
-    const aplRadio = document.querySelector('input[name="simc-sim-apl"]:checked');
-    const baseTemplate = document.getElementById('base-template-select');
-    const baseTemplateEditor = document.getElementById('base-template-content');
-    const aplOverride = document.getElementById('apl-override');
-    const apl_override = aplOverride ? aplOverride.value : undefined;
+    const { simc_profile_id, base_template_id, selected_apl_id } = requireSimcRunReferences();
     return {
-        kind: 'attribute_variants', name: `${spec} 四属性自动寻优`, spec,
-        player_config_mode: 'attribute_only', player_equipment: playerEquipment,
-        talent: config.talent, gear_strength: config.gear_strength,
-        gear_crit: config.gear_crit, gear_haste: config.gear_haste,
-        gear_mastery: config.gear_mastery, gear_versatility: config.gear_versatility,
-        attribute_step: step, fight_style: fightStyle, time, target_count: targetCount,
-        selected_apl_id: aplRadio && aplRadio.value ? parseInt(aplRadio.value, 10) : undefined,
-        base_template_id: baseTemplate && baseTemplate.value ? parseInt(baseTemplate.value, 10) : undefined,
-        base_template_content: baseTemplateEditor ? baseTemplateEditor.value : undefined,
-        override_action_list: apl_override,
+        kind: 'attribute_variants', name: `${document.getElementById('simc-sim-spec')?.value || 'SimC'} 四属性自动寻优`,
+        simc_profile_id, base_template_id, selected_apl_id,
+        attribute_step: 50, ...currentSimcScenario(),
     };
 }
 
 async function submitSimcAttributeSearch(payload, signal) {
     const response = await fetch('/api/simc-task/batch/', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-        signal,
+        method: 'POST', signal,
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
         body: JSON.stringify(payload),
     });
     const result = await response.json();
-    if (!response.ok || !result.success) throw new Error(result.error || '创建属性寻优批次失败');
+    if (!response.ok || !result.success) throw new Error(result.error || '创建属性寻优 Batch 失败');
     return result.data;
 }
 
-function formatSimcAttributeRatings(ratings) {
-    const row = ratings || {};
-    return `暴击 ${row.crit ?? '-'} / 急速 ${row.haste ?? '-'} / 精通 ${row.mastery ?? '-'} / 全能 ${row.versatility ?? '-'}`;
-}
-
-function renderSimcAttributeSearchReport(report) {
-    if (!report || !report.recommendation) return '';
-    const recommendation = report.recommendation;
-    const dps = Number(recommendation.dps || 0).toLocaleString();
-    const stopText = report.local_optimum
-        ? '已验证为当前条件下 50 rating 两两交换邻域局部最优'
-        : report.stop_reason === 'awaiting_current_round'
-            ? '当前轮尚未完成，以下仅显示已完成的独立 SimC 结果'
-            : '已选出当前轮实际 DPS 更优点，正在继续下一轮';
-    const totalRows = Array.isArray(report.all_candidates) ? report.all_candidates.length : (report.candidates || []).length;
-    const rows = (report.all_candidates || report.candidates || []).map((row) => {
-        const dpsText = row.dps === null || row.dps === undefined ? '等待结果' : Number(row.dps).toLocaleString();
-        const state = row.dps === null || row.dps === undefined ? 'text-gray-400' : '';
-        return `
-        <tr class="${row.id === recommendation.id ? 'bg-emerald-50' : ''}">
-            <td class="px-2 py-1.5">第${row.round}轮</td>
-            <td class="px-2 py-1.5 font-mono ${state}">${dpsText}</td>
-            <td class="px-2 py-1.5">${escapeHtml(formatSimcAttributeRatings(row.ratings))}</td>
-            <td class="px-2 py-1.5">${escapeHtml(row.label || '')}</td>
-        </tr>`;
-    }).join('');
-    return `<div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-gray-700">
-        <div class="font-semibold text-emerald-800">四属性 50 rating 局部寻优报告</div>
-        <div class="mt-1">推荐：<span class="font-semibold">${escapeHtml(formatSimcAttributeRatings(recommendation.ratings))}</span> · DPS ${dps}</div>
-        <div class="mt-1">${escapeHtml(stopText)}；已完成 ${report.rounds_completed || 0} 轮，当前批次 ${totalRows} 个候选，总绿字 ${report.total_rating ?? '-'}。</div>
-        <div class="mt-2 overflow-x-auto"><table class="min-w-full text-left"><thead class="text-gray-500"><tr><th class="px-2 py-1">轮次</th><th class="px-2 py-1">DPS</th><th class="px-2 py-1">四属性</th><th class="px-2 py-1">候选</th></tr></thead><tbody>${rows}</tbody></table></div>
-    </div>`;
-}
-
-function pollSimcAttributeSearch(batchId, generation) {
-    if (!isCurrentSimcAttributeSearch(generation)) return;
-    if (simcAttributeSearchTimer) clearTimeout(simcAttributeSearchTimer);
-    const poll = async () => {
-        if (!isCurrentSimcAttributeSearch(generation)) return;
-        try {
-            const response = await fetch('/api/simc-regular-compare/?batch_id=' + encodeURIComponent(batchId), { signal: simcAttributeSearchControl.controller.signal });
-            const result = await response.json();
-            if (!isCurrentSimcAttributeSearch(generation)) return;
-            if (!response.ok || !result.success) throw new Error(result.error || '获取属性寻优进度失败');
-            const batch = result.data.batch;
-            const reportHtml = renderSimcAttributeSearchReport(result.data.attribute_report);
-            const roundStatus = batch.current_round_status || batch;
-            if (roundStatus.failed) throw new Error('本轮存在失败任务，已停止自动寻优；请检查任务日志后重新发起。');
-            setSimcAttributeSearchStatus(`第 ${batch.current_round || Math.max(...result.data.tasks.map(t => Number((t.candidate || {}).round || 1)))} 轮：完成 ${roundStatus.succeeded}/${batch.current_round_total || batch.total}，运行 ${roundStatus.running}，等待 ${roundStatus.pending}${roundStatus.failed ? '，失败 ' + roundStatus.failed : ''}${reportHtml}`);
-            if (roundStatus.pending || roundStatus.running) {
-                if (!isCurrentSimcAttributeSearch(generation)) return;
-                simcAttributeSearchTimer = setTimeout(poll, 5000);
-                return;
-            }
-            if (!isCurrentSimcAttributeSearch(generation)) return;
-            const next = await submitSimcAttributeSearch(
-                { continue_batch_id: batchId, min_attribute_step: 50 },
-                simcAttributeSearchControl.controller.signal,
-            );
-            if (!isCurrentSimcAttributeSearch(generation)) return;
-            if (next.converged) {
-                const r = next.recommendation || {};
-                const stats = r.ratings || {};
-                const reason = r.stop_reason === 'cycle_detected'
-                    ? '检测到搜索回环，保留当前实际 DPS 最优点'
-                    : r.stop_reason === 'max_rounds_reached'
-                        ? '达到最大搜索轮数，保留当前实际 DPS 最优点'
-                        : '已收敛';
-                setSimcAttributeSearchStatus(`${reason}：暴击 ${stats.crit} / 急速 ${stats.haste} / 精通 ${stats.mastery} / 全能 ${stats.versatility}，DPS ${r.dps}`, 'text-emerald-700');
-                showMessage('四属性自动寻优已结束', 'success');
-                if (typeof window.simcWorkbenchLoadTaskResource === 'function') window.simcWorkbenchLoadTaskResource('batches');
-                simcAttributeSearchControl = null;
-                return;
-            }
-            setSimcAttributeSearchStatus(`已选出下一轮中心，继续以步长 ${next.recommendation.step} 模拟 ${next.accepted} 个方案…`);
-            if (typeof window.simcWorkbenchLoadTaskResource === 'function') window.simcWorkbenchLoadTaskResource('batches');
-            pollSimcAttributeSearch(next.batch_id, generation);
-        } catch (error) {
-            if (error.name === 'AbortError' || !isCurrentSimcAttributeSearch(generation)) return;
-            setSimcAttributeSearchStatus('自动寻优已停止：' + String(error.message || error), 'text-red-700');
-            showMessage('四属性自动寻优失败：' + String(error.message || error), 'error');
-            simcAttributeSearchControl = null;
-        }
-    };
-    poll();
+let simcAttributeSearchControl = null;
+function stopSimcAttributeSearch() {
+    simcAttributeSearchControl?.controller.abort();
+    simcAttributeSearchControl = null;
 }
 
 async function startSimcAttributeSearch() {
-    const button = document.getElementById('simc-sim-attribute-optimize-btn');
     stopSimcAttributeSearch();
-    const generation = ++simcAttributeSearchGeneration;
-    simcAttributeSearchControl = {
-        generation,
-        controller: new AbortController(),
-        button,
-        oldLabel: button?.innerHTML,
-    };
-    let pollingStarted = false;
+    const control = { controller: new AbortController() };
+    simcAttributeSearchControl = control;
     try {
-        const payload = simcAttributeSearchRequestBody();
-        if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>创建中…'; }
-        const data = await submitSimcAttributeSearch(payload, simcAttributeSearchControl.controller.signal);
-        if (!isCurrentSimcAttributeSearch(generation)) return;
-        setSimcAttributeSearchStatus(`已创建第 1 轮 ${data.accepted} 个方案，等待常规模拟完成…`);
-        showMessage('四属性自动寻优第一轮已创建', 'success');
-        switchSimcWorkbenchL1Tab('history');
-        if (!isCurrentSimcAttributeSearch(generation)) return;
-        pollSimcAttributeSearch(data.batch_id, generation);
-        pollingStarted = true;
+        const data = await submitSimcAttributeSearch(simcAttributeSearchRequestBody(), control.controller.signal);
+        if (simcAttributeSearchControl !== control) return;
+        showMessage('属性寻优 Batch 已创建', 'success');
+        window.simcWorkbenchShowTaskDetail('batches', Number(data.batch_id));
     } catch (error) {
-        if (error.name !== 'AbortError' && isCurrentSimcAttributeSearch(generation)) {
-            setSimcAttributeSearchStatus('无法启动：' + String(error.message || error), 'text-red-700');
-            showMessage('启动四属性自动寻优失败：' + String(error.message || error), 'error');
-        }
+        if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
     } finally {
-        if (isCurrentSimcAttributeSearch(generation) && button) {
-            button.disabled = false;
-            button.innerHTML = '<i class="fas fa-compass mr-1"></i>自动寻优四属性';
-        }
-        if (!pollingStarted && isCurrentSimcAttributeSearch(generation)) simcAttributeSearchControl = null;
+        if (simcAttributeSearchControl === control) simcAttributeSearchControl = null;
     }
 }
 
+async function createSimcAplCandidateBatch() {
+    let references;
+    try { references = requireSimcRunReferences(); }
+    catch (error) { showMessage(String(error.message || error), 'warning'); return; }
+    const response = await fetch('/api/simc-apl-candidates/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+        body: JSON.stringify({
+            profile_id: references.simc_profile_id,
+            base_template_id: references.base_template_id,
+            selected_apl_id: references.selected_apl_id,
+            candidate_count: 5, include_base: true,
+        }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.success) throw new Error(payload.error || '创建 APL 候选 Batch 失败');
+    showMessage('APL 候选 Batch 已创建', 'success');
+    window.simcWorkbenchShowTaskDetail('batches', Number(payload.data.batch_id));
+}
+
 async function createSimcSimulationTask() {
+    const references = requireSimcRunReferences();
+    const scenario = currentSimcScenario();
+    const spec = document.getElementById('simc-sim-spec')?.value || 'SimC';
+    const requestBody = {
+        name: `${spec} ${scenario.fight_style} ${scenario.time}s ${scenario.target_count}目标`,
+        task_type: 1,
+        ...references,
+        ...scenario,
+    };
+    const button = document.getElementById('simc-sim-submit-btn');
+    if (button) button.disabled = true;
     try {
-        const spec = (document.getElementById('simc-sim-spec') || {}).value || '';
-        if (!spec) { showMessage('请先选择专精', 'warning'); return; }
-        const fightStyle = (document.getElementById('simc-sim-fight-style') || {}).value || 'Patchwerk';
-        const time = parseInt((document.getElementById('simc-sim-time') || {}).value || '300', 10) || 300;
-        const targetCount = parseInt((document.getElementById('simc-sim-target-count') || {}).value || '1', 10) || 1;
-
-        const checkedMode = document.querySelector('input[name="simc-player-import-mode"]:checked');
-        const mode = checkedMode ? checkedMode.value : 'battlenet';
-
-        const requestBody = {
-            task_type: 1,
-            spec: spec,
-            fight_style: fightStyle,
-            time: time,
-            target_count: targetCount,
-            player_import_mode: mode,
-            player_config_mode: mode,
-        };
-        const baseTemplate = document.getElementById('base-template-select');
-        if (baseTemplate && baseTemplate.value) requestBody.base_template_id = parseInt(baseTemplate.value, 10);
-        const baseTemplateEditor = document.getElementById('base-template-content');
-        if (baseTemplateEditor) requestBody.base_template_content = baseTemplateEditor.value;
-        const baselineEditor = document.getElementById('player-baseline-config');
-        const frozenBaseline = baselineEditor ? baselineEditor.value.trim() : '';
-
-        if (mode === 'manual_equipment') {
-            const equipment = ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
-            if (!equipment) { showMessage('请粘贴玩家装备/天赋信息块', 'warning'); return; }
-            requestBody.player_equipment = equipment;
-        } else if (mode === 'attribute_only') {
-            const config = syncSimcAttributeOnlyConfigFromInputs();
-            if (!config.talent) { showMessage('请填写天赋构筑码', 'warning'); return; }
-            const equipment = frozenBaseline || ((document.getElementById('simc-sim-equipment') || {}).value || '').trim();
-            if (!equipment) { showMessage('请填写冻结的玩家装备基线', 'warning'); return; }
-            requestBody.player_equipment = equipment;
-            Object.assign(requestBody, config);
-        } else if (mode === 'battlenet') {
-            const region = ((document.getElementById('simc-sim-battlenet-region') || {}).value || '').trim();
-            const realm = ((document.getElementById('simc-sim-battlenet-realm') || {}).value || '').trim();
-            const character = ((document.getElementById('simc-sim-battlenet-character') || {}).value || '').trim();
-            if (!region || !realm || !character) { showMessage('请填写 Battle.net 地区、服务器和角色名', 'warning'); return; }
-            requestBody.battlenet_region = region;
-            requestBody.battlenet_realm = realm;
-            requestBody.battlenet_character = character;
-        }
-
-        const aplRadio = document.querySelector('input[name="simc-sim-apl"]:checked');
-        if (aplRadio && aplRadio.value) {
-            requestBody.selected_apl_id = parseInt(aplRadio.value, 10);
-        }
-        const aplOverride = document.getElementById('apl-override');
-        if (aplOverride) requestBody.override_action_list = aplOverride.value;
-
-        const specLabels = {
-            arms: '武器战', fury: '狂怒战', protection: '防战', havoc: '浩劫', vengeance: '复仇',
-            balance: '平衡', feral: '野性', guardian: '守护', restoration: '恢复德',
-            devastation: '湮灭', preservation: '恩护', augmentation: '增辉',
-            beast_mastery: '兽王', marksmanship: '射击', survival: '生存',
-            arcane: '奥术', fire: '火焰', frost: '冰霜', frost_dk: '冰霜DK',
-            brewmaster: '酒仙', mistweaver: '织雾', windwalker: '踏风',
-            holy: '神圣', discipline: '戒律', shadow: '暗影',
-            retribution: '惩戒',
-            assassination: '奇袭', outlaw: '狂徒', subtlety: '敏锐',
-            elemental: '元素', enhancement: '增强', restoration_shaman: '恢复萨',
-            affliction: '痛苦', demonology: '恶魔', destruction: '毁灭',
-            blood: '鲜血', unholy: '邪恶'
-        };
-        const fightLabels = {
-            Patchwerk: '单体', Cleave: '双目标', HecticAddCleave: '杂乱AOE',
-            DungeonSlice: '大秘境', DungeonRoute: '大秘境路线'
-        };
-        const taskName = `${specLabels[spec] || spec} ${fightLabels[fightStyle] || fightStyle} ${time}s ${targetCount}目标`;
-        requestBody.name = taskName;
-
-        const btn = document.getElementById('simc-sim-submit-btn');
-        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>提交中…'; }
-        try {
-            const resp = await fetch('/api/simc-task/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-                body: JSON.stringify(requestBody)
-            });
-            const payload = await resp.json();
-            if (!resp.ok || !payload.success) throw new Error(payload.error || payload.message || '创建失败');
-            showMessage('模拟任务已创建: ' + taskName, 'success');
-            switchSimcWorkbenchL1Tab('history');
-        } finally {
-            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-play-circle mr-2"></i>发起模拟'; }
-        }
+        const response = await fetch('/api/simc-task/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify(requestBody),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '创建任务失败');
+        showMessage('模拟任务已创建', 'success');
+        window.simcWorkbenchShowTaskDetail('tasks', Number(payload.data.id));
     } catch (error) {
-        console.error('Create SimC simulation task failed:', error);
-        showMessage('创建模拟任务失败：' + String(error.message || error), 'error');
+        showMessage(String(error.message || error), 'error');
+    } finally {
+        if (button) button.disabled = false;
     }
 }
 
 function bindSimcWorkbenchSimulationControls() {
-    const importPanel = document.getElementById('simc-workbench-import-panel');
-    if (importPanel && importPanel.dataset.importModeBound !== '1') {
-        importPanel.dataset.importModeBound = '1';
-        importPanel.addEventListener('change', function(event) {
-            const modeInput = event.target.closest('input[name="simc-player-import-mode"]');
-            if (modeInput) switchSimcPlayerImportMode(modeInput.value);
-        });
+    const profile = document.getElementById('simc-sim-profile-select');
+    if (profile && profile.dataset.bound !== '1') {
+        profile.dataset.bound = '1';
+        profile.addEventListener('change', () => onSimcProfileSelect().catch(error => showMessage(String(error.message || error), 'error')));
     }
-
-    const specSel = document.getElementById('simc-sim-spec');
-    if (specSel && specSel.dataset.bound !== '1') {
-        specSel.dataset.bound = '1';
-        specSel.addEventListener('change', function() {
-            loadSimcAplCandidates(this.value);
-            loadSimcSnapshotDefaults(this.value).catch((error) => showMessage('加载默认模拟输入失败：' + String(error.message || error), 'error'));
-            loadSimcSimSavedProfiles();
-        });
-    }
-
-    const detailRefreshBtn = document.getElementById('simc-sim-player-detail-refresh-btn');
-    if (detailRefreshBtn && detailRefreshBtn.dataset.bound !== '1') {
-        detailRefreshBtn.dataset.bound = '1';
-        detailRefreshBtn.addEventListener('click', refreshSimcPlayerDetail);
-    }
-
-    const battlenetPreflightBtn = document.getElementById('simc-sim-battlenet-preflight-btn');
-    if (battlenetPreflightBtn && battlenetPreflightBtn.dataset.bound !== '1') {
-        battlenetPreflightBtn.dataset.bound = '1';
-        battlenetPreflightBtn.addEventListener('click', preflightSimcBattlenet);
-    }
-
-    const submitBtn = document.getElementById('simc-sim-submit-btn');
-    if (submitBtn && submitBtn.dataset.bound !== '1') {
-        submitBtn.dataset.bound = '1';
-        submitBtn.addEventListener('click', createSimcSimulationTask);
-    }
-
-    const attributeOptimizeBtn = document.getElementById('simc-sim-attribute-optimize-btn');
-    if (attributeOptimizeBtn && attributeOptimizeBtn.dataset.bound !== '1') {
-        attributeOptimizeBtn.dataset.bound = '1';
-        attributeOptimizeBtn.addEventListener('click', startSimcAttributeSearch);
-    }
-
-    const refreshProfilesBtn = document.getElementById('simc-sim-refresh-profiles-btn');
-    if (refreshProfilesBtn && refreshProfilesBtn.dataset.bound !== '1') {
-        refreshProfilesBtn.dataset.bound = '1';
-        refreshProfilesBtn.addEventListener('click', function() {
-            loadSimcSimSavedProfiles();
-        });
-    }
-
-    const fightPresetSel = document.getElementById('simc-sim-fight-preset');
-    if (fightPresetSel && fightPresetSel.dataset.bound !== '1') {
-        fightPresetSel.dataset.bound = '1';
-        fightPresetSel.addEventListener('change', function() {
-            applySimcFightPreset(this.value);
-        });
-    }
-
-    const timeInput = document.getElementById('simc-sim-time');
-    const targetInput = document.getElementById('simc-sim-target-count');
-    [timeInput, targetInput].forEach(el => {
-        if (el && el.dataset.boundPresetSync !== '1') {
-            el.dataset.boundPresetSync = '1';
-            el.addEventListener('change', syncSimcFightPresetFromInputs);
-            if (el.tagName === 'INPUT') el.addEventListener('input', syncSimcFightPresetFromInputs);
+    const bindings = [
+        ['simc-sim-submit-btn', createSimcSimulationTask],
+        ['simc-sim-attribute-optimize-btn', startSimcAttributeSearch],
+        ['simc-sim-apl-candidates-btn', () => createSimcAplCandidateBatch().catch(error => showMessage(String(error.message || error), 'error'))],
+        ['simc-sim-player-detail-refresh-btn', refreshSimcPlayerDetail],
+        ['simc-sim-refresh-profiles-btn', refreshSimcSavedProfiles],
+    ];
+    bindings.forEach(([id, handler]) => {
+        const element = document.getElementById(id);
+        if (element && element.dataset.bound !== '1') {
+            element.dataset.bound = '1';
+            element.addEventListener('click', handler);
         }
     });
-
-    const equipmentInput = document.getElementById('simc-sim-equipment');
-    if (equipmentInput && equipmentInput.dataset.boundSpecAuto !== '1') {
-        equipmentInput.dataset.boundSpecAuto = '1';
-        equipmentInput.addEventListener('blur', function() {
-            const parsedSpec = parseSpecFromPlayerBlock(this.value);
-            if (parsedSpec) autoSelectSpecIfSafe(parsedSpec);
-        });
-    }
-
-    const attributeTalentInput = document.getElementById('simc-sim-attribute-talent');
-    if (attributeTalentInput && attributeTalentInput.dataset.boundSpecAuto !== '1') {
-        attributeTalentInput.dataset.boundSpecAuto = '1';
-    }
-
-    syncSimcFightPresetFromInputs();
+    const preset = document.getElementById('simc-sim-fight-preset');
+    preset?.addEventListener('change', () => applySimcFightPreset(preset.value));
+    loadSimcSimProfileSelect();
     loadSimcSimSavedProfiles();
 }
 
 function applySimcFightPreset(presetValue) {
     if (!presetValue || presetValue === 'custom') return;
-    const parts = String(presetValue).split(',');
-    if (parts.length !== 2) return;
-    const [time, targetCount] = parts;
+    const [time, targets] = String(presetValue).split(',');
     const timeInput = document.getElementById('simc-sim-time');
     const targetInput = document.getElementById('simc-sim-target-count');
-    if (timeInput && time) timeInput.value = String(parseInt(time, 10) || 300);
-    if (targetInput && targetCount) targetInput.value = String(parseInt(targetCount, 10) || 1);
+    if (timeInput) timeInput.value = String(Number.parseInt(time, 10) || 300);
+    if (targetInput) targetInput.value = String(Number.parseInt(targets, 10) || 1);
 }
 
 function syncSimcFightPresetFromInputs() {
-    const presetSel = document.getElementById('simc-sim-fight-preset');
-    const timeInput = document.getElementById('simc-sim-time');
-    const targetInput = document.getElementById('simc-sim-target-count');
-    if (!presetSel || !timeInput || !targetInput) return;
-    const time = String(parseInt(timeInput.value, 10) || 300);
-    const targetCount = String(parseInt(targetInput.value, 10) || 1);
-    const expected = `${time},${targetCount}`;
-    const matched = Array.from(presetSel.options || []).some(opt => opt.value === expected);
-    presetSel.value = matched ? expected : 'custom';
+    const preset = document.getElementById('simc-sim-fight-preset');
+    const scenario = currentSimcScenario();
+    if (!preset) return;
+    const expected = `${scenario.time},${scenario.target_count}`;
+    preset.value = Array.from(preset.options).some(option => option.value === expected) ? expected : 'custom';
 }
-
-document.addEventListener('DOMContentLoaded', function() {
-    startSimcBackendUpdatePolling();
-});
-
-/**
- * 处理子菜单展开/收起
- */
-function initSubmenuToggle() {
-    const hasSubmenuItems = document.querySelectorAll('.has-submenu');
-
-    hasSubmenuItems.forEach(item => {
-        const mainLink = item.querySelector('a');
-        const submenu = item.querySelector('.submenu');
-        const chevron = item.querySelector('.fa-chevron-down');
-
-        if (mainLink && submenu) {
-            mainLink.addEventListener('click', function(e) {
-                e.preventDefault();
-
-                if (item.classList.contains('open')) {
-                    // 收起子菜单
-                    item.classList.remove('open');
-                    submenu.style.maxHeight = '0';
-                    if (chevron) chevron.classList.remove('rotate-180');
-                } else {
-                    // 展开子菜单
-                    item.classList.add('open');
-                    submenu.style.maxHeight = submenu.scrollHeight + 'px';
-                    if (chevron) chevron.classList.add('rotate-180');
-                }
-            });
-        }
-    });
-}
-
-/**
- * 初始化数据库表选择和计算总记录数
- */
-function initTableSelection() {
-    // 计算总记录数
-    calculateTotalRecords();
-
-    // 初始化子菜单展开/收起功能
-    initSubmenuToggle();
-}
-
-/**
- * 计算所有表的总记录数
- */
-function calculateTotalRecords() {
-    const totalRecordsElement = document.getElementById('total-records');
-    if (!totalRecordsElement) return;
-
-    // 获取所有表项
-    const tableItems = document.querySelectorAll('.table-overview-item');
-    let totalRecords = 0;
-
-    // 计算总记录数
-    tableItems.forEach(item => {
-        const countText = item.querySelector('p:last-child').textContent;
-        const count = parseInt(countText.replace('记录数: ', ''));
-        if (!isNaN(count)) {
-            totalRecords += count;
-        }
-    });
-
-    // 更新总记录数显示
-    totalRecordsElement.textContent = totalRecords.toLocaleString();
-}
-
-// 全局分页变量
-let currentPage = 1;
-let pageSize = 50;
-let totalPages = 1;
-let totalCount = 0;
 
 // 全局表格变量
 let currentTableName = '';
