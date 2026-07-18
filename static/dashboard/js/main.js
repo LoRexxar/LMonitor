@@ -2654,12 +2654,13 @@ function getSimcSpecClass(spec) {
 }
 
 function switchSimcPlayerImportMode() {
-    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'player';
-    document.getElementById('simc-sim-source-saved-profile')?.classList.toggle('hidden', type !== 'player');
+    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'battlenet';
+    document.getElementById('simc-sim-source-specified-spec')?.classList.toggle('hidden', type !== 'specified_spec');
     document.getElementById('simc-sim-source-battlenet')?.classList.toggle('hidden', type !== 'battlenet');
     document.getElementById('simc-sim-source-addon')?.classList.toggle('hidden', type !== 'simc_addon');
-    if (type === 'player' && document.getElementById('simc-sim-profile-select')?.value !== 'default') refreshSavedSimcPlayerDetail();
-    else renderSimcInstantPlayerDetail();
+    resolveSimcPlayerSource().catch(error => {
+        if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
+    });
 }
 
 function fillSimcAttributeOnlyInputs() {
@@ -2673,10 +2674,26 @@ function selectedSimcReferenceValue(selector) {
 }
 
 let simcResolvedBaseTemplateId = 0;
+let simcResolvedCanonicalSpec = '';
+let simcSourceResolutionAbortController = null;
+
+function clearSimcResolvedResources() {
+    simcSourceResolutionAbortController?.abort();
+    simcTargetSpecAbortController?.abort();
+    simcTargetSpecAbortController = null;
+    simcTargetSpecGeneration += 1;
+    simcResolvedCanonicalSpec = '';
+    simcResolvedBaseTemplateId = 0;
+    const apl = document.getElementById('simc-sim-apl-list');
+    if (apl) apl.innerHTML = '请先完成来源预检以加载 APL。';
+    const detail = document.getElementById('simc-sim-player-detail');
+    if (detail) detail.innerHTML = '';
+    renderSimcComparisonCandidates({});
+}
 
 function collectSimcPlayerSource() {
-    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'player';
-    if (type === 'player') {
+    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'battlenet';
+    if (type === 'specified_spec') {
         const selected = document.getElementById('simc-sim-profile-select')?.value || 'default';
         if (selected === 'default') return { type: 'default' };
         const profile_id = selectedSimcReferenceValue('#simc-sim-profile-select');
@@ -2703,8 +2720,9 @@ function requireSimcRunReferences() {
     const selected_apl_id = selectedSimcReferenceValue('input[name="simc-sim-apl"]:checked');
     if (!base_template_id) throw new Error('请选择基础模板');
     if (!selected_apl_id) throw new Error('请选择 APL');
+    if (!simcResolvedCanonicalSpec) throw new Error('请先完成来源预检并解析职业专精');
     const player_source = collectSimcPlayerSource();
-    const references = { base_template_id, selected_apl_id, player_source };
+    const references = { base_template_id, selected_apl_id, player_source, spec: simcResolvedCanonicalSpec };
     if (player_source.type === 'saved_profile') references.simc_profile_id = player_source.profile_id;
     return references;
 }
@@ -2736,7 +2754,7 @@ function isCurrentSimcResourceControl(control) {
     if (control.kind === 'target-spec') {
         return control.generation === simcTargetSpecGeneration
             && control.controller === simcTargetSpecAbortController
-            && normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '') === control.spec;
+            && simcResolvedCanonicalSpec === control.spec;
     }
     return isCurrentSimcProfileSwitch(control);
 }
@@ -2816,7 +2834,7 @@ async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
     try {
         const profiles = await simcWbFetchProfilesForWorkbench(control?.controller?.signal);
         if (!isCurrentSimcResourceControl(control)) return;
-        const normalizedSpec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
+        const normalizedSpec = normalizeSimcSpecKey(control?.spec || simcResolvedCanonicalSpec);
         const matchingProfiles = profiles.filter(profile => normalizeSimcSpecKey(profile.spec) === normalizedSpec);
         select.innerHTML = '<option value="default">系统默认配置</option>' + matchingProfiles.map(profile =>
             `<option value="${Number(profile.id) || ''}" data-spec="${escapeHtml(profile.spec || '')}">${escapeHtml(profile.name || `Profile #${profile.id}`)} (${escapeHtml(profile.spec || '-')})</option>`
@@ -2830,24 +2848,57 @@ async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
     }
 }
 
-async function onSimcTargetSpecChange() {
-    const spec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
+async function resolveSimcPlayerSource() {
+    simcSourceResolutionAbortController?.abort();
     beginSimcProfileSwitch(0);
-    const control = beginSimcTargetSpecLoad(spec);
-    simcResolvedBaseTemplateId = 0;
-    const apl = document.getElementById('simc-sim-apl-list');
-    if (!spec) {
-        if (apl) apl.innerHTML = '请选择目标专精以加载 APL。';
-        renderSimcInstantPlayerDetail();
-        return;
+    clearSimcResolvedResources();
+    const controller = new AbortController();
+    simcSourceResolutionAbortController = controller;
+    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'battlenet';
+    try {
+        let canonicalSpec = '';
+        let detail = null;
+        if (type === 'specified_spec') {
+            canonicalSpec = String(document.getElementById('simc-sim-spec')?.value || '');
+            if (!canonicalSpec) return;
+        } else {
+            const source = collectSimcPlayerSource();
+            const url = type === 'battlenet' ? '/api/simc-battlenet-preflight/' : '/api/simc-player-config-detail/';
+            const body = type === 'battlenet' ? source : { player_config_mode: 'simc_addon', simc_code: source.simc_code };
+            const response = await fetch(url, {
+                method: 'POST', signal: controller.signal,
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+                body: JSON.stringify(body),
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) throw new Error(payload.error || '来源预检失败');
+            canonicalSpec = payload.canonical_spec || payload.data?.canonical_spec || '';
+            detail = payload.data || null;
+        }
+        if (simcSourceResolutionAbortController !== controller) return;
+        simcResolvedCanonicalSpec = canonicalSpec;
+        const control = beginSimcTargetSpecLoad(canonicalSpec);
+        await loadSimcAplCandidates(canonicalSpec, control);
+        if (type === 'specified_spec') {
+            await loadSimcSimProfileSelect(0, control);
+            if (document.getElementById('simc-sim-profile-select')?.value !== 'default') await refreshSavedSimcPlayerDetail();
+            else renderSimcInstantPlayerDetail();
+        } else if (type !== 'specified_spec' && detail) {
+            renderSimcSavedProfileDetail(detail);
+            renderSimcComparisonCandidates(detail.comparison_candidates || {});
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError' && simcSourceResolutionAbortController === controller) {
+            clearSimcResolvedResources();
+            throw error;
+        }
+    } finally {
+        if (simcSourceResolutionAbortController === controller) simcSourceResolutionAbortController = null;
     }
-    await Promise.all([
-        loadSimcAplCandidates(spec, control),
-        loadSimcSimProfileSelect(0, control),
-    ]);
-    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'player';
-    if (type === 'player' && document.getElementById('simc-sim-profile-select')?.value !== 'default') await refreshSavedSimcPlayerDetail();
-    else renderSimcInstantPlayerDetail();
+}
+
+async function onSimcTargetSpecChange() {
+    return resolveSimcPlayerSource();
 }
 
 async function loadSimcSimSavedProfiles() {
@@ -2884,16 +2935,16 @@ async function onSimcProfileSelect() {
         return;
     }
     const control = beginSimcProfileSwitch(profileId);
-    const spec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
+    const spec = normalizeSimcSpecKey(simcResolvedCanonicalSpec);
     const profileSpec = normalizeSimcSpecKey(option?.dataset.spec || '');
     if (profileId && profileSpec !== spec) {
-        select.value = '';
+        select.value = 'default';
         showMessage('所选 Profile 专精与目标专精不匹配', 'error');
+        renderSimcInstantPlayerDetail();
         return;
     }
     if (!profileId) return;
-    await loadSimcAplCandidates(spec, control);
-    refreshSimcPlayerDetail();
+    await refreshSavedSimcPlayerDetail(control);
 }
 
 function renderSimcComparisonCandidates(comparison) {
@@ -2926,15 +2977,18 @@ function updateSimcHomeMode() {
 }
 
 async function refreshSimcPlayerDetail() {
-    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'player';
-    if (type === 'player' && document.getElementById('simc-sim-profile-select')?.value !== 'default') await refreshSavedSimcPlayerDetail();
-    else renderSimcInstantPlayerDetail();
+    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'battlenet';
+    if (type === 'specified_spec' && document.getElementById('simc-sim-profile-select')?.value !== 'default') {
+        await refreshSavedSimcPlayerDetail();
+        return;
+    }
+    await resolveSimcPlayerSource();
 }
 
 function renderSimcInstantPlayerDetail() {
     const host = document.getElementById('simc-sim-player-detail');
     if (!host) return;
-    const spec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
+    const spec = normalizeSimcSpecKey(simcResolvedCanonicalSpec);
     let source;
     try { source = collectSimcPlayerSource(); }
     catch (error) {
@@ -3045,7 +3099,8 @@ async function startSelectedSimcCandidateComparisons() {
             method: 'POST', signal: control.controller.signal,
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
             body: JSON.stringify({
-                kind, name: `${document.getElementById('simc-sim-spec')?.value || 'SimC'} 候选对比`,
+                kind, name: `${simcResolvedCanonicalSpec || 'SimC'} 候选对比`,
+                spec: simcResolvedCanonicalSpec,
                 simc_profile_id, base_template_id, selected_apl_id, candidates,
                 ...currentSimcScenario(),
             }),
@@ -3074,8 +3129,8 @@ function simcAttributeSearchRequestBody() {
         throw new Error('默认配置不包含可冻结的当前绿字；属性寻优请使用 Battle.net 或粘贴含 gear_* 属性的 SimC 代码');
     }
     return {
-        kind: 'attribute_variants', name: `${document.getElementById('simc-sim-spec')?.value || 'SimC'} 四属性自动寻优`,
-        spec: document.getElementById('simc-sim-spec')?.value || '',
+        kind: 'attribute_variants', name: `${simcResolvedCanonicalSpec || 'SimC'} 四属性自动寻优`,
+        spec: simcResolvedCanonicalSpec,
         ...references,
         attribute_step: 50, ...currentSimcScenario(),
     };
@@ -3137,10 +3192,10 @@ async function createSimcAplCandidateBatch() {
 async function createSimcSimulationTask() {
     const references = requireSimcRunReferences();
     const scenario = currentSimcScenario();
-    const spec = document.getElementById('simc-sim-spec')?.value || 'SimC';
+    const spec = simcResolvedCanonicalSpec;
     const requestBody = {
         name: `${spec} ${scenario.fight_style} ${scenario.time}s ${scenario.target_count}目标`,
-        spec,
+        spec: simcResolvedCanonicalSpec,
         task_type: 1,
         ...references,
         ...scenario,
@@ -3198,6 +3253,15 @@ function bindSimcWorkbenchSimulationControls() {
         if (source.dataset.bound === '1') return;
         source.dataset.bound = '1';
         source.addEventListener('change', switchSimcPlayerImportMode);
+    });
+    ['simc-sim-bnet-region', 'simc-sim-bnet-realm', 'simc-sim-bnet-character', 'simc-sim-addon-code'].forEach(id => {
+        const input = document.getElementById(id);
+        if (!input || input.dataset.sourceBound === '1') return;
+        input.dataset.sourceBound = '1';
+        input.addEventListener('change', () => resolveSimcPlayerSource().catch(error => {
+            if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
+        }));
+        input.addEventListener('input', clearSimcResolvedResources);
     });
     const mode = document.getElementById('simc-sim-mode');
     if (mode && mode.dataset.bound !== '1') {

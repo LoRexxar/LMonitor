@@ -2358,14 +2358,27 @@ class SimcPlayerConfigDetailAPIView(View):
         try:
             data = json.loads(request.body)
             spec = str(data.get('spec') or '').strip()
-            if not spec:
-                return JsonResponse({'success': False, 'error': '请先选择专精'})
             mode = data.get('player_import_mode') or data.get('player_config_mode')
             if mode == 'equipment':
                 mode = 'manual_equipment'
-            if mode not in ('battlenet', 'manual_equipment', 'attribute_only'):
-                return JsonResponse({'success': False, 'error': '玩家信息导入方式必须是 battlenet、manual_equipment 或 attribute_only'})
-            player_equipment = str(data.get('player_equipment') or '').strip()
+            if mode not in ('battlenet', 'manual_equipment', 'attribute_only', 'simc_addon'):
+                return JsonResponse({'success': False, 'error': '玩家信息导入方式无效'}, status=400)
+            player_equipment = str(data.get('player_equipment') or data.get('simc_code') or '').strip()
+            canonical_spec = ''
+            if mode == 'simc_addon':
+                if not player_equipment:
+                    return JsonResponse({'success': False, 'error': 'SimC Addon 代码不能为空'}, status=400)
+                parsed_identity = parse_manual_player_config(player_equipment, '').get('identity') or {}
+                actor = str(parsed_identity.get('class_name') or '').strip().lower()
+                parsed_spec = str(parsed_identity.get('spec') or '').strip().lower()
+                spec_class, canonical_key = canonical_simc_spec_identity(f'{actor}_{parsed_spec}')
+                canonical_spec = f'{spec_class}_{canonical_key}' if spec_class and canonical_key else ''
+                if not actor or actor != spec_class or canonical_spec not in SIMC_SPEC_VALUES:
+                    return JsonResponse({'success': False, 'error': '无法识别或不支持的职业专精'}, status=400)
+                spec = canonical_spec
+                mode = 'manual_equipment'
+            elif not spec:
+                return JsonResponse({'success': False, 'error': '请先选择专精'}, status=400)
             battlenet_region = str(data.get('battlenet_region') or '').strip().lower()
             battlenet_realm = str(data.get('battlenet_realm') or '').strip()
             battlenet_character = str(data.get('battlenet_character') or '').strip()
@@ -2399,7 +2412,10 @@ class SimcPlayerConfigDetailAPIView(View):
                     'talents': candidates['talent_candidates'],
                     'max_selectable': SimcBatchTaskAPIView.MAX_TASKS - 1,
                 }
-            return JsonResponse({'success': True, 'data': detail})
+            response = {'success': True, 'data': detail}
+            if canonical_spec:
+                response['canonical_spec'] = canonical_spec
+            return JsonResponse(response)
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'error': '无效的JSON数据'})
         except Exception as e:
@@ -3179,6 +3195,13 @@ class SimcBattlenetPreflightAPIView(View):
                 character=str(data.get('character') or data.get('battlenet_character') or '').strip(),
                 requested_spec=str(data.get('spec') or '').strip().lower(),
             )
+            class_name = str((result.get('identity') or {}).get('class_name') or '').strip().lower()
+            spec_key = str((result.get('spec') or {}).get('key') or '').strip().lower()
+            canonical_class, canonical_key = canonical_simc_spec_identity(f'{class_name}_{spec_key}')
+            canonical_spec = f'{canonical_class}_{canonical_key}' if canonical_class and canonical_key else ''
+            if not class_name or class_name != canonical_class or canonical_spec not in SIMC_SPEC_VALUES:
+                raise ValueError('Battle.net 返回了无法识别或不支持的职业专精')
+            result['canonical_spec'] = canonical_spec
             return JsonResponse({'success': True, 'data': result})
         except ValueError as exc:
             return JsonResponse({'success': False, 'error': str(exc)}, status=400)

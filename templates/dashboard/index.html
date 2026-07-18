@@ -195,7 +195,7 @@
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260718g"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260718h"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260717h"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
@@ -846,84 +846,51 @@
                                         <div class="flex items-start justify-between gap-4 mb-5">
                                             <div>
                                                 <h3 class="text-xl font-bold text-gray-900">发起模拟</h3>
-                                                <p class="text-sm text-gray-600 mt-1">先选择目标专精，再从四个同级入口提供玩家配置，并选择 APL、战斗参数与模拟模式。</p>
+                                                <p class="text-sm text-gray-600 mt-1">从 Battle.net、SimC Addon 或指定专精三个同级入口解析玩家配置，再选择 APL、战斗参数与模拟模式。</p>
                                             </div>
-                                        </div>
-
-                                        <!-- 第一步：目标专精驱动后续 Profile 与资源候选 -->
-                                        <div class="mb-5">
-                                            <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                                <i class="fas fa-star mr-1 text-yellow-500"></i>目标专精
-                                            </label>
-                                            <select id="simc-sim-spec" class="w-full p-2.5 border border-blue-200 rounded-xl bg-white">
-                                                <option value="">-- 请选择目标专精 --</option>
-                                                <option value="arms">Arms (武器战)</option>
-                                                <option value="fury">Fury (狂怒战)</option>
-                                                <option value="protection">Protection (防战)</option>
-                                                <option value="havoc">Havoc (浩劫)</option>
-                                                <option value="vengeance">Vengeance (复仇)</option>
-                                                <option value="balance">Balance (平衡)</option>
-                                                <option value="feral">Feral (野性)</option>
-                                                <option value="guardian">Guardian (守护)</option>
-                                                <option value="restoration">Restoration (恢复德)</option>
-                                                <option value="devastation">Devastation (湮灭)</option>
-                                                <option value="preservation">Preservation (恩护)</option>
-                                                <option value="augmentation">Augmentation (增辉)</option>
-                                                <option value="beast_mastery">Beast Mastery (兽王)</option>
-                                                <option value="marksmanship">Marksmanship (射击)</option>
-                                                <option value="survival">Survival (生存)</option>
-                                                <option value="arcane">Arcane (奥术)</option>
-                                                <option value="fire">Fire (火焰)</option>
-                                                <option value="frost">Frost (冰霜法师)</option>
-                                                <option value="brewmaster">Brewmaster (酒仙)</option>
-                                                <option value="mistweaver">Mistweaver (织雾)</option>
-                                                <option value="windwalker">Windwalker (踏风)</option>
-                                                <option value="holy">Holy (神圣牧)</option>
-                                                <option value="discipline">Discipline (戒律)</option>
-                                                <option value="shadow">Shadow (暗影)</option>
-                                                <option value="retribution">Retribution (惩戒)</option>
-                                                <option value="assassination">Assassination (奇袭)</option>
-                                                <option value="outlaw">Outlaw (狂徒)</option>
-                                                <option value="subtlety">Subtlety (敏锐)</option>
-                                                <option value="elemental">Elemental (元素)</option>
-                                                <option value="enhancement">Enhancement (增强)</option>
-                                                <option value="restoration_shaman">Restoration (恢复萨)</option>
-                                                <option value="affliction">Affliction (痛苦)</option>
-                                                <option value="demonology">Demonology (恶魔)</option>
-                                                <option value="destruction">Destruction (毁灭)</option>
-                                                <option value="blood">Blood (鲜血)</option>
-                                                <option value="frost_dk">Frost (冰霜DK)</option>
-                                                <option value="unholy">Unholy (邪恶)</option>
-                                            </select>
                                         </div>
 
                                         <div id="simc-sim-player-sources" class="mb-5">
                                             <label class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-user-check mr-1 text-blue-500"></i>本次玩家配置来源</label>
                                             <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                                                 <label class="rounded-xl border border-blue-200 bg-blue-50 p-3 cursor-pointer">
-                                                    <span class="flex items-center gap-2 font-semibold"><input type="radio" name="simc-sim-player-source" data-simc-player-source="player" value="player" checked>玩家配置</span>
-                                                    <select id="simc-sim-profile-select" class="mt-2 w-full rounded-lg border p-2.5"><option value="default" selected>系统默认配置</option></select>
-                                                    <span class="mt-1 block text-xs text-gray-500">系统默认配置；也可加载已有玩家配置（仅显示目标专精匹配的已保存 Profile）。</span>
+                                                    <span class="flex items-center gap-2 font-semibold"><input type="radio" name="simc-sim-player-source" data-simc-player-source="battlenet" value="battlenet" checked>Battle.net</span>
+                                                    <span class="mt-1 block text-xs text-gray-500">查询角色并自动识别职业专精。</span>
                                                 </label>
                                                 <label class="rounded-xl border border-gray-200 bg-white p-3 cursor-pointer">
-                                                    <span class="flex items-center gap-2 font-semibold"><input type="radio" name="simc-sim-player-source" data-simc-player-source="battlenet" value="battlenet">Battle.net</span>
-                                                    <span class="mt-1 block text-xs text-gray-500">查询角色当前专精与装备后直接模拟。</span>
+                                                    <span class="flex items-center gap-2 font-semibold"><input type="radio" name="simc-sim-player-source" data-simc-player-source="simc_addon" value="simc_addon">SimC Addon</span>
+                                                    <span class="mt-1 block text-xs text-gray-500">粘贴导出代码并自动识别职业专精。</span>
                                                 </label>
                                                 <label class="rounded-xl border border-gray-200 bg-white p-3 cursor-pointer">
-                                                    <span class="flex items-center gap-2 font-semibold"><input type="radio" name="simc-sim-player-source" data-simc-player-source="simc_addon" value="simc_addon">SimC Addon 代码</span>
-                                                    <span class="mt-1 block text-xs text-gray-500">粘贴导出代码，显式 APL 不会被代码中的 actions 覆盖。</span>
+                                                    <span class="flex items-center gap-2 font-semibold"><input type="radio" name="simc-sim-player-source" data-simc-player-source="specified_spec" value="specified_spec">指定专精</span>
+                                                    <span class="mt-1 block text-xs text-gray-500">选择系统默认配置或匹配专精的已有 Profile。</span>
                                                 </label>
                                             </div>
-                                            <div id="simc-sim-source-saved-profile" class="hidden mt-3">
-                                                <p class="mt-1 text-xs text-gray-500">仅显示目标专精匹配的已保存 Profile。</p>
-                                            </div>
-                                            <div id="simc-sim-source-battlenet" class="hidden mt-3 grid gap-2 md:grid-cols-3">
+                                            <div id="simc-sim-source-battlenet" class="mt-3 grid gap-2 md:grid-cols-3">
                                                 <select id="simc-sim-bnet-region" class="rounded-lg border p-2.5"><option value="cn">中国</option><option value="us">美服</option><option value="eu">欧服</option><option value="kr">韩服</option><option value="tw">台服</option></select>
                                                 <input id="simc-sim-bnet-realm" class="rounded-lg border p-2.5" placeholder="服务器">
                                                 <input id="simc-sim-bnet-character" class="rounded-lg border p-2.5" placeholder="角色名">
                                             </div>
                                             <div id="simc-sim-source-addon" class="hidden mt-3">
                                                 <textarea id="simc-sim-addon-code" rows="9" class="w-full rounded-lg border p-3 font-mono text-xs" placeholder="粘贴 SimulationCraft Addon 导出的玩家配置"></textarea>
+                                            </div>
+                                            <div id="simc-sim-source-specified-spec" class="hidden mt-3 space-y-2">
+                                                <select id="simc-sim-spec" class="w-full p-2.5 border border-blue-200 rounded-xl bg-white">
+                                                    <option value="">-- 请选择目标专精 --</option>
+                                                    <option value="warrior_arms">Arms (武器战)</option><option value="warrior_fury">Fury (狂怒战)</option><option value="warrior_protection">Protection (防战)</option>
+                                                    <option value="demonhunter_havoc">Havoc (浩劫)</option><option value="demonhunter_vengeance">Vengeance (复仇)</option>
+                                                    <option value="druid_balance">Balance (平衡)</option><option value="druid_feral">Feral (野性)</option><option value="druid_guardian">Guardian (守护)</option><option value="druid_restoration">Restoration (恢复德)</option>
+                                                    <option value="evoker_devastation">Devastation (湮灭)</option><option value="evoker_preservation">Preservation (恩护)</option><option value="evoker_augmentation">Augmentation (增辉)</option>
+                                                    <option value="hunter_beast_mastery">Beast Mastery (兽王)</option><option value="hunter_marksmanship">Marksmanship (射击)</option><option value="hunter_survival">Survival (生存)</option>
+                                                    <option value="mage_arcane">Arcane (奥术)</option><option value="mage_fire">Fire (火焰)</option><option value="mage_frost">Frost (冰霜法师)</option>
+                                                    <option value="monk_brewmaster">Brewmaster (酒仙)</option><option value="monk_mistweaver">Mistweaver (织雾)</option><option value="monk_windwalker">Windwalker (踏风)</option>
+                                                    <option value="priest_holy">Holy (神圣牧)</option><option value="priest_discipline">Discipline (戒律)</option><option value="priest_shadow">Shadow (暗影)</option>
+                                                    <option value="paladin_retribution">Retribution (惩戒)</option><option value="rogue_assassination">Assassination (奇袭)</option><option value="rogue_outlaw">Outlaw (狂徒)</option><option value="rogue_subtlety">Subtlety (敏锐)</option>
+                                                    <option value="shaman_elemental">Elemental (元素)</option><option value="shaman_enhancement">Enhancement (增强)</option><option value="shaman_restoration">Restoration (恢复萨)</option>
+                                                    <option value="warlock_affliction">Affliction (痛苦)</option><option value="warlock_demonology">Demonology (恶魔)</option><option value="warlock_destruction">Destruction (毁灭)</option>
+                                                    <option value="deathknight_blood">Blood (鲜血)</option><option value="deathknight_frost">Frost (冰霜DK)</option><option value="deathknight_unholy">Unholy (邪恶)</option>
+                                                </select>
+                                                <select id="simc-sim-profile-select" class="w-full rounded-lg border p-2.5"><option value="default" selected>系统默认配置</option></select>
                                             </div>
                                         </div>
 
