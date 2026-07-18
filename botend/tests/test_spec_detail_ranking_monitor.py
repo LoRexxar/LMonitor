@@ -63,23 +63,57 @@ class SpecDetailRankingMonitorDifferentialUpdateTests(TestCase):
         self.assertFalse(SpecRaidRanking.objects.filter(report_code='stale').exists())
         self.assertTrue(SpecRaidRanking.objects.filter(report_code='new').exists())
 
-    def test_sync_ranking_records_rejects_duplicate_business_keys(self):
+    def test_sync_ranking_records_merges_duplicate_named_player_from_wcl_pages(self):
         now = timezone.now()
         duplicate_records = [
             self._record(report_code='same', fight_id=1, dps=100, last_updated=now),
             self._record(report_code='same', fight_id=1, dps=200, last_updated=now),
         ]
 
-        with self.assertRaisesMessage(ValueError, '重复排名业务键'):
-            SpecDetailRankingMonitor._sync_ranking_records(
-                model=SpecRaidRanking,
-                filters={'season_id': 1, 'boss_id': 100},
-                records=duplicate_records,
-                key_fields=SpecDetailRankingMonitor.RAID_KEY_FIELDS,
-                update_fields=SpecDetailRankingMonitor.RAID_UPDATE_FIELDS,
-            )
+        result = SpecDetailRankingMonitor._sync_ranking_records(
+            model=SpecRaidRanking,
+            filters={'season_id': 1, 'boss_id': 100},
+            records=duplicate_records,
+            key_fields=SpecDetailRankingMonitor.RAID_KEY_FIELDS,
+            update_fields=SpecDetailRankingMonitor.RAID_UPDATE_FIELDS,
+        )
 
-        self.assertEqual(SpecRaidRanking.objects.count(), 0)
+        self.assertEqual(result, {
+            'created': 1,
+            'updated': 0,
+            'deleted': 0,
+            'unchanged': 0,
+        })
+        self.assertEqual(SpecRaidRanking.objects.count(), 1)
+        self.assertEqual(SpecRaidRanking.objects.get().dps, 100)
+
+    def test_sync_ranking_records_keeps_distinct_anonymous_players_in_same_fight(self):
+        now = timezone.now()
+        first = self._record(report_code='a:report', fight_id=4, dps=100, last_updated=now)
+        second = self._record(report_code='a:report', fight_id=4, dps=200, last_updated=now)
+        for row in (first, second):
+            row.character_name = 'Anonymous'
+            row.realm = ''
+            row.region = ''
+
+        result = SpecDetailRankingMonitor._sync_ranking_records(
+            model=SpecRaidRanking,
+            filters={'season_id': 1, 'boss_id': 100},
+            records=[first, second],
+            key_fields=SpecDetailRankingMonitor.RAID_KEY_FIELDS,
+            update_fields=SpecDetailRankingMonitor.RAID_UPDATE_FIELDS,
+        )
+
+        self.assertEqual(result, {
+            'created': 2,
+            'updated': 0,
+            'deleted': 0,
+            'unchanged': 0,
+        })
+        self.assertEqual(
+            list(SpecRaidRanking.objects.order_by('dps').values_list('dps', flat=True)),
+            [100.0, 200.0],
+        )
 
     def test_sync_ranking_records_removes_existing_duplicate_business_keys(self):
         now = timezone.now()

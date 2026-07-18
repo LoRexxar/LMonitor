@@ -361,21 +361,34 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         return ok
 
     @staticmethod
-    def _sync_ranking_records(model, filters, records, key_fields, update_fields):
+    def _ranking_business_key(row, key_fields):
+        key = tuple(getattr(row, field) for field in key_fields)
+        if (
+            (getattr(row, 'character_name', '') or '').strip().lower() == 'anonymous'
+            and not (getattr(row, 'realm', '') or '').strip()
+            and not (getattr(row, 'region', '') or '').strip()
+        ):
+            return (*key, getattr(row, 'dps', None))
+        return key
+
+    @classmethod
+    def _sync_ranking_records(cls, model, filters, records, key_fields, update_fields):
         """按稳定业务键同步排名，只写入新增、变化和已消失的记录。"""
         existing_map = {}
         duplicate_existing_ids = []
         for row in model.objects.filter(**filters):
-            key = tuple(getattr(row, field) for field in key_fields)
+            key = cls._ranking_business_key(row, key_fields)
             if key in existing_map:
                 duplicate_existing_ids.append(row.id)
                 continue
             existing_map[key] = row
         incoming_map = {}
         for row in records:
-            key = tuple(getattr(row, field) for field in key_fields)
+            key = cls._ranking_business_key(row, key_fields)
+            # WCL 排名分页不是稳定快照：同一条实名记录可能在采集期间跨页重复。
+            # 保留首次出现（排名更靠前）的记录，不因此拒绝整个副本/Boss 快照。
             if key in incoming_map:
-                raise ValueError(f"重复排名业务键: {key}")
+                continue
             incoming_map[key] = row
 
         to_create = []

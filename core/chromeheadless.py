@@ -57,6 +57,10 @@ class ChromeDriver:
     def init_object(self, is_proxy=False):
 
         self.chrome_options = ChromiumOptions()
+        # Monitor tasks create and close a browser per scan. A fixed default
+        # debugging port can still belong to the previous Chrome while the next
+        # scan starts, so give every short-lived browser an isolated free port.
+        self.chrome_options.auto_port()
         wcl_cfg = getattr(django_settings, 'WCL_FETCH_CONFIG', {}) or {}
 
         self.chrome_options.no_imgs(True).mute(True)
