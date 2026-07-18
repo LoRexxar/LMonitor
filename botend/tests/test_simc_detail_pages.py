@@ -66,11 +66,20 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertNotIn('request_manifest', script)
         self.assertNotIn('.content', script)
 
-    def test_history_and_batch_members_are_links_and_rerun_navigates(self):
+    def test_history_results_and_batch_members_open_workbench_dialog_without_navigation(self):
         workbench = (ROOT / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
-        main = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
-        self.assertIn('href="/dashboard/simc/${resource}/${idOf(row.id)}/"', workbench)
-        self.assertIn('href="/dashboard/simc/tasks/${idOf(member.id)}/"', workbench)
-        self.assertIn("window.location.assign(`/dashboard/simc/tasks/${idOf(result.data?.id)}/`)", workbench)
-        self.assertNotIn("window.simcWorkbenchShowTaskDetail('tasks',", main)
-        self.assertNotIn("window.simcWorkbenchShowTaskDetail('batches',", main)
+        history_start = workbench.index('async function loadTasks')
+        history_end = workbench.index('\n    function scheduleTaskRefresh', history_start)
+        history = workbench[history_start:history_end]
+        batch_start = workbench.index("if (resource === 'batches')")
+        batch_end = workbench.index("\n        const params =", batch_start)
+        batch_detail = workbench[batch_start:batch_end]
+
+        self.assertIn('data-wb-action="detail"', history)
+        self.assertIn('data-resource="${resource}"', history)
+        self.assertIn('>查看结果</button>', history)
+        self.assertNotIn('href="/dashboard/simc/', history)
+        self.assertIn('data-wb-action="detail"', batch_detail)
+        self.assertIn('data-resource="tasks"', batch_detail)
+        self.assertNotIn('href="/dashboard/simc/tasks/', batch_detail)
+        self.assertIn("showTaskDetail(resource, id).catch(notify)", workbench)
