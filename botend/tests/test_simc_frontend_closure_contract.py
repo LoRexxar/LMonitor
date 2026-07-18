@@ -120,6 +120,25 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn("simcPlayerDetailAbortController", detail)
         self.assertIn("selectedSimcReferenceValue('#simc-sim-profile-select') !== simc_profile_id", detail)
 
+    def test_saved_profile_detail_renders_complete_parsed_player_configuration(self):
+        detail = SIM[SIM.index("function renderSimcSavedProfileDetail"):SIM.index("let simcCandidatePollControl")]
+        for token in (
+            "detail.equipment",
+            "item.slot_label",
+            "item.display_name",
+            "item.item_level",
+            "item.enchant",
+            "item.gems",
+            "detail.talents",
+            "talents.build_code",
+            "stats.primary",
+            "stats.secondary",
+            "detail.missing_fields",
+        ):
+            self.assertIn(token, detail)
+        self.assertIn("renderSimcSavedProfileDetail(detail)", detail)
+        self.assertNotIn("JSON.stringify(stats.secondary", detail)
+
 
 if __name__ == "__main__":
     unittest.main()

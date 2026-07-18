@@ -2941,6 +2941,44 @@ function renderSimcInstantPlayerDetail() {
     host.innerHTML = `<dl class="grid gap-2 text-xs md:grid-cols-2"><div>目标专精：<b>${escapeHtml(spec || '未选择')}</b></div><div>来源：<b>${escapeHtml(labels[source.type] || source.type)}</b></div><div class="md:col-span-2">输入：${escapeHtml(identity)}</div><div class="md:col-span-2 text-gray-500">提交后端时解析并在同一事务中固化为 Profile 不可变版本；来源专精只用于冲突校验。</div></dl>`;
 }
 
+function renderSimcSavedProfileDetail(detail) {
+    const host = document.getElementById('simc-sim-player-detail');
+    if (!host) return;
+    if (!detail) {
+        host.textContent = '暂无可展示的玩家配置。';
+        return;
+    }
+    const identity = detail.identity || {};
+    const talents = detail.talents || {};
+    const stats = detail.stats || {};
+    const source = detail.source || {};
+    const value = raw => escapeHtml(String(raw == null || raw === '' ? '-' : raw));
+    const secondaryLabels = { crit: '暴击', haste: '急速', mastery: '精通', versatility: '全能' };
+    const secondaryRows = Object.entries(stats.secondary || {}).map(([key, stat]) => {
+        const row = stat || {};
+        const percent = row.percent == null ? '' : ` / ${value(row.percent)}%`;
+        return `<div class="rounded bg-white/80 border border-emerald-100 px-2 py-1"><span class="text-gray-500">${value(secondaryLabels[key] || key)}</span> <b class="text-gray-800">${value(row.rating)}</b><span class="text-gray-500"> 绿字${percent}</span></div>`;
+    }).join('') || '<span class="text-gray-400">未提供副属性绿字</span>';
+    const primary = Object.entries(stats.primary || {}).map(([key, stat]) => `${value(key)} ${value(stat)}`).join(' · ') || '未提供';
+    const equipment = (detail.equipment || []).map(item => {
+        const enchant = item.enchant ? `<div class="text-[11px] text-violet-700">附魔：${value(item.enchant.display_name)}</div>` : '';
+        const gems = (item.gems || []).length
+            ? `<div class="text-[11px] text-cyan-700">宝石：${item.gems.map(gem => value(gem.display_name)).join('、')}</div>` : '';
+        const itemName = value(item.display_name);
+        const itemLevel = item.item_level ? `ilvl ${value(item.item_level)}` : `#${value(item.id)}`;
+        return `<div class="rounded-lg bg-white border border-emerald-100 p-2"><div class="text-[11px] text-gray-500">${value(item.slot_label)}</div><div class="font-medium text-gray-800">${itemName} <span class="text-xs text-gray-400">${itemLevel}</span></div>${enchant}${gems}</div>`;
+    }).join('') || '<div class="text-gray-400">未解析到装备槽位。</div>';
+    const savedLoadouts = (talents.saved_loadouts || []).map(loadout => `<div><span class="font-medium">${value(loadout.name)}</span><div class="font-mono break-all text-[11px] text-gray-500">${value(loadout.build_code)}</div></div>`).join('');
+    const missing = (detail.missing_fields || []).map(text => `<li>${value(text)}</li>`).join('');
+    host.innerHTML = `
+        <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 mb-3"><span>来源：<b>${value(source.label)}</b></span><span>角色：<b>${value(identity.name)}</b></span><span>职业/专精：<b>${value(identity.class_name)} / ${value(identity.spec)}</b></span>${identity.race ? `<span>种族：<b>${value(identity.race)}</b></span>` : ''}${identity.level ? `<span>等级：<b>${value(identity.level)}</b></span>` : ''}${identity.region ? `<span>地区/服务器：<b>${value(identity.region)} / ${value(identity.realm)}</b></span>` : ''}</div>
+        <div class="grid md:grid-cols-2 gap-3 mb-3"><div class="rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500">当前天赋构筑码</div><div class="font-mono text-xs break-all text-gray-800">${value(talents.build_code)}</div></div><div class="rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500 mb-1">主属性</div><div class="text-xs text-gray-700">${primary}</div></div></div>
+        ${savedLoadouts ? `<div class="mb-3 rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500 mb-1">已保存天赋方案</div><div class="space-y-2 text-xs">${savedLoadouts}</div></div>` : ''}
+        <div class="mb-3"><div class="text-xs text-gray-500 mb-1">副属性（rating / 按规则换算百分比）</div><div class="grid grid-cols-2 gap-2 text-xs">${secondaryRows}</div></div>
+        <div><div class="text-xs text-gray-500 mb-1">装备、附魔与宝石</div><div class="grid md:grid-cols-2 gap-2">${equipment}</div></div>
+        ${missing ? `<ul class="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 list-disc list-inside">${missing}</ul>` : ''}`;
+}
+
 async function refreshSavedSimcPlayerDetail() {
     const simc_profile_id = selectedSimcReferenceValue('#simc-sim-profile-select');
     if (!simc_profile_id) {
@@ -2968,9 +3006,7 @@ async function refreshSavedSimcPlayerDetail() {
     if (requestSerial !== simcPlayerDetailRequestSerial
         || selectedSimcReferenceValue('#simc-sim-profile-select') !== simc_profile_id) return;
     const detail = payload.data || {};
-    const identity = detail.identity || {};
-    const stats = detail.stats || {};
-    if (host) host.innerHTML = `<dl class="grid gap-2 text-xs md:grid-cols-2"><div>角色：<b>${escapeHtml(identity.name || '-')}</b></div><div>职业/专精：<b>${escapeHtml(identity.class_name || '-')} / ${escapeHtml(identity.spec || '-')}</b></div><div>来源：${escapeHtml(detail.source?.label || '-')}</div><div>副属性：${escapeHtml(JSON.stringify(stats.secondary || {}))}</div></dl>`;
+    renderSimcSavedProfileDetail(detail);
     renderSimcComparisonCandidates(detail.comparison_candidates || {});
 }
 
