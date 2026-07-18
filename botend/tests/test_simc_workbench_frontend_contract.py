@@ -115,28 +115,12 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('id="simc-wb-apl-keyword-detail"', HTML)
         self.assertNotIn('id="simc-wb-apl-keyword-form"', HTML)
 
-    def test_profiles_always_offer_detail_and_inactive_has_no_run_actions(self):
-        self.assertIn('data-profile-row-action="detail"', MAIN)
-        self.assertIn("simcWbShowProfileDetail", MAIN)
-        self.assertIn("已停用，不可加载或运行", MAIN)
-        self.assertNotIn('id="simc-wb-profile-detail"', HTML)
-        self.assertIn("openSimcWorkbenchDialog('profile-detail'", MAIN)
-        detail_start = MAIN.index("function simcWbShowProfileDetail")
-        detail_end = MAIN.index("function bindSimcWorkbenchProfilesControls", detail_start)
-        detail_body = MAIN[detail_start:detail_end]
-        self.assertIn("'/api/simc-workbench/profiles/'", detail_body)
-        self.assertNotIn("'/api/simc-profile/'", detail_body)
-        for token in (
-            "simcWbProfileDetailRequestSerial",
-            "simcWbProfileDetailAbortController",
-            "simcWbProfileDetailId",
-            "new AbortController()",
-            "error.name === 'AbortError'",
-            "simcWbCancelProfileDetail",
-        ):
-            self.assertIn(token, MAIN)
-        self.assertIn("requestSerial !== simcWbProfileDetailRequestSerial", detail_body)
-        self.assertIn("simcWbProfileDetailId !== String(id)", detail_body)
+    def test_profiles_offer_edit_and_delete_without_view_action(self):
+        self.assertNotIn('data-profile-row-action="detail"', MAIN)
+        self.assertNotIn("simcWbShowProfileDetail", MAIN)
+        self.assertNotIn("'profile-detail': '配置详情'", MAIN)
+        self.assertIn('data-profile-row-action="edit"', MAIN)
+        self.assertIn('data-profile-row-action="delete"', MAIN)
 
     def test_task_dialog_links_artifacts_as_standalone_pages(self):
         self.assertNotIn('id="simc-workbench-artifacts-panel"', HTML)
@@ -163,7 +147,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
 
     def test_profile_list_ignores_aborted_and_stale_responses(self):
         start = MAIN.index("function loadSimcWorkbenchProfiles")
-        end = MAIN.index("function simcWbShowProfileDetail", start)
+        end = MAIN.index("function bindSimcWorkbenchProfilesControls", start)
         body = MAIN[start:end]
         for token in (
             "simcWbProfileListRequestSerial",
@@ -842,10 +826,7 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn('resourceAbortControllers', JS)
         self.assertIn('resourceRequestSerials', JS)
 
-    def test_profile_detail_and_form_use_dialog_not_bottom_slots(self):
-        detail_start = MAIN.index('function simcWbShowProfileDetail')
-        detail_end = MAIN.index('function bindSimcWorkbenchProfilesControls', detail_start)
-        self.assertIn('openSimcWorkbenchDialog(', MAIN[detail_start:detail_end])
+    def test_profile_form_uses_dialog_not_bottom_slot(self):
         self.assertNotIn('id="simc-wb-profile-detail"', HTML)
         self.assertNotIn('id="simc-wb-profile-form"', HTML)
         self.assertIn("openSimcWorkbenchDialog('profile-form'", MAIN)
@@ -901,7 +882,7 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn("profiles: 'workflow'", MAIN)
         self.assertIn("'apl-keywords': 'advanced'", MAIN)
 
-    def test_dialog_close_cancels_all_detail_requests(self):
+    def test_dialog_close_cancels_remaining_detail_requests(self):
         self.assertIn("new CustomEvent('simc-dialog-closing', { detail: { reason: 'close' } })", MAIN)
         self.assertIn("document.addEventListener('simc-dialog-closing'", JS)
-        self.assertIn('simcWbCancelProfileDetail()', MAIN)
+        self.assertNotIn('simcWbCancelProfileDetail', MAIN)
