@@ -1748,7 +1748,7 @@ function loadSimcWorkbenchProfiles(page) {
             const isActive = row.is_active !== false;
             const managementActions = `<button class="text-slate-700 hover:text-slate-900 text-xs" data-profile-row-action="detail" data-profile-id="${id}" title="查看">查看</button>` + (isActive
                 ? `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>
-                   <button class="text-amber-600 hover:text-amber-800 text-xs" data-profile-row-action="deactivate" data-profile-id="${id}" title="停用"><i class="fas fa-pause"></i></button>`
+                   <button class="text-red-600 hover:text-red-800 text-xs" data-profile-row-action="delete" data-profile-id="${id}" title="删除"><i class="fas fa-trash-alt"></i></button>`
                 : `<button class="text-green-600 hover:text-green-800 text-xs" data-profile-row-action="restore" data-profile-id="${id}" title="恢复"><i class="fas fa-rotate-left mr-1"></i>恢复</button>`);
             return `<tr class="hover:bg-gray-50 border-b border-gray-100 ${isActive ? '' : 'opacity-70'}">
                 <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
@@ -1828,7 +1828,7 @@ function bindSimcWorkbenchProfilesControls() {
             const profileId = rowActionButton.dataset.profileId;
             if (rowAction === 'detail') simcWbShowProfileDetail(profileId);
             if (rowAction === 'edit') simcWbEditProfile(profileId);
-            if (rowAction === 'deactivate') simcWbSetProfileActive(profileId, false);
+            if (rowAction === 'delete') simcWbDeleteProfile(profileId, rowActionButton);
             if (rowAction === 'restore') simcWbSetProfileActive(profileId, true);
         });
         document.addEventListener('change', event => {
@@ -2294,6 +2294,36 @@ async function simcWbSetProfileActive(id, isActive) {
         }
     } catch (e) {
         showMessage((isActive ? '恢复失败: ' : '停用失败: ') + e.message, 'error');
+    }
+}
+async function simcWbDeleteProfile(id, trigger) {
+    if (trigger && trigger.dataset.deleteConfirmed !== '1') {
+        trigger.dataset.deleteConfirmed = '1';
+        trigger.title = '再次点击确认删除';
+        trigger.innerHTML = '<span class="font-semibold">确认删除</span>';
+        setTimeout(() => {
+            if (!trigger.isConnected) return;
+            delete trigger.dataset.deleteConfirmed;
+            trigger.title = '删除';
+            trigger.innerHTML = '<i class="fas fa-trash-alt"></i>';
+        }, 5000);
+        return;
+    }
+    try {
+        const resp = await fetch('/api/simc-profile/', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({ id: Number(id) })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            showMessage('配置已删除，可在列表中恢复', 'success');
+            loadSimcWorkbenchProfiles(simcWbProfilePage);
+        } else {
+            showMessage('删除失败: ' + (data.message || data.error || '未知错误'), 'error');
+        }
+    } catch (e) {
+        showMessage('删除失败: ' + e.message, 'error');
     }
 }
 async function simcWbEditProfile(id) {

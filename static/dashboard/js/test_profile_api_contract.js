@@ -9,12 +9,15 @@ const path = require('path');
 
 const mainJsPath = path.join(__dirname, 'main.js');
 const mainJsContent = fs.readFileSync(mainJsPath, 'utf-8');
+const templatePath = path.join(__dirname, '../../../templates/dashboard/index.html');
+const templateContent = fs.readFileSync(templatePath, 'utf-8');
 
 // Extract profile management API functions (excludes helper/UI functions)
 const profileFunctions = [
     'loadSimcWorkbenchProfiles',
     'simcWbSaveProfile',
     'simcWbEditProfile',
+    'simcWbDeleteProfile',
     'simcWbSaveCurrentSimulatorProfile',
     'simcWbFetchProfilesForWorkbench'
 ];
@@ -128,7 +131,32 @@ if (profileBlock.includes('async function simcWbFetchProfilesForWorkbench') && p
     failed++;
 }
 
-console.log(`\n${passed}/8 tests passed`);
+// Test 9: Active rows expose the dedicated DELETE lifecycle action.
+if (profileBlock.includes("method: 'DELETE'") && mainJsContent.includes('data-profile-row-action="delete"')) {
+    console.log('✓ Uses DELETE /api/simc-profile/ for profile deletion');
+    passed++;
+} else {
+    console.log('✗ Missing profile deletion action or DELETE request');
+    failed++;
+}
+
+// Test 10: Ambiguous class specs use canonical keys in the edit form.
+const canonicalAmbiguousSpecs = [
+    'frost_death_knight', 'frost_mage',
+    'protection_paladin', 'protection_warrior',
+    'holy_paladin', 'holy_priest',
+    'restoration_druid', 'restoration_shaman'
+];
+const missingCanonicalSpecs = canonicalAmbiguousSpecs.filter(spec => !templateContent.includes(`value="${spec}"`));
+if (missingCanonicalSpecs.length === 0) {
+    console.log('✓ Profile edit form contains canonical ambiguous spec keys');
+    passed++;
+} else {
+    console.log('✗ Missing canonical spec options: ' + missingCanonicalSpecs.join(', '));
+    failed++;
+}
+
+console.log(`\n${passed}/10 tests passed`);
 
 if (failed > 0) {
     console.log(`\n❌ ${failed} test(s) failed`);

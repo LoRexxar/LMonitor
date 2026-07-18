@@ -468,10 +468,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("closest('[data-profile-form-action]')", bind_body)
         self.assertIn("closest('[data-profile-row-action]')", bind_body)
         self.assertIn("'/api/simc-profile/?include_inactive=1'", MAIN)
-        self.assertIn('data-profile-row-action="deactivate"', MAIN)
+        self.assertIn('data-profile-row-action="delete"', MAIN)
         self.assertIn('data-profile-row-action="restore"', MAIN)
-        self.assertIn('status_only: true', MAIN)
-        self.assertNotIn('function simcWbDeleteProfile', MAIN)
+        self.assertIn("method: 'DELETE'", MAIN)
+        self.assertIn('function simcWbDeleteProfile', MAIN)
 
 
     def test_workbench_profile_and_rule_actions_do_not_use_native_dialogs(self):

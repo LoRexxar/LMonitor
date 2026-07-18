@@ -383,3 +383,28 @@ class SimcProfileAPIValidationTests(TestCase):
         self.assertFalse(denied.json()['success'])
         foreign.refresh_from_db()
         self.assertTrue(foreign.is_active)
+
+    def test_profile_delete_soft_deletes_owned_profile_and_denies_foreign_profile(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id, name='Delete owned profile', spec='frost_mage',
+            player_config_mode='manual_equipment', talent='BUILD', player_equipment='mage="Owned"',
+        )
+        other = User.objects.create_user(username='profile_delete_other', password='pwd')
+        foreign = SimcProfile.objects.create(
+            user_id=other.id, name='Delete foreign profile', spec='frost_mage',
+            player_config_mode='manual_equipment', talent='BUILD', player_equipment='mage="Foreign"',
+        )
+
+        deleted = self.client.delete('/api/simc-profile/', data=json.dumps({
+            'id': profile.id,
+        }), content_type='application/json')
+        self.assertTrue(deleted.json()['success'], deleted.json())
+        profile.refresh_from_db()
+        self.assertFalse(profile.is_active)
+
+        denied = self.client.delete('/api/simc-profile/', data=json.dumps({
+            'id': foreign.id,
+        }), content_type='application/json')
+        self.assertFalse(denied.json()['success'], denied.json())
+        foreign.refresh_from_db()
+        self.assertTrue(foreign.is_active)
