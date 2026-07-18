@@ -2155,6 +2155,17 @@ let simcWbRuleFormMode = 'create';
 let simcWbRuleFormEditId = null;
 
 /* --- Profile CRUD --- */
+function getSimcProfileMode(profileData) {
+    const mode = String(
+        profileData?.player_config_mode || profileData?.player_import_mode || ''
+    ).trim();
+    if (mode === 'equipment') return 'manual_equipment';
+    if (['battlenet', 'manual_equipment', 'attribute_only'].includes(mode)) return mode;
+    if (profileData?.battlenet_character) return 'battlenet';
+    if (profileData?.player_equipment) return 'manual_equipment';
+    return 'attribute_only';
+}
+
 function simcWbToggleProfileForm(mode, profileData) {
     openSimcWorkbenchDialog('profile-form', { mode, profileData });
     const body = document.getElementById('simc-dialog-body');

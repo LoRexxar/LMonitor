@@ -293,6 +293,11 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         body = MAIN[start:MAIN.index("\n}", start) + 2]
         self.assertIn("const formWrap = document.getElementById('simc-wb-profile-form')", body)
 
+    def test_profile_edit_mode_resolver_is_defined(self):
+        self.assertIn("function getSimcProfileMode(profileData)", MAIN)
+        self.assertIn("profileData?.player_config_mode || profileData?.player_import_mode", MAIN)
+        self.assertIn("getSimcProfileMode(profileData)", MAIN)
+
 
     def test_dedicated_api_and_inline_sections(self):
         self.assertIn("const apiRoot = '/api/simc-workbench/'", JS)
