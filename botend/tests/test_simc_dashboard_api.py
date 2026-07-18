@@ -2419,6 +2419,54 @@ head=,id=222,ilevel=645
         self.assertFalse(response.json()['success'])
         self.assertIn('不可重复选择', response.json()['error'])
 
+    def test_gear_candidate_batch_accepts_valid_manual_slot_override(self):
+        profile = self._create_profile('Manual candidate Test', '''warrior="Batcher"
+spec=fury
+talents=ACTIVE_BUILD
+head=,id=111,ilevel=639
+main_hand=,id=222
+''')
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'gear_candidates', 'name': 'Fury 手工装备对比',
+            'simc_profile_id': profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+            'candidates': [{
+                'slot': 'head', 'item_id': 444, 'source': 'manual',
+                'raw_value': ',id=444,ilevel=650', 'name': '手工候选头盔',
+            }],
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        candidate = SimcTask.objects.exclude(mode_params__candidate_type='base').get()
+        self.assertEqual(candidate.mode_params['gear_swap'], {
+            'slot': 'head', 'raw_value': ',id=444,ilevel=650',
+            'item_id': 444, 'source': 'manual',
+        })
+
+    def test_gear_candidate_batch_rejects_manual_line_for_another_slot(self):
+        profile = self._create_profile('Invalid manual candidate Test', '''warrior="Batcher"
+spec=fury
+talents=ACTIVE_BUILD
+head=,id=111
+main_hand=,id=222
+''')
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'gear_candidates', 'name': 'Fury 非法手工装备对比',
+            'simc_profile_id': profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+            'candidates': [{
+                'slot': 'head', 'item_id': 444, 'source': 'manual',
+                'raw_value': 'neck=,id=444,ilevel=650',
+            }],
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('槽位', response.json()['error'])
+
     def test_real_simc_export_keeps_main_gear_names_and_excludes_bag_choices(self):
         config = '''# 炎色雷灬 - Fury - 2026-07-10 02:37 - CN/死亡之翼
 warrior="炎色雷灬"

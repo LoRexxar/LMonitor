@@ -41,6 +41,7 @@ from botend.wow_daily_report.generator import generate_wow_daily_report
 from botend.services.simc_attribute_results import parse_attribute_result_filename
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOT_ALIASES,
+    EQUIPMENT_SLOTS,
     authoritative_player_baseline,
     canonical_simc_spec_identity,
     parse_manual_player_config,
@@ -2179,6 +2180,22 @@ class SimcBatchTaskAPIView(View):
                     raise ValueError(f'每批最多{self.MAX_TASKS}个任务（含基准）')
                 if kind == 'gear_candidates':
                     trusted = {(row['slot'], row['item_id'], row['source']): row for row in parsed['gear_candidates']}
+                    for candidate in submitted:
+                        source = str(candidate.get('source') or '')
+                        if source == 'manual':
+                            slot = EQUIPMENT_SLOT_ALIASES.get(str(candidate.get('slot') or '').strip().lower(), str(candidate.get('slot') or '').strip().lower())
+                            raw_value = str(candidate.get('raw_value') or '').strip()
+                            if slot not in EQUIPMENT_SLOTS or not re.match(r'^,?\s*id=\d+(?:\s*,.*)?$', raw_value, re.IGNORECASE):
+                                raise ValueError('手工候选的槽位或 SimC 装备配置无效')
+                            item_match = re.search(r'(?:^|,)\s*id=(\d+)', raw_value, re.IGNORECASE)
+                            candidate['slot'] = slot
+                            candidate['item_id'] = int(item_match.group(1))
+                            candidate['raw_value'] = raw_value
+                            candidate['source'] = 'manual'
+                            trusted[(slot, candidate['item_id'], 'manual')] = {
+                                'slot': slot, 'item_id': candidate['item_id'], 'source': 'manual',
+                                'raw_value': candidate['raw_value'], 'name': str(candidate.get('name') or '').strip(),
+                            }
                     submitted_keys = [(str(candidate.get('slot') or ''), candidate.get('item_id'), str(candidate.get('source') or '')) for candidate in submitted]
                     if len(set(submitted_keys)) != len(submitted_keys):
                         raise ValueError('候选装备不可重复选择')

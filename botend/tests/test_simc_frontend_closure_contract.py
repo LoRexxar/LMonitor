@@ -59,6 +59,21 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
             for token in ("player_equipment", "profile_name", "base_template_content", "override_action_list"):
                 self.assertNotIn(token, body)
 
+    def test_comparison_editor_lives_in_simulation_column_and_supports_slot_groups_and_manual_rows(self):
+        mode_index = WORKFLOW.index('id="simc-sim-mode"')
+        editor_index = WORKFLOW.index('id="simc-sim-comparison-candidates"')
+        player_detail_index = WORKFLOW.index('id="simc-sim-player-detail"')
+        self.assertLess(mode_index, editor_index)
+        self.assertLess(editor_index, player_detail_index)
+        for token in (
+            'id="simc-comparison-add-slot"',
+            'id="simc-comparison-add-line"',
+            'id="simc-comparison-add-btn"',
+            'data-candidate-slot-group',
+            'addSimcManualComparisonCandidate',
+        ):
+            self.assertIn(token, WORKFLOW + SIM)
+
     def test_rerun_form_has_full_whitelisted_reference_and_simulation_controls(self):
         start = WB.index("async function renderTaskRerunForm")
         end = WB.index("async function submitTaskRerun", start)
