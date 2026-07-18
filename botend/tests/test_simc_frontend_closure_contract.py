@@ -69,8 +69,12 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
             'id="simc-comparison-add-slot"',
             'id="simc-comparison-add-line"',
             'id="simc-comparison-add-btn"',
+            'class="simc-comparison-current',
+            'id="simc-comparison-simulation-count"',
             'data-candidate-slot-group',
+            'data-candidate-card',
             'addSimcManualComparisonCandidate',
+            'updateSimcComparisonSimulationCount',
         ):
             self.assertIn(token, WORKFLOW + SIM)
 
@@ -129,7 +133,7 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
                       "controller.abort()", "isCurrentSimcProfileSwitch", "error.name === 'AbortError'"):
             self.assertIn(token, profile)
         self.assertIn("signal: control.controller.signal", profile)
-        self.assertIn("renderSimcComparisonCandidates({})", profile)
+        self.assertIn("renderSimcComparisonCandidates({}, [])", profile)
         self.assertIn("simc-sim-player-detail", profile)
         detail = SIM[SIM.index("async function refreshSimcPlayerDetail"):SIM.index("let simcCandidatePollControl")]
         self.assertIn("simcPlayerDetailAbortController", detail)
