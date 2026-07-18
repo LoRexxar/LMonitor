@@ -140,7 +140,16 @@ def _create_or_reuse_version(
 
 
 def _build_profile_payload(profile: SimcProfile) -> dict:
-    """Build immutable payload from SimcProfile."""
+    """Build immutable executable payload from SimcProfile.
+
+    A saved manual Profile may retain exporter candidate sections for workbench
+    selection. Task versions freeze only the current equipped player block;
+    selected candidate differences remain in ``mode_params``.
+    """
+    player_equipment = profile.player_equipment
+    if profile.player_config_mode == 'manual_equipment' and player_equipment:
+        from botend.services.simc_player_config import parse_simc_player_profile
+        player_equipment = parse_simc_player_profile(player_equipment)['profile']['raw_player_block']
     return {
         'name': profile.name,
         'spec': profile.spec,
@@ -148,7 +157,7 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
         'battlenet_region': profile.battlenet_region,
         'battlenet_realm': profile.battlenet_realm,
         'battlenet_character': profile.battlenet_character,
-        'player_equipment': profile.player_equipment,
+        'player_equipment': player_equipment,
         'talent': profile.talent,
         'gear_strength': profile.gear_strength,
         'gear_crit': profile.gear_crit,

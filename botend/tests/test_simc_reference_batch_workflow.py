@@ -192,6 +192,13 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertEqual(tasks[0].mode_params['candidate_type'], 'base')
         self.assertEqual(tasks[1].mode_params['candidate_type'], 'gear_swap')
         self.assertEqual(tasks[1].mode_params['gear_swap']['item_id'], 299001)
+        self.profile.refresh_from_db()
+        self.assertIn('### Gear from Bags', self.profile.player_equipment)
+        frozen_player_block = tasks[0].profile_version.payload['player_equipment']
+        self.assertNotIn('### Gear from Bags', frozen_player_block)
+        self.assertNotIn('id=299001', frozen_player_block)
+        self.assertIn('head=,id=212048', frozen_player_block)
+        self.assertEqual(tasks[0].profile_version_id, tasks[1].profile_version_id)
         self.assertFalse(any(hasattr(task, 'final_simc_content') for task in tasks))
 
     def test_attribute_continuation_reuses_exact_resource_versions_without_ext(self):

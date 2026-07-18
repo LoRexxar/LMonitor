@@ -2335,7 +2335,7 @@ class SimcPlayerConfigDetailAPIView(View):
         ).first()
         if not profile:
             return JsonResponse({'success': False, 'error': 'Profile 不存在或无权使用'}, status=404)
-        from botend.services.simc_player_config import build_player_config_detail, parse_manual_simc_candidates
+        from botend.services.simc_player_config import build_player_config_detail
         detail = build_player_config_detail(
             mode=SimcProfileAPIView._profile_mode(profile), spec=profile.spec,
             player_equipment=profile.player_equipment or '',
@@ -2346,12 +2346,8 @@ class SimcPlayerConfigDetailAPIView(View):
             gear_crit=profile.gear_crit, gear_haste=profile.gear_haste,
             gear_mastery=profile.gear_mastery, gear_versatility=profile.gear_versatility,
         )
-        if profile.player_equipment:
-            candidates = parse_manual_simc_candidates(profile.player_equipment)
-            detail['comparison_candidates'] = {
-                'gear': candidates['gear_candidates'], 'talents': candidates['talent_candidates'],
-                'max_selectable': SimcBatchTaskAPIView.MAX_TASKS - 1,
-            }
+        if profile.player_equipment and 'comparison_candidates' in detail:
+            detail['comparison_candidates']['max_selectable'] = SimcBatchTaskAPIView.MAX_TASKS - 1
         return JsonResponse({'success': True, 'data': detail})
 
     def post(self, request):
@@ -2396,7 +2392,7 @@ class SimcPlayerConfigDetailAPIView(View):
                     # Detail remains backward-compatible for legacy profiles; creation paths
                     # still require a valid explicit or default frozen baseline.
                     player_equipment = ''
-            from botend.services.simc_player_config import build_player_config_detail, parse_manual_simc_candidates
+            from botend.services.simc_player_config import build_player_config_detail
             detail = build_player_config_detail(
                 mode=mode, spec=spec, player_equipment=player_equipment,
                 battlenet_region=battlenet_region, battlenet_realm=battlenet_realm,
@@ -2405,13 +2401,8 @@ class SimcPlayerConfigDetailAPIView(View):
                 gear_crit=data.get('gear_crit'), gear_haste=data.get('gear_haste'),
                 gear_mastery=data.get('gear_mastery'), gear_versatility=data.get('gear_versatility'),
             )
-            if mode == 'manual_equipment':
-                candidates = parse_manual_simc_candidates(player_equipment)
-                detail['comparison_candidates'] = {
-                    'gear': candidates['gear_candidates'],
-                    'talents': candidates['talent_candidates'],
-                    'max_selectable': SimcBatchTaskAPIView.MAX_TASKS - 1,
-                }
+            if mode == 'manual_equipment' and 'comparison_candidates' in detail:
+                detail['comparison_candidates']['max_selectable'] = SimcBatchTaskAPIView.MAX_TASKS - 1
             response = {'success': True, 'data': detail}
             if canonical_spec:
                 response['canonical_spec'] = canonical_spec

@@ -12,7 +12,7 @@ from django.utils import timezone
 from botend.dashboard.api import SimcAplCandidatesAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, SimcSpecOptionsAPIView
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
-from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates
+from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
 from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, WowItemSnapshot
 
@@ -639,6 +639,84 @@ finger1=,id=299002,ilevel=655
         self.assertEqual(candidates['gear_candidates'][1]['source'], 'weekly_reward')
         self.assertEqual(candidates['talent_candidates'][0]['talent'], 'CLEAVE_BUILD')
         self.assertEqual(parse_manual_player_config('head=,id=212048\n### Gear from Bags\nhead=,id=299001', 'fury')['equipment'][0]['id'], 212048)
+
+    def test_parse_manual_candidates_splits_real_addon_profile_from_commented_extras(self):
+        parsed = parse_simc_player_profile('''
+# SimC Addon 12.0.7-01
+warrior="炎色雷灬"
+level=90
+spec=fury
+talents=ACTIVE_BUILD
+head=,id=249952,enchant_id=8017
+neck=,id=249337
+main_hand=,id=251078
+# Saved Loadout: 团本山丘
+# talents=RAID_HILL_BUILD
+### Gear from Bags
+#
+# 盘绕恶意丝带 (285)
+# neck=,id=299001,bonus_id=6652/13668
+#
+# 流光织锦披风 (289)
+# back=,id=299002,bonus_id=13440/41
+### Weekly Reward Choices
+#
+# 每周宝库头盔 (298)
+# head=,id=299003,bonus_id=13786
+### End of Weekly Reward Choices
+### Additional Character Info
+# upgrade_currencies=c:3347:267
+''')
+
+        self.assertEqual(parsed['profile']['identity']['class_name'], 'warrior')
+        self.assertEqual(parsed['profile']['identity']['name'], '炎色雷灬')
+        self.assertEqual(parsed['profile']['identity']['spec'], 'fury')
+        self.assertEqual(parsed['profile']['talents']['build_code'], 'ACTIVE_BUILD')
+        self.assertEqual(
+            [row['slot'] for row in parsed['profile']['equipment']],
+            ['head', 'neck', 'main_hand'],
+        )
+        self.assertNotIn('Gear from Bags', parsed['profile']['raw_player_block'])
+        self.assertNotIn('Saved Loadout', parsed['profile']['raw_player_block'])
+        self.assertEqual(
+            [(row['slot'], row['item_id'], row['source']) for row in parsed['candidates']['gear']],
+            [('neck', 299001, 'bags'), ('back', 299002, 'bags'), ('head', 299003, 'weekly_reward')],
+        )
+        self.assertEqual(
+            parsed['candidates']['talents'],
+            [{'name': '团本山丘', 'talent': 'RAID_HILL_BUILD', 'source': 'saved_loadout'}],
+        )
+
+    def test_parse_simc_player_profile_splits_current_block_from_commented_candidates(self):
+        parsed = parse_simc_player_profile('''
+warrior="KBZ"
+level=90
+spec=fury
+talents=BASE_BUILD
+head=,id=212048
+main_hand=,id=222222
+# Saved Loadout: 团本山丘
+# talents=RAID_BUILD
+### Gear from Bags
+# 盘绕恶意丝带 (285)
+# neck=,id=249337,bonus_id=6652/13668
+### Weekly Reward Choices
+# Reward Ring (289)
+# finger1=,id=251115
+''')
+        self.assertEqual(parsed['profile']['identity']['name'], 'KBZ')
+        self.assertEqual(parsed['profile']['talents']['build_code'], 'BASE_BUILD')
+        self.assertEqual(parsed['profile']['raw_player_block'].count('head='), 1)
+        self.assertEqual(parsed['candidates']['talents'], [
+            {'name': '团本山丘', 'talent': 'RAID_BUILD', 'source': 'saved_loadout'},
+        ])
+        self.assertEqual(
+            [(row['slot'], row['item_id'], row['source']) for row in parsed['candidates']['gear']],
+            [('neck', 249337, 'bags'), ('finger1', 251115, 'weekly_reward')],
+        )
+        self.assertEqual(parsed['candidates']['gear'][0]['name'], '盘绕恶意丝带')
+        self.assertEqual(parsed['candidates']['gear'][0]['item_level'], 285)
+        self.assertEqual(parsed['profile']['talents']['saved_loadouts'], [])
 
     def test_auto_attribute_batch_creates_complete_50_rating_pairwise_neighborhood(self):
         base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}

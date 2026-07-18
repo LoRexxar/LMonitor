@@ -354,45 +354,80 @@ def parse_manual_player_config(player_equipment, spec):
 
 
 def parse_manual_simc_candidates(player_equipment):
-    """Extract exporter alternatives without changing the equipped-player parser."""
-    result = {'base_talent': '', 'gear_candidates': [], 'talent_candidates': []}
+    """Return replaceable candidates from the semantic SimC Profile split."""
+    parsed = parse_simc_player_profile(player_equipment)
+    return {
+        'base_talent': parsed['profile']['talents']['build_code'],
+        'gear_candidates': parsed['candidates']['gear'],
+        'talent_candidates': parsed['candidates']['talents'],
+    }
+
+
+def parse_simc_player_profile(player_equipment):
+    """Split one SimC export into the current profile and replaceable extras.
+
+    The equipped player block is the ordinary-simulation baseline. Everything
+    under exporter sections or saved-loadout comments is auxiliary candidate
+    data, not another complete Profile.
+    """
+    text = str(player_equipment or '')
+    baseline_lines = []
     section = ''
+    gear_candidates = []
+    talent_candidates = []
     hint_name, hint_level = '', None
     saved_loadout = ''
-    for raw_line in str(player_equipment or '').splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.strip()
-        if not line:
-            continue
         if line.startswith('### Gear from Bags'):
-            section, saved_loadout = 'bags', ''
+            section = 'bags'
+            saved_loadout = ''
             continue
         if line.startswith('### Weekly Reward Choices'):
-            section, saved_loadout = 'weekly_reward', ''
+            section = 'weekly_reward'
+            saved_loadout = ''
             continue
-        if line.startswith('#'):
-            label = line[1:].strip()
-            if label.startswith('Saved Loadout:'):
-                saved_loadout = label.partition(':')[2].strip()
-                continue
-            if label.startswith('talents=') and saved_loadout:
-                talent = label.partition('=')[2].strip()
-                if talent:
-                    result['talent_candidates'].append({'name': saved_loadout, 'talent': talent, 'source': 'saved_loadout'})
-                continue
-            hint_name, hint_level = _comment_item_hint(line)
+        if line.startswith('### '):
+            section = 'extra'
+            saved_loadout = ''
             continue
-        key, raw_value, values = _parse_line(line)
-        if key in ('talents', 'talent') and not section and not result['base_talent']:
-            result['base_talent'] = raw_value
-        elif section and (key in EQUIPMENT_SLOTS or key in EQUIPMENT_SLOT_ALIASES) and _number(values.get('id')):
-            canonical_slot = EQUIPMENT_SLOT_ALIASES.get(key, key)
-            result['gear_candidates'].append({
-                'slot': canonical_slot, 'item_id': _number(values.get('id')), 'source': section,
-                'raw_value': raw_value, 'name': hint_name,
-                'item_level': hint_level or _number(values.get('ilevel') or values.get('item_level')),
-            })
-        hint_name, hint_level = '', None
-    return result
+        if line.startswith('# Saved Loadout:'):
+            saved_loadout = line.partition(':')[2].strip()
+            talent_candidates.append({'name': saved_loadout, 'talent': '', 'source': 'saved_loadout'})
+            continue
+        if line.startswith('# talents=') and saved_loadout:
+            talent = line.partition('=')[2].strip()
+            if talent:
+                talent_candidates[-1]['talent'] = talent
+            continue
+        if section:
+            if line.startswith('#'):
+                parsed_hint = _comment_item_hint(line)
+                if parsed_hint[0]:
+                    hint_name, hint_level = parsed_hint
+                    continue
+            candidate_line = line[1:].strip() if line.startswith('#') else line
+            key, raw_value, values = _parse_line(candidate_line)
+            if key in EQUIPMENT_SLOTS or key in EQUIPMENT_SLOT_ALIASES:
+                item_id = _number(values.get('id'))
+                if item_id:
+                    gear_candidates.append({
+                        'slot': EQUIPMENT_SLOT_ALIASES.get(key, key),
+                        'item_id': item_id, 'source': section,
+                        'raw_value': raw_value, 'name': hint_name,
+                        'item_level': hint_level or _number(values.get('ilevel') or values.get('item_level')),
+                    })
+            hint_name, hint_level = '', None
+            continue
+        baseline_lines.append(raw_line)
+
+    baseline = '\n'.join(baseline_lines).strip()
+    current = parse_manual_player_config(baseline, '')
+    current['raw_player_block'] = baseline
+    return {
+        'profile': current,
+        'candidates': {'gear': gear_candidates, 'talents': [row for row in talent_candidates if row['talent']]},
+    }
 
 
 def build_player_config_detail(mode, spec, player_equipment='', battlenet_region='', battlenet_realm='', battlenet_character='',
@@ -461,8 +496,14 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
             detail['missing_fields'].append('冻结玩家基线未解析到装备槽位。')
         return detail
 
-    detail = parse_manual_player_config(player_equipment, spec)
+    semantic_profile = parse_simc_player_profile(player_equipment)
+    detail = semantic_profile['profile']
+    detail['identity']['spec'] = detail['identity']['spec'] or spec
     detail['source'] = {'type': 'manual_equipment', 'label': '手动 SimC 玩家配置'}
+    detail['comparison_candidates'] = {
+        'gear': semantic_profile['candidates']['gear'],
+        'talents': semantic_profile['candidates']['talents'],
+    }
     class_name = detail['identity']['class_name'] or SPEC_CLASS.get(spec, '')
     rule = SimcSecondaryStatRule.objects.filter(class_name=class_name).first()
     mastery = SimcMasteryCoefficient.objects.filter(spec=detail['identity']['spec'] or spec).first()
