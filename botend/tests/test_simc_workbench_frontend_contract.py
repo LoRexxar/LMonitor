@@ -311,9 +311,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-template-type="default_apl"', filters_section,
                       "Template filters must include default_apl button")
 
-    def test_workbench_controller_has_no_unsafe_or_legacy_navigation(self):
+    def test_workbench_controller_has_no_scripted_or_legacy_navigation(self):
         forbidden = (
-            "window.open(", 'target="_blank"', "alert(", "prompt(", "confirm(",
+            "window.open(", "alert(", "prompt(", "confirm(",
             "modal", "appendChild", "开发中", "stub", "'/dashboard/'",
         )
         lowered = JS.lower()
@@ -865,9 +865,9 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn('delta', body)
         self.assertNotIn('/simc-compare/', body)
 
-    def test_workbench_does_not_use_external_or_native_dialogs(self):
+    def test_workbench_does_not_use_scripted_navigation_or_native_dialogs(self):
         combined = SIMC_HTML + JS + SIMC_MAIN
-        for token in ('window.open(', 'target="_blank"', 'alert(', 'prompt(', 'confirm(', 'onclick='):
+        for token in ('window.open(', 'alert(', 'prompt(', 'confirm(', 'onclick='):
             self.assertNotIn(token.lower(), combined.lower())
 
     def test_workflow_resources_are_reachable_and_keywords_stay_in_advanced(self):

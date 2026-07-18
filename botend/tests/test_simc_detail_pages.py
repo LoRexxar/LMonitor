@@ -66,7 +66,7 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertNotIn('request_manifest', script)
         self.assertNotIn('.content', script)
 
-    def test_history_results_and_batch_members_open_workbench_dialog_without_navigation(self):
+    def test_history_results_and_batch_members_open_in_new_browser_page(self):
         workbench = (ROOT / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
         history_start = workbench.index('async function loadTasks')
         history_end = workbench.index('\n    function scheduleTaskRefresh', history_start)
@@ -75,11 +75,12 @@ class SimcDetailPageFrontendContractTests(TestCase):
         batch_end = workbench.index("\n        const params =", batch_start)
         batch_detail = workbench[batch_start:batch_end]
 
-        self.assertIn('data-wb-action="detail"', history)
-        self.assertIn('data-resource="${resource}"', history)
-        self.assertIn('>查看结果</button>', history)
-        self.assertNotIn('href="/dashboard/simc/', history)
-        self.assertIn('data-wb-action="detail"', batch_detail)
-        self.assertIn('data-resource="tasks"', batch_detail)
-        self.assertNotIn('href="/dashboard/simc/tasks/', batch_detail)
-        self.assertIn("showTaskDetail(resource, id).catch(notify)", workbench)
+        self.assertIn('href="/dashboard/simc/${resource}/${idOf(row.id)}/"', history)
+        self.assertIn('target="_blank"', history)
+        self.assertIn('rel="noopener noreferrer"', history)
+        self.assertIn('>查看结果</a>', history)
+        self.assertNotIn('data-wb-action="detail"', history)
+        self.assertIn('href="/dashboard/simc/tasks/${idOf(member.id)}/"', batch_detail)
+        self.assertIn('target="_blank"', batch_detail)
+        self.assertIn('rel="noopener noreferrer"', batch_detail)
+        self.assertNotIn('data-wb-action="detail"', batch_detail)
