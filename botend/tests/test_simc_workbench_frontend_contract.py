@@ -25,11 +25,11 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertLess(workflow.index('id="simc-sim-spec"'), workflow.index('id="simc-sim-player-sources"'))
         self.assertNotIn('disabled class=', workflow[workflow.index('id="simc-sim-spec"'):workflow.index('id="simc-sim-player-sources"')])
         source_panel = workflow[workflow.index('id="simc-sim-player-sources"'):workflow.index('id="simc-sim-apl-list"')]
-        for source in ('default', 'battlenet', 'simc_addon'):
+        for source in ('saved_profile', 'default', 'battlenet', 'simc_addon'):
             self.assertEqual(source_panel.count(f'data-simc-player-source="{source}"'), 1)
-        self.assertNotIn('id="simc-sim-profile-select"', source_panel)
-        self.assertNotIn('Profile', source_panel)
-        self.assertNotIn('请先在 Profile 管理中创建', source_panel)
+        self.assertIn('id="simc-sim-profile-select"', source_panel)
+        self.assertIn('加载已有玩家配置', source_panel)
+        self.assertIn('仅显示目标专精匹配的已保存 Profile', source_panel)
         self.assertLess(workflow.index('id="simc-sim-apl-list"'), workflow.index('id="simc-sim-fight-style"'))
         self.assertIn('id="simc-sim-mode"', workflow)
         self.assertIn('value="normal"', workflow)
@@ -56,6 +56,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("['simc-sim-submit-btn', submitSimcHomeCreation]", MAIN)
         self.assertIn("spec.addEventListener('change'", MAIN)
         self.assertIn('player_source', MAIN)
+        self.assertIn("type: 'saved_profile'", MAIN)
+        self.assertIn("return { type: 'saved_profile', profile_id }", MAIN)
         self.assertIn("type: 'default'", MAIN)
         self.assertIn("type: 'battlenet'", MAIN)
         self.assertIn("type: 'simc_addon'", MAIN)

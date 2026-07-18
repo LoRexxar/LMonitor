@@ -195,7 +195,7 @@
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260717d"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260718e"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260717h"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
@@ -846,7 +846,7 @@
                                         <div class="flex items-start justify-between gap-4 mb-5">
                                             <div>
                                                 <h3 class="text-xl font-bold text-gray-900">发起模拟</h3>
-                                                <p class="text-sm text-gray-600 mt-1">先选择目标专精，再从三个同级即时入口提供玩家配置，并选择 APL、战斗参数与模拟模式。</p>
+                                                <p class="text-sm text-gray-600 mt-1">先选择目标专精，再从四个同级入口提供玩家配置，并选择 APL、战斗参数与模拟模式。</p>
                                             </div>
                                         </div>
 
@@ -899,7 +899,11 @@
 
                                         <div id="simc-sim-player-sources" class="mb-5">
                                             <label class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-user-check mr-1 text-blue-500"></i>本次玩家配置来源</label>
-                                            <div class="grid gap-3 md:grid-cols-3">
+                                            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                                <label class="rounded-xl border border-blue-200 bg-blue-50 p-3 cursor-pointer">
+                                                    <span class="flex items-center gap-2 font-semibold"><input type="radio" name="simc-sim-player-source" data-simc-player-source="saved_profile" value="saved_profile">加载已有玩家配置</span>
+                                                    <span class="mt-1 block text-xs text-gray-500">使用已保存 Profile 的当前不可变版本。</span>
+                                                </label>
                                                 <label class="rounded-xl border border-blue-200 bg-blue-50 p-3 cursor-pointer">
                                                     <span class="flex items-center gap-2 font-semibold"><input type="radio" name="simc-sim-player-source" data-simc-player-source="default" value="default" checked>加载默认配置</span>
                                                     <span class="mt-1 block text-xs text-gray-500">直接使用目标专精的系统默认玩家配置。</span>
@@ -912,6 +916,12 @@
                                                     <span class="flex items-center gap-2 font-semibold"><input type="radio" name="simc-sim-player-source" data-simc-player-source="simc_addon" value="simc_addon">SimC Addon 代码</span>
                                                     <span class="mt-1 block text-xs text-gray-500">粘贴导出代码，显式 APL 不会被代码中的 actions 覆盖。</span>
                                                 </label>
+                                            </div>
+                                            <div id="simc-sim-source-saved-profile" class="hidden mt-3">
+                                                <select id="simc-sim-profile-select" class="w-full rounded-lg border p-2.5">
+                                                    <option value="">-- 请先选择目标专精 --</option>
+                                                </select>
+                                                <p class="mt-1 text-xs text-gray-500">仅显示目标专精匹配的已保存 Profile。</p>
                                             </div>
                                             <div id="simc-sim-source-battlenet" class="hidden mt-3 grid gap-2 md:grid-cols-3">
                                                 <select id="simc-sim-bnet-region" class="rounded-lg border p-2.5"><option value="cn">中国</option><option value="us">美服</option><option value="eu">欧服</option><option value="kr">韩服</option><option value="tw">台服</option></select>
