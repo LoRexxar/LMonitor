@@ -50,13 +50,14 @@ class PortalPostMonitor(BaseScan):
         if not url:
             return
         url_hash = _hash_url(url)
-        existing = WowArticle.objects.filter(url=url).only("id", "publish_time").first()
+        existing = WowArticle.objects.filter(url_hash=url_hash).only("id", "publish_time").first()
         try:
             reply_count_i = int(reply_count) if reply_count is not None else None
         except Exception:
             reply_count_i = None
         defaults = {
             'title': (title or '').strip() or None,
+            'url': url,
             'author': (author or '').strip() or None,
             'description': (description or '').strip() or None,
             'reply_count': reply_count_i if reply_count_i is not None else 0,
@@ -70,7 +71,7 @@ class PortalPostMonitor(BaseScan):
         else:
             if (source != "nga") and publish_time and not getattr(existing, "publish_time", None):
                 defaults['publish_time'] = publish_time
-        obj, _ = WowArticle.objects.update_or_create(url=url, defaults=defaults)
+        obj, _ = WowArticle.objects.update_or_create(url_hash=url_hash, defaults=defaults)
         return obj
 
     def _fetch_nga_main_post(self, url):
