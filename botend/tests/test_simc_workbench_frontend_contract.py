@@ -297,6 +297,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("function getSimcProfileMode(profileData)", MAIN)
         self.assertIn("profileData?.player_config_mode || profileData?.player_import_mode", MAIN)
         self.assertIn("getSimcProfileMode(profileData)", MAIN)
+        self.assertIn("clonedSelect.value = sourceSelect.value", MAIN)
 
 
     def test_dedicated_api_and_inline_sections(self):

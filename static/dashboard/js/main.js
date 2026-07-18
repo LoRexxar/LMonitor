@@ -2215,6 +2215,12 @@ function simcWbToggleProfileForm(mode, profileData) {
     body.innerHTML = '';
     const dialogForm = formWrap.cloneNode(true);
     dialogForm.id = 'simc-wb-profile-form';
+    const sourceSelects = formWrap.querySelectorAll('select');
+    const clonedSelects = dialogForm.querySelectorAll('select');
+    sourceSelects.forEach((sourceSelect, index) => {
+        const clonedSelect = clonedSelects[index];
+        if (clonedSelect) clonedSelect.value = sourceSelect.value;
+    });
     body.appendChild(dialogForm);
     const clonedForm = body.querySelector('#simc-wb-profile-form');
     if (clonedForm) {
