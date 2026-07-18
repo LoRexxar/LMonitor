@@ -2506,6 +2506,50 @@ class SimcBattlenetPreflightTests(TestCase):
         self.assertEqual(result['simc_config']['talent'], '')
         self.assertEqual(result['warnings'], [])
 
+    def test_preflight_freezes_complete_battlenet_player_snapshot(self):
+        from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
+
+        profile = {
+            'name': 'Snapshotter', 'level': 80, 'race': {'name': 'Orc'},
+            'character_class': {'name': 'Warrior'}, 'active_spec': {'name': 'Fury'},
+            'realm': {'name': 'Kazzak'},
+        }
+        equipment = {'equipped_items': [
+            {
+                'item': {'id': 212048}, 'slot': {'type': 'HEAD'},
+                'level': {'value': 680}, 'bonus_list': [10255, 10390],
+                'enchantments': [{'enchantment_id': 7352}],
+                'sockets': [{'item': {'id': 213743}}, {'item': {'id': 213744}}],
+            },
+            {'item': {'id': 222222}, 'slot': {'type': 'MAIN_HAND'}, 'level': {'value': 680}},
+        ]}
+        stats = {'strength': {'effective': 5000}}
+        specializations = {
+            'active_specialization': {'id': 72},
+            'specializations': [{
+                'specialization': {'id': 72, 'name': 'Fury'},
+                'loadouts': [{'is_active': True, 'talent_loadout_code': 'CwPAAAAAAAAAAAAAAAAAAAAAAMzMzMz'}],
+            }],
+        }
+        with patch('botend.services.battlenet_preflight._token', return_value='token'), patch(
+            'botend.services.battlenet_preflight._api_get',
+            side_effect=[profile, equipment, stats, specializations],
+        ):
+            result = fetch_battlenet_character_preflight(
+                region='eu', realm='Kazzak', character='Snapshotter', requested_spec='fury',
+            )
+
+        snapshot = result['simc_config']['player_equipment']
+        self.assertIn('warrior="Snapshotter"', snapshot)
+        self.assertIn('level=80', snapshot)
+        self.assertIn('race=orc', snapshot)
+        self.assertIn('spec=fury', snapshot)
+        self.assertIn('head=,id=212048,bonus_id=10255/10390,enchant_id=7352,gem_id=213743/213744', snapshot)
+        self.assertIn('main_hand=,id=222222', snapshot)
+        self.assertEqual(result['simc_config']['talent'], 'CwPAAAAAAAAAAAAAAAAAAAAAAMzMzMz')
+        self.assertNotIn('armory=', snapshot)
+        self.assertTrue(result['simc_ready'], result)
+
     def test_preflight_normalizes_spaced_battlenet_class_name(self):
         from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
 

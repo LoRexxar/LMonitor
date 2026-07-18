@@ -3335,13 +3335,23 @@ class SimcProfileAPIView(View):
             'talent': str(data.get('talent', fallback.get('talent', '')) or '').strip(),
         }
         if mode == 'battlenet':
-            values['player_equipment'] = ''
             if values['battlenet_region'] not in ('us', 'eu', 'kr', 'tw', 'cn'):
                 raise ValueError('Battle.net region 必须是 us、eu、kr、tw 或 cn')
             if not values['battlenet_realm']:
                 raise ValueError('Battle.net realm 不能为空')
             if not values['battlenet_character']:
                 raise ValueError('Battle.net character 不能为空')
+            preflight = fetch_battlenet_character_preflight(
+                region=values['battlenet_region'], realm=values['battlenet_realm'],
+                character=values['battlenet_character'], requested_spec=values['spec'],
+            )
+            if not preflight.get('simc_ready'):
+                raise ValueError('；'.join(preflight.get('warnings') or ['Battle.net 角色不可用于模拟']))
+            frozen = preflight.get('simc_config') or {}
+            if not str(frozen.get('player_equipment') or '').strip():
+                raise ValueError('Battle.net 角色未生成完整玩家快照')
+            values.update(frozen)
+            values['mode'] = 'battlenet'
         elif mode == 'manual_equipment':
             values['battlenet_region'] = values['battlenet_realm'] = values['battlenet_character'] = ''
             if not values['player_equipment']:
@@ -3455,7 +3465,7 @@ class SimcProfileAPIView(View):
             if simulate_now and not copy_from_id:
                 try:
                     values = self._validate_profile_payload(data)
-                    numeric_values = self._profile_numeric_values(data)
+                    numeric_values = self._profile_numeric_values(values)
                     from botend.services.simc_task_service import create_task_from_request, TaskCreationError
 
                     profile_fields = {
@@ -3570,7 +3580,7 @@ class SimcProfileAPIView(View):
                 # 创建新配置：与更新操作使用同一模式校验，避免保存不可运行的预设。
                 try:
                     values = self._validate_profile_payload(data)
-                    numeric_values = self._profile_numeric_values(data)
+                    numeric_values = self._profile_numeric_values(values)
                 except ValueError as e:
                     return JsonResponse({'success': False, 'error': str(e)})
 

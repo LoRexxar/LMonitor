@@ -175,8 +175,34 @@ class SimcComposer:
         # Derive class from spec using authoritative SPEC_CLASS
         derived_class = SPEC_CLASS.get(user_spec) if user_spec else None
 
-        # For battlenet mode, check for spec conflicts
+        # For battlenet mode, prefer the frozen actor block. The Battle.net identity
+        # is source metadata and is only an execution fallback for legacy rows.
         if player_import_mode == 'battlenet':
+            player_equipment = (request_data.get('player_equipment') or '').strip()
+            if player_equipment:
+                parsed = self._parse_player_export(player_equipment)
+                export_spec = parsed.get('spec', '').strip().lower()
+                export_class = parsed.get('class', '').strip().lower()
+                if user_spec and export_spec and user_spec != export_spec:
+                    return SlotResolution(
+                        slot_name='player_identity', value=None, status='conflict',
+                        error=f'用户指定的专精 {user_spec} 与 Battle.net 快照专精 {export_spec} 冲突',
+                    )
+                if derived_class and export_class and derived_class != export_class:
+                    return SlotResolution(
+                        slot_name='player_identity', value=None, status='conflict',
+                        error=f'用户指定的职业 {derived_class} 与 Battle.net 快照职业 {export_class} 冲突',
+                    )
+                if parsed['identity']:
+                    identity = parsed['identity']
+                    return SlotResolution(
+                        slot_name='player_identity',
+                        value=SlotValue(
+                            content=identity, source='battlenet_snapshot',
+                            content_hash=hashlib.sha256(identity.encode('utf-8')).hexdigest(),
+                        ),
+                        status='resolved',
+                    )
             server_preflight = request_data.get('_server_preflight', {})
             bnet_char = server_preflight.get('character', {})
             bnet_spec = (bnet_char.get('spec') or '').strip().lower()
@@ -328,14 +354,19 @@ class SimcComposer:
                 status='resolved'
             )
 
-        # Battle.net armory - use player_equipment as equipment content
-        # (API should pre-populate this from server-side Battle.net fetch)
+        # Battle.net snapshot owns the equipment slot. Parse the actor block so its
+        # identity/talent lines are rendered exactly once in their semantic slots.
         if player_import_mode == 'battlenet':
             if player_equipment:
-                content_hash = hashlib.sha256(player_equipment.encode('utf-8')).hexdigest()
+                parsed = self._parse_player_export(player_equipment)
+                equipment_content = parsed['equipment']
+                content_hash = hashlib.sha256(equipment_content.encode('utf-8')).hexdigest()
                 return SlotResolution(
                     slot_name='equipment',
-                    value=SlotValue(content=player_equipment, source='battlenet_armory', content_hash=content_hash),
+                    value=SlotValue(
+                        content=equipment_content, source='battlenet_snapshot',
+                        content_hash=content_hash,
+                    ),
                     status='resolved'
                 )
             else:
@@ -424,18 +455,23 @@ class SimcComposer:
         """Resolve talents slot."""
         player_import_mode = request_data.get('player_import_mode', '').strip()
 
-        # For addon/manual export, check parsed talents
-        if player_import_mode in ('addon_full_export', 'manual_equipment'):
+        # Frozen player exports own their talents; the workbench APL remains separate.
+        if player_import_mode in ('addon_full_export', 'manual_equipment', 'battlenet'):
             player_equipment = request_data.get('player_equipment', '').strip()
             if player_equipment:
                 parsed = self._parse_player_export(player_equipment)
                 if parsed['talents']:
                     content_hash = hashlib.sha256(parsed['talents'].encode('utf-8')).hexdigest()
+                    source = {
+                        'addon_full_export': 'addon_export',
+                        'manual_equipment': 'manual_equipment',
+                        'battlenet': 'battlenet_snapshot',
+                    }[player_import_mode]
                     return SlotResolution(
                         slot_name='talents',
                         value=SlotValue(
                             content=parsed['talents'],
-                            source='addon_export' if player_import_mode == 'addon_full_export' else 'manual_equipment',
+                            source=source,
                             content_hash=content_hash,
                         ),
                         status='resolved'

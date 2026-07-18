@@ -400,12 +400,32 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
     """Return a serializable player detail object without any external request."""
     mode = 'manual_equipment' if mode == 'equipment' else mode
     if mode == 'battlenet':
+        if player_equipment.strip():
+            detail = parse_manual_player_config(player_equipment, spec)
+            detail['source'] = {'type': 'battlenet', 'label': 'Battle.net 冻结角色快照'}
+            detail['identity']['region'] = battlenet_region
+            detail['identity']['realm'] = battlenet_realm
+            detail['talents']['build_code'] = talent or detail['talents']['build_code']
+            detail['stats'] = {
+                'primary': {'strength': _number(gear_strength)},
+                'secondary': {
+                    stat: {'rating': _number(rating), 'pct': None}
+                    for stat, rating in {
+                        'crit': gear_crit, 'haste': gear_haste, 'mastery': gear_mastery,
+                        'versatility': gear_versatility,
+                    }.items()
+                },
+            }
+            detail['missing_fields'] = []
+            if not detail['equipment']:
+                detail['missing_fields'].append('Battle.net 冻结快照未解析到装备槽位。')
+            return detail
         return {
-            'source': {'type': 'battlenet', 'label': 'Battle.net 角色标识（未拉取）'},
+            'source': {'type': 'battlenet', 'label': 'Battle.net 历史角色标识（无快照）'},
             'identity': {'name': battlenet_character, 'class_name': SPEC_CLASS.get(spec, ''), 'spec': spec, 'race': '', 'level': None,
                          'region': battlenet_region, 'realm': battlenet_realm},
-            'talents': {'build_code': ''}, 'equipment': [], 'stats': {'primary': {}, 'secondary': {}}, 'raw_fields': {},
-            'missing_fields': ['未保存角色装备快照；预览不会访问 Battle.net。请导入完整角色配置后查看装备、天赋和属性。'],
+            'talents': {'build_code': talent or ''}, 'equipment': [], 'stats': {'primary': {}, 'secondary': {}}, 'raw_fields': {},
+            'missing_fields': ['历史配置未保存角色装备快照；预览不会访问 Battle.net。请重新导入后使用。'],
         }
 
     if mode == 'attribute_only':

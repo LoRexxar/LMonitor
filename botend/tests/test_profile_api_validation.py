@@ -3,6 +3,7 @@ Regression tests for SimC Profile API validation requirements.
 Run BEFORE implementing fixes to see expected failures.
 """
 import json
+from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 from botend.models import SimcProfile, SimcTask
@@ -70,17 +71,41 @@ class SimcProfileAPIValidationTests(TestCase):
         self.assertFalse(response.json()['success'])
         self.assertIn('character', response.json()['error'].lower())
 
-        # Valid battlenet profile
-        response = self.client.post('/api/simc-profile/', data=json.dumps({
-            'name': 'Test Battlenet Valid',
-            'spec': 'fury',
-            'player_config_mode': 'battlenet',
-            'battlenet_region': 'eu',
-            'battlenet_realm': 'Kazzak',
-            'battlenet_character': 'TestChar',
-        }), content_type='application/json')
+        # Valid battlenet profile must fetch and persist a complete immutable snapshot.
+        frozen = {
+            'simc_ready': True, 'warnings': [],
+            'simc_config': {
+                'player_config_mode': 'battlenet', 'spec': 'fury',
+                'battlenet_region': 'eu', 'battlenet_realm': 'Kazzak',
+                'battlenet_character': 'TestChar',
+                'player_equipment': 'warrior="TestChar"\nlevel=80\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222',
+                'talent': 'FROZEN_BUILD', 'gear_strength': 100,
+                'gear_crit': 200, 'gear_haste': 300, 'gear_mastery': 400, 'gear_versatility': 500,
+            },
+        }
+        with patch('botend.dashboard.api.fetch_battlenet_character_preflight', return_value=frozen):
+            response = self.client.post('/api/simc-profile/', data=json.dumps({
+                'name': 'Test Battlenet Valid',
+                'spec': 'fury',
+                'player_config_mode': 'battlenet',
+                'battlenet_region': 'eu',
+                'battlenet_realm': 'Kazzak',
+                'battlenet_character': 'TestChar',
+            }), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
+        saved = SimcProfile.objects.get(name='Test Battlenet Valid')
+        self.assertIn('head=,id=212048', saved.player_equipment)
+        self.assertEqual(saved.talent, 'FROZEN_BUILD')
+
+        with patch(
+            'botend.dashboard.api.fetch_battlenet_character_preflight',
+            side_effect=AssertionError('saved_profile detail must not access live Armory'),
+        ):
+            detail = self.client.get(f'/api/simc-player-config-detail/?profile_id={saved.id}')
+        self.assertEqual(detail.status_code, 200)
+        self.assertTrue(detail.json()['success'], detail.json())
+        self.assertEqual(detail.json()['data']['talents']['build_code'], 'FROZEN_BUILD')
 
     def test_manual_equipment_profile_requires_player_equipment(self):
         """Requirement 2: manual_equipment mode must validate player_equipment non-empty."""

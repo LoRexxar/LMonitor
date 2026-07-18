@@ -1,4 +1,4 @@
-"""Battle.net 角色预检：在保存/启动 SimC 前验证角色身份、专精和装备可用性。"""
+"""Battle.net 角色预检：验证实时角色并生成可离线复用的完整 SimC 玩家快照。"""
 from __future__ import annotations
 
 from urllib.parse import quote
@@ -16,6 +16,14 @@ _REGION_CONFIG = {
     'kr': ('https://kr.api.blizzard.com', 'profile-kr', 'ko_KR'),
     'tw': ('https://tw.api.blizzard.com', 'profile-tw', 'zh_TW'),
     'cn': ('https://gateway.battlenet.com.cn', 'profile-cn', 'zh_CN'),
+}
+_SIMC_SLOT_BY_BATTLENET_TYPE = {
+    'HEAD': 'head', 'NECK': 'neck', 'SHOULDER': 'shoulder', 'BACK': 'back',
+    'CHEST': 'chest', 'SHIRT': 'shirt', 'TABARD': 'tabard', 'WRIST': 'wrist',
+    'HANDS': 'hands', 'WAIST': 'waist', 'LEGS': 'legs', 'FEET': 'feet',
+    'FINGER_1': 'finger1', 'FINGER_2': 'finger2',
+    'TRINKET_1': 'trinket1', 'TRINKET_2': 'trinket2',
+    'MAIN_HAND': 'main_hand', 'OFF_HAND': 'off_hand',
 }
 
 
@@ -52,16 +60,80 @@ def _api_get(host, path, namespace, locale, token):
     return response.json() or {}
 
 
+def _simc_token(value):
+    return ''.join(
+        ch for ch in str(value or '').strip().lower().replace(' ', '_')
+        if ch.isalnum() or ch == '_'
+    )
+
+
 def _spec_key(profile):
-    spec = (profile.get('active_spec') or {}).get('name', '')
-    # API returns localised names; only English namespaces can reliably map by display name.
-    normalized = ''.join(ch for ch in str(spec).lower() if ch.isalnum() or ch == '_')
+    normalized = _simc_token((profile.get('active_spec') or {}).get('name', ''))
     aliases = {'beastmaster': 'beast_mastery', 'beastmastery': 'beast_mastery'}
     return aliases.get(normalized, normalized)
 
 
+def _active_talent_loadout_code(payload, spec_key):
+    rows = payload.get('specializations') or []
+    active_id = (payload.get('active_specialization') or {}).get('id')
+    candidates = []
+    for row in rows:
+        specialization = row.get('specialization') or {}
+        if active_id and specialization.get('id') == active_id:
+            candidates.insert(0, row)
+        elif _simc_token(specialization.get('name')) == spec_key:
+            candidates.append(row)
+    for row in candidates:
+        loadouts = row.get('loadouts') or []
+        active = next((loadout for loadout in loadouts if loadout.get('is_active')), None)
+        active = active or (loadouts[0] if len(loadouts) == 1 else None)
+        code = (active or {}).get('talent_loadout_code')
+        if code:
+            return str(code).strip()
+    return ''
+
+
+def _equipment_line(item):
+    slot = _SIMC_SLOT_BY_BATTLENET_TYPE.get(str((item.get('slot') or {}).get('type') or '').upper())
+    item_id = (item.get('item') or {}).get('id')
+    if not slot or not item_id:
+        return ''
+    parts = [f'{slot}=,id={int(item_id)}']
+    bonus_ids = [str(int(value)) for value in (item.get('bonus_list') or []) if isinstance(value, (int, float))]
+    if bonus_ids:
+        parts.append(f'bonus_id={"/".join(bonus_ids)}')
+    enchant_ids = [
+        str(int(row['enchantment_id'])) for row in (item.get('enchantments') or [])
+        if isinstance(row, dict) and isinstance(row.get('enchantment_id'), (int, float))
+    ]
+    if enchant_ids:
+        parts.append(f'enchant_id={"/".join(enchant_ids)}')
+    gem_ids = [
+        str(int((row.get('item') or {})['id'])) for row in (item.get('sockets') or [])
+        if isinstance(row, dict) and isinstance((row.get('item') or {}).get('id'), (int, float))
+    ]
+    if gem_ids:
+        parts.append(f'gem_id={"/".join(gem_ids)}')
+    return ','.join(parts)
+
+
+def _build_player_snapshot(profile, items, class_name, spec_key, talent):
+    actor_name = str(profile.get('name') or 'BattleNetPlayer').replace('"', '')
+    lines = [f'{class_name}="{actor_name}"']
+    if profile.get('level'):
+        lines.append(f'level={int(profile["level"])}')
+    race = _simc_token((profile.get('race') or {}).get('name'))
+    if race:
+        lines.append(f'race={race}')
+    lines.append(f'spec={spec_key}')
+    if talent:
+        lines.append(f'talents={talent}')
+    lines.extend(line for line in (_equipment_line(item) for item in items) if line)
+    return '\n'.join(lines)
+
+
 def fetch_battlenet_character_preflight(*, region, realm, character, requested_spec=''):
-    """Fetch current character profile and return a safe structured SimC-readiness summary."""
+    """Fetch live data once and return a complete immutable execution snapshot."""
     region = str(region or '').strip().lower()
     if region not in _REGION_CONFIG:
         raise ValueError('Battle.net region 必须是 us、eu、kr、tw 或 cn')
@@ -80,7 +152,15 @@ def fetch_battlenet_character_preflight(*, region, realm, character, requested_s
     class_name = normalize_battlenet_class_name((profile.get('character_class') or {}).get('name'))
     spec_key = _spec_key(profile)
     requested_spec = str(requested_spec or '').strip().lower()
-    items = (equipment_payload.get('equipped_items') or [])
+    items = equipment_payload.get('equipped_items') or []
+    specializations_payload = {}
+    # Real equipment rows carry item identities. Keeping this condition also preserves
+    # compatibility with older diagnostic fixtures that only provide item level.
+    if any((row.get('item') or {}).get('id') for row in items if isinstance(row, dict)):
+        specializations_payload = _api_get(host, f'{base_path}/specializations', namespace, locale, token)
+    talent = _active_talent_loadout_code(specializations_payload, spec_key)
+    player_snapshot = _build_player_snapshot(profile, items, class_name, spec_key, talent)
+
     item_levels = [row.get('level', {}).get('value') for row in items if isinstance(row, dict)]
     item_levels = [int(value) for value in item_levels if isinstance(value, (int, float))]
     warnings = []
@@ -95,25 +175,19 @@ def fetch_battlenet_character_preflight(*, region, realm, character, requested_s
         warnings.append('无法识别该角色职业，不能确认与目标专精一致。')
     elif expected_class and expected_class != class_name:
         warnings.append(f'选择的专精 {requested_spec} 不属于该角色职业 {class_name}。')
-    # Armory execution asks SimC to import the active Battle.net build. The API does
-    # not expose a portable export string, so the editable Profile still stores only
-    # the armory identity; make that boundary explicit to callers.
 
-    primary = {}
-    for stat in ('strength', 'agility', 'intellect', 'stamina'):
-        if stats.get(stat) is not None:
-            primary[stat] = stats[stat]
+    primary = {stat: stats[stat] for stat in ('strength', 'agility', 'intellect', 'stamina') if stats.get(stat) is not None}
     secondary = {key: value for key, value in stats.items() if key in ('crit', 'haste', 'mastery', 'versatility')}
     gear_strength = primary.get('strength') or primary.get('agility') or primary.get('intellect') or 0
     simc_config = {
         'player_config_mode': 'battlenet', 'battlenet_region': region,
         'battlenet_realm': ((profile.get('realm') or {}).get('name') or realm),
         'battlenet_character': (profile.get('name') or character),
-        'spec': spec_key, 'talent': '', 'gear_strength': gear_strength,
+        'spec': spec_key, 'talent': talent, 'player_equipment': player_snapshot,
+        'gear_strength': gear_strength,
         **{f'gear_{name}': (secondary.get(name) or {}).get('rating') or 0
            for name in ('crit', 'haste', 'mastery', 'versatility')},
     }
-
     return {
         'identity': {
             'name': (profile.get('name') or character),
@@ -123,8 +197,6 @@ def fetch_battlenet_character_preflight(*, region, realm, character, requested_s
         'spec': {'key': spec_key, 'name': (profile.get('active_spec') or {}).get('name', '')},
         'equipment': {'count': len(items), 'item_level': round(sum(item_levels) / len(item_levels)) if item_levels else None},
         'stats': {'primary': primary, 'secondary': secondary},
-        # Character/equipment/statistics were fetched from Battle.net; armory mode
-        # obtains the active build during actual SimC execution.
         'simc_ready': not warnings,
         'warnings': warnings,
         'simc_config': simc_config,

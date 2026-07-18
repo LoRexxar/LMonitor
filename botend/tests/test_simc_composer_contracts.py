@@ -113,6 +113,29 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.assertEqual(manifest.slots["equipment"]["source"], "battlenet_armory")
         self.assertEqual(manifest.slots["equipment"]["status"], "empty")
 
+    def test_saved_battlenet_snapshot_composes_without_live_armory(self):
+        snapshot = (
+            'warrior="Snapshotter"\nlevel=80\nrace=orc\nspec=fury\n'
+            'head=,id=212048,bonus_id=10255/10390,enchant_id=7352,gem_id=213743\n'
+            'main_hand=,id=222222'
+        )
+        final, manifest, error = self.compose(
+            self.base,
+            player_import_mode="battlenet",
+            player_equipment=snapshot,
+            talent="FROZEN_BUILD",
+            battlenet_region="eu",
+            battlenet_realm="Kazzak",
+            battlenet_character="Snapshotter",
+        )
+        self.assertIsNone(error)
+        self.assertIn('warrior="Snapshotter"', final)
+        self.assertIn('head=,id=212048', final)
+        self.assertIn('talents=FROZEN_BUILD', final)
+        self.assertNotIn('armory=', final)
+        self.assertEqual(manifest.slots["player_identity"]["source"], "battlenet_snapshot")
+        self.assertEqual(manifest.slots["equipment"]["source"], "battlenet_snapshot")
+
 
 class SimcComposerIdentitySlotResolutionTests(ComposerTestCase):
     def setUp(self):
