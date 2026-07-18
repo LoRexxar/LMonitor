@@ -22,8 +22,14 @@ SIMC_MAIN = MAIN[
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
     def test_home_creation_flow_is_spec_driven_and_single_submit(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
-        self.assertLess(workflow.index('id="simc-sim-spec"'), workflow.index('id="simc-sim-profile-select"'))
-        self.assertNotIn('disabled class=', workflow[workflow.index('id="simc-sim-spec"'):workflow.index('id="simc-sim-profile-select"')])
+        self.assertLess(workflow.index('id="simc-sim-spec"'), workflow.index('id="simc-sim-player-sources"'))
+        self.assertNotIn('disabled class=', workflow[workflow.index('id="simc-sim-spec"'):workflow.index('id="simc-sim-player-sources"')])
+        source_panel = workflow[workflow.index('id="simc-sim-player-sources"'):workflow.index('id="simc-sim-apl-list"')]
+        for source in ('default', 'battlenet', 'simc_addon'):
+            self.assertEqual(source_panel.count(f'data-simc-player-source="{source}"'), 1)
+        self.assertNotIn('id="simc-sim-profile-select"', source_panel)
+        self.assertNotIn('Profile', source_panel)
+        self.assertNotIn('请先在 Profile 管理中创建', source_panel)
         self.assertLess(workflow.index('id="simc-sim-apl-list"'), workflow.index('id="simc-sim-fight-style"'))
         self.assertIn('id="simc-sim-mode"', workflow)
         self.assertIn('value="normal"', workflow)
@@ -49,6 +55,15 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("mode === 'comparison'", MAIN)
         self.assertIn("['simc-sim-submit-btn', submitSimcHomeCreation]", MAIN)
         self.assertIn("spec.addEventListener('change'", MAIN)
+        self.assertIn('player_source', MAIN)
+        self.assertIn("type: 'default'", MAIN)
+        self.assertIn("type: 'battlenet'", MAIN)
+        self.assertIn("type: 'simc_addon'", MAIN)
+        attribute_body = MAIN.split('function simcAttributeSearchRequestBody()', 1)[1].split('async function submitSimcAttributeSearch', 1)[0]
+        self.assertIn('...references', attribute_body)
+        self.assertIn("spec: document.getElementById('simc-sim-spec')", attribute_body)
+        self.assertIn("references.player_source?.type === 'default'", attribute_body)
+        self.assertNotIn("throw new Error('请选择已有 Profile')", MAIN)
         self.assertEqual(workflow.count('id="simc-sim-player-detail-refresh-btn"'), 1)
         self.assertNotIn('simc-comparison-submit', MAIN)
         self.assertNotIn('window.location.assign(`/dashboard/simc/batches/', SIMC_MAIN)

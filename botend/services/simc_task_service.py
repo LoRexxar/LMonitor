@@ -373,6 +373,10 @@ def create_task(
         payload = _build_profile_payload(profile)
         profile_version = _create_or_reuse_version('profile', profile.id, payload)
 
+    from botend.services.simc_player_config import canonical_simc_spec_identity
+    profile_class, profile_spec = canonical_simc_spec_identity(profile.spec if profile else '')
+    canonical_resource_spec = f'{profile_class}_{profile_spec}' if profile_class and profile_spec else ''
+
     template = None
     template_version = None
     if template_id:
@@ -382,6 +386,13 @@ def create_task(
             raise TaskCreationError(f"Template {template_id} does not exist")
 
         _validate_resource_ownership(template, 'template', user_id)
+        template_class, template_spec = canonical_simc_spec_identity(template.spec)
+        template_is_generic = str(template.spec or '').strip().lower() in ('', 'default', 'all', '*')
+        if canonical_resource_spec and not template_is_generic and (
+            template_spec != profile_spec
+            or (profile_class and template_class and template_class != profile_class)
+        ):
+            raise TaskCreationError('基础模板专精与玩家配置专精不一致')
         payload = _build_template_payload(template)
         template_version = _create_or_reuse_version('template', template.id, payload)
 
@@ -394,6 +405,12 @@ def create_task(
             raise TaskCreationError(f"APL {apl_id} does not exist")
 
         _validate_resource_ownership(apl, 'apl', user_id)
+        apl_class, apl_spec = canonical_simc_spec_identity(apl.spec)
+        if canonical_resource_spec and (
+            apl_spec != profile_spec
+            or (profile_class and apl_class and apl_class != profile_class)
+        ):
+            raise TaskCreationError('APL 专精与玩家配置专精不一致')
         payload = _build_apl_payload(apl)
         apl_version = _create_or_reuse_version('apl', apl.id, payload)
 

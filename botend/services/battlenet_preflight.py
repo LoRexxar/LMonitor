@@ -86,10 +86,14 @@ def fetch_battlenet_character_preflight(*, region, realm, character, requested_s
     warnings = []
     if not items:
         warnings.append('角色没有可用的已装备物品，不能启动 SimC。')
-    if requested_spec and spec_key and requested_spec != spec_key:
+    if requested_spec and not spec_key:
+        warnings.append('无法识别该角色当前 Battle.net 专精，不能确认与目标专精一致。')
+    elif requested_spec and requested_spec != spec_key:
         warnings.append(f'当前 Battle.net 专精为 {spec_key}，与选择的 {requested_spec} 不一致；请切换角色专精或重新选择。')
     expected_class = SPEC_CLASS.get(requested_spec, '')
-    if expected_class and class_name and expected_class != class_name:
+    if expected_class and not class_name:
+        warnings.append('无法识别该角色职业，不能确认与目标专精一致。')
+    elif expected_class and expected_class != class_name:
         warnings.append(f'选择的专精 {requested_spec} 不属于该角色职业 {class_name}。')
     # Armory execution asks SimC to import the active Battle.net build. The API does
     # not expose a portable export string, so the editable Profile still stores only

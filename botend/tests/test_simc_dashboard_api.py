@@ -13,6 +13,7 @@ from botend.dashboard.api import SimcAplCandidatesAPIView, SimcBatchTaskAPIView,
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates
+from botend.services.simc_composer import SimcComposer
 from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, WowItemSnapshot
 
 
@@ -573,6 +574,20 @@ class SimcBatchVariableCompareTests(TestCase):
             is_active=True,
             is_selectable=True,
         )
+        self.default_player = SimcContentTemplate.objects.create(
+            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='warrior_fury',
+            name='MID1 Warrior Fury',
+            content=(
+                'warrior="FrozenArmory"\nlevel=90\nspec=fury\ntalents=BASE\n'
+                'head=,id=1\nneck=,id=2\nshoulder=,id=3\nback=,id=4\nchest=,id=5\n'
+                'wrist=,id=6\nhands=,id=7\nwaist=,id=8\nlegs=,id=9\nfeet=,id=10\n'
+                'finger1=,id=11\nfinger2=,id=12\ntrinket1=,id=13\ntrinket2=,id=14\n'
+                'main_hand=,id=15\noff_hand=,id=16'
+            ),
+            is_active=True,
+        )
         self.profile = SimcProfile.objects.create(
             user_id=self.user.id,
             name='Batch contract Profile',
@@ -649,6 +664,95 @@ finger1=,id=299002,ilevel=655
         self.assertTrue(all(move['from'] != 'crit' for move in moves))
         self.assertTrue(all(move['transfer'] == 50 for move in moves))
 
+
+    def test_auto_attribute_batch_accepts_simc_addon_source_and_freezes_attribute_profile(self):
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'attribute_variants', 'name': 'Fury 即时属性寻优',
+            'spec': 'warrior_fury',
+            'player_source': {
+                'type': 'simc_addon',
+                'simc_code': (
+                    'warrior="Imported"\nlevel=90\nspec=fury\ntalents=IMPORT_BUILD\n'
+                    'gear_crit=1000\ngear_haste=2000\ngear_mastery=3000\ngear_versatility=4000\n'
+                    'head=,id=212048\nmain_hand=,id=222222\nactions=/auto_attack'
+                ),
+            },
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+            'attribute_step': 50, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        batch = SimcTaskBatch.objects.get(id=response.json()['data']['batch_id'])
+        profile = SimcProfile.objects.get(id=json.loads(batch.request_manifest)['profile_id'])
+        self.assertEqual(profile.player_config_mode, 'attribute_only')
+        self.assertEqual(profile.spec, 'fury')
+        self.assertEqual(profile.talent, 'IMPORT_BUILD')
+        self.assertEqual(
+            [profile.gear_crit, profile.gear_haste, profile.gear_mastery, profile.gear_versatility],
+            [1000, 2000, 3000, 4000],
+        )
+        self.assertNotIn('actions=', profile.player_equipment)
+        self.assertEqual(SimcTask.objects.filter(batch=batch).count(), 13)
+
+    @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
+    def test_auto_attribute_batch_accepts_battlenet_source_with_frozen_ratings(self, preflight):
+        preflight.return_value = {
+            'simc_ready': True, 'warnings': [],
+            'simc_config': {
+                'player_config_mode': 'battlenet', 'battlenet_region': 'eu',
+                'battlenet_realm': 'Kazzak', 'battlenet_character': 'Batcher',
+                'spec': 'fury', 'talent': '', 'gear_strength': 10000,
+                'gear_crit': 1000, 'gear_haste': 2000,
+                'gear_mastery': 3000, 'gear_versatility': 4000,
+            },
+        }
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'attribute_variants', 'name': 'Fury Battle.net 属性寻优',
+            'spec': 'warrior_fury',
+            'player_source': {'type': 'battlenet', 'region': 'eu', 'realm': 'Kazzak', 'character': 'Batcher'},
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+            'attribute_step': 50,
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        batch = SimcTaskBatch.objects.get(id=response.json()['data']['batch_id'])
+        profile = SimcProfile.objects.get(id=json.loads(batch.request_manifest)['profile_id'])
+        self.assertEqual(profile.player_config_mode, 'attribute_only')
+        self.assertIn('warrior="FrozenArmory"', profile.player_equipment)
+        self.assertEqual([profile.gear_crit, profile.gear_haste, profile.gear_mastery, profile.gear_versatility], [1000, 2000, 3000, 4000])
+        tasks = list(SimcTask.objects.filter(batch=batch).order_by('id'))
+        self.assertEqual(len(tasks), 13)
+        monitor = SimcMonitor(None, None)
+        rendered = []
+        for task in tasks[:2]:
+            request_data = monitor.apply_candidate_overrides({
+                'spec': task.profile_version.payload['spec'],
+                'fight_style': task.simulation_params.get('fight_style', 'Patchwerk'),
+                'time': task.simulation_params.get('max_time', 300),
+                'target_count': task.simulation_params.get('desired_targets', 1),
+                'player_import_mode': task.profile_version.payload['player_config_mode'],
+                'player_equipment': task.profile_version.payload['player_equipment'],
+                'talent': task.profile_version.payload['talent'],
+                'gear_strength': task.profile_version.payload['gear_strength'],
+                'gear_crit': task.profile_version.payload['gear_crit'],
+                'gear_haste': task.profile_version.payload['gear_haste'],
+                'gear_mastery': task.profile_version.payload['gear_mastery'],
+                'gear_versatility': task.profile_version.payload['gear_versatility'],
+                'base_template_content': task.template_version.payload['content'],
+                'override_action_list': task.apl_version.payload['content'],
+                '_result_file_path': task.result_file,
+            }, task.mode_params)
+            simc_code, _, error = SimcComposer(self.user.id).compose(request_data)
+            self.assertFalse(error)
+            rendered.append(simc_code)
+        self.assertNotEqual(rendered[0], rendered[1])
+        self.assertIn('gear_crit_rating=1000', rendered[0])
+        self.assertIn('gear_crit_rating=950', rendered[1])
+        self.assertNotIn('armory=', rendered[0])
 
     def test_auto_attribute_batch_rejects_missing_frozen_player_baseline(self):
         self.profile.player_config_mode = 'attribute_only'
@@ -2422,6 +2526,25 @@ class SimcBattlenetPreflightTests(TestCase):
         self.assertEqual(result['identity']['class_name'], 'deathknight')
         self.assertTrue(result['simc_ready'], result)
         self.assertEqual(result['warnings'], [])
+
+    def test_preflight_rejects_unrecognized_active_spec_for_requested_target(self):
+        from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
+
+        profile = {
+            'name': 'Unknownspec', 'level': 90,
+            'character_class': {'name': 'Warrior'},
+            'active_spec': {}, 'realm': {'name': 'Kazzak'},
+        }
+        equipment = {'equipped_items': [{'level': {'value': 680}}]}
+        with patch('botend.services.battlenet_preflight._token', return_value='token'), patch(
+            'botend.services.battlenet_preflight._api_get', side_effect=[profile, equipment, {}]
+        ):
+            result = fetch_battlenet_character_preflight(
+                region='eu', realm='Kazzak', character='Unknownspec', requested_spec='fury',
+            )
+
+        self.assertFalse(result['simc_ready'])
+        self.assertTrue(any('无法识别' in warning for warning in result['warnings']))
 
 
 class SimcBatchTaskAPIViewGetTests(TestCase):

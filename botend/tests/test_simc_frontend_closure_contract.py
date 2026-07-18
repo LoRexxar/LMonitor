@@ -48,12 +48,14 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertNotIn("switchSimcWorkbenchTab('artifacts')", creation)
         self.assertNotIn("loadArtifacts", creation)
 
-    def test_candidate_and_attribute_requests_share_reference_contract(self):
+    def test_candidate_and_attribute_requests_use_their_current_reference_contracts(self):
         candidate = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function stopSimcCandidateComparisonPolling")]
         attribute = SIM[SIM.index("function simcAttributeSearchRequestBody"):SIM.index("async function submitSimcAttributeSearch")]
+        for token in ("simc_profile_id", "base_template_id", "selected_apl_id"):
+            self.assertIn(token, candidate)
+        for token in ("player_source", "spec", "...references"):
+            self.assertIn(token, attribute)
         for body in (candidate, attribute):
-            for token in ("simc_profile_id", "base_template_id", "selected_apl_id"):
-                self.assertIn(token, body)
             for token in ("player_equipment", "profile_name", "base_template_content", "override_action_list"):
                 self.assertNotIn(token, body)
 

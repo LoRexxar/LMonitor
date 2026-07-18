@@ -2654,7 +2654,10 @@ function getSimcSpecClass(spec) {
 }
 
 function switchSimcPlayerImportMode() {
-    // 任务发起区只选择已保存的 Profile；Profile 内容在配置管理中维护。
+    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'default';
+    document.getElementById('simc-sim-source-battlenet')?.classList.toggle('hidden', type !== 'battlenet');
+    document.getElementById('simc-sim-source-addon')?.classList.toggle('hidden', type !== 'simc_addon');
+    renderSimcInstantPlayerDetail();
 }
 
 function fillSimcAttributeOnlyInputs() {
@@ -2669,14 +2672,29 @@ function selectedSimcReferenceValue(selector) {
 
 let simcResolvedBaseTemplateId = 0;
 
+function collectSimcPlayerSource() {
+    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'default';
+    if (type === 'battlenet') {
+        const region = document.getElementById('simc-sim-bnet-region')?.value || '';
+        const realm = document.getElementById('simc-sim-bnet-realm')?.value?.trim() || '';
+        const character = document.getElementById('simc-sim-bnet-character')?.value?.trim() || '';
+        if (!region || !realm || !character) throw new Error('请完整填写 Battle.net 区域、服务器和角色名');
+        return { type: 'battlenet', region, realm, character };
+    }
+    if (type === 'simc_addon') {
+        const simc_code = document.getElementById('simc-sim-addon-code')?.value?.trim() || '';
+        if (!simc_code) throw new Error('请粘贴 SimC Addon 代码');
+        return { type: 'simc_addon', simc_code };
+    }
+    return { type: 'default' };
+}
+
 function requireSimcRunReferences() {
-    const simc_profile_id = selectedSimcReferenceValue('#simc-sim-profile-select');
     const base_template_id = simcResolvedBaseTemplateId;
     const selected_apl_id = selectedSimcReferenceValue('input[name="simc-sim-apl"]:checked');
-    if (!simc_profile_id) throw new Error('请选择已有 Profile');
     if (!base_template_id) throw new Error('请选择基础模板');
     if (!selected_apl_id) throw new Error('请选择 APL');
-    return { simc_profile_id, base_template_id, selected_apl_id };
+    return { base_template_id, selected_apl_id, player_source: collectSimcPlayerSource() };
 }
 
 function currentSimcScenario() {
@@ -2802,21 +2820,17 @@ async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
 
 async function onSimcTargetSpecChange() {
     const spec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
-    const select = document.getElementById('simc-sim-profile-select');
     beginSimcProfileSwitch(0);
     const control = beginSimcTargetSpecLoad(spec);
     simcResolvedBaseTemplateId = 0;
-    if (select) {
-        select.value = '';
-        select.disabled = !spec;
-    }
     const apl = document.getElementById('simc-sim-apl-list');
     if (!spec) {
-        if (select) select.innerHTML = '<option value="">-- 请先选择目标专精 --</option>';
         if (apl) apl.innerHTML = '请选择目标专精以加载 APL。';
+        renderSimcInstantPlayerDetail();
         return;
     }
-    await Promise.all([loadSimcSimProfileSelect(0, control), loadSimcAplCandidates(spec, control)]);
+    await loadSimcAplCandidates(spec, control);
+    renderSimcInstantPlayerDetail();
 }
 
 async function loadSimcSimSavedProfiles() {
@@ -2890,6 +2904,27 @@ function updateSimcHomeMode() {
 }
 
 async function refreshSimcPlayerDetail() {
+    renderSimcInstantPlayerDetail();
+}
+
+function renderSimcInstantPlayerDetail() {
+    const host = document.getElementById('simc-sim-player-detail');
+    if (!host) return;
+    const spec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
+    let source;
+    try { source = collectSimcPlayerSource(); }
+    catch (error) {
+        host.innerHTML = `<span class="text-xs text-amber-700">${escapeHtml(String(error.message || error))}</span>`;
+        return;
+    }
+    const labels = { default: '目标专精默认配置', battlenet: 'Battle.net 即时查询', simc_addon: 'SimC Addon 即时导入' };
+    const identity = source.type === 'battlenet'
+        ? `${source.region} · ${source.realm} · ${source.character}`
+        : source.type === 'simc_addon' ? `${source.simc_code.split(/\r?\n/).length} 行代码` : '提交时解析系统基线';
+    host.innerHTML = `<dl class="grid gap-2 text-xs md:grid-cols-2"><div>目标专精：<b>${escapeHtml(spec || '未选择')}</b></div><div>来源：<b>${escapeHtml(labels[source.type] || source.type)}</b></div><div class="md:col-span-2">输入：${escapeHtml(identity)}</div><div class="md:col-span-2 text-gray-500">提交后端时解析并在同一事务中固化为 Profile 不可变版本；来源专精只用于冲突校验。</div></dl>`;
+}
+
+async function refreshSavedSimcPlayerDetail() {
     const simc_profile_id = selectedSimcReferenceValue('#simc-sim-profile-select');
     if (!simc_profile_id) {
         showMessage('请先选择已有 Profile', 'warning');
@@ -2974,10 +3009,14 @@ function stopSimcCandidateComparisonPolling() {
 }
 
 function simcAttributeSearchRequestBody() {
-    const { simc_profile_id, base_template_id, selected_apl_id } = requireSimcRunReferences();
+    const references = requireSimcRunReferences();
+    if (references.player_source?.type === 'default') {
+        throw new Error('默认配置不包含可冻结的当前绿字；属性寻优请使用 Battle.net 或粘贴含 gear_* 属性的 SimC 代码');
+    }
     return {
         kind: 'attribute_variants', name: `${document.getElementById('simc-sim-spec')?.value || 'SimC'} 四属性自动寻优`,
-        simc_profile_id, base_template_id, selected_apl_id,
+        spec: document.getElementById('simc-sim-spec')?.value || '',
+        ...references,
         attribute_step: 50, ...currentSimcScenario(),
     };
 }
@@ -3041,6 +3080,7 @@ async function createSimcSimulationTask() {
     const spec = document.getElementById('simc-sim-spec')?.value || 'SimC';
     const requestBody = {
         name: `${spec} ${scenario.fight_style} ${scenario.time}s ${scenario.target_count}目标`,
+        spec,
         task_type: 1,
         ...references,
         ...scenario,
@@ -3088,11 +3128,11 @@ function bindSimcWorkbenchSimulationControls() {
         spec.dataset.bound = '1';
         spec.addEventListener('change', () => onSimcTargetSpecChange().catch(error => showMessage(String(error.message || error), 'error')));
     }
-    const profile = document.getElementById('simc-sim-profile-select');
-    if (profile && profile.dataset.bound !== '1') {
-        profile.dataset.bound = '1';
-        profile.addEventListener('change', () => onSimcProfileSelect().catch(error => showMessage(String(error.message || error), 'error')));
-    }
+    document.querySelectorAll('input[name="simc-sim-player-source"]').forEach(source => {
+        if (source.dataset.bound === '1') return;
+        source.dataset.bound = '1';
+        source.addEventListener('change', switchSimcPlayerImportMode);
+    });
     const mode = document.getElementById('simc-sim-mode');
     if (mode && mode.dataset.bound !== '1') {
         mode.dataset.bound = '1';
@@ -3101,7 +3141,7 @@ function bindSimcWorkbenchSimulationControls() {
     const bindings = [
         ['simc-sim-submit-btn', submitSimcHomeCreation],
         ['simc-sim-player-detail-refresh-btn', refreshSimcPlayerDetail],
-        ['simc-sim-refresh-profiles-btn', refreshSimcSavedProfiles],
+
     ];
     bindings.forEach(([id, handler]) => {
         const element = document.getElementById(id);
@@ -3113,6 +3153,7 @@ function bindSimcWorkbenchSimulationControls() {
     const preset = document.getElementById('simc-sim-fight-preset');
     preset?.addEventListener('change', () => applySimcFightPreset(preset.value));
     updateSimcHomeMode();
+    switchSimcPlayerImportMode();
     onSimcTargetSpecChange().catch(error => showMessage(String(error.message || error), 'error'));
 }
 

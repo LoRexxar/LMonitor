@@ -31,7 +31,7 @@ class SimcCoreClosureTests(TestCase):
         response = SimcTaskAPIView.as_view()(self.request('/api/simc-tasks/', {
             'name': 'new task', 'simc_profile_id': self.profile.id,
             'base_template_id': self.template.id, 'selected_apl_id': self.apl.id,
-            'profile_name': 'MUTATE', 'spec': 'arms', 'talent': 'MUTATE', 'gear_crit': 999,
+            'profile_name': 'MUTATE', 'spec': 'warrior_fury', 'talent': 'MUTATE', 'gear_crit': 999,
             'time': 180, 'target_count': 2,
         }))
         self.assertEqual(response.status_code, 200)

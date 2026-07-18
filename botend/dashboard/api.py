@@ -39,7 +39,15 @@ from core.glm import GLMClient
 from botend.monitor_env import is_task_runnable, env_limit_hint
 from botend.wow_daily_report.generator import generate_wow_daily_report
 from botend.services.simc_attribute_results import parse_attribute_result_filename
-from botend.services.simc_player_config import EQUIPMENT_SLOT_ALIASES, resolve_attribute_player_baseline, validate_player_baseline
+from botend.services.simc_player_config import (
+    EQUIPMENT_SLOT_ALIASES,
+    authoritative_player_baseline,
+    canonical_simc_spec_identity,
+    parse_manual_player_config,
+    resolve_attribute_player_baseline,
+    validate_default_player_baseline,
+    validate_player_baseline,
+)
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import create_task, TaskCreationError
 from botend.services.task_rerun import create_rerun, TaskRerunError
@@ -786,15 +794,96 @@ class SimcTaskAPIView(View):
                     'error': '必须提供 selected_apl_id（APL ID）'
                 })
 
-            # Task API only selects an existing owner Profile. Profile creation and
-            # editing belong to the Profile API and are never an implicit side effect.
-            if not simc_profile_id:
-                return JsonResponse({'success': False, 'error': '必须提供 simc_profile_id（已有玩家配置 ID）'})
-            profile = SimcProfile.objects.filter(
-                id=simc_profile_id, user_id=request.user.id, is_active=True,
-            ).first()
-            if not profile:
-                return JsonResponse({'success': False, 'error': '玩家配置不存在或无权使用'})
+            player_source = data.get('player_source') or {}
+            if not isinstance(player_source, dict):
+                return JsonResponse({'success': False, 'error': 'player_source 格式无效'}, status=400)
+            source_type = str(player_source.get('type') or ('saved_profile' if simc_profile_id else '')).strip()
+            if not source_type:
+                return JsonResponse({'success': False, 'error': '必须提供 simc_profile_id 或 player_source'}, status=400)
+            target_class, target_spec = canonical_simc_spec_identity(spec)
+            if source_type == 'saved_profile' and simc_profile_id and not target_class:
+                existing_profile = SimcProfile.objects.filter(
+                    id=simc_profile_id, user_id=request.user.id, is_active=True,
+                ).first()
+                if existing_profile:
+                    target_class, target_spec = canonical_simc_spec_identity(existing_profile.spec)
+            if not target_class or f'{target_class}_{target_spec}' not in SIMC_SPEC_VALUES:
+                return JsonResponse({'success': False, 'error': '必须选择有效的目标专精'}, status=400)
+
+            profile = None
+            profile_fields = None
+            if source_type == 'saved_profile':
+                profile_id = player_source.get('profile_id') or simc_profile_id
+                profile = SimcProfile.objects.filter(
+                    id=profile_id, user_id=request.user.id, is_active=True,
+                ).first()
+                if not profile:
+                    return JsonResponse({'success': False, 'error': '玩家配置不存在或无权使用'}, status=400)
+                profile_class, profile_spec = canonical_simc_spec_identity(profile.spec)
+                if profile_spec != target_spec or (target_class and profile_class and profile_class != target_class):
+                    return JsonResponse({'success': False, 'error': '已保存玩家配置专精与目标专精不一致'}, status=400)
+            elif source_type == 'default':
+                default_key = f'{target_class}_{target_spec}'
+                default_rows = SimcContentTemplate.objects.filter(
+                    template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+                    source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                    spec=default_key, is_active=True,
+                )
+                count = default_rows.count()
+                if count != 1:
+                    return JsonResponse({
+                        'success': False,
+                        'error': f'专精 {default_key} 默认玩家配置{("缺少" if count == 0 else f"存在多个（{count} 个）")}，需要且只能解析到一个',
+                    }, status=409)
+                try:
+                    baseline = validate_default_player_baseline(default_key, default_rows.get().content)
+                except ValueError as exc:
+                    return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+                profile_fields = {
+                    'name': f'本次默认配置 · {target_spec}', 'spec': target_spec,
+                    'player_config_mode': 'manual_equipment', 'player_equipment': baseline,
+                }
+            elif source_type == 'simc_addon':
+                baseline = authoritative_player_baseline(player_source.get('simc_code'))
+                baseline = '\n'.join(
+                    line for line in baseline.splitlines()
+                    if not re.match(r'^\s*actions(?:[.+]?=|\.)', line, re.IGNORECASE)
+                ).strip()
+                try:
+                    baseline = validate_player_baseline(baseline)
+                except ValueError as exc:
+                    return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+                parsed = parse_manual_player_config(baseline, target_spec)
+                source_spec = str(parsed.get('identity', {}).get('spec') or '').strip().lower()
+                source_class = str(parsed.get('identity', {}).get('class_name') or '').strip().lower()
+                if source_spec != target_spec or (source_class and source_class != target_class):
+                    return JsonResponse({'success': False, 'error': 'SimC 代码专精与目标专精不一致'}, status=400)
+                profile_fields = {
+                    'name': f'本次 SimC 导入 · {target_spec}', 'spec': target_spec,
+                    'player_config_mode': 'manual_equipment', 'player_equipment': baseline,
+                    'talent': str(parsed.get('talents', {}).get('build_code') or ''),
+                }
+            elif source_type == 'battlenet':
+                try:
+                    preflight = fetch_battlenet_character_preflight(
+                        region=player_source.get('region'), realm=player_source.get('realm'),
+                        character=player_source.get('character'), requested_spec=target_spec,
+                    )
+                except ValueError as exc:
+                    return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+                if not preflight.get('simc_ready'):
+                    return JsonResponse({'success': False, 'error': '；'.join(preflight.get('warnings') or ['Battle.net 角色不可用于模拟'])}, status=400)
+                values = preflight['simc_config']
+                source_class, source_spec = canonical_simc_spec_identity(values.get('spec'))
+                if source_spec != target_spec or (source_class and source_class != target_class):
+                    return JsonResponse({'success': False, 'error': 'Battle.net 角色专精与目标专精不一致'}, status=400)
+                profile_fields = {
+                    **values,
+                    'name': f"本次 Battle.net · {values['battlenet_character']}",
+                    'spec': target_spec,
+                }
+            else:
+                return JsonResponse({'success': False, 'error': '请选择玩家配置来源'}, status=400)
 
             # 构建 simulation_params
             simulation_params = {}
@@ -806,14 +895,25 @@ class SimcTaskAPIView(View):
                 simulation_params['desired_targets'] = target_count
 
             try:
-                task = create_task(
-                    user_id=request.user.id,
-                    profile_id=profile.id,
-                    template_id=base_template_id,
-                    apl_id=selected_apl_id,
-                    simulation_params=simulation_params if simulation_params else None,
-                    name=name,
-                )
+                if profile_fields is not None:
+                    from botend.services.simc_task_service import create_task_from_request
+                    task = create_task_from_request(
+                        user_id=request.user.id,
+                        profile_fields=profile_fields,
+                        base_template_id=base_template_id,
+                        selected_apl_id=selected_apl_id,
+                        simulation_params=simulation_params if simulation_params else None,
+                        name=name,
+                    )
+                else:
+                    task = create_task(
+                        user_id=request.user.id,
+                        profile_id=profile.id,
+                        template_id=base_template_id,
+                        apl_id=selected_apl_id,
+                        simulation_params=simulation_params if simulation_params else None,
+                        name=name,
+                    )
             except TaskCreationError as e:
                 return JsonResponse({
                     'success': False,
@@ -1926,14 +2026,110 @@ class SimcBatchTaskAPIView(View):
             profile_id = data.get('simc_profile_id')
             base_template_id = data.get('base_template_id')
             selected_apl_id = data.get('selected_apl_id')
-            if not profile_id or not base_template_id or not selected_apl_id:
-                raise ValueError('simc_profile_id、base_template_id 和 selected_apl_id 均不能为空')
-            try:
-                profile = SimcProfile.objects.get(
-                    id=int(profile_id), user_id=request.user.id, is_active=True,
-                )
-            except (TypeError, ValueError, SimcProfile.DoesNotExist):
-                raise ValueError('玩家配置不存在或无权使用')
+            if not base_template_id or not selected_apl_id:
+                raise ValueError('base_template_id 和 selected_apl_id 均不能为空')
+
+            player_source = data.get('player_source') or {}
+            if not isinstance(player_source, dict):
+                raise ValueError('player_source 格式无效')
+            source_type = str(player_source.get('type') or ('saved_profile' if profile_id else '')).strip()
+            target_class, target_spec = canonical_simc_spec_identity(data.get('spec'))
+            transient_profile = False
+            if source_type == 'saved_profile':
+                profile_id = player_source.get('profile_id') or profile_id
+                try:
+                    profile = SimcProfile.objects.get(
+                        id=int(profile_id), user_id=request.user.id, is_active=True,
+                    )
+                except (TypeError, ValueError, SimcProfile.DoesNotExist):
+                    raise ValueError('玩家配置不存在或无权使用')
+                profile_class, profile_spec = canonical_simc_spec_identity(profile.spec)
+                if target_spec and (profile_spec != target_spec or (target_class and profile_class and profile_class != target_class)):
+                    raise ValueError('已保存玩家配置专精与目标专精不一致')
+            else:
+                if not target_class or f'{target_class}_{target_spec}' not in SIMC_SPEC_VALUES:
+                    raise ValueError('必须选择有效的目标专精')
+                if source_type == 'default':
+                    default_key = f'{target_class}_{target_spec}'
+                    default_rows = SimcContentTemplate.objects.filter(
+                        template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+                        source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                        spec=default_key, is_active=True,
+                    )
+                    count = default_rows.count()
+                    if count != 1:
+                        raise ValueError(
+                            f'专精 {default_key} 默认玩家配置{("缺少" if count == 0 else f"存在多个（{count} 个）")}，需要且只能解析到一个'
+                        )
+                    baseline = validate_default_player_baseline(default_key, default_rows.get().content)
+                    parsed = parse_manual_player_config(baseline, target_spec)
+                    profile_fields = {
+                        'name': f'本次默认配置 · {target_spec}', 'spec': target_spec,
+                        'player_config_mode': 'manual_equipment', 'player_equipment': baseline,
+                        'talent': str(parsed.get('talents', {}).get('build_code') or ''),
+                    }
+                elif source_type == 'simc_addon':
+                    baseline = authoritative_player_baseline(player_source.get('simc_code'))
+                    baseline = '\n'.join(
+                        line for line in baseline.splitlines()
+                        if not re.match(r'^\s*actions(?:[.+]?=|\.)', line, re.IGNORECASE)
+                    ).strip()
+                    baseline = validate_player_baseline(baseline)
+                    parsed = parse_manual_player_config(baseline, target_spec)
+                    source_spec = str(parsed.get('identity', {}).get('spec') or '').strip().lower()
+                    source_class = str(parsed.get('identity', {}).get('class_name') or '').strip().lower()
+                    if source_spec != target_spec or (source_class and source_class != target_class):
+                        raise ValueError('SimC 代码专精与目标专精不一致')
+                    raw_fields = parsed.get('raw_fields') or {}
+                    profile_fields = {
+                        'name': f'本次 SimC 导入 · {target_spec}', 'spec': target_spec,
+                        'player_config_mode': 'attribute_only', 'player_equipment': baseline,
+                        'talent': str(parsed.get('talents', {}).get('build_code') or ''),
+                        **{
+                            f'gear_{stat}': self._int(
+                                raw_fields.get(f'gear_{stat}', raw_fields.get(f'gear_{stat}_rating', 0)),
+                                stat,
+                            )
+                            for stat in self.ATTRIBUTE_STATS
+                        },
+                    }
+                elif source_type == 'battlenet':
+                    preflight = fetch_battlenet_character_preflight(
+                        region=player_source.get('region'), realm=player_source.get('realm'),
+                        character=player_source.get('character'), requested_spec=target_spec,
+                    )
+                    if not preflight.get('simc_ready'):
+                        raise ValueError('；'.join(preflight.get('warnings') or ['Battle.net 角色不可用于模拟']))
+                    values = preflight['simc_config']
+                    source_class, source_spec = canonical_simc_spec_identity(values.get('spec'))
+                    if source_spec != target_spec or (source_class and source_class != target_class):
+                        raise ValueError('Battle.net 角色专精与目标专精不一致')
+                    # Attribute variants need a frozen player block so candidate rating
+                    # overrides are rendered into the final SimC input. Armory mode would
+                    # re-import mutable live state and discard those overrides.
+                    default_key = f'{target_class}_{target_spec}'
+                    default_rows = SimcContentTemplate.objects.filter(
+                        template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+                        source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                        spec=default_key, is_active=True,
+                    )
+                    if default_rows.count() != 1:
+                        raise ValueError(f'专精 {default_key} 默认玩家配置需要且只能解析到一个')
+                    frozen_baseline = validate_default_player_baseline(default_key, default_rows.get().content)
+                    frozen_parsed = parse_manual_player_config(frozen_baseline, target_spec)
+                    profile_fields = {
+                        **values,
+                        'name': f"本次 Battle.net 属性快照 · {values['battlenet_character']}",
+                        'spec': target_spec,
+                        'player_config_mode': 'attribute_only',
+                        'player_equipment': frozen_baseline,
+                        'talent': str(frozen_parsed.get('talents', {}).get('build_code') or ''),
+                    }
+                else:
+                    raise ValueError('请选择玩家配置来源')
+                profile = SimcProfile(user_id=request.user.id, is_active=True, **profile_fields)
+                transient_profile = True
+
             spec = str(profile.spec or '').strip().lower()
             mode = SimcProfileAPIView._profile_mode(profile)
             if kind not in ('attribute_variants', 'gear_candidates', 'talent_candidates'):
@@ -1946,19 +2142,19 @@ class SimcBatchTaskAPIView(View):
                 raise ValueError('候选类别与批次类型不匹配')
             if not name or not spec:
                 raise ValueError('任务名称和 Profile 专精不能为空')
-            if mode not in ('attribute_only', 'manual_equipment'):
-                raise ValueError('批次仅支持 attribute_only 或 manual_equipment Profile')
+            if mode not in ('attribute_only', 'manual_equipment', 'battlenet'):
+                raise ValueError('批次仅支持 attribute_only、manual_equipment 或 battlenet Profile')
             fight_style = str(data.get('fight_style') or 'Patchwerk').strip()
             fight_time = max(1, self._int(data.get('time', 300), '战斗时长'))
             target_count = max(1, self._int(data.get('target_count', 1), '目标数量'))
             specs = []
 
             if kind == 'attribute_variants':
-                if mode != 'attribute_only':
-                    raise ValueError('自动属性比较仅支持 attribute_only 配置')
-                if not str(profile.player_equipment or '').strip():
+                if mode not in ('attribute_only', 'battlenet'):
+                    raise ValueError('自动属性比较仅支持 attribute_only 或 Battle.net 配置')
+                if mode == 'attribute_only' and not str(profile.player_equipment or '').strip():
                     raise ValueError('自动属性比较需要 Profile 包含玩家装备基线')
-                if not profile.talent:
+                if mode == 'attribute_only' and not profile.talent:
                     raise ValueError('自动属性比较需要 Profile 包含天赋构筑码')
                 step = self._int(data.get('attribute_step'), '属性步长')
                 if step != self.ATTRIBUTE_SEARCH_STEP:
@@ -2044,10 +2240,13 @@ class SimcBatchTaskAPIView(View):
                 raise ValueError('可生成的比较任务不足2个；请提高可转移绿字或选择候选')
             created = []
             with transaction.atomic():
-                # Batch creation selects an existing Profile and never mutates it.
-                profile = SimcProfile.objects.select_for_update().get(
-                    id=profile.id, user_id=request.user.id, is_active=True,
-                )
+                if transient_profile:
+                    profile.save(force_insert=True)
+                else:
+                    # Batch creation selects an existing Profile and never mutates it.
+                    profile = SimcProfile.objects.select_for_update().get(
+                        id=profile.id, user_id=request.user.id, is_active=True,
+                    )
                 batch = SimcTaskBatch.objects.create(
                     user_id=request.user.id,
                     name=name,
