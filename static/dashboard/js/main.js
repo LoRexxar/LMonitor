@@ -2654,11 +2654,11 @@ function getSimcSpecClass(spec) {
 }
 
 function switchSimcPlayerImportMode() {
-    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'default';
-    document.getElementById('simc-sim-source-saved-profile')?.classList.toggle('hidden', type !== 'saved_profile');
+    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'player';
+    document.getElementById('simc-sim-source-saved-profile')?.classList.toggle('hidden', type !== 'player');
     document.getElementById('simc-sim-source-battlenet')?.classList.toggle('hidden', type !== 'battlenet');
     document.getElementById('simc-sim-source-addon')?.classList.toggle('hidden', type !== 'simc_addon');
-    if (type === 'saved_profile') refreshSavedSimcPlayerDetail();
+    if (type === 'player' && document.getElementById('simc-sim-profile-select')?.value !== 'default') refreshSavedSimcPlayerDetail();
     else renderSimcInstantPlayerDetail();
 }
 
@@ -2675,8 +2675,10 @@ function selectedSimcReferenceValue(selector) {
 let simcResolvedBaseTemplateId = 0;
 
 function collectSimcPlayerSource() {
-    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'default';
-    if (type === 'saved_profile') {
+    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'player';
+    if (type === 'player') {
+        const selected = document.getElementById('simc-sim-profile-select')?.value || 'default';
+        if (selected === 'default') return { type: 'default' };
         const profile_id = selectedSimcReferenceValue('#simc-sim-profile-select');
         if (!profile_id) throw new Error('请选择已有玩家配置');
         return { type: 'saved_profile', profile_id };
@@ -2816,11 +2818,11 @@ async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
         if (!isCurrentSimcResourceControl(control)) return;
         const normalizedSpec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
         const matchingProfiles = profiles.filter(profile => normalizeSimcSpecKey(profile.spec) === normalizedSpec);
-        select.innerHTML = '<option value="">-- 请选择匹配的 Profile --</option>' + matchingProfiles.map(profile =>
+        select.innerHTML = '<option value="default">系统默认配置</option>' + matchingProfiles.map(profile =>
             `<option value="${Number(profile.id) || ''}" data-spec="${escapeHtml(profile.spec || '')}">${escapeHtml(profile.name || `Profile #${profile.id}`)} (${escapeHtml(profile.spec || '-')})</option>`
         ).join('');
         if (matchingProfiles.some(profile => String(profile.id) === previous)) select.value = previous;
-        if (select.value) await onSimcProfileSelect();
+        if (select.value && select.value !== 'default') await onSimcProfileSelect();
     } catch (error) {
         if (error.name === 'AbortError' || !isCurrentSimcResourceControl(control)) return;
         select.innerHTML = '<option value="">加载失败</option>';
@@ -2843,8 +2845,8 @@ async function onSimcTargetSpecChange() {
         loadSimcAplCandidates(spec, control),
         loadSimcSimProfileSelect(0, control),
     ]);
-    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'default';
-    if (type === 'saved_profile') await refreshSavedSimcPlayerDetail();
+    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'player';
+    if (type === 'player' && document.getElementById('simc-sim-profile-select')?.value !== 'default') await refreshSavedSimcPlayerDetail();
     else renderSimcInstantPlayerDetail();
 }
 
@@ -2876,6 +2878,11 @@ async function onSimcProfileSelect() {
     const select = document.getElementById('simc-sim-profile-select');
     const option = select?.selectedOptions?.[0];
     const profileId = selectedSimcReferenceValue('#simc-sim-profile-select');
+    if (select?.value === 'default') {
+        beginSimcProfileSwitch(0);
+        renderSimcInstantPlayerDetail();
+        return;
+    }
     const control = beginSimcProfileSwitch(profileId);
     const spec = normalizeSimcSpecKey(document.getElementById('simc-sim-spec')?.value || '');
     const profileSpec = normalizeSimcSpecKey(option?.dataset.spec || '');
@@ -2919,8 +2926,8 @@ function updateSimcHomeMode() {
 }
 
 async function refreshSimcPlayerDetail() {
-    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'default';
-    if (type === 'saved_profile') await refreshSavedSimcPlayerDetail();
+    const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'player';
+    if (type === 'player' && document.getElementById('simc-sim-profile-select')?.value !== 'default') await refreshSavedSimcPlayerDetail();
     else renderSimcInstantPlayerDetail();
 }
 
@@ -3186,7 +3193,8 @@ function bindSimcWorkbenchSimulationControls() {
         profileSelect.dataset.bound = '1';
         profileSelect.addEventListener('change', () => onSimcProfileSelect().catch(error => showMessage(String(error.message || error), 'error')));
     }
-    document.querySelectorAll('input[name="simc-sim-player-source"]').forEach(source => {
+    const sourceInputs = document.querySelectorAll('input[name="simc-sim-player-source"]');
+    sourceInputs.forEach(source => {
         if (source.dataset.bound === '1') return;
         source.dataset.bound = '1';
         source.addEventListener('change', switchSimcPlayerImportMode);

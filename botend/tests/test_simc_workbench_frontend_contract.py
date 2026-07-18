@@ -25,9 +25,16 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertLess(workflow.index('id="simc-sim-spec"'), workflow.index('id="simc-sim-player-sources"'))
         self.assertNotIn('disabled class=', workflow[workflow.index('id="simc-sim-spec"'):workflow.index('id="simc-sim-player-sources"')])
         source_panel = workflow[workflow.index('id="simc-sim-player-sources"'):workflow.index('id="simc-sim-apl-list"')]
-        for source in ('saved_profile', 'default', 'battlenet', 'simc_addon'):
-            self.assertEqual(source_panel.count(f'data-simc-player-source="{source}"'), 1)
+        # 玩家配置是一个统一来源入口：下拉第一项是系统默认，后续才是当前用户匹配专精的 Profile。
+        self.assertEqual(source_panel.count('data-simc-player-source="player"'), 1)
+        self.assertEqual(source_panel.count('data-simc-player-source="battlenet"'), 1)
+        self.assertEqual(source_panel.count('data-simc-player-source="simc_addon"'), 1)
+        self.assertNotIn('data-simc-player-source="saved_profile"', source_panel)
+        self.assertNotIn('data-simc-player-source="default"', source_panel)
         self.assertIn('id="simc-sim-profile-select"', source_panel)
+        profile_select = source_panel[source_panel.index('id="simc-sim-profile-select"'):source_panel.index('</select>', source_panel.index('id="simc-sim-profile-select"'))]
+        self.assertIn('value="default" selected', profile_select)
+        self.assertIn('系统默认配置', profile_select)
         self.assertIn('加载已有玩家配置', source_panel)
         self.assertIn('仅显示目标专精匹配的已保存 Profile', source_panel)
         self.assertLess(workflow.index('id="simc-sim-apl-list"'), workflow.index('id="simc-sim-fight-style"'))
