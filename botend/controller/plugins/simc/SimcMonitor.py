@@ -606,9 +606,17 @@ class SimcMonitor(BaseScan):
                 if is_dataclass(composition_manifest)
                 else (composition_manifest or {})
             )
+            talent_candidate = None
+            if isinstance(simc_task.mode_params, dict):
+                raw_candidate = simc_task.mode_params.get('talent_candidate')
+                if isinstance(raw_candidate, dict):
+                    talent_candidate = {
+                        key: raw_candidate.get(key) for key in ('name', 'talent', 'source')
+                    }
             run.resource_manifest = {
                 **(resolved.resource_metadata or {}),
                 'composition_manifest': serializable_manifest,
+                'talent_candidate': talent_candidate,
             }
             run.save(update_fields=['resource_manifest'])
 

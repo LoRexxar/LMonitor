@@ -2372,6 +2372,53 @@ trinket1=,id=111,ilevel=639
             self.assertIsNotNone(task.apl_id)
             self.assertIsNotNone(task.apl_version_id)
 
+    def test_talent_candidate_batch_accepts_named_manual_build_and_freezes_report_metadata(self):
+        profile = self._create_profile('Manual talent Test', '''warrior="Batcher"
+spec=fury
+talents=ACTIVE_BUILD
+head=,id=111,ilevel=639
+main_hand=,id=222
+''')
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'talent_candidates', 'name': 'Fury 手工天赋对比',
+            'include_base': False,
+            'simc_profile_id': profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+            'candidates': [{
+                'name': '手工单体方案', 'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual',
+            }],
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        candidate = SimcTask.objects.get()
+        self.assertEqual(candidate.candidate_label, '手工单体方案')
+        self.assertEqual(candidate.mode_params['candidate_type'], 'talent_override')
+        self.assertEqual(candidate.mode_params['talent_override'], 'MANUAL_TALENT_BUILD')
+        self.assertEqual(candidate.mode_params['talent_candidate'], {
+            'name': '手工单体方案', 'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual',
+        })
+
+    def test_talent_candidate_batch_rejects_manual_build_without_name(self):
+        profile = self._create_profile('Invalid manual talent Test', '''warrior="Batcher"
+spec=fury
+talents=ACTIVE_BUILD
+head=,id=111
+main_hand=,id=222
+''')
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'talent_candidates', 'name': 'Fury 手工天赋对比',
+            'simc_profile_id': profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+            'candidates': [{'name': '', 'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual'}],
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('方案名称', response.json()['error'])
+
     def test_gear_candidate_batch_rejects_slot_not_in_baseline_block(self):
         player_block = '''warrior="Batcher"
 spec=fury
@@ -2825,6 +2872,31 @@ class SimcBatchTaskAPIViewGetTests(TestCase):
         self.assertEqual(tasks[1]['status'], 3)
         # _safe_error_summary returns fixed message for error_detail with traceback
         self.assertEqual(tasks[1]['error_summary'], '任务执行失败')
+
+    def test_workbench_batch_ranking_exposes_named_talent_candidate_details(self):
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='Talent report', batch_type='comparison', status=1,
+        )
+        SimcTask.objects.create(
+            user_id=self.user.id, name='Talent candidate', simc_profile_id=0,
+            task_type=1, current_status=0, batch=batch, is_active=True,
+            candidate_label='手工单体方案', mode_params={
+                'candidate_type': 'talent_override', 'is_base': False,
+                'talent_override': 'MANUAL_TALENT_BUILD',
+                'talent_candidate': {
+                    'name': '手工单体方案', 'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual',
+                },
+            },
+        )
+
+        response = self.client.get(f'/api/simc-workbench/batches/{batch.id}/')
+
+        self.assertEqual(response.status_code, 200)
+        row = response.json()['data']['ranking'][0]
+        self.assertEqual(row['candidate'], {
+            'type': 'talent', 'name': '手工单体方案',
+            'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual',
+        })
 
     def test_get_detail_enforces_user_isolation(self):
         other_batch = SimcTaskBatch.objects.create(

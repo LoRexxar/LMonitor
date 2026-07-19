@@ -2236,13 +2236,22 @@ class SimcBatchTaskAPIView(View):
                         })
                 else:
                     trusted = {row['talent']: row for row in parsed['talent_candidates']}
-                    submitted_talents = [str(candidate.get('talent') or '') for candidate in submitted]
+                    submitted_talents = [str(candidate.get('talent') or '').strip() for candidate in submitted]
                     if len(set(submitted_talents)) != len(submitted_talents):
                         raise ValueError('候选天赋不可重复选择')
-                    for talent in submitted_talents:
-                        if talent not in trusted:
-                            raise ValueError('候选天赋来源不可信')
-                        row = trusted[talent]
+                    for submitted_candidate, talent in zip(submitted, submitted_talents):
+                        source = str(submitted_candidate.get('source') or '').strip()
+                        if source == 'manual':
+                            candidate_name = str(submitted_candidate.get('name') or '').strip()
+                            if not candidate_name:
+                                raise ValueError('手工候选必须填写方案名称')
+                            if not talent:
+                                raise ValueError('手工候选必须填写完整天赋字符串')
+                            row = {'name': candidate_name, 'talent': talent, 'source': 'manual'}
+                        else:
+                            if talent not in trusted:
+                                raise ValueError('候选天赋来源不可信')
+                            row = trusted[talent]
                         lines = []
                         replaced = False
                         for line in player_equipment.splitlines():
@@ -2253,7 +2262,16 @@ class SimcBatchTaskAPIView(View):
                                 lines.append(line)
                         if not replaced:
                             raise ValueError('基准玩家块未包含 talents 行，无法创建天赋对比')
-                        specs.append({'label': row['name'] or '候选天赋', 'is_base': False, 'player_equipment': '\n'.join(lines), 'talent': talent, 'candidate': {'type': 'talent', 'talent': talent, 'source': row['source']}})
+                        specs.append({
+                            'label': row['name'] or '候选天赋',
+                            'is_base': False,
+                            'player_equipment': '\n'.join(lines),
+                            'talent': talent,
+                            'candidate': {
+                                'type': 'talent', 'name': row['name'] or '候选天赋',
+                                'talent': talent, 'source': row['source'],
+                            },
+                        })
 
             if not specs:
                 raise ValueError('请至少选择一个可模拟方案')
@@ -2274,6 +2292,14 @@ class SimcBatchTaskAPIView(View):
                         'kind': kind, 'category': category or kind,
                         'profile_id': profile.id, 'template_id': base_template_id,
                         'apl_id': selected_apl_id, 'candidate_count': len(specs),
+                        'candidates': [
+                            {
+                                'label': item['label'],
+                                'is_base': item['is_base'],
+                                'candidate': item['candidate'],
+                            }
+                            for item in specs
+                        ],
                     }, ensure_ascii=False),
                     status=1,
                 )
@@ -2305,6 +2331,9 @@ class SimcBatchTaskAPIView(View):
                     elif candidate_type == 'talent':
                         mode_params['candidate_type'] = 'talent_override'
                         mode_params['talent_override'] = candidate.get('talent')
+                        mode_params['talent_candidate'] = {
+                            key: candidate.get(key) for key in ('name', 'talent', 'source')
+                        }
                     elif kind == 'attribute_variants':
                         mode_params['candidate_type'] = 'attribute_ratings'
                         mode_params['attribute_ratings'] = item['gear']
@@ -5816,6 +5845,12 @@ class SimcWorkbenchAPIView(View):
                 if key in {'round', 'step', 'converged', 'stop_reason'}
                 and isinstance(item, (str, int, float, bool))
             }
+        talent_candidate = value.get('talent_candidate')
+        if isinstance(talent_candidate, dict):
+            safe['talent_candidate'] = {
+                key: str(talent_candidate.get(key) or '')
+                for key in ('name', 'talent', 'source')
+            }
         return safe
 
     @staticmethod
@@ -6052,12 +6087,22 @@ class SimcWorkbenchAPIView(View):
                     mode_params = member.mode_params if isinstance(member.mode_params, dict) else {}
                     is_base = mode_params.get('is_base') is True or member.candidate_label == '基准配置'
                     is_complete = member.current_status == 2 and isinstance(dps, (int, float))
+                    candidate = None
+                    talent_candidate = mode_params.get('talent_candidate')
+                    if isinstance(talent_candidate, dict):
+                        candidate = {
+                            'type': 'talent',
+                            'name': str(talent_candidate.get('name') or member.candidate_label or member.name),
+                            'talent': str(talent_candidate.get('talent') or ''),
+                            'source': str(talent_candidate.get('source') or ''),
+                        }
                     ranking.append({
                         'id': member.id, 'name': member.name,
                         'label': member.candidate_label or member.name,
                         'dps': dps if isinstance(dps, (int, float)) else None,
                         'is_base': is_base,
                         'is_complete': is_complete,
+                        'candidate': candidate,
                     })
                 ranked = sorted(
                     (item for item in ranking if item['is_complete'] and not item['is_base']),

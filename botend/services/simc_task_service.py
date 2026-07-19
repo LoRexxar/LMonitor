@@ -45,6 +45,7 @@ MODE_PARAMS_WHITELIST = {
     'batch_index',
     'gear_swap',
     'talent_override',
+    'talent_candidate',
     'apl_override',
     'attribute_ratings',
     'search',
