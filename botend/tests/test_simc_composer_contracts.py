@@ -241,6 +241,41 @@ class SimcComposerIdentitySlotResolutionTests(ComposerTestCase):
         self.assertIsNone(final)
         self.assertIn("冲突", error)
 
+    def test_player_export_keeps_all_valid_profile_fields_when_split(self):
+        parsed = SimcComposer(self.user.id)._parse_player_export(
+            'warrior="炎色雷灬"\n'
+            'level=90\n'
+            'race=orc\n'
+            'region=cn\n'
+            'server=死亡之翼\n'
+            'role=attack\n'
+            'professions=enchanting=100/jewelcrafting=100\n'
+            'spec=fury\n'
+            'tabard=,id=35279,content_tuning=394\n'
+            'head=,id=249952\n'
+        )
+        self.assertIn('region=cn', parsed['identity'])
+        self.assertIn('server=死亡之翼', parsed['identity'])
+        self.assertIn('tabard=,id=35279,content_tuning=394', parsed['equipment'])
+
+    def test_composed_player_block_keeps_profile_fields_outside_known_whitelist(self):
+        final, _, error = self.compose(
+            self.base,
+            player_equipment=(
+                'warrior="炎色雷灬"\nlevel=90\nrace=orc\nregion=cn\n'
+                'server=死亡之翼\nrole=attack\nprofessions=enchanting=100\n'
+                'spec=fury\ntalents=BASE\ntabard=,id=35279,content_tuning=394\n'
+                'head=,id=249952'
+            ),
+        )
+        self.assertIsNone(error)
+        for line in (
+            'region=cn', 'server=死亡之翼', 'role=attack',
+            'professions=enchanting=100',
+            'tabard=,id=35279,content_tuning=394',
+        ):
+            self.assertIn(line, final)
+
 
 class SimcComposerAplSlotResolutionTests(ComposerTestCase):
     def test_explicit_empty_apl_does_not_fall_back(self):

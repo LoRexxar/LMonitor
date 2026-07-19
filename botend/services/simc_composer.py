@@ -1019,7 +1019,7 @@ class SimcComposer:
 
         equipment_slots = ['head', 'neck', 'shoulder', 'back', 'chest', 'wrist',
                           'hands', 'waist', 'legs', 'feet', 'finger1', 'finger2',
-                          'trinket1', 'trinket2', 'main_hand', 'off_hand']
+                          'trinket1', 'trinket2', 'main_hand', 'off_hand', 'tabard']
 
         for line in lines:
             stripped = line.strip()
@@ -1048,7 +1048,7 @@ class SimcComposer:
                     identity_lines.append(stripped)
                 elif key == 'position':
                     identity_lines.append(stripped)
-                elif key == 'professions':
+                elif key in ('professions', 'region', 'server', 'loot_spec'):
                     identity_lines.append(stripped)
                 elif key in ('talents', 'talent', 'omnium_talents'):
                     # Hero-tree selections are part of the talent slot and must
@@ -1056,6 +1056,11 @@ class SimcComposer:
                     talents_lines.append(stripped)
                 elif key in equipment_slots:
                     equipment_lines.append(stripped)
+                else:
+                    # A SimC export is an actor profile, not a closed schema.
+                    # Preserve unknown actor-scoped options instead of silently
+                    # dropping valid fields added by a newer SimC/exporter.
+                    identity_lines.append(stripped)
 
 
         return {
