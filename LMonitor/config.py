@@ -24,7 +24,6 @@ from botend.controller.plugins.vuln.seebugMonitor import SeebugMonitor
 from botend.controller.plugins.info.RssMonitor import RssArticleMonitor
 from botend.controller.plugins.wow.lhfszsMonitor import LhfszsMonitor
 from botend.controller.plugins.wow.ngaMonitor import ngaMonitor
-from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.controller.plugins.wow.wowheadMonitor import wowheadMonitor
 from botend.controller.plugins.wow.DeprecatedWowPortalMonitor import DeprecatedWowPortalMonitor
 from botend.controller.plugins.portal.PortalPostMonitor import PortalPostMonitor
@@ -43,6 +42,12 @@ from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailP
 from botend.controller.plugins.portal.SpecDetailRankingMonitor import SpecDetailRankingMonitor
 from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
 
+class DedicatedSimcWorkerSlot(BaseScan):
+    """保留历史 MonitorTask.type=15 索引；SimC 仅由 simc_worker 消费。"""
+
+    def scan(self, url=None):
+        return True
+
 Monitor_Type_BaseObject_List = [
     BaseScan,
     BiliMonitor,
@@ -59,7 +64,7 @@ Monitor_Type_BaseObject_List = [
     RssArticleMonitor,
     LhfszsMonitor,
     ngaMonitor,
-    SimcMonitor,
+    DedicatedSimcWorkerSlot,
     wowheadMonitor,
     DeprecatedWowPortalMonitor,
     PortalPostMonitor,

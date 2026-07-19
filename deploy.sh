@@ -36,4 +36,13 @@ kill_processes 'LMonitorCoreBackend'
 sleep 2
 screen -dmS lmback bash -lc 'cd ~/LMonitor && ./start.sh'
 
+echo "=== 6. 重启 lmsimc ==="
+screen -S lmsimc -X quit 2>/dev/null || true
+kill_processes 'manage.py simc_worker'
+sleep 2
+screen -dmS lmsimc bash -lc 'cd ~/LMonitor && python3 manage.py simc_worker'
+
+echo "=== 7. 检查 screen 会话 ==="
+screen -list | grep -E '\.(lmweb|lmback|lmsimc)'
+
 echo "=== 部署完成 ==="

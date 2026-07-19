@@ -704,22 +704,27 @@ class SimcMonitor(BaseScan):
             self.mark_task_failed(simc_task, "引用型任务处理异常", e)
             return False
 
-    def process_simc_task(self, simc_task):
+    def process_simc_task(self, simc_task, already_claimed=False):
         """
-        处理单个SimC任务
-        :param simc_task: SimcTask对象
-        :return:
+        处理单个SimC任务。
+        ``already_claimed`` 供独立 Worker 使用：Worker 负责原子领取，Monitor 只负责执行。
         """
         try:
-            # 原子抢占待处理任务，避免多个调度进程同时执行同一个 SimC 任务。
-            claimed = SimcTask.objects.filter(
-                id=simc_task.id,
-                is_active=True,
-                current_status=0
-            ).update(current_status=1, modified_time=timezone.now())
-            if claimed != 1:
-                logger.info(f"[SimC Monitor] Task {simc_task.id} was already claimed or no longer pending, skip")
-                return False
+            if not already_claimed:
+                claimed_at = timezone.now()
+                claimed = SimcTask.objects.filter(
+                    id=simc_task.id,
+                    is_active=True,
+                    current_status=0
+                ).update(
+                    current_status=1,
+                    started_at=claimed_at,
+                    completed_at=None,
+                    modified_time=claimed_at,
+                )
+                if claimed != 1:
+                    logger.info(f"[SimC Monitor] Task {simc_task.id} was already claimed or no longer pending, skip")
+                    return False
             simc_task.refresh_from_db()
             self.sync_batch_lifecycle(simc_task.batch_id)
             self.clear_simc_error_details(simc_task)
