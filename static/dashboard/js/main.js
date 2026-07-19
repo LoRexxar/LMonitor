@@ -2644,11 +2644,12 @@ function getSimcSpecClass(spec) {
     return SIMC_SPEC_CLASS_MAP[normalizeSimcSpecKey(spec)] || '';
 }
 
-function switchSimcPlayerImportMode() {
+function switchSimcPlayerImportMode({ resolve = true } = {}) {
     const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'battlenet';
     document.getElementById('simc-sim-source-specified-spec')?.classList.toggle('hidden', type !== 'specified_spec');
     document.getElementById('simc-sim-source-battlenet')?.classList.toggle('hidden', type !== 'battlenet');
     document.getElementById('simc-sim-source-addon')?.classList.toggle('hidden', type !== 'simc_addon');
+    if (!resolve) return;
     resolveSimcPlayerSource().catch(error => {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
     });
@@ -3329,8 +3330,7 @@ function bindSimcWorkbenchSimulationControls() {
     const preset = document.getElementById('simc-sim-fight-preset');
     preset?.addEventListener('change', () => applySimcFightPreset(preset.value));
     updateSimcHomeMode();
-    switchSimcPlayerImportMode();
-    onSimcTargetSpecChange().catch(error => showMessage(String(error.message || error), 'error'));
+    switchSimcPlayerImportMode({ resolve: false });
 }
 
 function applySimcFightPreset(presetValue) {

@@ -121,3 +121,12 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
             body = body.split('\n}', 1)[0]
             self.assertIn('spec:', body)
             self.assertIn('simcResolvedCanonicalSpec', body)
+
+    def test_dashboard_initialization_does_not_validate_unopened_battlenet_source(self):
+        switch = MAIN.split('function switchSimcPlayerImportMode', 1)[1].split('\n}', 1)[0]
+        binding = MAIN.split('function bindSimcWorkbenchSimulationControls', 1)[1].split('\n}', 1)[0]
+        self.assertIn('resolve = true', switch)
+        self.assertIn('if (!resolve) return;', switch)
+        self.assertIn('switchSimcPlayerImportMode({ resolve: false });', binding)
+        self.assertNotIn('\n    onSimcTargetSpecChange().catch', binding)
+        self.assertIn("dashboard/js/main.js' %}?v=20260720a", HTML)
