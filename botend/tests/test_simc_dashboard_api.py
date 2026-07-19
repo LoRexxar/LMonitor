@@ -970,7 +970,7 @@ main_hand=,id=222222
         self.assertIn('warrior="Frozen"', rendered)
         self.assertIn('head=,id=212048', rendered)
         self.assertNotIn('warrior="LMonitor"', rendered)
-        self.assertIn('gear_strength=5000', rendered)
+        self.assertNotRegex(rendered, r'(?m)^\s*gear_strength\s*=')
         self.assertIn('gear_crit_rating=1000', rendered)
         self.assertIn('gear_haste_rating=2000', rendered)
         self.assertIn('gear_mastery_rating=3000', rendered)
@@ -2206,7 +2206,7 @@ html=simc_task_99.html
             },
         )
         self.assertIn('talents=ATTRIBUTE_BUILD', rendered)
-        self.assertIn('gear_strength=5000', rendered)
+        self.assertNotRegex(rendered, r'(?m)^\s*gear_strength\s*=')
         self.assertIn('crit_rating=1000', rendered)
         self.assertIn('haste_rating=2000', rendered)
         self.assertIn('mastery_rating=3000', rendered)
