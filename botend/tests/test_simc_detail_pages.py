@@ -46,6 +46,17 @@ class SimcDetailPageRoutingTests(TestCase):
 
 
 class SimcDetailPageFrontendContractTests(TestCase):
+    def test_battlenet_source_can_load_class_top_players_and_fill_armory_fields(self):
+        template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        main = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+
+        for token in ('simc-sim-bnet-class', 'simc-sim-bnet-top-player'):
+            self.assertIn(token, template)
+            self.assertIn(token, main)
+        self.assertIn('/api/simc-battlenet-top-players/', main)
+        self.assertIn('loadSimcBattlenetTopPlayers', main)
+        self.assertIn('applySimcBattlenetTopPlayer', main)
+
     def test_manual_talent_candidate_input_and_report_show_name_and_full_build(self):
         main = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
         detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')

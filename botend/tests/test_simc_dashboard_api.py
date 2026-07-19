@@ -14,7 +14,7 @@ from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
-from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, WowItemSnapshot
+from botend.models import PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, WowItemSnapshot
 
 
 class SimcWorkerBatchLifecycleTests(TestCase):
@@ -2621,6 +2621,58 @@ class SimcBattlenetPreflightTests(TestCase):
         self.user = User.objects.create_user(username='battlenet_preflight_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
+
+    def test_top_players_returns_active_season_class_top10_for_battlenet_picker(self):
+        inactive = SeasonMeta.objects.create(
+            season_key='old-season', season_name='旧赛季', is_active=False,
+            mplus_zone_id=1, raid_zone_id=1,
+        )
+        active = SeasonMeta.objects.create(
+            season_key='current-season', season_name='当前赛季', is_active=True,
+            mplus_zone_id=2, raid_zone_id=2,
+        )
+        PlayerSpecTopPlayer.objects.create(
+            season_id=inactive.id, class_name='Warrior', spec_name='Fury', rank=1,
+            score=9999, region='eu', realm='Old Realm', character_name='Oldplayer',
+        )
+        for index in range(12):
+            PlayerSpecTopPlayer.objects.create(
+                season_id=active.id,
+                class_name='Warrior' if index < 11 else 'Mage',
+                spec_name='Protection' if index == 10 else ('Fury' if index % 2 == 0 else 'Arms'),
+                rank=index + 1,
+                score=5000 - index,
+                region='EU' if index % 2 == 0 or index == 10 else 'us',
+                realm='Realm 0' if index == 10 else f'Realm {index}',
+                character_name='Player0' if index == 10 else f'Player{index}',
+            )
+
+        response = self.client.get('/api/simc-battlenet-top-players/?class_name=warrior')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertEqual(payload['class_name'], 'warrior')
+        self.assertEqual(payload['season']['id'], active.id)
+        self.assertEqual(len(payload['data']), 10)
+        identities = [(row['region'], row['realm'].casefold(), row['character'].casefold()) for row in payload['data']]
+        self.assertEqual(len(identities), len(set(identities)))
+        self.assertEqual(payload['data'][0], {
+            'id': payload['data'][0]['id'],
+            'rank': 1,
+            'score': 5000.0,
+            'spec': 'fury',
+            'region': 'eu',
+            'realm': 'Realm 0',
+            'character': 'Player0',
+            'label': 'Player0 · Realm 0 · EU · Fury',
+        })
+        self.assertNotIn('Oldplayer', [row['character'] for row in payload['data']])
+
+    def test_top_players_rejects_unknown_class(self):
+        response = self.client.get('/api/simc-battlenet-top-players/?class_name=not-a-class')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()['success'])
 
     def test_preflight_returns_fetched_character_and_simc_readiness(self):
         from unittest.mock import patch

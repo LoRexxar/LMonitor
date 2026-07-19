@@ -27,7 +27,7 @@ from botend.dashboard.api import (
     SimcTaskAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcPlayerConfigDetailAPIView,
     SimcTemplateAPIView, SimcAplCandidatesAPIView, SimcSpecOptionsAPIView, KeywordTranslationAPIView,
     OssConfigAPIView, SimcResultProxyAPIView, SimcTaskPreviewAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView,
-    SimcBattlenetPreflightAPIView,
+    SimcBattlenetPreflightAPIView, SimcBattlenetTopPlayersAPIView,
     SimcBackendBinaryAPIView, SimcWorkbenchAPIView, SimcArtifactPreviewAPIView, SimcTaskReportPreviewAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView,
     WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView,
     WowDailyReportGenerateAPIView, WagoHotfixReportListAPIView, WagoSkillDiffRerunAPIView,
@@ -125,6 +125,7 @@ urlpatterns = [
 
     path('api/simc-player-config-detail/', SimcPlayerConfigDetailAPIView.as_view(), name="simc_player_config_detail"),
     path('api/simc-battlenet-preflight/', SimcBattlenetPreflightAPIView.as_view(), name="simc_battlenet_preflight"),
+    path('api/simc-battlenet-top-players/', SimcBattlenetTopPlayersAPIView.as_view(), name="simc_battlenet_top_players"),
     path('api/simc-profile/<int:profile_id>/', SimcProfileAPIView.as_view(), name="simc_profile_detail"),
     path('api/simc-apl-candidates/', SimcAplCandidatesAPIView.as_view(), name="simc_apl_candidates"),
     path('api/simc-spec-options/', SimcSpecOptionsAPIView.as_view(), name="simc_spec_options"),

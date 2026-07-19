@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PortalPeakSpecRankRow, SimcAplKeywordPair, SimcApl, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcAplKeywordPair, SimcApl, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
 from botend.alerting import upsert_system_alert
 from django.db import models, transaction
 from core.glm import GLMClient
@@ -50,6 +50,7 @@ from botend.services.simc_player_config import (
     validate_player_baseline,
 )
 from botend.services.simc_composer import SimcComposer
+from botend.services.spec_stats_service import SpecStatsService
 from botend.services.simc_task_service import create_task, TaskCreationError
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
@@ -77,6 +78,12 @@ def _simc_spec_options():
 
 SIMC_SPEC_OPTIONS = _simc_spec_options()
 SIMC_SPEC_VALUES = frozenset(row['value'] for row in SIMC_SPEC_OPTIONS)
+SIMC_CLASS_DB_NAMES = {
+    re.sub(r'(?<!^)(?=[A-Z])', '_', class_name).lower()
+    .replace('death_knight', 'deathknight')
+    .replace('demon_hunter', 'demonhunter'): class_name
+    for class_name in CLASS_SPEC_MAP
+}
 
 
 def _canonical_simc_spec(value):
@@ -3247,6 +3254,61 @@ class SimcBattlenetPreflightAPIView(View):
         except Exception:
             logger.exception('Battle.net SimC preflight failed')
             return JsonResponse({'success': False, 'error': '获取 Battle.net 角色配置失败，请稍后重试'}, status=502)
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcBattlenetTopPlayersAPIView(View):
+    """Return current-season class leaders as reusable Battle.net identities."""
+
+    def get(self, request):
+        class_name = str(request.GET.get('class_name') or '').strip().lower()
+        db_class_name = SIMC_CLASS_DB_NAMES.get(class_name)
+        if not db_class_name:
+            return JsonResponse({'success': False, 'error': '请选择有效职业'}, status=400)
+
+        season = SpecStatsService.get_active_season()
+        if not season:
+            return JsonResponse({
+                'success': True, 'class_name': class_name, 'season': None, 'data': [],
+            })
+
+        players = PlayerSpecTopPlayer.objects.filter(
+            season_id=season.id,
+            class_name__iexact=db_class_name,
+            rank__isnull=False,
+            score__isnull=False,
+        ).order_by('-score', 'rank', 'id')
+        rows = []
+        seen_characters = set()
+        for player in players:
+            region = str(player.region or '').strip().lower()
+            identity = (
+                region,
+                str(player.realm or '').strip().casefold(),
+                str(player.character_name or '').strip().casefold(),
+            )
+            if identity in seen_characters:
+                continue
+            seen_characters.add(identity)
+            spec = re.sub(r'(?<!^)(?=[A-Z])', '_', str(player.spec_name or '')).lower()
+            rows.append({
+                'id': player.id,
+                'rank': player.rank,
+                'score': player.score,
+                'spec': spec,
+                'region': region,
+                'realm': player.realm,
+                'character': player.character_name,
+                'label': f'{player.character_name} · {player.realm} · {region.upper()} · {player.spec_name}',
+            })
+            if len(rows) == 10:
+                break
+        return JsonResponse({
+            'success': True,
+            'class_name': class_name,
+            'season': {'id': season.id, 'key': season.season_key, 'name': season.season_name},
+            'data': rows,
+        })
 
 
 @method_decorator(login_required, name='dispatch')

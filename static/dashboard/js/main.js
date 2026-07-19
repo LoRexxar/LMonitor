@@ -2645,6 +2645,79 @@ function getSimcSpecClass(spec) {
     return SIMC_SPEC_CLASS_MAP[normalizeSimcSpecKey(spec)] || '';
 }
 
+let simcBattlenetTopPlayersAbortController = null;
+
+function applySimcBattlenetTopPlayer() {
+    const select = document.getElementById('simc-sim-bnet-top-player');
+    const option = select?.selectedOptions?.[0];
+    if (!option?.value) return;
+    const region = document.getElementById('simc-sim-bnet-region');
+    const realm = document.getElementById('simc-sim-bnet-realm');
+    const character = document.getElementById('simc-sim-bnet-character');
+    if (region) region.value = option.dataset.region || '';
+    if (realm) realm.value = option.dataset.realm || '';
+    if (character) character.value = option.dataset.character || '';
+    resolveSimcPlayerSource().catch(error => {
+        if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
+    });
+}
+
+function replaceSimcBattlenetTopPlayerOptions(select, rows, placeholder) {
+    select.replaceChildren();
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = placeholder;
+    select.appendChild(empty);
+    rows.forEach(row => {
+        const option = document.createElement('option');
+        option.value = String(Number(row.id) || '');
+        option.dataset.region = String(row.region || '');
+        option.dataset.realm = String(row.realm || '');
+        option.dataset.character = String(row.character || '');
+        option.textContent = String(row.label || '');
+        select.appendChild(option);
+    });
+}
+
+async function loadSimcBattlenetTopPlayers() {
+    const classSelect = document.getElementById('simc-sim-bnet-class');
+    const playerSelect = document.getElementById('simc-sim-bnet-top-player');
+    const className = String(classSelect?.value || '');
+    simcBattlenetTopPlayersAbortController?.abort();
+    if (!playerSelect) return;
+    if (!className) {
+        playerSelect.disabled = true;
+        replaceSimcBattlenetTopPlayerOptions(playerSelect, [], '先选择职业');
+        return;
+    }
+    const controller = new AbortController();
+    simcBattlenetTopPlayersAbortController = controller;
+    playerSelect.disabled = true;
+    replaceSimcBattlenetTopPlayerOptions(playerSelect, [], '加载中...');
+    try {
+        const response = await fetch(
+            `/api/simc-battlenet-top-players/?class_name=${encodeURIComponent(className)}`,
+            { signal: controller.signal },
+        );
+        const payload = await response.json();
+        if (controller !== simcBattlenetTopPlayersAbortController || classSelect?.value !== className) return;
+        if (!response.ok || !payload.success || payload.class_name !== className) {
+            throw new Error(payload.error || '加载 Top10 角色失败');
+        }
+        const rows = Array.isArray(payload.data) ? payload.data : [];
+        replaceSimcBattlenetTopPlayerOptions(
+            playerSelect,
+            rows,
+            rows.length ? '-- 选择 Top10 角色 --' : '当前赛季暂无该职业玩家',
+        );
+        playerSelect.disabled = rows.length === 0;
+    } catch (error) {
+        if (error.name === 'AbortError' || controller !== simcBattlenetTopPlayersAbortController) return;
+        replaceSimcBattlenetTopPlayerOptions(playerSelect, [], '加载失败');
+        showMessage(String(error.message || error), 'error');
+    }
+}
+
 function switchSimcPlayerImportMode({ resolve = true } = {}) {
     const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'battlenet';
     document.getElementById('simc-sim-source-specified-spec')?.classList.toggle('hidden', type !== 'specified_spec');
@@ -3336,6 +3409,16 @@ function bindSimcWorkbenchSimulationControls() {
         source.dataset.bound = '1';
         source.addEventListener('change', switchSimcPlayerImportMode);
     });
+    const topClass = document.getElementById('simc-sim-bnet-class');
+    if (topClass && topClass.dataset.bound !== '1') {
+        topClass.dataset.bound = '1';
+        topClass.addEventListener('change', loadSimcBattlenetTopPlayers);
+    }
+    const topPlayer = document.getElementById('simc-sim-bnet-top-player');
+    if (topPlayer && topPlayer.dataset.bound !== '1') {
+        topPlayer.dataset.bound = '1';
+        topPlayer.addEventListener('change', applySimcBattlenetTopPlayer);
+    }
     ['simc-sim-bnet-region', 'simc-sim-bnet-realm', 'simc-sim-bnet-character', 'simc-sim-addon-code'].forEach(id => {
         const input = document.getElementById(id);
         if (!input || input.dataset.sourceBound === '1') return;
