@@ -498,11 +498,6 @@ class SimcMonitor(BaseScan):
                 if key in ('talent', 'talents') and not replaced:
                     lines.append(f'talents={talent}')
                     replaced = True
-                elif key == 'omnium_talents':
-                    # Addon build codes already encode the complete class/spec/hero
-                    # selection. This line is metadata for the active baseline and
-                    # must not leak into a different Saved Loadout candidate.
-                    continue
                 else:
                     lines.append(line)
             if not replaced:
