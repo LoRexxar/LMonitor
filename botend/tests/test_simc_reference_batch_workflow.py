@@ -19,6 +19,7 @@ from botend.models import (
 )
 from botend.services.simc_task_service import create_task
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+from botend.services.simc_composer import SimcComposer
 
 
 class ReferenceBatchTaskCreationServiceTests(TestCase):
@@ -460,6 +461,31 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertEqual(rerun.simulation_params['iterations'], 200)
         self.assertEqual(source.simulation_params['iterations'], 100)
 class ReferenceBatchWorkerOverrideTests(TestCase):
+    def test_candidate_composition_preserves_omnium_talents_from_addon_export(self):
+        """RED: hero-tree metadata must survive candidate talent replacement."""
+        baseline = {
+            'player_import_mode': 'manual_equipment',
+            'player_equipment': (
+                'warrior="Batcher"\nlevel=90\nspec=fury\n'
+                'talents=BASE\n'
+                'omnium_talents=136817:1/136819:1/136822:1\n'
+                'head=,id=212048\nmain_hand=,id=222222'
+            ),
+            'talent': 'BASE',
+        }
+        request = SimcMonitor.apply_candidate_overrides(
+            baseline, {
+                'candidate_type': 'talent_override',
+                'talent_override': 'CANDIDATE',
+            }
+        )
+        composer = SimcComposer(2301)
+        parsed = composer._parse_player_export(request['player_equipment'])
+        self.assertEqual(
+            parsed['talents'],
+            'talents=CANDIDATE\nomnium_talents=136817:1/136819:1/136822:1',
+        )
+
     def test_worker_applies_candidate_differences_to_runtime_request_only(self):
         baseline = {
             'player_equipment': (

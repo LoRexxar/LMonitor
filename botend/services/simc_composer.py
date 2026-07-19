@@ -1050,7 +1050,9 @@ class SimcComposer:
                     identity_lines.append(stripped)
                 elif key == 'professions':
                     identity_lines.append(stripped)
-                elif key == 'talents':
+                elif key in ('talents', 'talent', 'omnium_talents'):
+                    # Hero-tree selections are part of the talent slot and must
+                    # remain coupled to the class/spec build code.
                     talents_lines.append(stripped)
                 elif key in equipment_slots:
                     equipment_lines.append(stripped)
