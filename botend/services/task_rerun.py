@@ -8,6 +8,8 @@ For reference-based tasks:
 All tasks must have complete references (profile/template/apl + versions).
 """
 from typing import Optional, Dict, Any
+import uuid
+
 from django.db import transaction
 from botend.models import SimcTask
 from botend.services.task_resolver import is_reference_task
@@ -193,6 +195,7 @@ def _create_reference_rerun(
         # Task metadata
         batch_id=rerun_batch_id,
         candidate_label=source.candidate_label,
+        result_file=f'{uuid.uuid4().hex}.html',
         current_status=0,
         is_active=True,
         source_task_id=source.id,

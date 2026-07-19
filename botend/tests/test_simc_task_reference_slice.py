@@ -472,6 +472,26 @@ class TaskRerunWithVersionsTests(TestCase):
         self.assertEqual(rerun.template_version_id, original.template_version_id)
         self.assertEqual(rerun.apl_version_id, original.apl_version_id)
 
+    def test_rerun_allocates_a_new_task_owned_html_result_base(self):
+        """A rerun must not start without a base used for immutable Run reports."""
+        from botend.services.simc_task_service import create_task
+        from botend.services.task_rerun import create_rerun
+
+        original = create_task(
+            user_id=self.user_id,
+            name="Original",
+            profile_id=self.profile.id,
+            template_id=self.template.id,
+            apl_id=self.apl.id,
+        )
+        original.current_status = 2
+        original.save(update_fields=['current_status'])
+
+        rerun = create_rerun(original.id, user_id=self.user_id)
+
+        self.assertRegex(rerun.result_file, r'^[0-9a-f]{32}\.html$')
+        self.assertNotEqual(rerun.result_file, original.result_file)
+
     def test_rerun_with_override_generates_new_version(self):
         """RED: create_rerun with override should generate new version for overridden resource."""
         from botend.services.simc_task_service import create_task
