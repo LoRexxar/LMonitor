@@ -150,6 +150,11 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
     if profile.player_config_mode == 'manual_equipment' and player_equipment:
         from botend.services.simc_player_config import parse_simc_player_profile
         player_equipment = parse_simc_player_profile(player_equipment)['profile']['raw_player_block']
+    # A manual/addon export is already a complete SimC player block. Its
+    # legacy secondary-stat columns are UI metadata and may be zero when the
+    # values were not entered separately. Passing those zeros to Composer
+    # emits gear_*_rating=0 and deletes the ratings encoded by the items.
+    manual_export = profile.player_config_mode in ('manual_equipment', 'addon_full_export') and bool(player_equipment)
     return {
         'name': profile.name,
         'spec': profile.spec,
@@ -160,10 +165,10 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
         'player_equipment': player_equipment,
         'talent': profile.talent,
         'gear_strength': profile.gear_strength,
-        'gear_crit': profile.gear_crit,
-        'gear_haste': profile.gear_haste,
-        'gear_mastery': profile.gear_mastery,
-        'gear_versatility': profile.gear_versatility,
+        'gear_crit': None if manual_export else profile.gear_crit,
+        'gear_haste': None if manual_export else profile.gear_haste,
+        'gear_mastery': None if manual_export else profile.gear_mastery,
+        'gear_versatility': None if manual_export else profile.gear_versatility,
     }
 
 

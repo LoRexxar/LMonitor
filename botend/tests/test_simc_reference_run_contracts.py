@@ -5,13 +5,28 @@ from unittest.mock import MagicMock, patch
 from django.db import IntegrityError
 from django.test import TestCase
 
+from botend.services.simc_task_service import _build_profile_payload
+
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTaskBatch, SimulationRun
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import create_task
 
 
-class ReferenceRunContractTests(TestCase):
+class SimcReferenceRunContractTests(TestCase):
+    def test_manual_export_does_not_emit_zero_secondary_stat_overrides(self):
+        profile = SimcProfile.objects.create(
+            user_id=1, name='addon', spec='fury', player_config_mode='manual_equipment',
+            player_equipment='warrior="Tester"\nhead=,id=1\noff_hand=,id=2',
+            gear_strength=93330, gear_crit=0, gear_haste=0, gear_mastery=0,
+            gear_versatility=0,
+        )
+        payload = _build_profile_payload(profile)
+        self.assertIsNone(payload['gear_crit'])
+        self.assertIsNone(payload['gear_haste'])
+        self.assertIsNone(payload['gear_mastery'])
+        self.assertIsNone(payload['gear_versatility'])
+
     def setUp(self):
         self.user_id = 8123
         self.profile = SimcProfile.objects.create(
