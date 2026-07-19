@@ -1300,9 +1300,9 @@ class SimcMonitor(BaseScan):
             talent = str(task_config.get('talent', '')).strip()
             if talent:
                 attribute_lines.append(f'talents={talent}')
-            strength = task_config.get('gear_strength')
-            if strength not in (None, ''):
-                attribute_lines.append(f'gear_strength={strength}')
+            # Attribute optimization searches the four secondary ratings.  It
+            # must not replace the primary stat with the legacy profile value
+            # (especially zero); the equipment block remains authoritative.
             for field in ('crit', 'haste', 'mastery', 'versatility'):
                 value = task_config.get(f'gear_{field}')
                 if value not in (None, ''):

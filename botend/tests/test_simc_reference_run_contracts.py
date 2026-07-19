@@ -22,10 +22,29 @@ class SimcReferenceRunContractTests(TestCase):
             gear_versatility=0,
         )
         payload = _build_profile_payload(profile)
+        self.assertIsNone(payload['gear_strength'])
         self.assertIsNone(payload['gear_crit'])
         self.assertIsNone(payload['gear_haste'])
         self.assertIsNone(payload['gear_mastery'])
         self.assertIsNone(payload['gear_versatility'])
+
+    def test_attribute_composer_never_emits_primary_stat_override(self):
+        request = {
+            'spec': 'fury', 'player_import_mode': 'attribute_only',
+            'player_equipment': (
+                'warrior="Tester"\nlevel=80\nspec=fury\n'
+                'head=,id=1\ngear_strength=0\n'
+            ),
+            'gear_strength': 0,
+            'gear_crit': 1200, 'gear_haste': 1300,
+            'gear_mastery': 1400, 'gear_versatility': 1500,
+            'base_template_content': '{player_config}',
+            '_result_file_path': 'simc/result.html',
+        }
+        final, _manifest, error = SimcComposer(1).compose(request)
+        self.assertIsNone(error)
+        self.assertNotRegex(final, r'(?m)^\s*gear_strength\s*=')
+        self.assertIn('gear_crit_rating=1200', final)
 
     def setUp(self):
         self.user_id = 8123

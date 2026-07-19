@@ -164,7 +164,10 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
         'battlenet_character': profile.battlenet_character,
         'player_equipment': player_equipment,
         'talent': profile.talent,
-        'gear_strength': profile.gear_strength,
+        # A complete exported/manual player block already carries the primary
+        # stat through its equipment.  The legacy UI column must not become a
+        # final ``gear_strength=0`` override either.
+        'gear_strength': None if manual_export else profile.gear_strength,
         'gear_crit': None if manual_export else profile.gear_crit,
         'gear_haste': None if manual_export else profile.gear_haste,
         'gear_mastery': None if manual_export else profile.gear_mastery,
