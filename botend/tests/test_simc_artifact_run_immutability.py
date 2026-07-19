@@ -1,4 +1,5 @@
 import re
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -103,3 +104,81 @@ class SimcArtifactRunImmutabilityTests(TestCase):
             self.assertEqual((Path(base_dir) / 'static' / old_path).read_text(encoding='utf-8'), old_content)
             self.assertEqual(len({path for path, _ in generated}), 2)
             self.assertTrue(all(re.search(r'_run_\d+\.html$', path.name) for path, _ in generated))
+
+    def test_execution_failures_keep_task_owned_result_filename(self):
+        scenarios = [
+            SimpleNamespace(returncode=11, stderr='segmentation fault', stdout=''),
+            subprocess.TimeoutExpired(['/fake/simc'], 300),
+            RuntimeError('runner exploded'),
+        ]
+
+        for index, outcome in enumerate(scenarios, start=1):
+            with self.subTest(outcome=type(outcome).__name__):
+                task = self.make_task(f'failed-{index}')
+                original_result_file = task.result_file
+                with TemporaryDirectory() as base_dir:
+                    monitor = SimcMonitor(None, task)
+                    monitor.result_path = base_dir
+                    monitor.simc_path = '/fake/simc'
+                    if isinstance(outcome, SimpleNamespace):
+                        patcher = patch(
+                            'botend.controller.plugins.simc.SimcMonitor.subprocess.run',
+                            return_value=outcome,
+                        )
+                    else:
+                        patcher = patch(
+                            'botend.controller.plugins.simc.SimcMonitor.subprocess.run',
+                            side_effect=outcome,
+                        )
+                    with patcher:
+                        self.assertFalse(
+                            monitor.execute_simc_command('/tmp/failure.simc', task)
+                        )
+
+                task.refresh_from_db()
+                self.assertEqual(task.result_file, original_result_file)
+                self.assertTrue(task.result_file.endswith('.html'))
+                self.assertNotIn('\n', task.result_file)
+                self.assertTrue(task.error_detail)
+
+    def test_mark_task_failed_keeps_task_owned_result_filename(self):
+        task = self.make_task('compose-failure')
+        original_result_file = task.result_file
+
+        monitor = SimcMonitor(None, task)
+        monitor.mark_task_failed(task, 'SimC 组合失败', RuntimeError('bad input'))
+
+        task.refresh_from_db()
+        self.assertEqual(task.result_file, original_result_file)
+        self.assertEqual(task.current_status, 3)
+        self.assertIn('SimC 组合失败', task.error_detail)
+
+    def test_execute_rejects_non_basename_result_file_before_running_simc(self):
+        task = self.make_task('unsafe-result-name')
+        monitor = SimcMonitor(None, task)
+        monitor.result_path = '/tmp'
+        monitor.simc_path = '/fake/simc'
+
+        with patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as runner:
+            self.assertFalse(
+                monitor.execute_simc_command(
+                    '/tmp/input.simc', task, result_file_name='../outside.html'
+                )
+            )
+            runner.assert_not_called()
+
+    def test_execute_removes_stale_target_before_running_simc(self):
+        task = self.make_task('stale-result')
+        with TemporaryDirectory() as base_dir:
+            stale = Path(base_dir) / task.result_file
+            stale.write_text('old report', encoding='utf-8')
+            monitor = SimcMonitor(None, task)
+            monitor.result_path = base_dir
+            monitor.simc_path = '/fake/simc'
+            result = SimpleNamespace(returncode=0, stdout='', stderr='')
+            with patch(
+                'botend.controller.plugins.simc.SimcMonitor.subprocess.run',
+                return_value=result,
+            ):
+                self.assertFalse(monitor.execute_simc_command('/tmp/input.simc', task))
+            self.assertFalse(stale.exists())

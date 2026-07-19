@@ -14,6 +14,87 @@ from botend.models import SimcBackendBinary, SimcContentTemplate
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
+    def test_apply_patches_mode_builds_only_when_patch_changes_source(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        command = Command()
+        command.stdout = StringIO()
+        command.platform = 'linux64'
+        command.simc_source_dir = '/tmp/simc'
+        command.simc_build_dir = '/tmp/simc/build-cli'
+        command.simc_binary_path = '/tmp/simc/build-cli/simc'
+        command.row = mock.Mock()
+
+        with mock.patch.object(command, '_apply_local_patches', side_effect=[False, True]), \
+                mock.patch.object(command, '_binary_needs_patch_rebuild', return_value=False), \
+                mock.patch.object(command, '_update_binary') as update_binary:
+            command._apply_patches_only(threads=4)
+            update_binary.assert_not_called()
+
+            command._apply_patches_only(threads=4)
+            update_binary.assert_called_once_with(do_pull=False, threads=4, apply_patches=False)
+
+    def test_apply_patches_mode_rebuilds_when_patch_is_present_but_binary_is_stale(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        command = Command()
+        command.stdout = StringIO()
+        with mock.patch.object(command, '_apply_local_patches', return_value=False), \
+                mock.patch.object(command, '_binary_needs_patch_rebuild', return_value=True), \
+                mock.patch.object(command, '_update_binary') as update_binary:
+            self.assertTrue(command._apply_patches_only(threads=2))
+            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
+
+    def test_binary_health_requires_simulationcraft_identity(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            binary = Path(tmpdir) / 'simc'
+            binary.write_text('#!/bin/sh\nexit 0\n', encoding='utf-8')
+            binary.chmod(0o755)
+            command = Command()
+            command.simc_binary_path = str(binary)
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(Path(tmpdir) / 'none')}):
+                self.assertTrue(command._binary_needs_patch_rebuild())
+
+    def test_local_simc_patch_is_applied_once_and_then_detected_as_present(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            target = source_dir / 'warrior.cpp'
+            target.write_text('before\nbroken\nafter\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'warrior.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'],
+                cwd=source_dir,
+                check=True,
+            )
+            (patch_dir / '0001-fix.patch').write_text(
+                'diff --git a/warrior.cpp b/warrior.cpp\n'
+                '--- a/warrior.cpp\n'
+                '+++ b/warrior.cpp\n'
+                '@@ -1,3 +1,3 @@\n'
+                ' before\n'
+                '-broken\n'
+                '+fixed\n'
+                ' after\n',
+                encoding='utf-8',
+            )
+            command = Command()
+            command.stdout = StringIO()
+            command.simc_source_dir = str(source_dir)
+
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}):
+                self.assertTrue(command._apply_local_patches())
+                self.assertEqual(target.read_text(encoding='utf-8'), 'before\nfixed\nafter\n')
+                self.assertFalse(command._apply_local_patches())
+
     def test_binary_probe_uses_no_arguments_not_help_or_version(self):
         """Binary probe must invoke [simc_binary_path] with no arguments, not --help/--version."""
         with tempfile.TemporaryDirectory() as tmpdir:

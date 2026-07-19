@@ -6,11 +6,13 @@
   python manage.py update_simc_binary                 # 自动保存 tracked 改动 + git pull --rebase + 编译
   python manage.py update_simc_binary --no-pull       # 仅编译（不拉代码）
   python manage.py update_simc_binary --check         # 仅检查版本
+  python manage.py update_simc_binary --apply-patches # 有新本地补丁时才编译
   python manage.py update_simc_binary --threads 1     # 降低编译并行度
 """
 import os
 import re
 import subprocess
+import fcntl
 from datetime import datetime, timezone as datetime_timezone
 
 from django.conf import settings
@@ -31,22 +33,34 @@ class Command(BaseCommand):
         parser.add_argument('--no-pull', action='store_true', help='不执行 git pull，仅编译当前代码')
         parser.add_argument('--check', action='store_true', help='仅检查当前版本，不执行编译')
         parser.add_argument('--sync-inputs-only', action='store_true', help='仅同步默认模板和默认 APL，不执行拉取/编译')
+        parser.add_argument('--apply-patches', action='store_true', help='应用仓库补丁，仅在源码变化时编译')
         parser.add_argument('--threads', type=int, default=2, help='编译并行度（默认 2，内存不足时降低）')
 
     def handle(self, *args, **options):
-        self.platform = 'linux64'
-        self.simc_source_dir, self.simc_build_dir, self.simc_binary_path = self._resolve_paths()
-        self.row = self._get_row()
+        with open('/tmp/lmonitor-simc-update.lock', 'w') as command_lock:
+            try:
+                fcntl.flock(command_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise CommandError('另一个 SimC 更新正在运行') from exc
+            self.platform = 'linux64'
+            self.simc_source_dir, self.simc_build_dir, self.simc_binary_path = self._resolve_paths()
+            self.row = self._get_row()
 
-        if options['check']:
-            self._check_version()
-            return
-        if options['sync_inputs_only']:
-            self._sync_generated_inputs()
-            self._set_status(progress=100, status='默认模板和 APL 同步完成', error='', updating=False)
-            return
+            if options['check']:
+                self._check_version()
+                return
+            if options['sync_inputs_only']:
+                self._sync_generated_inputs()
+                self._set_status(progress=100, status='默认模板和 APL 同步完成', error='', updating=False)
+                return
+            if options['apply_patches']:
+                self._apply_patches_only(threads=max(1, int(options['threads'] or 1)))
+                return
 
-        self._update_binary(do_pull=not options['no_pull'], threads=max(1, int(options['threads'] or 1)))
+            self._update_binary(
+                do_pull=not options['no_pull'],
+                threads=max(1, int(options['threads'] or 1)),
+            )
 
     def _resolve_paths(self):
         cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
@@ -260,7 +274,82 @@ class Command(BaseCommand):
             self._fail('拉取 SimC 源码失败', detail or 'git pull --rebase 失败', progress=10)
         return result
 
-    def _update_binary(self, do_pull=True, threads=2):
+    def _apply_local_patches(self):
+        """Apply repository-owned SimC patches, skipping patches already present."""
+        cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
+        patch_dir = str(
+            cfg.get('simc_patch_dir') or os.path.join(settings.BASE_DIR, 'simc_patches')
+        )
+        if not os.path.isdir(patch_dir):
+            return False
+
+        changed = False
+        for patch_name in sorted(name for name in os.listdir(patch_dir) if name.endswith('.patch')):
+            patch_path = os.path.join(patch_dir, patch_name)
+            check = subprocess.run(
+                ['git', 'apply', '--check', patch_path],
+                cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+            )
+            if check.returncode == 0:
+                applied = subprocess.run(
+                    ['git', 'apply', patch_path],
+                    cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+                )
+                if applied.returncode != 0:
+                    detail = (applied.stderr or applied.stdout or '').strip()[-1000:]
+                    self._fail(
+                        f'应用 SimC 补丁失败 {patch_name}',
+                        detail or f'git apply 失败: {patch_name}',
+                        progress=20,
+                    )
+                self.stdout.write(f'应用 SimC 补丁 {patch_name}')
+                changed = True
+                continue
+
+            reverse = subprocess.run(
+                ['git', 'apply', '--reverse', '--check', patch_path],
+                cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+            )
+            if reverse.returncode == 0:
+                continue
+            detail = (check.stderr or check.stdout or '').strip()[-1000:]
+            self._fail(
+                f'SimC 补丁冲突 {patch_name}',
+                detail or f'无法应用或识别 SimC 补丁: {patch_name}',
+                progress=20,
+            )
+        return changed
+
+    def _apply_patches_only(self, threads=2):
+        changed = self._apply_local_patches()
+        if not changed and not self._binary_needs_patch_rebuild():
+            self.stdout.write('SimC 本地补丁已存在，无需重新编译')
+            return False
+        self._update_binary(do_pull=False, threads=threads, apply_patches=False)
+        return True
+
+    def _binary_needs_patch_rebuild(self):
+        """Recover from a missing/stale/broken binary after a prior patch application."""
+        if not os.path.isfile(self.simc_binary_path):
+            return True
+        cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
+        patch_dir = str(
+            cfg.get('simc_patch_dir') or os.path.join(settings.BASE_DIR, 'simc_patches')
+        )
+        binary_mtime = os.path.getmtime(self.simc_binary_path)
+        if os.path.isdir(patch_dir):
+            for patch_name in os.listdir(patch_dir):
+                if patch_name.endswith('.patch') and os.path.getmtime(
+                    os.path.join(patch_dir, patch_name)
+                ) > binary_mtime:
+                    return True
+        try:
+            result, output = self._probe_binary(self.simc_binary_path)
+        except (OSError, subprocess.SubprocessError):
+            return True
+        return result.returncode != 0 or 'simulationcraft' not in str(output or '').lower()
+
+    def _update_binary(self, do_pull=True, threads=2, apply_patches=True):
         self._set_status(progress=1, status='准备更新 SimC', error='', updating=True)
         try:
             if not os.path.isdir(self.simc_source_dir):
@@ -270,6 +359,9 @@ class Command(BaseCommand):
                 self._preserve_tracked_changes_before_pull()
                 result = self._pull_rebase()
                 self.stdout.write((result.stdout or '').strip())
+
+            if apply_patches:
+                self._apply_local_patches()
 
             version = self._get_git_version()
             self.stdout.write(f'编译版本: {version}')

@@ -1,0 +1,8 @@
+--- a/engine/class_modules/sc_warrior.cpp
++++ b/engine/class_modules/sc_warrior.cpp
+@@ -4009,4 +4009,4 @@
+-    if ( p()->talents.mountain_thane.flashing_skies->ok() )
++    if ( p()->talents.mountain_thane.flashing_skies->ok() && lightning_strike )
+     {
+       lightning_strike->execute();
+     }

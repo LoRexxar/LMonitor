@@ -15,5 +15,11 @@ class SimcWorkerIntegrationTests(SimpleTestCase):
             script = handle.read()
         self.assertIn("screen -S lmsimc -X quit", script)
         self.assertIn("screen -dmS lmsimc", script)
-        self.assertIn("python3 manage.py simc_worker", script)
+        self.assertIn("manage.py simc_worker", script)
         self.assertIn("lmweb|lmback|lmsimc", script)
+        self.assertIn("manage.py update_simc_binary --apply-patches", script)
+        self.assertIn("flock -n 9", script)
+        self.assertLess(
+            script.index("screen -S lmsimc -X quit"),
+            script.index("manage.py update_simc_binary --apply-patches"),
+        )

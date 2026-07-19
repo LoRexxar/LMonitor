@@ -283,12 +283,6 @@ class SimcMonitor(BaseScan):
             if exc is not None:
                 detail = f"{detail}\n异常信息: {str(exc)}"
 
-            current_result = str(simc_task.result_file or "").strip()
-            has_existing_error = bool(current_result) and not current_result.endswith('.html')
-            should_overwrite = overwrite_when_has_error or (not has_existing_error)
-            if should_overwrite:
-                simc_task.result_file = detail
-
             if exc is not None:
                 self.save_simc_error_details(
                     simc_task,
@@ -891,17 +885,21 @@ class SimcMonitor(BaseScan):
                 target_result_file = result_filename_for_run(simc_task, active_run) or ''
             else:
                 target_result_file = str(result_file_name or simc_task.result_file or '').strip()
-            if not target_result_file or not target_result_file.endswith('.html'):
+            if (
+                not target_result_file
+                or not target_result_file.endswith('.html')
+                or os.path.basename(target_result_file) != target_result_file
+                or '/' in target_result_file
+                or '\\' in target_result_file
+                or '\n' in target_result_file
+            ):
                 raise RuntimeError('SimC任务未配置唯一 HTML 结果文件')
             result_file_path = os.path.join(self.result_path, target_result_file)
+            if os.path.isfile(result_file_path):
+                os.remove(result_file_path)
             cmd = [self.simc_path, simc_file_path, f'html={result_file_path}']
             
             logger.info(f"[SimC Monitor] Executing command: {' '.join(cmd)}")
-            
-            # 记录执行前的 HTML 文件，用于后续检测 SimC 生成的新文件
-            existing_htmls = set(
-                f for f in os.listdir(self.result_path) if f.endswith('.html')
-            )
             
             # 执行命令
             result = subprocess.run(
@@ -957,7 +955,8 @@ class SimcMonitor(BaseScan):
                 logger.error(f"[SimC Monitor] SimC execution failed for task {simc_task.id}")
                 logger.error(f"[SimC Monitor] Return code: {result.returncode}")
                 
-                # 构建错误信息并直接存储到result_file字段
+                # Error details belong to error_detail/ext. result_file remains a
+                # task-owned HTML filename so retries and diagnostics stay valid.
                 error_info = f"SimC执行失败\n返回码: {result.returncode}\n"
                 if result.stderr:
                     logger.error(f"[SimC Monitor] Error output: {result.stderr}")
@@ -965,8 +964,6 @@ class SimcMonitor(BaseScan):
                 if result.stdout:
                     error_info += f"标准输出: {result.stdout}\n"
                 
-                # Preserve legacy result_file visibility while writing the canonical error field.
-                simc_task.result_file = error_info
                 simc_task.error_detail = error_info
                 self.save_simc_error_details(
                     simc_task,
@@ -981,8 +978,6 @@ class SimcMonitor(BaseScan):
         except subprocess.TimeoutExpired:
             error_info = f"SimC执行超时\n任务ID: {simc_task.id}\n超时时间: 300秒"
             logger.error(f"[SimC Monitor] SimC execution timeout for task {simc_task.id}")
-            # Preserve legacy result_file visibility while writing the canonical error field.
-            simc_task.result_file = error_info
             simc_task.error_detail = error_info
             self.save_simc_error_details(
                 simc_task,
@@ -993,8 +988,6 @@ class SimcMonitor(BaseScan):
         except Exception as e:
             error_info = f"SimC执行异常\n任务ID: {simc_task.id}\n异常信息: {str(e)}"
             logger.error(f"[SimC Monitor] Error executing SimC command: {str(e)}")
-            # Preserve legacy result_file visibility while writing the canonical error field.
-            simc_task.result_file = error_info
             simc_task.error_detail = error_info
             self.save_simc_error_details(
                 simc_task,
