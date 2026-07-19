@@ -19,16 +19,20 @@ echo "=== 1. Git pull ==="
 GIT_MERGE_AUTOEDIT=no git pull origin master
 
 echo "=== 2. Migrate ==="
-python3 manage.py migrate --no-input
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if [ -x .venv/bin/python ]; then
+    PYTHON_BIN=".venv/bin/python"
+fi
+"$PYTHON_BIN" manage.py migrate --no-input
 
 echo "=== 3. Collectstatic ==="
-python3 manage.py collectstatic --no-input
+"$PYTHON_BIN" manage.py collectstatic --no-input
 
 echo "=== 4. 重启 lmweb ==="
 screen -S lmweb -X quit 2>/dev/null || true
 kill_processes 'manage.py runserver 0.0.0.0:18000'
 sleep 2
-screen -dmS lmweb bash -lc 'cd ~/LMonitor && python3 manage.py runserver 0.0.0.0:18000'
+screen -dmS lmweb bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py runserver 0.0.0.0:18000"
 
 echo "=== 5. 重启 lmback ==="
 screen -S lmback -X quit 2>/dev/null || true
@@ -40,7 +44,7 @@ echo "=== 6. 重启 lmsimc ==="
 screen -S lmsimc -X quit 2>/dev/null || true
 kill_processes 'manage.py simc_worker'
 sleep 2
-screen -dmS lmsimc bash -lc 'cd ~/LMonitor && python3 manage.py simc_worker'
+screen -dmS lmsimc bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py simc_worker"
 
 echo "=== 7. 检查 screen 会话 ==="
 screen -list | grep -E '\.(lmweb|lmback|lmsimc)'
