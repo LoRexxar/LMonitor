@@ -395,6 +395,7 @@ function initNavigation() {
                 }
                 if (sectionId === 'simc-workbench') {
                     switchSimcWorkbenchL1Tab('workflow');
+                    switchSimcPlayerImportMode();
                 }
             }
         });
