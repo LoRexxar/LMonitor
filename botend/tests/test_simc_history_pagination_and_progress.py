@@ -300,6 +300,37 @@ class SimcHistoryBackendPaginationTests(TestCase):
         data = json.loads(self.view.get(request, resource='batches').content)
         self.assertEqual(data['data'][0]['percent'], 50)
 
+    def test_batch_detail_ranks_only_completed_candidates_and_marks_baseline(self):
+        batch = SimcTaskBatch.objects.create(
+            user_id=self.user.id, name='候选对比', batch_type='comparison', status=3, is_active=True,
+        )
+        baseline = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, batch=batch,
+            name='基准配置', candidate_label='基准配置', current_status=2,
+            mode_params={'is_base': True}, result_summary='{"dps": 1000}', is_active=True,
+        )
+        winner = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, batch=batch,
+            name='候选 A', candidate_label='候选 A', current_status=2,
+            mode_params={'is_base': False}, result_summary='{"dps": 1100}', is_active=True,
+        )
+        failed = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, batch=batch,
+            name='失败候选', candidate_label='失败候选', current_status=3,
+            mode_params={'is_base': False}, result_summary='{"dps": 1200}', is_active=True,
+        )
+
+        request = self.factory.get(f'/api/simc-workbench/batches/{batch.id}/')
+        request.user = self.user
+        data = json.loads(self.view.get(request, resource='batches', object_id=batch.id).content)['data']
+        rows = {row['id']: row for row in data['ranking']}
+
+        self.assertTrue(rows[baseline.id]['is_base'])
+        self.assertIsNone(rows[baseline.id]['rank'])
+        self.assertEqual(rows[winner.id]['rank'], 1)
+        self.assertFalse(rows[failed.id]['is_complete'])
+        self.assertIsNone(rows[failed.id]['rank'])
+
     def test_batch_list_query_count_does_not_grow_per_batch(self):
         for index in range(6):
             batch = SimcTaskBatch.objects.create(

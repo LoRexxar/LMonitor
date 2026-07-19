@@ -2172,12 +2172,14 @@ class SimcBatchTaskAPIView(View):
                 from botend.services.simc_player_config import parse_manual_simc_candidates
                 parsed = parse_manual_simc_candidates(player_equipment)
                 base_talent = parsed.get('base_talent') or ''
-                specs.append({'label': '基准配置', 'is_base': True, 'player_equipment': player_equipment, 'talent': base_talent, 'candidate': {'type': 'base'}})
+                include_base = data.get('include_base', True) is not False
+                if include_base:
+                    specs.append({'label': '基准配置', 'is_base': True, 'player_equipment': player_equipment, 'talent': base_talent, 'candidate': {'type': 'base'}})
                 submitted = data.get('candidates') or []
                 if not isinstance(submitted, list) or not submitted:
                     raise ValueError('请至少选择一个可信候选')
-                if len(submitted) + 1 > self.MAX_TASKS:
-                    raise ValueError(f'每批最多{self.MAX_TASKS}个任务（含基准）')
+                if len(submitted) + (1 if include_base else 0) > self.MAX_TASKS:
+                    raise ValueError(f'每批最多{self.MAX_TASKS}个任务')
                 if kind == 'gear_candidates':
                     trusted = {(row['slot'], row['item_id'], row['source']): row for row in parsed['gear_candidates']}
                     for candidate in submitted:
@@ -2253,8 +2255,8 @@ class SimcBatchTaskAPIView(View):
                             raise ValueError('基准玩家块未包含 talents 行，无法创建天赋对比')
                         specs.append({'label': row['name'] or '候选天赋', 'is_base': False, 'player_equipment': '\n'.join(lines), 'talent': talent, 'candidate': {'type': 'talent', 'talent': talent, 'source': row['source']}})
 
-            if len(specs) < 2:
-                raise ValueError('可生成的比较任务不足2个；请提高可转移绿字或选择候选')
+            if not specs:
+                raise ValueError('请至少选择一个可模拟方案')
             created = []
             with transaction.atomic():
                 if transient_profile:
@@ -6047,13 +6049,18 @@ class SimcWorkbenchAPIView(View):
                 for member in member_tasks:
                     summary = self._task_row(member).get('result_summary') or {}
                     dps = summary.get('dps')
+                    mode_params = member.mode_params if isinstance(member.mode_params, dict) else {}
+                    is_base = mode_params.get('is_base') is True or member.candidate_label == '基准配置'
+                    is_complete = member.current_status == 2 and isinstance(dps, (int, float))
                     ranking.append({
                         'id': member.id, 'name': member.name,
                         'label': member.candidate_label or member.name,
                         'dps': dps if isinstance(dps, (int, float)) else None,
+                        'is_base': is_base,
+                        'is_complete': is_complete,
                     })
                 ranked = sorted(
-                    (item for item in ranking if item['dps'] is not None),
+                    (item for item in ranking if item['is_complete'] and not item['is_base']),
                     key=lambda item: (-item['dps'], item['id']),
                 )
                 rank_by_id = {item['id']: index for index, item in enumerate(ranked, 1)}

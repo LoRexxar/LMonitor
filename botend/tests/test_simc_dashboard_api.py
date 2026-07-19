@@ -2428,6 +2428,7 @@ main_hand=,id=222
 ''')
         response = self.client.post('/api/simc-task/batch/', data=json.dumps({
             'kind': 'gear_candidates', 'name': 'Fury 手工装备对比',
+            'include_base': False,
             'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
@@ -2439,7 +2440,8 @@ main_hand=,id=222
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
-        candidate = SimcTask.objects.exclude(mode_params__candidate_type='base').get()
+        self.assertEqual(SimcTask.objects.count(), 1)
+        candidate = SimcTask.objects.get()
         self.assertEqual(candidate.mode_params['gear_swap'], {
             'slot': 'head', 'raw_value': ',id=444,ilevel=650',
             'item_id': 444, 'source': 'manual',

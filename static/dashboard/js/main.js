@@ -2949,8 +2949,9 @@ function updateSimcComparisonSimulationCount() {
         count.innerHTML = '<span class="text-amber-700">装备与天赋需要分别模拟，请只勾选一种类型</span>';
         return;
     }
-    const total = 1 + selected.length;
-    count.innerHTML = `预计模拟 <strong class="text-lg text-violet-700">${total}</strong> 次 <span class="text-gray-500">（当前配置 1 次 + 对比方案 ${selected.length} 次）</span>`;
+    const baseSelected = document.querySelector('.simc-comparison-current:checked') ? 1 : 0;
+    const total = baseSelected + selected.length;
+    count.innerHTML = `预计模拟 <strong class="text-lg text-violet-700">${total}</strong> 次`;
 }
 
 function renderSimcComparisonCandidates(comparison, equipment = null) {
@@ -2967,21 +2968,24 @@ function renderSimcComparisonCandidates(comparison, equipment = null) {
         const name = row.display_name || row.name || `${labels[slot] || slot} #${row.id || row.item_id || '-'}`;
         const itemId = Number(row.id || row.item_id) || 0;
         const itemLevel = row.item_level ? `<span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">ilvl ${Number(row.item_level)}</span>` : '';
-        const source = row.source ? `<span class="text-[10px] text-gray-400">${escapeHtml(row.source)}</span>` : '';
-        if (current) return `<label data-candidate-card="base" class="flex cursor-default items-start gap-3 rounded-lg border-2 border-emerald-300 bg-emerald-50 p-3"><input type="checkbox" checked disabled class="simc-comparison-current mt-1 accent-emerald-600"><span class="min-w-0 flex-1"><span class="mb-1 flex items-center gap-2"><strong class="text-xs text-emerald-800">当前配置</strong>${itemLevel}</span><span class="block text-sm font-medium text-gray-900">${escapeHtml(name)}</span><span class="text-[10px] text-gray-400">物品 #${itemId || '-'}</span></span></label>`;
-        return `<label data-candidate-card="alternative" class="flex cursor-pointer items-start gap-3 rounded-lg border border-violet-200 bg-white p-3 transition hover:border-violet-400 hover:bg-violet-50"><input class="simc-comparison-candidate mt-1 accent-violet-600" type="checkbox" data-kind="gear_candidates" data-slot="${escapeHtml(row.slot || slot)}" data-item-id="${Number(row.item_id) || 0}" data-source="${escapeHtml(row.source || '')}" data-raw-value="${escapeHtml(row.raw_value || '')}" data-name="${escapeHtml(name)}"><span class="min-w-0 flex-1"><span class="mb-1 flex items-center gap-2"><strong class="text-xs text-violet-700">对比方案</strong>${itemLevel}</span><span class="block text-sm font-medium text-gray-900">${escapeHtml(name)}</span><span class="flex justify-between gap-2"><span class="text-[10px] text-gray-400">物品 #${Number(row.item_id) || '-'}</span>${source}</span></span></label>`;
+        if (current) return `<label data-candidate-card="base" data-candidate-item-row class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5"><input type="checkbox" checked class="simc-comparison-current accent-emerald-600"><span class="min-w-0 flex-1 truncate text-xs font-medium text-gray-900">${escapeHtml(name)}</span>${itemLevel}</label>`;
+        return `<label data-candidate-card="alternative" data-candidate-item-row class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md border border-violet-200 bg-white px-2 py-1.5 transition hover:border-violet-400 hover:bg-violet-50"><input class="simc-comparison-candidate accent-violet-600" type="checkbox" data-kind="gear_candidates" data-slot="${escapeHtml(row.slot || slot)}" data-item-id="${Number(row.item_id) || 0}" data-source="${escapeHtml(row.source || '')}" data-raw-value="${escapeHtml(row.raw_value || '')}" data-name="${escapeHtml(name)}"><span class="min-w-0 flex-1 truncate text-xs font-medium text-gray-900">${escapeHtml(name)}</span>${itemLevel}</label>`;
     };
     const gearCards = orderedSlots.map(slot => {
         const current = currentBySlot[slot];
         const alternatives = candidatesBySlot[slot] || [];
-        return `<section data-candidate-slot-group="${escapeHtml(slot)}" class="overflow-hidden rounded-xl border border-gray-200 bg-slate-50"><div class="flex items-center justify-between border-b border-gray-200 bg-white px-3 py-2"><div class="text-sm font-semibold text-gray-800">${escapeHtml(labels[slot] || slot)}</div><div class="text-[11px] text-gray-400">${alternatives.length} 个可选方案</div></div><div class="grid gap-2 p-3 md:grid-cols-2">${current ? itemCard(current, slot, true) : '<div class="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3 text-xs text-amber-700">当前配置未解析到此部位</div>'}${alternatives.map(row => itemCard(row, slot)).join('')}</div></section>`;
+        return `<section data-candidate-slot-group="${escapeHtml(slot)}" class="overflow-hidden rounded-lg border border-gray-200 bg-slate-50"><div class="flex items-center justify-between border-b border-gray-200 bg-white px-2.5 py-1.5"><div class="text-xs font-semibold text-gray-700">${escapeHtml(labels[slot] || slot)}</div><div class="text-[10px] text-gray-400">${alternatives.length} 个候选</div></div><div class="grid gap-1.5 p-2 sm:grid-cols-2 lg:grid-cols-3">${current ? itemCard(current, slot, true) : '<div class="rounded border border-dashed border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-700">未解析到已装备物品</div>'}${alternatives.map(row => itemCard(row, slot)).join('')}</div></section>`;
     }).join('');
     const talentRows = talents.map(row => `<label data-candidate-card="talent" class="flex cursor-pointer gap-3 rounded-lg border border-violet-200 bg-white p-3 text-xs hover:border-violet-400"><input class="simc-comparison-candidate mt-0.5 accent-violet-600" type="checkbox" data-kind="talent_candidates" data-talent="${escapeHtml(row.talent || '')}" data-source="${escapeHtml(row.source || '')}"><span><strong class="block text-gray-900">${escapeHtml(row.name || '候选天赋')}</strong><span class="text-gray-400">勾选后作为独立天赋方案模拟</span></span></label>`).join('');
     const slotOptions = Object.entries(labels).map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
-    container.innerHTML = `<div class="flex flex-wrap items-start justify-between gap-3"><div><div class="font-semibold text-gray-900">候选对比</div><p class="mt-1 text-xs text-gray-500">每个部位先展示已勾选的当前配置，再勾选需要对比的其他方案。</p></div><div id="simc-comparison-simulation-count" class="rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs"></div></div><div class="mt-4 grid gap-3">${gearCards || '<p class="text-xs text-gray-500">尚无已解析装备，可在下方手工加入装备对比项。</p>'}</div>${talentRows ? `<section class="mt-4 rounded-xl border border-gray-200 bg-slate-50 p-3"><div class="mb-2 text-sm font-semibold">天赋方案</div><div class="grid gap-2 md:grid-cols-2">${talentRows}</div></section>` : ''}<div class="mt-4 rounded-xl border border-dashed border-violet-300 bg-white p-3"><div class="text-xs font-semibold">新增装备对比项</div><div class="mt-2 flex flex-col gap-2 sm:flex-row"><select id="simc-comparison-add-slot" class="rounded border p-2 text-xs">${slotOptions}</select><input id="simc-comparison-add-line" class="min-w-0 flex-1 rounded border p-2 font-mono text-xs" placeholder="head=,id=249952,ilevel=650"><button type="button" id="simc-comparison-add-btn" class="rounded bg-violet-600 px-3 py-2 text-xs text-white">加入对比</button></div></div>`;
+    container.innerHTML = `<div><div class="font-semibold text-gray-900">候选对比</div><p class="mt-1 text-xs text-gray-500">已装备物品默认勾选；取消任意一个已装备物品会同步取消整套基准模拟。</p></div><div class="mt-3 grid gap-2">${gearCards || '<p class="text-xs text-gray-500">尚无已解析装备，可在下方手工加入装备对比项。</p>'}</div>${talentRows ? `<section class="mt-4 rounded-xl border border-gray-200 bg-slate-50 p-3"><div class="mb-2 text-sm font-semibold">天赋方案</div><div class="grid gap-2 md:grid-cols-2">${talentRows}</div></section>` : ''}<div class="mt-4 rounded-xl border border-dashed border-violet-300 bg-white p-3"><div class="text-xs font-semibold">新增装备对比项</div><div class="mt-2 flex flex-col gap-2 sm:flex-row"><select id="simc-comparison-add-slot" class="rounded border p-2 text-xs">${slotOptions}</select><input id="simc-comparison-add-line" class="min-w-0 flex-1 rounded border p-2 font-mono text-xs" placeholder="head=,id=249952,ilevel=650"><button type="button" id="simc-comparison-add-btn" class="rounded bg-violet-600 px-3 py-2 text-xs text-white">加入对比</button></div></div>`;
     container.classList.toggle('hidden', document.getElementById('simc-sim-mode')?.value !== 'comparison');
     document.getElementById('simc-comparison-add-btn')?.addEventListener('click', addSimcManualComparisonCandidate);
     container.querySelectorAll('.simc-comparison-candidate').forEach(input => input.addEventListener('change', updateSimcComparisonSimulationCount));
+    container.querySelectorAll('.simc-comparison-current').forEach(input => input.addEventListener('change', event => {
+        container.querySelectorAll('.simc-comparison-current').forEach(peer => { peer.checked = event.target.checked; });
+        updateSimcComparisonSimulationCount();
+    }));
     updateSimcComparisonSimulationCount();
 }
 
@@ -3014,6 +3018,7 @@ function updateSimcHomeMode() {
     if (options) options.textContent = descriptions[mode] || '';
     const candidates = document.getElementById('simc-sim-comparison-candidates');
     if (candidates) candidates.classList.toggle('hidden', mode !== 'comparison' || !candidates.innerHTML.trim());
+    document.getElementById('simc-comparison-simulation-count')?.classList.toggle('hidden', mode !== 'comparison');
 }
 
 async function refreshSimcPlayerDetail() {
@@ -3124,6 +3129,7 @@ async function startSelectedSimcCandidateComparisons() {
     catch (error) { showMessage(String(error.message || error), 'warning'); return; }
     const { simc_profile_id, base_template_id, selected_apl_id } = references;
     const selected = Array.from(document.querySelectorAll('.simc-comparison-candidate:checked'));
+    const include_base = Boolean(document.querySelector('.simc-comparison-current:checked'));
     if (!selected.length) { showMessage('请至少选择一个候选', 'warning'); return; }
     const kinds = [...new Set(selected.map(element => element.dataset.kind))];
     if (kinds.length !== 1) { showMessage('装备与天赋候选请分别创建 Batch', 'warning'); return; }
@@ -3141,7 +3147,7 @@ async function startSelectedSimcCandidateComparisons() {
             body: JSON.stringify({
                 kind, name: `${simcResolvedCanonicalSpec || 'SimC'} 候选对比`,
                 spec: simcResolvedCanonicalSpec,
-                simc_profile_id, base_template_id, selected_apl_id, candidates,
+                simc_profile_id, base_template_id, selected_apl_id, candidates, include_base,
                 ...currentSimcScenario(),
             }),
         });

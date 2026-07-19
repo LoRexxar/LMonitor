@@ -78,6 +78,37 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         ):
             self.assertIn(token, WORKFLOW + SIM)
 
+    def test_comparison_rows_are_compact_and_baseline_is_optional(self):
+        editor = SIM[SIM.index("function updateSimcComparisonSimulationCount"):SIM.index("function addSimcManualComparisonCandidate")]
+        submit = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function stopSimcCandidateComparisonPolling")]
+        self.assertIn('simc-comparison-current', editor)
+        self.assertNotIn('disabled class="simc-comparison-current', editor)
+        self.assertNotIn('当前配置</strong>', editor)
+        self.assertIn('data-candidate-item-row', editor)
+        self.assertIn('include_base', submit)
+        self.assertIn(".simc-comparison-current:checked", submit)
+
+    def test_comparison_count_is_beside_submit_button(self):
+        submit_index = WORKFLOW.index('id="simc-sim-submit-btn"')
+        count_index = WORKFLOW.index('id="simc-comparison-simulation-count"')
+        self.assertLess(abs(submit_index - count_index), 900)
+        render = SIM[SIM.index("function updateSimcComparisonSimulationCount"):SIM.index("function renderSimcComparisonCandidates")]
+        self.assertIn("baseSelected", render)
+        self.assertIn("baseSelected + selected.length", render)
+
+    def test_batch_detail_has_visual_comparison_and_attribute_analysis(self):
+        for token in (
+            'comparison-hero', 'comparison-winner', 'comparison-delta',
+            'comparison-baseline', 'deltaPercent', '结果不完整',
+            'attribute-landscape', 'attribute-stat-delta',
+            '搜索轨迹', '推荐属性',
+        ):
+            self.assertIn(token, DETAIL)
+        self.assertNotIn('dps-bar', DETAIL)
+        self.assertIn('Number.isFinite(deltaPercent)', DETAIL)
+        self.assertIn(': NaN;\n      const deltaPercent', DETAIL)
+        self.assertNotIn("Number.isFinite(Number(delta)) ?", DETAIL)
+
     def test_rerun_form_has_full_whitelisted_reference_and_simulation_controls(self):
         start = WB.index("async function renderTaskRerunForm")
         end = WB.index("async function submitTaskRerun", start)

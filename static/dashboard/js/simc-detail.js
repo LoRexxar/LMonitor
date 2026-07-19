@@ -65,12 +65,34 @@
 
   function renderBatch(row) {
     const members = Array.isArray(row.tasks) ? row.tasks : [];
-    const ranking = Array.isArray(row.ranking) ? [...row.ranking].sort((a, b) => (a.rank || 9999) - (b.rank || 9999)) : [];
+    const ranking = Array.isArray(row.ranking) ? [...row.ranking] : [];
+    const attribute = row.attribute_report || null;
+    const isAttribute = row.batch_type === 'attribute_sweep' && attribute;
+    const baseline = ranking.find(item => item.is_base === true) || null;
+    const candidates = ranking.filter(item => item.is_base !== true).sort((a, b) => (a.rank || 9999) - (b.rank || 9999));
+    const baselineDps = baseline?.is_complete === true ? Number(baseline.dps) : NaN;
+    const signed = amount => Number.isFinite(Number(amount)) ? `${Number(amount) > 0 ? '+' : ''}${number(amount)}` : '—';
     const memberRows = members.map(member => `<tr><td><a href="/dashboard/simc/tasks/${member.id}/">${value(member.name, `任务 #${member.id}`)}</a></td><td>${value(member.status_label || member.status)}</td><td>${value(member.updated_at)}</td></tr>`).join('');
-    const rankRows = ranking.map(item => `<tr><td>${value(item.rank)}</td><td><a href="/dashboard/simc/tasks/${item.id}/">${value(item.label || item.name)}</a></td><td class="right">${number(item.dps)}</td></tr>`).join('');
-    root.innerHTML = `<section class="hero"><span class="pill">${statusClass(row)}</span><h1>${value(row.name, `批次 #${objectId}`)}</h1><div class="hero-meta"><span class="pill">${number(row.percent)}% 完成</span><span class="pill">${number(row.total)} 个成员</span><span class="pill">更新 ${value(row.updated_at)}</span></div></section><div class="grid">
+    const baselinePanel = baseline ? `<section class="comparison-baseline"><div><span>当前 Profile 基线</span><a href="/dashboard/simc/tasks/${baseline.id}/">${value(baseline.label || baseline.name)}</a></div><b>${baseline.is_complete === true ? number(baseline.dps) : '结果不完整'}</b></section>` : '<section class="comparison-baseline muted">本批次未包含 Profile 基线</section>';
+    const rankRows = candidates.map(item => {
+      const complete = item.is_complete === true && Number.isFinite(Number(item.dps));
+      const delta = complete && Number.isFinite(baselineDps) ? Number(item.dps) - baselineDps : NaN;
+      const deltaPercent = Number.isFinite(delta) && baselineDps !== 0 ? delta / baselineDps * 100 : NaN;
+      const deltaText = Number.isFinite(deltaPercent) ? `${signed(delta)} (${deltaPercent > 0 ? '+' : ''}${deltaPercent.toFixed(2)}%)` : '—';
+      return `<tr class="${item.rank === 1 ? 'rank-winner comparison-winner' : ''} ${complete ? '' : 'rank-incomplete'}"><td><span class="rank-medal">${complete ? (item.rank === 1 ? '🥇' : value(item.rank)) : '—'}</span></td><td><a href="/dashboard/simc/tasks/${item.id}/">${value(item.label || item.name)}</a>${complete ? '' : '<small class="incomplete-label">结果不完整，不参与排名</small>'}</td><td class="right"><b>${complete ? number(item.dps) : '—'}</b></td><td class="right delta comparison-delta ${Number(delta) > 0 ? 'positive' : Number(delta) < 0 ? 'negative' : ''}">${deltaText}</td></tr>`;
+    }).join('');
+    const recommendation = attribute?.recommendation || null;
+    const initial = attribute?.initial_ratings || {};
+    const statLabels = {crit_rating:'暴击',haste_rating:'急速',mastery_rating:'精通',versatility_rating:'全能'};
+    const attributeChanges = recommendation ? Object.entries(recommendation.ratings || {}).map(([key, rating]) => { const delta = Number(rating) - Number(initial[key] || 0); return `<div class="attribute-change attribute-stat-delta"><span>${value(statLabels[key] || key)}</span><b>${number(rating)}</b><em class="${delta > 0 ? 'positive' : delta < 0 ? 'negative' : ''}">${signed(delta)}</em></div>`; }).join('') : '';
+    const searchTrail = Array.isArray(attribute?.history) ? attribute.history : [];
+    const trailRows = searchTrail.slice(-8).map((step, index) => `<span>第 ${index + 1} 步 · ${number(step.dps)}</span>`).join('');
+    const attributePanel = isAttribute ? `<section class="card wide attribute-report attribute-landscape"><div class="report-kicker">ATTRIBUTE OPTIMIZATION</div><h2>属性寻优结论</h2><div class="report-summary"><div><span>推荐 DPS</span><b>${number(recommendation?.dps)}</b></div><div><span>搜索轮次</span><b>${number(attribute.rounds_completed)} / ${number(attribute.current_round)}</b></div><div><span>步进粒度</span><b>${number(attribute.step)}</b></div><div><span>结论</span><b>${attribute.local_optimum ? '局部最优' : '继续搜索'}</b></div></div><h3>推荐属性</h3><div class="attribute-grid">${attributeChanges || '<p class="muted">等待候选完成后生成属性变化。</p>'}</div><h3>搜索轨迹</h3><div class="search-trail">${trailRows || '<span class="muted">暂无轨迹数据</span>'}</div></section>` : '';
+    root.innerHTML = `<section class="hero ${isAttribute ? 'attribute-hero' : 'comparison-hero'}"><span class="pill">${statusClass(row)}</span><div class="report-kicker">${isAttribute ? '属性寻优报告' : '候选对比报告'}</div><h1>${value(row.name, `批次 #${objectId}`)}</h1><div class="hero-meta"><span class="pill">${number(row.percent)}% 完成</span><span class="pill">${number(row.total)} 个成员</span><span class="pill">更新 ${value(row.updated_at)}</span></div></section><div class="grid">
       ${card('批次进度', `<div class="metrics"><div class="metric"><span>成功</span><b>${number(row.succeeded)}</b></div><div class="metric"><span>运行</span><b>${number(row.running)}</b></div><div class="metric"><span>等待</span><b>${number(row.pending)}</b></div><div class="metric"><span>失败</span><b>${number(row.failed)}</b></div></div>`, true)}
-      ${card('DPS 排名', `<div class="table-scroll"><table><thead><tr><th>排名</th><th>候选角色 / 方案</th><th class="right">DPS</th></tr></thead><tbody>${rankRows || '<tr><td colspan="3" class="empty">暂无可排名结果</td></tr>'}</tbody></table></div>`, true)}
+      ${attributePanel}
+      ${isAttribute ? '' : baselinePanel}
+      ${card(isAttribute ? '候选测量排名' : '候选 DPS 排名与基线差值', `<div class="table-scroll"><table class="ranking-table"><thead><tr><th>排名</th><th>候选角色 / 方案</th><th class="right">DPS</th><th class="right">相对基线（数值 / 百分比）</th></tr></thead><tbody>${rankRows || '<tr><td colspan="4" class="empty">暂无可排名结果</td></tr>'}</tbody></table></div>`, true)}
       ${card('批次成员', `<div class="table-scroll"><table><thead><tr><th>任务</th><th>状态</th><th>更新时间</th></tr></thead><tbody>${memberRows || '<tr><td colspan="3" class="empty">暂无成员</td></tr>'}</tbody></table></div>`, true)}
       ${card('Artifact / 原生报告', `<p class="muted">产物和原生报告均保持鉴权访问。</p><div class="table-scroll"><table><tbody>${artifactRows(row.artifacts) || '<tr><td class="empty">暂无 Artifact</td></tr>'}</tbody></table></div>`, true)}
     </div>`;
