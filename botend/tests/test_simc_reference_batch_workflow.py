@@ -461,8 +461,8 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertEqual(rerun.simulation_params['iterations'], 200)
         self.assertEqual(source.simulation_params['iterations'], 100)
 class ReferenceBatchWorkerOverrideTests(TestCase):
-    def test_candidate_composition_preserves_omnium_talents_from_addon_export(self):
-        """RED: hero-tree metadata must survive candidate talent replacement."""
+    def test_candidate_composition_drops_baseline_omnium_metadata(self):
+        """Saved Loadout build codes are complete; active-build metadata must not leak."""
         baseline = {
             'player_import_mode': 'manual_equipment',
             'player_equipment': (
@@ -481,10 +481,8 @@ class ReferenceBatchWorkerOverrideTests(TestCase):
         )
         composer = SimcComposer(2301)
         parsed = composer._parse_player_export(request['player_equipment'])
-        self.assertEqual(
-            parsed['talents'],
-            'talents=CANDIDATE\nomnium_talents=136817:1/136819:1/136822:1',
-        )
+        self.assertEqual(parsed['talents'], 'talents=CANDIDATE')
+        self.assertNotIn('omnium_talents=', request['player_equipment'])
 
     def test_worker_applies_candidate_differences_to_runtime_request_only(self):
         baseline = {

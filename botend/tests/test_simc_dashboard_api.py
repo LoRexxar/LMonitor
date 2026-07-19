@@ -1914,7 +1914,7 @@ html=simc_task_99.html
 
         rerun = SimcTask.objects.get(id=rerun_id)
         self.assertEqual(rerun.current_status, 0)
-        self.assertIn(rerun.result_file, ('', None))
+        self.assertRegex(rerun.result_file, r'^[0-9a-f]{32}\.html$')
         self.assertEqual(rerun.profile_id, profile.id)
         self.assertEqual(rerun.profile_version_id, profile_version.id)
         self.assertEqual(rerun.template_id, template.id)
