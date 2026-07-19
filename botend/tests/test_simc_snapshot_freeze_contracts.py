@@ -4,12 +4,15 @@ Tasks reference three persisted resources and immutable SimcResourceVersion rows
 not freeze resource bodies in ``ext`` and do not auto-select an APL.
 """
 import json
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
+from botend.management.commands.import_simc_apl import Command as ImportSimcAplCommand
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask
 
@@ -23,6 +26,30 @@ APL_CONTENT = 'actions=/auto_attack\nactions+=/bloodthirst'
 
 
 class UpdateSimcBinarySyncContractTests(TestCase):
+    def test_import_normalizes_legacy_fury_hero_tree_dispatch(self):
+        legacy_apl = '\n'.join([
+            'actions+=/run_action_list,name=slayer,if=talent.slayers_dominance&active_enemies=1',
+            'actions+=/run_action_list,name=slayer_aoe,if=talent.slayers_dominance&active_enemies>1',
+            'actions+=/run_action_list,name=thane,if=talent.lightning_strikes&active_enemies=1',
+            'actions+=/run_action_list,name=thane_aoe,if=talent.lightning_strikes&active_enemies>1',
+        ])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, 'warrior_fury.simc').write_text(legacy_apl, encoding='utf-8')
+            command = ImportSimcAplCommand()
+            command.stdout = SimpleNamespace(write=lambda value: None)
+
+            self.assertEqual(command._process_file(tmpdir, 'warrior_fury.simc', False), 'ok')
+
+        content = SimcApl.objects.get(
+            source='simc_upstream', spec='warrior_fury', is_system=True,
+        ).content
+        self.assertIn('name=slayer,if=hero_tree.slayer&active_enemies=1', content)
+        self.assertIn('name=slayer_aoe,if=hero_tree.slayer&active_enemies>1', content)
+        self.assertIn('name=thane,if=hero_tree.mountain_thane&active_enemies=1', content)
+        self.assertIn('name=thane_aoe,if=hero_tree.mountain_thane&active_enemies>1', content)
+        self.assertNotIn('talent.slayers_dominance', content)
+        self.assertNotIn('talent.lightning_strikes', content)
+
     def test_sync_generated_inputs_calls_base_template_then_player_then_apl(self):
         command = UpdateSimcBinaryCommand()
         command.simc_source_dir = '/srv/simc'

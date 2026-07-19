@@ -143,6 +143,9 @@ class Command(BaseCommand):
             return 'skip'
 
         spec_key = f'{class_name}_{spec}'
+        if spec_key == 'warrior_fury':
+            content = content.replace('talent.slayers_dominance', 'hero_tree.slayer')
+            content = content.replace('talent.lightning_strikes', 'hero_tree.mountain_thane')
 
         if dry_run:
             lines = len(content.strip().splitlines())
