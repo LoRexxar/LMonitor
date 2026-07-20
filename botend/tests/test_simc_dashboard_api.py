@@ -2841,10 +2841,13 @@ class SimcBattlenetPreflightTests(TestCase):
         }
         equipment = {'equipped_items': [
             {
-                'item': {'id': 212048}, 'slot': {'type': 'HEAD'},
+                'item': {'id': 212048}, 'name': 'Everforged Helm', 'slot': {'type': 'HEAD'},
                 'level': {'value': 680}, 'bonus_list': [10255, 10390],
-                'enchantments': [{'enchantment_id': 7352}],
-                'sockets': [{'item': {'id': 213743}}, {'item': {'id': 213744}}],
+                'enchantments': [{'enchantment_id': 7352, 'display_string': 'Incandescent Essence'}],
+                'sockets': [
+                    {'item': {'id': 213743}, 'display_string': 'Culminating Blasphemite'},
+                    {'item': {'id': 213744}, 'display_string': 'Masterful Ruby'},
+                ],
             },
             {'item': {'id': 222222}, 'slot': {'type': 'MAIN_HAND'}, 'level': {'value': 680}},
         ]}
@@ -2873,6 +2876,21 @@ class SimcBattlenetPreflightTests(TestCase):
         self.assertIn('main_hand=,id=222222', snapshot)
         self.assertEqual(result['simc_config']['talent'], 'CwPAAAAAAAAAAAAAAAAAAAAAAMzMzMz')
         self.assertNotIn('armory=', snapshot)
+        self.assertEqual(result['equipment_summary'], {'count': 2, 'item_level': 680})
+        self.assertEqual(result['equipment'][0], {
+            'id': 212048,
+            'display_name': 'Everforged Helm',
+            'slot': 'head',
+            'slot_label': '头盔',
+            'item_level': 680,
+            'enchant': {'id': 7352, 'display_name': 'Incandescent Essence'},
+            'gems': [
+                {'id': 213743, 'display_name': 'Culminating Blasphemite'},
+                {'id': 213744, 'display_name': 'Masterful Ruby'},
+            ],
+            'bonus_ids': [10255, 10390],
+        })
+        self.assertEqual(result['equipment'][1]['slot'], 'main_hand')
         self.assertTrue(result['simc_ready'], result)
 
     def test_preflight_normalizes_spaced_battlenet_class_name(self):

@@ -7,7 +7,7 @@ import requests
 from django.conf import settings
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
-from botend.services.simc_player_config import SPEC_CLASS, normalize_battlenet_class_name
+from botend.services.simc_player_config import SLOT_LABELS, SPEC_CLASS, normalize_battlenet_class_name
 
 
 _REGION_CONFIG = {
@@ -116,6 +116,50 @@ def _equipment_line(item):
     return ','.join(parts)
 
 
+def _display_name(payload, fallback_id, *keys):
+    if not isinstance(payload, dict):
+        return f'#{fallback_id}'
+    for key in keys or ('name',):
+        if payload.get(key):
+            return str(payload[key])
+    return f'#{fallback_id}'
+
+
+def _equipment_detail(item):
+    slot = _SIMC_SLOT_BY_BATTLENET_TYPE.get(str((item.get('slot') or {}).get('type') or '').upper())
+    item_id = (item.get('item') or {}).get('id')
+    if not slot or not isinstance(item_id, (int, float)):
+        return None
+    enchantments = [
+        row for row in (item.get('enchantments') or [])
+        if isinstance(row, dict) and isinstance(row.get('enchantment_id'), (int, float))
+    ]
+    gems = []
+    for row in item.get('sockets') or []:
+        gem = row.get('item') or {} if isinstance(row, dict) else {}
+        gem_id = gem.get('id')
+        if isinstance(gem_id, (int, float)):
+            gems.append({
+                'id': int(gem_id),
+                'display_name': _display_name(row, int(gem_id), 'display_string', 'name'),
+            })
+    enchant = enchantments[0] if enchantments else None
+    enchant_id = int(enchant['enchantment_id']) if enchant else None
+    return {
+        'id': int(item_id),
+        'display_name': _display_name(item, int(item_id)),
+        'slot': slot,
+        'slot_label': SLOT_LABELS[slot],
+        'item_level': (item.get('level') or {}).get('value'),
+        'enchant': ({
+            'id': enchant_id,
+            'display_name': _display_name(enchant, enchant_id, 'display_string', 'name'),
+        } if enchant else None),
+        'gems': gems,
+        'bonus_ids': [int(value) for value in (item.get('bonus_list') or []) if isinstance(value, (int, float))],
+    }
+
+
 def _build_player_snapshot(profile, items, class_name, spec_key, talent):
     actor_name = str(profile.get('name') or 'BattleNetPlayer').replace('"', '')
     lines = [f'{class_name}="{actor_name}"']
@@ -164,6 +208,11 @@ def fetch_battlenet_character_preflight(*, region, realm, character, requested_s
 
     item_levels = [row.get('level', {}).get('value') for row in items if isinstance(row, dict)]
     item_levels = [int(value) for value in item_levels if isinstance(value, (int, float))]
+    equipment_details = [detail for detail in (_equipment_detail(row) for row in items if isinstance(row, dict)) if detail]
+    equipment_summary = {
+        'count': len(items),
+        'item_level': round(sum(item_levels) / len(item_levels)) if item_levels else None,
+    }
     warnings = []
     if not items:
         warnings.append('角色没有可用的已装备物品，不能启动 SimC。')
@@ -196,7 +245,8 @@ def fetch_battlenet_character_preflight(*, region, realm, character, requested_s
             'region': region, 'class_name': class_name, 'level': profile.get('level'),
         },
         'spec': {'key': spec_key, 'name': (profile.get('active_spec') or {}).get('name', '')},
-        'equipment': {'count': len(items), 'item_level': round(sum(item_levels) / len(item_levels)) if item_levels else None},
+        'equipment': equipment_details,
+        'equipment_summary': equipment_summary,
         'stats': {'primary': primary, 'secondary': secondary},
         'simc_ready': not warnings,
         'warnings': warnings,
