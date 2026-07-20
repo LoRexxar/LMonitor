@@ -659,7 +659,8 @@
                 actions = `<button data-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button>${row.read_only ? '<span class="px-2 text-xs text-slate-400">只读</span>' : `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700 hover:bg-red-50">删除</button>`}`;
             } else {
                 const writableActions = `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700 hover:bg-red-50">删除</button>`;
-                actions = `<button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button>${row.read_only ? `<button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">复制</button>` : writableActions}`;
+                const copyAction = row.can_copy === true ? `<button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">复制</button>` : '';
+                actions = `<button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button>${copyAction}${row.read_only ? '' : writableActions}`;
             }
             return `<tr>
                 <td data-label="APL 名称"><div class="simc-apl-name">${esc(name)}</div></td>
@@ -739,7 +740,7 @@
         renderUnifiedAplList();
     }
     async function fetchAplStorageDetail(id) {
-        return (await json(`/api/apl-storage/${id}/`)).data;
+        return fetchManagedAplDetail(id);
     }
     async function showMyAplDetail(id) {
         const host = openDialog('apl-detail');
@@ -748,7 +749,7 @@
         renderState(host, 'loading', '正在加载APL详情…');
         let data;
         try {
-            data = await json(`/api/apl-storage/${id}/`, { signal: detailRequest.controller.signal });
+            data = await json(resourceUrl('apls', id), { signal: detailRequest.controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') return;
             throw error;
@@ -764,7 +765,7 @@
         renderState(host, 'loading', '正在加载默认APL详情…');
         let data;
         try {
-            data = await json(`${resourceUrl('templates', id)}?library=default_apl`, { signal: detailRequest.controller.signal });
+            data = await json(resourceUrl('apls', id), { signal: detailRequest.controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') return;
             throw error;
@@ -778,7 +779,7 @@
         state.defaultAplCopyInFlight.add(templateId);
         if (button) button.disabled = true;
         try {
-            await json('/api/apl-storage/', {
+            await json(resourceUrl('apls'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
                 body: JSON.stringify({ copy_template_id: templateId }),
@@ -796,14 +797,13 @@
         const payload = {
             title: String(formData.get('title') || '').trim(),
             spec: String(formData.get('spec') || '').trim(),
-            apl_code: String(formData.get('apl_code') || '').trim(),
+            apl_code: String(formData.get('apl_code') || ''),
         };
         if (id) payload.id = id;
-        const managedApl = form.dataset.managedApl === '1';
-        await json(managedApl ? resourceUrl('apls', id) : '/api/apl-storage/', {
+        await json(resourceUrl('apls', id), {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
-            body: JSON.stringify(managedApl ? { name: payload.title, spec: payload.spec, content: payload.apl_code } : payload),
+            body: JSON.stringify({ name: payload.title, spec: payload.spec, content: payload.apl_code }),
         });
         closeAplStorageForm();
         await loadApl('apls', 'simc-unified-apl-list');
@@ -818,7 +818,7 @@
         radio.checked = true;
         window.showMessage(`已选择“${row.title}”作为 APL 引用`, 'success');
     }
-    window.loadSimcWorkbenchApl = () => loadApl('apl-storage', 'simc-unified-apl-list').catch(notify);
+    window.loadSimcWorkbenchApl = () => loadApl('apls', 'simc-unified-apl-list').catch(notify);
     async function loadBackend() {
         const host = document.getElementById('simc-wb-backend-status');
         const actions = document.getElementById('simc-wb-backend-actions');

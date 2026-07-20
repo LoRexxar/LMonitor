@@ -404,7 +404,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('id="simc-wb-apl-storage-form"', HTML)
         self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
         self.assertIn('data-inline-create="apl-storage"', HTML)
-        self.assertIn("'/api/apl-storage/'", JS)
+        self.assertIn("resourceUrl('apls'", JS)
+        self.assertNotIn("'/api/apl-storage/", JS)
         self.assertIn('data-apl-action="detail"', JS)
         self.assertIn('data-apl-action="edit"', JS)
         self.assertIn('data-apl-action="delete"', JS)
@@ -495,10 +496,18 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('.spec', JS)
         self.assertIn('data-apl-action="edit"', JS)
 
+    def test_default_apl_copy_button_obeys_api_can_copy_contract(self):
+        render_start = JS.index('function renderUnifiedAplList()')
+        render_end = JS.index('function renderMyAplList()', render_start)
+        render_body = JS[render_start:render_end]
+        self.assertIn('row.can_copy === true', render_body)
+        self.assertNotIn('row.read_only ? `<button data-default-apl-action="copy"', render_body)
+
     def test_default_apl_copy_uses_backend_api_not_client_content(self):
         """Copy default APL must POST copy_template_id to backend, not send content from browser."""
         self.assertIn('copy_template_id', JS)
-        self.assertIn("'/api/apl-storage/'", JS)
+        self.assertIn("resourceUrl('apls')", JS)
+        self.assertNotIn("'/api/apl-storage/", JS)
         self.assertIn("method: 'POST'", JS)
         copy_handler_start = JS.index('data-default-apl-action="copy"')
         copy_section = JS[copy_handler_start:copy_handler_start + 2000]
@@ -512,7 +521,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         detail_start = JS.index('async function showDefaultAplDetail')
         detail_end = JS.index('\n    async function', detail_start + 20)
         detail_body = JS[detail_start:detail_end]
-        self.assertIn("`${resourceUrl('templates', id)}?library=default_apl`", detail_body)
+        self.assertIn("resourceUrl('apls', id)", detail_body)
         self.assertIn('readonly', detail_body)
         self.assertIn('.source', detail_body)
         self.assertIn('.spec', detail_body)

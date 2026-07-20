@@ -34,7 +34,7 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcAplKeywordPair, SimcApl, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
 from botend.alerting import upsert_system_alert
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from core.glm import GLMClient
 from botend.monitor_env import is_task_runnable, env_limit_hint
 from botend.wow_daily_report.generator import generate_wow_daily_report
@@ -78,6 +78,7 @@ def _simc_spec_options():
 
 SIMC_SPEC_OPTIONS = _simc_spec_options()
 SIMC_SPEC_VALUES = frozenset(row['value'] for row in SIMC_SPEC_OPTIONS)
+SIMC_SPEC_CLASS_NAMES = {row['value']: row['class_name'] for row in SIMC_SPEC_OPTIONS}
 SIMC_CLASS_DB_NAMES = {
     re.sub(r'(?<!^)(?=[A-Z])', '_', class_name).lower()
     .replace('death_knight', 'deathknight')
@@ -94,6 +95,10 @@ SIMC_SPEC_DB_IDENTITIES = {
 def _canonical_simc_spec(value):
     normalized = str(value or '').strip().lower()
     return normalized if normalized in SIMC_SPEC_VALUES else None
+
+
+def _simc_class_for_spec(spec):
+    return SIMC_SPEC_CLASS_NAMES.get(spec)
 
 
 def _is_simc_admin(user):
@@ -5894,6 +5899,11 @@ class SimcWorkbenchAPIView(View):
         return None
 
     @staticmethod
+    def _is_unique_integrity_error(exc):
+        message = str(exc).lower()
+        return 'unique' in message or 'duplicate entry' in message
+
+    @staticmethod
     def _json_body(request):
         try:
             value = json.loads(request.body or '{}')
@@ -6352,6 +6362,7 @@ class SimcWorkbenchAPIView(View):
                     'is_system': apl.is_system, 'is_active': apl.is_active,
                     'is_selectable': apl.is_selectable, 'content': apl.content,
                     'read_only': apl.is_system and not _is_simc_admin(request.user),
+                    'can_copy': apl.is_system and apl.is_active and apl.is_selectable,
                 }, 'can_write': _is_simc_admin(request.user) or not apl.is_system})
             return JsonResponse({'success': True, 'data': [{
                 'id': apl.id, 'name': apl.name, 'spec': apl.spec,
@@ -6359,6 +6370,7 @@ class SimcWorkbenchAPIView(View):
                 'is_system': apl.is_system, 'is_active': apl.is_active,
                 'is_selectable': apl.is_selectable,
                 'read_only': apl.is_system and not _is_simc_admin(request.user),
+                'can_copy': apl.is_system and apl.is_active and apl.is_selectable,
             } for apl in qs], 'can_write': True})
 
         if resource == 'templates':
@@ -6382,6 +6394,7 @@ class SimcWorkbenchAPIView(View):
                         'class_name': row.class_name, 'is_active': row.is_active,
                         'is_selectable': row.is_selectable, 'is_system': row.owner_user_id is None,
                         'read_only': row.owner_user_id is None or row.owner_user_id != request.user.id,
+                        'can_copy': row.is_system and row.is_active and row.is_selectable,
                     }
                     if object_id:
                         item['content'] = row.content
@@ -6513,6 +6526,26 @@ class SimcWorkbenchAPIView(View):
             profile.is_active = action == 'restore'
             profile.save(update_fields=['is_active'])
             return JsonResponse({'success': True})
+        if resource == 'apls' and object_id and action in ('archive', 'restore'):
+            apl = SimcApl.objects.filter(id=object_id).first()
+            if not apl:
+                return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+            if apl.is_system and not _is_simc_admin(request.user):
+                return JsonResponse({'success': False, 'error': '系统默认 APL 为只读资源'}, status=403)
+            if not apl.is_system and apl.owner_user_id != request.user.id and not _is_simc_admin(request.user):
+                return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+            try:
+                with transaction.atomic():
+                    apl.is_active = action == 'restore'
+                    apl.save(update_fields=['is_active'])
+            except IntegrityError as exc:
+                if action == 'restore' and self._is_unique_integrity_error(exc):
+                    return JsonResponse({
+                        'success': False,
+                        'error': '同一专精下已存在同名的活跃 APL',
+                    }, status=409)
+                raise
+            return JsonResponse({'success': True})
         if resource == 'apl-storage' and object_id and action in ('archive', 'restore'):
             apl = SimcApl.objects.filter(id=object_id, owner_user_id=request.user.id).first()
             if not apl:
@@ -6568,6 +6601,66 @@ class SimcWorkbenchAPIView(View):
                         return JsonResponse({'success': False, 'error': '相同 owner/spec/type 的活跃模板已存在'}, status=409)
                     logger.error(f"创建模板失败: {str(e)}")
                     return JsonResponse({'success': False, 'error': '创建模板失败'}, status=500)
+        if resource == 'apls' and not object_id:
+            copy_template_id = data.get('copy_template_id')
+            if copy_template_id is not None:
+                try:
+                    template_id = int(copy_template_id)
+                except (TypeError, ValueError):
+                    return JsonResponse({'success': False, 'error': '模板 ID 无效'}, status=400)
+                template = SimcApl.objects.filter(id=template_id).first()
+                if not template:
+                    return JsonResponse({'success': False, 'error': 'APL 模板不存在'}, status=404)
+                if template.owner_user_id is not None and template.owner_user_id != request.user.id and not _is_simc_admin(request.user):
+                    return JsonResponse({'success': False, 'error': 'APL 模板不存在'}, status=404)
+                if not template.is_system or not template.is_active or not template.is_selectable:
+                    return JsonResponse({'success': False, 'error': '该 APL 模板不可复制'}, status=400)
+                spec = _canonical_simc_spec(template.spec)
+                if not spec:
+                    return JsonResponse({'success': False, 'error': '专精标识无效'}, status=400)
+                for suffix in range(8):
+                    name = template.name if suffix == 0 else f'{template.name} 副本 {suffix}'
+                    if SimcApl.objects.filter(
+                        owner_user_id=request.user.id, spec=spec, name=name, is_active=True,
+                    ).exists():
+                        continue
+                    try:
+                        with transaction.atomic():
+                            apl = SimcApl.objects.create(
+                                name=name, spec=spec, class_name=_simc_class_for_spec(spec),
+                                content=template.content, source=SimcApl.SOURCE_USER,
+                                is_system=False, owner_user_id=request.user.id,
+                                is_active=True, is_selectable=True,
+                            )
+                    except IntegrityError as exc:
+                        if self._is_unique_integrity_error(exc):
+                            continue
+                        raise
+                    return JsonResponse({'success': True, 'data': {'id': apl.id}})
+                return JsonResponse({
+                    'success': False,
+                    'error': '无法分配可用的 APL 副本名称，请稍后重试',
+                }, status=409)
+            name = str(data.get('name') or '').strip()
+            spec = _canonical_simc_spec(data.get('spec'))
+            content = str(data.get('content') or '')
+            if not name:
+                return JsonResponse({'success': False, 'error': 'APL 名称不能为空'}, status=400)
+            if not spec:
+                return JsonResponse({'success': False, 'error': '专精标识无效'}, status=400)
+            if not content.strip():
+                return JsonResponse({'success': False, 'error': 'APL 内容不能为空'}, status=400)
+            try:
+                apl = SimcApl.objects.create(
+                    name=name, spec=spec, class_name=_simc_class_for_spec(spec), content=content,
+                    source=SimcApl.SOURCE_USER, is_system=False,
+                    owner_user_id=request.user.id, is_active=True, is_selectable=True,
+                )
+            except Exception as exc:
+                if 'active_unique_key' in str(exc) or 'UNIQUE' in str(exc):
+                    return JsonResponse({'success': False, 'error': '同一专精下已存在同名 APL'}, status=409)
+                raise
+            return JsonResponse({'success': True, 'data': {'id': apl.id}})
         if resource == 'apl-keywords':
             if not request.user.is_staff:
                 return JsonResponse({'success': False, 'error': '仅管理员可修改关键词'}, status=403)
@@ -6657,11 +6750,19 @@ class SimcWorkbenchAPIView(View):
                 return JsonResponse({'success': False, 'error': '系统默认 APL 为只读资源'}, status=403)
             if not apl.is_system and apl.owner_user_id != request.user.id and not _is_simc_admin(request.user):
                 return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
-            if 'spec' in data and not _canonical_simc_spec(data.get('spec')):
+            target_spec = _canonical_simc_spec(data.get('spec') if 'spec' in data else apl.spec)
+            if not target_spec:
                 return JsonResponse({'success': False, 'error': '专精标识无效'}, status=400)
-            for field in ('name', 'spec', 'class_name', 'content'):
-                if field in data:
-                    setattr(apl, field, str(data[field] or '').strip())
+            target_name = str(data.get('name') or '').strip() if 'name' in data else apl.name
+            target_content = str(data.get('content') or '') if 'content' in data else apl.content
+            if not target_name:
+                return JsonResponse({'success': False, 'error': 'APL 名称不能为空'}, status=400)
+            if not target_content.strip():
+                return JsonResponse({'success': False, 'error': 'APL 内容不能为空'}, status=400)
+            apl.name = target_name
+            apl.spec = target_spec
+            apl.class_name = _simc_class_for_spec(target_spec)
+            apl.content = target_content
             try:
                 apl.save()
             except Exception as exc:
