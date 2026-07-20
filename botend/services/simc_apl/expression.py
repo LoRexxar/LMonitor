@@ -1,6 +1,7 @@
 """SimulationCraft expression lexer and Pratt parser."""
 
 from dataclasses import dataclass
+import re
 from typing import List, Optional, Tuple
 
 from .ast import (
@@ -31,6 +32,14 @@ _PRECEDENCE = {
 }
 _UNARY = {"!", "-", "+", "@"}
 MAX_EXPRESSION_DEPTH = 128
+IDENTIFIER_SEGMENT_RE = re.compile(r"[A-Za-z0-9_]+\Z")
+
+
+def is_valid_identifier(name: str) -> bool:
+    """Return whether every dotted SimC expression identifier segment is valid."""
+    parts = name.split('.') if name else []
+    return bool(parts) and bool(re.match(r"[A-Za-z]", parts[0])) and all(
+        IDENTIFIER_SEGMENT_RE.fullmatch(part) for part in parts)
 
 
 class _ExpressionTooDeep(Exception):
@@ -62,6 +71,8 @@ def tokenize(text: str) -> Tuple[List[Token], List[Tuple[str, int, int, Optional
             while end < len(text) and (text[end].isalnum() or text[end] in "_."):
                 end += 1
             tokens.append(Token("identifier", text[index:end], index, end))
+            if not is_valid_identifier(text[index:end]):
+                errors.append(("invalid-expression-identifier", index, end, None))
             index = end
             continue
         operator = next((op for op in _OPERATORS if text.startswith(op, index)), None)
@@ -107,6 +118,7 @@ class _Parser:
         messages = {
             "empty-expression": "Expected a SimC expression.",
             "unknown-expression-token": "Unknown token in SimC expression.",
+            "invalid-expression-identifier": "Invalid dotted SimC expression identifier.",
             "invalid-division-operator": "SimC division uses '%'; '/' separates actions.",
             "invalid-equality-operator": "SimC equality uses '=' rather than '=='.",
             "invalid-logical-operator": "SimC logical operators are '&' and '|'.",

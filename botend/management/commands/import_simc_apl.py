@@ -10,10 +10,13 @@
 import os
 import re
 import logging
+from dataclasses import dataclass
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from botend.models import SimcApl
+from botend.services.simc_apl.validation import validate_document
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,15 @@ KNOWN_SPECS = {
 }
 
 
+@dataclass(frozen=True)
+class PreparedApl:
+    """Fully validated, in-memory representation of one import candidate."""
+
+    class_name: str
+    spec_key: str
+    content: str
+
+
 class Command(BaseCommand):
     help = '从 SimC 源码导入默认 APL 到数据库'
 
@@ -52,33 +64,79 @@ class Command(BaseCommand):
             '--dry-run', action='store_true',
             help='仅预览，不写入数据库'
         )
+        parser.add_argument(
+            '--sync-version', default='',
+            help='APL 对应的真实 SimC git revision'
+        )
+        parser.add_argument(
+            '--strict', action='store_true',
+            help='任一目录、文件名、读取或空内容错误均失败并回滚整个导入'
+        )
 
+    @transaction.atomic
     def handle(self, *args, **options):
         source_dir = options['source_dir']
         dry_run = options['dry_run']
+        self.sync_version = str(options.get('sync_version') or '').strip()
+        strict = bool(options.get('strict'))
+        self.strict = strict
 
         if not os.path.isdir(source_dir):
-            self.stdout.write(self.style.ERROR(
-                f'APL 目录不存在: {source_dir}'
-            ))
+            message = f'APL 目录不存在: {source_dir}'
+            self.stdout.write(self.style.ERROR(message))
+            if strict:
+                raise CommandError(message)
             return
 
         # 扫描 .simc 文件
         files = sorted(f for f in os.listdir(source_dir) if f.endswith('.simc'))
         self.stdout.write(f'发现 {len(files)} 个 APL 文件')
+        if strict and not files:
+            raise CommandError(f'APL 目录中没有 .simc 文件: {source_dir}')
 
         imported = 0
         skipped = 0
         errors = 0
+        self.imported_specs = set()
 
+        prepared_apls = []
         for fname in files:
-            result = self._process_file(source_dir, fname, dry_run)
+            result, prepared = self._prepare_file(source_dir, fname)
             if result == 'ok':
                 imported += 1
+                prepared_apls.append(prepared)
+                self.imported_specs.add(prepared.spec_key)
+                # Non-strict mode intentionally retains its historical
+                # file-at-a-time write behaviour.
+                if not strict:
+                    self._persist_prepared(prepared, dry_run)
             elif result == 'skip':
                 skipped += 1
             else:
                 errors += 1
+
+        if strict and (skipped or errors or not imported):
+            raise CommandError(
+                f'严格 APL 导入校验失败: {imported} 成功, {skipped} 跳过, {errors} 错误'
+            )
+
+        # Strict import is genuinely two-phase: no ORM operation is reached
+        # until the complete corpus has been validated and staged in memory.
+        if strict:
+            for prepared in prepared_apls:
+                self._persist_prepared(prepared, dry_run)
+
+        if strict and not dry_run:
+            # Scope owned by this importer: active, global system rows sourced
+            # from upstream SimC. User/manual APLs are deliberately excluded.
+            missing = SimcApl.objects.filter(
+                source=SimcApl.SOURCE_SIMC_UPSTREAM, is_system=True,
+                owner_user_id=None, is_active=True,
+            ).exclude(spec__in=self.imported_specs)
+            for apl in missing:
+                apl.is_active = False
+                apl.is_selectable = False
+                apl.save(update_fields=['is_active', 'is_selectable'])
 
         action = '预览' if dry_run else '导入'
         self.stdout.write(self.style.SUCCESS(
@@ -107,25 +165,34 @@ class Command(BaseCommand):
         return None, None
 
     def _process_file(self, source_dir, fname, dry_run):
-        """处理单个 APL 文件"""
-        # 解析文件名: warrior_fury.simc → class=warrior, spec=fury
-        # 注意 spec 可能包含下划线，例如 hunter_beast_mastery.simc，不能简单 rsplit('_', 1)。
-        base = fname[:-5]  # 去掉 .simc
+        """Backward-compatible single-file path used by non-corpus callers."""
+        result, prepared = self._prepare_file(source_dir, fname)
+        if result != 'ok':
+            return result
+        if hasattr(self, 'imported_specs'):
+            self.imported_specs.add(prepared.spec_key)
+        self._persist_prepared(prepared, dry_run)
+        return 'ok'
+
+    def _prepare_file(self, source_dir, fname):
+        """Read and validate one APL file without touching the ORM."""
+        strict = getattr(self, 'strict', False)
+        base = fname[:-5]
         class_name, spec = self._parse_apl_filename(base)
         if not class_name or not spec:
             self.stdout.write(self.style.WARNING(
                 f'无法解析文件名: {fname}，跳过'
             ))
-            return 'skip'
+            return ('error' if strict else 'skip'), None
 
-        # 验证是否已知专精
         known_specs = KNOWN_SPECS.get(class_name, [])
         if spec not in known_specs:
             self.stdout.write(self.style.WARNING(
                 f'未知专精: {class_name}_{spec}，仍会导入'
             ))
+            if strict:
+                return 'error', None
 
-        # 读取文件
         filepath = os.path.join(source_dir, fname)
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
@@ -134,38 +201,52 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(
                 f'读取失败 {fname}: {e}'
             ))
-            return 'error'
+            return 'error', None
 
         if not content.strip():
             self.stdout.write(self.style.WARNING(
                 f'空文件: {fname}，跳过'
             ))
-            return 'skip'
+            return ('error' if strict else 'skip'), None
 
         spec_key = f'{class_name}_{spec}'
         if spec_key == 'warrior_fury':
             content = content.replace('talent.slayers_dominance', 'hero_tree.slayer')
             content = content.replace('talent.lightning_strikes', 'hero_tree.mountain_thane')
 
-        if dry_run:
-            lines = len(content.strip().splitlines())
-            self.stdout.write(f'  [DRY] {spec_key}: {lines} 行')
-            return 'ok'
+        if strict:
+            _, _, diagnostics = validate_document(content)
+            if diagnostics:
+                self.stdout.write(self.style.ERROR(
+                    f'APL 校验失败 {fname}: {len(diagnostics)} 个错误'))
+                return 'error', None
 
-        # 写入 SimcApl 表；默认 APL 来源固定为 SimC 源码同步。
+        return 'ok', PreparedApl(
+            class_name=class_name,
+            spec_key=spec_key,
+            content=content,
+        )
+
+    def _persist_prepared(self, prepared, dry_run):
+        """Write (or preview) a previously prepared APL DTO."""
+        if dry_run:
+            lines = len(prepared.content.strip().splitlines())
+            self.stdout.write(f'  [DRY] {prepared.spec_key}: {lines} 行')
+            return
+
         _, created = SimcApl.objects.update_or_create(
             source='simc_upstream',
-            spec=spec_key,
+            spec=prepared.spec_key,
             is_system=True,
             owner_user_id=None,
             defaults={
-                'name': f'默认APL {spec_key}',
-                'class_name': class_name,
-                'content': content,
+                'name': f'默认APL {prepared.spec_key}',
+                'class_name': prepared.class_name,
+                'content': prepared.content,
                 'is_active': True,
                 'is_selectable': True,
+                'sync_version': getattr(self, 'sync_version', ''),
             }
         )
         status = '新建' if created else '更新'
-        self.stdout.write(f'  {status}: {spec_key}')
-        return 'ok'
+        self.stdout.write(f'  {status}: {prepared.spec_key}')

@@ -55,20 +55,22 @@ class UpdateSimcBinarySyncContractTests(TestCase):
         command.simc_source_dir = '/srv/simc'
         command.stdout = SimpleNamespace(write=lambda x: None)
         command.row = SimpleNamespace(save=lambda **kwargs: None)
-        git_hash = 'abc123def'
+        git_hash = 'a' * 40
 
         with patch.object(command, '_get_git_hash', return_value=git_hash), \
              patch.object(command, '_set_status'), \
              patch.object(command, '_sync_default_template') as sync_template, \
              patch('botend.management.commands.update_simc_binary.call_command') as call_cmd:
-            command._sync_generated_inputs()
+            command._sync_generated_inputs(wow_build_override='12.0.1.70000')
 
         sync_template.assert_called_once()
         player_calls = [call for call in call_cmd.call_args_list if call[0][0] == 'import_simc_player_templates']
         self.assertEqual(len(player_calls), 1)
         self.assertEqual(player_calls[0][1]['sync_version'], git_hash)
         self.assertEqual(player_calls[0][1]['source_dir'], '/srv/simc/profiles/MID1')
-        self.assertEqual(len([call for call in call_cmd.call_args_list if call[0][0] == 'import_simc_apl']), 1)
+        apl_calls = [call for call in call_cmd.call_args_list if call[0][0] == 'import_simc_apl']
+        self.assertEqual(len(apl_calls), 1)
+        self.assertEqual(apl_calls[0][1]['sync_version'], git_hash)
 
 
 class SimcTaskReferenceContracts(TestCase):

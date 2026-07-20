@@ -18,9 +18,11 @@ from datetime import datetime, timezone as datetime_timezone
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.utils import timezone
 
-from botend.models import SimcBackendBinary, SimcContentTemplate
+from botend.models import (SimcBackendBinary, SimcContentTemplate,
+                           WowSpellSnapshotState, WowTalentVersion)
 
 
 DEFAULT_SIMC_SOURCE_DIR = '/home/lighthouse/simc'
@@ -35,6 +37,7 @@ class Command(BaseCommand):
         parser.add_argument('--sync-inputs-only', action='store_true', help='仅同步默认模板和默认 APL，不执行拉取/编译')
         parser.add_argument('--apply-patches', action='store_true', help='应用仓库补丁，仅在源码变化时编译')
         parser.add_argument('--threads', type=int, default=2, help='编译并行度（默认 2，内存不足时降低）')
+        parser.add_argument('--wow-build', default='', help='本次 APL/symbol 发布对应的明确 WoW build')
 
     def handle(self, *args, **options):
         with open('/tmp/lmonitor-simc-update.lock', 'w') as command_lock:
@@ -44,6 +47,7 @@ class Command(BaseCommand):
                 raise CommandError('另一个 SimC 更新正在运行') from exc
             self.platform = 'linux64'
             self.simc_source_dir, self.simc_build_dir, self.simc_binary_path = self._resolve_paths()
+            self.wow_build_override = str(options.get('wow_build') or '').strip()
             self.row = self._get_row()
 
             if options['check']:
@@ -212,18 +216,49 @@ class Command(BaseCommand):
         action = '创建' if created else '更新'
         self.stdout.write(self.style.SUCCESS(f'{action}默认 SimC 基础模板: spec=default'))
 
-    def _sync_default_apl(self):
+    def _sync_default_apl(self, git_hash):
         source_dir = os.path.join(self.simc_source_dir, 'ActionPriorityLists', 'default')
-        call_command('import_simc_apl', source_dir=source_dir)
+        call_command('import_simc_apl', source_dir=source_dir, sync_version=git_hash, strict=True)
 
-    def _sync_generated_inputs(self):
+    def _resolve_wow_build(self, override=''):
+        """Resolve one authoritative build: CLI, config, then agreeing current DB state."""
+        explicit = str(override or '').strip()
+        if explicit:
+            return explicit
+        cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
+        configured = str(cfg.get('wow_build') or '').strip()
+        if configured:
+            return configured
+        candidates = set(WowSpellSnapshotState.objects.filter(
+            branch='wow').exclude(snapshot_build='').values_list('snapshot_build', flat=True))
+        candidates.update(WowTalentVersion.objects.filter(
+            is_active=True, is_default_simulator=True).exclude(current_build='')
+                          .values_list('current_build', flat=True))
+        candidates = {str(value).strip() for value in candidates if str(value).strip()}
+        if len(candidates) == 1:
+            return candidates.pop()
+        detail = '未找到' if not candidates else f'存在多个候选: {sorted(candidates)}'
+        raise CommandError(f'无法唯一解析 wow_build（{detail}）；请传 --wow-build')
+
+    def _sync_generated_inputs(self, wow_build_override=None):
+        git_hash = self._get_git_hash()
+        if not re.fullmatch(r'[0-9a-fA-F]{40}', str(git_hash or '')):
+            raise CommandError('无法取得有效的 40 位 hexadecimal SimC git SHA')
+        override = (self.wow_build_override if wow_build_override is None and
+                    hasattr(self, 'wow_build_override') else wow_build_override)
+        wow_build = self._resolve_wow_build(override)
         if hasattr(self, 'row'):
             self._set_status(progress=95, status='同步默认模板和 APL', error='', updating=True)
-        git_hash = self._get_git_hash()
         self._sync_default_template()
         player_source_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID1')
         call_command('import_simc_player_templates', source_dir=player_source_dir, sync_version=git_hash)
-        self._sync_default_apl()
+        # Task 6 guarantees error rollback for APL rows and symbol facts. Upstream
+        # deletion/deactivation remains the broader Task 13 release boundary.
+        with transaction.atomic():
+            self._sync_default_apl(git_hash)
+            call_command(
+                'sync_simc_apl_symbols', simc_revision=git_hash, wow_build=wow_build,
+            )
 
     def _preserve_tracked_changes_before_pull(self):
         """Commit tracked source edits only; leave generated and credential files untracked."""
@@ -417,7 +452,9 @@ class Command(BaseCommand):
 
     def _get_git_hash(self):
         try:
-            r = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=self.simc_source_dir, capture_output=True, text=True, timeout=10)
+            # Revision-keyed APL and symbol facts require the collision-resistant
+            # canonical commit id, not a presentation abbreviation.
+            r = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=self.simc_source_dir, capture_output=True, text=True, timeout=10)
             return r.stdout.strip() if r.returncode == 0 else ''
         except Exception:
             return ''

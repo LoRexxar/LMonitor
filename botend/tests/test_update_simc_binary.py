@@ -10,10 +10,150 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
-from botend.models import SimcBackendBinary, SimcContentTemplate
+from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate,
+                           WowSpellSnapshotState)
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
+    @override_settings(SIMC_CONFIG={'wow_build': '12.0.1.70000'})
+    def test_symbol_sync_failure_rolls_back_same_revision_apl_import(self):
+        from django.core.management import call_command as real_call_command
+        from botend.management.commands.update_simc_binary import Command
+
+        old = SimcApl.objects.create(
+            name='old', class_name='warrior', spec='warrior_fury', content='actions=/old',
+            source='simc_upstream', is_system=True, sync_version='old-sha',
+        )
+        missing = SimcApl.objects.create(
+            name='arms', class_name='warrior', spec='warrior_arms', content='actions=/arms',
+            source='simc_upstream', is_system=True, sync_version='old-sha',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir)
+            apl_dir = source / 'ActionPriorityLists' / 'default'
+            apl_dir.mkdir(parents=True)
+            (apl_dir / 'warrior_fury.simc').write_text('actions=/new\n', encoding='utf-8')
+            command = Command()
+            command.simc_source_dir = str(source)
+            command.stdout = StringIO()
+
+            def dispatch(name, **kwargs):
+                if name == 'import_simc_apl':
+                    return real_call_command(name, **kwargs)
+                if name == 'sync_simc_apl_symbols':
+                    raise CommandError('invalid symbol catalog')
+
+            with mock.patch.object(command, '_get_git_hash', return_value='a' * 40), \
+                    mock.patch.object(command, '_sync_default_template'), \
+                    mock.patch('botend.management.commands.update_simc_binary.call_command',
+                               side_effect=dispatch):
+                with self.assertRaisesRegex(CommandError, 'invalid symbol catalog'):
+                    command._sync_generated_inputs()
+        old.refresh_from_db()
+        self.assertEqual(old.content, 'actions=/old')
+        self.assertEqual(old.sync_version, 'old-sha')
+        missing.refresh_from_db()
+        self.assertTrue(missing.is_active and missing.is_selectable)
+
+    @override_settings(SIMC_CONFIG={'wow_build': '12.0.1.70000'})
+    def test_generated_inputs_pass_same_git_sha_to_apl_and_symbol_sync(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        command = Command()
+        command.simc_source_dir = '/srv/simc'
+        command.stdout = StringIO()
+        with mock.patch.object(command, '_get_git_hash', return_value='b' * 40), \
+                mock.patch.object(command, '_sync_default_template'), \
+                mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
+            command._sync_generated_inputs()
+        apl = next(call for call in calls.call_args_list if call.args[0] == 'import_simc_apl')
+        symbols = next(call for call in calls.call_args_list
+                       if call.args[0] == 'sync_simc_apl_symbols')
+        self.assertEqual(apl.kwargs['sync_version'], 'b' * 40)
+        self.assertTrue(apl.kwargs['strict'])
+        self.assertEqual(symbols.kwargs['simc_revision'], 'b' * 40)
+        self.assertEqual(symbols.kwargs['wow_build'], '12.0.1.70000')
+
+    @override_settings(SIMC_CONFIG={})
+    def test_missing_authoritative_wow_build_fails_before_writes(self):
+        from botend.management.commands.update_simc_binary import Command
+        command = Command()
+        command.simc_source_dir = '/srv/simc'
+        command.stdout = StringIO()
+        with mock.patch.object(command, '_get_git_hash', return_value='c' * 40), \
+                mock.patch.object(command, '_sync_default_template') as template, \
+                mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
+            with self.assertRaisesRegex(CommandError, 'wow_build'):
+                command._sync_generated_inputs()
+        template.assert_not_called()
+        calls.assert_not_called()
+
+    @override_settings(SIMC_CONFIG={})
+    def test_unique_current_wago_snapshot_is_authoritative_build_fallback(self):
+        from botend.management.commands.update_simc_binary import Command
+        WowSpellSnapshotState.objects.create(branch='wow', locale='enUS',
+                                             snapshot_build='12.0.1.70001')
+        command = Command()
+        command.simc_source_dir = '/srv/simc'
+        command.stdout = StringIO()
+        with mock.patch.object(command, '_get_git_hash', return_value='d' * 40), \
+                mock.patch.object(command, '_sync_default_template'), \
+                mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
+            command._sync_generated_inputs()
+        symbols = next(c for c in calls.call_args_list if c.args[0] == 'sync_simc_apl_symbols')
+        self.assertEqual(symbols.kwargs['wow_build'], '12.0.1.70001')
+
+    @override_settings(SIMC_CONFIG={})
+    def test_explicit_wow_build_override_wins(self):
+        from botend.management.commands.update_simc_binary import Command
+        command = Command()
+        command.simc_source_dir = '/srv/simc'
+        command.stdout = StringIO()
+        with mock.patch.object(command, '_get_git_hash', return_value='e' * 40), \
+                mock.patch.object(command, '_sync_default_template'), \
+                mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
+            command._sync_generated_inputs(wow_build_override='12.0.1.70002')
+        symbols = next(c for c in calls.call_args_list if c.args[0] == 'sync_simc_apl_symbols')
+        self.assertEqual(symbols.kwargs['wow_build'], '12.0.1.70002')
+
+    @override_settings(SIMC_CONFIG={'wow_build': '12.0.1.70000'})
+    def test_invalid_git_sha_fails_before_any_database_write(self):
+        from botend.management.commands.update_simc_binary import Command
+        for sha in ('', 'abc123', 'z' * 40):
+            with self.subTest(sha=sha):
+                command = Command()
+                command.simc_source_dir = '/srv/simc'
+                command.stdout = StringIO()
+                with mock.patch.object(command, '_get_git_hash', return_value=sha), \
+                        mock.patch.object(command, '_sync_default_template') as template, \
+                        mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
+                    with self.assertRaisesRegex(CommandError, 'SHA'):
+                        command._sync_generated_inputs()
+                template.assert_not_called()
+                calls.assert_not_called()
+                self.assertEqual(SimcApl.objects.count(), 0)
+                self.assertEqual(SimcAplSymbol.objects.count(), 0)
+
+    @override_settings(SIMC_CONFIG={'wow_build': '12.0.1.70000'})
+    def test_strict_apl_error_rolls_back_partial_import(self):
+        from botend.management.commands.update_simc_binary import Command
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir)
+            apl_dir = source / 'ActionPriorityLists' / 'default'
+            apl_dir.mkdir(parents=True)
+            (apl_dir / 'warrior_fury.simc').write_text('actions=/new\n', encoding='utf-8')
+            (apl_dir / 'broken.simc').write_text('actions=/bad\n', encoding='utf-8')
+            command = Command()
+            command.simc_source_dir = str(source)
+            command.stdout = StringIO()
+            with mock.patch.object(command, '_get_git_hash', return_value='f' * 40), \
+                    mock.patch.object(command, '_sync_default_template'), \
+                    mock.patch('botend.management.commands.update_simc_binary.call_command',
+                               wraps=call_command):
+                with self.assertRaises(CommandError):
+                    command._sync_generated_inputs()
+        self.assertEqual(SimcApl.objects.count(), 0)
+
     def test_apply_patches_mode_builds_only_when_patch_changes_source(self):
         from botend.management.commands.update_simc_binary import Command
 
@@ -261,7 +401,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
                             return mock.Mock(returncode=0, stdout='', stderr='')
                         if cmd == ['git', 'pull', '--rebase']:
                             return mock.Mock(returncode=0, stdout='Already up to date.', stderr='')
-                        if cmd == ['git', 'rev-parse', '--short', 'HEAD']:
+                        if cmd == ['git', 'rev-parse', 'HEAD']:
                             return mock.Mock(returncode=0, stdout='abc1234\n', stderr='')
                         if cmd[0] == 'cmake':
                             return mock.Mock(returncode=0, stdout='', stderr='')
