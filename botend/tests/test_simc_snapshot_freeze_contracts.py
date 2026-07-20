@@ -60,6 +60,7 @@ class UpdateSimcBinarySyncContractTests(TestCase):
         with patch.object(command, '_get_git_hash', return_value=git_hash), \
              patch.object(command, '_set_status'), \
              patch.object(command, '_sync_default_template') as sync_template, \
+             patch.object(command, '_export_runtime_manifest', return_value='/tmp/test-runtime-manifest.json'), \
              patch('botend.management.commands.update_simc_binary.call_command') as call_cmd:
             command._sync_generated_inputs(wow_build_override='12.0.1.70000')
 
@@ -71,6 +72,8 @@ class UpdateSimcBinarySyncContractTests(TestCase):
         apl_calls = [call for call in call_cmd.call_args_list if call[0][0] == 'import_simc_apl']
         self.assertEqual(len(apl_calls), 1)
         self.assertEqual(apl_calls[0][1]['sync_version'], git_hash)
+        symbol_calls = [call for call in call_cmd.call_args_list if call[0][0] == 'sync_simc_apl_symbols']
+        self.assertEqual(symbol_calls[0][1]['runtime_manifest'], '/tmp/test-runtime-manifest.json')
 
 
 class SimcTaskReferenceContracts(TestCase):

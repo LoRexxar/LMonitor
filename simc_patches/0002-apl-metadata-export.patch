@@ -1,0 +1,147 @@
+diff --git a/engine/Makefile b/engine/Makefile
+index 648f32e9df..f4af870dad 100644
+--- a/engine/Makefile
++++ b/engine/Makefile
+@@ -198,7 +198,7 @@ include ../source_files/engine_make
+ include ../source_files/engine_main_make
+ 
+ ifneq (,${GIT})
+-  OPTS_INTERNAL += -DSC_GIT_REV="\"$(shell ${GIT} rev-parse --short HEAD)\""
++  OPTS_INTERNAL += -DSC_GIT_REV="\"$(shell ${GIT} rev-parse HEAD)\""
+   OPTS_INTERNAL += -DSC_GIT_BRANCH="\"$(shell ${GIT} rev-parse --abbrev-ref HEAD)\""
+ endif
+ 
+diff --git a/engine/action/action.cpp b/engine/action/action.cpp
+index be16cd258f..ecded45f83 100644
+--- a/engine/action/action.cpp
++++ b/engine/action/action.cpp
+@@ -4907,6 +4907,15 @@ void action_t::add_child( action_t* child )
+ void action_t::add_option( std::unique_ptr<option_t> new_option )
+ { options.insert( options.begin(), std::move(new_option) ); }
+ 
++std::vector<std::string> action_t::apl_metadata_option_names() const
++{
++  std::vector<std::string> names;
++  names.reserve( options.size() );
++  for ( const auto& option : options )
++    names.emplace_back( option->name() );
++  return names;
++}
++
+ double action_t::composite_target_damage_vulnerability( player_t* t ) const
+ {
+   double target_vulnerability = 0.0;
+diff --git a/engine/action/action.hpp b/engine/action/action.hpp
+index 8e4f3e7570..b4b043339a 100644
+--- a/engine/action/action.hpp
++++ b/engine/action/action.hpp
+@@ -634,6 +634,7 @@ public:
+   void add_child( action_t* child );
+ 
+   void add_option( std::unique_ptr<option_t> new_option );
++  std::vector<std::string> apl_metadata_option_names() const;
+ 
+   void   check_spec( specialization_e );
+ 
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 2e746602a8..05a9742e27 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -22,6 +22,9 @@
+ #include "util/io.hpp"
+ 
+ #include <locale>
++#include <cctype>
++#include <fstream>
++#include <set>
+ 
+ #ifdef SC_SIGACTION
+ #include <csignal>
+@@ -141,6 +144,45 @@ struct sim_signal_handler_t
+ 
+ sim_t* sim_signal_handler_t::global_sim = nullptr;
+ 
++void apl_metadata_json_string( std::ostream& out, std::string_view value )
++{
++  out << '"';
++  for ( const char c : value )
++  {
++    if ( c == '\\' || c == '"' ) out << '\\';
++    out << c;
++  }
++  out << '"';
++}
++
++void export_apl_metadata( const sim_t& sim )
++{
++  const bool valid_revision = sim.apl_metadata_revision.size() == 40 &&
++    std::all_of( sim.apl_metadata_revision.begin(), sim.apl_metadata_revision.end(),
++                 []( unsigned char c ) { return std::isxdigit( c ); } );
++  if ( !valid_revision )
++    throw std::runtime_error( "apl_metadata_revision must be a 40-character hexadecimal git SHA" );
++  std::ofstream out( sim.apl_metadata_export_file );
++  if ( !out ) throw std::runtime_error( "Unable to open APL metadata export file" );
++  out << "{\"schema_version\":1,\"simc_revision\":";
++  apl_metadata_json_string( out, sim.apl_metadata_revision );
++  out << ",\"game_build\":";
++  apl_metadata_json_string( out, sim.apl_metadata_game_build );
++  out << R"json(,"generated_at":null,"completeness":{"status":"partial","modules":{"global":"runtime_initialized"},"limitations":["Dynamic action factories and spell IDs are not exhaustively enumerable without initialized actor profiles."]},"symbols":[)json";
++  bool first = true;
++  std::set<std::string> option_names;
++  for ( const auto& option : sim.options ) option_names.insert( std::string( option->name() ) );
++  for ( const auto& name : option_names )
++  {
++    if ( !first ) out << ',';
++    first = false;
++    out << "{\"class\":null,\"spec\":null,\"scope\":\"global\",\"token\":";
++    apl_metadata_json_string( out, name );
++    out << ",\"kind\":\"option\",\"spell_id\":null,\"source\":\"runtime_option\",\"options\":[],\"aliases\":[]}";
++  }
++  out << "]}\n";
++}
++
+ [[maybe_unused]] sim_signal_handler_t handler;
+ 
+ // need_to_save_profiles ====================================================
+@@ -293,6 +335,12 @@ int sim_t::main( const std::vector<std::string>& args )
+       std::throw_with_nested( std::runtime_error( "Setup failure" ) );
+     }
+ 
++    if ( !apl_metadata_export_file.empty() )
++    {
++      export_apl_metadata( *this );
++      return 0;
++    }
++
+     // print version info if it hasn't been displayed already
+     print_version_info( *dbc );
+ 
+diff --git a/engine/sim/sim.cpp b/engine/sim/sim.cpp
+index 4620571d0b..dc46345d43 100644
+--- a/engine/sim/sim.cpp
++++ b/engine/sim/sim.cpp
+@@ -3853,6 +3853,9 @@ void sim_t::create_options()
+   add_option( opt_int( "healing", healing ) );
+   add_option( opt_bool( "log", log ) );
+   add_option( opt_string( "output", output_file_str ) );
++  add_option( opt_string( "apl_metadata_export", apl_metadata_export_file ) );
++  add_option( opt_string( "apl_metadata_revision", apl_metadata_revision ) );
++  add_option( opt_string( "apl_metadata_game_build", apl_metadata_game_build ) );
+   add_option( opt_bool( "save_raid_summary", save_raid_summary ) );
+   add_option( opt_bool( "save_gear_comments", save_gear_comments ) );
+   add_option( opt_bool( "buff_uptime_timeline", buff_uptime_timeline ) );
+diff --git a/engine/sim/sim.hpp b/engine/sim/sim.hpp
+index 4a817aef73..a429814426 100644
+--- a/engine/sim/sim.hpp
++++ b/engine/sim/sim.hpp
+@@ -89,6 +89,10 @@ struct sim_t : private sc_thread_t
+   bool save_profile_with_actions;  // When saving full profiles, include actions or not
+   bool save_full_profile;  // save the full profile instead of only active save_e flags
+   bool default_actions;
++  // Runtime APL metadata export mode. Actors initialize, but no simulation executes.
++  std::string apl_metadata_export_file;
++  std::string apl_metadata_revision;
++  std::string apl_metadata_game_build;
+ 
+   // Iteration Controls
+   timespan_t max_time, expected_iteration_time;

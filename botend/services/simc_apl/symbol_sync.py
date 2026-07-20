@@ -1,5 +1,8 @@
 """Build and transactionally synchronize auditable SimC APL symbol facts."""
+import json
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Tuple
 
 from django.conf import settings
@@ -47,6 +50,108 @@ class SyncSummary:
     completeness: str = 'observed/partial'
 
 
+MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_COMPLETENESS = frozenset({'partial', 'complete'})
+MANIFEST_SCOPES = frozenset({'global', 'class', 'spec', 'hero_tree'})
+
+
+def _manifest_error(message):
+    raise ValueError(f'invalid runtime APL manifest: {message}')
+
+
+def _string_or_none(value, field, *, required=False):
+    if value is None and not required:
+        return None
+    if not isinstance(value, str) or (required and not value.strip()):
+        _manifest_error(f'{field} must be a non-empty string')
+    return value.strip().lower() or None
+
+
+def load_runtime_manifest(path, simc_revision, wow_build):
+    """Strictly load revision/build-bound facts exported by the patched binary."""
+    try:
+        payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f'invalid runtime APL manifest JSON: {exc}') from exc
+    if not isinstance(payload, dict):
+        _manifest_error('root must be an object')
+    if payload.get('schema_version') != MANIFEST_SCHEMA_VERSION:
+        _manifest_error(f'unsupported schema_version {payload.get("schema_version")!r}')
+    if (not isinstance(simc_revision, str) or
+            not re.fullmatch(r'[0-9a-fA-F]{40}', simc_revision) or
+            payload.get('simc_revision') != simc_revision):
+        _manifest_error('simc revision mismatch or must be a 40-hex SHA')
+    if payload.get('game_build') != wow_build:
+        _manifest_error('game_build mismatch')
+
+    completeness = payload.get('completeness')
+    if not isinstance(completeness, dict):
+        _manifest_error('completeness must be an object')
+    status = completeness.get('status')
+    modules = completeness.get('modules')
+    limitations = completeness.get('limitations')
+    if (status not in MANIFEST_COMPLETENESS or not isinstance(modules, dict) or
+            not all(isinstance(key, str) and isinstance(value, str)
+                    for key, value in modules.items()) or
+            not isinstance(limitations, list) or
+            not all(isinstance(value, str) for value in limitations)):
+        _manifest_error('malformed completeness declaration')
+    if status == 'complete' and (limitations or any(
+            value.lower() not in {'complete', 'runtime_initialized'}
+            for value in modules.values())):
+        _manifest_error('completeness cannot be complete with limitations or failed modules')
+
+    symbols = payload.get('symbols')
+    if not isinstance(symbols, list):
+        _manifest_error('symbols must be an array')
+    valid_kinds = {choice[0] for choice in SimcAplSymbol.SYMBOL_KIND_CHOICES}
+    facts = {}
+    for index, symbol in enumerate(symbols):
+        prefix = f'symbols[{index}]'
+        if not isinstance(symbol, dict):
+            _manifest_error(f'{prefix} must be an object')
+        required = {'class', 'spec', 'scope', 'token', 'kind', 'spell_id',
+                    'source', 'options', 'aliases'}
+        if not required.issubset(symbol):
+            _manifest_error(f'{prefix} is missing required fields')
+        scope = symbol.get('scope')
+        kind = symbol.get('kind')
+        spell_id = symbol.get('spell_id')
+        options = symbol.get('options')
+        aliases = symbol.get('aliases')
+        if (scope not in MANIFEST_SCOPES or kind not in valid_kinds or
+                (spell_id is not None and (not isinstance(spell_id, int) or
+                                           isinstance(spell_id, bool) or spell_id <= 0)) or
+                not isinstance(options, list) or
+                not all(isinstance(value, str) and value.strip() for value in options) or
+                not isinstance(aliases, list) or
+                not all(isinstance(value, str) and value.strip() for value in aliases) or
+                not isinstance(symbol.get('source'), str) or not symbol['source'].strip()):
+            _manifest_error(f'{prefix} has invalid field types or values')
+        class_name = _string_or_none(symbol.get('class'), f'{prefix}.class')
+        spec = _string_or_none(symbol.get('spec'), f'{prefix}.spec')
+        token = _string_or_none(symbol.get('token'), f'{prefix}.token', required=True)
+        if ((scope == 'global' and (class_name or spec)) or
+                (scope == 'class' and (not class_name or spec)) or
+                (scope in {'spec', 'hero_tree'} and (not class_name or not spec))):
+            _manifest_error(f'{prefix} scope does not match class/spec')
+        fact = {
+            'class_name': class_name, 'spec': spec, 'hero_tree': None,
+            'token': token, 'symbol_kind': kind, 'spell_id': spell_id,
+            'source': SimcAplSymbol.SOURCE_SIMC_MANIFEST,
+            'options': sorted(set(value.strip().lower() for value in options)),
+            'aliases': sorted(set(value.strip().lower() for value in aliases)),
+        }
+        identity = _identity(fact)
+        if identity in facts and facts[identity] != fact:
+            _manifest_error(f'{prefix} conflicts with a duplicate identity')
+        facts[identity] = fact
+    ordered = tuple(facts[key] for key in sorted(facts))
+    return BuildResult(ordered, completeness=f'runtime/{status}', unbound=sum(
+        fact['symbol_kind'] == SimcAplSymbol.KIND_ACTION and fact.get('spell_id') is None
+        for fact in ordered))
+
+
 def _canonical_scope(apl):
     class_name = (apl.class_name or '').strip().lower()
     spec_key = (apl.spec or '').strip().lower()
@@ -62,7 +167,8 @@ def _identity(fact):
     )
 
 
-def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=None):
+def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=None,
+                       manifest_path=None):
     """Scan parser/AST output only; this is observed corpus coverage, not complete SimC."""
     apl_queryset = apl_queryset if apl_queryset is not None else SimcApl.objects.filter(
         source=SimcApl.SOURCE_SIMC_UPSTREAM, is_system=True, is_active=True,
@@ -165,8 +271,16 @@ def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=Non
         facts[key] = dict(facts[key], spell_id=spell_id,
                           source=SimcAplSymbol.SOURCE_MANUAL)
 
+    completeness = 'observed/partial'
+    if manifest_path:
+        runtime = load_runtime_manifest(manifest_path, simc_revision, wow_build)
+        # Runtime-created payload is authoritative at an exact identity. Facts
+        # only observed in official APLs remain available with their weaker source.
+        for fact in runtime.facts:
+            facts[_identity(fact)] = fact
+        completeness = runtime.completeness
     ordered = tuple(facts[key] for key in sorted(facts))
-    return BuildResult(ordered, unbound=sum(
+    return BuildResult(ordered, completeness=completeness, unbound=sum(
         1 for fact in ordered if fact['symbol_kind'] == SimcAplSymbol.KIND_ACTION and
         fact.get('spell_id') is None
     ), invalid=invalid)
@@ -181,11 +295,13 @@ def _snapshot(revision, build):
             .values_list(*fields)}
 
 
-def sync_symbols(simc_revision, wow_build, *, dry_run=False, apl_queryset=None, bindings=None):
+def sync_symbols(simc_revision, wow_build, *, dry_run=False, apl_queryset=None,
+                 bindings=None, manifest_path=None):
     """Build/validate completely before the atomic upsert/deactivation boundary."""
     if not str(simc_revision or '').strip() or not str(wow_build or '').strip():
         raise ValueError('simc_revision and wow_build are required')
-    result = build_symbol_facts(simc_revision, wow_build, apl_queryset, bindings)
+    result = build_symbol_facts(simc_revision, wow_build, apl_queryset, bindings,
+                                manifest_path=manifest_path)
     if result.invalid:
         if dry_run:
             return SyncSummary(unbound=result.unbound, invalid=result.invalid,

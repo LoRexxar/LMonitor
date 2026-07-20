@@ -10,11 +10,13 @@ class Command(BaseCommand):
         parser.add_argument('--simc-revision', required=True)
         parser.add_argument('--wow-build', required=True)
         parser.add_argument('--dry-run', action='store_true')
+        parser.add_argument('--runtime-manifest', help='patched SimC runtime APL metadata JSON')
 
     def handle(self, *args, **options):
         try:
             summary = sync_symbols(options['simc_revision'], options['wow_build'],
-                                   dry_run=options['dry_run'])
+                                   dry_run=options['dry_run'],
+                                   manifest_path=options['runtime_manifest'])
         except (TypeError, ValueError) as exc:
             raise CommandError(str(exc)) from exc
         prefix = '[DRY-RUN] ' if options['dry_run'] else ''

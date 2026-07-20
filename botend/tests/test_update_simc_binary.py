@@ -45,6 +45,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
 
             with mock.patch.object(command, '_get_git_hash', return_value='a' * 40), \
                     mock.patch.object(command, '_sync_default_template'), \
+                    mock.patch.object(command, '_export_runtime_manifest', return_value='/tmp/test-runtime-manifest.json'), \
                     mock.patch('botend.management.commands.update_simc_binary.call_command',
                                side_effect=dispatch):
                 with self.assertRaisesRegex(CommandError, 'invalid symbol catalog'):
@@ -64,6 +65,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         command.stdout = StringIO()
         with mock.patch.object(command, '_get_git_hash', return_value='b' * 40), \
                 mock.patch.object(command, '_sync_default_template'), \
+                mock.patch.object(command, '_export_runtime_manifest', return_value='/tmp/test-runtime-manifest.json'), \
                 mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
             command._sync_generated_inputs()
         apl = next(call for call in calls.call_args_list if call.args[0] == 'import_simc_apl')
@@ -73,6 +75,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         self.assertTrue(apl.kwargs['strict'])
         self.assertEqual(symbols.kwargs['simc_revision'], 'b' * 40)
         self.assertEqual(symbols.kwargs['wow_build'], '12.0.1.70000')
+        self.assertEqual(symbols.kwargs['runtime_manifest'], '/tmp/test-runtime-manifest.json')
 
     @override_settings(SIMC_CONFIG={})
     def test_missing_authoritative_wow_build_fails_before_writes(self):
@@ -98,6 +101,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         command.stdout = StringIO()
         with mock.patch.object(command, '_get_git_hash', return_value='d' * 40), \
                 mock.patch.object(command, '_sync_default_template'), \
+                mock.patch.object(command, '_export_runtime_manifest', return_value='/tmp/test-runtime-manifest.json'), \
                 mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
             command._sync_generated_inputs()
         symbols = next(c for c in calls.call_args_list if c.args[0] == 'sync_simc_apl_symbols')
@@ -111,6 +115,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         command.stdout = StringIO()
         with mock.patch.object(command, '_get_git_hash', return_value='e' * 40), \
                 mock.patch.object(command, '_sync_default_template'), \
+                mock.patch.object(command, '_export_runtime_manifest', return_value='/tmp/test-runtime-manifest.json'), \
                 mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
             command._sync_generated_inputs(wow_build_override='12.0.1.70002')
         symbols = next(c for c in calls.call_args_list if c.args[0] == 'sync_simc_apl_symbols')
@@ -148,6 +153,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
             command.stdout = StringIO()
             with mock.patch.object(command, '_get_git_hash', return_value='f' * 40), \
                     mock.patch.object(command, '_sync_default_template'), \
+                    mock.patch.object(command, '_export_runtime_manifest', return_value='/tmp/test-runtime-manifest.json'), \
                     mock.patch('botend.management.commands.update_simc_binary.call_command',
                                wraps=call_command):
                 with self.assertRaises(CommandError):
