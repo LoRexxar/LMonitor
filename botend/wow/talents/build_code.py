@@ -304,6 +304,11 @@ class _ImportBitWriter:
 
 
 def _resolve_choice_selection(base_node, selected_node):
+    # ``choice_options`` may also carry the DB2 entries of a non-choice apex
+    # rank pool. Canonical node semantics, not the mere presence of options,
+    # decide whether choice bits belong in the import string.
+    if base_node.get('is_choice_node') is False or base_node.get('is_apex_talent') or base_node.get('apex_entries'):
+        return None
     options = base_node.get('choice_options') or []
     if not options:
         return None

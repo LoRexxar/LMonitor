@@ -136,7 +136,11 @@ def _canonicalize_talent_loadout(loadout, *, class_name, spec_name):
                         'purchased', not bool(row.get('default_points')),
                     ),
                 }
-                if canonical.get('choice_options') and reference_state.get('is_choice_node'):
+                if (
+                    canonical.get('choice_options')
+                    and canonical.get('is_choice_node') is not False
+                    and reference_state.get('is_choice_node')
+                ):
                     node['choice_selection'] = int(reference_state.get('choice_selection') or 0)
                 if canonical.get('db2_subtree_id'):
                     node['db2_subtree_id'] = canonical['db2_subtree_id']
