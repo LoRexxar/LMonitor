@@ -24,6 +24,48 @@ class ParseIssue:
     code: str
     message: str
     range: SourceRange
+    suggestion: Optional[str] = None
+    severity: str = "error"
+
+
+@dataclass(frozen=True)
+class NumberExpression:
+    value: str
+    range: SourceRange
+
+
+@dataclass(frozen=True)
+class IdentifierExpression:
+    name: str
+    range: SourceRange
+
+
+@dataclass(frozen=True)
+class UnaryExpression:
+    operator: str
+    operand: "Expression"
+    range: SourceRange
+
+
+@dataclass(frozen=True)
+class BinaryExpression:
+    operator: str
+    left: "Expression"
+    right: "Expression"
+    range: SourceRange
+
+
+@dataclass(frozen=True)
+class CallExpression:
+    function: str
+    argument: "Expression"
+    range: SourceRange
+
+
+Expression = Union[
+    NumberExpression, IdentifierExpression, UnaryExpression,
+    BinaryExpression, CallExpression,
+]
 
 
 @dataclass(frozen=True)
@@ -52,6 +94,9 @@ class Option:
     range: SourceRange
     name_range: SourceRange
     value_range: SourceRange
+    expression: Optional[Expression] = None
+    expression_selector: Optional[str] = None
+    selector_range: Optional[SourceRange] = None
 
 
 @dataclass(frozen=True)
