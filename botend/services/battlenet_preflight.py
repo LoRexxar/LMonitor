@@ -9,6 +9,7 @@ from django.conf import settings
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.services.simc_player_config import SLOT_LABELS, SPEC_CLASS, normalize_battlenet_class_name
+from botend.wow.talents.build_code import TalentBuildCodeDecoder
 from botend.wow.talents.metadata import TalentMetadataProvider
 from botend.wow.talents.service import TalentBuildCodeService
 
@@ -101,6 +102,19 @@ def _canonicalize_talent_loadout(loadout, *, class_name, spec_name):
         }
         selected_nodes = []
         selected_ids = set()
+        reference_states = TalentBuildCodeDecoder.decode_node_states(
+            reference, decoder_nodes,
+        )
+        reference_by_talent_id = {}
+        for canonical in decoder_nodes:
+            talent_id = canonical.get('talent_id')
+            if not talent_id:
+                continue
+            state = reference_states.get(
+                f"{canonical.get('tree_type') or 'spec'}:{canonical.get('node_id') or talent_id}"
+            )
+            if state:
+                reference_by_talent_id[int(talent_id)] = state
         for tree_type, rows in selected_groups:
             for row in rows:
                 talent_id = row.get('id') if isinstance(row, dict) else None
@@ -112,13 +126,18 @@ def _canonicalize_talent_loadout(loadout, *, class_name, spec_name):
                 canonical = decoder_by_id.get(talent_id)
                 if not canonical or points <= 0:
                     continue
+                reference_state = reference_by_talent_id.get(talent_id) or {}
                 node = {
                     'talent_id': talent_id,
                     'tree_type': canonical.get('tree_type') or tree_type,
                     'points': points,
                     'selected': True,
-                    'purchased': not bool(row.get('default_points')),
+                    'purchased': reference_state.get(
+                        'purchased', not bool(row.get('default_points')),
+                    ),
                 }
+                if canonical.get('choice_options') and reference_state.get('is_choice_node'):
+                    node['choice_selection'] = int(reference_state.get('choice_selection') or 0)
                 if canonical.get('db2_subtree_id'):
                     node['db2_subtree_id'] = canonical['db2_subtree_id']
                 selected_nodes.append(node)

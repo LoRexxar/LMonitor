@@ -2777,6 +2777,71 @@ class SimcBattlenetPreflightTests(TestCase):
             'RAW_SAVED_CODE_WITHOUT_ROOT',
         )
 
+    @patch('botend.services.battlenet_preflight.TalentMetadataProvider.get_decoder_node_list')
+    def test_saved_loadout_preserves_reference_choice_state_when_adding_granted_root(
+        self, get_decoder_nodes,
+    ):
+        from botend.services.battlenet_preflight import _canonicalize_talent_loadout
+        from botend.wow.talents.build_code import (
+            TalentBuildCodeDecoder,
+            _ImportBitWriter,
+        )
+
+        decoder_nodes = [
+            {
+                'talent_id': 99853, 'node_id': 123390,
+                'tree_type': 'hero_anchor', 'max_points': 1,
+                'choice_options': [
+                    {'talent_id': 99853, 'node_id': 123390, 'max_points': 1},
+                    {'talent_id': 99853, 'node_id': 123393, 'max_points': 1},
+                ],
+            },
+            {
+                'talent_id': 100000, 'node_id': 130000,
+                'tree_type': 'hero', 'db2_subtree_id': 60,
+                'parents': [], 'max_points': 1,
+            },
+            {
+                'talent_id': 100001, 'node_id': 130001,
+                'tree_type': 'hero', 'db2_subtree_id': 60,
+                'parents': [130000], 'max_points': 1,
+            },
+        ]
+        get_decoder_nodes.return_value = decoder_nodes
+
+        writer = _ImportBitWriter()
+        writer.write(0, TalentBuildCodeDecoder.HEADER_VERSION_BITS)
+        writer.write(0, TalentBuildCodeDecoder.SPEC_ID_BITS)
+        for _ in range(16):
+            writer.write(0, 8)
+        writer.write(1, 1)  # hero selector selected
+        writer.write(1, 1)  # purchased
+        writer.write(0, 1)  # full rank
+        writer.write(1, 1)  # choice marker
+        writer.write(1, 2)  # preserve second selector entry
+        writer.write(0, 1)  # granted hero root omitted by Saved Loadout
+        writer.write(1, 1)  # paid hero child selected
+        writer.write(1, 1)  # purchased
+        writer.write(0, 1)  # full rank
+        writer.write(0, 1)  # non-choice
+        reference = writer.to_string()
+
+        result = _canonicalize_talent_loadout({
+            'talent_loadout_code': reference,
+            'selected_hero_talents': [
+                {'id': 99853, 'rank': 1, 'default_points': 1},
+                {'id': 100001, 'rank': 1},
+            ],
+        }, class_name='warrior', spec_name='arms')
+        decoded = TalentBuildCodeDecoder.decode_node_states(result, decoder_nodes)
+
+        self.assertEqual(decoded['hero_anchor:123390']['choice_selection'], 1)
+        self.assertTrue(decoded['hero_anchor:123390']['is_choice_node'])
+        self.assertTrue(decoded['hero_anchor:123390']['purchased'])
+        self.assertEqual(decoded['hero:130000']['points'], 1)
+        self.assertFalse(decoded['hero:130000']['purchased'])
+        self.assertEqual(decoded['hero:130001']['points'], 1)
+
     def setUp(self):
         self.user = User.objects.create_user(username='battlenet_preflight_user', password='pwd')
         self.client = Client()
