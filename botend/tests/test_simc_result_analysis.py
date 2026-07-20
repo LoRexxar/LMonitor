@@ -68,3 +68,42 @@ class SimcResultAnalysisTests(SimpleTestCase):
         ])
         self.assertEqual(report['buffs']['constant'][0]['name'], 'Battle Shout')
         self.assertEqual(report['buffs']['constant'][0]['details']['base_duration'], '3600.00')
+
+    def test_parses_sample_skill_sequence_table_from_deferred_report(self):
+        html = '''<html><body>
+          <div class="player"><h2>Tester: 95,132 dps</h2><div class="toggle-content">
+          <script type="text/x-deferred-html">
+            <h3>Sample Sequence Table</h3>
+            <div class="toggle-content hide">
+              <table class="sc"><thead><tr>
+                <th>Time</th><th>#</th><th>Name [List]</th><th>Target</th><th>Resources</th><th>Buffs</th>
+              </tr></thead><tbody>
+                <tr class="left"><td class="right">Pre</td><td>1</td><td><b>berserker_stance</b><br/>[precombat]</td><td>Tester</td><td>0.0/130 <b>0%</b> rage</td><td></td></tr>
+                <tr class="left"><td class="right">0:08.320</td><td>W</td><td><b>rampage</b><br/>[thane]</td><td>Fluffy Pillow</td><td>79.8/130 <b>61%</b> rage</td><td>avatar, enrage, frenzy(3)</td></tr>
+              </tbody></table>
+            </div>
+          </script></div></div>
+        </body></html>'''
+
+        report = parse_simc_html_report(html)
+
+        self.assertEqual(report['sample_sequence'], [
+            {
+                'time': 'Pre',
+                'marker': '1',
+                'action': 'berserker_stance',
+                'action_list': 'precombat',
+                'target': 'Tester',
+                'resources': '0.0/130 0% rage',
+                'buffs': '',
+            },
+            {
+                'time': '0:08.320',
+                'marker': 'W',
+                'action': 'rampage',
+                'action_list': 'thane',
+                'target': 'Fluffy Pillow',
+                'resources': '79.8/130 61% rage',
+                'buffs': 'avatar, enrage, frenzy(3)',
+            },
+        ])

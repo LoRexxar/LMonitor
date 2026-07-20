@@ -18,6 +18,7 @@ def parse_simc_html_report(html_content):
         "talents": {},
         "abilities": [],
         "top_abilities": [],
+        "sample_sequence": [],
         "buffs": {"dynamic": [], "constant": []},
     }
     if not isinstance(html_content, str) or not html_content:
@@ -283,6 +284,35 @@ def parse_simc_html_report(html_content):
                         "details": parse_label_details(detail_row),
                     })
                 document["buffs"]["constant"] = constant_buffs
+
+            sequence_heading = next((
+                heading for heading in player_detail.find_all(["h3", "h4"])
+                if heading.get_text(" ", strip=True) == "Sample Sequence Table"
+            ), None)
+            sequence_table = sequence_heading.find_next("table", class_="sc") if sequence_heading else None
+            if sequence_table:
+                sequence = []
+                for row in sequence_table.select("tr"):
+                    cells = row.find_all("td", recursive=False)
+                    if len(cells) < 6:
+                        continue
+                    action_cell = cells[2]
+                    action_node = action_cell.find("b")
+                    action = action_node.get_text(" ", strip=True) if action_node else ""
+                    action_text = action_cell.get_text(" ", strip=True)
+                    list_match = re.search(r"\[([^\]]+)\]\s*$", action_text)
+                    if not action:
+                        action = re.sub(r"\s*\[[^\]]+\]\s*$", "", action_text).strip()
+                    sequence.append({
+                        "time": cells[0].get_text(" ", strip=True)[:50],
+                        "marker": cells[1].get_text(" ", strip=True)[:20],
+                        "action": action[:300],
+                        "action_list": list_match.group(1)[:100] if list_match else "",
+                        "target": cells[3].get_text(" ", strip=True)[:300],
+                        "resources": cells[4].get_text(" ", strip=True)[:300],
+                        "buffs": cells[5].get_text(" ", strip=True)[:2000],
+                    })
+                document["sample_sequence"] = sequence[:2000]
 
         masthead = soup.find(id="masthead")
         if masthead:

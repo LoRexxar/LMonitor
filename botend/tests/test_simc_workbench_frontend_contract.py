@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HTML = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
 JS = (ROOT / "static/dashboard/js/simc-workbench.js").read_text(encoding="utf-8")
 MAIN = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
+DETAIL_JS = (ROOT / "static/dashboard/js/simc-detail.js").read_text(encoding="utf-8")
 
 # Scope safety assertions to the complete SimC surfaces. The dashboard template
 # and main.js also contain unrelated legacy modules with their own navigation UI.
@@ -143,6 +144,13 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             'report?.top_abilities', '原生报告', '主要技能',
         ):
             self.assertIn(token, detail)
+
+    def test_standalone_task_detail_renders_sample_skill_sequence(self):
+        for token in (
+            'report.sample_sequence', '技能施放序列', 'action_list',
+            'item.resources', 'item.buffs',
+        ):
+            self.assertIn(token, DETAIL_JS)
 
 
     def test_profile_list_ignores_aborted_and_stale_responses(self):
