@@ -3279,32 +3279,34 @@ class SimcBattlenetTopPlayersAPIView(View):
 
         players = PlayerSpecTopPlayer.objects.filter(
             season_id=season.id,
-            class_name__iexact=db_class_name,
+            class_name=db_class_name,
             rank__isnull=False,
             score__isnull=False,
-        ).exclude(region__iexact='cn').order_by('-score', 'rank', 'id')
+        ).exclude(region='cn').order_by('-score', 'rank', 'id').values(
+            'id', 'rank', 'score', 'spec_name', 'region', 'realm', 'character_name',
+        )
         rows = []
         seen_characters = set()
         for player in players:
-            region = str(player.region or '').strip().lower()
+            region = str(player['region'] or '').strip().lower()
             identity = (
                 region,
-                str(player.realm or '').strip().casefold(),
-                str(player.character_name or '').strip().casefold(),
+                str(player['realm'] or '').strip().casefold(),
+                str(player['character_name'] or '').strip().casefold(),
             )
             if identity in seen_characters:
                 continue
             seen_characters.add(identity)
-            spec = re.sub(r'(?<!^)(?=[A-Z])', '_', str(player.spec_name or '')).lower()
+            spec = re.sub(r'(?<!^)(?=[A-Z])', '_', str(player['spec_name'] or '')).lower()
             rows.append({
-                'id': player.id,
-                'rank': player.rank,
-                'score': player.score,
+                'id': player['id'],
+                'rank': player['rank'],
+                'score': player['score'],
                 'spec': spec,
                 'region': region,
-                'realm': player.realm,
-                'character': player.character_name,
-                'label': f'{player.character_name} · {player.realm} · {region.upper()} · {player.spec_name}',
+                'realm': player['realm'],
+                'character': player['character_name'],
+                'label': f"{player['character_name']} · {player['realm']} · {region.upper()} · {player['spec_name']}",
             })
             if len(rows) == 10:
                 break

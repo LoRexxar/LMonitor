@@ -2669,6 +2669,30 @@ class SimcBattlenetPreflightTests(TestCase):
         })
         self.assertNotIn('Oldplayer', [row['character'] for row in payload['data']])
 
+    def test_top_players_query_does_not_load_large_character_payload_fields(self):
+        active = SeasonMeta.objects.create(
+            season_key='current-season-lightweight-top10', season_name='当前赛季', is_active=True,
+            mplus_zone_id=2, raid_zone_id=2,
+        )
+        PlayerSpecTopPlayer.objects.create(
+            season_id=active.id, class_name='Warrior', spec_name='Fury', rank=1,
+            score=5000, region='eu', realm='Kazzak', character_name='Lightweight',
+            gear_json=[{'payload': 'large'}], talents_json=[{'payload': 'large'}],
+            stats_json={'payload': 'large'}, talent_build_code='LONG_BUILD',
+        )
+
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get('/api/simc-battlenet-top-players/?class_name=warrior')
+
+        self.assertEqual(response.status_code, 200)
+        player_queries = [query['sql'].lower() for query in queries.captured_queries
+                          if 'wow_spec_top_player' in query['sql'].lower()]
+        self.assertEqual(len(player_queries), 1)
+        for large_field in ('gear_json', 'talents_json', 'stats_json', 'talent_build_code'):
+            self.assertNotIn(large_field, player_queries[0])
+
     def test_top_players_excludes_cn_characters_from_battlenet_picker(self):
         active = SeasonMeta.objects.create(
             season_key='current-season-cn-filter', season_name='当前赛季', is_active=True,

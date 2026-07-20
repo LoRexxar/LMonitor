@@ -1166,6 +1166,7 @@ class PlayerSpecTopPlayer(models.Model):
             models.Index(fields=['spec_name', 'season_id', 'score'], name='idx_spec_score'),
             models.Index(fields=['season_id']),
             models.Index(fields=['class_name', 'spec_name']),
+            models.Index(fields=['season_id', 'class_name', '-score', 'rank', 'id'], name='idx_season_class_top'),
         ]
 
     def __str__(self):
