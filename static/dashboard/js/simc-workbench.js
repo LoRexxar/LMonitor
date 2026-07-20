@@ -137,13 +137,27 @@
         if (requestSerial !== state.taskRequestSerial || state.activePanel !== 'tasks') return;
         state.rows.history = data.data || [];
 
-        host.innerHTML = data.data.length ? data.data.map(row => {
-            const hasProgress = row.progress !== null && row.progress !== '' && Number.isFinite(Number(row.progress));
-            const progressBar = hasProgress ? `<div class="mt-1 flex items-center gap-2"><div class="h-1.5 flex-1 rounded-full bg-gray-200"><div class="h-1.5 rounded-full bg-blue-600" style="width:${Number(row.progress)}%"></div></div><span class="text-xs text-gray-500">${Number(row.progress)}%</span></div>` : '';
+        host.innerHTML = data.data.length ? `<div class="simc-task-list">${data.data.map(row => {
+            const status = Number(row.status);
+            const isActive = [0, 1, 4].includes(status);
+            const hasProgress = isActive && row.progress !== null && row.progress !== '' && Number.isFinite(Number(row.progress));
+            const progress = hasProgress ? Math.max(0, Math.min(100, Number(row.progress))) : 0;
+            const progressBar = hasProgress ? `<div class="simc-task-progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${progress}%"></div></div><span>${progress}%</span></div>` : '';
             const resource = row.detail_resource === 'batches' ? 'batches' : 'tasks';
-            const rerunButton = resource === 'tasks' && [2, 3].includes(Number(row.status)) ? `<button data-wb-action="rerun" data-resource="tasks" data-id="${idOf(row.id)}" class="simc-touch-action text-emerald-700">重跑</button>` : '';
-            return `<article class="simc-responsive-row flex flex-wrap justify-between gap-3 border-b p-3"><div class="flex-1 min-w-0"><b>${esc(row.name || `#${idOf(row.id)}`)}</b><div class="text-xs text-gray-500">${esc(row.status_label)} · ${esc(row.created_at)}</div>${progressBar}</div><div class="flex gap-3"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action text-blue-700">查看结果</a>${rerunButton}</div></article>`;
-        }).join('') : empty('暂无记录');
+            const statusClass = status === 2 ? 'is-success' : status === 3 ? 'is-failed' : status === 1 ? 'is-running' : 'is-pending';
+            const statusIcon = status === 2 ? 'fa-check-circle' : status === 3 ? 'fa-exclamation-circle' : status === 1 ? 'fa-spinner fa-spin' : 'fa-clock';
+            const typeLabel = resource === 'batches' ? '批次任务' : '普通模拟';
+            const rerunButton = resource === 'tasks' && [2, 3].includes(status) ? `<button type="button" data-task-rerun="${idOf(row.id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>` : '';
+            return `<article class="simc-task-card simc-responsive-row">
+                <div class="simc-task-card__main">
+                    <div class="simc-task-card__eyebrow"><span class="simc-task-type">${typeLabel}</span><span class="simc-task-id">#${idOf(row.id)}</span></div>
+                    <h4 class="simc-task-card__title">${esc(row.name || `任务 #${idOf(row.id)}`)}</h4>
+                    <div class="simc-task-card__meta"><span class="simc-task-status ${statusClass}"><i class="fas ${statusIcon}" aria-hidden="true"></i>${esc(row.status_label)}</span><time><i class="far fa-calendar-alt" aria-hidden="true"></i>${esc(row.created_at)}</time></div>
+                    ${progressBar}
+                </div>
+                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-chart-line" aria-hidden="true"></i><span>查看结果</span></a>${rerunButton}</div>
+            </article>`;
+        }).join('')}</div>` : empty('暂无记录');
 
         renderPagination(data.pagination || {}, requestedPage);
         const hasActive = data.data.some(row => [0, 1, 4].includes(Number(row.status)));

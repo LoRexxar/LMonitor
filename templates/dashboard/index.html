@@ -142,6 +142,30 @@
         /* SimC 紧凑响应式：操作保持可达，窄屏不产生横向滚动。 */
         .simc-compact-panel { padding: .75rem; }
         .simc-touch-action { min-height: 36px; padding: .4rem .65rem; border-radius: .375rem; }
+        .simc-task-list { display: grid; gap: .75rem; }
+        .simc-task-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 1rem; padding: 1rem 1.125rem; border: 1px solid #e2e8f0; border-radius: 1rem; background: linear-gradient(135deg, #fff 0%, #f8fafc 100%); box-shadow: 0 1px 2px rgba(15, 23, 42, .04); transition: border-color .18s, box-shadow .18s, transform .18s; }
+        .simc-task-card:hover { border-color: #bfdbfe; box-shadow: 0 10px 28px rgba(15, 23, 42, .08); transform: translateY(-1px); }
+        .simc-task-card__main { min-width: 0; }
+        .simc-task-card__eyebrow { display: flex; align-items: center; gap: .5rem; margin-bottom: .35rem; }
+        .simc-task-type { display: inline-flex; align-items: center; border-radius: 999px; background: #eff6ff; color: #1d4ed8; padding: .22rem .55rem; font-size: .68rem; font-weight: 800; letter-spacing: .025em; }
+        .simc-task-id { color: #94a3b8; font-size: .72rem; font-weight: 700; }
+        .simc-task-card__title { overflow: hidden; color: #0f172a; font-size: .98rem; font-weight: 800; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+        .simc-task-card__meta { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin-top: .48rem; color: #64748b; font-size: .76rem; }
+        .simc-task-card__meta time { display: inline-flex; align-items: center; gap: .35rem; }
+        .simc-task-status { display: inline-flex; align-items: center; gap: .32rem; border-radius: 999px; padding: .22rem .55rem; font-weight: 800; }
+        .simc-task-status.is-success { background: #ecfdf5; color: #047857; }
+        .simc-task-status.is-failed { background: #fef2f2; color: #b91c1c; }
+        .simc-task-status.is-running { background: #eff6ff; color: #1d4ed8; }
+        .simc-task-status.is-pending { background: #fff7ed; color: #c2410c; }
+        .simc-task-progress { display: flex; align-items: center; gap: .55rem; max-width: 30rem; margin-top: .65rem; color: #64748b; font-size: .72rem; font-weight: 700; }
+        .simc-task-progress__track { height: .38rem; flex: 1; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
+        .simc-task-progress__fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2563eb, #60a5fa); }
+        .simc-task-card__actions { display: flex; align-items: center; justify-content: flex-end; gap: .55rem; }
+        .simc-task-primary-action, .simc-task-secondary-action { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: .45rem; border-radius: .7rem; padding: .55rem .85rem; font-size: .78rem; font-weight: 800; transition: background .16s, border-color .16s, color .16s, box-shadow .16s; }
+        .simc-task-primary-action { border: 1px solid #2563eb; background: #2563eb; color: #fff; box-shadow: 0 5px 14px rgba(37, 99, 235, .2); }
+        .simc-task-primary-action:hover { border-color: #1d4ed8; background: #1d4ed8; color: #fff; }
+        .simc-task-secondary-action { border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+        .simc-task-secondary-action:hover { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
         .simc-step-title { font-size: .875rem; font-weight: 700; color: #1f2937; }
         .simc-table-cell-label { display: none; }
         .simc-apl-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -180,6 +204,11 @@
             #simc-workbench .simc-form-grid { grid-template-columns: minmax(0, 1fr) !important; }
             #simc-workbench button, #simc-workbench select, #simc-workbench input { min-height: 40px; }
             #simc-workbench .simc-responsive-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+            #simc-workbench .simc-task-card { gap: .85rem; padding: .9rem; }
+            #simc-workbench .simc-task-card__title { white-space: normal; overflow-wrap: anywhere; }
+            #simc-workbench .simc-task-card__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+            #simc-workbench .simc-task-card__actions > :only-child { grid-column: 1 / -1; }
+            #simc-workbench .simc-task-primary-action, #simc-workbench .simc-task-secondary-action { width: 100%; min-height: 42px; }
             #simc-workbench .simc-responsive-table thead { display: none; }
             #simc-workbench .simc-responsive-table, #simc-workbench .simc-responsive-table tbody,
             #simc-workbench .simc-responsive-table tr, #simc-workbench .simc-responsive-table td { display: block; width: 100%; }
@@ -196,7 +225,7 @@
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260720e"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260718n"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260720o"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->

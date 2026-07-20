@@ -88,6 +88,26 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("data.ruleSubtab", MAIN)
         self.assertIn("switchRuleSubtab(model)", MAIN)
 
+    def test_history_task_cards_use_status_badges_and_real_action_buttons(self):
+        load_start = JS.index('async function loadTasks')
+        load_end = JS.index('function scheduleTaskRefresh', load_start)
+        load_tasks = JS[load_start:load_end]
+        self.assertIn('simc-task-card', load_tasks)
+        self.assertIn('simc-task-status', load_tasks)
+        self.assertIn('simc-task-primary-action', load_tasks)
+        self.assertIn('simc-task-secondary-action', load_tasks)
+        self.assertIn('<i class="fas fa-chart-line', load_tasks)
+        self.assertIn('<i class="fas fa-redo-alt', load_tasks)
+
+    def test_successful_regular_tasks_can_open_rerun_editor(self):
+        load_start = JS.index('async function loadTasks')
+        load_end = JS.index('function scheduleTaskRefresh', load_start)
+        load_tasks = JS[load_start:load_end]
+        self.assertIn("[2, 3].includes(status)", load_tasks)
+        self.assertIn('data-task-rerun=', load_tasks)
+        self.assertNotIn('data-wb-action="rerun"', load_tasks)
+        self.assertIn('renderTaskRerunForm(rerunAction.dataset.taskRerun)', JS)
+
 
     def test_template_permissions_and_type_round_trip(self):
         form_start = JS.index("function renderTemplateForm")
