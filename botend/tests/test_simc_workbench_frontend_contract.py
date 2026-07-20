@@ -682,7 +682,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-wb-action="template-edit"', JS)
         self.assertIn('data-wb-action="template-detail"', JS)
         self.assertIn('data-template-action="cancel"', JS)
-        self.assertIn('data-template-action="close-detail"', JS)
+        self.assertIn('function closeTemplateDetail()', JS)
 
     def test_apl_keyword_click_handlers_exist(self):
         """APL keyword edit/archive/restore/cancel handlers must exist."""
