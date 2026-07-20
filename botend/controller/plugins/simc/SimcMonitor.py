@@ -809,7 +809,6 @@ class SimcMonitor(BaseScan):
             int(value) for name, value in action_rows
             if not name.lower().startswith(ignored) and int(value) > 0
         )
-        valid = bool(dps_match and non_auto_dps > 0)
         declared_action_lists = set(re.findall(
             r'^\s*Priorities \(actions\.([a-z][a-z0-9_]*)\):\s*$',
             text,
@@ -837,10 +836,12 @@ class SimcMonitor(BaseScan):
             name for name in talent_dispatch_lists
             if name not in {value.lower() for value in declared_action_lists}
         ]
+        missing_talent_dispatch = bool(talent_dispatch_lists and not active_talent_dispatch_lists)
+        valid = bool(dps_match and non_auto_dps > 0 and not missing_talent_dispatch)
         failure_type = ''
         reason = ''
         if not valid:
-            if talent_dispatch_lists and not active_talent_dispatch_lists:
+            if missing_talent_dispatch:
                 failure_type = 'talent_apl_dispatch'
                 reason = (
                     'SimC结果语义无效：英雄天赋未进入任何有效 APL 分流；'

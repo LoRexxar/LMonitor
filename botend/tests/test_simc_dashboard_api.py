@@ -1167,6 +1167,23 @@ main_hand=,id=222222
         self.assertIn('slayer', validation['reason'])
         self.assertIn('thane', validation['reason'])
 
+    def test_semantic_validation_rejects_unresolved_talent_dispatch_with_item_proc_damage(self):
+        stdout = '''Player: Audit warrior arms 90
+  DPS=3209.8 DPS-Error=2.5/0.08%
+  Priorities (actions.default):
+    auto_attack
+    run_action_list,name=colossus_st,if=talent.demolish&active_enemies=1
+    run_action_list,name=slayer_st,if=talent.slayers_dominance&active_enemies=1
+  Actions:
+    auto_attack_mh Count=125.0 pDPS=2920
+    voidclaw Count=35.9 pDPS=288
+    charge_impact Count=1.0 pDPS=2
+'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout)
+        self.assertFalse(validation['valid'])
+        self.assertEqual(validation['failure_type'], 'talent_apl_dispatch')
+        self.assertEqual(validation['unresolved_action_lists'], ['colossus_st', 'slayer_st'])
+
     def test_semantic_validation_identifies_single_unresolved_talent_dispatch(self):
         stdout = '''Player: Audit warrior fury 90
   DPS=2499.2 DPS-Error=20/0.82%
