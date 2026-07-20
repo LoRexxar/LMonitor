@@ -115,7 +115,11 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertIn("type === 'specified_spec'", resolution)
         self.assertIn('loadSimcSimProfileSelect', resolution)
         self.assertIn("type !== 'specified_spec'", resolution)
-        self.assertIn('renderSimcSavedProfileDetail', resolution)
+        self.assertIn("renderSimcSavedProfileDetail", resolution)
+        detail_renderer = MAIN.split('function renderSimcSavedProfileDetail', 1)[1].split('\nasync function refreshSavedSimcPlayerDetail', 1)[0]
+        self.assertIn('Array.isArray(detail.equipment)', detail_renderer)
+        self.assertIn('equipmentSummary.count', detail_renderer)
+        self.assertIn('equipmentSummary.item_level', detail_renderer)
         for function_name in ('createSimcSimulationTask', 'simcAttributeSearchRequestBody', 'startSelectedSimcCandidateComparisons'):
             body = MAIN.split(f'function {function_name}', 1)[-1] if function_name == 'simcAttributeSearchRequestBody' else MAIN.split(f'async function {function_name}', 1)[-1]
             body = body.split('\n}', 1)[0]
@@ -132,4 +136,4 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertNotIn('\n    onSimcTargetSpecChange().catch', binding)
         self.assertIn("if (sectionId === 'simc-workbench')", navigation)
         self.assertIn('switchSimcPlayerImportMode();', navigation)
-        self.assertIn("dashboard/js/main.js' %}?v=20260720b", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260720e", HTML)

@@ -2951,7 +2951,8 @@ async function resolveSimcPlayerSource() {
             else renderSimcInstantPlayerDetail();
         } else if (type !== 'specified_spec' && detail) {
             renderSimcSavedProfileDetail(detail);
-            renderSimcComparisonCandidates(detail.comparison_candidates || {}, detail.equipment || []);
+            const comparisonEquipment = Array.isArray(detail.equipment) ? detail.equipment : [];
+            renderSimcComparisonCandidates(detail.comparison_candidates || {}, comparisonEquipment);
         }
     } catch (error) {
         if (error.name !== 'AbortError' && simcSourceResolutionAbortController === controller) {
@@ -3164,9 +3165,12 @@ function renderSimcSavedProfileDetail(detail) {
         return;
     }
     const identity = detail.identity || {};
-    const talents = detail.talents || {};
+    const talents = detail.talents || { build_code: detail.simc_config?.talent || '' };
     const stats = detail.stats || {};
-    const source = detail.source || {};
+    const source = detail.source || { type: 'battlenet', label: 'Battle.net 即时角色预检' };
+    const identitySpec = identity.spec || detail.spec?.key || '';
+    const equipmentRows = Array.isArray(detail.equipment) ? detail.equipment : [];
+    const equipmentSummary = (!Array.isArray(detail.equipment) && detail.equipment) || {};
     const value = raw => escapeHtml(String(raw == null || raw === '' ? '-' : raw));
     const secondaryLabels = { crit: '暴击', haste: '急速', mastery: '精通', versatility: '全能' };
     const secondaryRows = Object.entries(stats.secondary || {}).map(([key, stat]) => {
@@ -3175,18 +3179,20 @@ function renderSimcSavedProfileDetail(detail) {
         return `<div class="rounded bg-white/80 border border-emerald-100 px-2 py-1"><span class="text-gray-500">${value(secondaryLabels[key] || key)}</span> <b class="text-gray-800">${value(row.rating)}</b><span class="text-gray-500"> 绿字${percent}</span></div>`;
     }).join('') || '<span class="text-gray-400">未提供副属性绿字</span>';
     const primary = Object.entries(stats.primary || {}).map(([key, stat]) => `${value(key)} ${value(stat)}`).join(' · ') || '未提供';
-    const equipment = (detail.equipment || []).map(item => {
+    const equipment = equipmentRows.map(item => {
         const enchant = item.enchant ? `<div class="text-[11px] text-violet-700">附魔：${value(item.enchant.display_name)}</div>` : '';
         const gems = (item.gems || []).length
             ? `<div class="text-[11px] text-cyan-700">宝石：${item.gems.map(gem => value(gem.display_name)).join('、')}</div>` : '';
         const itemName = value(item.display_name);
         const itemLevel = item.item_level ? `ilvl ${value(item.item_level)}` : `#${value(item.id)}`;
         return `<div class="rounded-lg bg-white border border-emerald-100 p-2"><div class="text-[11px] text-gray-500">${value(item.slot_label)}</div><div class="font-medium text-gray-800">${itemName} <span class="text-xs text-gray-400">${itemLevel}</span></div>${enchant}${gems}</div>`;
-    }).join('') || '<div class="text-gray-400">未解析到装备槽位。</div>';
+    }).join('') || (equipmentSummary.count
+        ? `<div class="rounded-lg bg-white border border-emerald-100 p-2 text-xs text-gray-700">已加载 <b>${value(equipmentSummary.count)}</b> 件装备${equipmentSummary.item_level ? ` · 平均装等 <b>${value(equipmentSummary.item_level)}</b>` : ''}</div>`
+        : '<div class="text-gray-400">未解析到装备槽位。</div>');
     const savedLoadouts = (talents.saved_loadouts || []).map(loadout => `<div><span class="font-medium">${value(loadout.name)}</span><div class="font-mono break-all text-[11px] text-gray-500">${value(loadout.build_code)}</div></div>`).join('');
     const missing = (detail.missing_fields || []).map(text => `<li>${value(text)}</li>`).join('');
     host.innerHTML = `
-        <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 mb-3"><span>来源：<b>${value(source.label)}</b></span><span>角色：<b>${value(identity.name)}</b></span><span>职业/专精：<b>${value(identity.class_name)} / ${value(identity.spec)}</b></span>${identity.race ? `<span>种族：<b>${value(identity.race)}</b></span>` : ''}${identity.level ? `<span>等级：<b>${value(identity.level)}</b></span>` : ''}${identity.region ? `<span>地区/服务器：<b>${value(identity.region)} / ${value(identity.realm)}</b></span>` : ''}</div>
+        <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 mb-3"><span>来源：<b>${value(source.label)}</b></span><span>角色：<b>${value(identity.name)}</b></span><span>职业/专精：<b>${value(identity.class_name)} / ${value(identitySpec)}</b></span>${identity.race ? `<span>种族：<b>${value(identity.race)}</b></span>` : ''}${identity.level ? `<span>等级：<b>${value(identity.level)}</b></span>` : ''}${identity.region ? `<span>地区/服务器：<b>${value(identity.region)} / ${value(identity.realm)}</b></span>` : ''}</div>
         <div class="grid md:grid-cols-2 gap-3 mb-3"><div class="rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500">当前天赋构筑码</div><div class="font-mono text-xs break-all text-gray-800">${value(talents.build_code)}</div></div><div class="rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500 mb-1">主属性</div><div class="text-xs text-gray-700">${primary}</div></div></div>
         ${savedLoadouts ? `<div class="mb-3 rounded-lg bg-white/70 border border-emerald-100 p-2"><div class="text-xs text-gray-500 mb-1">已保存天赋方案</div><div class="space-y-2 text-xs">${savedLoadouts}</div></div>` : ''}
         <div class="mb-3"><div class="text-xs text-gray-500 mb-1">副属性（rating / 按规则换算百分比）</div><div class="grid grid-cols-2 gap-2 text-xs">${secondaryRows}</div></div>
