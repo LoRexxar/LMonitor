@@ -2435,8 +2435,10 @@ class SimcPlayerConfigDetailAPIView(View):
             battlenet_character = str(data.get('battlenet_character') or '').strip()
             if mode == 'manual_equipment' and not player_equipment:
                 return JsonResponse({'success': False, 'error': '手动装备模式下玩家装备配置不能为空'})
+            if mode == 'battlenet' and battlenet_region == 'cn':
+                return JsonResponse({'success': False, 'error': '国服角色无法通过 Battle.net 加载，请改用 SimC Addon 导入'}, status=400)
             if mode == 'battlenet' and (
-                battlenet_region not in ('us', 'eu', 'kr', 'tw', 'cn')
+                battlenet_region not in ('us', 'eu', 'kr', 'tw')
                 or not battlenet_realm or not battlenet_character
             ):
                 return JsonResponse({'success': False, 'error': 'Battle.net 导入需要提供 region、realm 和 character'})
@@ -3234,9 +3236,12 @@ class SimcBattlenetPreflightAPIView(View):
     def post(self, request):
         try:
             data = json.loads(request.body or '{}')
+            region = str(data.get('region') or data.get('battlenet_region') or '').strip().lower()
+            if region == 'cn':
+                raise ValueError('国服角色无法通过 Battle.net 加载，请改用 SimC Addon 导入')
             from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
             result = fetch_battlenet_character_preflight(
-                region=str(data.get('region') or data.get('battlenet_region') or '').strip().lower(),
+                region=region,
                 realm=str(data.get('realm') or data.get('battlenet_realm') or '').strip(),
                 character=str(data.get('character') or data.get('battlenet_character') or '').strip(),
                 requested_spec=str(data.get('spec') or '').strip().lower(),
@@ -3277,7 +3282,7 @@ class SimcBattlenetTopPlayersAPIView(View):
             class_name__iexact=db_class_name,
             rank__isnull=False,
             score__isnull=False,
-        ).order_by('-score', 'rank', 'id')
+        ).exclude(region__iexact='cn').order_by('-score', 'rank', 'id')
         rows = []
         seen_characters = set()
         for player in players:
@@ -3436,8 +3441,10 @@ class SimcProfileAPIView(View):
             'talent': str(data.get('talent', fallback.get('talent', '')) or '').strip(),
         }
         if mode == 'battlenet':
-            if values['battlenet_region'] not in ('us', 'eu', 'kr', 'tw', 'cn'):
-                raise ValueError('Battle.net region 必须是 us、eu、kr、tw 或 cn')
+            if values['battlenet_region'] == 'cn':
+                raise ValueError('国服角色无法通过 Battle.net 加载，请改用 SimC Addon 导入')
+            if values['battlenet_region'] not in ('us', 'eu', 'kr', 'tw'):
+                raise ValueError('Battle.net region 必须是 us、eu、kr 或 tw')
             if not values['battlenet_realm']:
                 raise ValueError('Battle.net realm 不能为空')
             if not values['battlenet_character']:

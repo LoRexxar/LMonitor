@@ -2669,10 +2669,43 @@ class SimcBattlenetPreflightTests(TestCase):
         })
         self.assertNotIn('Oldplayer', [row['character'] for row in payload['data']])
 
+    def test_top_players_excludes_cn_characters_from_battlenet_picker(self):
+        active = SeasonMeta.objects.create(
+            season_key='current-season-cn-filter', season_name='当前赛季', is_active=True,
+            mplus_zone_id=2, raid_zone_id=2,
+        )
+        PlayerSpecTopPlayer.objects.create(
+            season_id=active.id, class_name='Warrior', spec_name='Fury', rank=1,
+            score=6000, region='cn', realm='国服服务器', character_name='国服角色',
+        )
+        PlayerSpecTopPlayer.objects.create(
+            season_id=active.id, class_name='Warrior', spec_name='Fury', rank=2,
+            score=5000, region='eu', realm='Kazzak', character_name='Availableplayer',
+        )
+
+        response = self.client.get('/api/simc-battlenet-top-players/?class_name=warrior')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual([row['character'] for row in payload['data']], ['Availableplayer'])
+        self.assertNotIn('cn', [row['region'] for row in payload['data']])
+
     def test_top_players_rejects_unknown_class(self):
         response = self.client.get('/api/simc-battlenet-top-players/?class_name=not-a-class')
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()['success'])
+
+    def test_preflight_rejects_cn_because_battlenet_cannot_load_cn_characters(self):
+        from unittest.mock import patch
+
+        with patch('botend.services.battlenet_preflight.fetch_battlenet_character_preflight') as fetch:
+            response = self.client.post('/api/simc-battlenet-preflight/', data=json.dumps({
+                'region': 'cn', 'realm': '国服服务器', 'character': '国服角色',
+            }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('国服角色无法通过 Battle.net 加载', response.json()['error'])
+        fetch.assert_not_called()
 
     def test_preflight_returns_fetched_character_and_simc_readiness(self):
         from unittest.mock import patch

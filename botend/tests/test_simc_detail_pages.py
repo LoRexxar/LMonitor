@@ -57,6 +57,12 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('loadSimcBattlenetTopPlayers', main)
         self.assertIn('applySimcBattlenetTopPlayer', main)
 
+    def test_battlenet_source_marks_cn_unavailable_and_does_not_offer_cn_region(self):
+        template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+
+        self.assertIn('国服角色无法通过 Battle.net 加载', template)
+        self.assertNotIn('<option value="cn">中国</option>', template)
+
     def test_manual_talent_candidate_input_and_report_show_name_and_full_build(self):
         main = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
         detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')

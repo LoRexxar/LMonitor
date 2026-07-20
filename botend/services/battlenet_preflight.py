@@ -15,7 +15,6 @@ _REGION_CONFIG = {
     'eu': ('https://eu.api.blizzard.com', 'profile-eu', 'en_GB'),
     'kr': ('https://kr.api.blizzard.com', 'profile-kr', 'ko_KR'),
     'tw': ('https://tw.api.blizzard.com', 'profile-tw', 'zh_TW'),
-    'cn': ('https://gateway.battlenet.com.cn', 'profile-cn', 'zh_CN'),
 }
 _SIMC_SLOT_BY_BATTLENET_TYPE = {
     'HEAD': 'head', 'NECK': 'neck', 'SHOULDER': 'shoulder', 'BACK': 'back',
@@ -135,8 +134,10 @@ def _build_player_snapshot(profile, items, class_name, spec_key, talent):
 def fetch_battlenet_character_preflight(*, region, realm, character, requested_spec=''):
     """Fetch live data once and return a complete immutable execution snapshot."""
     region = str(region or '').strip().lower()
+    if region == 'cn':
+        raise ValueError('国服角色无法通过 Battle.net 加载，请改用 SimC Addon 导入')
     if region not in _REGION_CONFIG:
-        raise ValueError('Battle.net region 必须是 us、eu、kr、tw 或 cn')
+        raise ValueError('Battle.net region 必须是 us、eu、kr 或 tw')
     realm, character = str(realm or '').strip(), str(character or '').strip()
     if not realm or not character:
         raise ValueError('请填写 Battle.net 服务器和角色名')
