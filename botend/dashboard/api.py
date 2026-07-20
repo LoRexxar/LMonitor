@@ -84,6 +84,11 @@ SIMC_CLASS_DB_NAMES = {
     .replace('demon_hunter', 'demonhunter'): class_name
     for class_name in CLASS_SPEC_MAP
 }
+SIMC_SPEC_DB_IDENTITIES = {
+    f'{class_key}_{re.sub(r"(?<!^)(?=[A-Z])", "_", spec_name).lower()}': (db_class_name, spec_name)
+    for class_key, db_class_name in SIMC_CLASS_DB_NAMES.items()
+    for spec_name in CLASS_SPEC_MAP[db_class_name]
+}
 
 
 def _canonical_simc_spec(value):
@@ -3263,23 +3268,25 @@ class SimcBattlenetPreflightAPIView(View):
 
 @method_decorator(login_required, name='dispatch')
 class SimcBattlenetTopPlayersAPIView(View):
-    """Return current-season class leaders as reusable Battle.net identities."""
+    """Return current-season specialization leaders as reusable Battle.net identities."""
 
     def get(self, request):
-        class_name = str(request.GET.get('class_name') or '').strip().lower()
-        db_class_name = SIMC_CLASS_DB_NAMES.get(class_name)
-        if not db_class_name:
-            return JsonResponse({'success': False, 'error': '请选择有效职业'}, status=400)
+        spec = _canonical_simc_spec(request.GET.get('spec'))
+        db_identity = SIMC_SPEC_DB_IDENTITIES.get(spec)
+        if not db_identity:
+            return JsonResponse({'success': False, 'error': '请选择有效专精'}, status=400)
+        db_class_name, db_spec_name = db_identity
 
         season = SpecStatsService.get_active_season()
         if not season:
             return JsonResponse({
-                'success': True, 'class_name': class_name, 'season': None, 'data': [],
+                'success': True, 'spec': spec, 'season': None, 'data': [],
             })
 
         players = PlayerSpecTopPlayer.objects.filter(
             season_id=season.id,
             class_name=db_class_name,
+            spec_name=db_spec_name,
             rank__isnull=False,
             score__isnull=False,
         ).exclude(region='cn').order_by('-score', 'rank', 'id').values(
@@ -3297,12 +3304,12 @@ class SimcBattlenetTopPlayersAPIView(View):
             if identity in seen_characters:
                 continue
             seen_characters.add(identity)
-            spec = re.sub(r'(?<!^)(?=[A-Z])', '_', str(player['spec_name'] or '')).lower()
+            row_spec = re.sub(r'(?<!^)(?=[A-Z])', '_', str(player['spec_name'] or '')).lower()
             rows.append({
                 'id': player['id'],
                 'rank': player['rank'],
                 'score': player['score'],
-                'spec': spec,
+                'spec': row_spec,
                 'region': region,
                 'realm': player['realm'],
                 'character': player['character_name'],
@@ -3312,7 +3319,7 @@ class SimcBattlenetTopPlayersAPIView(View):
                 break
         return JsonResponse({
             'success': True,
-            'class_name': class_name,
+            'spec': spec,
             'season': {'id': season.id, 'key': season.season_key, 'name': season.season_name},
             'data': rows,
         })

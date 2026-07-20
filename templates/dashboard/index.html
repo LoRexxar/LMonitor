@@ -265,7 +265,7 @@
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260720f"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260720g"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260720r"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
@@ -938,12 +938,24 @@
                                             </div>
                                             <div id="simc-sim-source-battlenet" class="mt-3 space-y-2">
                                                 <div class="grid gap-2 md:grid-cols-2">
-                                                    <select id="simc-sim-bnet-class" class="rounded-lg border p-2.5">
-                                                        <option value="">-- 选择职业加载当前赛季 Top10 --</option>
-                                                        <option value="deathknight">死亡骑士</option><option value="demonhunter">恶魔猎手</option><option value="druid">德鲁伊</option><option value="evoker">唤魔师</option><option value="hunter">猎人</option><option value="mage">法师</option><option value="monk">武僧</option><option value="paladin">圣骑士</option><option value="priest">牧师</option><option value="rogue">潜行者</option><option value="shaman">萨满祭司</option><option value="warlock">术士</option><option value="warrior">战士</option>
+                                                    <select id="simc-sim-bnet-spec" class="rounded-lg border p-2.5">
+                                                        <option value="">-- 选择专精加载当前赛季 Top10 --</option>
+                                                        <option value="warrior_arms">武器战</option><option value="warrior_fury">狂怒战</option><option value="warrior_protection">防护战</option>
+                                                        <option value="deathknight_blood">鲜血死亡骑士</option><option value="deathknight_frost">冰霜死亡骑士</option><option value="deathknight_unholy">邪恶死亡骑士</option>
+                                                        <option value="demonhunter_havoc">浩劫恶魔猎手</option><option value="demonhunter_vengeance">复仇恶魔猎手</option><option value="demonhunter_devourer">吞噬恶魔猎手</option>
+                                                        <option value="druid_balance">平衡德鲁伊</option><option value="druid_feral">野性德鲁伊</option><option value="druid_guardian">守护德鲁伊</option><option value="druid_restoration">恢复德鲁伊</option>
+                                                        <option value="hunter_beast_mastery">野兽控制猎人</option><option value="hunter_marksmanship">射击猎人</option><option value="hunter_survival">生存猎人</option>
+                                                        <option value="mage_arcane">奥术法师</option><option value="mage_fire">火焰法师</option><option value="mage_frost">冰霜法师</option>
+                                                        <option value="monk_brewmaster">酒仙武僧</option><option value="monk_mistweaver">织雾武僧</option><option value="monk_windwalker">踏风武僧</option>
+                                                        <option value="paladin_holy">神圣圣骑士</option><option value="paladin_protection">防护圣骑士</option><option value="paladin_retribution">惩戒圣骑士</option>
+                                                        <option value="priest_discipline">戒律牧师</option><option value="priest_holy">神圣牧师</option><option value="priest_shadow">暗影牧师</option>
+                                                        <option value="rogue_assassination">奇袭潜行者</option><option value="rogue_outlaw">狂徒潜行者</option><option value="rogue_subtlety">敏锐潜行者</option>
+                                                        <option value="shaman_elemental">元素萨满祭司</option><option value="shaman_enhancement">增强萨满祭司</option><option value="shaman_restoration">恢复萨满祭司</option>
+                                                        <option value="warlock_affliction">痛苦术士</option><option value="warlock_demonology">恶魔学识术士</option><option value="warlock_destruction">毁灭术士</option>
+                                                        <option value="evoker_augmentation">增辉唤魔师</option><option value="evoker_devastation">湮灭唤魔师</option><option value="evoker_preservation">恩护唤魔师</option>
                                                     </select>
                                                     <select id="simc-sim-bnet-top-player" class="rounded-lg border p-2.5" disabled>
-                                                        <option value="">先选择职业</option>
+                                                        <option value="">先选择专精</option>
                                                     </select>
                                                 </div>
                                                 <div class="grid gap-2 md:grid-cols-3">

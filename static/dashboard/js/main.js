@@ -2680,14 +2680,14 @@ function replaceSimcBattlenetTopPlayerOptions(select, rows, placeholder) {
 }
 
 async function loadSimcBattlenetTopPlayers() {
-    const classSelect = document.getElementById('simc-sim-bnet-class');
+    const specSelect = document.getElementById('simc-sim-bnet-spec');
     const playerSelect = document.getElementById('simc-sim-bnet-top-player');
-    const className = String(classSelect?.value || '');
+    const spec = String(specSelect?.value || '');
     simcBattlenetTopPlayersAbortController?.abort();
     if (!playerSelect) return;
-    if (!className) {
+    if (!spec) {
         playerSelect.disabled = true;
-        replaceSimcBattlenetTopPlayerOptions(playerSelect, [], '先选择职业');
+        replaceSimcBattlenetTopPlayerOptions(playerSelect, [], '先选择专精');
         return;
     }
     const controller = new AbortController();
@@ -2696,19 +2696,19 @@ async function loadSimcBattlenetTopPlayers() {
     replaceSimcBattlenetTopPlayerOptions(playerSelect, [], '加载中...');
     try {
         const response = await fetch(
-            `/api/simc-battlenet-top-players/?class_name=${encodeURIComponent(className)}`,
+            `/api/simc-battlenet-top-players/?spec=${encodeURIComponent(spec)}`,
             { signal: controller.signal },
         );
         const payload = await response.json();
-        if (controller !== simcBattlenetTopPlayersAbortController || classSelect?.value !== className) return;
-        if (!response.ok || !payload.success || payload.class_name !== className) {
+        if (controller !== simcBattlenetTopPlayersAbortController || specSelect?.value !== spec) return;
+        if (!response.ok || !payload.success || payload.spec !== spec) {
             throw new Error(payload.error || '加载 Top10 角色失败');
         }
         const rows = Array.isArray(payload.data) ? payload.data : [];
         replaceSimcBattlenetTopPlayerOptions(
             playerSelect,
             rows,
-            rows.length ? '-- 选择 Top10 角色 --' : '当前赛季暂无该职业玩家',
+            rows.length ? '-- 选择 Top10 角色 --' : '当前赛季暂无该专精玩家',
         );
         playerSelect.disabled = rows.length === 0;
     } catch (error) {
@@ -3455,10 +3455,10 @@ function bindSimcWorkbenchSimulationControls() {
         source.dataset.bound = '1';
         source.addEventListener('change', switchSimcPlayerImportMode);
     });
-    const topClass = document.getElementById('simc-sim-bnet-class');
-    if (topClass && topClass.dataset.bound !== '1') {
-        topClass.dataset.bound = '1';
-        topClass.addEventListener('change', loadSimcBattlenetTopPlayers);
+    const topSpec = document.getElementById('simc-sim-bnet-spec');
+    if (topSpec && topSpec.dataset.bound !== '1') {
+        topSpec.dataset.bound = '1';
+        topSpec.addEventListener('change', loadSimcBattlenetTopPlayers);
     }
     const topPlayer = document.getElementById('simc-sim-bnet-top-player');
     if (topPlayer && topPlayer.dataset.bound !== '1') {
