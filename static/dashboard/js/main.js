@@ -3073,6 +3073,28 @@ function updateSimcComparisonSimulationCount() {
     count.innerHTML = `预计模拟 <strong class="text-lg text-violet-700">${total}</strong> 次`;
 }
 
+function simcTalentSimulatorUrl(buildCode) {
+    buildCode = String(buildCode || '').trim();
+    const canonicalSpec = String(simcResolvedCanonicalSpec || '').trim().toLowerCase();
+    const separator = canonicalSpec.indexOf('_');
+    if (!buildCode || separator <= 0) return '';
+    const classToken = canonicalSpec.slice(0, separator);
+    const specToken = canonicalSpec.slice(separator + 1);
+    const classAliases = { deathknight: 'DeathKnight', demonhunter: 'DemonHunter' };
+    const toPascalCase = value => value.split('_').filter(Boolean).map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+    const params = new URLSearchParams();
+    params.set('class', classAliases[classToken] || toPascalCase(classToken));
+    params.set('spec', toPascalCase(specToken));
+    params.set('code', buildCode);
+    return `/portal/talents/?${params.toString()}`;
+}
+
+function simcTalentSimulatorLink(buildCode) {
+    const url = simcTalentSimulatorUrl(buildCode);
+    if (!url) return '';
+    return `<a data-talent-simulator-link href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="shrink-0 self-center rounded-md border border-violet-200 bg-white px-2 py-1 text-[11px] font-medium text-violet-700 transition hover:border-violet-400 hover:bg-violet-50">在天赋模拟器中打开</a>`;
+}
+
 function renderSimcComparisonCandidates(comparison, equipment = null) {
     const container = document.getElementById('simc-sim-comparison-candidates');
     if (!container) return;
@@ -3103,8 +3125,8 @@ function renderSimcComparisonCandidates(comparison, equipment = null) {
         const alternatives = candidatesBySlot[slot] || [];
         return `<section data-candidate-slot-group="${escapeHtml(slot)}" class="overflow-hidden rounded-lg border border-gray-200 bg-slate-50"><div class="flex items-center justify-between border-b border-gray-200 bg-white px-2.5 py-1.5"><div class="text-xs font-semibold text-gray-700">${escapeHtml(labels[slot] || slot)}</div><div class="text-[10px] text-gray-400">${alternatives.length} 个候选</div></div><div class="grid gap-1.5 p-2 sm:grid-cols-2 lg:grid-cols-3">${current ? itemCard(current, slot, true) : '<div class="rounded border border-dashed border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-700">未解析到已装备物品</div>'}${alternatives.map(row => itemCard(row, slot)).join('')}</div></section>`;
     }).join('');
-    const defaultTalentRow = defaultTalent ? `<label data-candidate-card="default-talent" class="flex cursor-pointer gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs"><input class="simc-comparison-current mt-0.5 accent-emerald-600" type="checkbox" checked><span class="min-w-0"><strong class="block text-emerald-900">默认天赋</strong><span class="block break-all font-mono text-[10px] text-emerald-700">${escapeHtml(defaultTalent.talent)}</span></span></label>` : '';
-    const talentRows = talents.map(row => `<label data-candidate-card="talent" class="flex cursor-pointer gap-3 rounded-lg border border-violet-200 bg-white p-3 text-xs hover:border-violet-400"><input class="simc-comparison-candidate mt-0.5 accent-violet-600" type="checkbox" data-kind="talent_candidates" data-name="${escapeHtml(row.name || '候选天赋')}" data-talent="${escapeHtml(row.talent || '')}" data-source="${escapeHtml(row.source || '')}"><span class="min-w-0"><strong class="block text-gray-900">${escapeHtml(row.name || '候选天赋')}</strong><span class="block break-all font-mono text-[10px] text-gray-500">${escapeHtml(row.talent || '')}</span></span></label>`).join('');
+    const defaultTalentRow = defaultTalent ? `<div data-candidate-card="default-talent" class="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs"><input aria-label="选择默认天赋" class="simc-comparison-current mt-0.5 accent-emerald-600" type="checkbox" checked><span class="min-w-0 flex-1"><strong class="block text-emerald-900">默认天赋</strong><span class="block break-all font-mono text-[10px] text-emerald-700">${escapeHtml(defaultTalent.talent)}</span></span>${simcTalentSimulatorLink(defaultTalent.talent)}</div>` : '';
+    const talentRows = talents.map(row => `<div data-candidate-card="talent" class="flex gap-3 rounded-lg border border-violet-200 bg-white p-3 text-xs hover:border-violet-400"><input aria-label="选择${escapeHtml(row.name || '候选天赋')}" class="simc-comparison-candidate mt-0.5 accent-violet-600" type="checkbox" data-kind="talent_candidates" data-name="${escapeHtml(row.name || '候选天赋')}" data-talent="${escapeHtml(row.talent || '')}" data-source="${escapeHtml(row.source || '')}"><span class="min-w-0 flex-1"><strong class="block text-gray-900">${escapeHtml(row.name || '候选天赋')}</strong><span class="block break-all font-mono text-[10px] text-gray-500">${escapeHtml(row.talent || '')}</span></span>${simcTalentSimulatorLink(row.talent)}</div>`).join('');
     const talentOptions = [defaultTalentRow, talentRows].filter(Boolean).join('');
     const slotOptions = Object.entries(labels).map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
     container.innerHTML = `<div><div class="font-semibold text-gray-900">候选对比</div><p class="mt-1 text-xs text-gray-500">已装备物品默认勾选；取消任意一个已装备物品会同步取消整套基准模拟。</p></div><div class="mt-3 grid gap-2">${gearCards || '<p class="text-xs text-gray-500">尚无已解析装备，可在下方手工加入装备对比项。</p>'}</div>${talentOptions ? `<section class="mt-4 rounded-xl border border-gray-200 bg-slate-50 p-3"><div class="mb-2 text-sm font-semibold">天赋方案</div><div class="grid gap-2 md:grid-cols-2">${talentOptions}</div><div class="mt-3 grid gap-2"><input id="simc-comparison-add-talent-name" class="rounded border p-2 text-xs" placeholder="方案名称，例如：单体山丘"><textarea id="simc-comparison-add-talent-build" class="min-h-20 rounded border p-2 font-mono text-xs" placeholder="完整天赋树字符串"></textarea><button type="button" id="simc-comparison-add-talent-btn" class="justify-self-start rounded bg-violet-600 px-3 py-2 text-xs text-white">加入天赋方案</button></div></section>` : `<section class="mt-4 rounded-xl border border-gray-200 bg-slate-50 p-3"><div class="mb-2 text-sm font-semibold">天赋方案</div><div class="mt-3 grid gap-2"><input id="simc-comparison-add-talent-name" class="rounded border p-2 text-xs" placeholder="方案名称，例如：单体山丘"><textarea id="simc-comparison-add-talent-build" class="min-h-20 rounded border p-2 font-mono text-xs" placeholder="完整天赋树字符串"></textarea><button type="button" id="simc-comparison-add-talent-btn" class="justify-self-start rounded bg-violet-600 px-3 py-2 text-xs text-white">加入天赋方案</button></div></section>`}<div class="mt-4 rounded-xl border border-dashed border-violet-300 bg-white p-3"><div class="text-xs font-semibold">新增装备对比项</div><div class="mt-2 flex flex-col gap-2 sm:flex-row"><select id="simc-comparison-add-slot" class="rounded border p-2 text-xs">${slotOptions}</select><input id="simc-comparison-add-line" class="min-w-0 flex-1 rounded border p-2 font-mono text-xs" placeholder="head=,id=249952,ilevel=650"><button type="button" id="simc-comparison-add-btn" class="rounded bg-violet-600 px-3 py-2 text-xs text-white">加入对比</button></div></div>`;

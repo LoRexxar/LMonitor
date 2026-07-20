@@ -96,6 +96,22 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn("baseSelected", render)
         self.assertIn("baseSelected + selected.length", render)
 
+    def test_default_and_candidate_talent_codes_open_the_portal_simulator(self):
+        editor = SIM[SIM.index("function simcTalentSimulatorUrl"):SIM.index("function addSimcManualComparisonCandidate")]
+        self.assertIn("new URLSearchParams()", editor)
+        self.assertIn("params.set('class'", editor)
+        self.assertIn("params.set('spec'", editor)
+        self.assertIn("params.set('code', buildCode)", editor)
+        self.assertIn("/portal/talents/?${params.toString()}", editor)
+        self.assertIn("simcTalentSimulatorLink(defaultTalent.talent)", editor)
+        self.assertIn("simcTalentSimulatorLink(row.talent)", editor)
+        self.assertIn('data-talent-simulator-link', editor)
+        self.assertNotIn('<label data-candidate-card="default-talent"', editor)
+        self.assertNotIn('<label data-candidate-card="talent"', editor)
+        self.assertGreaterEqual(editor.count('target=\"_blank\"'), 1)
+        self.assertGreaterEqual(editor.count('rel=\"noopener noreferrer\"'), 1)
+        self.assertIn("dashboard/js/main.js' %}?v=20260720i", HTML)
+
     def test_batch_detail_has_visual_comparison_and_attribute_analysis(self):
         for token in (
             'comparison-hero', 'comparison-winner', 'comparison-delta',
