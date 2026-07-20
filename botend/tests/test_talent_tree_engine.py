@@ -1026,6 +1026,21 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(decoded['hero_anchor:170001']['points'], 1)
         self.assertEqual(decoded['hero_anchor:170001']['choice_selection'], 1)
 
+    def test_metadata_recognizes_apex_pool_even_when_ui_alias_is_hero_anchor(self):
+        base_node = {
+            'tree_type': 'hero_anchor',
+            'talent_id': 110407,
+            'node_id': 136987,
+            'max_points': 1,
+        }
+        entries = [
+            {'tree_type': 'hero_anchor', 'talent_id': 110407, 'node_id': 136987, 'max_points': 1},
+            {'tree_type': 'hero_anchor', 'talent_id': 110407, 'node_id': 136988, 'max_points': 2},
+            {'tree_type': 'hero_anchor', 'talent_id': 110407, 'node_id': 136989, 'max_points': 1},
+        ]
+
+        self.assertTrue(TalentMetadataProvider._is_apex_entry_group(base_node, entries))
+
     def test_decoder_sums_hero_anchor_apex_choice_options(self):
         decoder_nodes = [
             {

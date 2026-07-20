@@ -410,8 +410,9 @@ class TalentMetadataProvider:
         TraitNodeEntry，MaxRanks 常见为 1+2+1=4。它在 build code 中仍是
         一个节点的点数池，不应按二选一写 choice bits。
         """
-        if (base_node.get('tree_type') or 'spec') not in ('class', 'spec'):
-            return False
+        # ``tree_type`` is presentation metadata. DB2 apex pools can be aliased to
+        # hero_anchor for the UI even though their build-code entry is still a
+        # non-choice rank pool. The 1+2+1 same-TraitNode shape is authoritative.
         if len(option_nodes or []) < 3:
             return False
         try:
