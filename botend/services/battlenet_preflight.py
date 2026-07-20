@@ -72,7 +72,7 @@ def _spec_key(profile):
     return aliases.get(normalized, normalized)
 
 
-def _active_talent_loadout_code(payload, spec_key):
+def _talent_loadouts(payload, spec_key):
     rows = payload.get('specializations') or []
     active_id = (payload.get('active_specialization') or {}).get('id')
     candidates = []
@@ -86,10 +86,25 @@ def _active_talent_loadout_code(payload, spec_key):
         loadouts = row.get('loadouts') or []
         active = next((loadout for loadout in loadouts if loadout.get('is_active')), None)
         active = active or (loadouts[0] if len(loadouts) == 1 else None)
-        code = (active or {}).get('talent_loadout_code')
-        if code:
-            return str(code).strip()
-    return ''
+        active_code = str((active or {}).get('talent_loadout_code') or '').strip()
+        alternatives = []
+        seen_codes = {active_code} if active_code else set()
+        for index, loadout in enumerate(loadouts, start=1):
+            code = str((loadout or {}).get('talent_loadout_code') or '').strip()
+            if not code or code in seen_codes:
+                continue
+            seen_codes.add(code)
+            alternatives.append({
+                'name': str((loadout or {}).get('name') or f'天赋方案 {index}').strip(),
+                'build_code': code,
+            })
+        if active_code or alternatives:
+            return active_code, alternatives
+    return '', []
+
+
+def _active_talent_loadout_code(payload, spec_key):
+    return _talent_loadouts(payload, spec_key)[0]
 
 
 def _equipment_line(item):
@@ -203,7 +218,7 @@ def fetch_battlenet_character_preflight(*, region, realm, character, requested_s
     # compatibility with older diagnostic fixtures that only provide item level.
     if any((row.get('item') or {}).get('id') for row in items if isinstance(row, dict)):
         specializations_payload = _api_get(host, f'{base_path}/specializations', namespace, locale, token)
-    talent = _active_talent_loadout_code(specializations_payload, spec_key)
+    talent, saved_loadouts = _talent_loadouts(specializations_payload, spec_key)
     player_snapshot = _build_player_snapshot(profile, items, class_name, spec_key, talent)
 
     item_levels = [row.get('level', {}).get('value') for row in items if isinstance(row, dict)]
@@ -245,6 +260,17 @@ def fetch_battlenet_character_preflight(*, region, realm, character, requested_s
             'region': region, 'class_name': class_name, 'level': profile.get('level'),
         },
         'spec': {'key': spec_key, 'name': (profile.get('active_spec') or {}).get('name', '')},
+        'talents': {'build_code': talent, 'saved_loadouts': saved_loadouts},
+        'comparison_candidates': {
+            'default_talent': ({
+                'name': '默认天赋', 'talent': talent, 'source': 'battlenet_active',
+            } if talent else None),
+            'talents': [
+                {'name': row['name'], 'talent': row['build_code'], 'source': 'battlenet_loadout'}
+                for row in saved_loadouts
+            ],
+            'gear': [],
+        },
         'equipment': equipment_details,
         'equipment_summary': equipment_summary,
         'stats': {'primary': primary, 'secondary': secondary},

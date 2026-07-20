@@ -76,6 +76,14 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('方案内容', detail)
         self.assertIn('item.candidate?.talent', detail)
 
+    def test_battlenet_comparison_shows_default_talent_and_checkable_loadouts(self):
+        main = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+
+        self.assertIn("const defaultTalent = comparison?.default_talent", main)
+        self.assertIn('默认天赋', main)
+        self.assertIn('data-candidate-card="default-talent"', main)
+        self.assertIn('data-kind="talent_candidates"', main)
+
     def test_dedicated_template_and_script_prioritize_safe_result_information(self):
         template = (ROOT / 'templates/dashboard/simc_detail.html').read_text(encoding='utf-8')
         script = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')

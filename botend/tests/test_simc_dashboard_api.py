@@ -2857,7 +2857,17 @@ class SimcBattlenetPreflightTests(TestCase):
             'active_specialization': {'id': 72},
             'specializations': [{
                 'specialization': {'id': 72, 'name': 'Fury'},
-                'loadouts': [{'is_active': True, 'talent_loadout_code': 'CwPAAAAAAAAAAAAAAAAAAAAAAMzMzMz'}],
+                'loadouts': [
+                    {
+                        'is_active': True,
+                        'talent_loadout_code': 'CwPAAAAAAAAAAAAAAAAAAAAAAMzMzMz',
+                    },
+                    {
+                        'is_active': False,
+                        'name': '团本屠戮',
+                        'talent_loadout_code': 'CwPBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+                    },
+                ],
             }],
         }
         with patch('botend.services.battlenet_preflight._token', return_value='token'), patch(
@@ -2876,6 +2886,26 @@ class SimcBattlenetPreflightTests(TestCase):
         self.assertIn('head=,id=212048,bonus_id=10255/10390,enchant_id=7352,gem_id=213743/213744', snapshot)
         self.assertIn('main_hand=,id=222222', snapshot)
         self.assertEqual(result['simc_config']['talent'], 'CwPAAAAAAAAAAAAAAAAAAAAAAMzMzMz')
+        self.assertEqual(result['talents'], {
+            'build_code': 'CwPAAAAAAAAAAAAAAAAAAAAAAMzMzMz',
+            'saved_loadouts': [{
+                'name': '团本屠戮',
+                'build_code': 'CwPBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+            }],
+        })
+        self.assertEqual(result['comparison_candidates'], {
+            'default_talent': {
+                'name': '默认天赋',
+                'talent': 'CwPAAAAAAAAAAAAAAAAAAAAAAMzMzMz',
+                'source': 'battlenet_active',
+            },
+            'talents': [{
+                'name': '团本屠戮',
+                'talent': 'CwPBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+                'source': 'battlenet_loadout',
+            }],
+            'gear': [],
+        })
         self.assertNotIn('armory=', snapshot)
         self.assertEqual(result['equipment_summary'], {'count': 2, 'item_level': 680})
         self.assertEqual(result['equipment'][0], {
