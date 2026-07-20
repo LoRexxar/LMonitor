@@ -265,7 +265,7 @@
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260720e"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260720f"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260720r"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
@@ -951,6 +951,7 @@
                                                     <input id="simc-sim-bnet-realm" class="rounded-lg border p-2.5" placeholder="服务器（可手工填写）">
                                                     <input id="simc-sim-bnet-character" class="rounded-lg border p-2.5" placeholder="角色名（可手工填写）">
                                                 </div>
+                                                <div id="simc-sim-bnet-load-status" class="hidden rounded-lg border px-3 py-2 text-sm" role="status" aria-live="polite"></div>
                                             </div>
                                             <div id="simc-sim-source-addon" class="hidden mt-3">
                                                 <textarea id="simc-sim-addon-code" rows="9" class="w-full rounded-lg border p-3 font-mono text-xs" placeholder="粘贴 SimulationCraft Addon 导出的玩家配置"></textarea>

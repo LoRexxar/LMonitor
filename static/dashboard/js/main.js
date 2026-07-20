@@ -2723,6 +2723,7 @@ function switchSimcPlayerImportMode({ resolve = true } = {}) {
     document.getElementById('simc-sim-source-specified-spec')?.classList.toggle('hidden', type !== 'specified_spec');
     document.getElementById('simc-sim-source-battlenet')?.classList.toggle('hidden', type !== 'battlenet');
     document.getElementById('simc-sim-source-addon')?.classList.toggle('hidden', type !== 'simc_addon');
+    if (type !== 'battlenet') renderSimcBattlenetLoadState('idle');
     if (!resolve) return;
     resolveSimcPlayerSource().catch(error => {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
@@ -2742,6 +2743,32 @@ function selectedSimcReferenceValue(selector) {
 let simcResolvedBaseTemplateId = 0;
 let simcResolvedCanonicalSpec = '';
 let simcSourceResolutionAbortController = null;
+
+function renderSimcBattlenetLoadState(state, message = '') {
+    const host = document.getElementById('simc-sim-bnet-load-status');
+    if (!host) return;
+    const states = {
+        loading: {
+            classes: 'border-blue-200 bg-blue-50 text-blue-700',
+            icon: '<i class="fas fa-circle-notch fa-spin mr-2" aria-hidden="true"></i>',
+            text: '正在从 Battle.net 加载角色信息，请稍候…',
+        },
+        success: {
+            classes: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+            icon: '<i class="fas fa-check-circle mr-2" aria-hidden="true"></i>',
+            text: 'Battle.net 角色信息加载成功。',
+        },
+        error: {
+            classes: 'border-red-200 bg-red-50 text-red-700',
+            icon: '<i class="fas fa-exclamation-circle mr-2" aria-hidden="true"></i>',
+            text: 'Battle.net 角色信息加载失败。',
+        },
+    };
+    const config = states[state];
+    host.className = `rounded-lg border px-3 py-2 text-sm ${config?.classes || ''}`.trim();
+    host.classList.toggle('hidden', !config);
+    host.innerHTML = config ? `${config.icon}<span>${escapeHtml(message || config.text)}</span>` : '';
+}
 
 function clearSimcResolvedResources() {
     simcSourceResolutionAbortController?.abort();
@@ -2921,6 +2948,7 @@ async function resolveSimcPlayerSource() {
     const controller = new AbortController();
     simcSourceResolutionAbortController = controller;
     const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'battlenet';
+    let battlenetPreflightCompleted = false;
     try {
         let canonicalSpec = '';
         let detail = null;
@@ -2931,6 +2959,7 @@ async function resolveSimcPlayerSource() {
             const source = collectSimcPlayerSource();
             const url = type === 'battlenet' ? '/api/simc-battlenet-preflight/' : '/api/simc-player-config-detail/';
             const body = type === 'battlenet' ? source : { player_config_mode: 'simc_addon', simc_code: source.simc_code };
+            if (type === 'battlenet') renderSimcBattlenetLoadState('loading');
             const response = await fetch(url, {
                 method: 'POST', signal: controller.signal,
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
@@ -2940,6 +2969,14 @@ async function resolveSimcPlayerSource() {
             if (!response.ok || !payload.success) throw new Error(payload.error || '来源预检失败');
             canonicalSpec = payload.canonical_spec || payload.data?.canonical_spec || '';
             detail = payload.data || null;
+            if (type === 'battlenet') {
+                battlenetPreflightCompleted = true;
+                const identity = detail?.identity || {};
+                const characterLabel = [identity.name, identity.realm].filter(Boolean).join(' · ');
+                renderSimcBattlenetLoadState('success', characterLabel
+                    ? `${characterLabel} 的角色信息加载成功。`
+                    : 'Battle.net 角色信息加载成功。');
+            }
         }
         if (simcSourceResolutionAbortController !== controller) return;
         simcResolvedCanonicalSpec = canonicalSpec;
@@ -2957,6 +2994,9 @@ async function resolveSimcPlayerSource() {
     } catch (error) {
         if (error.name !== 'AbortError' && simcSourceResolutionAbortController === controller) {
             clearSimcResolvedResources();
+            if (type === 'battlenet' && !battlenetPreflightCompleted) {
+                renderSimcBattlenetLoadState('error', `Battle.net 角色信息加载失败：${String(error.message || error)}`);
+            }
             throw error;
         }
     } finally {

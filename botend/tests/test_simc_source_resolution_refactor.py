@@ -126,6 +126,18 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
             self.assertIn('spec:', body)
             self.assertIn('simcResolvedCanonicalSpec', body)
 
+    def test_battlenet_preflight_shows_loading_success_and_failure_states(self):
+        source_panel = WORKFLOW[WORKFLOW.index('id="simc-sim-source-battlenet"'):WORKFLOW.index('id="simc-sim-source-addon"')]
+        self.assertIn('id="simc-sim-bnet-load-status"', source_panel)
+        self.assertIn('aria-live="polite"', source_panel)
+        self.assertIn('function renderSimcBattlenetLoadState', MAIN)
+        resolution = MAIN.split('async function resolveSimcPlayerSource', 1)[1].split('\nasync function', 1)[0]
+        self.assertIn("renderSimcBattlenetLoadState('loading'", resolution)
+        self.assertIn("renderSimcBattlenetLoadState('success'", resolution)
+        self.assertIn("renderSimcBattlenetLoadState('error'", resolution)
+        self.assertIn('正在从 Battle.net 加载角色信息', MAIN)
+        self.assertIn('Battle.net 角色信息加载失败', MAIN)
+
     def test_dashboard_initialization_does_not_validate_unopened_battlenet_source(self):
         switch = MAIN.split('function switchSimcPlayerImportMode', 1)[1].split('\n}', 1)[0]
         binding = MAIN.split('function bindSimcWorkbenchSimulationControls', 1)[1].split('\n}', 1)[0]
@@ -136,4 +148,4 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertNotIn('\n    onSimcTargetSpecChange().catch', binding)
         self.assertIn("if (sectionId === 'simc-workbench')", navigation)
         self.assertIn('switchSimcPlayerImportMode();', navigation)
-        self.assertIn("dashboard/js/main.js' %}?v=20260720e", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260720f", HTML)
