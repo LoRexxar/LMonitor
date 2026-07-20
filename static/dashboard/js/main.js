@@ -3331,7 +3331,7 @@ async function startSelectedSimcCandidateComparisons() {
     let references;
     try { references = requireSimcRunReferences(); }
     catch (error) { showMessage(String(error.message || error), 'warning'); return; }
-    const { simc_profile_id, base_template_id, selected_apl_id } = references;
+    const { simc_profile_id, player_source, base_template_id, selected_apl_id } = references;
     const selected = Array.from(document.querySelectorAll('.simc-comparison-candidate:checked'));
     const include_base = Boolean(document.querySelector('.simc-comparison-current:checked'));
     if (!selected.length) { showMessage('请至少选择一个候选', 'warning'); return; }
@@ -3351,7 +3351,7 @@ async function startSelectedSimcCandidateComparisons() {
             body: JSON.stringify({
                 kind, name: `${simcResolvedCanonicalSpec || 'SimC'} 候选对比`,
                 spec: simcResolvedCanonicalSpec,
-                simc_profile_id, base_template_id, selected_apl_id, candidates, include_base,
+                simc_profile_id, player_source, base_template_id, selected_apl_id, candidates, include_base,
                 ...currentSimcScenario(),
             }),
         });

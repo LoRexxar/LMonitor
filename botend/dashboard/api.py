@@ -2048,6 +2048,7 @@ class SimcBatchTaskAPIView(View):
             source_type = str(player_source.get('type') or ('saved_profile' if profile_id else '')).strip()
             target_class, target_spec = canonical_simc_spec_identity(data.get('spec'))
             transient_profile = False
+            source_talent_candidates = []
             if source_type == 'saved_profile':
                 profile_id = player_source.get('profile_id') or profile_id
                 try:
@@ -2114,30 +2115,43 @@ class SimcBatchTaskAPIView(View):
                     if not preflight.get('simc_ready'):
                         raise ValueError('；'.join(preflight.get('warnings') or ['Battle.net 角色不可用于模拟']))
                     values = preflight['simc_config']
+                    source_talent_candidates = list(
+                        (preflight.get('comparison_candidates') or {}).get('talents') or []
+                    )
                     source_class, source_spec = canonical_simc_spec_identity(values.get('spec'))
                     if source_spec != target_spec or (source_class and source_class != target_class):
                         raise ValueError('Battle.net 角色专精与目标专精不一致')
-                    # Attribute variants need a frozen player block so candidate rating
-                    # overrides are rendered into the final SimC input. Armory mode would
-                    # re-import mutable live state and discard those overrides.
-                    default_key = f'{target_class}_{target_spec}'
-                    default_rows = SimcContentTemplate.objects.filter(
-                        template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                        source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-                        spec=default_key, is_active=True,
-                    )
-                    if default_rows.count() != 1:
-                        raise ValueError(f'专精 {default_key} 默认玩家配置需要且只能解析到一个')
-                    frozen_baseline = validate_default_player_baseline(default_key, default_rows.get().content)
-                    frozen_parsed = parse_manual_player_config(frozen_baseline, target_spec)
-                    profile_fields = {
-                        **values,
-                        'name': f"本次 Battle.net 属性快照 · {values['battlenet_character']}",
-                        'spec': target_spec,
-                        'player_config_mode': 'attribute_only',
-                        'player_equipment': frozen_baseline,
-                        'talent': str(frozen_parsed.get('talents', {}).get('build_code') or ''),
-                    }
+                    if kind == 'attribute_variants':
+                        # Attribute variants use the stable upstream baseline so rating
+                        # overrides are rendered into the final SimC input.
+                        default_key = f'{target_class}_{target_spec}'
+                        default_rows = SimcContentTemplate.objects.filter(
+                            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+                            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                            spec=default_key, is_active=True,
+                        )
+                        if default_rows.count() != 1:
+                            raise ValueError(f'专精 {default_key} 默认玩家配置需要且只能解析到一个')
+                        frozen_baseline = validate_default_player_baseline(default_key, default_rows.get().content)
+                        frozen_parsed = parse_manual_player_config(frozen_baseline, target_spec)
+                        profile_fields = {
+                            **values,
+                            'name': f"本次 Battle.net 属性快照 · {values['battlenet_character']}",
+                            'spec': target_spec,
+                            'player_config_mode': 'attribute_only',
+                            'player_equipment': frozen_baseline,
+                            'talent': str(frozen_parsed.get('talents', {}).get('build_code') or ''),
+                        }
+                    else:
+                        frozen_baseline = validate_player_baseline(values.get('player_equipment'))
+                        profile_fields = {
+                            **values,
+                            'name': f"本次 Battle.net 玩家快照 · {values['battlenet_character']}",
+                            'spec': target_spec,
+                            'player_config_mode': 'manual_equipment',
+                            'player_equipment': frozen_baseline,
+                            'talent': str(values.get('talent') or ''),
+                        }
                 else:
                     raise ValueError('请选择玩家配置来源')
                 profile = SimcProfile(user_id=request.user.id, is_active=True, **profile_fields)
@@ -2247,7 +2261,10 @@ class SimcBatchTaskAPIView(View):
                             },
                         })
                 else:
-                    trusted = {row['talent']: row for row in parsed['talent_candidates']}
+                    trusted = {
+                        row['talent']: row
+                        for row in [*parsed['talent_candidates'], *source_talent_candidates]
+                    }
                     submitted_talents = [str(candidate.get('talent') or '').strip() for candidate in submitted]
                     if len(set(submitted_talents)) != len(submitted_talents):
                         raise ValueError('候选天赋不可重复选择')

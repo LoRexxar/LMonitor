@@ -53,8 +53,10 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         attribute = SIM[SIM.index("function simcAttributeSearchRequestBody"):SIM.index("async function submitSimcAttributeSearch")]
         for token in ("simc_profile_id", "base_template_id", "selected_apl_id"):
             self.assertIn(token, candidate)
-        for token in ("player_source", "spec", "...references"):
+        for token in ("player_source", "spec"):
+            self.assertIn(token, candidate)
             self.assertIn(token, attribute)
+        self.assertIn("...references", attribute)
         for body in (candidate, attribute):
             for token in ("player_equipment", "profile_name", "base_template_content", "override_action_list"):
                 self.assertNotIn(token, body)
@@ -116,7 +118,7 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn('data-copy-talent-code', editor)
         self.assertIn('navigator.clipboard.writeText', editor)
         self.assertIn('复制', editor)
-        self.assertIn("dashboard/js/main.js' %}?v=20260720j", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260720k", HTML)
 
     def test_batch_detail_has_visual_comparison_and_attribute_analysis(self):
         for token in (

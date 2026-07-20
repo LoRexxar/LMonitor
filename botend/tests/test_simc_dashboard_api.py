@@ -2413,6 +2413,62 @@ trinket1=,id=111,ilevel=639
             self.assertIsNotNone(task.apl_id)
             self.assertIsNotNone(task.apl_version_id)
 
+    @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
+    def test_talent_candidate_batch_accepts_battlenet_source_and_freezes_selected_loadouts(self, preflight):
+        player_snapshot = (
+            'warrior="Batcher"\nlevel=90\nspec=fury\ntalents=ACTIVE_BUILD\n'
+            'head=,id=212048\nmain_hand=,id=222222'
+        )
+        preflight.return_value = {
+            'simc_ready': True, 'warnings': [],
+            'simc_config': {
+                'player_config_mode': 'battlenet', 'battlenet_region': 'eu',
+                'battlenet_realm': 'Kazzak', 'battlenet_character': 'Batcher',
+                'spec': 'fury', 'talent': 'ACTIVE_BUILD',
+                'player_equipment': player_snapshot,
+                'gear_strength': 10000, 'gear_crit': 1000, 'gear_haste': 2000,
+                'gear_mastery': 3000, 'gear_versatility': 4000,
+            },
+            'comparison_candidates': {
+                'default_talent': {
+                    'name': '默认天赋', 'talent': 'ACTIVE_BUILD', 'source': 'battlenet_active',
+                },
+                'talents': [
+                    {'name': '团本', 'talent': 'RAID_BUILD', 'source': 'battlenet_loadout'},
+                    {'name': '大秘境', 'talent': 'MPLUS_BUILD', 'source': 'battlenet_loadout'},
+                ],
+                'gear': [],
+            },
+        }
+
+        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+            'kind': 'talent_candidates', 'name': 'Fury Battle.net 天赋对比',
+            'spec': 'warrior_fury',
+            'player_source': {
+                'type': 'battlenet', 'region': 'eu', 'realm': 'Kazzak', 'character': 'Batcher',
+            },
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+            'include_base': True,
+            'candidates': [
+                {'name': '团本', 'talent': 'RAID_BUILD', 'source': 'battlenet_loadout'},
+                {'name': '大秘境', 'talent': 'MPLUS_BUILD', 'source': 'battlenet_loadout'},
+            ],
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        batch = SimcTaskBatch.objects.get(id=response.json()['data']['batch_id'])
+        profile = SimcProfile.objects.get(id=json.loads(batch.request_manifest)['profile_id'])
+        self.assertEqual(profile.player_config_mode, 'manual_equipment')
+        self.assertEqual(profile.player_equipment, player_snapshot)
+        tasks = list(SimcTask.objects.filter(batch=batch).order_by('id'))
+        self.assertEqual(len(tasks), 3)
+        self.assertEqual(
+            [task.mode_params.get('talent_override') for task in tasks],
+            [None, 'RAID_BUILD', 'MPLUS_BUILD'],
+        )
+
     def test_talent_candidate_batch_accepts_named_manual_build_and_freezes_report_metadata(self):
         profile = self._create_profile('Manual talent Test', '''warrior="Batcher"
 spec=fury
