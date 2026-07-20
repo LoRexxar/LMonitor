@@ -1008,6 +1008,30 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
 
         self.assertEqual(decoded['hero_anchor:137002']['points'], 4)
 
+    def test_encoder_preserves_partial_rank_for_hero_anchor_pool(self):
+        decoder_nodes = [{
+            'tree_type': 'hero_anchor',
+            'node_id': 137002,
+            'talent_id': 110412,
+            'spell_id': 1269310,
+            'max_points': 1,
+            'choice_options': [
+                {'node_id': 137004, 'talent_id': 110412, 'spell_id': 1269308, 'max_points': 1},
+                {'node_id': 137003, 'talent_id': 110412, 'spell_id': 1269309, 'max_points': 2},
+                {'node_id': 137002, 'talent_id': 110412, 'spell_id': 1269310, 'max_points': 1},
+            ],
+        }]
+
+        build_code = TalentBuildCodeEncoder.encode_node_states(
+            self.DEATH_KNIGHT_REFERENCE_CODE,
+            decoder_nodes,
+            [{'tree_type': 'hero_anchor', 'talent_id': 110412, 'points': 1}],
+        )
+
+        self.assertTrue(build_code)
+        decoded = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
+        self.assertEqual(decoded['hero_anchor:137002']['points'], 1)
+
     def test_simulator_maps_decoder_apex_state_to_visible_spec_node_by_alias(self):
         full_nodes = [{
             'tree_type': 'spec',

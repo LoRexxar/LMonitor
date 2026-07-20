@@ -164,7 +164,7 @@ class TalentBuildCodeEncoder:
                 continue
 
             points = max(1, int(state.get('points') or 1))
-            max_points = max(1, int(node.get('max_points') or 1))
+            max_points = max(1, TalentBuildCodeDecoder._effective_max_points(node))
             points = min(points, max_points)
             is_purchased = state.get('purchased') is not False
             is_partially_ranked = points < max_points

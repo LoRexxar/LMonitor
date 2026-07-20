@@ -2731,6 +2731,52 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
 class SimcBattlenetPreflightTests(TestCase):
     """Battle.net 提交前预检必须真实获取角色信息，而不是只回显 armory 三元组。"""
 
+    @patch('botend.services.battlenet_preflight.TalentBuildCodeService.encode_build_code_from_nodes')
+    @patch('botend.services.battlenet_preflight.TalentMetadataProvider.get_decoder_node_list')
+    def test_saved_loadout_reencodes_missing_granted_hero_root(
+        self, get_decoder_nodes, encode_build_code,
+    ):
+        from botend.services.battlenet_preflight import _canonicalize_talent_loadout
+
+        get_decoder_nodes.return_value = [
+            {
+                'talent_id': 100, 'tree_type': 'hero', 'db2_subtree_id': 60,
+                'parents': [], 'max_points': 1,
+            },
+            {
+                'talent_id': 101, 'tree_type': 'hero', 'db2_subtree_id': 60,
+                'parents': [100], 'max_points': 1,
+            },
+            {
+                'talent_id': 200, 'tree_type': 'hero', 'db2_subtree_id': 62,
+                'parents': [], 'max_points': 1,
+            },
+        ]
+        encode_build_code.return_value = 'CANONICAL_WITH_GRANTED_ROOT'
+        loadout = {
+            'talent_loadout_code': 'RAW_SAVED_CODE_WITHOUT_ROOT',
+            'selected_class_talents': [{'id': 10, 'rank': 1}],
+            'selected_spec_talents': [{'id': 20, 'rank': 2}],
+            'selected_hero_talents': [{'id': 101, 'rank': 1}],
+        }
+
+        result = _canonicalize_talent_loadout(loadout, class_name='warrior', spec_name='arms')
+
+        self.assertEqual(result, 'CANONICAL_WITH_GRANTED_ROOT')
+        selected_nodes = encode_build_code.call_args.args[0]
+        self.assertIn(
+            {
+                'talent_id': 100, 'tree_type': 'hero', 'db2_subtree_id': 60,
+                'points': 1, 'selected': True, 'purchased': False,
+            },
+            selected_nodes,
+        )
+        self.assertNotIn(200, [node.get('talent_id') for node in selected_nodes])
+        self.assertEqual(
+            encode_build_code.call_args.kwargs['reference_build_code'],
+            'RAW_SAVED_CODE_WITHOUT_ROOT',
+        )
+
     def setUp(self):
         self.user = User.objects.create_user(username='battlenet_preflight_user', password='pwd')
         self.client = Client()

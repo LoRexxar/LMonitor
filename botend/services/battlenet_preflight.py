@@ -1,6 +1,7 @@
 """Battle.net 角色预检：验证实时角色并生成可离线复用的完整 SimC 玩家快照。"""
 from __future__ import annotations
 
+from collections import defaultdict
 from urllib.parse import quote
 
 import requests
@@ -8,6 +9,8 @@ from django.conf import settings
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.services.simc_player_config import SLOT_LABELS, SPEC_CLASS, normalize_battlenet_class_name
+from botend.wow.talents.metadata import TalentMetadataProvider
+from botend.wow.talents.service import TalentBuildCodeService
 
 
 _REGION_CONFIG = {
@@ -72,7 +75,97 @@ def _spec_key(profile):
     return aliases.get(normalized, normalized)
 
 
-def _talent_loadouts(payload, spec_key):
+def _canonicalize_talent_loadout(loadout, *, class_name, spec_name):
+    """Rebuild a Battle.net loadout and restore omitted granted hero roots.
+
+    Battle.net Saved Loadouts can omit the automatically granted hero-tree root
+    from both ``selected_hero_talents`` and the import string.  The remaining
+    hero nodes still identify the active subtree, so restore its canonical
+    parentless root as selected-but-not-purchased before freezing the code.
+    """
+    loadout = loadout or {}
+    reference = str(loadout.get('talent_loadout_code') or '').strip()
+    selected_groups = (
+        ('class', loadout.get('selected_class_talents') or []),
+        ('spec', loadout.get('selected_spec_talents') or []),
+        ('hero', loadout.get('selected_hero_talents') or []),
+    )
+    if not any(rows for _, rows in selected_groups):
+        return reference
+
+    try:
+        decoder_nodes = TalentMetadataProvider().get_decoder_node_list(class_name)
+        decoder_by_id = {
+            int(node['talent_id']): node for node in decoder_nodes
+            if node.get('talent_id')
+        }
+        selected_nodes = []
+        selected_ids = set()
+        for tree_type, rows in selected_groups:
+            for row in rows:
+                talent_id = row.get('id') if isinstance(row, dict) else None
+                try:
+                    talent_id = int(talent_id)
+                    points = int(row.get('rank') or 0)
+                except (TypeError, ValueError):
+                    continue
+                canonical = decoder_by_id.get(talent_id)
+                if not canonical or points <= 0:
+                    continue
+                node = {
+                    'talent_id': talent_id,
+                    'tree_type': canonical.get('tree_type') or tree_type,
+                    'points': points,
+                    'selected': True,
+                    'purchased': not bool(row.get('default_points')),
+                }
+                if canonical.get('db2_subtree_id'):
+                    node['db2_subtree_id'] = canonical['db2_subtree_id']
+                selected_nodes.append(node)
+                selected_ids.add(talent_id)
+
+        active_subtree = 0
+        subtree_points = defaultdict(int)
+        for node in selected_nodes:
+            if node.get('tree_type') == 'hero' and node.get('db2_subtree_id'):
+                subtree_points[int(node['db2_subtree_id'])] += int(node.get('points') or 0)
+        if subtree_points:
+            active_subtree = max(subtree_points, key=subtree_points.get)
+        if not active_subtree:
+            active_subtree = (loadout.get('selected_hero_talent_tree') or {}).get('id')
+            try:
+                active_subtree = int(active_subtree)
+            except (TypeError, ValueError):
+                active_subtree = 0
+        if active_subtree:
+            roots = [
+                node for node in decoder_nodes
+                if (node.get('tree_type') or '') == 'hero'
+                and int(node.get('db2_subtree_id') or 0) == active_subtree
+                and not (node.get('parents') or [])
+            ]
+            if len(roots) == 1 and int(roots[0].get('talent_id') or 0) not in selected_ids:
+                selected_nodes.append({
+                    'talent_id': int(roots[0]['talent_id']),
+                    'tree_type': 'hero',
+                    'db2_subtree_id': active_subtree,
+                    'points': 1,
+                    'selected': True,
+                    'purchased': False,
+                })
+
+        canonical = TalentBuildCodeService.encode_build_code_from_nodes(
+            selected_nodes,
+            class_name=class_name,
+            spec_name=spec_name,
+            reference_build_code=reference,
+        )
+        return canonical or reference
+    except Exception:
+        return reference
+
+
+def _talent_loadouts(payload, spec_key, class_name=''):
     rows = payload.get('specializations') or []
     active_id = (payload.get('active_specialization') or {}).get('id')
     candidates = []
@@ -86,11 +179,15 @@ def _talent_loadouts(payload, spec_key):
         loadouts = row.get('loadouts') or []
         active = next((loadout for loadout in loadouts if loadout.get('is_active')), None)
         active = active or (loadouts[0] if len(loadouts) == 1 else None)
-        active_code = str((active or {}).get('talent_loadout_code') or '').strip()
+        active_code = _canonicalize_talent_loadout(
+            active, class_name=class_name, spec_name=spec_key,
+        ) if active else ''
         alternatives = []
         seen_codes = {active_code} if active_code else set()
         for index, loadout in enumerate(loadouts, start=1):
-            code = str((loadout or {}).get('talent_loadout_code') or '').strip()
+            code = _canonicalize_talent_loadout(
+                loadout, class_name=class_name, spec_name=spec_key,
+            )
             if not code or code in seen_codes:
                 continue
             seen_codes.add(code)
@@ -103,8 +200,8 @@ def _talent_loadouts(payload, spec_key):
     return '', []
 
 
-def _active_talent_loadout_code(payload, spec_key):
-    return _talent_loadouts(payload, spec_key)[0]
+def _active_talent_loadout_code(payload, spec_key, class_name=''):
+    return _talent_loadouts(payload, spec_key, class_name)[0]
 
 
 def _equipment_line(item):
@@ -218,7 +315,7 @@ def fetch_battlenet_character_preflight(*, region, realm, character, requested_s
     # compatibility with older diagnostic fixtures that only provide item level.
     if any((row.get('item') or {}).get('id') for row in items if isinstance(row, dict)):
         specializations_payload = _api_get(host, f'{base_path}/specializations', namespace, locale, token)
-    talent, saved_loadouts = _talent_loadouts(specializations_payload, spec_key)
+    talent, saved_loadouts = _talent_loadouts(specializations_payload, spec_key, class_name)
     player_snapshot = _build_player_snapshot(profile, items, class_name, spec_key, talent)
 
     item_levels = [row.get('level', {}).get('value') for row in items if isinstance(row, dict)]
