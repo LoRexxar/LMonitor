@@ -55,9 +55,9 @@ class TalentBuildCodeDecoder:
             max_points = cls._effective_max_points(node)
             if not is_purchased:
                 # Blizzard import strings mark granted/default nodes as selected
-                # but not purchased. They should render as active prerequisites,
-                # yet they must not consume talent points.
-                points = 0
+                # but not purchased. Render the granted rank as active while
+                # preserving purchased=False so counters can exclude its cost.
+                points = 1
             elif is_partially_ranked:
                 points = partial_ranks
             else:
@@ -166,12 +166,15 @@ class TalentBuildCodeEncoder:
             points = max(1, int(state.get('points') or 1))
             max_points = max(1, int(node.get('max_points') or 1))
             points = min(points, max_points)
+            is_purchased = state.get('purchased') is not False
             is_partially_ranked = points < max_points
             choice_selection = state.get('choice_selection')
             is_choice_node = choice_selection is not None
 
             writer.write(1, 1)  # selected
-            writer.write(1, 1)  # purchased
+            writer.write(1 if is_purchased else 0, 1)
+            if not is_purchased:
+                continue
             writer.write(1 if is_partially_ranked else 0, 1)
             if is_partially_ranked:
                 writer.write(points, TalentBuildCodeDecoder.RANKS_PURCHASED_BITS)
@@ -212,6 +215,8 @@ class TalentBuildCodeEncoder:
             if not key or key not in ordered_lookup:
                 continue
             state = {'points': points}
+            if selected.get('purchased') is False:
+                state['purchased'] = False
             choice_selection = _resolve_choice_selection(ordered_lookup[key], selected)
             if choice_selection is not None:
                 state['choice_selection'] = choice_selection
@@ -228,6 +233,8 @@ class TalentBuildCodeEncoder:
             expected_state = expected[key]
             decoded_state = decoded.get(key) or {}
             if int(expected_state.get('points') or 0) != int(decoded_state.get('points') or 0):
+                return False
+            if expected_state.get('purchased') is False and decoded_state.get('purchased') is not False:
                 return False
             expected_choice = expected_state.get('choice_selection')
             if expected_choice is not None and int(expected_choice) != int(decoded_state.get('choice_selection') or 0):

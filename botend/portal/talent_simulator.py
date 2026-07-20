@@ -112,6 +112,8 @@ def _parse_selected_nodes(raw_nodes):
             'display_spell_id': _to_int(item.get('display_spell_id') or item.get('displaySpellID')) or None,
             'points': points,
         }
+        if item.get('purchased') is False:
+            selected_item['purchased'] = False
         if item.get('choice_selection') is not None:
             selected_item['choice_selection'] = _to_int(item.get('choice_selection'), 0)
         selected.append(selected_item)
@@ -200,6 +202,21 @@ def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subt
     active_hero_subtree。这样页面可以在两个英雄树之间稳定切换。
     """
     decoded_states = decoded_states or {}
+    hero_root_key = ''
+    if active_hero_subtree and not decoded_states:
+        hero_roots = [
+            node for node in full_nodes or []
+            if (node.get('tree_type') or 'spec') == 'hero'
+            and (node.get('db2_subtree_id') or 0) == active_hero_subtree
+            and not (node.get('parents') or [])
+        ]
+        if hero_roots:
+            hero_root = min(hero_roots, key=lambda node: (
+                _to_int(node.get('row'), 0),
+                _to_int(node.get('column'), 0),
+                _to_int(node.get('talent_id'), 0),
+            ))
+            hero_root_key = _build_node_key(hero_root)
     merged = []
     for node in full_nodes or []:
         if (node.get('tree_type') or 'spec') == 'hero':
@@ -218,6 +235,11 @@ def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subt
             points = _to_int(state.get('points'), 0)
             payload['points'] = points
             payload['selected'] = bool(state.get('selected') or points > 0)
+            payload['purchased'] = state.get('purchased', True)
+        if key == hero_root_key:
+            payload['points'] = 1
+            payload['selected'] = True
+            payload['purchased'] = False
         if payload.get('choice_options'):
             selected_index = _choice_selection_for_node(payload, state) if state else _choice_selection_from_payload(payload)
             payload['choice_selection'] = selected_index

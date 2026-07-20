@@ -792,7 +792,7 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(decoded['class:96203']['choice_selection'], 1)
         self.assertEqual(decoded['class:96203']['points'], 1)
 
-    def test_decoder_treats_selected_unpurchased_node_as_granted_zero_points(self):
+    def test_decoder_treats_selected_unpurchased_node_as_granted_display_point(self):
         decoder_nodes = [
             {
                 'tree_type': 'class',
@@ -808,14 +808,78 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         for _ in range(16):
             writer.write(0, 8)
         writer.write(1, 1)  # selected/granted by default
-        writer.write(0, 1)  # not purchased, should not consume a point
+        writer.write(0, 1)  # not purchased: active default node, no point cost
         build_code = writer.to_string()
 
         decoded = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
 
-        self.assertEqual(decoded['class:112182']['points'], 0)
+        self.assertEqual(decoded['class:112182']['points'], 1)
         self.assertTrue(decoded['class:112182']['selected'])
         self.assertFalse(decoded['class:112182']['purchased'])
+
+    def test_simulator_activates_first_node_when_hero_subtree_is_selected(self):
+        merged = _merge_nodes_for_simulator(
+            [
+                {
+                    'tree_type': 'hero',
+                    'node_id': 117415,
+                    'talent_id': 94818,
+                    'spell_id': 436358,
+                    'db2_subtree_id': 62,
+                    'max_points': 1,
+                    'parents': [],
+                    'points': 0,
+                    'selected': False,
+                },
+                {
+                    'tree_type': 'hero',
+                    'node_id': 117409,
+                    'talent_id': 94812,
+                    'spell_id': 429638,
+                    'db2_subtree_id': 62,
+                    'max_points': 1,
+                    'parents': [117415],
+                    'points': 0,
+                    'selected': False,
+                },
+            ],
+            decoded_states={},
+            active_hero_subtree=62,
+        )
+
+        self.assertEqual(merged[0]['points'], 1)
+        self.assertTrue(merged[0]['selected'])
+        self.assertFalse(merged[0]['purchased'])
+        self.assertEqual(merged[1]['points'], 0)
+
+    def test_encoder_preserves_selected_unpurchased_default_node(self):
+        decoder_nodes = [
+            {
+                'tree_type': 'hero',
+                'node_id': 117415,
+                'talent_id': 94818,
+                'spell_id': 436358,
+                'max_points': 1,
+            }
+        ]
+        build_code = TalentBuildCodeEncoder.encode_node_states(
+            self.DEATH_KNIGHT_REFERENCE_CODE,
+            decoder_nodes,
+            [{
+                'tree_type': 'hero',
+                'node_id': 117415,
+                'talent_id': 94818,
+                'points': 1,
+                'selected': True,
+                'purchased': False,
+            }],
+        )
+
+        decoded = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
+
+        self.assertEqual(decoded['hero:117415']['points'], 1)
+        self.assertTrue(decoded['hero:117415']['selected'])
+        self.assertFalse(decoded['hero:117415']['purchased'])
 
     def test_decoder_does_not_sum_regular_choice_option_points(self):
         decoder_nodes = [
