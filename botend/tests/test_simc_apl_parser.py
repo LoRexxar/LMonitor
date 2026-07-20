@@ -61,6 +61,36 @@ class SimcAplParserTests(SimpleTestCase):
         self.assertEqual((third.list_name, third.operator), ("precombat", "="))
         self.assertEqual(third.actions[0].name, "snapshot_stats")
 
+    def test_named_action_lists_accept_upstream_non_identifier_keys(self):
+        document = parse(
+            "actions.foo-bar=/one\n"
+            "actions.1phase+=/two"
+        )
+
+        self.assertEqual(
+            [line.list_name for line in document.lines], ["foo-bar", "1phase"])
+        self.assertEqual(document.issues, ())
+
+    def test_named_action_lists_still_reject_empty_or_structurally_broken_keys(self):
+        document = parse(
+            "actions.=one\n"
+            "actions.bad name=two\n"
+            "actions.bad/name=three"
+        )
+
+        self.assertTrue(all(isinstance(line, InvalidLine) for line in document.lines))
+
+    def test_named_action_lists_reject_punctuation_outside_the_explicit_whitelist(self):
+        invalid_names = (
+            ")(", "bad?", "bad;", r"bad\name", "'bad'", '"bad"',
+        )
+
+        for name in invalid_names:
+            with self.subTest(name=name):
+                document = parse(f"actions.{name}=one")
+                self.assertIsInstance(document.lines[0], InvalidLine)
+                self.assertEqual([issue.code for issue in document.issues], ["invalid-line"])
+
     def test_parses_multiple_actions_and_options_on_one_line(self):
         document = parse(
             "actions.cooldowns+=/recklessness,if=buff.avatar.up"

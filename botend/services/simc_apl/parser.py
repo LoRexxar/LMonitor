@@ -20,9 +20,10 @@ from .ast import (
 )
 from .expression import parse_expression
 from .lexer import LineKind, LineToken, lex, source_end_position
+from .names import ACTION_LIST_NAME_PATTERN
 
 _ASSIGNMENT_RE = re.compile(
-    r"actions(?:\.(?P<list>[A-Za-z_][A-Za-z0-9_]*))?"
+    rf"actions(?:\.(?P<list>{ACTION_LIST_NAME_PATTERN}))?"
     r"(?P<operator>\+=|=)(?P<body>.*)\Z"
 )
 _NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
