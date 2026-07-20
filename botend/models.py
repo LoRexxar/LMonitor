@@ -1,6 +1,6 @@
 import hashlib
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 
@@ -705,6 +705,211 @@ class SimcAplKeywordPair(models.Model):
 
     def __str__(self):
         return f"{self.apl_keyword} <-> {self.cn_keyword}"
+
+
+class SimcAplSymbol(models.Model):
+    """Versioned SimC token facts, updated in place within a revision.
+
+    Identity deliberately excludes ``is_active``: a catalog sync reactivates the
+    existing row and marks identities absent from that revision inactive, all in
+    one transaction.  It does not retain same-revision staging history.
+    """
+
+    KIND_ACTION = 'action'
+    KIND_PSEUDO_ACTION = 'pseudo_action'
+    KIND_ACTION_OPTION = 'action_option'
+    KIND_EXPRESSION = 'expression'
+    KIND_OPTION = 'option'
+    KIND_NAMESPACE = 'namespace'
+    KIND_RESOURCE = 'resource'
+    KIND_BUFF = 'buff'
+    KIND_DEBUFF = 'debuff'
+    KIND_DOT = 'dot'
+    KIND_COOLDOWN = 'cooldown'
+    KIND_TALENT = 'talent'
+    KIND_HERO_TREE = 'hero_tree'
+    SYMBOL_KIND_CHOICES = (
+        (KIND_ACTION, 'Action'),
+        (KIND_PSEUDO_ACTION, 'Pseudo action'),
+        (KIND_ACTION_OPTION, 'Action option'),
+        (KIND_EXPRESSION, 'Expression'),
+        (KIND_OPTION, 'Option'),
+        (KIND_NAMESPACE, 'Namespace'),
+        (KIND_RESOURCE, 'Resource'),
+        (KIND_BUFF, 'Buff'),
+        (KIND_DEBUFF, 'Debuff'),
+        (KIND_DOT, 'Damage over time'),
+        (KIND_COOLDOWN, 'Cooldown'),
+        (KIND_TALENT, 'Talent'),
+        (KIND_HERO_TREE, 'Hero tree'),
+    )
+
+    SOURCE_SIMC_MANIFEST = 'simc_manifest'
+    SOURCE_MANIFEST = SOURCE_SIMC_MANIFEST
+    SOURCE_SYSTEM_APL = 'system_apl'
+    SOURCE_WAGO = 'wago'
+    SOURCE_MANUAL = 'manual'
+    SOURCE_CHOICES = (
+        (SOURCE_SIMC_MANIFEST, 'SimC manifest'),
+        (SOURCE_SYSTEM_APL, 'System APL'),
+        (SOURCE_WAGO, 'Wago'),
+        (SOURCE_MANUAL, 'Verified manual fact'),
+    )
+
+    id = models.BigAutoField(primary_key=True)
+    simc_revision = models.CharField(max_length=128)
+    wow_build = models.CharField(max_length=64)
+    class_name = models.CharField(max_length=50, null=True, blank=True)
+    spec = models.CharField(max_length=100, null=True, blank=True)
+    hero_tree = models.CharField(max_length=100, null=True, blank=True)
+    class_key = models.CharField(max_length=50, default='', editable=False)
+    spec_key = models.CharField(max_length=100, default='', editable=False)
+    hero_tree_key = models.CharField(max_length=100, default='', editable=False)
+    token = models.CharField(max_length=200)
+    symbol_kind = models.CharField(
+        max_length=32, choices=SYMBOL_KIND_CHOICES, default=KIND_ACTION,
+    )
+    spell_id = models.BigIntegerField(null=True, blank=True)
+    source = models.CharField(
+        max_length=32, choices=SOURCE_CHOICES, default=SOURCE_MANIFEST,
+    )
+    aliases = models.JSONField(default=list, blank=True)
+    options = models.JSONField(default=dict, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'simc_apl_symbol'
+        verbose_name = 'SimC APL symbol fact'
+        verbose_name_plural = 'SimC APL symbol facts'
+        ordering = ['simc_revision', 'symbol_kind', 'token', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['simc_revision', 'wow_build', 'class_key', 'spec_key',
+                        'hero_tree_key', 'token', 'symbol_kind'],
+                name='simc_symbol_version_scope_uniq',
+            ),
+            models.CheckConstraint(
+                condition=(models.Q(class_name__isnull=True, class_key='') |
+                           (models.Q(class_name__isnull=False) &
+                            ~models.Q(class_name='') &
+                            models.Q(class_name=models.F('class_key')))),
+                name='simc_symbol_class_scope_key_ck',
+            ),
+            models.CheckConstraint(
+                condition=(models.Q(spec__isnull=True, spec_key='') |
+                           (models.Q(spec__isnull=False) &
+                            ~models.Q(spec='') &
+                            models.Q(spec=models.F('spec_key')))),
+                name='simc_symbol_spec_scope_key_ck',
+            ),
+            models.CheckConstraint(
+                condition=(models.Q(hero_tree__isnull=True, hero_tree_key='') |
+                           (models.Q(hero_tree__isnull=False) &
+                            ~models.Q(hero_tree='') &
+                            models.Q(hero_tree=models.F('hero_tree_key')))),
+                name='simc_symbol_hero_scope_key_ck',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['simc_revision', 'spec', 'symbol_kind', 'token'],
+                name='simc_sym_rev_spec_kind_tok_idx',
+            ),
+            models.Index(
+                fields=['simc_revision', 'spell_id'],
+                name='simc_sym_rev_spell_idx',
+            ),
+            models.Index(
+                fields=['simc_revision', 'class_name', 'hero_tree'],
+                name='simc_sym_rev_class_hero_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.simc_revision}:{self.symbol_kind}:{self.token}'
+
+    @staticmethod
+    def normalize_scope(value):
+        """Return ``(nullable business value, non-null identity key)``."""
+        value = value.strip() if isinstance(value, str) else value
+        value = value or None
+        return value, value or ''
+
+    @classmethod
+    def prepare(cls, instance):
+        """Canonicalize one instance, including instances destined for bulk_create."""
+        for scope, key in (
+            ('class_name', 'class_key'), ('spec', 'spec_key'),
+            ('hero_tree', 'hero_tree_key'),
+        ):
+            value, canonical = cls.normalize_scope(getattr(instance, scope, None))
+            setattr(instance, scope, value)
+            setattr(instance, key, canonical)
+        # SimC identifiers are case-insensitive.  Canonicalizing also makes the
+        # behavior identical on SQLite and MariaDB's default CI collation.
+        instance.token = (instance.token or '').strip().lower()
+        return instance
+
+    def clean(self):
+        super().clean()
+        self.prepare(self)
+
+    def save(self, *args, **kwargs):
+        prepared_fields = (
+            'class_name', 'class_key', 'spec', 'spec_key',
+            'hero_tree', 'hero_tree_key', 'token',
+        )
+        before_prepare = {field: getattr(self, field) for field in prepared_fields}
+        self.prepare(self)
+        if kwargs.get('update_fields') is not None:
+            update_fields = set(kwargs['update_fields'])
+            update_fields.update(
+                field for field in prepared_fields
+                if getattr(self, field) != before_prepare[field]
+            )
+            kwargs['update_fields'] = update_fields
+        return super().save(*args, **kwargs)
+
+    @classmethod
+    def sync_revision_catalog(cls, simc_revision, wow_build, facts):
+        """Atomically upsert a revision catalog and deactivate missing identities."""
+        identity_fields = (
+            'simc_revision', 'wow_build', 'class_key', 'spec_key',
+            'hero_tree_key', 'token', 'symbol_kind',
+        )
+        fact_fields = (
+            'class_name', 'spec', 'hero_tree', 'spell_id', 'source',
+            'aliases', 'options',
+        )
+        prepared = {}
+        for fact in facts:
+            # Catalog synchronization owns activity state: every supplied fact
+            # is active, regardless of an optional manifest value.
+            values = dict(fact)
+            values.pop('is_active', None)
+            candidate = cls.prepare(cls(
+                simc_revision=simc_revision, wow_build=wow_build, **values,
+            ))
+            identity_key = tuple(getattr(candidate, name) for name in identity_fields)
+            payload = {field: getattr(candidate, field) for field in fact_fields}
+            previous = prepared.get(identity_key)
+            if previous is not None and previous != payload:
+                raise ValueError(f'conflicting duplicate identity: {identity_key!r}')
+            prepared[identity_key] = payload
+
+        seen = []
+        with transaction.atomic():
+            for identity_key, payload in prepared.items():
+                identity = dict(zip(identity_fields, identity_key))
+                defaults = dict(payload)
+                defaults['is_active'] = True
+                row, _ = cls.objects.update_or_create(defaults=defaults, **identity)
+                seen.append(row.pk)
+            cls.objects.filter(
+                simc_revision=simc_revision, wow_build=wow_build,
+            ).exclude(pk__in=seen).update(is_active=False)
 
 
 class SimcApl(models.Model):
