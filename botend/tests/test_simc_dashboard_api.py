@@ -17,6 +17,47 @@ from botend.services.simc_composer import SimcComposer
 from botend.models import PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, WowItemSnapshot
 
 
+class SimcAplCanonicalClassAliasTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='apl_alias_user', password='pwd')
+        self.client = Client()
+        self.client.force_login(self.user)
+        self.base_template = SimcContentTemplate.objects.create(
+            name='Generic base template',
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            spec='default',
+            class_name='',
+            content='{player_identity}\n{action_list}',
+            is_active=True,
+            is_selectable=True,
+        )
+        self.apl = SimcApl.objects.create(
+            name='Default Unholy APL',
+            spec='deathknight_unholy',
+            class_name='deathknight',
+            content='actions=/auto_attack',
+            source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True,
+            owner_user_id=None,
+            is_active=True,
+            is_selectable=True,
+        )
+
+    def test_apl_candidates_resolves_death_knight_alias_to_canonical_class(self):
+        response = self.client.get(
+            '/api/simc-apl-candidates/',
+            {'spec': 'unholy', 'class_name': 'death_knight'},
+        )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        self.assertEqual(payload['default_apl_id'], self.apl.id)
+        self.assertEqual(payload['default_template_id'], self.base_template.id)
+        self.assertEqual([row['id'] for row in payload['data']], [self.apl.id])
+
+
 class SimcWorkerBatchLifecycleTests(TestCase):
     def setUp(self):
         self.monitor = SimcMonitor(None, None)

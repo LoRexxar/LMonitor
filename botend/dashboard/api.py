@@ -2477,8 +2477,8 @@ WOW_SIMC_CLASS_NAMES = {
 }
 
 WOW_SIMC_CLASS_ALIASES = {
-    'deathknight': 'death_knight',
-    'demonhunter': 'demon_hunter',
+    'death_knight': 'deathknight',
+    'demon_hunter': 'demonhunter',
 }
 
 
