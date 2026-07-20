@@ -142,6 +142,20 @@
         /* SimC 紧凑响应式：操作保持可达，窄屏不产生横向滚动。 */
         .simc-compact-panel { padding: .75rem; }
         .simc-touch-action { min-height: 36px; padding: .4rem .65rem; border-radius: .375rem; }
+        .simc-template-filters { display: flex; flex-wrap: wrap; gap: .5rem; }
+        .simc-template-filter { min-height: 38px; border: 1px solid #e2e8f0; border-radius: 999px; background: #fff; padding: .45rem .8rem; color: #475569; font-size: .75rem; font-weight: 800; transition: border-color .16s, background .16s, color .16s, box-shadow .16s; }
+        .simc-template-filter:hover { border-color: #bfdbfe; color: #1d4ed8; }
+        .simc-template-filter[aria-pressed="true"] { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; box-shadow: 0 0 0 3px rgba(37, 99, 235, .08); }
+        .simc-template-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+        .simc-template-card { display: flex; min-width: 0; flex-direction: column; gap: .8rem; border: 1px solid #e2e8f0; border-radius: 1rem; background: linear-gradient(145deg, #fff 0%, #f8fafc 100%); padding: 1rem; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); transition: border-color .16s, box-shadow .16s, transform .16s; }
+        .simc-template-card:hover { border-color: #bfdbfe; box-shadow: 0 10px 28px rgba(15, 23, 42, .07); transform: translateY(-1px); }
+        .simc-template-card__title { color: #0f172a; font-size: .95rem; font-weight: 800; line-height: 1.45; overflow-wrap: anywhere; }
+        .simc-template-card__meta { display: flex; flex-wrap: wrap; gap: .4rem .65rem; color: #64748b; font-size: .74rem; }
+        .simc-template-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: .22rem .55rem; font-size: .68rem; font-weight: 800; }
+        .simc-template-card__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; margin-top: auto; padding-top: .75rem; border-top: 1px solid #e2e8f0; }
+        .simc-template-detail-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+        .simc-template-detail-meta > div { border: 1px solid #e2e8f0; border-radius: .75rem; background: #f8fafc; padding: .65rem .75rem; }
+        .template-code-preview { max-height: 32rem; overflow: auto; border-radius: .85rem; background: #0f172a; padding: 1rem; color: #dbeafe; font-size: .78rem; line-height: 1.65; white-space: pre; }
         .simc-task-list { display: grid; gap: .75rem; }
         .simc-task-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 1rem; padding: 1rem 1.125rem; border: 1px solid #e2e8f0; border-radius: 1rem; background: linear-gradient(135deg, #fff 0%, #f8fafc 100%); box-shadow: 0 1px 2px rgba(15, 23, 42, .04); transition: border-color .18s, box-shadow .18s, transform .18s; }
         .simc-task-card:hover { border-color: #bfdbfe; box-shadow: 0 10px 28px rgba(15, 23, 42, .08); transform: translateY(-1px); }
@@ -204,6 +218,11 @@
             #simc-workbench .simc-form-grid { grid-template-columns: minmax(0, 1fr) !important; }
             #simc-workbench button, #simc-workbench select, #simc-workbench input { min-height: 40px; }
             #simc-workbench .simc-responsive-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+            #simc-workbench .simc-template-list { grid-template-columns: minmax(0, 1fr); }
+            #simc-workbench .simc-template-card__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            #simc-workbench .simc-template-card__actions > :only-child { grid-column: 1 / -1; }
+            #simc-workbench .simc-template-card__actions .simc-touch-action { width: 100%; }
+            .simc-template-detail-meta { grid-template-columns: minmax(0, 1fr); }
             #simc-workbench .simc-task-card { gap: .85rem; padding: .9rem; }
             #simc-workbench .simc-task-card__title { white-space: normal; overflow-wrap: anywhere; }
             #simc-workbench .simc-task-card__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
@@ -225,7 +244,7 @@
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260720e"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260720o"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260720p"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -1165,7 +1184,26 @@
                                 <div id="simc-wb-profile-pagination" class="simc-pagination mt-4 flex items-center justify-between text-sm text-gray-500"></div>
                             </div>
                         </div>
-                        <div class="simc-workbench-panel hidden" id="simc-workbench-templates-panel" data-simc-panel="templates"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><h3 class="text-xl font-bold">ContentTemplate 模板</h3><button type="button" data-inline-create="templates" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button></div><div class="mt-3 flex flex-wrap gap-3" id="simc-template-type-filters"><button data-template-type="base_template">基础模板</button><button data-template-type="default_player">默认玩家配置</button><button data-template-type="default_apl">默认 APL</button><button data-template-type="custom_apl">自定义 APL</button><button data-template-type="custom_player">用户自定义装备</button></div><div id="simc-wb-template-list" class="mt-4"></div></div></div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-templates-panel" data-simc-panel="templates">
+                            <div class="rounded-2xl border bg-white p-5">
+                                <div class="flex flex-wrap items-start justify-between gap-3">
+                                    <div><h3 class="text-xl font-bold text-slate-900">内容模板</h3><p class="mt-1 text-sm text-slate-500">管理基础模拟片段和历史兼容内容；系统及上游模板保持只读。</p></div>
+                                    <button type="button" data-inline-create="templates" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-plus mr-1"></i>新增模板</button>
+                                </div>
+                                <div class="mt-4 border-t border-slate-100 pt-4">
+                                    <div id="simc-template-type-filters" class="simc-template-filters" aria-label="模板类型筛选">
+                                        <button type="button" class="simc-template-filter" data-template-type="" aria-pressed="true">全部</button>
+                                        <button type="button" class="simc-template-filter" data-template-type="base_template" aria-pressed="false">基础模板</button>
+                                        <button type="button" class="simc-template-filter" data-template-type="default_player" aria-pressed="false">默认玩家配置</button>
+                                        <button type="button" class="simc-template-filter" data-template-type="default_apl" aria-pressed="false">默认 APL</button>
+                                        <button type="button" class="simc-template-filter" data-template-type="custom_apl" aria-pressed="false">自定义 APL</button>
+                                        <button type="button" class="simc-template-filter" data-template-type="custom_player" aria-pressed="false">用户自定义装备</button>
+                                    </div>
+                                    <p class="mt-3 text-xs text-slate-500" data-template-filter-summary>正在加载模板…</p>
+                                </div>
+                                <div id="simc-wb-template-list" class="mt-4"></div>
+                            </div>
+                        </div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-apl-panel" data-simc-panel="apl">
                             <div class="rounded-2xl border bg-white p-5">
                                 <div class="flex justify-between mb-4">

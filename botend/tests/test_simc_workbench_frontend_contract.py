@@ -126,6 +126,31 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         template_panel = HTML[HTML.index('id="simc-workbench-templates-panel"'):HTML.index('id="simc-workbench-apl-panel"')]
         self.assertNotIn("can_write", template_panel)
 
+    def test_content_templates_use_filter_tabs_and_structured_cards(self):
+        template_panel = HTML[HTML.index('id="simc-workbench-templates-panel"'):HTML.index('id="simc-workbench-apl-panel"')]
+        load_start = JS.index('async function loadTemplates')
+        load_end = JS.index('function renderTemplateForm', load_start)
+        load_body = JS[load_start:load_end]
+        self.assertIn('内容模板', template_panel)
+        self.assertIn('data-template-type=""', template_panel)
+        self.assertIn('simc-template-filter', template_panel)
+        for token in ('simc-template-list', 'simc-template-card', 'simc-template-badge', 'simc-template-card__actions'):
+            self.assertIn(token, load_body)
+        self.assertIn('aria-pressed', JS)
+        self.assertIn('data-template-filter-summary', template_panel)
+
+    def test_content_template_editor_and_detail_use_code_workspace(self):
+        form_start = JS.index('function renderTemplateForm')
+        form_end = JS.index('function closeTemplateForm', form_start)
+        form_body = JS[form_start:form_end]
+        detail_start = JS.index('async function showTemplateDetail')
+        detail_end = JS.index('function renderAplKeywordForm', detail_start)
+        detail_body = JS[detail_start:detail_end]
+        for token in ('simc-editor-form', 'simc-editor-section', 'simc-code-editor', 'data-code-editor-stats', '保存内容模板'):
+            self.assertIn(token, form_body)
+        self.assertIn('template-code-preview', detail_body)
+        self.assertIn('simc-template-detail-meta', detail_body)
+
     def test_keyword_detail_and_immutable_edit_contract(self):
         self.assertIn("showAplKeywordDetail", JS)
         self.assertIn('data-wb-action="keyword-detail"', JS)

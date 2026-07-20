@@ -387,12 +387,23 @@
         state.rows.templates = data.data || [];
         state.canWriteTemplates = data.can_write === true;
         const rows = state.templateType ? data.data.filter(row => row.template_type === state.templateType) : data.data;
-        host.innerHTML = rows.length ? rows.map(row => {
+        document.querySelectorAll('[data-template-type]').forEach(button => {
+            button.setAttribute('aria-pressed', String((button.dataset.templateType || '') === state.templateType));
+        });
+        const summary = document.querySelector('[data-template-filter-summary]');
+        if (summary) summary.textContent = state.templateType ? `共 ${data.data.length} 个模板 · 当前筛选 ${rows.length} 个` : `共 ${rows.length} 个模板`;
+        host.innerHTML = rows.length ? `<div class="simc-template-list">${rows.map(row => {
             const active = row.is_active !== false;
             const readOnly = row.read_only === true;
             const ownership = !readOnly ? '我的模板可编辑' : (row.source === 'simc_upstream' ? '上游同步只读' : '系统内置只读');
-            return `<article class="simc-responsive-row flex flex-wrap justify-between gap-3 border-b p-3"><div><b>${esc(row.name)}</b><div class="text-xs text-gray-500">${esc(row.type_label)} · ${esc(row.spec)} · ${ownership} · ${active ? '启用' : '已停用'}</div></div><div class="flex flex-wrap gap-2">${!readOnly ? `<button data-wb-action="template-edit" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">编辑</button><button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-amber-700">${active ? '停用' : '恢复'}</button>` : ''}<button data-wb-action="template-detail" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">查看</button></div></article>`;
-        }).join('') : empty('此类型暂无模板');
+            const sourceClass = readOnly ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700';
+            const statusClass = active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500';
+            return `<article class="simc-template-card">
+                <div class="flex items-start justify-between gap-3"><div class="min-w-0"><div class="mb-2 flex flex-wrap gap-2"><span class="simc-template-badge bg-indigo-50 text-indigo-700">${esc(row.type_label)}</span><span class="simc-template-badge ${statusClass}">${active ? '启用' : '已停用'}</span></div><h4 class="simc-template-card__title">${esc(row.name)}</h4></div><span class="simc-template-badge ${sourceClass}">${esc(ownership)}</span></div>
+                <div class="simc-template-card__meta"><span><i class="fas fa-crosshairs mr-1 text-slate-400"></i>${esc(row.spec || 'default')}</span><span><i class="fas fa-shield-alt mr-1 text-slate-400"></i>${esc(row.class_name || '通用职业')}</span></div>
+                <div class="simc-template-card__actions">${!readOnly ? `<button data-wb-action="template-edit" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50"><i class="fas fa-pen mr-1"></i>编辑</button><button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action ${active ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}"><i class="fas fa-${active ? 'pause' : 'play'} mr-1"></i>${active ? '停用' : '恢复'}</button>` : ''}<button data-wb-action="template-detail" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100"><i class="fas fa-code mr-1"></i>查看内容</button></div>
+            </article>`;
+        }).join('')}</div>` : empty('此类型暂无模板');
         document.querySelector('[data-inline-create="templates"]')?.classList.toggle('hidden', !state.canWriteTemplates);
     }
     function renderTemplateForm(row = null) {
@@ -405,15 +416,28 @@
             { value: 'custom_apl', label: '自定义 APL' },
             { value: 'custom_player', label: '用户自定义装备' },
         ].map(opt => `<option value="${esc(opt.value)}" ${row?.template_type === opt.value ? 'selected' : ''}>${esc(opt.label)}</option>`).join('');
-        host.innerHTML = `<form data-template-form class="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        const content = row?.content || '';
+        host.innerHTML = `<form data-template-form class="simc-editor-form space-y-4">
             <input type="hidden" name="id" value="${idOf(row?.id)}">
-            <label class="block text-sm font-medium text-gray-700">名称<input name="name" required maxlength="200" value="${esc(row?.name)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
-            <label class="mt-3 block text-sm font-medium text-gray-700">类型<select name="template_type" required class="mt-1 w-full rounded-lg border bg-white p-2">${typeOptions}</select></label>
-            <label class="mt-3 block text-sm font-medium text-gray-700">专精标识<input name="spec" maxlength="100" value="${esc(row?.spec || 'default')}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
-            <label class="mt-3 block text-sm font-medium text-gray-700">职业<input name="class_name" maxlength="50" value="${esc(row?.class_name)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
-            <label class="mt-3 block text-sm font-medium text-gray-700">内容<textarea name="content" required rows="12" class="mt-1 w-full rounded-lg border bg-white p-3 font-mono text-xs">${esc(row?.content)}</textarea></label>
-            <div class="mt-3 flex gap-2"><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-white">保存</button><button type="button" data-template-action="cancel" class="rounded-lg border bg-white px-4 py-2">取消</button></div>
+            <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><h4 class="text-lg font-bold">${row?.id ? '编辑内容模板' : '新建内容模板'}</h4><p class="mt-1 text-xs leading-5 text-indigo-100">模板按引用和不可变版本参与新任务；修改不会回写历史任务。</p></div>
+            <section class="simc-editor-section">
+                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">身份与适用范围</h5><p class="mt-1 text-xs text-slate-500">明确模板名称、类型和职业专精边界。</p></div><span class="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">ContentTemplate</span></div>
+                <div class="grid gap-4 p-4 sm:grid-cols-2">
+                    <label class="simc-editor-label sm:col-span-2">名称<input name="name" required maxlength="200" value="${esc(row?.name)}" class="simc-editor-input" placeholder="例如：通用基础模拟模板"></label>
+                    <label class="simc-editor-label">类型<select name="template_type" required class="simc-editor-input">${typeOptions}</select><span class="simc-editor-help">默认玩家配置由上游同步维护，不在此手工创建。</span></label>
+                    <label class="simc-editor-label">专精标识<input name="spec" maxlength="100" value="${esc(row?.spec || 'default')}" class="simc-editor-input" placeholder="default 或 warrior_fury"></label>
+                    <label class="simc-editor-label sm:col-span-2">职业<input name="class_name" maxlength="50" value="${esc(row?.class_name)}" class="simc-editor-input" placeholder="留空表示通用"></label>
+                </div>
+            </section>
+            <section class="simc-editor-section">
+                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">模板内容</h5><p class="mt-1 text-xs text-slate-500">支持 Tab 缩进；按原始换行保存，不在浏览器端重排。</p></div><span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">SimC</span></div>
+                <textarea name="content" required spellcheck="false" autocomplete="off" autocapitalize="off" class="simc-code-editor" placeholder="# SimulationCraft template&#10;iterations=10000"></textarea>
+                <div class="simc-code-editor-toolbar"><span data-code-editor-stats>${codeStats(content)}</span><span>Tab 缩进 · 等宽字体 · 不自动换行</span></div>
+            </section>
+            <div class="simc-editor-actions"><span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后仅影响引用新版本的新任务。</span><button type="button" data-template-action="cancel" class="rounded-lg border bg-white px-4 py-2 text-sm text-slate-700">取消</button><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存内容模板</button></div>
         </form>`;
+        const editor = host.querySelector('textarea[name="content"]');
+        if (editor) editor.value = content;
     }
     function closeTemplateForm() {
         closeDialog();
@@ -455,7 +479,13 @@
         }
         if (!isCurrentDetailRequest(detailRequest)) return;
         const row = data.data || {};
-        host.innerHTML = `<div class="flex justify-between mb-3"><h4 class="font-bold">${esc(row.name)}</h4><button data-template-action="close-detail" class="text-slate-500">关闭</button></div><dl class="grid gap-2 text-sm"><div>类型：${esc(row.type_label)}</div><div>专精：${esc(row.spec)}</div><div>职业：${esc(row.class_name || '-')}</div><div>来源：${esc(row.source === 'simc_upstream' ? 'SimC上游' : '用户维护')}</div><div>状态：${row.is_active ? '启用' : '已停用'}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
+        const active = row.is_active !== false;
+        const sourceLabel = row.source === 'simc_upstream' ? 'SimC 上游' : (row.read_only ? '系统内置' : '用户维护');
+        host.innerHTML = `<div class="space-y-4">
+            <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><div class="flex flex-wrap items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-wider text-indigo-200">ContentTemplate</p><h4 class="mt-1 text-lg font-bold">${esc(row.name)}</h4></div><div class="flex items-center gap-2"><span class="simc-template-badge ${active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}">${active ? '启用' : '已停用'}</span><button type="button" data-template-action="close-detail" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-indigo-100 hover:bg-white/10 hover:text-white">关闭</button></div></div></div>
+            <dl class="simc-template-detail-meta text-sm"><div><dt class="text-xs font-medium text-slate-500">类型</dt><dd class="mt-1 font-semibold text-slate-900">${esc(row.type_label)}</dd></div><div><dt class="text-xs font-medium text-slate-500">来源</dt><dd class="mt-1 font-semibold text-slate-900">${esc(sourceLabel)}</dd></div><div><dt class="text-xs font-medium text-slate-500">专精</dt><dd class="mt-1 font-semibold text-slate-900">${esc(row.spec || 'default')}</dd></div><div><dt class="text-xs font-medium text-slate-500">职业</dt><dd class="mt-1 font-semibold text-slate-900">${esc(row.class_name || '通用')}</dd></div></dl>
+            <section class="simc-editor-section"><div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">模板内容</h5><p class="mt-1 text-xs text-slate-500">只读预览，保持原始换行与缩进。</p></div><span class="text-xs text-slate-500">${codeStats(row.content)}</span></div><pre class="template-code-preview">${esc(row.content)}</pre></section>
+        </div>`;
     }
     function renderAplKeywordForm(row = null) {
         const host = openDialog('keyword-form');
