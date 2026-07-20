@@ -381,6 +381,22 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("startsWith('/')", JS)
         self.assertEqual(MAIN.count("function escapeHtml"), 1)
 
+    def test_apl_list_uses_structured_table_with_class_spec_and_editor_actions(self):
+        panel = HTML[HTML.index('id="simc-workbench-apl-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        render_start = JS.index('function renderUnifiedAplList()')
+        render_end = JS.index('function renderMyAplList()', render_start)
+        render_body = JS[render_start:render_end]
+        self.assertIn('APL 资源库', panel)
+        self.assertIn('data-apl-list-summary', panel)
+        self.assertIn('simc-apl-table-wrap', render_body)
+        self.assertIn('simc-apl-table', render_body)
+        for heading in ('APL 名称', '职业', '专精', '来源', '状态', '操作'):
+            self.assertIn(heading, render_body)
+        self.assertNotIn('<article', render_body)
+        self.assertIn('data-apl-action="edit"', render_body)
+        self.assertIn('data-default-apl-action="view"', render_body)
+        self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
+
     def test_apl_storage_has_dialog_crud_and_simulation_loading(self):
         self.assertNotIn('id="simc-wb-apl-storage-form"', HTML)
         self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
@@ -428,7 +444,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         apl_panel_start = HTML.index('id="simc-workbench-apl-panel"')
         apl_panel_end = HTML.index('<!-- End L1 Panel: 模拟工作流', apl_panel_start)
         my_apl_section = HTML[apl_panel_start:apl_panel_end]
-        self.assertIn('APL 列表', my_apl_section)
+        self.assertIn('APL 资源库', my_apl_section)
         self.assertIn('id="simc-apl-search"', my_apl_section)
         self.assertIn('placeholder="搜索', my_apl_section)
         self.assertIn('showManagedAplDetail', JS)
@@ -458,8 +474,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("kind: 'default'", JS)
         self.assertIn("row.kind === 'personal' ? row.apl_code : ''", JS)
         self.assertIn('专精', JS)
-        self.assertIn('来源：个人', JS)
-        self.assertIn("'系统默认' : '个人模板'", JS)
+        self.assertIn("const sourceLabel = isPersonal ? '个人'", JS)
+        self.assertIn("'SimC 上游' : '系统默认'", JS)
         self.assertIn('个人 APL 加载失败，已保留其他可用资源', JS)
         self.assertIn('系统默认 APL 加载失败，已保留其他可用资源', JS)
 

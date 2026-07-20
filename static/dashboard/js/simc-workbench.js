@@ -645,21 +645,33 @@
         if (state.aplLoadState.default.error) {
             statusParts.push(`<div class="mb-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">${esc(state.aplLoadState.default.error)}</div>`);
         }
+        const summary = document.querySelector('[data-apl-list-summary]');
+        if (summary) summary.textContent = query ? `共 ${allRows.length} 个 APL · 筛选后 ${filteredRows.length} 个` : `共 ${allRows.length} 个 APL`;
         const rowsHtml = filteredRows.map(row => {
-            if (row.kind === 'personal') {
-                const active = row.is_active !== false;
-                const sourceTag = '<span class="inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">来源：个人</span>';
-                const specTag = `<span class="inline-block rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">专精：${esc(row.spec || '未标记')}</span>`;
-                const rowActions = row.read_only ? '<span class="text-xs text-slate-400">只读</span>' : `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700">删除</button>`;
-                return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.title)}</b><div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">${sourceTag} ${specTag} ${active ? '<span class="text-emerald-600">启用中</span>' : '<span class="text-gray-400">已停用</span>'}</div></div><div class="flex flex-wrap gap-2"><button data-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">详情</button>${rowActions}</div></article>`;
+            const isPersonal = row.kind === 'personal';
+            const active = row.is_active !== false;
+            const name = row.title || row.name || `APL #${idOf(row.id)}`;
+            const sourceLabel = isPersonal ? '个人' : (row.source === 'simc_upstream' ? 'SimC 上游' : '系统默认');
+            const sourceClass = isPersonal ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600';
+            const statusClass = active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500';
+            let actions;
+            if (isPersonal) {
+                actions = `<button data-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button>${row.read_only ? '<span class="px-2 text-xs text-slate-400">只读</span>' : `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700 hover:bg-red-50">删除</button>`}`;
             } else {
-                const sourceTag = `<span class="inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">来源：${row.is_system ? '系统默认' : '个人模板'}</span>`;
-                const specTag = `<span class="inline-block rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">专精：${esc(row.spec || '未标记')}</span>`;
-                const actions = row.read_only ? '<span class="text-xs text-slate-400">只读</span>' : `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700">删除</button>`;
-                return `<article class="flex flex-wrap items-center justify-between gap-3 border-b p-3"><div class="min-w-0"><b class="break-words">${esc(row.name)}</b><div class="mt-1 flex flex-wrap items-center gap-2 text-xs">${sourceTag} ${specTag}</div></div><div class="flex flex-wrap gap-2"><button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700">查看</button>${row.read_only ? `<button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700">复制</button>` : actions}</div></article>`;
+                const writableActions = `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700 hover:bg-red-50">删除</button>`;
+                actions = `<button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button>${row.read_only ? `<button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">复制</button>` : writableActions}`;
             }
+            return `<tr>
+                <td data-label="APL 名称"><div class="simc-apl-name">${esc(name)}</div></td>
+                <td data-label="职业" class="simc-apl-class-col"><span class="simc-apl-scope-value">${esc(row.class_name || '通用职业')}</span></td>
+                <td data-label="专精" class="simc-apl-spec-col"><span class="simc-apl-scope-value">${esc(row.spec || '未标记')}</span></td>
+                <td data-label="来源"><span class="simc-template-badge ${sourceClass}">${esc(sourceLabel)}</span></td>
+                <td data-label="状态"><span class="simc-template-badge ${statusClass}">${active ? '启用' : '已停用'}</span></td>
+                <td data-label="操作" class="simc-apl-actions-col"><div class="simc-apl-row-actions">${actions}</div></td>
+            </tr>`;
         }).join('');
-        host.innerHTML = statusParts.join('') + (rowsHtml || empty(query ? '无匹配结果' : '暂无数据'));
+        const table = rowsHtml ? `<div class="simc-apl-table-wrap"><table class="simc-apl-table"><thead><tr><th>APL 名称</th><th class="simc-apl-class-col">职业</th><th class="simc-apl-spec-col">专精</th><th>来源</th><th>状态</th><th class="simc-apl-actions-col">操作</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>` : empty(query ? '无匹配结果' : '暂无数据');
+        host.innerHTML = statusParts.join('') + table;
     }
     function renderMyAplList() {
         renderUnifiedAplList();

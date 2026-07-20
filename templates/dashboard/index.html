@@ -162,6 +162,20 @@
         .simc-template-scope-value { display: inline-block; color: #0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .76rem; font-weight: 700; overflow-wrap: anywhere; }
         .simc-template-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: .22rem .55rem; font-size: .68rem; font-weight: 800; white-space: nowrap; }
         .simc-template-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .2rem; }
+        .simc-apl-table-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: .9rem; background: #fff; }
+        .simc-apl-table { width: 100%; min-width: 900px; border-collapse: collapse; table-layout: fixed; }
+        .simc-apl-table th { background: #f8fafc; padding: .75rem .8rem; color: #64748b; font-size: .7rem; font-weight: 800; letter-spacing: .04em; text-align: left; white-space: nowrap; }
+        .simc-apl-table td { border-top: 1px solid #e2e8f0; padding: .72rem .8rem; color: #334155; font-size: .78rem; vertical-align: middle; }
+        .simc-apl-table tbody tr:hover { background: #f8fbff; }
+        .simc-apl-table th:first-child { width: 25%; }
+        .simc-apl-table .simc-apl-class-col { width: 14%; }
+        .simc-apl-table .simc-apl-spec-col { width: 19%; }
+        .simc-apl-table th:nth-child(4) { width: 13%; }
+        .simc-apl-table th:nth-child(5) { width: 10%; }
+        .simc-apl-table .simc-apl-actions-col { width: 19%; }
+        .simc-apl-name { color: #0f172a; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; }
+        .simc-apl-scope-value { color: #0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .76rem; font-weight: 700; overflow-wrap: anywhere; }
+        .simc-apl-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .2rem; }
         .simc-template-detail-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
         .simc-template-detail-meta > div { border: 1px solid #e2e8f0; border-radius: .75rem; background: #f8fafc; padding: .65rem .75rem; }
         .template-code-preview { max-height: 32rem; overflow: auto; border-radius: .85rem; background: #0f172a; padding: 1rem; color: #dbeafe; font-size: .78rem; line-height: 1.65; white-space: pre; }
@@ -252,7 +266,7 @@
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260720e"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260720q"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260720r"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -1213,16 +1227,17 @@
                             </div>
                         </div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-apl-panel" data-simc-panel="apl">
-                            <div class="rounded-2xl border bg-white p-5">
-                                <div class="flex justify-between mb-4">
-                                    <h3 class="text-xl font-bold">APL 列表</h3>
-                                    <button data-inline-create="apl-storage" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button>
+                            <section class="rounded-2xl border bg-white p-5">
+                                <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                    <div><h3 class="text-xl font-bold">APL 资源库</h3><p class="mt-1 text-sm text-slate-500">统一查看系统与个人 APL；职业和专精独立展示，正文按需在浮窗中加载。</p></div>
+                                    <button data-inline-create="apl-storage" class="self-start rounded-lg bg-blue-600 px-3 py-2 text-sm text-white"><i class="fas fa-plus mr-1"></i>新增 APL</button>
                                 </div>
-                                <div class="mb-3">
-                                    <input type="search" id="simc-apl-search" placeholder="搜索标题/名称/职业/专精；个人 APL 可搜索内容" class="w-full rounded border px-3 py-2 text-sm" />
+                                <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <label class="relative block w-full sm:max-w-md"><span class="sr-only">搜索 APL</span><i class="fas fa-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"></i><input type="search" id="simc-apl-search" autocomplete="off" placeholder="搜索名称、职业或专精" class="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"></label>
+                                    <p class="text-xs text-slate-500" data-apl-list-summary aria-live="polite">正在加载 APL…</p>
                                 </div>
                                 <div id="simc-unified-apl-list" class="mt-4"></div>
-                            </div>
+                            </section>
                         </div>
 
                         </div>
