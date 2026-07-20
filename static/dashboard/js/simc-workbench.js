@@ -392,18 +392,25 @@
         });
         const summary = document.querySelector('[data-template-filter-summary]');
         if (summary) summary.textContent = state.templateType ? `共 ${data.data.length} 个模板 · 当前筛选 ${rows.length} 个` : `共 ${rows.length} 个模板`;
-        host.innerHTML = rows.length ? `<div class="simc-template-list">${rows.map(row => {
-            const active = row.is_active !== false;
-            const readOnly = row.read_only === true;
-            const ownership = !readOnly ? '我的模板可编辑' : (row.source === 'simc_upstream' ? '上游同步只读' : '系统内置只读');
-            const sourceClass = readOnly ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700';
-            const statusClass = active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500';
-            return `<article class="simc-template-card">
-                <div class="flex items-start justify-between gap-3"><div class="min-w-0"><div class="mb-2 flex flex-wrap gap-2"><span class="simc-template-badge bg-indigo-50 text-indigo-700">${esc(row.type_label)}</span><span class="simc-template-badge ${statusClass}">${active ? '启用' : '已停用'}</span></div><h4 class="simc-template-card__title">${esc(row.name)}</h4></div><span class="simc-template-badge ${sourceClass}">${esc(ownership)}</span></div>
-                <div class="simc-template-card__meta"><span><i class="fas fa-crosshairs mr-1 text-slate-400"></i>${esc(row.spec || 'default')}</span><span><i class="fas fa-shield-alt mr-1 text-slate-400"></i>${esc(row.class_name || '通用职业')}</span></div>
-                <div class="simc-template-card__actions">${!readOnly ? `<button data-wb-action="template-edit" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50"><i class="fas fa-pen mr-1"></i>编辑</button><button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action ${active ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}"><i class="fas fa-${active ? 'pause' : 'play'} mr-1"></i>${active ? '停用' : '恢复'}</button>` : ''}<button data-wb-action="template-detail" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100"><i class="fas fa-code mr-1"></i>查看内容</button></div>
-            </article>`;
-        }).join('')}</div>` : empty('此类型暂无模板');
+        host.innerHTML = rows.length ? `<div class="simc-template-table-wrap"><table class="simc-template-table">
+            <thead><tr><th>模板名称</th><th>类型</th><th class="simc-template-class-col">职业</th><th class="simc-template-spec-col">专精</th><th>来源</th><th>状态</th><th class="simc-template-actions-col">操作</th></tr></thead>
+            <tbody>${rows.map(row => {
+                const active = row.is_active !== false;
+                const readOnly = row.read_only === true;
+                const ownership = !readOnly ? '我的模板' : (row.source === 'simc_upstream' ? '上游同步' : '系统内置');
+                const sourceClass = readOnly ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700';
+                const statusClass = active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500';
+                return `<tr>
+                    <td data-label="模板名称"><div class="simc-template-name">${esc(row.name)}</div></td>
+                    <td data-label="类型"><span class="simc-template-badge bg-indigo-50 text-indigo-700">${esc(row.type_label)}</span></td>
+                    <td data-label="职业" class="simc-template-class-col"><span class="simc-template-scope-value">${esc(row.class_name || '通用职业')}</span></td>
+                    <td data-label="专精" class="simc-template-spec-col"><span class="simc-template-scope-value">${esc(row.spec || 'default')}</span></td>
+                    <td data-label="来源"><span class="simc-template-badge ${sourceClass}">${esc(ownership)}</span></td>
+                    <td data-label="状态"><span class="simc-template-badge ${statusClass}">${active ? '启用' : '已停用'}</span></td>
+                    <td data-label="操作" class="simc-template-actions-col"><div class="simc-template-row-actions">${!readOnly ? `<button data-wb-action="template-edit" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50"><i class="fas fa-pen mr-1"></i>编辑</button><button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action ${active ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}"><i class="fas fa-${active ? 'pause' : 'play'} mr-1"></i>${active ? '停用' : '恢复'}</button>` : ''}<button data-wb-action="template-detail" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100"><i class="fas fa-code mr-1"></i>查看</button></div></td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table></div>` : empty('此类型暂无模板');
         document.querySelector('[data-inline-create="templates"]')?.classList.toggle('hidden', !state.canWriteTemplates);
     }
     function renderTemplateForm(row = null) {

@@ -116,9 +116,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn("default_player", form_body)
         self.assertIn("payload.template_type", JS)
         self.assertIn("!readOnly", JS)
-        self.assertIn("我的模板可编辑", JS)
-        self.assertIn("系统内置只读", JS)
-        self.assertIn("上游同步只读", JS)
+        self.assertIn("我的模板", JS)
+        self.assertIn("系统内置", JS)
+        self.assertIn("上游同步", JS)
         for template_type in ("base_template", "default_apl", "custom_apl", "custom_player"):
             self.assertIn(f"value: '{template_type}'", form_body)
         self.assertNotIn("report_template", form_body)
@@ -126,7 +126,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         template_panel = HTML[HTML.index('id="simc-workbench-templates-panel"'):HTML.index('id="simc-workbench-apl-panel"')]
         self.assertNotIn("can_write", template_panel)
 
-    def test_content_templates_use_filter_tabs_and_structured_cards(self):
+    def test_content_templates_use_filter_tabs_and_structured_table(self):
         template_panel = HTML[HTML.index('id="simc-workbench-templates-panel"'):HTML.index('id="simc-workbench-apl-panel"')]
         load_start = JS.index('async function loadTemplates')
         load_end = JS.index('function renderTemplateForm', load_start)
@@ -134,8 +134,12 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('内容模板', template_panel)
         self.assertIn('data-template-type=""', template_panel)
         self.assertIn('simc-template-filter', template_panel)
-        for token in ('simc-template-list', 'simc-template-card', 'simc-template-badge', 'simc-template-card__actions'):
-            self.assertIn(token, load_body)
+        self.assertIn('simc-template-table-wrap', load_body)
+        self.assertIn('simc-template-table', load_body)
+        for heading in ('模板名称', '类型', '职业', '专精', '来源', '状态', '操作'):
+            self.assertIn(heading, load_body)
+        self.assertNotIn('simc-template-card', load_body)
+        self.assertIn('data-wb-action="template-edit"', load_body)
         self.assertIn('aria-pressed', JS)
         self.assertIn('data-template-filter-summary', template_panel)
 
