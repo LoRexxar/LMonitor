@@ -45,6 +45,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('id="simc-sim-apl-candidates-btn"', workflow)
         self.assertNotIn('id="simc-sim-saved-profiles"', workflow)
         self.assertNotIn('id="base-template-select"', workflow)
+        self.assertNotIn('引用型输入', workflow)
+        self.assertNotIn('提交时即时来源会原子固化为 Profile 不可变版本', workflow)
+        self.assertNotIn('id="simc-sim-attribute-search-status"', workflow)
 
     def test_home_creation_flow_uses_backend_defaults_filters_profiles_and_opens_history(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
