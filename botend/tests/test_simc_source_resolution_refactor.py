@@ -148,4 +148,4 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertNotIn('\n    onSimcTargetSpecChange().catch', binding)
         self.assertIn("if (sectionId === 'simc-workbench')", navigation)
         self.assertIn('switchSimcPlayerImportMode();', navigation)
-        self.assertIn("dashboard/js/main.js' %}?v=20260720i", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260720j", HTML)

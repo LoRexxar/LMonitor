@@ -110,7 +110,13 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertNotIn('<label data-candidate-card="talent"', editor)
         self.assertGreaterEqual(editor.count('target=\"_blank\"'), 1)
         self.assertGreaterEqual(editor.count('rel=\"noopener noreferrer\"'), 1)
-        self.assertIn("dashboard/js/main.js' %}?v=20260720i", HTML)
+        self.assertIn('grid-cols-1', editor)
+        self.assertNotIn('md:grid-cols-2', editor)
+        self.assertIn('truncate font-mono', editor)
+        self.assertIn('data-copy-talent-code', editor)
+        self.assertIn('navigator.clipboard.writeText', editor)
+        self.assertIn('复制', editor)
+        self.assertIn("dashboard/js/main.js' %}?v=20260720j", HTML)
 
     def test_batch_detail_has_visual_comparison_and_attribute_analysis(self):
         for token in (
