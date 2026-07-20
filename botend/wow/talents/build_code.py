@@ -78,11 +78,10 @@ class TalentBuildCodeDecoder:
             max_points = int(node.get('max_points') or 1)
         except (TypeError, ValueError):
             max_points = 1
-        # Apex pools are sometimes stored as render nodes with `apex_entries`,
-        # and sometimes as decoder-only `hero_anchor` nodes with `choice_options`.
-        # Regular choice nodes must keep their base max_points; only apex/anchor
-        # pools should sum entry ranks such as Fury Warrior 1+2+1=4.
-        if not (node.get('is_apex_talent') or node.get('apex_entries') or node.get('tree_type') == 'hero_anchor'):
+        # Multi-entry rank pools must be identified explicitly. A hero subtree
+        # selector can also be represented as a hero_anchor with choice_options,
+        # but its entries are alternatives and must not be summed as ranks.
+        if not (node.get('is_apex_talent') or node.get('apex_entries')):
             return max_points
         option_points = 0
         for option in node.get('apex_entries') or node.get('choice_options') or []:

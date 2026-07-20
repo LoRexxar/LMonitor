@@ -28,7 +28,12 @@ from botend.wow.talents.models import (
 )
 from botend.wow.talents.render import build_talent_render_model
 from botend.wow.talents.service import TalentBuildCodeService
-from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder, _ImportBitWriter
+from botend.wow.talents.build_code import (
+    TalentBuildCodeDecoder,
+    TalentBuildCodeEncoder,
+    _ImportBitStream,
+    _ImportBitWriter,
+)
 from botend.portal.talent_simulator import _merge_nodes_for_simulator, _map_decoded_states_to_full_nodes
 from botend.wow.talents.view_model import build_talent_view_model
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
@@ -982,6 +987,45 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
 
         self.assertEqual(decoded['spec:137002']['points'], 4)
 
+    def test_encoder_does_not_treat_hero_selector_options_as_rank_pool(self):
+        decoder_nodes = [{
+            'tree_type': 'hero_anchor',
+            'node_id': 170001,
+            'talent_id': 120001,
+            'max_points': 1,
+            'is_choice_node': True,
+            'choice_options': [
+                {'node_id': 170001, 'talent_id': 120001, 'max_points': 1},
+                {'node_id': 170002, 'talent_id': 120001, 'max_points': 1},
+            ],
+        }]
+
+        build_code = TalentBuildCodeEncoder.encode_node_states(
+            self.DEATH_KNIGHT_REFERENCE_CODE,
+            decoder_nodes,
+            [{
+                'tree_type': 'hero_anchor',
+                'talent_id': 120001,
+                'points': 1,
+                'choice_selection': 1,
+            }],
+        )
+
+        self.assertTrue(build_code)
+        stream = _ImportBitStream(build_code)
+        stream.extract(TalentBuildCodeDecoder.HEADER_VERSION_BITS)
+        stream.extract(TalentBuildCodeDecoder.SPEC_ID_BITS)
+        for _ in range(16):
+            stream.extract(8)
+        self.assertEqual(stream.extract(1), 1)  # selected
+        self.assertEqual(stream.extract(1), 1)  # purchased
+        self.assertEqual(stream.extract(1), 0)  # full rank, not a 1/2 rank pool
+        self.assertEqual(stream.extract(1), 1)  # choice marker
+        self.assertEqual(stream.extract(2), 1)  # second hero subtree
+        decoded = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
+        self.assertEqual(decoded['hero_anchor:170001']['points'], 1)
+        self.assertEqual(decoded['hero_anchor:170001']['choice_selection'], 1)
+
     def test_decoder_sums_hero_anchor_apex_choice_options(self):
         decoder_nodes = [
             {
@@ -991,6 +1035,7 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
                 'spell_id': 1269310,
                 'max_points': 1,
                 'db2_subtree_id': 61,
+                'is_apex_talent': True,
                 'choice_options': [
                     {'node_id': 137004, 'talent_id': 110412, 'spell_id': 1269308, 'max_points': 1},
                     {'node_id': 137003, 'talent_id': 110412, 'spell_id': 1269309, 'max_points': 2},
@@ -1015,6 +1060,7 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             'talent_id': 110412,
             'spell_id': 1269310,
             'max_points': 1,
+            'is_apex_talent': True,
             'choice_options': [
                 {'node_id': 137004, 'talent_id': 110412, 'spell_id': 1269308, 'max_points': 1},
                 {'node_id': 137003, 'talent_id': 110412, 'spell_id': 1269309, 'max_points': 2},
