@@ -300,22 +300,15 @@ class TalentMetadataProvider:
 
     @staticmethod
     def _include_in_decoder_node_list(node):
-        """Return whether a metadata row belongs to Blizzard build-code order.
+        """Return whether a metadata TraitNode belongs to build-code ordering.
 
-        PTR 12.1 DB2 dumps include many `hero_anchor` helper rows from unrelated
-        world/content scripts (farm vegetables, Ping Cho paintings, etc.). They
-        share class/spec labels in the dump but are not encoded in talent import
-        strings; if included, every later talent bit shifts and bottom apex nodes
-        decode as unpurchased. Keep real hero anchors only when DB2 ties them to
-        a hero subtree; normal class/spec/hero/apex nodes stay included.
+        Import strings reserve one position per canonical TraitNode. Entry names
+        and subtree metadata are not safe filters: the same TraitNode can carry
+        unrelated-looking TraitNodeEntry rows (for example ``Plant Scallions``)
+        while still occupying a real bit position in the class tree. Dropping it
+        shifts every later node and silently maps points to the wrong talents.
         """
-        if (node.get('tree_type') or '') != 'hero_anchor':
-            return True
-        try:
-            subtree_id = int(node.get('db2_subtree_id') or 0)
-        except (TypeError, ValueError):
-            subtree_id = 0
-        return subtree_id > 0
+        return bool(node.get('talent_id'))
 
     def _get_spec_indexes(self, class_name, spec_name):
         version = self.resolved_version

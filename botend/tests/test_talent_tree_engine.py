@@ -901,8 +901,11 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
 
         self.assertEqual(decoded['hero_anchor:137002']['points'], 4)
 
-    def test_decoder_node_list_excludes_content_script_hero_anchor_noise(self):
-        self.assertFalse(TalentMetadataProvider._include_in_decoder_node_list({
+    def test_decoder_node_list_keeps_every_trait_node_even_when_entry_name_is_content_noise(self):
+        # Import strings allocate one bit position for every TraitNode in the
+        # canonical tree. A misleading TraitNodeEntry name must not remove the
+        # TraitNode itself, otherwise all later nodes shift during decoding.
+        self.assertTrue(TalentMetadataProvider._include_in_decoder_node_list({
             'tree_type': 'hero_anchor',
             'talent_id': 99851,
             'node_id': 123388,
