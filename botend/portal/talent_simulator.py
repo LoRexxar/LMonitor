@@ -203,7 +203,7 @@ def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subt
     """
     decoded_states = decoded_states or {}
     hero_root_key = ''
-    if active_hero_subtree and not decoded_states:
+    if active_hero_subtree:
         hero_roots = [
             node for node in full_nodes or []
             if (node.get('tree_type') or 'spec') == 'hero'

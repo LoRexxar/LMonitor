@@ -852,6 +852,49 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertFalse(merged[0]['purchased'])
         self.assertEqual(merged[1]['points'], 0)
 
+    def test_simulator_activates_missing_hero_root_when_import_has_other_decoded_states(self):
+        merged = _merge_nodes_for_simulator(
+            [
+                {
+                    'tree_type': 'hero',
+                    'node_id': 117411,
+                    'talent_id': 94814,
+                    'spell_id': 444767,
+                    'db2_subtree_id': 60,
+                    'max_points': 1,
+                    'parents': [],
+                    'points': 0,
+                    'selected': False,
+                },
+                {
+                    'tree_type': 'hero',
+                    'node_id': 117385,
+                    'talent_id': 94788,
+                    'spell_id': 444769,
+                    'db2_subtree_id': 60,
+                    'max_points': 1,
+                    'parents': [117411],
+                    'points': 0,
+                    'selected': False,
+                },
+            ],
+            decoded_states={
+                'hero:117385': {
+                    'points': 1,
+                    'selected': True,
+                    'purchased': True,
+                },
+            },
+            active_hero_subtree=60,
+        )
+
+        self.assertEqual(merged[0]['points'], 1)
+        self.assertTrue(merged[0]['selected'])
+        self.assertFalse(merged[0]['purchased'])
+        self.assertEqual(merged[1]['points'], 1)
+        self.assertTrue(merged[1]['selected'])
+        self.assertTrue(merged[1]['purchased'])
+
     def test_encoder_preserves_selected_unpurchased_default_node(self):
         decoder_nodes = [
             {
