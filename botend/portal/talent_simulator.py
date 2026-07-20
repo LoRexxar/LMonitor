@@ -161,6 +161,38 @@ def _choice_selection_from_payload(node):
     return 0
 
 
+def _map_decoded_states_to_full_nodes(full_nodes, decoder_nodes, decoded_states):
+    """Map canonical decoder states onto visible metadata nodes.
+
+    A TraitNode can move between metadata display buckets across DB2 snapshots
+    (notably spec apex nodes appearing as ``hero_anchor`` in decoder metadata).
+    The bitstream identity is still the same node/talent/spell, so match through
+    the service's canonical aliases instead of requiring the display tree_type
+    to be identical.
+    """
+    if not decoded_states:
+        return {}
+    decoder_by_alias = {}
+    for decoder_node in decoder_nodes or []:
+        state = decoded_states.get(_build_node_key(decoder_node))
+        if state is None:
+            continue
+        for alias in TalentBuildCodeService._node_alias_keys_for_matching(decoder_node):
+            decoder_by_alias.setdefault(alias, state)
+
+    mapped = {}
+    for node in full_nodes or []:
+        state = decoded_states.get(_build_node_key(node))
+        if state is None:
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(node):
+                state = decoder_by_alias.get(alias)
+                if state is not None:
+                    break
+        if state is not None:
+            mapped[_build_node_key(node)] = state
+    return mapped
+
+
 def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subtree=None):
     """把完整元数据转为模拟器渲染节点。
 
@@ -287,6 +319,7 @@ def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=N
     )
     decoder_nodes = provider.get_decoder_node_list(class_name) if build_code else []
     decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if build_code and decoder_nodes else {}
+    decoded_states = _map_decoded_states_to_full_nodes(full_nodes, decoder_nodes, decoded_states)
     if profile_talents:
         merged_nodes = TalentBuildCodeService.build_full_payload(
             class_name=class_name,

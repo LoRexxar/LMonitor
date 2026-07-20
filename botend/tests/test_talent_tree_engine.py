@@ -29,7 +29,7 @@ from botend.wow.talents.models import (
 from botend.wow.talents.render import build_talent_render_model
 from botend.wow.talents.service import TalentBuildCodeService
 from botend.wow.talents.build_code import TalentBuildCodeDecoder, TalentBuildCodeEncoder, _ImportBitWriter
-from botend.portal.talent_simulator import _merge_nodes_for_simulator
+from botend.portal.talent_simulator import _merge_nodes_for_simulator, _map_decoded_states_to_full_nodes
 from botend.wow.talents.view_model import build_talent_view_model
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
 
@@ -900,6 +900,31 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         decoded = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
 
         self.assertEqual(decoded['hero_anchor:137002']['points'], 4)
+
+    def test_simulator_maps_decoder_apex_state_to_visible_spec_node_by_alias(self):
+        full_nodes = [{
+            'tree_type': 'spec',
+            'node_id': 136987,
+            'talent_id': 110407,
+            'spell_id': 1269307,
+            'max_points': 4,
+            'is_apex_talent': True,
+        }]
+        decoder_nodes = [{
+            'tree_type': 'hero_anchor',
+            'node_id': 136987,
+            'talent_id': 110407,
+            'spell_id': 1269307,
+            'max_points': 4,
+            'is_apex_talent': True,
+        }]
+        decoded_states = {
+            'hero_anchor:136987': {'selected': True, 'purchased': True, 'points': 4},
+        }
+
+        mapped = _map_decoded_states_to_full_nodes(full_nodes, decoder_nodes, decoded_states)
+
+        self.assertEqual(mapped['spec:136987']['points'], 4)
 
     def test_decoder_node_list_keeps_every_trait_node_even_when_entry_name_is_content_noise(self):
         # Import strings allocate one bit position for every TraitNode in the
