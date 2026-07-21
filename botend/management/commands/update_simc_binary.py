@@ -259,10 +259,17 @@ class Command(BaseCommand):
         with transaction.atomic():
             self._sync_default_apl(git_hash)
             manifest_path = self._export_runtime_manifest(git_hash, wow_build)
-            call_command(
-                'sync_simc_apl_symbols', simc_revision=git_hash, wow_build=wow_build,
-                runtime_manifest=manifest_path,
-            )
+            try:
+                call_command(
+                    'sync_simc_apl_symbols', simc_revision=git_hash, wow_build=wow_build,
+                    runtime_manifest=manifest_path,
+                )
+            finally:
+                try:
+                    os.unlink(manifest_path)
+                except FileNotFoundError:
+                    pass
+
 
     def _export_runtime_manifest(self, git_hash, wow_build):
         handle = tempfile.NamedTemporaryFile(prefix='lmonitor-simc-apl-', suffix='.json', delete=False)
@@ -283,8 +290,12 @@ class Command(BaseCommand):
             if payload.get('simc_revision') != git_hash or payload.get('game_build') != wow_build:
                 self._fail('SimC runtime manifest 不匹配', 'manifest revision/build 与本次发布不一致', progress=92)
             return path
-        except (OSError, ValueError) as exc:
-            self._fail('SimC runtime manifest 无效', str(exc), progress=92)
+        except Exception:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+            raise
 
     def _preserve_tracked_changes_before_pull(self):
         """Commit tracked source edits only; leave generated and credential files untracked."""

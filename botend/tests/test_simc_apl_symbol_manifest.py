@@ -1,6 +1,9 @@
 import json
+import os
+import subprocess
 import tempfile
 from pathlib import Path
+from unittest import skipUnless
 
 from django.test import TestCase
 
@@ -20,7 +23,13 @@ def manifest(symbols=None, **overrides):
         'generated_at': '2026-07-21T00:00:00Z',
         'completeness': {
             'status': 'partial',
-            'modules': {'warrior/fury': 'runtime_initialized'},
+            'modules': {
+                'global_options': 'runtime_initialized',
+                'actions': 'runtime_observed',
+                'action_options': 'runtime_observed',
+                'expressions': 'runtime_observed',
+                'class_specs': 'runtime_initialized',
+            },
             'limitations': ['Only actions created by initialized actor APLs are enumerable.'],
         },
         'symbols': symbols or [{
@@ -55,6 +64,23 @@ class RuntimeManifestImportTests(TestCase):
         self.assertEqual(fact['spell_id'], 23881)
         self.assertEqual(fact['options'], ['if', 'target_if'])
         self.assertEqual(first.completeness, 'runtime/partial')
+
+    def test_manifest_requires_granular_runtime_module_statuses(self):
+        payload = manifest(completeness={
+            'status': 'partial', 'modules': {'global': 'runtime_initialized'},
+            'limitations': ['not exhaustive'],
+        })
+        with self.assertRaisesRegex(ValueError, 'modules'):
+            load_runtime_manifest(self.write(payload), REVISION, BUILD)
+
+    def test_export_control_options_are_rejected_as_symbols(self):
+        payload = manifest(symbols=[{
+            'class': None, 'spec': None, 'scope': 'global',
+            'token': 'apl_metadata_export', 'kind': 'option', 'spell_id': None,
+            'source': 'runtime_option', 'options': [], 'aliases': [],
+        }])
+        with self.assertRaisesRegex(ValueError, 'control option'):
+            load_runtime_manifest(self.write(payload), REVISION, BUILD)
 
     def test_schema_revision_and_build_mismatch_block_import(self):
         cases = [
@@ -128,3 +154,37 @@ class RuntimeManifestImportTests(TestCase):
         for class_name, spec_key, actions in apl_cases:
             spec = spec_key.split('_', 1)[1]
             self.assertTrue(all((class_name, spec, action) in runtime_actions for action in actions))
+
+
+SIMC_CHECKOUT = os.environ.get('SIMC_TASK7_CHECKOUT', '/home/ubuntu/simc-task7-spike')
+SIMC_BINARY = Path(SIMC_CHECKOUT) / 'engine' / 'simc'
+
+
+@skipUnless(SIMC_BINARY.is_file(), 'set SIMC_TASK7_CHECKOUT to a built patched SimC checkout')
+class RuntimeBinaryManifestRegressionTests(TestCase):
+    def test_real_binary_exports_runtime_symbols_for_multiple_specs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'manifest.json'
+            profile = Path(directory) / 'actors.simc'
+            profile.write_text(
+                'warrior="Fury"\nlevel=80\nrace=human\nspec=fury\nrole=attack\nposition=back\n'
+                'actions=/bloodthirst,if=buff.enrage.up\n'
+                'mage="Arcane"\nlevel=80\nrace=human\nspec=arcane\nrole=attack\nposition=back\n'
+                'actions=/arcane_blast,if=mana.pct>50\n', encoding='utf-8')
+            revision = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=SIMC_CHECKOUT, text=True).strip()
+            subprocess.run([
+                str(SIMC_BINARY), str(profile), f'apl_metadata_export={output}',
+                f'apl_metadata_revision={revision}', 'apl_metadata_game_build=test-build',
+            ], cwd=SIMC_CHECKOUT, check=True, capture_output=True, text=True)
+            payload = json.loads(output.read_text(encoding='utf-8'))
+            symbols = payload['symbols']
+            triples = {(s['class'], s['spec'], s['kind'], s['token']) for s in symbols}
+            self.assertIn(('warrior', 'fury', 'action', 'bloodthirst'), triples)
+            self.assertIn(('mage', 'arcane', 'action', 'arcane_blast'), triples)
+            self.assertTrue(any(s['kind'] == 'action_option' for s in symbols))
+            self.assertTrue(any(s['kind'] == 'expression' for s in symbols))
+            self.assertTrue(any(s['kind'] == 'namespace' for s in symbols))
+            self.assertFalse(any(s['token'].startswith('apl_metadata_') for s in symbols))
+            self.assertEqual(set(payload['completeness']['modules']), {
+                'global_options', 'actions', 'action_options', 'expressions', 'class_specs'})

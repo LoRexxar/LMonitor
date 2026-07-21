@@ -44,32 +44,96 @@ index 8e4f3e7570..b4b043339a 100644
    void   check_spec( specialization_e );
  
 diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
-index 2e746602a8..05a9742e27 100644
+index 2e746602a8..46f11f63fd 100644
 --- a/engine/sc_main.cpp
 +++ b/engine/sc_main.cpp
-@@ -22,6 +22,9 @@
+@@ -11,6 +11,7 @@
+ #include "lib/fmt/format.h"
+ #include "player/player.hpp"
+ #include "player/unique_gear.hpp"
++#include "action/action.hpp"
+ #include "report/reports.hpp"
+ #include "sim/plot.hpp"
+ #include "sim/reforge_plot.hpp"
+@@ -22,6 +23,14 @@
  #include "util/io.hpp"
  
  #include <locale>
 +#include <cctype>
++#include <cerrno>
++#include <cstdio>
++#include <fcntl.h>
 +#include <fstream>
++#include <regex>
 +#include <set>
++#include <unistd.h>
  
  #ifdef SC_SIGACTION
  #include <csignal>
-@@ -141,6 +144,45 @@ struct sim_signal_handler_t
+@@ -141,6 +150,131 @@ struct sim_signal_handler_t
  
  sim_t* sim_signal_handler_t::global_sim = nullptr;
  
 +void apl_metadata_json_string( std::ostream& out, std::string_view value )
 +{
 +  out << '"';
-+  for ( const char c : value )
++  for ( const unsigned char c : value )
 +  {
-+    if ( c == '\\' || c == '"' ) out << '\\';
-+    out << c;
++    switch ( c )
++    {
++      case '\\': case '"': out << '\\' << static_cast<char>( c ); break;
++      case '\n': out << "\\n"; break;
++      case '\r': out << "\\r"; break;
++      case '\t': out << "\\t"; break;
++      default:
++        if ( c < 0x20 ) out << fmt::format( "\\u{:04x}", c );
++        else out << static_cast<char>( c );
++    }
 +  }
 +  out << '"';
++}
++
++struct apl_metadata_symbol_t
++{
++  std::string class_name, spec, token, kind, source;
++  unsigned spell_id = 0;
++  std::set<std::string> options;
++
++  bool operator<( const apl_metadata_symbol_t& other ) const
++  { return std::tie( class_name, spec, kind, token ) < std::tie( other.class_name, other.spec, other.kind, other.token ); }
++};
++
++void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const std::string& class_name,
++                                 const std::string& spec, const std::string& expression )
++{
++  static const std::regex identifier( R"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)" );
++  for ( auto it = std::sregex_iterator( expression.begin(), expression.end(), identifier ); it != std::sregex_iterator(); ++it )
++  {
++    std::string token = util::tokenize_fn( it->str() );
++    symbols.insert( { class_name, spec, token, "expression", "runtime_apl_expression" } );
++    symbols.insert( { class_name, spec, token.substr( 0, token.find( '.' ) ), "namespace", "runtime_apl_expression" } );
++  }
++}
++
++void write_apl_symbol( std::ostream& out, const apl_metadata_symbol_t& symbol, bool& first )
++{
++  if ( !first ) out << ',';
++  first = false;
++  out << "{\"class\":";
++  if ( symbol.class_name.empty() ) out << "null"; else apl_metadata_json_string( out, symbol.class_name );
++  out << ",\"spec\":";
++  if ( symbol.spec.empty() ) out << "null"; else apl_metadata_json_string( out, symbol.spec );
++  out << ",\"scope\":\"" << ( symbol.spec.empty() ? "global" : "spec" ) << "\",\"token\":";
++  apl_metadata_json_string( out, symbol.token );
++  out << ",\"kind\":"; apl_metadata_json_string( out, symbol.kind );
++  out << ",\"spell_id\":";
++  if ( symbol.spell_id ) out << symbol.spell_id; else out << "null";
++  out << ",\"source\":"; apl_metadata_json_string( out, symbol.source );
++  out << ",\"options\":[";
++  bool first_option = true;
++  for ( const auto& option : symbol.options )
++  { if ( !first_option ) out << ','; first_option = false; apl_metadata_json_string( out, option ); }
++  out << "],\"aliases\":[]}";
 +}
 +
 +void export_apl_metadata( const sim_t& sim )
@@ -79,36 +143,72 @@ index 2e746602a8..05a9742e27 100644
 +                 []( unsigned char c ) { return std::isxdigit( c ); } );
 +  if ( !valid_revision )
 +    throw std::runtime_error( "apl_metadata_revision must be a 40-character hexadecimal git SHA" );
-+  std::ofstream out( sim.apl_metadata_export_file );
-+  if ( !out ) throw std::runtime_error( "Unable to open APL metadata export file" );
++
++  std::set<apl_metadata_symbol_t> symbols;
++  const std::set<std::string> controls = { "apl_metadata_export", "apl_metadata_revision", "apl_metadata_game_build" };
++  for ( const auto& option : sim.options )
++  {
++    std::string name( option->name() );
++    if ( !controls.count( name ) ) symbols.insert( { {}, {}, name, "option", "runtime_option" } );
++  }
++  size_t actor_count = 0;
++  for ( const player_t* player : sim.player_no_pet_list )
++  {
++    ++actor_count;
++    const std::string class_name = util::player_type_string( player->type );
++    const std::string spec = util::tokenize_fn( util::spec_string_no_class( *player ) );
++    for ( const action_t* action : player->action_list )
++    {
++      apl_metadata_symbol_t action_symbol{ class_name, spec, action->name_str, "action", "runtime_action",
++                                           action->data().id() };
++      for ( const auto& option : action->apl_metadata_option_names() )
++      {
++        action_symbol.options.insert( option );
++        symbols.insert( { class_name, spec, option, "action_option", "runtime_action_option" } );
++      }
++      symbols.insert( std::move( action_symbol ) );
++      add_apl_expression_symbols( symbols, class_name, spec, action->option.if_expr_str );
++      add_apl_expression_symbols( symbols, class_name, spec, action->option.target_if_str );
++      add_apl_expression_symbols( symbols, class_name, spec, action->option.interrupt_if_expr_str );
++      add_apl_expression_symbols( symbols, class_name, spec, action->option.early_chain_if_expr_str );
++      add_apl_expression_symbols( symbols, class_name, spec, action->option.cancel_if_expr_str );
++    }
++  }
++
++  const std::string target = sim.apl_metadata_export_file;
++  const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
++  std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
++  if ( !out ) throw std::runtime_error( "Unable to open temporary APL metadata export file" );
 +  out << "{\"schema_version\":1,\"simc_revision\":";
 +  apl_metadata_json_string( out, sim.apl_metadata_revision );
-+  out << ",\"game_build\":";
-+  apl_metadata_json_string( out, sim.apl_metadata_game_build );
-+  out << R"json(,"generated_at":null,"completeness":{"status":"partial","modules":{"global":"runtime_initialized"},"limitations":["Dynamic action factories and spell IDs are not exhaustively enumerable without initialized actor profiles."]},"symbols":[)json";
++  out << ",\"game_build\":"; apl_metadata_json_string( out, sim.apl_metadata_game_build );
++  out << R"json(,"generated_at":null,"completeness":{"status":"partial","modules":{"global_options":"runtime_initialized","actions":"runtime_observed","action_options":"runtime_observed","expressions":"runtime_observed","class_specs":)json";
++  apl_metadata_json_string( out, actor_count ? "runtime_initialized" : "missing" );
++  out << R"json(},"limitations":["Actions, options, and expressions are limited to successfully initialized actors and their selected APLs; dynamic factories and unselected talents are not exhaustive."]},"symbols":[)json";
 +  bool first = true;
-+  std::set<std::string> option_names;
-+  for ( const auto& option : sim.options ) option_names.insert( std::string( option->name() ) );
-+  for ( const auto& name : option_names )
-+  {
-+    if ( !first ) out << ',';
-+    first = false;
-+    out << "{\"class\":null,\"spec\":null,\"scope\":\"global\",\"token\":";
-+    apl_metadata_json_string( out, name );
-+    out << ",\"kind\":\"option\",\"spell_id\":null,\"source\":\"runtime_option\",\"options\":[],\"aliases\":[]}";
-+  }
++  for ( const auto& symbol : symbols ) write_apl_symbol( out, symbol, first );
 +  out << "]}\n";
++  out.flush();
++  if ( !out ) { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to write APL metadata export file" ); }
++  out.close();
++  int fd = ::open( temporary.c_str(), O_RDONLY );
++  if ( fd < 0 || ::fsync( fd ) != 0 )
++  { if ( fd >= 0 ) ::close( fd ); std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to fsync APL metadata export file" ); }
++  ::close( fd );
++  if ( std::rename( temporary.c_str(), target.c_str() ) != 0 )
++  { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to atomically replace APL metadata export file" ); }
 +}
 +
  [[maybe_unused]] sim_signal_handler_t handler;
  
  // need_to_save_profiles ====================================================
-@@ -293,6 +335,12 @@ int sim_t::main( const std::vector<std::string>& args )
+@@ -293,6 +427,13 @@ int sim_t::main( const std::vector<std::string>& args )
        std::throw_with_nested( std::runtime_error( "Setup failure" ) );
      }
  
 +    if ( !apl_metadata_export_file.empty() )
 +    {
++      init();
 +      export_apl_metadata( *this );
 +      return 0;
 +    }

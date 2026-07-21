@@ -96,6 +96,9 @@ def load_runtime_manifest(path, simc_revision, wow_build):
             not isinstance(limitations, list) or
             not all(isinstance(value, str) for value in limitations)):
         _manifest_error('malformed completeness declaration')
+    required_modules = {'global_options', 'actions', 'action_options', 'expressions', 'class_specs'}
+    if not required_modules.issubset(modules):
+        _manifest_error('completeness modules must declare global_options/actions/action_options/expressions/class_specs')
     if status == 'complete' and (limitations or any(
             value.lower() not in {'complete', 'runtime_initialized'}
             for value in modules.values())):
@@ -135,6 +138,8 @@ def load_runtime_manifest(path, simc_revision, wow_build):
                 (scope == 'class' and (not class_name or spec)) or
                 (scope in {'spec', 'hero_tree'} and (not class_name or not spec))):
             _manifest_error(f'{prefix} scope does not match class/spec')
+        if token in {'apl_metadata_export', 'apl_metadata_revision', 'apl_metadata_game_build'}:
+            _manifest_error(f'{prefix} contains a control option')
         fact = {
             'class_name': class_name, 'spec': spec, 'hero_tree': None,
             'token': token, 'symbol_kind': kind, 'spell_id': spell_id,
