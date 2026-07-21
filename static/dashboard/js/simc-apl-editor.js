@@ -11,6 +11,206 @@ import {simcAplLanguage} from './simc-apl-language.js';
 
 const VALIDATION_URL = '/api/simc-workbench/apl-validation/';
 const COMPLETION_URL = '/api/simc-workbench/apl-completions/';
+const SYMBOLS_URL = '/api/simc-workbench/apl-symbols/';
+
+const CATALOG_CATEGORIES = [
+    ['all', '全部'], ['class', '职业'], ['spec', '专精'], ['talent', '天赋'],
+    ['hero_tree', '英雄'], ['global', '通用'],
+];
+
+function catalogCategory(item) {
+    if (item.scope === 'hero_tree' || item.kind === 'hero_tree') return 'hero_tree';
+    if (item.kind === 'talent') return 'talent';
+    if (item.scope === 'spec') return 'spec';
+    if (item.scope === 'class') return 'class';
+    return 'global';
+}
+
+function tokenAt(state, position) {
+    const line = state.doc.lineAt(position);
+    const relative = position - line.from;
+    const matcher = /[\p{L}\p{N}_.]+/gu;
+    for (const match of line.text.matchAll(matcher)) {
+        if (match.index <= relative && relative <= match.index + match[0].length) return match[0];
+    }
+    return '';
+}
+
+function createCatalogAssistant(options) {
+    const host = options.host;
+    if (!host) return {reload() {}, updateContext() {}, destroy() {}};
+    const fetchImpl = options.fetchImpl;
+    let controller = null;
+    let contextController = null;
+    let contextTimer = null;
+    let destroyed = false;
+    let page = 1;
+    let totalPages = 1;
+    let query = '';
+    let category = 'all';
+    let items = [];
+    let contextToken = '';
+    let contextItem = null;
+
+    host.innerHTML = `<div class="simc-apl-assistant__mobile-heading"><strong>技能助手</strong><button type="button" data-apl-assistant-close>关闭</button></div><div class="simc-apl-assistant__toolbar">
+        <label class="simc-apl-assistant__search"><span class="sr-only">搜索技能</span><input type="search" data-apl-catalog-query placeholder="搜索中文、英文、Token 或 SpellID"></label>
+        <div class="simc-apl-assistant__categories" data-apl-catalog-categories>${CATALOG_CATEGORIES.map(([value, label]) => `<button type="button" data-category="${value}" class="${value === 'all' ? 'is-active' : ''}">${label}</button>`).join('')}</div>
+    </div><div class="simc-apl-context" data-apl-context-help><span>将光标放在 APL token 上查看中文说明。</span></div>
+    <div class="simc-apl-catalog" data-apl-catalog-list></div>
+    <div class="simc-apl-catalog__pager"><button type="button" data-page-action="previous">上一页</button><span data-page-summary>第 1 页</span><button type="button" data-page-action="next">下一页</button></div>`;
+    const list = host.querySelector('[data-apl-catalog-list]');
+    const contextHelp = host.querySelector('[data-apl-context-help]');
+    const summary = host.querySelector('[data-page-summary]');
+    host.querySelector('[data-apl-assistant-close]').addEventListener('click', () => options.close?.());
+
+    function metadata(item) {
+        return `${item.source || '未知来源'} · SimC ${item.simc_revision || '-'} · Build ${item.game_build || '-'}`;
+    }
+
+    function renderContext() {
+        contextHelp.replaceChildren();
+        if (!contextToken) {
+            const hint = document.createElement('span');
+            hint.textContent = '将光标放在 APL token 上查看中文说明。';
+            contextHelp.append(hint);
+            return;
+        }
+        const item = contextItem;
+        const token = document.createElement('code');
+        token.textContent = contextToken;
+        if (!item) {
+            const hint = document.createElement('span');
+            hint.textContent = '当前目录页没有匹配说明，可使用搜索定位。';
+            contextHelp.append(token, hint);
+            return;
+        }
+        const name = document.createElement('strong');
+        name.textContent = item.name_zh || item.name_en || item.token;
+        const description = document.createElement('span');
+        description.textContent = item.description_zh || '暂无中文说明';
+        const meta = document.createElement('small');
+        meta.textContent = metadata(item);
+        contextHelp.append(name, token, description, meta);
+    }
+
+    function render() {
+        const visible = category === 'all' ? items : items.filter(item => catalogCategory(item) === category);
+        list.replaceChildren();
+        if (!visible.length) {
+            const empty = document.createElement('p');
+            empty.className = 'simc-apl-catalog__empty';
+            empty.textContent = '当前分类没有匹配技能';
+            list.append(empty);
+        }
+        visible.forEach(item => {
+            const card = document.createElement('article');
+            card.className = `simc-apl-skill${item.insertable ? '' : ' is-disabled'}`;
+            card.title = metadata(item);
+            const heading = document.createElement('div');
+            heading.className = 'simc-apl-skill__heading';
+            const text = document.createElement('div');
+            const name = document.createElement('strong');
+            name.textContent = item.name_zh || item.name_en || item.token || `Spell ${item.spell_id}`;
+            const token = document.createElement('code');
+            token.textContent = item.token || `SpellID ${item.spell_id || '-'}`;
+            text.append(name, token);
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = item.insertable ? '插入' : '不可插入';
+            button.disabled = !item.insertable || !item.token;
+            if (!button.disabled) button.addEventListener('click', () => options.insert(item.token));
+            heading.append(text, button);
+            const description = document.createElement('p');
+            description.textContent = item.description_zh || item.name_en || '暂无说明';
+            const foot = document.createElement('small');
+            foot.textContent = item.insertable ? metadata(item) : (item.reason || '尚无 SimC token 映射');
+            card.append(heading, description, foot);
+            list.append(card);
+        });
+        summary.textContent = `第 ${page}/${Math.max(1, totalPages)} 页`;
+        host.querySelector('[data-page-action="previous"]').disabled = page <= 1;
+        host.querySelector('[data-page-action="next"]').disabled = page >= totalPages;
+        renderContext();
+    }
+
+    async function load(resetPage = false) {
+        if (destroyed) return;
+        if (resetPage) page = 1;
+        if (controller) controller.abort();
+        controller = new AbortController();
+        list.innerHTML = '<p class="simc-apl-catalog__empty">目录加载中…</p>';
+        const params = new URLSearchParams({spec: String(options.getSpec() || ''), page: String(page), page_size: '50'});
+        if (query) params.set('query', query);
+        try {
+            const response = await fetchImpl(`${SYMBOLS_URL}?${params}`, {credentials: 'same-origin', signal: controller.signal});
+            const body = await response.json();
+            if (!response.ok || body.success !== true) throw new Error(body.error?.message || '技能目录不可用');
+            if (destroyed) return;
+            items = body.data?.items || [];
+            totalPages = body.data?.pagination?.total_pages || 1;
+            render();
+        } catch (error) {
+            if (error.name === 'AbortError' || destroyed) return;
+            list.innerHTML = `<p class="simc-apl-catalog__empty">${error.message || '技能目录暂不可用'}</p>`;
+        }
+    }
+
+    async function loadContext(token) {
+        if (contextController) contextController.abort();
+        if (!token || destroyed) {
+            contextItem = null;
+            renderContext();
+            return;
+        }
+        contextController = new AbortController();
+        const params = new URLSearchParams({spec: String(options.getSpec() || ''), query: token, page: '1', page_size: '20'});
+        try {
+            const response = await fetchImpl(`${SYMBOLS_URL}?${params}`, {credentials: 'same-origin', signal: contextController.signal});
+            const body = await response.json();
+            if (!response.ok || body.success !== true || destroyed || contextToken !== token) return;
+            contextItem = (body.data?.items || []).find(row => row.token === token) || null;
+            renderContext();
+        } catch (error) {
+            if (error.name !== 'AbortError' && !destroyed && contextToken === token) renderContext();
+        }
+    }
+
+    let searchTimer = null;
+    host.querySelector('[data-apl-catalog-query]').addEventListener('input', event => {
+        query = event.target.value.trim();
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => load(true), 250);
+    });
+    host.querySelector('[data-apl-catalog-categories]').addEventListener('click', event => {
+        const button = event.target.closest('[data-category]');
+        if (!button) return;
+        category = button.dataset.category;
+        host.querySelectorAll('[data-category]').forEach(node => node.classList.toggle('is-active', node === button));
+        render();
+    });
+    host.querySelector('[data-page-action="previous"]').addEventListener('click', () => { if (page > 1) { page -= 1; load(); } });
+    host.querySelector('[data-page-action="next"]').addEventListener('click', () => { if (page < totalPages) { page += 1; load(); } });
+    load();
+    return {
+        reload: () => { contextItem = null; load(true); loadContext(contextToken); },
+        updateContext(token) {
+            if (token === contextToken) return;
+            contextToken = token;
+            contextItem = null;
+            renderContext();
+            clearTimeout(contextTimer);
+            contextTimer = setTimeout(() => loadContext(token), 180);
+        },
+        destroy() {
+            destroyed = true;
+            clearTimeout(searchTimer);
+            clearTimeout(contextTimer);
+            if (controller) controller.abort();
+            if (contextController) contextController.abort();
+            host.replaceChildren();
+        },
+    };
+}
 
 export function codePointColumnToOffset(text, lineNumber, columnNumber) {
     const lines = String(text).split('\n');
@@ -91,6 +291,7 @@ export function createSimcAplEditor(options) {
     let destroyed = false;
     let validationTimer = null;
     let diagnostics = [];
+    let assistant = null;
 
     const status = options.status || null;
     const diagnosticsHost = options.diagnosticsHost || null;
@@ -194,28 +395,45 @@ export function createSimcAplEditor(options) {
                 ]),
                 EditorView.lineWrapping,
                 EditorView.updateListener.of(update => {
-                    if (!update.docChanged) return;
-                    const value = update.state.doc.toString();
-                    options.onChange?.(value);
-                    scheduleValidation(update.view);
+                    if (update.docChanged) {
+                        const value = update.state.doc.toString();
+                        options.onChange?.(value);
+                        scheduleValidation(update.view);
+                    }
+                    if (update.docChanged || update.selectionSet) {
+                        assistant?.updateContext(tokenAt(update.state, update.state.selection.main.head));
+                    }
                 }),
             ],
         }),
     });
 
+    assistant = createCatalogAssistant({
+        host: options.assistantHost,
+        fetchImpl,
+        getSpec: options.getSpec,
+        close: options.closeAssistant,
+        insert(token) {
+            const head = view.state.selection.main.head;
+            view.dispatch({changes: {from: head, insert: token}, selection: {anchor: head + token.length}});
+            view.focus();
+        },
+    });
+    assistant.updateContext(tokenAt(view.state, view.state.selection.main.head));
     renderDiagnostics(view);
     scheduleValidation(view);
 
     return {
         getValue: () => view.state.doc.toString(),
         focus: () => view.focus(),
-        revalidate: () => { validation.cancel(); scheduleValidation(view); },
+        revalidate: () => { validation.cancel(); scheduleValidation(view); assistant.reload(); },
         destroy() {
             if (destroyed) return;
             destroyed = true;
             if (validationTimer) clearTimeout(validationTimer);
             validation.cancel();
             completion.cancel();
+            assistant.destroy();
             view.destroy();
             mount.replaceChildren();
         },
