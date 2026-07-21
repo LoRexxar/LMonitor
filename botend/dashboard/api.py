@@ -58,6 +58,8 @@ from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN
 from botend.services.simc_apl.catalog import query_symbol_catalog
 from botend.services.simc_apl.validation import validate_payload
+from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
+from botend.services.simc_composer import SimcComposer
 from botend.services.simc_apl.completion import complete_document
 from django.core.exceptions import SuspiciousOperation
 from collections import defaultdict, deque
@@ -550,8 +552,6 @@ class SimcAplValidationAPIView(SimcAplEditorAPIView):
         mode = payload.get('mode', 'structural')
         if mode not in ('structural', 'authoritative', 'both'):
             return _editor_error('invalid_mode', 'Unknown validation mode.')
-        if mode != 'structural':
-            return _editor_error('unsupported_mode', 'Authoritative validation is not available; use structural mode.', 422)
         try:
             diagnostic_page = max(1, int(payload.get('diagnostic_page', 1)))
             page_size = max(1, min(100, int(payload.get('page_size', 50))))
@@ -561,7 +561,28 @@ class SimcAplValidationAPIView(SimcAplEditorAPIView):
             return _editor_error('concurrency_limited', 'Validation capacity is busy.', 429)
         started = time.monotonic()
         try:
-            data = validate_payload(content)
+            validator = None
+            validation_context = None
+            if mode in ('authoritative', 'both'):
+                if profile is None:
+                    profiles = list(SimcProfile.objects.filter(
+                        user_id=request.user.id, spec=spec[1], is_active=True)[:2])
+                    if len(profiles) == 1:
+                        profile = profiles[0]
+                identity = _latest_catalog_identity()
+                platform = 'linuxarm64' if 'aarch64' in py_platform.machine().lower() else 'linux64'
+                backend = SimcBackendBinary.objects.filter(platform=platform).first()
+                if profile is not None and identity and backend:
+                    validation_context = SimcComposer.validation_context(
+                        profile, catalog_revision=identity[0],
+                        binary_revision=backend.current_version)
+                    validator = RestrictedSimcValidator(
+                        backend.simc_path, catalog_revision=identity[0],
+                        binary_revision=backend.current_version,
+                        temp_root=getattr(settings, 'SIMC_APL_VALIDATION_TEMP_ROOT', None))
+            data = validate_payload(content, mode=mode,
+                                    authoritative_validator=validator,
+                                    validation_context=validation_context)
         finally:
             _APL_EDITOR_SEMAPHORE.release()
         total = len(data['diagnostics'])

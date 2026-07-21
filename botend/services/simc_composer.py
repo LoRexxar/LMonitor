@@ -90,6 +90,18 @@ class SimcComposer:
         self.slots: Dict[str, SlotResolution] = {}
         self.manifest = CompositionManifest()
 
+    @staticmethod
+    def validation_context(profile, *, catalog_revision='', binary_revision=''):
+        """Return allowlisted context for APL validation via this composer path."""
+        return {
+            'profile_id': profile.id,
+            'user_id': profile.user_id,
+            'spec': profile.spec,
+            'player_import_mode': profile.player_config_mode,
+            'catalog_revision': catalog_revision,
+            'binary_revision': binary_revision,
+        }
+
     def compose(self, request_data: Dict[str, Any]) -> tuple[Optional[str], Optional[CompositionManifest], Optional[str]]:
         """
         Main composition pipeline.

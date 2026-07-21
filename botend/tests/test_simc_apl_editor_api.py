@@ -162,14 +162,16 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"]["code"], "invalid_pagination")
 
-    def test_validation_rejects_unavailable_authoritative_modes_honestly(self):
+    def test_authoritative_modes_return_stable_structural_only_result_when_context_is_unavailable(self):
         for mode in ("authoritative", "both"):
             with self.subTest(mode=mode):
                 response = self.client.post("/api/simc-workbench/apl-validation/", data=json.dumps({
                     "content": "actions=/auto_attack", "spec": "warrior_fury", "mode": mode,
                 }), content_type="application/json")
-                self.assertEqual(response.status_code, 422)
-                self.assertEqual(response.json()["error"]["code"], "unsupported_mode")
+                self.assertEqual(response.status_code, 200)
+                data = response.json()["data"]
+                self.assertEqual(data["authoritative_status"], "structural_only")
+                self.assertEqual(data["authoritative_error"]["code"], "validation_context_unavailable")
 
     def test_symbol_items_include_catalog_identity_metadata(self):
         self._catalog()
