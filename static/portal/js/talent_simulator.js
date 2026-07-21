@@ -382,8 +382,8 @@
 
     const TALENT_TREE_RULES = {
         gatedTrees: new Set(['class', 'spec', 'apex']),
-        treePointCaps: {class: 34, spec: 30},
-        totalPointCap: 68,
+        treePointCaps: {spec: 30},
+        classApexPointCap: 38,
         earlyGateRows: 4,
         earlyGatePoints: 8,
         deepGateRows: 7,
@@ -399,7 +399,7 @@
 
     function gateTreeType(node) {
         const treeType = ruleTreeType(node);
-        return treeType === 'apex' ? 'spec' : treeType;
+        return treeType === 'apex' ? 'class' : treeType;
     }
 
     function treeRows(treeType) {
@@ -474,6 +474,13 @@
         if (gateBlocker && Number(node?.points || 0) <= 0) return gateBlocker;
         const treeType = ruleTreeType(node);
         if (!treeType) return '';
+        if (treeType === 'class' || treeType === 'apex') {
+            const sharedPoints = pointsInTree('class') + pointsInTree('apex');
+            if (sharedPoints >= TALENT_TREE_RULES.classApexPointCap) {
+                return `职业与顶峰天赋合计最多只能投入 ${TALENT_TREE_RULES.classApexPointCap} 点`;
+            }
+            return '';
+        }
         const treeName = treeType === 'class' ? '职业树' : (treeType === 'apex' ? '顶峰天赋' : '专精树');
         const pointCap = TALENT_TREE_RULES.treePointCaps[treeType];
         if (pointCap && pointsInTree(treeType) >= pointCap) {
@@ -789,8 +796,8 @@
             }
             if (pool === 'apex') apexMax += nodeMaxPoints(node);
         }
-        // 显示时包含赠送天赋的点数
-        els.classPoints.textContent = (totals.class || 0) + (granted.class || 0);
+        // 职业普通点与顶峰点共享 38 点预算；赠送天赋不占预算。
+        els.classPoints.textContent = `${(totals.class || 0) + (totals.apex || 0)}/${TALENT_TREE_RULES.classApexPointCap}`;
         els.heroPoints.textContent = (totals.hero || 0) + (granted.hero || 0);
         els.specPoints.textContent = (totals.spec || 0) + (granted.spec || 0);
         if (els.apexPoints) els.apexPoints.textContent = apexMax ? `${totals.apex || 0}/${apexMax}` : '0/4';
