@@ -4,13 +4,33 @@ from unittest import mock
 from django.contrib.auth.models import User
 from django.test import Client, TestCase, override_settings
 
-from botend.models import SimcAplSymbol, SimcProfile, SimcBackendBinary, WowSpellSnapshot
+from botend.models import SimcAplKeywordPair, SimcAplSymbol, SimcProfile, SimcBackendBinary, WowSpellSnapshot
 
 
 class SimcAplEditorApiTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="editor", password="password")
         self.client.force_login(self.user)
+
+    def test_editor_language_api_converts_the_same_document_in_both_directions(self):
+        SimcAplKeywordPair.objects.create(
+            apl_keyword="bloodthirst", cn_keyword="嗜血", is_active=True)
+        apl = "actions+=/bloodthirst,if=target.health.pct<20"
+
+        chinese = self.client.post("/api/convert-text/", data=json.dumps({
+            "text": apl, "conversion_type": "apl_to_cn",
+        }), content_type="application/json")
+        self.assertEqual(chinese.status_code, 200)
+        self.assertEqual(chinese.json(), {
+            "success": True,
+            "result": "actions+=/嗜血,if=target.health.pct<20",
+        })
+
+        authoritative = self.client.post("/api/convert-text/", data=json.dumps({
+            "text": chinese.json()["result"], "conversion_type": "cn_to_apl",
+        }), content_type="application/json")
+        self.assertEqual(authoritative.status_code, 200)
+        self.assertEqual(authoritative.json(), {"success": True, "result": apl})
 
     def test_validation_echoes_document_version_and_uses_stable_one_based_ranges(self):
         response = self.client.post("/api/simc-workbench/apl-validation/", data=json.dumps({

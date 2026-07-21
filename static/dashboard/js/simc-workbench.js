@@ -18,6 +18,7 @@
         defaultAplCopyInFlight: new Set(),
         specOptions: [],
         aplEditor: null, aplEditorGeneration: 0,
+        aplImportGeneration: 0, aplImportAbortController: null,
         resourceAbortControllers: Object.create(null),
         resourceRequestSerials: Object.create(null),
     };
@@ -78,6 +79,9 @@
     }
     function destroyAplEditor() {
         state.aplEditorGeneration += 1;
+        state.aplImportGeneration += 1;
+        state.aplImportAbortController?.abort();
+        state.aplImportAbortController = null;
         if (state.aplEditor) {
             state.aplEditor.destroy();
             state.aplEditor = null;
@@ -579,13 +583,13 @@
                 </div>
             </section>
             <section class="simc-editor-section">
-                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">支持 Tab 缩进和 Ctrl+Space 补全；技能候选展示中英文，但只写入权威 APL token。</p></div><div class="simc-apl-editor-heading-actions"><button type="button" data-apl-bilingual-toggle aria-pressed="false">中英文对照</button><button type="button" data-apl-validate-now>立即结构检查</button><span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">SimC</span></div></div>
+                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">APL/中文共用一个可编辑正文；保存时会自动转换为权威 APL。</p></div><div class="simc-apl-editor-heading-actions">${row?.id ? '' : '<button type="button" data-apl-import-default>导入该专精默认 APL</button>'}<div class="simc-apl-language-switch" role="group" aria-label="正文语言"><button type="button" data-apl-language="apl" aria-pressed="true">APL</button><button type="button" data-apl-language="cn" aria-pressed="false">中文</button></div><button type="button" data-apl-validate-now>立即结构检查</button></div></div>
                 <input type="hidden" name="apl_code" value="">
                 <div class="simc-apl-workspace">
-                    <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div><section class="simc-apl-bilingual" data-apl-bilingual-panel hidden><header><strong>中文参考</strong><span>只读对照，不会写回 APL 正文</span></header><div data-apl-bilingual-host>打开后生成当前正文的中文参考。</div></section></div>
-                    <aside class="simc-apl-assistant" data-apl-assistant aria-label="中文技能目录"><div data-apl-assistant-host></div></aside>
+                    <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div></div>
+                    <aside class="simc-apl-assistant" data-apl-assistant aria-label="技能与 Buff 助手"><div data-apl-assistant-host></div></aside>
                 </div>
-                <button type="button" class="simc-apl-assistant-toggle" data-apl-assistant-toggle>技能助手</button>
+                <button type="button" class="simc-apl-assistant-toggle" data-apl-assistant-toggle>技能与 Buff 助手</button>
                 <div class="simc-code-editor-toolbar"><span data-code-editor-stats>${codeStats(content)}</span><span data-apl-editor-status>准备检查</span></div>
             </section>
             <div class="simc-editor-actions"><span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后，新任务将引用新的不可变版本。</span><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2 text-sm text-slate-700">取消</button><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存 APL</button></div>
@@ -597,15 +601,63 @@
         const diagnosticsHost = host.querySelector('[data-apl-editor-diagnostics]');
         const assistantHost = host.querySelector('[data-apl-assistant-host]');
         const assistantPanel = host.querySelector('[data-apl-assistant]');
-        const bilingualPanel = host.querySelector('[data-apl-bilingual-panel]');
-        const bilingualHost = host.querySelector('[data-apl-bilingual-host]');
-        const bilingualToggle = host.querySelector('[data-apl-bilingual-toggle]');
+        const languageButtons = Array.from(host.querySelectorAll('[data-apl-language]'));
+        const importDefaultButton = host.querySelector('[data-apl-import-default]');
         const validateButton = host.querySelector('[data-apl-validate-now]');
+        const updateLanguageButtons = language => {
+            languageButtons.forEach(button => button.setAttribute('aria-pressed', button.dataset.aplLanguage === language ? 'true' : 'false'));
+            if (validateButton) validateButton.disabled = language !== 'apl';
+        };
         host.querySelector('[data-apl-assistant-toggle]')?.addEventListener('click', () => assistantPanel?.classList.toggle('is-open'));
-        bilingualToggle?.addEventListener('click', () => {
-            const visible = state.aplEditor?.toggleBilingual();
-            bilingualToggle.setAttribute('aria-pressed', visible ? 'true' : 'false');
-            bilingualToggle.textContent = visible ? '关闭中英文对照' : '中英文对照';
+        languageButtons.forEach(button => button.addEventListener('click', async () => {
+            if (!state.aplEditor || button.getAttribute('aria-pressed') === 'true') return;
+            languageButtons.forEach(item => { item.disabled = true; });
+            if (status) status.textContent = '正在转换正文…';
+            try {
+                await state.aplEditor.convertLanguage(button.dataset.aplLanguage);
+                if (status) status.textContent = button.dataset.aplLanguage === 'cn' ? '中文编辑模式' : 'APL 编辑模式';
+            } catch (error) {
+                if (error.name !== 'AbortError') notify(error);
+            } finally {
+                languageButtons.forEach(item => { item.disabled = false; });
+            }
+        }));
+        importDefaultButton?.addEventListener('click', async () => {
+            if (!state.aplEditor) return;
+            state.aplImportGeneration += 1;
+            state.aplImportAbortController?.abort();
+            const importGeneration = state.aplImportGeneration;
+            const controller = new AbortController();
+            state.aplImportAbortController = controller;
+            const editor = state.aplEditor;
+            const specSelect = host.querySelector('select[name="spec"]');
+            const originalSpec = specSelect?.value || '';
+            const isCurrentImport = () => importGeneration === state.aplImportGeneration
+                && state.aplImportAbortController === controller
+                && state.aplEditor === editor
+                && host.isConnected
+                && document.getElementById('simc-dialog-body') === host
+                && (specSelect?.value || '') === originalSpec;
+            importDefaultButton.disabled = true;
+            try {
+                const {selectDefaultAplForSpec} = await import(window.SIMC_APL_EDITOR_MODULE_URL);
+                if (!isCurrentImport()) return;
+                const template = selectDefaultAplForSpec(state.rows.apls || [], originalSpec);
+                if (!template) throw new Error('该专精没有可导入的系统默认 APL');
+                const detail = (await json(resourceUrl('apls', template.id), {signal: controller.signal})).data || {};
+                if (!isCurrentImport()) return;
+                editor.setValue(detail.content || '', 'apl');
+                const titleInput = host.querySelector('input[name="title"]');
+                if (titleInput && !titleInput.value.trim()) titleInput.value = `${detail.name || '默认 APL'}（副本）`;
+                window.showMessage('已导入该专精默认 APL，可继续编辑', 'success');
+            } catch (error) {
+                if (error.name !== 'AbortError' && isCurrentImport()) notify(error);
+            } finally {
+                if (state.aplImportAbortController === controller) state.aplImportAbortController = null;
+                if (importDefaultButton.isConnected && document.getElementById('simc-dialog-body') === host) {
+                    importDefaultButton.disabled = false;
+                }
+            }
         });
         validateButton?.addEventListener('click', async () => {
             validateButton.disabled = true;
@@ -617,10 +669,11 @@
         import(window.SIMC_APL_EDITOR_MODULE_URL).then(({createSimcAplEditor}) => {
             if (editorGeneration !== state.aplEditorGeneration || !mount?.isConnected || state.aplEditor) return;
             state.aplEditor = createSimcAplEditor({
-                mount, status, diagnosticsHost, assistantHost, bilingualPanel, bilingualHost, value: content,
+                mount, status, diagnosticsHost, assistantHost, value: content,
                 csrfToken: window.getCSRFToken(),
                 getSpec: () => host.querySelector('select[name="spec"]')?.value || '',
                 closeAssistant: () => assistantPanel?.classList.remove('is-open'),
+                onLanguageChange: updateLanguageButtons,
                 onChange: value => {
                     if (hiddenInput) hiddenInput.value = value;
                     const stats = host.querySelector('[data-code-editor-stats]');
@@ -853,7 +906,9 @@
         const {runSingleSubmission} = await import(window.SIMC_APL_EDITOR_MODULE_URL);
         await runSingleSubmission(form, async () => {
             const aplCodeInput = form.querySelector('input[name="apl_code"]');
-            if (aplCodeInput && state.aplEditor) aplCodeInput.value = state.aplEditor.getValue();
+            const editor = state.aplEditor;
+            const saveSnapshot = editor ? await editor.getSaveSnapshot() : null;
+            if (aplCodeInput && saveSnapshot) aplCodeInput.value = saveSnapshot.content;
             const formData = new FormData(form);
             const id = idOf(formData.get('id'));
             const payload = {
@@ -862,6 +917,20 @@
                 apl_code: String(formData.get('apl_code') || ''),
             };
             if (id) payload.id = id;
+            const validation = await json(`${apiRoot}apl-validation/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+                body: JSON.stringify({
+                    content: payload.apl_code, spec: payload.spec,
+                    mode: 'structural', document_version: saveSnapshot?.version ?? 0,
+                }),
+            });
+            if (validation.data?.diagnostics?.some(item => item.severity === 'error')) {
+                throw new Error('APL 结构检查未通过，请修复错误后再保存');
+            }
+            if (saveSnapshot && (state.aplEditor !== editor || !editor.isCurrentSaveSnapshot(saveSnapshot))) {
+                throw new Error('保存检查期间正文已变化，请确认最新内容后重试');
+            }
             await json(resourceUrl('apls', id), {
                 method: id ? 'PUT' : 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 
 import {
@@ -6,15 +7,22 @@ import {
     codePointColumnToOffset,
     completionItemsToOptions,
     completionReplacementFrom,
+    convertDocumentSnapshot,
     createVersionedRequest,
     diagnosticRangeToOffsets,
     editorIndentKeymap,
+    editorLanguageTransition,
     formatStructuralValidationStatus,
     keywordPairsToCompletionOptions,
     mergeCompletionOptions,
     replaceTextMessage,
     runSingleSubmission,
+    selectDefaultAplForSpec,
 } from '../../../static/dashboard/js/simc-apl-editor.js';
+
+const editorSourceUrl = new URL('../../../static/dashboard/js/simc-apl-editor.js', import.meta.url);
+const workbenchSourceUrl = new URL('../../../static/dashboard/js/simc-workbench.js', import.meta.url);
+const editorCssUrl = new URL('../../../static/dashboard/css/simc-apl-editor.css', import.meta.url);
 
 function deferred() {
     let resolve;
@@ -176,4 +184,81 @@ test('APL save runs once, disables submit, and recovers after failure', async ()
     assert.equal(button.disabled, false);
     assert.equal(attributes.has('aria-busy'), false);
     assert.equal(form.dataset.aplSubmitting, undefined);
+});
+
+test('language switching is bidirectional and uses one authoritative editor document', () => {
+    assert.deepEqual(editorLanguageTransition('apl', 'cn'), {
+        from: 'apl', to: 'cn', conversionType: 'apl_to_cn',
+    });
+    assert.deepEqual(editorLanguageTransition('cn', 'apl'), {
+        from: 'cn', to: 'apl', conversionType: 'cn_to_apl',
+    });
+    assert.equal(editorLanguageTransition('apl', 'apl'), null);
+});
+
+test('Chinese save conversion rejects a stale source when the editor changes in flight', async () => {
+    const pending = deferred();
+    let value = '动作+=/嗜血';
+    let version = 7;
+    const conversion = convertDocumentSnapshot({
+        source: value, version,
+        getValue: () => value,
+        getVersion: () => version,
+        convert: () => pending.promise,
+    });
+    value = '动作+=/暴怒';
+    version += 1;
+    pending.resolve('actions+=/bloodthirst');
+    await assert.rejects(conversion, /正文已变化/);
+});
+
+test('Chinese save conversion returns authoritative APL for unchanged source', async () => {
+    const source = '动作+=/嗜血';
+    assert.equal(await convertDocumentSnapshot({
+        source, version: 3,
+        getValue: () => source,
+        getVersion: () => 3,
+        convert: async () => 'actions+=/bloodthirst',
+    }), 'actions+=/bloodthirst');
+});
+
+test('new APL import resolves exactly one active selectable system default for its spec', () => {
+    const rows = [
+        {id: 1, spec: 'warrior_arms', is_system: true, is_active: true, is_selectable: true},
+        {id: 2, spec: 'warrior_fury', is_system: true, is_active: true, is_selectable: true},
+        {id: 3, spec: 'warrior_fury', is_system: false, is_active: true, is_selectable: true},
+    ];
+    assert.equal(selectDefaultAplForSpec(rows, 'warrior_fury')?.id, 2);
+    assert.equal(selectDefaultAplForSpec(rows, 'warrior_protection'), null);
+    assert.throws(() => selectDefaultAplForSpec([...rows, {...rows[1], id: 4}], 'warrior_fury'), /多个系统默认 APL/);
+});
+
+test('APL workspace contract uses a larger desktop dialog, tall editor, and independent wide assistant sidebar', async () => {
+    const [css, workbench] = await Promise.all([
+        readFile(editorCssUrl, 'utf8'), readFile(workbenchSourceUrl, 'utf8'),
+    ]);
+    assert.match(css, /\.simc-workbench-dialog__panel\.is-apl-editor-layout\s*\{[^}]*width:\s*min\(96vw,\s*96rem\)/s);
+    assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(26rem,\s*32rem\)/);
+    assert.match(css, /\.simc-apl-editor-mount\s*\{[^}]*min-height:\s*34rem/s);
+    assert.match(workbench, /<aside class="simc-apl-assistant"[^>]*aria-label="技能与 Buff 助手"/);
+    assert.match(css, /@media \(max-width:\s*900px\)[\s\S]*\.simc-apl-assistant[^}]*position:\s*fixed/);
+});
+
+test('new APL form exposes default import and replaces readonly bilingual panel with language switch', async () => {
+    const [editorSource, workbench] = await Promise.all([
+        readFile(editorSourceUrl, 'utf8'), readFile(workbenchSourceUrl, 'utf8'),
+    ]);
+    assert.match(workbench, /data-apl-import-default/);
+    assert.match(workbench, /data-apl-language="apl"/);
+    assert.match(workbench, /data-apl-language="cn"/);
+    assert.doesNotMatch(workbench, /data-apl-bilingual-panel/);
+    assert.match(editorSource, /async convertLanguage\(targetLanguage\)/);
+    assert.match(editorSource, /documentVersion !== version \|\| view\.state\.doc\.toString\(\) !== source/);
+    assert.match(editorSource, /async getValueForSave\(\)/);
+    assert.match(workbench, /aplImportGeneration/);
+    assert.match(workbench, /aplImportAbortController/);
+    assert.match(workbench, /state\.aplEditor === editor/);
+    assert.match(workbench, /originalSpec/);
+    assert.match(workbench, /apl-validation/);
+    assert.doesNotMatch(await readFile(editorCssUrl, 'utf8'), /\.simc-apl-bilingual/);
 });

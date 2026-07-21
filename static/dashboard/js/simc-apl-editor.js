@@ -311,6 +311,38 @@ export function mergeCompletionOptions(documentOptions, catalogOptions) {
     return merged;
 }
 
+export function editorLanguageTransition(fromLanguage, toLanguage) {
+    const from = fromLanguage === 'cn' ? 'cn' : 'apl';
+    const to = toLanguage === 'cn' ? 'cn' : 'apl';
+    if (from === to) return null;
+    return {
+        from,
+        to,
+        conversionType: from === 'apl' ? 'apl_to_cn' : 'cn_to_apl',
+    };
+}
+
+export async function convertDocumentSnapshot({source, version, getValue, getVersion, convert}) {
+    const converted = await convert(source);
+    if (getVersion() !== version || getValue() !== source) {
+        throw new Error('转换期间正文已变化，请确认最新内容后重试保存');
+    }
+    return String(converted || '');
+}
+
+export function selectDefaultAplForSpec(rows, spec) {
+    const normalizedSpec = String(spec || '').trim().toLowerCase();
+    if (!normalizedSpec) return null;
+    const matches = (Array.isArray(rows) ? rows : []).filter(row => (
+        String(row?.spec || '').trim().toLowerCase() === normalizedSpec
+        && row?.is_system === true
+        && row?.is_active !== false
+        && row?.is_selectable !== false
+    ));
+    if (matches.length > 1) throw new Error(`专精 ${normalizedSpec} 存在多个系统默认 APL`);
+    return matches[0] || null;
+}
+
 export function formatStructuralValidationStatus(summary) {
     const errors = Number(summary?.error || 0);
     const warnings = Number(summary?.warning || 0);
@@ -371,19 +403,18 @@ export function createSimcAplEditor(options) {
     const validationDelay = Number.isFinite(options.validationDelay) ? options.validationDelay : 450;
     let destroyed = false;
     let validationTimer = null;
-    let bilingualTimer = null;
     let diagnostics = [];
     let assistant = null;
     let catalogCompletionController = null;
     let completionGeneration = 0;
     let keywordPairsPromise = null;
-    let bilingualController = null;
-    let bilingualVersion = 0;
+    let languageController = null;
+    let languageVersion = 0;
+    let documentVersion = 0;
+    let editorLanguage = 'apl';
 
     const status = options.status || null;
     const diagnosticsHost = options.diagnosticsHost || null;
-    const bilingualHost = options.bilingualHost || null;
-    const bilingualPanel = options.bilingualPanel || bilingualHost;
     const csrfToken = options.csrfToken || '';
     const requestHeaders = csrfToken ? {'X-CSRFToken': csrfToken} : {};
 
@@ -501,39 +532,41 @@ export function createSimcAplEditor(options) {
         return keywordPairsToCompletionOptions(await keywordPairsPromise, query);
     }
 
-    async function refreshBilingual(view) {
-        if (!bilingualHost || !bilingualPanel || bilingualPanel.hidden || destroyed) return;
-        bilingualVersion += 1;
-        const requestVersion = bilingualVersion;
-        if (bilingualController) bilingualController.abort();
-        bilingualController = new AbortController();
-        const text = view.state.doc.toString();
-        bilingualHost.textContent = text.trim() ? '正在生成中文参考…' : 'APL 为空';
-        if (!text.trim()) return;
-        try {
-            const response = await fetchImpl(BILINGUAL_URL, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', ...requestHeaders},
-                credentials: 'same-origin',
-                signal: bilingualController.signal,
-                body: JSON.stringify({text, conversion_type: 'apl_to_cn'}),
-            });
-            const body = await response.json();
-            if (!response.ok || body.success !== true) throw new Error('中英文对照暂不可用');
-            if (destroyed || requestVersion !== bilingualVersion || bilingualPanel.hidden) return;
-            const pre = document.createElement('pre');
-            pre.textContent = String(body.result || '没有可用的中文关键词对照');
-            bilingualHost.replaceChildren(pre);
-        } catch (error) {
-            if (error.name === 'AbortError' || destroyed || requestVersion !== bilingualVersion) return;
-            bilingualHost.textContent = '中英文对照暂不可用';
-        }
+    async function requestLanguageConversion(text, conversionType, signal) {
+        const response = await fetchImpl(BILINGUAL_URL, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', ...requestHeaders},
+            credentials: 'same-origin',
+            body: JSON.stringify({text, conversion_type: conversionType}),
+            signal,
+        });
+        const body = await response.json();
+        if (!response.ok || body.success !== true) throw new Error(body.error || 'APL 中英文转换失败');
+        return String(body.result || '');
     }
 
-    function scheduleBilingual(view) {
-        if (!bilingualHost || !bilingualPanel || bilingualPanel.hidden) return;
-        if (bilingualTimer) clearTimeout(bilingualTimer);
-        bilingualTimer = setTimeout(() => refreshBilingual(view), 300);
+    async function convertLanguage(targetLanguage) {
+        const transition = editorLanguageTransition(editorLanguage, targetLanguage);
+        if (!transition) return view.state.doc.toString();
+        languageController?.abort();
+        const controller = new AbortController();
+        languageController = controller;
+        const requestVersion = ++languageVersion;
+        const source = view.state.doc.toString();
+        const version = documentVersion;
+        const converted = await requestLanguageConversion(
+            source, transition.conversionType, controller.signal,
+        );
+        if (destroyed || controller.signal.aborted || requestVersion !== languageVersion) return null;
+        if (documentVersion !== version || view.state.doc.toString() !== source) {
+            throw new Error('转换期间正文已变化，请确认最新内容后重试');
+        }
+        editorLanguage = transition.to;
+        diagnostics = [];
+        view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: converted}});
+        view.focus();
+        options.onLanguageChange?.(editorLanguage);
+        return converted;
     }
 
     async function completionSource(context) {
@@ -583,11 +616,11 @@ export function createSimcAplEditor(options) {
                 EditorView.lineWrapping,
                 EditorView.updateListener.of(update => {
                     if (update.docChanged) {
+                        documentVersion += 1;
                         const value = update.state.doc.toString();
                         options.onChange?.(value);
                         invalidateValidation(update.view);
-                        scheduleValidation(update.view);
-                        scheduleBilingual(update.view);
+                        if (editorLanguage === 'apl') scheduleValidation(update.view);
                     }
                     if (update.docChanged || update.selectionSet) {
                         assistant?.updateContext(tokenAt(update.state, update.state.selection.main.head));
@@ -614,25 +647,48 @@ export function createSimcAplEditor(options) {
 
     return {
         getValue: () => view.state.doc.toString(),
-        focus: () => view.focus(),
-        validateNow: () => validate(view),
-        toggleBilingual(force) {
-            if (!bilingualHost || !bilingualPanel) return false;
-            const visible = typeof force === 'boolean' ? force : bilingualPanel.hidden;
-            bilingualPanel.hidden = !visible;
-            if (visible) refreshBilingual(view);
-            else {
-                bilingualVersion += 1;
-                if (bilingualController) bilingualController.abort();
-            }
-            return visible;
+        getLanguage: () => editorLanguage,
+        setValue(value, language = 'apl') {
+            editorLanguage = language === 'cn' ? 'cn' : 'apl';
+            languageVersion += 1;
+            languageController?.abort();
+            view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: String(value || '')}});
+            options.onLanguageChange?.(editorLanguage);
         },
+        async convertLanguage(targetLanguage) {
+            return convertLanguage(targetLanguage);
+        },
+        async getValueForSave() {
+            return (await this.getSaveSnapshot()).content;
+        },
+        async getSaveSnapshot() {
+            const source = view.state.doc.toString();
+            const version = documentVersion;
+            const language = editorLanguage;
+            const content = language === 'apl' ? source : await convertDocumentSnapshot({
+                source, version,
+                getValue: () => view.state.doc.toString(),
+                getVersion: () => documentVersion,
+                convert: value => requestLanguageConversion(value, 'cn_to_apl'),
+            });
+            if (destroyed || documentVersion !== version || view.state.doc.toString() !== source) {
+                throw new Error('保存准备期间正文已变化，请确认最新内容后重试保存');
+            }
+            return {content, source, language, version};
+        },
+        isCurrentSaveSnapshot(snapshot) {
+            return !destroyed && snapshot?.version === documentVersion
+                && snapshot?.source === view.state.doc.toString()
+                && snapshot?.language === editorLanguage;
+        },
+        focus: () => view.focus(),
+        validateNow: () => editorLanguage === 'apl' ? validate(view) : Promise.resolve(null),
         revalidate: () => {
             completionGeneration += 1;
             completion.cancel();
             if (catalogCompletionController) catalogCompletionController.abort();
             invalidateValidation(view);
-            scheduleValidation(view);
+            if (editorLanguage === 'apl') scheduleValidation(view);
             assistant.reload();
         },
         destroy() {
@@ -640,11 +696,10 @@ export function createSimcAplEditor(options) {
             destroyed = true;
             completionGeneration += 1;
             if (validationTimer) clearTimeout(validationTimer);
-            if (bilingualTimer) clearTimeout(bilingualTimer);
             validation.cancel();
             completion.cancel();
             if (catalogCompletionController) catalogCompletionController.abort();
-            if (bilingualController) bilingualController.abort();
+            languageController?.abort();
             assistant.destroy();
             view.destroy();
             mount.replaceChildren();

@@ -1,7 +1,12 @@
+.simc-workbench-dialog__panel.is-apl-editor-layout {
+    width: min(96vw, 96rem);
+    max-width: none;
+}
+
 .simc-apl-workspace {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
-    min-height: 22rem;
+    grid-template-columns: minmax(0, 1fr) minmax(26rem, 32rem);
+    min-height: 34rem;
 }
 
 .simc-apl-editor-column { min-width: 0; }
@@ -63,29 +68,18 @@
 .simc-apl-editor-heading-actions button[aria-pressed="true"] { border-color: #2563eb; color: #1d4ed8; background: #eff6ff; }
 .simc-apl-editor-heading-actions button:disabled { opacity: .55; cursor: wait; }
 
-.simc-apl-bilingual {
-    border-top: 1px solid #dbe3ef;
-    background: #f8fafc;
-}
-
-.simc-apl-bilingual[hidden] { display: none; }
-.simc-apl-bilingual header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .55rem .8rem; border-bottom: 1px solid #e2e8f0; color: #334155; font-size: .72rem; }
-.simc-apl-bilingual header span { color: #64748b; }
-.simc-apl-bilingual > div { max-height: 14rem; overflow: auto; padding: .75rem .85rem; color: #334155; font-size: .75rem; }
-.simc-apl-bilingual pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
-
 .simc-apl-editor-shell {
     border-top: 1px solid #1e293b;
     background: #0f172a;
 }
 
 .simc-apl-editor-mount {
-    min-height: 22rem;
+    min-height: 34rem;
     background: #0f172a;
 }
 
 .simc-apl-editor-mount .cm-editor {
-    min-height: 22rem;
+    min-height: 34rem;
     color: #dbeafe;
     background: #0f172a;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
@@ -94,12 +88,12 @@
 }
 
 .simc-apl-editor-mount .cm-scroller {
-    min-height: 22rem;
+    min-height: 34rem;
     overflow: auto;
 }
 
 .simc-apl-editor-mount .cm-content {
-    min-height: 22rem;
+    min-height: 34rem;
     padding: 1rem 0;
     caret-color: #93c5fd;
 }
@@ -160,18 +154,24 @@
     [data-apl-storage-form] .simc-apl-editor-mount,
     [data-apl-storage-form] .simc-apl-editor-mount .cm-editor,
     [data-apl-storage-form] .simc-apl-editor-mount .cm-scroller,
-    [data-apl-storage-form] .simc-apl-editor-mount .cm-content { min-height: 7rem; }
-    [data-apl-storage-form] .simc-apl-assistant { max-height: 12rem; }
+    [data-apl-storage-form] .simc-apl-editor-mount .cm-content { min-height: 20rem; }
+    [data-apl-storage-form] .simc-apl-assistant { max-height: 20rem; }
     [data-apl-storage-form] .simc-apl-diagnostics { max-height: 3rem; padding: .35rem .6rem; }
     [data-apl-storage-form] .simc-code-editor-toolbar { padding: .35rem .75rem; }
     [data-apl-storage-form] .simc-editor-actions { margin-top: .5rem; padding: .35rem .75rem; }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
+    .simc-workbench-dialog__panel.is-apl-editor-layout,
+    #simc-dialog-body.is-apl-editor-layout,
+    [data-apl-storage-form] { max-width: 100%; overflow-x: hidden; }
+    [data-apl-storage-form] .simc-editor-section,
+    [data-apl-storage-form] .simc-apl-workspace,
+    [data-apl-storage-form] .simc-apl-editor-column { min-width: 0; max-width: 100%; }
     .simc-apl-workspace { display: block; }
     .simc-apl-assistant-toggle { display: block; width: 100%; padding: .65rem; border-top: 1px solid #dbe3ef; color: #1d4ed8; background: #eff6ff; font-size: .8rem; font-weight: 600; }
-    .simc-apl-assistant { position: fixed; z-index: 80; right: 0; bottom: 0; left: 0; max-height: 72dvh; border: 0; border-radius: 1rem 1rem 0 0; box-shadow: 0 -12px 40px rgba(15, 23, 42, .28); transform: translateY(105%); transition: transform .2s ease; }
-    .simc-apl-assistant.is-open { transform: translateY(0); }
+    .simc-apl-assistant { position: fixed; z-index: 80; right: 0; bottom: 0; left: 0; visibility: hidden; max-height: 72dvh; border: 0; border-radius: 1rem 1rem 0 0; box-shadow: 0 -12px 40px rgba(15, 23, 42, .28); pointer-events: none; transform: translateY(105%); transition: transform .2s ease, visibility 0s linear .2s; }
+    .simc-apl-assistant.is-open { visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }
     .simc-apl-assistant > div { height: 72dvh; }
     .simc-apl-assistant__mobile-heading { display: flex; align-items: center; justify-content: space-between; padding: .7rem .8rem; border-bottom: 1px solid #e2e8f0; }
     .simc-apl-assistant__mobile-heading button { border-radius: .5rem; padding: .35rem .6rem; color: #1d4ed8; background: #dbeafe; font-size: .75rem; }
