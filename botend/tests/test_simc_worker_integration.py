@@ -17,9 +17,9 @@ class SimcWorkerIntegrationTests(SimpleTestCase):
         self.assertIn("screen -dmS lmsimc", script)
         self.assertIn("manage.py simc_worker", script)
         self.assertIn("lmweb|lmback|lmsimc", script)
-        self.assertIn("manage.py update_simc_binary --apply-patches", script)
+        self.assertNotIn("manage.py update_simc_binary", script)
         self.assertIn("flock -n 9", script)
-        self.assertLess(
+        self.assertGreater(
             script.index("screen -S lmsimc -X quit"),
-            script.index("manage.py update_simc_binary --apply-patches"),
+            script.index("=== 6. 重启 lmsimc ==="),
         )

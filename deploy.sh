@@ -23,19 +23,12 @@ if [ -x .venv/bin/python ]; then
     PYTHON_BIN=".venv/bin/python"
 fi
 
-echo "=== 0. 暂停 lmsimc ==="
-screen -S lmsimc -X quit 2>/dev/null || true
-kill_processes 'manage.py simc_worker'
-
 echo "=== 1. Git pull ==="
 GIT_MERGE_AUTOEDIT=no git pull origin master
 
 echo "=== 2. Migrate ==="
 
 "$PYTHON_BIN" manage.py migrate --no-input
-
-echo "=== 2.5. 应用 SimC 仓库补丁（有变化才编译） ==="
-"$PYTHON_BIN" manage.py update_simc_binary --apply-patches --threads 2
 
 echo "=== 3. Collectstatic ==="
 "$PYTHON_BIN" manage.py collectstatic --no-input
@@ -53,6 +46,8 @@ sleep 2
 screen -dmS lmback bash -lc 'cd ~/LMonitor && ./start.sh'
 
 echo "=== 6. 重启 lmsimc ==="
+screen -S lmsimc -X quit 2>/dev/null || true
+kill_processes 'manage.py simc_worker'
 sleep 2
 screen -dmS lmsimc bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py simc_worker"
 
