@@ -57,38 +57,38 @@ const apexNode = {
 };
 
 setNodes([
-    {node_key: 'class:spent', tree_type: 'class', point_pool: 'class', row: 1000, points: 22},
+    {node_key: 'spec:spent', tree_type: 'spec', point_pool: 'spec', row: 1000, points: 19},
     apexNode,
 ]);
-assert.match(treeGateBlocker(state.nodes.get('spec:apex')), /职业树前7层需要至少 23 点/);
+assert.match(treeGateBlocker(state.nodes.get('spec:apex')), /专精树前7层需要至少 20 点/);
 
 setNodes([
-    {node_key: 'class:spent', tree_type: 'class', point_pool: 'class', row: 1000, points: 23},
+    {node_key: 'spec:spent', tree_type: 'spec', point_pool: 'spec', row: 1000, points: 20},
     apexNode,
 ]);
 assert.equal(treeGateBlocker(state.nodes.get('spec:apex')), '');
 
 setNodes([
-    {node_key: 'class:spent', tree_type: 'class', point_pool: 'class', row: 1000, points: 34},
+    {node_key: 'spec:spent', tree_type: 'spec', point_pool: 'spec', row: 1000, points: 30},
     {...apexNode, points: 3},
 ]);
-assert.equal(treeRuleBlocker(state.nodes.get('class:spent'), 1), '');
-
-setNodes([
-    {node_key: 'class:spent', tree_type: 'class', point_pool: 'class', row: 1000, points: 34},
-    {...apexNode, points: 4},
-]);
-assert.match(treeRuleBlocker(state.nodes.get('class:spent'), 1), /职业与顶峰天赋合计最多只能投入 38 点/);
-
-setNodes([
-    {node_key: 'class:spent', tree_type: 'class', point_pool: 'class', row: 1000, points: 38},
-    apexNode,
-]);
-assert.match(treeRuleBlocker(state.nodes.get('spec:apex'), 1), /职业与顶峰天赋合计最多只能投入 38 点/);
+assert.equal(treeRuleBlocker(state.nodes.get('spec:spent'), 1), '');
 
 setNodes([
     {node_key: 'spec:spent', tree_type: 'spec', point_pool: 'spec', row: 1000, points: 30},
+    {...apexNode, points: 4},
 ]);
-assert.match(treeRuleBlocker(state.nodes.get('spec:spent'), 1), /专精树最多只能投入 30 点/);
+assert.match(treeRuleBlocker(state.nodes.get('spec:spent'), 1), /专精与顶峰天赋合计最多只能投入 34 点/);
 
-console.log('talent simulator shared class/apex rules: ok');
+setNodes([
+    {node_key: 'spec:spent', tree_type: 'spec', point_pool: 'spec', row: 1000, points: 34},
+    apexNode,
+]);
+assert.match(treeRuleBlocker(state.nodes.get('spec:apex'), 1), /专精与顶峰天赋合计最多只能投入 34 点/);
+
+setNodes([
+    {node_key: 'class:spent', tree_type: 'class', point_pool: 'class', row: 1000, points: 34},
+]);
+assert.match(treeRuleBlocker(state.nodes.get('class:spent'), 1), /职业树最多只能投入 34 点/);
+
+console.log('talent simulator shared spec/apex rules: ok');

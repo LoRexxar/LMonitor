@@ -34,7 +34,7 @@
             <div class="talent-sim-title-block">
                 <div class="talent-sim-kicker">LMonitor Tools</div>
                 <h1>天赋模拟器</h1>
-                <p>基于站内已有 DB2 天赋树、中文描述和 Blizzard 导入字符串编码逻辑。职业普通天赋与顶峰天赋共享38点预算；职业树前7层不含赠送点数投入23点、满足最后3层条件后即可点顶峰天赋；专精树普通天赋上限30点。</p>
+                <p>基于站内已有 DB2 天赋树、中文描述和 Blizzard 导入字符串编码逻辑。职业树独立使用34点；专精普通天赋与顶峰天赋共享34点预算，专精树前7层投入20点、满足最后3层条件后即可点顶峰天赋。</p>
             </div>
             <div class="talent-sim-actions">
                 <button type="button" id="talent-reset-btn" class="talent-sim-btn talent-sim-btn--ghost">清空当前选择</button>
@@ -74,9 +74,9 @@
                 </div>
             </div>
             <div class="talent-point-groups" aria-label="天赋点数统计">
-                <div><span id="talent-class-points">0/38</span><small>职业+顶峰</small></div>
+                <div><span id="talent-class-points">0/34</span><small>职业</small></div>
                 <div><span id="talent-hero-points">0</span><small>英雄</small></div>
-                <div><span id="talent-spec-points">0</span><small>专精</small></div>
+                <div><span id="talent-spec-points">0/34</span><small>专精+顶峰</small></div>
                 <div><span id="talent-apex-points">0/4</span><small>顶峰</small></div>
             </div>
             <div class="talent-code-output">
@@ -94,6 +94,6 @@
 
     <div id="talent-tooltip-root" class="talent-floating-tooltip" hidden></div>
     <div id="talent-toast-root" class="talent-toast-root"></div>
-    <script src="{% static 'portal/js/talent_simulator.js' %}?v=33"></script>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=34"></script>
 </body>
 </html>

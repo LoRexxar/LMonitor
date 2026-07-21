@@ -382,8 +382,8 @@
 
     const TALENT_TREE_RULES = {
         gatedTrees: new Set(['class', 'spec', 'apex']),
-        treePointCaps: {spec: 30},
-        classApexPointCap: 38,
+        treePointCaps: {class: 34},
+        specApexPointCap: 34,
         earlyGateRows: 4,
         earlyGatePoints: 8,
         deepGateRows: 7,
@@ -399,7 +399,7 @@
 
     function gateTreeType(node) {
         const treeType = ruleTreeType(node);
-        return treeType === 'apex' ? 'class' : treeType;
+        return treeType === 'apex' ? 'spec' : treeType;
     }
 
     function treeRows(treeType) {
@@ -474,10 +474,10 @@
         if (gateBlocker && Number(node?.points || 0) <= 0) return gateBlocker;
         const treeType = ruleTreeType(node);
         if (!treeType) return '';
-        if (treeType === 'class' || treeType === 'apex') {
-            const sharedPoints = pointsInTree('class') + pointsInTree('apex');
-            if (sharedPoints >= TALENT_TREE_RULES.classApexPointCap) {
-                return `职业与顶峰天赋合计最多只能投入 ${TALENT_TREE_RULES.classApexPointCap} 点`;
+        if (treeType === 'spec' || treeType === 'apex') {
+            const sharedPoints = pointsInTree('spec') + pointsInTree('apex');
+            if (sharedPoints + delta > TALENT_TREE_RULES.specApexPointCap) {
+                return `专精与顶峰天赋合计最多只能投入 ${TALENT_TREE_RULES.specApexPointCap} 点`;
             }
             return '';
         }
@@ -796,10 +796,10 @@
             }
             if (pool === 'apex') apexMax += nodeMaxPoints(node);
         }
-        // 职业普通点与顶峰点共享 38 点预算；赠送天赋不占预算。
-        els.classPoints.textContent = `${(totals.class || 0) + (totals.apex || 0)}/${TALENT_TREE_RULES.classApexPointCap}`;
+        // 顶峰属于专精树，与专精普通天赋共享 34 点预算；赠送天赋不占预算。
+        els.classPoints.textContent = `${totals.class || 0}/${TALENT_TREE_RULES.treePointCaps.class}`;
         els.heroPoints.textContent = (totals.hero || 0) + (granted.hero || 0);
-        els.specPoints.textContent = (totals.spec || 0) + (granted.spec || 0);
+        els.specPoints.textContent = `${(totals.spec || 0) + (totals.apex || 0)}/${TALENT_TREE_RULES.specApexPointCap}`;
         if (els.apexPoints) els.apexPoints.textContent = apexMax ? `${totals.apex || 0}/${apexMax}` : '0/4';
     }
 
