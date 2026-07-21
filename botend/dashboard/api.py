@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcAplKeywordPair, SimcApl, SimcAplSymbol, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcAplKeywordPair, SimcApl, SimcAplSymbol, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot
 from botend.alerting import upsert_system_alert
 from django.db import IntegrityError, models, transaction
 from core.glm import GLMClient
@@ -642,6 +642,107 @@ class SimcAplSymbolsAPIView(SimcAplEditorAPIView):
         start = (page - 1) * page_size
         return JsonResponse({'success': True, 'data': {
             'items': [_catalog_item(item, revision, build) for item in items[start:start + page_size]],
+            'pagination': {'page': page, 'page_size': page_size, 'total': total, 'total_pages': total_pages},
+        }})
+
+
+class SimcAplSpellsAPIView(SimcAplEditorAPIView):
+    """Wago bilingual spell list with best-effort, explicitly sourced tokens."""
+
+    @staticmethod
+    def _candidate_token(name):
+        return re.sub(r'_+', '_', re.sub(r'[^a-z0-9]+', '_', name.lower())).strip('_')
+
+    @staticmethod
+    def _symbol_rank(symbol, class_name, spec):
+        if symbol.spec:
+            return 2 if symbol.class_name == class_name and symbol.spec == spec else -1
+        if symbol.class_name:
+            return 1 if symbol.class_name == class_name else -1
+        return 0
+
+    def _symbol_tokens(self, spell_ids, raw_spec):
+        identity = _latest_catalog_identity()
+        parsed_spec = _editor_spec(raw_spec) if raw_spec else None
+        if not identity or not parsed_spec or not spell_ids:
+            return {}
+        _, class_name, spec = parsed_spec
+        symbols = SimcAplSymbol.objects.filter(
+            simc_revision=identity[0], wow_build=identity[1], is_active=True,
+            symbol_kind=SimcAplSymbol.KIND_ACTION, spell_id__in=spell_ids,
+        ).filter(
+            models.Q(class_name__isnull=True) |
+            models.Q(class_name=class_name, spec__isnull=True) |
+            models.Q(class_name=class_name, spec=spec)
+        ).order_by('spell_id', 'token')
+        selected = {}
+        ranks = {}
+        for symbol in symbols:
+            rank = self._symbol_rank(symbol, class_name, spec)
+            if rank > ranks.get(symbol.spell_id, -1):
+                selected[symbol.spell_id] = symbol.token
+                ranks[symbol.spell_id] = rank
+        return selected
+
+    def get(self, request):
+        try:
+            page = int(request.GET.get('page', 1))
+            page_size = int(request.GET.get('page_size', 50))
+        except (TypeError, ValueError):
+            return _editor_error('invalid_pagination', 'Invalid pagination parameters.')
+        if page < 1 or page_size < 1:
+            return _editor_error('invalid_pagination', 'Invalid pagination parameters.')
+        page_size = min(100, page_size)
+        query = (request.GET.get('query') or '').strip()[:200]
+        rows = (WowSpellSnapshot.objects.filter(branch='wow', locale='zhCN')
+                .exclude(name='').exclude(name_zh=''))
+        if query:
+            rows = rows.filter(models.Q(name__icontains=query) | models.Q(name_zh__icontains=query))
+        pairs = rows.values('name', 'name_zh').order_by('name', 'name_zh').distinct()
+        total = pairs.count()
+        total_pages = (total + page_size - 1) // page_size
+        start = (page - 1) * page_size
+        page_pairs = list(pairs[start:start + page_size])
+        pair_keys = {(row['name'], row['name_zh']) for row in page_pairs}
+        page_names = {row['name'] for row in page_pairs}
+        snapshots = list(rows.filter(name__in=page_names).values('spell_id', 'name', 'name_zh'))
+        spell_ids_by_pair = {}
+        for row in snapshots:
+            key = (row['name'], row['name_zh'])
+            if key in pair_keys:
+                spell_ids_by_pair.setdefault(key, []).append(row['spell_id'])
+        all_spell_ids = {spell_id for values in spell_ids_by_pair.values() for spell_id in values}
+        symbol_tokens = self._symbol_tokens(all_spell_ids, request.GET.get('spec'))
+        keyword_tokens = {
+            (row.apl_keyword.casefold(), row.cn_keyword.casefold()): row.apl_keyword
+            for row in SimcAplKeywordPair.objects.filter(is_active=True)
+            if row.cn_keyword and row.apl_keyword
+        }
+        items = []
+        for row in page_pairs:
+            key = (row['name'], row['name_zh'])
+            symbol_candidates = {
+                symbol_tokens[sid] for sid in spell_ids_by_pair.get(key, [])
+                if sid in symbol_tokens
+            }
+            token = next(iter(symbol_candidates)) if len(symbol_candidates) == 1 else None
+            if token:
+                token_source, authoritative = 'simc_symbol', True
+            else:
+                token = keyword_tokens.get((
+                    self._candidate_token(row['name']).casefold(), row['name_zh'].casefold(),
+                ))
+                if token:
+                    token_source, authoritative = 'keyword_pair', False
+                else:
+                    token = self._candidate_token(row['name'])
+                    token_source, authoritative = 'wago_candidate', False
+            items.append({
+                'english': row['name'], 'chinese': row['name_zh'], 'token': token,
+                'token_source': token_source, 'authoritative': authoritative,
+            })
+        return JsonResponse({'success': True, 'data': {
+            'items': items,
             'pagination': {'page': page, 'page_size': page_size, 'total': total, 'total_pages': total_pages},
         }})
 

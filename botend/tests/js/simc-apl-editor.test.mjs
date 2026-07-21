@@ -109,6 +109,19 @@ test('keyword pairs also populate the visible skill assistant when the symbol ca
     }]);
 });
 
+test('visible APL list is a compact Wago bilingual row list and the whole row inserts', async () => {
+    const source = await readFile(editorSourceUrl, 'utf8');
+    assert.match(source, /\/api\/simc-workbench\/apl-spells\//);
+    assert.match(source, /spec:\s*String\(options\.getSpec\?\.\(\) \|\| ''\)/);
+    assert.match(source, /row\.addEventListener\('click'.*options\.insert\(item\.token\)/s);
+    assert.doesNotMatch(source, /loadKeywordCatalog/);
+    assert.doesNotMatch(source, /button\.textContent = item\.insertable \? '插入'/);
+    assert.match(source, /english\.textContent = item\.english/);
+    assert.match(source, /chinese\.textContent = item\.chinese/);
+    assert.match(source, /destroyed \|\| controller !== activeController/);
+    assert.match(source, /error\.name !== 'AbortError' && !destroyed && controller === activeController/);
+});
+
 test('document and catalog completions merge without duplicate insertions', () => {
     assert.deepEqual(mergeCompletionOptions(
         [{label: 'bloodthirst', apply: 'bloodthirst', type: 'keyword'}],

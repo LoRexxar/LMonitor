@@ -30,18 +30,25 @@
 .simc-apl-context strong { color: #0f172a; font-size: .8rem; }
 .simc-apl-context code { width: fit-content; color: #1d4ed8; }
 .simc-apl-context small { color: #64748b; }
-.simc-apl-catalog { flex: 1; overflow: auto; padding: .45rem; }
+.simc-apl-catalog { flex: 1; overflow: auto; padding: .35rem 0; }
 .simc-apl-catalog__empty { padding: 1rem; color: #64748b; text-align: center; font-size: .75rem; }
-.simc-apl-skill { padding: .65rem; border-bottom: 1px solid #e2e8f0; }
-.simc-apl-skill.is-disabled { opacity: .65; }
-.simc-apl-skill__heading { display: flex; align-items: start; justify-content: space-between; gap: .5rem; }
-.simc-apl-skill__heading strong,
-.simc-apl-skill__heading code { display: block; }
-.simc-apl-skill__heading code { margin-top: .15rem; color: #2563eb; font-size: .7rem; }
-.simc-apl-skill__heading button { border-radius: .45rem; padding: .3rem .55rem; color: #fff; background: #2563eb; font-size: .7rem; }
-.simc-apl-skill__heading button:disabled { color: #64748b; background: #e2e8f0; }
-.simc-apl-skill p { margin-top: .35rem; color: #475569; font-size: .72rem; line-height: 1.45; }
-.simc-apl-skill small { display: block; margin-top: .35rem; color: #94a3b8; font-size: .65rem; }
+.simc-apl-skill {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    width: 100%;
+    gap: .75rem;
+    border: 0;
+    border-bottom: 1px solid #e2e8f0;
+    padding: .5rem .75rem;
+    color: #334155;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+.simc-apl-skill:hover,
+.simc-apl-skill:focus-visible { background: #eaf2ff; outline: none; }
+.simc-apl-skill__english { overflow: hidden; color: #0f172a; font-size: .75rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.simc-apl-skill__chinese { overflow: hidden; color: #475569; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .simc-apl-catalog__pager { display: flex; align-items: center; justify-content: space-between; padding: .55rem .75rem; border-top: 1px solid #e2e8f0; color: #64748b; font-size: .7rem; }
 .simc-apl-catalog__pager button:disabled { opacity: .4; }
 .simc-apl-assistant-toggle { display: none; }

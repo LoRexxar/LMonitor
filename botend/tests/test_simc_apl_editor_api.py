@@ -68,7 +68,8 @@ class SimcAplEditorApiTests(TestCase):
     def test_editor_endpoints_return_json_401_to_anonymous_users(self):
         for method, path in (("post", "/api/simc-workbench/apl-validation/"),
                              ("post", "/api/simc-workbench/apl-completions/"),
-                             ("get", "/api/simc-workbench/apl-symbols/?spec=warrior_fury")):
+                             ("get", "/api/simc-workbench/apl-symbols/?spec=warrior_fury"),
+                             ("get", "/api/simc-workbench/apl-spells/?spec=warrior_fury")):
             client = Client()
             response = (client.get(path) if method == "get" else
                         client.post(path, data="{}", content_type="application/json"))
@@ -77,7 +78,11 @@ class SimcAplEditorApiTests(TestCase):
             self.assertEqual(response.json()["error"]["code"], "authentication_required")
 
     def test_editor_endpoints_return_json_405_for_unsupported_methods(self):
-        for path in ("/api/simc-workbench/apl-validation/", "/api/simc-workbench/apl-completions/", "/api/simc-workbench/apl-symbols/?spec=warrior_fury"):
+        for path in (
+                "/api/simc-workbench/apl-validation/",
+                "/api/simc-workbench/apl-completions/",
+                "/api/simc-workbench/apl-symbols/?spec=warrior_fury",
+                "/api/simc-workbench/apl-spells/?spec=warrior_fury"):
             response = self.client.put(path, data="{}", content_type="application/json")
             self.assertEqual(response.status_code, 405)
             self.assertEqual(response["Content-Type"], "application/json")
@@ -161,6 +166,137 @@ class SimcAplEditorApiTests(TestCase):
                 self.assertEqual([row["token"] for row in rows], ["bloodthirst"])
         rows = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury&kind=resource").json()["data"]["items"]
         self.assertEqual([row["token"] for row in rows], ["rage"])
+
+    def test_wago_spell_catalog_uses_full_bilingual_snapshot_not_apl_keyword_pairs(self):
+        WowSpellSnapshot.objects.create(
+            locale="zhCN", spell_id=23881, name="Bloodthirst", name_zh="嗜血",
+            snapshot_build="12.0.5",
+        )
+        SimcAplKeywordPair.objects.create(
+            apl_keyword="legacy_only", cn_keyword="旧翻译表词条", is_active=True,
+        )
+
+        response = self.client.get("/api/simc-workbench/apl-spells/?spec=warrior_fury")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["items"], [{
+            "english": "Bloodthirst", "chinese": "嗜血", "token": "bloodthirst",
+            "token_source": "wago_candidate", "authoritative": False,
+        }])
+        self.assertNotIn("legacy_only", response.content.decode())
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=("current", "12.0.5"))
+    def test_wago_spell_catalog_prefers_current_spec_symbol_by_spell_id(self):
+        WowSpellSnapshot.objects.create(
+            branch="wow", locale="zhCN", spell_id=23881,
+            name="Blood Thirst!", name_zh="嗜血", snapshot_build="12.0.5",
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision="current", wow_build="12.0.5", class_name="warrior",
+            spec="fury", token="bloodthirst", symbol_kind="action", spell_id=23881,
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision="current", wow_build="12.0.5", class_name="warrior",
+            spec="arms", token="wrong_spec_token", symbol_kind="action", spell_id=23881,
+        )
+
+        item = self.client.get(
+            "/api/simc-workbench/apl-spells/?spec=warrior_fury"
+        ).json()["data"]["items"][0]
+
+        self.assertEqual(item["token"], "bloodthirst")
+        self.assertEqual(item["token_source"], "simc_symbol")
+        self.assertIs(item["authoritative"], True)
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=("current", "12.0.5"))
+    def test_wago_spell_catalog_does_not_guess_between_conflicting_spell_id_symbols(self):
+        for spell_id in (23881, 23882):
+            WowSpellSnapshot.objects.create(
+                branch="wow", locale="zhCN", spell_id=spell_id,
+                name="Shared Name", name_zh="共享名称", snapshot_build="12.0.5",
+            )
+        for spell_id, token in ((23881, "first_action"), (23882, "second_action")):
+            SimcAplSymbol.objects.create(
+                simc_revision="current", wow_build="12.0.5", class_name="warrior",
+                spec="fury", token=token, symbol_kind="action", spell_id=spell_id,
+            )
+
+        item = self.client.get(
+            "/api/simc-workbench/apl-spells/?spec=warrior_fury"
+        ).json()["data"]["items"][0]
+
+        self.assertEqual(item["token"], "shared_name")
+        self.assertEqual(item["token_source"], "wago_candidate")
+        self.assertIs(item["authoritative"], False)
+
+    def test_wago_spell_catalog_uses_keyword_pair_only_as_token_mapping(self):
+        WowSpellSnapshot.objects.create(
+            branch="wow", locale="zhCN", spell_id=30451,
+            name="Arcane Blast", name_zh="奥术冲击", snapshot_build="12.0.5",
+        )
+        SimcAplKeywordPair.objects.create(
+            apl_keyword="arcane_blast", cn_keyword="奥术冲击", is_active=True,
+        )
+
+        payload = self.client.get(
+            "/api/simc-workbench/apl-spells/?spec=mage_arcane"
+        ).json()["data"]
+
+        self.assertEqual(payload["pagination"]["total"], 1)
+        self.assertEqual(payload["items"][0]["token"], "arcane_blast")
+        self.assertEqual(payload["items"][0]["token_source"], "keyword_pair")
+        self.assertIs(payload["items"][0]["authoritative"], False)
+
+    def test_wago_spell_catalog_keyword_mapping_requires_exact_english_and_chinese_pair(self):
+        WowSpellSnapshot.objects.create(
+            branch="wow", locale="zhCN", spell_id=90001,
+            name="Unrelated Blast", name_zh="奥术冲击", snapshot_build="12.0.5",
+        )
+        SimcAplKeywordPair.objects.create(
+            apl_keyword="arcane_blast", cn_keyword="奥术冲击", is_active=True,
+        )
+
+        item = self.client.get(
+            "/api/simc-workbench/apl-spells/?spec=mage_arcane"
+        ).json()["data"]["items"][0]
+
+        self.assertEqual(item["token"], "unrelated_blast")
+        self.assertEqual(item["token_source"], "wago_candidate")
+        self.assertIs(item["authoritative"], False)
+
+    def test_wago_spell_catalog_searches_both_languages_and_paginates(self):
+        for spell_id, english, chinese in (
+                (23881, "Bloodthirst", "嗜血"),
+                (184367, "Rampage", "暴怒"),
+                (1719, "Recklessness", "鲁莽")):
+            WowSpellSnapshot.objects.create(
+                locale="zhCN", spell_id=spell_id, name=english, name_zh=chinese,
+                snapshot_build="12.0.5",
+            )
+
+        for query in ("blood", "嗜血"):
+            response = self.client.get("/api/simc-workbench/apl-spells/", {
+                "query": query, "page": 1, "page_size": 1,
+            })
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["data"]["items"][0]["english"], "Bloodthirst")
+            self.assertEqual(response.json()["data"]["pagination"]["total"], 1)
+
+    def test_wago_spell_catalog_only_uses_live_branch_and_deduplicates_names(self):
+        for spell_id, branch in ((23881, "wow"), (23882, "wow"), (23883, "wowt")):
+            WowSpellSnapshot.objects.create(
+                branch=branch, locale="zhCN", spell_id=spell_id,
+                name="Bloodthirst", name_zh="嗜血", snapshot_build="12.0.5",
+            )
+
+        response = self.client.get("/api/simc-workbench/apl-spells/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["pagination"]["total"], 1)
+        self.assertEqual(response.json()["data"]["items"], [{
+            "english": "Bloodthirst", "chinese": "嗜血", "token": "bloodthirst",
+            "token_source": "wago_candidate", "authoritative": False,
+        }])
 
     def test_completion_echoes_version_without_returning_document_or_querying_catalog(self):
         content = "actions.burst=/bloodthirst\nactions=/call_action_list,name=bu"

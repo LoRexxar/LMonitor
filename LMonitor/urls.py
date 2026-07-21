@@ -31,7 +31,7 @@ from botend.dashboard.api import (
     SimcBackendBinaryAPIView, SimcWorkbenchAPIView, SimcArtifactPreviewAPIView, SimcTaskReportPreviewAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView,
     WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView,
     WowDailyReportGenerateAPIView, WagoHotfixReportListAPIView, WagoSkillDiffRerunAPIView,
-    SimcAplValidationAPIView, SimcAplSymbolsAPIView, SimcAplCompletionsAPIView,
+    SimcAplValidationAPIView, SimcAplSymbolsAPIView, SimcAplSpellsAPIView, SimcAplCompletionsAPIView,
 )
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
@@ -134,6 +134,7 @@ urlpatterns = [
     path('api/simc-backend-binary/', SimcBackendBinaryAPIView.as_view(), name="simc_backend_binary"),
     path('api/simc-workbench/apl-validation/', SimcAplValidationAPIView.as_view(), name="simc_apl_validation"),
     path('api/simc-workbench/apl-symbols/', SimcAplSymbolsAPIView.as_view(), name="simc_apl_symbols"),
+    path('api/simc-workbench/apl-spells/', SimcAplSpellsAPIView.as_view(), name="simc_apl_spells"),
     path('api/simc-workbench/apl-completions/', SimcAplCompletionsAPIView.as_view(), name="simc_apl_completions"),
     path('api/simc-workbench/<str:resource>/', SimcWorkbenchAPIView.as_view(), name="simc_workbench"),
     path('api/simc-workbench/<str:resource>/<int:object_id>/', SimcWorkbenchAPIView.as_view(), name="simc_workbench_detail"),
