@@ -10,13 +10,16 @@
 import os
 import re
 import logging
+
 from dataclasses import dataclass
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+
 from botend.models import SimcApl
 from botend.services.simc_apl.validation import validate_document
+
 
 logger = logging.getLogger(__name__)
 
@@ -244,8 +247,15 @@ class Command(BaseCommand):
                 'class_name': prepared.class_name,
                 'content': prepared.content,
                 'is_active': True,
-                'is_selectable': True,
+                'is_selectable': False,
                 'sync_version': getattr(self, 'sync_version', ''),
+                'validation_status': SimcApl.VALIDATION_DRAFT,
+                'validated_content_hash': '',
+                'validation_revision': '',
+                'validation_game_build': '',
+                'validation_stale_reason': 'authoritative_validation_required',
+                'validation_diagnostics': [],
+                'validated_at': None,
             }
         )
         status = '新建' if created else '更新'

@@ -1,3 +1,4 @@
+
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -13,7 +14,8 @@ from botend.models import SimcApl
 class ImportSimcAplCommandTests(TestCase):
     def apl(self, spec, **overrides):
         values = dict(name=spec, class_name=spec.split('_', 1)[0], spec=spec,
-                      content='actions=/old', source='simc_upstream', is_system=True)
+                      content='actions=/old', source='simc_upstream', is_system=True,
+                      is_selectable=True)
         values.update(overrides)
         return SimcApl.objects.create(**values)
 
@@ -22,6 +24,17 @@ class ImportSimcAplCommandTests(TestCase):
             Path(tmpdir, 'warrior_fury.simc').write_text('actions=/bloodthirst\n', encoding='utf-8')
             call_command('import_simc_apl', source_dir=tmpdir, sync_version='deadbeef', stdout=StringIO())
         self.assertEqual(SimcApl.objects.get().sync_version, 'deadbeef')
+
+    def test_import_keeps_structurally_checked_state_unpublished(self):
+        content = 'actions=/bloodthirst\n'
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, 'warrior_fury.simc').write_text(content, encoding='utf-8')
+            call_command('import_simc_apl', source_dir=tmpdir, sync_version='deadbeef',
+                         stdout=StringIO())
+        apl = SimcApl.objects.get()
+        self.assertEqual(apl.validation_status, SimcApl.VALIDATION_DRAFT)
+        self.assertEqual(apl.validated_content_hash, '')
+        self.assertFalse(apl.is_selectable)
 
     def test_strict_missing_directory_fails(self):
         with self.assertRaisesRegex(CommandError, '目录不存在'):
@@ -51,7 +64,9 @@ class ImportSimcAplCommandTests(TestCase):
                          strict=True, stdout=StringIO())
         for row in (kept, missing, user, manual_system):
             row.refresh_from_db()
-        self.assertTrue(kept.is_active and kept.is_selectable)
+        self.assertTrue(kept.is_active)
+        self.assertFalse(kept.is_selectable)
+        self.assertEqual(kept.validation_status, SimcApl.VALIDATION_DRAFT)
         self.assertFalse(missing.is_active or missing.is_selectable)
         self.assertIsNone(missing.active_unique_key)
         self.assertTrue(user.is_active and user.is_selectable)

@@ -19,6 +19,11 @@ from botend.models import (
     SimcApl,
     SimcResourceVersion,
 )
+from botend.services.simc_apl.publish import (
+    content_hash as apl_content_hash,
+    current_validation_identity,
+    validate_apl_for_profile,
+)
 
 
 class TaskCreationError(Exception):
@@ -383,7 +388,7 @@ def create_task(
     profile_version = None
     if profile_id:
         try:
-            profile = SimcProfile.objects.get(pk=profile_id)
+            profile = SimcProfile.objects.select_for_update().get(pk=profile_id)
         except SimcProfile.DoesNotExist:
             raise TaskCreationError(f"Profile {profile_id} does not exist")
 
@@ -418,11 +423,34 @@ def create_task(
     apl_version = None
     if apl_id:
         try:
-            apl = SimcApl.objects.get(pk=apl_id)
+            apl = SimcApl.objects.select_for_update().get(pk=apl_id)
         except SimcApl.DoesNotExist:
             raise TaskCreationError(f"APL {apl_id} does not exist")
 
         _validate_resource_ownership(apl, 'apl', user_id)
+        identity = current_validation_identity()
+        stale_reason = apl.validation_staleness(identity)
+        if stale_reason:
+            raise TaskCreationError(f'APL validation is stale: {stale_reason}')
+        # is_selectable and stored metadata are only a publication cache. Every
+        # new Task gets a final authoritative check against the actual persisted
+        # Profile; no client-provided validation result is accepted.
+        validation = validate_apl_for_profile(profile, apl)
+        final_identity = current_validation_identity()
+        current_apl = SimcApl.objects.select_for_update().get(pk=apl.pk)
+        current_profile = SimcProfile.objects.select_for_update().get(pk=profile.pk)
+        if (_build_profile_payload(current_profile) != _build_profile_payload(profile)
+                or current_apl.spec != apl.spec
+                or current_apl.content != apl.content
+                or final_identity != identity):
+            raise TaskCreationError('Profile or APL changed during authoritative validation')
+        profile = current_profile
+        apl = current_apl
+        if (not validation.get('valid')
+                or validation.get('content_hash') != apl_content_hash(apl.content)
+                or validation.get('revision') != identity[0]
+                or validation.get('game_build') != identity[1]):
+            raise TaskCreationError('APL failed authoritative validation for the selected Profile')
         apl_class, apl_spec = canonical_simc_spec_identity(apl.spec)
         if canonical_resource_spec and (
             apl_spec != profile_spec

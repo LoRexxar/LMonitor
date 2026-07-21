@@ -59,6 +59,7 @@ from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN
 from botend.services.simc_apl.catalog import query_symbol_catalog
 from botend.services.simc_apl.validation import validate_payload
 from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
+from botend.services.simc_apl.publish import validate_apl_for_profile, content_hash, current_validation_identity
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_apl.completion import complete_document
 from django.core.exceptions import SuspiciousOperation
@@ -2115,18 +2116,13 @@ class SimcBatchTaskAPIView(View):
         )
         task_ids = []
         for index, (label, ratings, is_base, candidate) in enumerate(rows):
-            task = SimcTask.objects.create(
-                user_id=request.user.id,
-                name=f'{batch.name} · 第{next_round}轮 · {label}',
-                simc_profile_id=source.simc_profile_id,
-                task_type=source.task_type,
-                profile_id=source.profile_id,
-                template_id=source.template_id,
-                apl_id=source.apl_id,
-                profile_version_id=source.profile_version_id,
-                template_version_id=source.template_version_id,
-                apl_version_id=source.apl_version_id,
-                mode='attribute_sweep',
+            from botend.services.simc_task_service import create_task
+            task = create_task(
+                request.user.id,
+                f'{batch.name} · 第{next_round}轮 · {label}',
+                source.profile_id,
+                source.template_id,
+                source.apl_id,
                 simulation_params=source.simulation_params,
                 mode_params={
                     'candidate_type': 'attribute_ratings',
@@ -2135,10 +2131,9 @@ class SimcBatchTaskAPIView(View):
                     'attribute_ratings': ratings,
                     'search': candidate,
                 },
+                mode='attribute_sweep',
                 batch=batch,
                 candidate_label=label,
-                current_status=0,
-                is_active=True,
             )
             task_ids.append(task.id)
         batch.status = 1
@@ -3303,6 +3298,8 @@ class AplStorageAPIView(View):
                     content=template.content,
                     source='user',
                     is_system=False,
+                    is_selectable=False,
+                    validation_status=SimcApl.VALIDATION_DRAFT,
                 )
 
                 return JsonResponse({
@@ -3350,6 +3347,8 @@ class AplStorageAPIView(View):
                 content=apl_code,
                 source='user',
                 is_system=False,
+                is_selectable=False,
+                validation_status=SimcApl.VALIDATION_DRAFT,
             )
 
             return JsonResponse({
@@ -4722,9 +4721,19 @@ class SimcAplCandidatesAPIView(View):
                     candidate_apl = SimcApl.objects.create(
                         name=f'{profile.name} · {plan_name} · {task.id}', spec=task.apl.spec,
                         class_name=task.apl.class_name, content=apl_list, source=SimcApl.SOURCE_USER,
-                        is_system=False, owner_user_id=user_id, is_active=True, is_selectable=True,
+                        is_system=False, owner_user_id=user_id, is_active=True, is_selectable=False,
+                        validation_status=SimcApl.VALIDATION_DRAFT,
                     )
+                    from botend.services.simc_apl.publish import publish_apl
                     from botend.services.simc_task_service import _build_apl_payload, _create_or_reuse_version
+                    result = publish_apl(candidate_apl.id, user_id, profile.id)
+                    if not result['valid']:
+                        task.current_status = 3
+                        task.error_detail = '预处理失败: 候选 APL 未通过权威校验'
+                        task.completed_at = timezone.now()
+                        task.save(update_fields=['current_status', 'error_detail', 'completed_at', 'modified_time'])
+                        continue
+                    candidate_apl.refresh_from_db()
                     apl_version = _create_or_reuse_version('apl', candidate_apl.id, _build_apl_payload(candidate_apl))
                     display_name = f"{profile.name}_APL对比_{idx:02d}_{plan_name[:20]}"
                     task.name = display_name
@@ -6631,12 +6640,21 @@ class SimcWorkbenchAPIView(View):
                     'is_selectable': apl.is_selectable, 'content': apl.content,
                     'read_only': apl.is_system and not _is_simc_admin(request.user),
                     'can_copy': apl.is_system and apl.is_active and apl.is_selectable,
+                    'content_hash': content_hash(apl.content),
+                    'validation_status': apl.validation_status,
+                    'validation_revision': apl.validation_revision,
+                    'validation_game_build': apl.validation_game_build,
+                    'validation_stale_reason': apl.validation_staleness(current_validation_identity()),
+                    'can_use_for_task': apl.is_active and apl.is_selectable and apl.has_current_validation(current_validation_identity()),
                 }, 'can_write': _is_simc_admin(request.user) or not apl.is_system})
             return JsonResponse({'success': True, 'data': [{
                 'id': apl.id, 'name': apl.name, 'spec': apl.spec,
                 'class_name': apl.class_name, 'source': apl.source,
                 'is_system': apl.is_system, 'is_active': apl.is_active,
                 'is_selectable': apl.is_selectable,
+                'validation_status': apl.validation_status,
+                'validation_stale_reason': apl.validation_staleness(current_validation_identity()),
+                'can_use_for_task': apl.is_active and apl.is_selectable and apl.has_current_validation(current_validation_identity()),
                 'read_only': apl.is_system and not _is_simc_admin(request.user),
                 'can_copy': apl.is_system and apl.is_active and apl.is_selectable,
             } for apl in qs], 'can_write': True})
@@ -6794,6 +6812,31 @@ class SimcWorkbenchAPIView(View):
             profile.is_active = action == 'restore'
             profile.save(update_fields=['is_active'])
             return JsonResponse({'success': True})
+        if resource == 'apls' and object_id and action == 'publish':
+            try:
+                profile_id = int(data.get('profile_id'))
+            except (TypeError, ValueError):
+                return JsonResponse({'success': False, 'error': '需要实际玩家配置进行校验'}, status=400)
+            try:
+                from botend.services.simc_apl.publish import publish_apl
+                result = publish_apl(object_id, request.user.id, profile_id)
+                apl = SimcApl.objects.get(pk=object_id)
+            except SimcApl.DoesNotExist:
+                return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+            except SimcProfile.DoesNotExist:
+                return JsonResponse({'success': False, 'error': '玩家配置不存在'}, status=404)
+            except PermissionError:
+                return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+            except ValueError as exc:
+                return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+            except RuntimeError:
+                return JsonResponse({'success': False, 'error': 'APL 内容已变化，请重新校验'}, status=409)
+            status = 200 if result.get('valid') else 422
+            return JsonResponse({'success': bool(result.get('valid')), 'data': {
+                'id': apl.id, 'content_hash': content_hash(apl.content),
+                'validation_status': apl.validation_status,
+                'is_selectable': apl.is_selectable,
+            }, 'error': None if result.get('valid') else 'APL 权威校验失败'}, status=status)
         if resource == 'apls' and object_id and action in ('archive', 'restore'):
             apl = SimcApl.objects.filter(id=object_id).first()
             if not apl:
@@ -6898,7 +6941,8 @@ class SimcWorkbenchAPIView(View):
                                 name=name, spec=spec, class_name=_simc_class_for_spec(spec),
                                 content=template.content, source=SimcApl.SOURCE_USER,
                                 is_system=False, owner_user_id=request.user.id,
-                                is_active=True, is_selectable=True,
+                                is_active=True, is_selectable=False,
+                                validation_status=SimcApl.VALIDATION_DRAFT,
                             )
                     except IntegrityError as exc:
                         if self._is_unique_integrity_error(exc):
@@ -6922,7 +6966,8 @@ class SimcWorkbenchAPIView(View):
                 apl = SimcApl.objects.create(
                     name=name, spec=spec, class_name=_simc_class_for_spec(spec), content=content,
                     source=SimcApl.SOURCE_USER, is_system=False,
-                    owner_user_id=request.user.id, is_active=True, is_selectable=True,
+                    owner_user_id=request.user.id, is_active=True, is_selectable=False,
+                    validation_status=SimcApl.VALIDATION_DRAFT,
                 )
             except Exception as exc:
                 if 'active_unique_key' in str(exc) or 'UNIQUE' in str(exc):

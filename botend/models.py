@@ -924,6 +924,14 @@ class SimcApl(models.Model):
         (SOURCE_SIMC_UPSTREAM, 'SimC源码同步'),
         (SOURCE_USER, '用户维护'),
     )
+    VALIDATION_DRAFT = 'draft'
+    VALIDATION_VALID = 'valid'
+    VALIDATION_INVALID = 'invalid'
+    VALIDATION_STALE = 'stale'
+    VALIDATION_STATUS_CHOICES = (
+        (VALIDATION_DRAFT, '草稿'), (VALIDATION_VALID, '有效'),
+        (VALIDATION_INVALID, '无效'), (VALIDATION_STALE, '已过期'),
+    )
 
     name = models.CharField(max_length=200, help_text="APL名称")
     spec = models.CharField(max_length=100, help_text="适用专精标识，如 warrior_fury")
@@ -933,8 +941,15 @@ class SimcApl(models.Model):
     is_system = models.BooleanField(default=False, help_text="是否为系统默认APL（只读）")
     owner_user_id = models.BigIntegerField(null=True, blank=True, help_text="所属用户ID，NULL表示全局默认APL")
     is_active = models.BooleanField(default=True, help_text="是否启用")
-    is_selectable = models.BooleanField(default=True, help_text="任务发起时是否可选择")
+    is_selectable = models.BooleanField(default=False, help_text="任务发起时是否可选择")
     sync_version = models.CharField(max_length=128, default='', blank=True, help_text="同步来源版本/提交")
+    validation_status = models.CharField(max_length=16, choices=VALIDATION_STATUS_CHOICES, default=VALIDATION_DRAFT)
+    validated_content_hash = models.CharField(max_length=64, default='', blank=True)
+    validation_revision = models.CharField(max_length=128, default='', blank=True)
+    validation_game_build = models.CharField(max_length=64, default='', blank=True)
+    validation_stale_reason = models.CharField(max_length=64, default='', blank=True)
+    validation_diagnostics = models.JSONField(default=list, blank=True)
+    validated_at = models.DateTimeField(null=True, blank=True)
     active_unique_key = models.CharField(
         max_length=255, null=True, blank=True, unique=True,
         help_text="活跃 APL 唯一键；停用时为 NULL",
@@ -964,11 +979,44 @@ class SimcApl(models.Model):
         return f'user:{owner}:{spec}:{name_hash}'
 
     def save(self, *args, **kwargs):
+        current_hash = hashlib.sha256(str(self.content or '').encode('utf-8')).hexdigest()
+        update_fields = kwargs.get('update_fields')
+        stale_reason = ''
+        if self.validation_status == self.VALIDATION_VALID and self.validated_content_hash != current_hash:
+            stale_reason = 'content_changed'
+        elif self.pk and self.validation_status == self.VALIDATION_VALID:
+            previous_spec = type(self).objects.filter(pk=self.pk).values_list('spec', flat=True).first()
+            if previous_spec is not None and previous_spec != self.spec:
+                stale_reason = 'spec_changed'
+        if stale_reason:
+            self.validation_status = self.VALIDATION_STALE
+            self.validation_stale_reason = stale_reason
+            self.is_selectable = False
+            if update_fields is not None:
+                kwargs['update_fields'] = list(set(update_fields) | {
+                    'validation_status', 'validation_stale_reason', 'is_selectable'})
         self.active_unique_key = self._compute_active_unique_key()
         update_fields = kwargs.get('update_fields')
         if update_fields is not None and 'active_unique_key' not in update_fields:
             kwargs['update_fields'] = list(update_fields) + ['active_unique_key']
         super().save(*args, **kwargs)
+
+    def validation_staleness(self, identity):
+        current_hash = hashlib.sha256(str(self.content or '').encode('utf-8')).hexdigest()
+        if self.validation_status != self.VALIDATION_VALID:
+            return self.validation_stale_reason or 'not_validated'
+        if self.validated_content_hash != current_hash:
+            return 'content_changed'
+        if not identity:
+            return 'revision_unavailable'
+        if self.validation_revision != identity[0]:
+            return 'revision_changed'
+        if self.validation_game_build != identity[1]:
+            return 'game_build_changed'
+        return ''
+
+    def has_current_validation(self, identity):
+        return not self.validation_staleness(identity)
 
     def __str__(self):
         return f'{self.name} ({self.spec})'
@@ -1018,9 +1066,9 @@ class SimcTask(models.Model):
     apl = models.ForeignKey('SimcApl', null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks', help_text="引用的APL")
 
     # NEW: Version FKs (immutable snapshots)
-    profile_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.SET_NULL, related_name='profile_tasks', help_text="Profile版本快照")
-    template_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.SET_NULL, related_name='template_tasks', help_text="Template版本快照")
-    apl_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.SET_NULL, related_name='apl_tasks', help_text="APL版本快照")
+    profile_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.PROTECT, related_name='profile_tasks', help_text="Profile版本快照")
+    template_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.PROTECT, related_name='template_tasks', help_text="Template版本快照")
+    apl_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.PROTECT, related_name='apl_tasks', help_text="APL版本快照")
 
     mode = models.CharField(max_length=50, default='normal', blank=True, help_text="任务模式：normal/comparison/attribute_sweep")
     simulation_params = models.JSONField(null=True, blank=True, help_text="模拟参数：iterations, fight_style等")

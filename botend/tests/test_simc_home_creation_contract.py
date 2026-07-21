@@ -1,8 +1,9 @@
+import hashlib
 import json
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask
 
@@ -30,16 +31,34 @@ main_hand=,id=222222,ilevel=639
 '''
 
 
+REVISION = 'a' * 40
+BUILD = '12.0.1.70000'
+
+
+@override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, BUILD))
 class SimcHomeCreationResourceContractTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='home-flow', password='pwd')
         self.client.force_login(self.user)
+        validator = patch('botend.services.simc_task_service.validate_apl_for_profile')
+        self.validate_apl = validator.start()
+        self.addCleanup(validator.stop)
+        self.validate_apl.side_effect = lambda _profile, apl: {
+            'valid': True,
+            'content_hash': hashlib.sha256(apl.content.encode('utf-8')).hexdigest(),
+            'revision': REVISION,
+            'game_build': BUILD,
+            'diagnostics': [],
+        }
 
     def _apl(self, name='Default', **overrides):
         values = {
             'name': name, 'spec': 'warrior_fury', 'class_name': 'warrior',
             'content': 'actions=/bloodthirst', 'source': SimcApl.SOURCE_SIMC_UPSTREAM,
             'is_system': True, 'owner_user_id': None, 'is_active': True, 'is_selectable': True,
+            'validation_status': SimcApl.VALIDATION_VALID,
+            'validated_content_hash': hashlib.sha256(b'actions=/bloodthirst').hexdigest(),
+            'validation_revision': REVISION, 'validation_game_build': BUILD,
         }
         values.update(overrides)
         return SimcApl.objects.create(**values)

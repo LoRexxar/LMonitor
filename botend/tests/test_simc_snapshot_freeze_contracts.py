@@ -3,6 +3,7 @@
 Tasks reference three persisted resources and immutable SimcResourceVersion rows. They do
 not freeze resource bodies in ``ext`` and do not auto-select an APL.
 """
+import hashlib
 import json
 import tempfile
 from pathlib import Path
@@ -10,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 
 from botend.management.commands.import_simc_apl import Command as ImportSimcAplCommand
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
@@ -76,6 +77,7 @@ class UpdateSimcBinarySyncContractTests(TestCase):
         self.assertEqual(symbol_calls[0][1]['runtime_manifest'], '/tmp/test-runtime-manifest.json')
 
 
+@override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.1.70000'))
 class SimcTaskReferenceContracts(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='reference_user', password='pwd')
@@ -94,6 +96,9 @@ class SimcTaskReferenceContracts(TestCase):
             owner_user_id=self.user.id,
             spec='warrior_fury', name='Saved edited APL', content=APL_CONTENT,
             is_active=True, is_selectable=True,
+            validation_status=SimcApl.VALIDATION_VALID,
+            validated_content_hash=hashlib.sha256(APL_CONTENT.encode()).hexdigest(),
+            validation_revision='a' * 40, validation_game_build='12.0.1.70000',
         )
         self.profile = SimcProfile.objects.create(
             user_id=self.user.id,
@@ -117,10 +122,15 @@ class SimcTaskReferenceContracts(TestCase):
         return payload
 
     def create_task(self, **overrides):
-        response = self.client.post(
-            '/api/simc-task/', data=json.dumps(self.payload(**overrides)),
-            content_type='application/json',
-        )
+        valid = {
+            'valid': True, 'content_hash': hashlib.sha256(APL_CONTENT.encode()).hexdigest(),
+            'revision': 'a' * 40, 'game_build': '12.0.1.70000', 'diagnostics': [],
+        }
+        with patch('botend.services.simc_task_service.validate_apl_for_profile', return_value=valid):
+            response = self.client.post(
+                '/api/simc-task/', data=json.dumps(self.payload(**overrides)),
+                content_type='application/json',
+            )
         self.assertTrue(response.json()['success'], response.json())
         return SimcTask.objects.select_related(
             'profile', 'template', 'apl', 'profile_version', 'template_version', 'apl_version'
