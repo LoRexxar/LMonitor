@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcAplKeywordPair, SimcApl, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcAplKeywordPair, SimcApl, SimcAplSymbol, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState
 from botend.alerting import upsert_system_alert
 from django.db import IntegrityError, models, transaction
 from core.glm import GLMClient
@@ -56,6 +56,11 @@ from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN
+from botend.services.simc_apl.catalog import query_symbol_catalog
+from botend.services.simc_apl.validation import validate_payload
+from botend.services.simc_apl.completion import complete_document
+from django.core.exceptions import SuspiciousOperation
+from collections import defaultdict, deque
 
 
 def _simc_spec_options():
@@ -412,6 +417,238 @@ class WagoSkillDiffRerunAPIView(View):
         except Exception as e:
             logger.error(f"Wago指定版本重跑失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({'success': False, 'error': f'Wago指定版本重跑失败: {str(e)}'})
+
+
+_APL_EDITOR_RATE_BUCKETS = defaultdict(deque)
+_APL_EDITOR_RATE_LOCK = threading.Lock()
+_APL_EDITOR_RATE_BUCKET_SOFT_LIMIT = 1024
+
+
+class _EditorSemaphore:
+    def __init__(self, value):
+        self._semaphore = threading.BoundedSemaphore(value)
+
+    def acquire(self):
+        return self._semaphore.acquire(blocking=False)
+
+    def release(self):
+        self._semaphore.release()
+
+
+_APL_EDITOR_SEMAPHORE = _EditorSemaphore(4)
+
+
+def _editor_error(code, message, status=400):
+    return JsonResponse({'success': False, 'error': {'code': code, 'message': message}}, status=status)
+
+
+def _editor_spec(raw):
+    canonical = _canonical_simc_spec(raw)
+    if not canonical:
+        return None
+    class_name = _simc_class_for_spec(canonical)
+    return canonical, class_name, canonical[len(class_name) + 1:]
+
+
+def _latest_catalog_identity():
+    configured = getattr(settings, 'SIMC_APL_CURRENT_IDENTITY', None)
+    if configured and len(configured) == 2:
+        return tuple(configured)
+    platform = 'linuxarm64' if 'aarch64' in py_platform.machine().lower() else 'linux64'
+    current = SimcBackendBinary.objects.filter(platform=platform).values_list('current_version', flat=True).first()
+    if not current:
+        return None
+    builds = list(SimcAplSymbol.objects.filter(is_active=True, simc_revision=current)
+                  .order_by().values_list('wow_build', flat=True).distinct()[:2])
+    if len(builds) != 1:
+        return None
+    return current, builds[0]
+
+
+def _catalog_item(item, simc_revision='', game_build=''):
+    scope = 'hero_tree' if item.hero_tree else ('spec' if item.spec else ('class' if item.class_name else 'global'))
+    return {
+        'token': item.token, 'kind': item.kind, 'scope': scope, 'spell_id': item.spell_id,
+        'name_zh': item.name, 'name_en': item.name_en, 'description_zh': item.description,
+        'icon': item.icon, 'insertable': item.insertable, 'reason': item.reason,
+        'source': item.source, 'simc_revision': simc_revision, 'game_build': game_build,
+    }
+
+
+class SimcAplEditorAPIView(View):
+    """Authenticated, bounded JSON protocol shared by editor endpoints."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if not getattr(request, 'user', None) or not request.user.is_authenticated:
+            return _editor_error('authentication_required', 'Authentication required.', 401)
+        return super().dispatch(request, *args, **kwargs)
+
+    def http_method_not_allowed(self, request, *args, **kwargs):
+        return _editor_error('method_not_allowed', 'HTTP method is not allowed.', 405)
+
+    @staticmethod
+    def payload(request):
+        try:
+            value = json.loads(request.body or b'{}')
+        except (TypeError, ValueError, UnicodeDecodeError):
+            raise SuspiciousOperation('invalid_json')
+        if not isinstance(value, dict):
+            raise SuspiciousOperation('invalid_json')
+        return value
+
+    @staticmethod
+    def content(payload):
+        value = payload.get('content', '')
+        if not isinstance(value, str):
+            return None, _editor_error('invalid_content', 'content must be a string.')
+        maximum = int(getattr(settings, 'SIMC_APL_EDITOR_MAX_CONTENT_LENGTH', 200000))
+        if len(value) > maximum:
+            return None, _editor_error('content_too_large', 'Document exceeds the size limit.', 413)
+        return value, None
+
+    def rate_limit(self, request):
+        limit = int(getattr(settings, 'SIMC_APL_EDITOR_RATE_LIMIT', 60))
+        window = float(getattr(settings, 'SIMC_APL_EDITOR_RATE_WINDOW', 60))
+        now = time.monotonic()
+        key = (request.user.id, self.__class__.__name__)
+        with _APL_EDITOR_RATE_LOCK:
+            for stale_key, stale_bucket in list(_APL_EDITOR_RATE_BUCKETS.items()):
+                while stale_bucket and stale_bucket[0] <= now - window:
+                    stale_bucket.popleft()
+                if not stale_bucket:
+                    del _APL_EDITOR_RATE_BUCKETS[stale_key]
+            if len(_APL_EDITOR_RATE_BUCKETS) >= _APL_EDITOR_RATE_BUCKET_SOFT_LIMIT:
+                return _editor_error('rate_limited', 'Request rate limit exceeded.', 429)
+            bucket = _APL_EDITOR_RATE_BUCKETS[key]
+            if len(bucket) >= limit:
+                return _editor_error('rate_limited', 'Request rate limit exceeded.', 429)
+            bucket.append(now)
+        return None
+
+
+class SimcAplValidationAPIView(SimcAplEditorAPIView):
+    def post(self, request):
+        try:
+            payload = self.payload(request)
+        except SuspiciousOperation:
+            return _editor_error('invalid_json', 'Request body must be a JSON object.')
+        content, error = self.content(payload)
+        if error:
+            return error
+        limited = self.rate_limit(request)
+        if limited:
+            return limited
+        spec = _editor_spec(payload.get('spec'))
+        if not spec:
+            return _editor_error('invalid_spec', 'Unknown specialization.')
+        profile_id = payload.get('profile_id')
+        profile = None
+        if profile_id is not None:
+            profile = SimcProfile.objects.filter(id=profile_id, user_id=request.user.id, is_active=True).first()
+            if not profile:
+                return _editor_error('profile_not_found', 'Profile not found.', 404)
+        mode = payload.get('mode', 'structural')
+        if mode not in ('structural', 'authoritative', 'both'):
+            return _editor_error('invalid_mode', 'Unknown validation mode.')
+        if mode != 'structural':
+            return _editor_error('unsupported_mode', 'Authoritative validation is not available; use structural mode.', 422)
+        try:
+            diagnostic_page = max(1, int(payload.get('diagnostic_page', 1)))
+            page_size = max(1, min(100, int(payload.get('page_size', 50))))
+        except (TypeError, ValueError):
+            return _editor_error('invalid_pagination', 'diagnostic_page and page_size must be integers.')
+        if not _APL_EDITOR_SEMAPHORE.acquire():
+            return _editor_error('concurrency_limited', 'Validation capacity is busy.', 429)
+        started = time.monotonic()
+        try:
+            data = validate_payload(content)
+        finally:
+            _APL_EDITOR_SEMAPHORE.release()
+        total = len(data['diagnostics'])
+        start = (diagnostic_page - 1) * page_size
+        data['diagnostics'] = data['diagnostics'][start:start + page_size]
+        data['pagination'] = {'page': diagnostic_page, 'page_size': page_size, 'total': total,
+                              'total_pages': (total + page_size - 1) // page_size}
+        data['document_version'] = payload.get('document_version')
+        data['context'] = {'spec': spec[0], 'profile_id': profile.id if profile else None}
+        data['elapsed_ms'] = int((time.monotonic() - started) * 1000)
+        return JsonResponse({'success': True, 'data': data})
+
+
+class SimcAplSymbolsAPIView(SimcAplEditorAPIView):
+    def get(self, request):
+        limited = self.rate_limit(request)
+        if limited:
+            return limited
+        spec = _editor_spec(request.GET.get('spec'))
+        if not spec:
+            return _editor_error('invalid_spec', 'Unknown specialization.')
+        try:
+            page = int(request.GET.get('page', 1))
+            page_size = int(request.GET.get('page_size', 50))
+        except (TypeError, ValueError):
+            return _editor_error('invalid_pagination', 'Invalid pagination parameters.')
+        if page < 1 or page_size < 1:
+            return _editor_error('invalid_pagination', 'Invalid pagination parameters.')
+        page_size = min(100, page_size)
+        identity = _latest_catalog_identity()
+        if not identity:
+            return _editor_error('catalog_unavailable', 'The current symbol catalog is unavailable.', 503)
+        revision, build = identity
+        if not _APL_EDITOR_SEMAPHORE.acquire():
+            return _editor_error('concurrency_limited', 'Symbol query capacity is busy.', 429)
+        kind = (request.GET.get('kind') or '').strip()
+        query = (request.GET.get('query') or '').strip()[:200]
+        try:
+            items = query_symbol_catalog(revision, build, spec[1], spec[2], search=query or None)
+        finally:
+            _APL_EDITOR_SEMAPHORE.release()
+        if kind:
+            items = [item for item in items if item.kind == kind]
+        total = len(items)
+        total_pages = (total + page_size - 1) // page_size
+        start = (page - 1) * page_size
+        return JsonResponse({'success': True, 'data': {
+            'items': [_catalog_item(item, revision, build) for item in items[start:start + page_size]],
+            'pagination': {'page': page, 'page_size': page_size, 'total': total, 'total_pages': total_pages},
+        }})
+
+
+class SimcAplCompletionsAPIView(SimcAplEditorAPIView):
+    def post(self, request):
+        try:
+            payload = self.payload(request)
+        except SuspiciousOperation:
+            return _editor_error('invalid_json', 'Request body must be a JSON object.')
+        content, error = self.content(payload)
+        if error:
+            return error
+        limited = self.rate_limit(request)
+        if limited:
+            return limited
+        spec = _editor_spec(payload.get('spec'))
+        position = payload.get('position')
+        if not spec:
+            return _editor_error('invalid_spec', 'Unknown specialization.')
+        if not isinstance(position, dict):
+            return _editor_error('invalid_position', 'position must be an object.')
+        try:
+            line, column = int(position['line']), int(position['column'])
+        except (KeyError, TypeError, ValueError):
+            return _editor_error('invalid_position', 'position requires integer line and column.')
+        lines = content.splitlines() or ['']
+        if line < 1 or line > len(lines) or column < 1 or column > len(lines[line - 1]) + 1:
+            return _editor_error('invalid_position', 'position is outside the document.')
+        if not _APL_EDITOR_SEMAPHORE.acquire():
+            return _editor_error('concurrency_limited', 'Completion capacity is busy.', 429)
+        try:
+            items = complete_document(content, line, column)[:100]
+        finally:
+            _APL_EDITOR_SEMAPHORE.release()
+        return JsonResponse({'success': True, 'data': {
+            'document_version': payload.get('document_version'),
+            'items': items,
+        }})
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
