@@ -164,18 +164,37 @@ class TalentBuildCodeEncoder:
             writer.write(reference_stream.extract(8), 8)
 
         selected_nodes = list(selected_nodes or [])
-        selected_lookup = cls._build_selected_lookup(selected_nodes, ordered_nodes)
+        explicit_selected_keys = set()
+        selected_lookup = cls._build_selected_lookup(
+            selected_nodes,
+            ordered_nodes,
+            explicit_keys=explicit_selected_keys,
+        )
+        reference_states = TalentBuildCodeDecoder.decode_node_states(reference_build_code, ordered_nodes)
+
+        # Granted/default nodes may be selected in the import string while being
+        # absent from the active simulator subtree. They are not user-spendable,
+        # so preserve their reference bits unless the visible payload supplies
+        # that same canonical node.
+        for key, state in reference_states.items():
+            if (
+                state.get('purchased') is False
+                and key not in selected_lookup
+                and key not in explicit_selected_keys
+            ):
+                selected_lookup[key] = dict(state)
+
         hidden_selector_keys = {
             _build_node_key(node)
             for node in ordered_nodes
             if cls._is_hidden_hero_selector(node)
         }
-        if hidden_selector_keys and not (hidden_selector_keys & selected_lookup.keys()):
-            reference_states = TalentBuildCodeDecoder.decode_node_states(reference_build_code, ordered_nodes)
-            for key in hidden_selector_keys:
-                state = reference_states.get(key)
-                if state:
-                    selected_lookup[key] = dict(state)
+        for key in hidden_selector_keys:
+            if key in selected_lookup or key in explicit_selected_keys:
+                continue
+            state = reference_states.get(key)
+            if state:
+                selected_lookup[key] = dict(state)
         for node in ordered_nodes:
             key = _build_node_key(node)
             state = selected_lookup.get(key)
@@ -218,7 +237,7 @@ class TalentBuildCodeEncoder:
         )
 
     @staticmethod
-    def _build_selected_lookup(selected_nodes, ordered_nodes):
+    def _build_selected_lookup(selected_nodes, ordered_nodes, explicit_keys=None):
         ordered_lookup = {_build_node_key(node): node for node in ordered_nodes}
         alias_lookup = {}
         for key, node in ordered_lookup.items():
@@ -232,8 +251,6 @@ class TalentBuildCodeEncoder:
             if not isinstance(selected, dict):
                 continue
             points = int(selected.get('points') or selected.get('rank') or 0)
-            if points <= 0:
-                continue
             key = _build_node_key(selected)
             if not key or key not in ordered_lookup:
                 for alias in _node_alias_keys(selected):
@@ -242,6 +259,12 @@ class TalentBuildCodeEncoder:
                         key = mapped_key
                         break
             if not key or key not in ordered_lookup:
+                key = _resolve_cross_tree_apex_key(selected, ordered_lookup)
+            if not key or key not in ordered_lookup:
+                continue
+            if explicit_keys is not None:
+                explicit_keys.add(key)
+            if points <= 0:
                 continue
             state = {'points': points}
             if selected.get('purchased') is False:
@@ -343,6 +366,8 @@ def _resolve_choice_selection(base_node, selected_node):
     if not options:
         return None
     explicit_selection = selected_node.get('choice_selection')
+    if explicit_selection is None:
+        explicit_selection = selected_node.get('choiceSelection')
     if explicit_selection is not None:
         try:
             index = int(explicit_selection)
@@ -388,6 +413,43 @@ def _node_alias_keys(node):
         if value is not None:
             keys.append(f'{tree_type}:{value}')
     return keys
+
+
+def _resolve_cross_tree_apex_key(selected, ordered_lookup):
+    """Resolve only an unambiguous spec/hero_anchor alias of one apex TraitNode."""
+    selected_tree = selected.get('tree_type') or 'spec'
+    opposite_tree = {'spec': 'hero_anchor', 'hero_anchor': 'spec'}.get(selected_tree)
+    if not opposite_tree:
+        return ''
+
+    selected_ids = {}
+    for identity, fields in (
+        ('node', ('node_id', 'nodeID')),
+        ('talent', ('talent_id', 'talentID')),
+    ):
+        for field in fields:
+            value = _to_int(selected.get(field))
+            if value is not None:
+                selected_ids[identity] = value
+                break
+    if not selected_ids:
+        return ''
+
+    candidates = []
+    for key, node in ordered_lookup.items():
+        if (node.get('tree_type') or 'spec') != opposite_tree:
+            continue
+        if not (node.get('is_apex_talent') or node.get('apex_entries')):
+            continue
+        candidate_ids = {
+            'node': _to_int(node.get('node_id') if node.get('node_id') is not None else node.get('nodeID')),
+            'talent': _to_int(node.get('talent_id') if node.get('talent_id') is not None else node.get('talentID')),
+        }
+        # Every payload ID must identify the same candidate. This rejects both
+        # ambiguous candidates and node/talent ID disagreement.
+        if all(candidate_ids.get(identity) == value for identity, value in selected_ids.items()):
+            candidates.append(key)
+    return candidates[0] if len(candidates) == 1 else ''
 
 
 def _build_node_key(node):

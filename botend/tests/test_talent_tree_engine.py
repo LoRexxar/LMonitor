@@ -150,6 +150,26 @@ class TalentTreeModelTests(SimpleTestCase):
         self.assertEqual(payload['nodes'][0]['talent_code'], 'BwQAAAAAAAAAAAAAAAAAAAAA')
         self.assertTrue(payload['nodes'][0]['selected'])
 
+    def test_talent_node_model_preserves_imported_choice_selection(self):
+        node = TalentNodeModel.from_raw({
+            'tree_type': 'class',
+            'node_id': 96193,
+            'talent_id': 76064,
+            'points': 1,
+            'is_choice_node': True,
+            'choice_selection': 1,
+        })
+
+        self.assertEqual(node.to_dict()['choice_selection'], 1)
+
+        camel_case_node = TalentNodeModel.from_raw({
+            'nodeID': 96193,
+            'talentID': 76064,
+            'points': 1,
+            'choiceSelection': 0,
+        })
+        self.assertEqual(camel_case_node.to_dict()['choice_selection'], 0)
+
 
 class TalentTreeAdapterTests(SimpleTestCase):
     def test_adapter_groups_nodes_into_three_tree_types_and_build_state(self):
@@ -1299,6 +1319,127 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         mapped = _map_decoded_states_to_full_nodes(full_nodes, decoder_nodes, decoded_states)
 
         self.assertEqual(mapped['spec:136987']['points'], 4)
+
+    def test_encoder_round_trip_preserves_visible_spec_apex_choice_and_hidden_granted_node(self):
+        decoder_nodes = [
+            {
+                'tree_type': 'class',
+                'node_id': 1001,
+                'talent_id': 1001,
+                'spell_id': 2001,
+                'max_points': 1,
+                'is_choice_node': True,
+                'choice_options': [
+                    {'talent_id': 1001, 'spell_id': 2001},
+                    {'talent_id': 1001, 'spell_id': 2002},
+                ],
+            },
+            {
+                'tree_type': 'hero',
+                'node_id': 3001,
+                'talent_id': 3001,
+                'spell_id': 4001,
+                'max_points': 1,
+            },
+            {
+                'tree_type': 'hero_anchor',
+                'node_id': 136915,
+                'talent_id': 110353,
+                'spell_id': 1264351,
+                'max_points': 1,
+                'is_apex_talent': True,
+                'apex_entries': [
+                    {'node_id': 136915, 'talent_id': 110353, 'spell_id': 1264351, 'max_points': 1},
+                    {'node_id': 136916, 'talent_id': 110353, 'spell_id': 1264405, 'max_points': 2},
+                    {'node_id': 136917, 'talent_id': 110353, 'spell_id': 1264506, 'max_points': 1},
+                ],
+            },
+        ]
+        original_code = TalentBuildCodeEncoder.encode_node_states(
+            self.DEATH_KNIGHT_REFERENCE_CODE,
+            decoder_nodes,
+            [
+                {'tree_type': 'class', 'node_id': 1001, 'talent_id': 1001, 'points': 1, 'choice_selection': 1},
+                {'tree_type': 'hero', 'node_id': 3001, 'talent_id': 3001, 'points': 1, 'purchased': False},
+                {'tree_type': 'hero_anchor', 'node_id': 136915, 'talent_id': 110353, 'points': 4},
+            ],
+        )
+        visible_nodes = [
+            {'tree_type': 'class', 'node_id': 1001, 'talent_id': 1001, 'points': 1, 'choice_selection': 1},
+            # The simulator renders this canonical TraitNode in the spec tree.
+            {'tree_type': 'spec', 'node_id': 136915, 'talent_id': 110353, 'points': 4},
+        ]
+
+        exported_code = TalentBuildCodeEncoder.encode_node_states(
+            original_code,
+            decoder_nodes,
+            visible_nodes,
+        )
+
+        self.assertTrue(exported_code)
+        self.assertEqual(exported_code, original_code)
+        self.assertEqual(
+            TalentBuildCodeDecoder.decode_node_states(exported_code, decoder_nodes),
+            TalentBuildCodeDecoder.decode_node_states(original_code, decoder_nodes),
+        )
+
+    def test_encoder_does_not_cross_map_colliding_ids_between_tree_buckets(self):
+        decoder_nodes = [
+            {
+                'tree_type': 'hero_anchor',
+                'node_id': 136915,
+                'talent_id': 110353,
+                'max_points': 4,
+                'is_apex_talent': True,
+            },
+            {
+                'tree_type': 'hero_anchor',
+                'node_id': 136916,
+                'talent_id': 110354,
+                'max_points': 1,
+                'is_apex_talent': True,
+            },
+        ]
+
+        # node_id and talent_id point at different canonical candidates. The
+        # old unconstrained identity aliases silently chose the first match.
+        lookup = TalentBuildCodeEncoder._build_selected_lookup(
+            [{'tree_type': 'spec', 'node_id': 136915, 'talent_id': 110354, 'points': 1}],
+            decoder_nodes,
+        )
+
+        self.assertEqual(lookup, {})
+
+    def test_explicit_zero_points_prevents_unpurchased_reference_backfill(self):
+        decoder_nodes = [{
+            'tree_type': 'hero',
+            'node_id': 117415,
+            'talent_id': 94818,
+            'max_points': 1,
+        }]
+        reference_code = TalentBuildCodeEncoder.encode_node_states(
+            self.DEATH_KNIGHT_REFERENCE_CODE,
+            decoder_nodes,
+            [{
+                'tree_type': 'hero',
+                'node_id': 117415,
+                'talent_id': 94818,
+                'points': 1,
+                'purchased': False,
+            }],
+        )
+
+        encoded = TalentBuildCodeEncoder.encode_node_states(
+            reference_code,
+            decoder_nodes,
+            [{'tree_type': 'hero', 'node_id': 117415, 'talent_id': 94818, 'points': 0}],
+        )
+
+        self.assertTrue(encoded)
+        self.assertNotIn(
+            'hero:117415',
+            TalentBuildCodeDecoder.decode_node_states(encoded, decoder_nodes),
+        )
 
     def test_decoder_node_list_keeps_every_trait_node_even_when_entry_name_is_content_noise(self):
         # Import strings allocate one bit position for every TraitNode in the
