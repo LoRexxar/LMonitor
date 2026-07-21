@@ -549,6 +549,9 @@ class SimcAplValidationAPIView(SimcAplEditorAPIView):
             profile = SimcProfile.objects.filter(id=profile_id, user_id=request.user.id, is_active=True).first()
             if not profile:
                 return _editor_error('profile_not_found', 'Profile not found.', 404)
+            profile_spec = _editor_spec(profile.spec)
+            if not profile_spec or profile_spec[0] != spec[0]:
+                return _editor_error('profile_spec_mismatch', 'Profile specialization does not match the validation context.')
         mode = payload.get('mode', 'structural')
         if mode not in ('structural', 'authoritative', 'both'):
             return _editor_error('invalid_mode', 'Unknown validation mode.')
@@ -573,13 +576,20 @@ class SimcAplValidationAPIView(SimcAplEditorAPIView):
                 platform = 'linuxarm64' if 'aarch64' in py_platform.machine().lower() else 'linux64'
                 backend = SimcBackendBinary.objects.filter(platform=platform).first()
                 if profile is not None and identity and backend:
-                    validation_context = SimcComposer.validation_context(
-                        profile, catalog_revision=identity[0],
-                        binary_revision=backend.current_version)
-                    validator = RestrictedSimcValidator(
-                        backend.simc_path, catalog_revision=identity[0],
-                        binary_revision=backend.current_version,
-                        temp_root=getattr(settings, 'SIMC_APL_VALIDATION_TEMP_ROOT', None))
+                    composer = SimcComposer(request.user.id)
+                    try:
+                        validation_input = composer.compose_validation_input(profile, content)
+                    except (ValueError, TypeError, AttributeError):
+                        validation_input = None
+                    if validation_input is not None:
+                        validation_context = SimcComposer.validation_context(
+                            profile, catalog_revision=identity[0],
+                            binary_revision=backend.current_version,
+                            validation_input=validation_input)
+                        validator = RestrictedSimcValidator(
+                            backend.simc_path, catalog_revision=identity[0],
+                            binary_revision=backend.current_version,
+                            temp_root=getattr(settings, 'SIMC_APL_VALIDATION_TEMP_ROOT', None))
             data = validate_payload(content, mode=mode,
                                     authoritative_validator=validator,
                                     validation_context=validation_context)

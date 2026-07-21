@@ -90,9 +90,39 @@ class SimcComposer:
         self.slots: Dict[str, SlotResolution] = {}
         self.manifest = CompositionManifest()
 
-    @staticmethod
-    def validation_context(profile, *, catalog_revision='', binary_revision=''):
-        """Return allowlisted context for APL validation via this composer path."""
+    def compose_validation_input(self, profile, apl_source: str) -> str:
+        """Render a complete validation document through the normal semantic slots.
+
+        The template is service-owned so validation cannot select or execute mutable
+        user template text.  Profile/APL values still pass through the same slot
+        arbitration used by real runs.
+        """
+        validation_template = (
+            '{simulation_options}\n{player_identity}\n{talents}\n{equipment}\n'
+            '{stat_overrides}\n{action_list}\n{output_options}'
+        )
+        request = {
+            'spec': profile.spec, 'player_import_mode': profile.player_config_mode,
+            'player_equipment': profile.player_equipment, 'talent': profile.talent,
+            'battlenet_region': profile.battlenet_region,
+            'battlenet_realm': profile.battlenet_realm,
+            'battlenet_character': profile.battlenet_character,
+            'gear_crit': profile.gear_crit, 'gear_haste': profile.gear_haste,
+            'gear_mastery': profile.gear_mastery, 'gear_versatility': profile.gear_versatility,
+            'override_action_list': apl_source,
+            'base_template_content': validation_template,
+            'fight_style': 'Patchwerk', 'time': 1, 'target_count': 1,
+            'iterations': 1, 'vary_combat_length': 0,
+            '_result_file_path': 'validation-result.html',
+        }
+        content, _, error = self.compose(request)
+        if error or content is None:
+            raise ValueError('Could not compose validation input.')
+        return content
+
+    @classmethod
+    def validation_context(cls, profile, *, catalog_revision='', binary_revision='',
+                           validation_input=None):
         return {
             'profile_id': profile.id,
             'user_id': profile.user_id,
@@ -100,6 +130,7 @@ class SimcComposer:
             'player_import_mode': profile.player_config_mode,
             'catalog_revision': catalog_revision,
             'binary_revision': binary_revision,
+            'validation_input': validation_input,
         }
 
     def compose(self, request_data: Dict[str, Any]) -> tuple[Optional[str], Optional[CompositionManifest], Optional[str]]:

@@ -58,6 +58,7 @@ class SimcAplEditorApiTests(TestCase):
         response = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury")
         self.assertEqual(response.json()["data"]["items"][0]["simc_revision"], "current")
 
+    def test_validation_rejects_profile_from_another_user(self):
         other = User.objects.create_user(username="other", password="password")
         profile = SimcProfile.objects.create(user_id=other.id, name="secret", spec="fury")
         response = self.client.post("/api/simc-workbench/apl-validation/", data=json.dumps({
@@ -67,6 +68,16 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["error"]["code"], "profile_not_found")
         self.assertNotIn("secret", response.content.decode())
+
+    def test_validation_rejects_profile_specialization_mismatch(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id, name="arms", spec="arms", is_active=True)
+        response = self.client.post("/api/simc-workbench/apl-validation/", data=json.dumps({
+            "content": "actions=/auto_attack", "spec": "warrior_fury", "profile_id": profile.id,
+            "document_version": "opaque-v1",
+        }), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "profile_spec_mismatch")
 
     def test_symbols_reject_catalogs_without_an_explicit_current_identity(self):
         SimcAplSymbol.objects.create(simc_revision="arbitrary-old", wow_build="11.0.0",

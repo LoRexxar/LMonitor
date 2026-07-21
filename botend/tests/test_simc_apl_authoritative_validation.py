@@ -38,9 +38,13 @@ class RestrictedAuthoritativeValidationTests(SimpleTestCase):
                                  'profile_directive_forbidden')
         runner.assert_not_called()
 
-    def test_invokes_strict_validate_only_inside_controlled_directory_and_cleans_it(self):
-        validator = self.validator('test "$2" = strict=1 || exit 2\n'
-                                   'test "$3" = validate_only=1 || exit 3\nexit 0\n')
+    def test_invokes_bounded_strict_parse_command_and_cleans_directory(self):
+        validator = self.validator(
+            'test "$2" = strict_parsing=1 || exit 2\n'
+            'test "$3" = iterations=1 || exit 3\n'
+            'test "$4" = threads=1 || exit 4\n'
+            'test "$5" = fixed_time=1 || exit 5\n'
+            'test "$6" = vary_combat_length=0 || exit 6\nexit 0\n')
         result = validator.validate('actions=/auto_attack')
         self.assertTrue(result['authoritative_valid'])
         self.assertEqual(list(Path(self.root.name).glob('apl-validation-*')), [])
@@ -63,6 +67,33 @@ class RestrictedAuthoritativeValidationTests(SimpleTestCase):
             limits=ValidatorLimits(max_output_bytes=32))
         result = validator.validate('actions=/x')
         self.assertEqual(result['authoritative_error']['code'], 'output_too_large')
+
+    def test_fast_exit_output_is_still_bounded(self):
+        validator = self.validator(
+            "python3 -c 'print(\"x\"*10000)'\n",
+            limits=ValidatorLimits(max_output_bytes=32))
+        result = validator.validate('actions=/x')
+        self.assertEqual(result['authoritative_error']['code'], 'output_too_large')
+
+    def test_composed_validation_input_is_bounded_before_runner(self):
+        runner = mock.Mock()
+        validator = RestrictedSimcValidator(
+            self.executable('exit 0\n'), temp_root=self.root.name, runner=runner,
+            limits=ValidatorLimits(max_source_bytes=32))
+        result = validator.validate(
+            'actions=/x', validation_context={'validation_input': 'x' * 33})
+        self.assertEqual(result['authoritative_error']['code'], 'validation_input_too_large')
+        runner.assert_not_called()
+
+    def test_composed_profile_directive_is_rejected_before_runner(self):
+        runner = mock.Mock()
+        validator = RestrictedSimcValidator(
+            self.executable('exit 0\n'), temp_root=self.root.name, runner=runner,
+            limits=ValidatorLimits(max_source_bytes=1024))
+        result = validator.validate(
+            'actions=/x', validation_context={'validation_input': 'include=secret.simc\nactions=/x'})
+        self.assertEqual(result['authoritative_error']['code'], 'profile_directive_forbidden')
+        runner.assert_not_called()
 
     def test_missing_unique_profile_context_returns_structural_only(self):
         result = validate_payload('actions=/auto_attack', mode='both')

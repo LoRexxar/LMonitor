@@ -72,6 +72,36 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.base = self.template()
         self.default_equipment()
 
+    def test_authoritative_validation_uses_service_template_and_requested_apl(self):
+        from types import SimpleNamespace
+
+        profile = SimpleNamespace(
+            spec='fury', player_config_mode='manual_equipment',
+            player_equipment='warrior="Validator"\nspec=fury\nhead=,id=212048',
+            talent='BUILD', battlenet_region='', battlenet_realm='',
+            battlenet_character='', gear_crit=1, gear_haste=2,
+            gear_mastery=3, gear_versatility=4,
+        )
+        content = SimcComposer(self.user.id).compose_validation_input(
+            profile, 'actions=/bloodthirst')
+        self.assertIn('warrior="Validator"', content)
+        self.assertIn('actions=/bloodthirst', content)
+        self.assertIn('html=validation-result.html', content)
+
+    def test_authoritative_validation_preserves_battlenet_actor_coordinates(self):
+        from types import SimpleNamespace
+
+        profile = SimpleNamespace(
+            spec='fury', player_config_mode='battlenet', player_equipment='',
+            talent='', battlenet_region='eu', battlenet_realm='kazzak',
+            battlenet_character='Validator', gear_crit=0, gear_haste=0,
+            gear_mastery=0, gear_versatility=0,
+        )
+        content = SimcComposer(self.user.id).compose_validation_input(
+            profile, 'actions=/bloodthirst')
+        self.assertIn('armory=eu,kazzak,Validator', content)
+        self.assertIn('actions=/bloodthirst', content)
+
     def test_manual_equipment_blocks_default_equipment(self):
         final, manifest, error = self.compose(self.base)
         self.assertIsNone(error)
