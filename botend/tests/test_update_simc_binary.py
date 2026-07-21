@@ -408,12 +408,12 @@ class UpdateSimcBinaryCommandTests(TestCase):
                         if cmd == ['git', 'pull', '--rebase']:
                             return mock.Mock(returncode=0, stdout='Already up to date.', stderr='')
                         if cmd == ['git', 'rev-parse', 'HEAD']:
-                            return mock.Mock(returncode=0, stdout='abc1234\n', stderr='')
+                            return mock.Mock(returncode=0, stdout=('a' * 40) + '\n', stderr='')
                         if cmd[0] == 'cmake':
                             return mock.Mock(returncode=0, stdout='', stderr='')
                         if cmd[0] == 'ninja':
                             return mock.Mock(returncode=0, stdout='', stderr='')
-                        if cmd == [str(fake_binary)]:
+                        if len(cmd) == 1 and Path(cmd[0]).name == 'simc':
                             return mock.Mock(returncode=0, stdout='SimulationCraft 11.0.0\n', stderr='')
                         return mock.Mock(returncode=0, stdout='', stderr='')
 
@@ -427,7 +427,8 @@ class UpdateSimcBinaryCommandTests(TestCase):
                             if '_probe_binary' in str(e):
                                 self.fail("Command._probe_binary() does not exist yet (expected RED phase failure)")
 
-                        probe_calls = [call for call in mock_run.call_args_list if call[0][0] == [str(fake_binary)]]
+                        probe_calls = [call for call in mock_run.call_args_list
+                                       if len(call[0][0]) == 1 and Path(call[0][0][0]).name == 'simc']
                         self.assertGreater(len(probe_calls), 0,
                                           "Update verification must call _probe_binary() with no arguments")
                         for call in probe_calls:

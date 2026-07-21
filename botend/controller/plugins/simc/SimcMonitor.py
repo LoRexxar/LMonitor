@@ -125,7 +125,7 @@ class SimcMonitor(BaseScan):
     def _get_git_hash(self, ref='HEAD'):
         source_dir = self.simc_source_dir
         try:
-            return self._git_output(['rev-parse', '--short', ref], source_dir, timeout=10)
+            return self._git_output(['rev-parse', ref], source_dir, timeout=10)
         except Exception:
             return ''
 
@@ -133,7 +133,7 @@ class SimcMonitor(BaseScan):
         source_dir = self.simc_source_dir
         try:
             self._git_output(['fetch', '--quiet'], source_dir, timeout=120)
-            return self._git_output(['rev-parse', '--short', '@{u}'], source_dir, timeout=10)
+            return self._git_output(['rev-parse', '@{u}'], source_dir, timeout=10)
         except Exception as e:
             logger.warning(f"[SimC Monitor] Failed to check SimC upstream git hash: {e}")
             return ''

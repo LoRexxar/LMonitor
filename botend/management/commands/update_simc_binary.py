@@ -23,8 +23,12 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from botend.models import (SimcBackendBinary, SimcContentTemplate,
+from botend.models import (SimcApl, SimcBackendBinary, SimcContentTemplate,
                            WowSpellSnapshotState, WowTalentVersion)
+from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
+from botend.services.simc_apl.publish import content_hash
+from botend.services.simc_apl.validation import validate_payload
+from botend.services.simc_composer import SimcComposer
 
 
 DEFAULT_SIMC_SOURCE_DIR = '/home/lighthouse/simc'
@@ -56,7 +60,12 @@ class Command(BaseCommand):
                 self._check_version()
                 return
             if options['sync_inputs_only']:
-                self._sync_generated_inputs()
+                git_hash = self._get_git_hash()
+                if self.row.current_version != git_hash:
+                    raise CommandError('当前 SimC 二进制 revision 与源码 HEAD 不一致，拒绝仅同步输入')
+                self._sync_generated_inputs(git_hash=git_hash,
+                                            binary_path=self.simc_binary_path,
+                                            binary_revision=self.row.current_version)
                 self._set_status(progress=100, status='默认模板和 APL 同步完成', error='', updating=False)
                 return
             if options['apply_patches']:
@@ -171,17 +180,16 @@ class Command(BaseCommand):
             self._set_status(progress=0, status='二进制验证失败', error=msg, updating=False)
             self.stdout.write(self.style.WARNING(msg))
             return
-        version = self._parse_version(output) or self.row.current_version or '未知'
+        display_version = self._parse_version(output) or '未知'
         self.row.simc_path = self._stored_simc_path()
-        self.row.current_version = version
         self.row.last_error = ''
         self.row.is_updating = False
         self.row.update_progress = 100
-        self.row.update_status = f'当前版本 {version}'
+        self.row.update_status = f'二进制可用 {display_version}'
         now = timezone.now()
         self.row.last_checked_at = now
-        self.row.save(update_fields=['simc_path', 'current_version', 'last_error', 'is_updating', 'update_progress', 'update_status', 'last_checked_at'])
-        self.stdout.write(f'当前版本: {version}')
+        self.row.save(update_fields=['simc_path', 'last_error', 'is_updating', 'update_progress', 'update_status', 'last_checked_at'])
+        self.stdout.write(f'二进制版本: {display_version}')
         self.stdout.write(f'路径: {self.simc_binary_path}')
 
     def _sync_default_template(self):
@@ -242,28 +250,111 @@ class Command(BaseCommand):
         detail = '未找到' if not candidates else f'存在多个候选: {sorted(candidates)}'
         raise CommandError(f'无法唯一解析 wow_build（{detail}）；请传 --wow-build')
 
-    def _sync_generated_inputs(self, wow_build_override=None):
-        git_hash = self._get_git_hash()
+    def _validate_system_apl(self, apl, baseline, git_hash, binary_path, binary_revision):
+        """Run one staged upstream APL against its same-revision MID1 baseline."""
+        profile = type('SystemAplProfile', (), {
+            'id': 0, 'user_id': 0, 'spec': apl.spec,
+            'player_config_mode': 'manual_equipment',
+            'player_equipment': baseline.content, 'talent': '',
+            'battlenet_region': '', 'battlenet_realm': '', 'battlenet_character': '',
+            'gear_crit': 0, 'gear_haste': 0, 'gear_mastery': 0,
+            'gear_versatility': 0,
+        })()
+        validation_input = SimcComposer(0).compose_validation_input(profile, apl.content)
+        validator = RestrictedSimcValidator(
+            binary_path, catalog_revision=git_hash,
+            binary_revision=binary_revision,
+            temp_root=getattr(settings, 'SIMC_APL_VALIDATION_TEMP_ROOT', None),
+        )
+        context = SimcComposer.validation_context(
+            profile, catalog_revision=git_hash, binary_revision=binary_revision,
+            validation_input=validation_input,
+        )
+        return validate_payload(
+            apl.content, mode='both', authoritative_validator=validator,
+            validation_context=context,
+        )
+
+    def _publish_system_apl_corpus(self, git_hash, wow_build, binary_path, binary_revision):
+        apls = list(SimcApl.objects.filter(
+            source=SimcApl.SOURCE_SIMC_UPSTREAM, is_system=True,
+            owner_user_id=None, is_active=True, sync_version=git_hash,
+        ).order_by('spec'))
+        if not apls:
+            raise CommandError('本次 revision 没有可发布的系统 APL')
+        baselines = {
+            row.spec: row for row in SimcContentTemplate.objects.filter(
+                template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+                source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                is_active=True, sync_version=git_hash,
+            )
+        }
+        failures = []
+        results = []
+        for apl in apls:
+            baseline = baselines.get(apl.spec)
+            if baseline is None:
+                failures.append(f'{apl.spec}: 缺少同 revision 默认玩家基线')
+                continue
+            try:
+                result = self._validate_system_apl(
+                    apl, baseline, git_hash, binary_path, binary_revision)
+            except (ValueError, TypeError, AttributeError, OSError) as exc:
+                failures.append(f'{apl.spec}: {exc}')
+                continue
+            if not (result.get('structural_valid') and result.get('authoritative_valid')):
+                detail = result.get('authoritative_error', {}).get('code') or 'SimC rejected APL'
+                failures.append(f'{apl.spec}: {detail}')
+            results.append((apl, result))
+        if failures:
+            raise CommandError('系统 APL corpus 权威校验失败: ' + '; '.join(failures[:10]))
+
+        validated_at = timezone.now()
+        for apl, result in results:
+            apl.validation_status = SimcApl.VALIDATION_VALID
+            apl.validated_content_hash = content_hash(apl.content)
+            apl.validation_revision = git_hash
+            apl.validation_game_build = wow_build
+            apl.validation_stale_reason = ''
+            apl.validation_diagnostics = result.get('diagnostics') or []
+            apl.validated_at = validated_at
+            apl.is_selectable = True
+            apl.save(update_fields=[
+                'validation_status', 'validated_content_hash', 'validation_revision',
+                'validation_game_build', 'validation_stale_reason',
+                'validation_diagnostics', 'validated_at', 'is_selectable',
+            ])
+
+    def _sync_generated_inputs(self, wow_build_override=None, git_hash=None,
+                               binary_path=None, binary_revision=None):
+        git_hash = git_hash or self._get_git_hash()
         if not re.fullmatch(r'[0-9a-fA-F]{40}', str(git_hash or '')):
             raise CommandError('无法取得有效的 40 位 hexadecimal SimC git SHA')
         override = (self.wow_build_override if wow_build_override is None and
                     hasattr(self, 'wow_build_override') else wow_build_override)
         wow_build = self._resolve_wow_build(override)
+        binary_path = binary_path or getattr(self, 'simc_binary_path', '/tmp/simc')
+        binary_revision = binary_revision or (
+            getattr(self.row, 'current_version', '') if hasattr(self, 'row') else git_hash)
+        if binary_revision != git_hash:
+            raise CommandError('SimC binary revision 与待发布 corpus revision 不一致')
         if hasattr(self, 'row'):
             self._set_status(progress=95, status='同步默认模板和 APL', error='', updating=True)
-        self._sync_default_template()
-        player_source_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID1')
-        call_command('import_simc_player_templates', source_dir=player_source_dir, sync_version=git_hash)
-        # Task 6 guarantees error rollback for APL rows and symbol facts. Upstream
-        # deletion/deactivation remains the broader Task 13 release boundary.
         with transaction.atomic():
+            self._sync_default_template()
+            player_source_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID1')
+            call_command('import_simc_player_templates', source_dir=player_source_dir,
+                         sync_version=git_hash)
             self._sync_default_apl(git_hash)
-            manifest_path = self._export_runtime_manifest(git_hash, wow_build)
+            manifest_path = self._export_runtime_manifest(
+                git_hash, wow_build, binary_path=binary_path)
             try:
                 call_command(
                     'sync_simc_apl_symbols', simc_revision=git_hash, wow_build=wow_build,
                     runtime_manifest=manifest_path,
                 )
+                self._publish_system_apl_corpus(
+                    git_hash, wow_build, binary_path, binary_revision)
             finally:
                 try:
                     os.unlink(manifest_path)
@@ -271,13 +362,13 @@ class Command(BaseCommand):
                     pass
 
 
-    def _export_runtime_manifest(self, git_hash, wow_build):
+    def _export_runtime_manifest(self, git_hash, wow_build, binary_path=None):
         handle = tempfile.NamedTemporaryFile(prefix='lmonitor-simc-apl-', suffix='.json', delete=False)
         path = handle.name
         handle.close()
         try:
             self._run(
-                [self.simc_binary_path, f'apl_metadata_export={path}',
+                [binary_path or self.simc_binary_path, f'apl_metadata_export={path}',
                  f'apl_metadata_revision={git_hash}',
                  f'apl_metadata_game_build={wow_build}'],
                 cwd=self.simc_source_dir, timeout=120,
@@ -435,6 +526,9 @@ class Command(BaseCommand):
             if apply_patches:
                 self._apply_local_patches()
 
+            git_hash = self._get_git_hash()
+            if not re.fullmatch(r'[0-9a-fA-F]{40}', str(git_hash or '')):
+                self._fail('源码版本无效', '无法取得有效的 40 位 hexadecimal SimC git SHA', progress=1)
             version = self._get_git_version()
             self.stdout.write(f'编译版本: {version}')
             os.makedirs(self.simc_build_dir, exist_ok=True)
@@ -463,13 +557,15 @@ class Command(BaseCommand):
 
             parsed_version = self._parse_version(binary_output)
             if parsed_version:
-                version = f'{parsed_version}-{self._get_git_hash()}' if self._get_git_hash() else parsed_version
+                version = f'{parsed_version}-{git_hash}'
 
-            self._sync_generated_inputs()
+            self._sync_generated_inputs(
+                git_hash=git_hash, binary_path=self.simc_binary_path,
+                binary_revision=git_hash)
 
             self.row.simc_path = self._stored_simc_path()
-            self.row.current_version = version
-            self.row.latest_version = version
+            self.row.current_version = git_hash
+            self.row.latest_version = git_hash
             self.row.last_error = ''
             self.row.is_updating = False
             self.row.update_progress = 100
