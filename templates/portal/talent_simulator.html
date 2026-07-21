@@ -8,7 +8,7 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260703_daily_report_card">
-    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260708_toolbar_widths">
+    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260721_live_export">
 </head>
 <body class="portal-bg font-sans">
     {{ specs_payload|json_script:"talent-specs-data" }}
@@ -39,7 +39,6 @@
             <div class="talent-sim-actions">
                 <button type="button" id="talent-reset-btn" class="talent-sim-btn talent-sim-btn--ghost">清空当前选择</button>
                 <button type="button" id="talent-copy-url-btn" class="talent-sim-btn talent-sim-btn--ghost">复制分享链接</button>
-                <button type="button" id="talent-copy-code-btn" class="talent-sim-btn talent-sim-btn--primary">复制导入字符串</button>
             </div>
         </section>
 
@@ -80,7 +79,10 @@
                 <div><span id="talent-apex-points">0/4</span><small>顶峰</small></div>
             </div>
             <div class="talent-code-output">
-                <label>当前导入字符串</label>
+                <div class="talent-code-output-head">
+                    <label>当前导入字符串</label>
+                    <button type="button" id="talent-copy-code-btn" class="talent-sim-btn talent-sim-btn--primary" disabled>复制字符串</button>
+                </div>
                 <code id="talent-build-code-output">暂无</code>
             </div>
         </section>
@@ -94,6 +96,6 @@
 
     <div id="talent-tooltip-root" class="talent-floating-tooltip" hidden></div>
     <div id="talent-toast-root" class="talent-toast-root"></div>
-    <script src="{% static 'portal/js/talent_simulator.js' %}?v=34"></script>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=35"></script>
 </body>
 </html>

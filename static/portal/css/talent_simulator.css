@@ -62,6 +62,7 @@
 }
 
 .talent-sim-btn:hover { transform: translateY(-1px); border-color: rgba(79, 70, 229, .5); }
+.talent-sim-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 .talent-sim-btn--primary { background: #1d4ed8; color: #eff6ff; border-color: #1d4ed8; }
 .talent-sim-btn--ghost { background: rgba(255,255,255,.74); }
 .talent-hero-switcher-label {
@@ -172,6 +173,17 @@
     line-height: 1.45;
     word-break: break-all;
 }
+
+.talent-code-output-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 7px;
+}
+
+.talent-code-output-head label { margin-bottom: 0; }
+.talent-code-output-head .talent-sim-btn { flex: 0 0 auto; padding: 6px 12px; font-size: 12px; }
 
 .talent-sim-workspace {
     display: grid;

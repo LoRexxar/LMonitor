@@ -46,6 +46,10 @@
         selectedKey: '',
         encodeTimer: null,
         encodeRequestSeq: 0,
+        encodeAbortController: null,
+        loadRequestSeq: 0,
+        loadAbortController: null,
+        treeLoading: false,
         hoverKey: '',
         tooltipNodeKey: '',
         tooltipHideTimer: null,
@@ -118,19 +122,51 @@
     }
 
     async function loadTree() {
+        invalidateEncode();
+        state.treeLoading = true;
+        els.resetBtn.disabled = true;
+        state.nodes.clear();
+        state.parentKeysByChild.clear();
+        state.selectedKey = '';
+        const loadRequestSeq = ++state.loadRequestSeq;
+        if (state.loadAbortController) state.loadAbortController.abort();
+        const controller = new AbortController();
+        state.loadAbortController = controller;
         hideTooltip();
+        els.codeOutput.textContent = '正在加载当前天赋字符串…';
         els.stageContainer.innerHTML = '<div class="talent-loading">正在加载天赋树...</div>';
         const params = new URLSearchParams({class: state.className, spec: state.specName});
         if (state.versionKey) params.set('version', state.versionKey);
         if (state.buildCode) params.set('code', state.buildCode);
         if (state.heroSubtree) params.set('hero', state.heroSubtree);
         if (state.profileId) params.set('profile_id', state.profileId);
-        const res = await fetch(`/portal/api/talents/simulator/?${params.toString()}`);
-        const data = await res.json();
+        let data;
+        try {
+            const res = await fetch(`/portal/api/talents/simulator/?${params.toString()}`, {signal: controller.signal});
+            data = await res.json();
+        } catch (error) {
+            if (error.name === 'AbortError' || loadRequestSeq !== state.loadRequestSeq) return;
+            invalidateEncode();
+            state.treeLoading = false;
+            els.resetBtn.disabled = false;
+            els.stageContainer.innerHTML = '<div class="talent-loading">天赋树加载失败，请重试</div>';
+            els.codeOutput.textContent = '当前导入字符串不可用';
+            return;
+        } finally {
+            if (state.loadAbortController === controller) state.loadAbortController = null;
+        }
+        if (loadRequestSeq !== state.loadRequestSeq) return;
         if (!data.success) {
+            invalidateEncode();
+            state.treeLoading = false;
+            els.resetBtn.disabled = false;
             els.stageContainer.innerHTML = `<div class="talent-loading">${escapeHtml(data.error || '加载失败')}</div>`;
+            els.codeOutput.textContent = '当前导入字符串不可用';
             return;
         }
+        invalidateEncode();
+        state.treeLoading = false;
+        els.resetBtn.disabled = false;
         state.payload = data;
         if (data.class_name && data.spec_name) {
             state.className = data.class_name;
@@ -138,7 +174,7 @@
             els.classSelect.value = state.className;
             renderSpecSelect();
         }
-        if (data.build_code) state.buildCode = data.build_code;
+        state.buildCode = String(data.build_code || '');
         state.heroSubtree = String(data.active_hero_subtree || state.heroSubtree || '');
         indexNodes();
         renderHeader();
@@ -150,6 +186,7 @@
             scheduleEncode();
         } else {
             els.codeOutput.textContent = state.buildCode;
+            els.copyCodeBtn.disabled = false;
         }
     }
 
@@ -911,13 +948,20 @@
         return nodes;
     }
 
-    function scheduleEncode() {
+    function invalidateEncode() {
         clearTimeout(state.encodeTimer);
-        state.encodeTimer = setTimeout(encodeCurrent, 250);
+        state.encodeTimer = null;
+        state.encodeRequestSeq += 1;
+        if (state.encodeAbortController) {
+            state.encodeAbortController.abort();
+            state.encodeAbortController = null;
+        }
+        els.copyCodeBtn.disabled = true;
+        return state.encodeRequestSeq;
     }
 
-    async function encodeCurrent() {
-        const requestSeq = ++state.encodeRequestSeq;
+    function scheduleEncode() {
+        const requestSeq = invalidateEncode();
         const selected = selectedNodesPayload();
         if (!selected.length) {
             state.buildCode = '';
@@ -925,25 +969,48 @@
             updateUrl(false);
             return;
         }
-        const res = await fetch('/portal/api/talents/simulator/encode/', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                class_name: state.className,
-                spec_name: state.specName,
-                reference_build_code: state.buildCode,
-                version: state.versionKey,
-                selected_nodes: selected,
-            }),
-        });
-        const data = await res.json();
-        if (requestSeq !== state.encodeRequestSeq) return;
-        if (data.success && data.build_code) {
-            state.buildCode = data.build_code;
-            els.codeOutput.textContent = data.build_code;
+        els.codeOutput.textContent = '正在生成最新导入字符串…';
+        state.encodeTimer = setTimeout(() => encodeCurrent(requestSeq), 250);
+    }
+
+    async function encodeCurrent(requestSeq) {
+        const selected = selectedNodesPayload();
+        if (!selected.length) {
+            state.buildCode = '';
+            els.codeOutput.textContent = '暂无';
             updateUrl(false);
-        } else {
-            els.codeOutput.textContent = data.error || '暂无可用参考导入头，需先导入一次该专精 build code';
+            return;
+        }
+        const controller = new AbortController();
+        state.encodeAbortController = controller;
+        try {
+            const res = await fetch('/portal/api/talents/simulator/encode/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                signal: controller.signal,
+                body: JSON.stringify({
+                    class_name: state.className,
+                    spec_name: state.specName,
+                    reference_build_code: state.buildCode,
+                    version: state.versionKey,
+                    selected_nodes: selected,
+                }),
+            });
+            const data = await res.json();
+            if (requestSeq !== state.encodeRequestSeq) return;
+            if (data.success && data.build_code) {
+                state.buildCode = data.build_code;
+                els.codeOutput.textContent = data.build_code;
+                els.copyCodeBtn.disabled = false;
+                updateUrl(false);
+            } else {
+                els.codeOutput.textContent = data.error || '暂无可用参考导入头，需先导入一次该专精 build code';
+            }
+        } catch (error) {
+            if (error.name === 'AbortError' || requestSeq !== state.encodeRequestSeq) return;
+            els.codeOutput.textContent = '导入字符串生成失败，请重试';
+        } finally {
+            if (state.encodeAbortController === controller) state.encodeAbortController = null;
         }
     }
 
@@ -991,6 +1058,7 @@
         }
     });
     els.resetBtn.addEventListener('click', () => {
+        if (state.treeLoading) return;
         state.buildCode = '';
         state.profileId = '';
         for (const node of state.nodes.values()) {
