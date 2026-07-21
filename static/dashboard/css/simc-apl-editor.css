@@ -41,6 +41,39 @@
 .simc-apl-catalog__pager button:disabled { opacity: .4; }
 .simc-apl-assistant-toggle { display: none; }
 
+.simc-apl-editor-heading-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .45rem;
+}
+
+.simc-apl-editor-heading-actions button {
+    border: 1px solid #cbd5e1;
+    border-radius: .55rem;
+    padding: .4rem .65rem;
+    color: #334155;
+    background: #fff;
+    font-size: .72rem;
+    font-weight: 600;
+}
+
+.simc-apl-editor-heading-actions button:hover,
+.simc-apl-editor-heading-actions button[aria-pressed="true"] { border-color: #2563eb; color: #1d4ed8; background: #eff6ff; }
+.simc-apl-editor-heading-actions button:disabled { opacity: .55; cursor: wait; }
+
+.simc-apl-bilingual {
+    border-top: 1px solid #dbe3ef;
+    background: #f8fafc;
+}
+
+.simc-apl-bilingual[hidden] { display: none; }
+.simc-apl-bilingual header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .55rem .8rem; border-bottom: 1px solid #e2e8f0; color: #334155; font-size: .72rem; }
+.simc-apl-bilingual header span { color: #64748b; }
+.simc-apl-bilingual > div { max-height: 14rem; overflow: auto; padding: .75rem .85rem; color: #334155; font-size: .75rem; }
+.simc-apl-bilingual pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
+
 .simc-apl-editor-shell {
     border-top: 1px solid #1e293b;
     background: #0f172a;

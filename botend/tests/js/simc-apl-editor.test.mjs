@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    catalogItemsToCompletionOptions,
     codePointColumnToOffset,
     completionItemsToOptions,
     completionReplacementFrom,
     createVersionedRequest,
     diagnosticRangeToOffsets,
     editorIndentKeymap,
+    formatStructuralValidationStatus,
+    keywordPairsToCompletionOptions,
+    mergeCompletionOptions,
     replaceTextMessage,
     runSingleSubmission,
 } from '../../../static/dashboard/js/simc-apl-editor.js';
@@ -54,6 +58,52 @@ test('qualified completions replace only the token after the last dot', () => {
     assert.equal(completionReplacementFrom({from: 3, text: 'variable.po'}), 12);
     assert.equal(completionReplacementFrom({from: 3, text: 'blood'}), 3);
     assert.equal(completionReplacementFrom(null), null);
+});
+
+test('catalog completions show bilingual labels and only insert authoritative tokens', () => {
+    assert.deepEqual(catalogItemsToCompletionOptions([
+        {
+            token: 'bloodthirst', kind: 'action', insertable: true,
+            name_zh: '嗜血', name_en: 'Bloodthirst', description_zh: '造成物理伤害。',
+        },
+        {
+            token: null, kind: 'talent', insertable: false,
+            name_zh: '未绑定天赋', name_en: 'Unbound Talent',
+        },
+    ]), [{
+        label: '嗜血 · bloodthirst', apply: 'bloodthirst', type: 'function',
+        detail: 'Bloodthirst', info: '造成物理伤害。',
+    }]);
+});
+
+test('keyword pairs provide a safe bilingual fallback when the symbol catalog is unavailable', () => {
+    assert.deepEqual(keywordPairsToCompletionOptions([
+        {apl_keyword: 'recklessness', cn_keyword: '鲁莽', description: '战士技能', is_active: true},
+        {apl_keyword: 'old_token', cn_keyword: '旧词条', is_active: false},
+        {apl_keyword: 'actions=/invalid shape', cn_keyword: '非法', is_active: true},
+    ], 'reck'), [{
+        label: '鲁莽 · recklessness', apply: 'recklessness', type: 'function',
+        detail: 'APL 关键词', info: '战士技能',
+    }]);
+});
+
+test('document and catalog completions merge without duplicate insertions', () => {
+    assert.deepEqual(mergeCompletionOptions(
+        [{label: 'bloodthirst', apply: 'bloodthirst', type: 'keyword'}],
+        [
+            {label: '嗜血 · bloodthirst', apply: 'bloodthirst', type: 'function'},
+            {label: '暴怒 · rampage', apply: 'rampage', type: 'function'},
+        ],
+    ), [
+        {label: 'bloodthirst', apply: 'bloodthirst', type: 'keyword'},
+        {label: '暴怒 · rampage', apply: 'rampage', type: 'function'},
+    ]);
+});
+
+test('structural validation status is explicit about errors, warnings, and scope', () => {
+    assert.equal(formatStructuralValidationStatus({error: 0, warning: 0, info: 0}), '结构检查通过');
+    assert.equal(formatStructuralValidationStatus({error: 2, warning: 1, info: 4}), '2 个错误 · 1 个警告');
+    assert.equal(formatStructuralValidationStatus({error: 0, warning: 3, info: 1}), '0 个错误 · 3 个警告');
 });
 
 test('versioned requests abort predecessors and reject late responses', async () => {

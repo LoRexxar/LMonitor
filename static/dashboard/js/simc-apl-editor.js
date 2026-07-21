@@ -12,6 +12,8 @@ import {simcAplLanguage} from './simc-apl-language.js';
 const VALIDATION_URL = '/api/simc-workbench/apl-validation/';
 const COMPLETION_URL = '/api/simc-workbench/apl-completions/';
 const SYMBOLS_URL = '/api/simc-workbench/apl-symbols/';
+const KEYWORDS_URL = '/api/simc-workbench/apl-keywords/';
+const BILINGUAL_URL = '/api/convert-text/';
 
 const CATALOG_CATEGORIES = [
     ['all', '全部'], ['class', '职业'], ['spec', '专精'], ['talent', '天赋'],
@@ -261,6 +263,61 @@ export function completionItemsToOptions(items) {
     })).filter(item => item.label && item.apply);
 }
 
+export function catalogItemsToCompletionOptions(items) {
+    return (Array.isArray(items) ? items : [])
+        .filter(item => item?.insertable === true && item.token)
+        .map(item => {
+            const token = String(item.token);
+            const nameZh = String(item.name_zh || '');
+            const nameEn = String(item.name_en || '');
+            return {
+                label: nameZh ? `${nameZh} · ${token}` : (nameEn ? `${nameEn} · ${token}` : token),
+                apply: token,
+                type: item.kind === 'action' ? 'function' : 'variable',
+                detail: nameEn,
+                info: String(item.description_zh || ''),
+            };
+        });
+}
+
+export function keywordPairsToCompletionOptions(items, query = '') {
+    const normalizedQuery = String(query || '').trim().toLocaleLowerCase();
+    return (Array.isArray(items) ? items : [])
+        .filter(item => item?.is_active !== false && /^[a-z0-9_]+$/i.test(String(item?.apl_keyword || '')))
+        .filter(item => {
+            if (!normalizedQuery) return true;
+            return [item.apl_keyword, item.cn_keyword, item.description]
+                .some(value => String(value || '').toLocaleLowerCase().includes(normalizedQuery));
+        })
+        .slice(0, 50)
+        .map(item => ({
+            label: item.cn_keyword ? `${item.cn_keyword} · ${item.apl_keyword}` : String(item.apl_keyword),
+            apply: String(item.apl_keyword),
+            type: 'function',
+            detail: 'APL 关键词',
+            info: String(item.description || ''),
+        }));
+}
+
+export function mergeCompletionOptions(documentOptions, catalogOptions) {
+    const merged = [];
+    const seen = new Set();
+    [...(documentOptions || []), ...(catalogOptions || [])].forEach(item => {
+        const key = String(item?.apply || item?.label || '');
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        merged.push(item);
+    });
+    return merged;
+}
+
+export function formatStructuralValidationStatus(summary) {
+    const errors = Number(summary?.error || 0);
+    const warnings = Number(summary?.warning || 0);
+    if (!errors && !warnings) return '结构检查通过';
+    return `${errors} 个错误 · ${warnings} 个警告`;
+}
+
 export function completionReplacementFrom(word) {
     if (!word) return null;
     return word.from + word.text.lastIndexOf('.') + 1;
@@ -314,11 +371,19 @@ export function createSimcAplEditor(options) {
     const validationDelay = Number.isFinite(options.validationDelay) ? options.validationDelay : 450;
     let destroyed = false;
     let validationTimer = null;
+    let bilingualTimer = null;
     let diagnostics = [];
     let assistant = null;
+    let catalogCompletionController = null;
+    let completionGeneration = 0;
+    let keywordPairsPromise = null;
+    let bilingualController = null;
+    let bilingualVersion = 0;
 
     const status = options.status || null;
     const diagnosticsHost = options.diagnosticsHost || null;
+    const bilingualHost = options.bilingualHost || null;
+    const bilingualPanel = options.bilingualPanel || bilingualHost;
     const csrfToken = options.csrfToken || '';
     const requestHeaders = csrfToken ? {'X-CSRFToken': csrfToken} : {};
 
@@ -347,8 +412,12 @@ export function createSimcAplEditor(options) {
     }
 
     async function validate(view) {
-        if (destroyed) return;
-        if (status) status.textContent = '检查中';
+        if (destroyed) return null;
+        if (validationTimer) {
+            clearTimeout(validationTimer);
+            validationTimer = null;
+        }
+        if (status) status.textContent = '结构检查中…';
         try {
             const text = view.state.doc.toString();
             const data = await validation.run({
@@ -356,7 +425,7 @@ export function createSimcAplEditor(options) {
                 spec: String(options.getSpec?.() || ''),
                 mode: 'structural',
             }, requestHeaders);
-            if (!data || destroyed) return;
+            if (!data || destroyed || text !== view.state.doc.toString()) return null;
             diagnostics = (data.diagnostics || []).map(item => {
                 const offsets = diagnosticRangeToOffsets(text, item.range);
                 return {
@@ -369,11 +438,27 @@ export function createSimcAplEditor(options) {
             });
             view.dispatch(setDiagnostics(view.state, diagnostics));
             renderDiagnostics(view);
-            if (status) status.textContent = diagnostics.length ? `${diagnostics.length} 个问题` : '结构检查通过';
+            const summary = diagnostics.reduce((counts, item) => {
+                counts[item.severity] = (counts[item.severity] || 0) + 1;
+                return counts;
+            }, {error: 0, warning: 0, info: 0});
+            if (status) status.textContent = formatStructuralValidationStatus(summary);
+            return {data, diagnostics: [...diagnostics], summary};
         } catch (error) {
-            if (error.name === 'AbortError' || destroyed) return;
-            if (status) status.textContent = '检查暂不可用';
+            if (error.name === 'AbortError' || destroyed) return null;
+            if (status) status.textContent = '结构检查失败，请重试';
+            return null;
         }
+    }
+
+    function invalidateValidation(view) {
+        validation.cancel();
+        diagnostics = [];
+        renderDiagnostics(view);
+        if (status) status.textContent = '等待结构检查';
+        queueMicrotask(() => {
+            if (!destroyed) view.dispatch(setDiagnostics(view.state, []));
+        });
     }
 
     function scheduleValidation(view) {
@@ -381,24 +466,102 @@ export function createSimcAplEditor(options) {
         validationTimer = setTimeout(() => validate(view), validationDelay);
     }
 
-    async function completionSource(context) {
+    async function loadCatalogCompletions(query) {
+        if (catalogCompletionController) catalogCompletionController.abort();
+        const controller = new AbortController();
+        catalogCompletionController = controller;
+        const spec = String(options.getSpec?.() || '');
+        if (!spec) return null;
+        const params = new URLSearchParams({spec, query: String(query || ''), page: '1', page_size: '50'});
         try {
-            const data = await completion.run({
-                content: context.state.doc.toString(),
-                position: positionPayload(context.state, context.pos),
-                spec: String(options.getSpec?.() || ''),
-            }, requestHeaders);
-            if (!data || destroyed) return null;
-            const word = context.matchBefore(/[\p{L}\p{N}_.]*/u);
-            if (!context.explicit && (!word || word.from === word.to)) return null;
-            return {
-                from: completionReplacementFrom(word) ?? context.pos,
-                options: completionItemsToOptions(data.items),
-            };
+            const response = await fetchImpl(`${SYMBOLS_URL}?${params}`, {
+                credentials: 'same-origin', signal: controller.signal,
+            });
+            const body = await response.json();
+            if (!response.ok || body.success !== true || controller !== catalogCompletionController) return null;
+            return catalogItemsToCompletionOptions(body.data?.items || []);
         } catch (error) {
-            if (error.name !== 'AbortError' && status) status.textContent = '补全暂不可用';
             return null;
         }
+    }
+
+    async function loadKeywordFallback(query) {
+        if (!keywordPairsPromise) {
+            keywordPairsPromise = fetchImpl(KEYWORDS_URL, {credentials: 'same-origin'})
+                .then(async response => {
+                    const body = await response.json();
+                    if (!response.ok || body.success !== true) throw new Error('关键词库不可用');
+                    return Array.isArray(body.data) ? body.data : [];
+                })
+                .catch(() => {
+                    keywordPairsPromise = null;
+                    return [];
+                });
+        }
+        return keywordPairsToCompletionOptions(await keywordPairsPromise, query);
+    }
+
+    async function refreshBilingual(view) {
+        if (!bilingualHost || !bilingualPanel || bilingualPanel.hidden || destroyed) return;
+        bilingualVersion += 1;
+        const requestVersion = bilingualVersion;
+        if (bilingualController) bilingualController.abort();
+        bilingualController = new AbortController();
+        const text = view.state.doc.toString();
+        bilingualHost.textContent = text.trim() ? '正在生成中文参考…' : 'APL 为空';
+        if (!text.trim()) return;
+        try {
+            const response = await fetchImpl(BILINGUAL_URL, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', ...requestHeaders},
+                credentials: 'same-origin',
+                signal: bilingualController.signal,
+                body: JSON.stringify({text, conversion_type: 'apl_to_cn'}),
+            });
+            const body = await response.json();
+            if (!response.ok || body.success !== true) throw new Error('中英文对照暂不可用');
+            if (destroyed || requestVersion !== bilingualVersion || bilingualPanel.hidden) return;
+            const pre = document.createElement('pre');
+            pre.textContent = String(body.result || '没有可用的中文关键词对照');
+            bilingualHost.replaceChildren(pre);
+        } catch (error) {
+            if (error.name === 'AbortError' || destroyed || requestVersion !== bilingualVersion) return;
+            bilingualHost.textContent = '中英文对照暂不可用';
+        }
+    }
+
+    function scheduleBilingual(view) {
+        if (!bilingualHost || !bilingualPanel || bilingualPanel.hidden) return;
+        if (bilingualTimer) clearTimeout(bilingualTimer);
+        bilingualTimer = setTimeout(() => refreshBilingual(view), 300);
+    }
+
+    async function completionSource(context) {
+        const generation = ++completionGeneration;
+        const word = context.matchBefore(/[\p{L}\p{N}_.]*/u);
+        if (!context.explicit && (!word || word.from === word.to)) return null;
+        const query = String(word?.text || '').split('.').pop();
+        const documentRequest = completion.run({
+            content: context.state.doc.toString(),
+            position: positionPayload(context.state, context.pos),
+            spec: String(options.getSpec?.() || ''),
+        }, requestHeaders);
+        const [documentResult, catalogResult] = await Promise.allSettled([
+            documentRequest,
+            loadCatalogCompletions(query),
+        ]);
+        if (destroyed || generation !== completionGeneration) return null;
+        const data = documentResult.status === 'fulfilled' ? documentResult.value : null;
+        const documentOptions = completionItemsToOptions(data?.items || []);
+        let catalogOptions = catalogResult.status === 'fulfilled' ? catalogResult.value : null;
+        if (catalogOptions === null) catalogOptions = await loadKeywordFallback(query);
+        if (destroyed || generation !== completionGeneration) return null;
+        const completionOptions = mergeCompletionOptions(documentOptions, catalogOptions || []);
+        if (!completionOptions.length) return null;
+        return {
+            from: completionReplacementFrom(word) ?? context.pos,
+            options: completionOptions,
+        };
     }
 
     const view = new EditorView({
@@ -422,7 +585,9 @@ export function createSimcAplEditor(options) {
                     if (update.docChanged) {
                         const value = update.state.doc.toString();
                         options.onChange?.(value);
+                        invalidateValidation(update.view);
                         scheduleValidation(update.view);
+                        scheduleBilingual(update.view);
                     }
                     if (update.docChanged || update.selectionSet) {
                         assistant?.updateContext(tokenAt(update.state, update.state.selection.main.head));
@@ -450,13 +615,36 @@ export function createSimcAplEditor(options) {
     return {
         getValue: () => view.state.doc.toString(),
         focus: () => view.focus(),
-        revalidate: () => { validation.cancel(); scheduleValidation(view); assistant.reload(); },
+        validateNow: () => validate(view),
+        toggleBilingual(force) {
+            if (!bilingualHost || !bilingualPanel) return false;
+            const visible = typeof force === 'boolean' ? force : bilingualPanel.hidden;
+            bilingualPanel.hidden = !visible;
+            if (visible) refreshBilingual(view);
+            else {
+                bilingualVersion += 1;
+                if (bilingualController) bilingualController.abort();
+            }
+            return visible;
+        },
+        revalidate: () => {
+            completionGeneration += 1;
+            completion.cancel();
+            if (catalogCompletionController) catalogCompletionController.abort();
+            invalidateValidation(view);
+            scheduleValidation(view);
+            assistant.reload();
+        },
         destroy() {
             if (destroyed) return;
             destroyed = true;
+            completionGeneration += 1;
             if (validationTimer) clearTimeout(validationTimer);
+            if (bilingualTimer) clearTimeout(bilingualTimer);
             validation.cancel();
             completion.cancel();
+            if (catalogCompletionController) catalogCompletionController.abort();
+            if (bilingualController) bilingualController.abort();
             assistant.destroy();
             view.destroy();
             mount.replaceChildren();

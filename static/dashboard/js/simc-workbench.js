@@ -579,10 +579,10 @@
                 </div>
             </section>
             <section class="simc-editor-section">
-                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">支持 Tab 缩进；编辑区可纵向拉伸，内容按原始换行保存。</p></div><span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">SimC</span></div>
+                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">支持 Tab 缩进和 Ctrl+Space 补全；技能候选展示中英文，但只写入权威 APL token。</p></div><div class="simc-apl-editor-heading-actions"><button type="button" data-apl-bilingual-toggle aria-pressed="false">中英文对照</button><button type="button" data-apl-validate-now>立即结构检查</button><span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">SimC</span></div></div>
                 <input type="hidden" name="apl_code" value="">
                 <div class="simc-apl-workspace">
-                    <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div></div>
+                    <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div><section class="simc-apl-bilingual" data-apl-bilingual-panel hidden><header><strong>中文参考</strong><span>只读对照，不会写回 APL 正文</span></header><div data-apl-bilingual-host>打开后生成当前正文的中文参考。</div></section></div>
                     <aside class="simc-apl-assistant" data-apl-assistant aria-label="中文技能目录"><div data-apl-assistant-host></div></aside>
                 </div>
                 <button type="button" class="simc-apl-assistant-toggle" data-apl-assistant-toggle>技能助手</button>
@@ -597,13 +597,27 @@
         const diagnosticsHost = host.querySelector('[data-apl-editor-diagnostics]');
         const assistantHost = host.querySelector('[data-apl-assistant-host]');
         const assistantPanel = host.querySelector('[data-apl-assistant]');
+        const bilingualPanel = host.querySelector('[data-apl-bilingual-panel]');
+        const bilingualHost = host.querySelector('[data-apl-bilingual-host]');
+        const bilingualToggle = host.querySelector('[data-apl-bilingual-toggle]');
+        const validateButton = host.querySelector('[data-apl-validate-now]');
         host.querySelector('[data-apl-assistant-toggle]')?.addEventListener('click', () => assistantPanel?.classList.toggle('is-open'));
+        bilingualToggle?.addEventListener('click', () => {
+            const visible = state.aplEditor?.toggleBilingual();
+            bilingualToggle.setAttribute('aria-pressed', visible ? 'true' : 'false');
+            bilingualToggle.textContent = visible ? '关闭中英文对照' : '中英文对照';
+        });
+        validateButton?.addEventListener('click', async () => {
+            validateButton.disabled = true;
+            try { await state.aplEditor?.validateNow(); }
+            finally { validateButton.disabled = false; }
+        });
         if (hiddenInput) hiddenInput.value = content;
         const editorGeneration = state.aplEditorGeneration;
         import(window.SIMC_APL_EDITOR_MODULE_URL).then(({createSimcAplEditor}) => {
             if (editorGeneration !== state.aplEditorGeneration || !mount?.isConnected || state.aplEditor) return;
             state.aplEditor = createSimcAplEditor({
-                mount, status, diagnosticsHost, assistantHost, value: content,
+                mount, status, diagnosticsHost, assistantHost, bilingualPanel, bilingualHost, value: content,
                 csrfToken: window.getCSRFToken(),
                 getSpec: () => host.querySelector('select[name="spec"]')?.value || '',
                 closeAssistant: () => assistantPanel?.classList.remove('is-open'),
