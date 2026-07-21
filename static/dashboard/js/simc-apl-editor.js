@@ -138,7 +138,7 @@ function createCatalogAssistant(options) {
         if (resetPage) page = 1;
         if (controller) controller.abort();
         controller = new AbortController();
-        list.innerHTML = '<p class="simc-apl-catalog__empty">目录加载中…</p>';
+        replaceTextMessage(list, '目录加载中…');
         const params = new URLSearchParams({spec: String(options.getSpec() || ''), page: String(page), page_size: '50'});
         if (query) params.set('query', query);
         try {
@@ -151,7 +151,7 @@ function createCatalogAssistant(options) {
             render();
         } catch (error) {
             if (error.name === 'AbortError' || destroyed) return;
-            list.innerHTML = `<p class="simc-apl-catalog__empty">${error.message || '技能目录暂不可用'}</p>`;
+            replaceTextMessage(list, error.message || '技能目录暂不可用');
         }
     }
 
@@ -210,6 +210,30 @@ function createCatalogAssistant(options) {
             host.replaceChildren();
         },
     };
+}
+
+export function replaceTextMessage(host, message) {
+    const node = document.createElement('p');
+    node.className = 'simc-apl-catalog__empty';
+    node.textContent = String(message || '');
+    host.replaceChildren(node);
+    return node;
+}
+
+export async function runSingleSubmission(form, task) {
+    if (!form || form.dataset.aplSubmitting === '1') return false;
+    const submitButton = form.querySelector('[type="submit"]');
+    form.dataset.aplSubmitting = '1';
+    form.setAttribute('aria-busy', 'true');
+    if (submitButton) submitButton.disabled = true;
+    try {
+        await task();
+        return true;
+    } finally {
+        delete form.dataset.aplSubmitting;
+        form.removeAttribute('aria-busy');
+        if (submitButton) submitButton.disabled = false;
+    }
 }
 
 export function codePointColumnToOffset(text, lineNumber, columnNumber) {

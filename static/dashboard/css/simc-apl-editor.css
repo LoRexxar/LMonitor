@@ -111,6 +111,29 @@
 .simc-apl-diagnostic--info { color: #bfdbfe; }
 .simc-apl-diagnostic-empty { color: #86efac; font-size: .75rem; }
 
+@media (min-width: 641px) and (max-height: 700px) {
+    .simc-workbench-dialog__viewport.is-apl-editor-layout { align-items: stretch !important; padding: .5rem !important; }
+    .simc-workbench-dialog__panel.is-apl-editor-layout { max-height: calc(100dvh - 1rem) !important; }
+    #simc-dialog-body.is-apl-editor-layout { padding: .5rem 1rem !important; }
+    [data-apl-storage-form] > :not([hidden]) ~ :not([hidden]) { margin-top: .5rem; }
+    [data-apl-storage-form] > .rounded-2xl { padding: .65rem 1rem; }
+    [data-apl-storage-form] > .rounded-2xl p,
+    [data-apl-storage-form] .simc-editor-help,
+    [data-apl-storage-form] .simc-editor-section__heading p { display: none; }
+    [data-apl-storage-form] .grid.p-4 { padding: .65rem; }
+    [data-apl-storage-form] .simc-editor-input { margin-top: .25rem; padding: .45rem .6rem; }
+    [data-apl-storage-form] .simc-editor-section__heading { padding: .5rem .75rem; }
+    [data-apl-storage-form] .simc-apl-workspace,
+    [data-apl-storage-form] .simc-apl-editor-mount,
+    [data-apl-storage-form] .simc-apl-editor-mount .cm-editor,
+    [data-apl-storage-form] .simc-apl-editor-mount .cm-scroller,
+    [data-apl-storage-form] .simc-apl-editor-mount .cm-content { min-height: 7rem; }
+    [data-apl-storage-form] .simc-apl-assistant { max-height: 12rem; }
+    [data-apl-storage-form] .simc-apl-diagnostics { max-height: 3rem; padding: .35rem .6rem; }
+    [data-apl-storage-form] .simc-code-editor-toolbar { padding: .35rem .75rem; }
+    [data-apl-storage-form] .simc-editor-actions { margin-top: .5rem; padding: .35rem .75rem; }
+}
+
 @media (max-width: 640px) {
     .simc-apl-workspace { display: block; }
     .simc-apl-assistant-toggle { display: block; width: 100%; padding: .65rem; border-top: 1px solid #dbe3ef; color: #1d4ed8; background: #eff6ff; font-size: .8rem; font-weight: 600; }

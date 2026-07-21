@@ -8,6 +8,8 @@ import {
     createVersionedRequest,
     diagnosticRangeToOffsets,
     editorIndentKeymap,
+    replaceTextMessage,
+    runSingleSubmission,
 } from '../../../static/dashboard/js/simc-apl-editor.js';
 
 function deferred() {
@@ -84,4 +86,44 @@ test('cancel aborts the active request and advances document version', async () 
     assert.equal(request.version, 2);
     pending.resolve(response({document_version: 1}));
     assert.equal(await running, null);
+});
+
+test('catalog errors are rendered as text instead of executable markup', () => {
+    const previousDocument = globalThis.document;
+    globalThis.document = {
+        createElement: () => ({className: '', textContent: ''}),
+    };
+    const host = {replaceChildren(node) { this.child = node; }};
+    try {
+        const node = replaceTextMessage(host, '<img src=x onerror=alert(1)>');
+        assert.equal(host.child, node);
+        assert.equal(node.textContent, '<img src=x onerror=alert(1)>');
+        assert.equal(node.className, 'simc-apl-catalog__empty');
+    } finally {
+        globalThis.document = previousDocument;
+    }
+});
+
+test('APL save runs once, disables submit, and recovers after failure', async () => {
+    const pending = deferred();
+    const button = {disabled: false};
+    const attributes = new Map();
+    const form = {
+        dataset: {},
+        querySelector: () => button,
+        setAttribute: (name, value) => attributes.set(name, value),
+        removeAttribute: name => attributes.delete(name),
+    };
+    let calls = 0;
+    const first = runSingleSubmission(form, async () => { calls += 1; await pending.promise; });
+    const duplicate = await runSingleSubmission(form, async () => { calls += 1; });
+    assert.equal(duplicate, false);
+    assert.equal(calls, 1);
+    assert.equal(button.disabled, true);
+    assert.equal(attributes.get('aria-busy'), 'true');
+    pending.reject(new Error('save failed'));
+    await assert.rejects(first, /save failed/);
+    assert.equal(button.disabled, false);
+    assert.equal(attributes.has('aria-busy'), false);
+    assert.equal(form.dataset.aplSubmitting, undefined);
 });

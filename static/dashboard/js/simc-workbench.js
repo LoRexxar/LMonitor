@@ -17,7 +17,7 @@
         converterMode: 'apl_to_cn', converterRequestSerial: 0,
         defaultAplCopyInFlight: new Set(),
         specOptions: [],
-        aplEditor: null,
+        aplEditor: null, aplEditorGeneration: 0,
         resourceAbortControllers: Object.create(null),
         resourceRequestSerials: Object.create(null),
     };
@@ -70,10 +70,19 @@
         window.openSimcWorkbenchDialog(type, null);
         return document.getElementById('simc-dialog-body');
     }
+    function setAplDialogLayout(active) {
+        const body = document.getElementById('simc-dialog-body');
+        const panel = document.getElementById('simc-workbench-dialog-content');
+        const viewport = panel?.parentElement;
+        [body, panel, viewport].forEach(node => node?.classList.toggle('is-apl-editor-layout', active));
+    }
     function destroyAplEditor() {
-        if (!state.aplEditor) return;
-        state.aplEditor.destroy();
-        state.aplEditor = null;
+        state.aplEditorGeneration += 1;
+        if (state.aplEditor) {
+            state.aplEditor.destroy();
+            state.aplEditor = null;
+        }
+        setAplDialogLayout(false);
     }
     function closeDialog() {
         cancelDetailRequest();
@@ -581,6 +590,7 @@
             </section>
             <div class="simc-editor-actions"><span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后，新任务将引用新的不可变版本。</span><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2 text-sm text-slate-700">取消</button><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存 APL</button></div>
         </form>`;
+        setAplDialogLayout(true);
         const hiddenInput = host.querySelector('input[name="apl_code"]');
         const mount = host.querySelector('[data-apl-editor-mount]');
         const status = host.querySelector('[data-apl-editor-status]');
@@ -589,8 +599,9 @@
         const assistantPanel = host.querySelector('[data-apl-assistant]');
         host.querySelector('[data-apl-assistant-toggle]')?.addEventListener('click', () => assistantPanel?.classList.toggle('is-open'));
         if (hiddenInput) hiddenInput.value = content;
+        const editorGeneration = state.aplEditorGeneration;
         import(window.SIMC_APL_EDITOR_MODULE_URL).then(({createSimcAplEditor}) => {
-            if (!mount?.isConnected || state.aplEditor) return;
+            if (editorGeneration !== state.aplEditorGeneration || !mount?.isConnected || state.aplEditor) return;
             state.aplEditor = createSimcAplEditor({
                 mount, status, diagnosticsHost, assistantHost, value: content,
                 csrfToken: window.getCSRFToken(),
@@ -825,24 +836,27 @@
         }
     }
     async function saveAplStorage(form) {
-        const aplCodeInput = form.querySelector('input[name="apl_code"]');
-        if (aplCodeInput && state.aplEditor) aplCodeInput.value = state.aplEditor.getValue();
-        const formData = new FormData(form);
-        const id = idOf(formData.get('id'));
-        const payload = {
-            title: String(formData.get('title') || '').trim(),
-            spec: String(formData.get('spec') || '').trim(),
-            apl_code: String(formData.get('apl_code') || ''),
-        };
-        if (id) payload.id = id;
-        await json(resourceUrl('apls', id), {
-            method: id ? 'PUT' : 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
-            body: JSON.stringify({ name: payload.title, spec: payload.spec, content: payload.apl_code }),
+        const {runSingleSubmission} = await import(window.SIMC_APL_EDITOR_MODULE_URL);
+        await runSingleSubmission(form, async () => {
+            const aplCodeInput = form.querySelector('input[name="apl_code"]');
+            if (aplCodeInput && state.aplEditor) aplCodeInput.value = state.aplEditor.getValue();
+            const formData = new FormData(form);
+            const id = idOf(formData.get('id'));
+            const payload = {
+                title: String(formData.get('title') || '').trim(),
+                spec: String(formData.get('spec') || '').trim(),
+                apl_code: String(formData.get('apl_code') || ''),
+            };
+            if (id) payload.id = id;
+            await json(resourceUrl('apls', id), {
+                method: id ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+                body: JSON.stringify({ name: payload.title, spec: payload.spec, content: payload.apl_code }),
+            });
+            closeAplStorageForm();
+            await loadApl('apls', 'simc-unified-apl-list');
+            window.showMessage(id ? 'APL 已更新' : 'APL 已新增', 'success');
         });
-        closeAplStorageForm();
-        await loadApl('apls', 'simc-unified-apl-list');
-        window.showMessage(id ? 'APL 已更新' : 'APL 已新增', 'success');
     }
     async function useAplForSimulation(id) {
         const row = await fetchAplStorageDetail(id);
