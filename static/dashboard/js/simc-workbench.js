@@ -17,6 +17,7 @@
         converterMode: 'apl_to_cn', converterRequestSerial: 0,
         defaultAplCopyInFlight: new Set(),
         specOptions: [],
+        aplEditor: null,
         resourceAbortControllers: Object.create(null),
         resourceRequestSerials: Object.create(null),
     };
@@ -69,8 +70,14 @@
         window.openSimcWorkbenchDialog(type, null);
         return document.getElementById('simc-dialog-body');
     }
+    function destroyAplEditor() {
+        if (!state.aplEditor) return;
+        state.aplEditor.destroy();
+        state.aplEditor = null;
+    }
     function closeDialog() {
         cancelDetailRequest();
+        destroyAplEditor();
         if (typeof window.closeSimcWorkbenchDialog === 'function') window.closeSimcWorkbenchDialog();
         state.dialogStack = [];
     }
@@ -546,6 +553,7 @@
         return `${text ? text.split('\n').length : 0} 行 · ${text.length} 字符`;
     }
     function renderAplStorageForm(row = null) {
+        destroyAplEditor();
         window.openSimcWorkbenchDialog('apl-form', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
@@ -563,13 +571,30 @@
             </section>
             <section class="simc-editor-section">
                 <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">支持 Tab 缩进；编辑区可纵向拉伸，内容按原始换行保存。</p></div><span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">SimC</span></div>
-                <textarea name="apl_code" required spellcheck="false" autocomplete="off" autocapitalize="off" class="simc-code-editor" placeholder="actions=...&#10;actions+=/..."></textarea>
-                <div class="simc-code-editor-toolbar"><span data-code-editor-stats>${codeStats(content)}</span><span>Tab 缩进 · 等宽字体 · 不自动换行</span></div>
+                <input type="hidden" name="apl_code" value="">
+                <div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div>
+                <div class="simc-code-editor-toolbar"><span data-code-editor-stats>${codeStats(content)}</span><span data-apl-editor-status>准备检查</span></div>
             </section>
             <div class="simc-editor-actions"><span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后，新任务将引用新的不可变版本。</span><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2 text-sm text-slate-700">取消</button><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存 APL</button></div>
         </form>`;
-        const editor = host.querySelector('textarea[name="apl_code"]');
-        if (editor) editor.value = content;
+        const hiddenInput = host.querySelector('input[name="apl_code"]');
+        const mount = host.querySelector('[data-apl-editor-mount]');
+        const status = host.querySelector('[data-apl-editor-status]');
+        const diagnosticsHost = host.querySelector('[data-apl-editor-diagnostics]');
+        if (hiddenInput) hiddenInput.value = content;
+        import(window.SIMC_APL_EDITOR_MODULE_URL).then(({createSimcAplEditor}) => {
+            if (!mount?.isConnected || state.aplEditor) return;
+            state.aplEditor = createSimcAplEditor({
+                mount, status, diagnosticsHost, value: content,
+                csrfToken: window.getCSRFToken(),
+                getSpec: () => host.querySelector('select[name="spec"]')?.value || '',
+                onChange: value => {
+                    if (hiddenInput) hiddenInput.value = value;
+                    const stats = host.querySelector('[data-code-editor-stats]');
+                    if (stats) stats.textContent = codeStats(value);
+                },
+            });
+        }).catch(notify);
     }
     function closeAplStorageForm() {
         closeDialog();
@@ -792,6 +817,8 @@
         }
     }
     async function saveAplStorage(form) {
+        const aplCodeInput = form.querySelector('input[name="apl_code"]');
+        if (aplCodeInput && state.aplEditor) aplCodeInput.value = state.aplEditor.getValue();
         const formData = new FormData(form);
         const id = idOf(formData.get('id'));
         const payload = {
@@ -951,8 +978,12 @@
     document.addEventListener('simc-dialog-closing', event => {
         if (event.detail?.reason === 'close') state.dialogStack = [];
         cancelDetailRequest();
+        destroyAplEditor();
     });
-    document.addEventListener('simc-dialog-replace', cancelDetailRequest);
+    document.addEventListener('simc-dialog-replace', () => {
+        cancelDetailRequest();
+        destroyAplEditor();
+    });
     document.addEventListener('DOMContentLoaded', () => {
         const root = document.getElementById('simc-workbench');
         if (!root) return;
@@ -1142,7 +1173,7 @@
                 renderUnifiedAplList();
                 return;
             }
-            const codeEditor = event.target.closest('.simc-code-editor');
+            const codeEditor = event.target.closest('textarea.simc-code-editor');
             if (codeEditor) {
                 const stats = codeEditor.closest('.simc-editor-section')?.querySelector('[data-code-editor-stats]');
                 if (stats) stats.textContent = codeStats(codeEditor.value);
@@ -1151,7 +1182,7 @@
             if (converterInput) updateConverterStats();
         });
         document.addEventListener('keydown', event => {
-            const editor = event.target.closest('.simc-code-editor');
+            const editor = event.target.closest('textarea.simc-code-editor');
             if (!editor || event.key !== 'Tab') return;
             event.preventDefault();
             const start = editor.selectionStart;
@@ -1166,6 +1197,8 @@
             }
             const converterMode = event.target.closest('#simc-converter-mode');
             if (converterMode) state.converterMode = converterMode.value;
+            const aplSpec = event.target.closest('[data-apl-storage-form] select[name="spec"]');
+            if (aplSpec && state.aplEditor) state.aplEditor.revalidate();
         });
         document.addEventListener('submit', event => {
             const taskRerunForm = event.target.closest('[data-task-rerun-form]');

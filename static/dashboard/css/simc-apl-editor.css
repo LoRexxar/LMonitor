@@ -1,0 +1,76 @@
+.simc-apl-editor-shell {
+    border-top: 1px solid #1e293b;
+    background: #0f172a;
+}
+
+.simc-apl-editor-mount {
+    min-height: 22rem;
+    background: #0f172a;
+}
+
+.simc-apl-editor-mount .cm-editor {
+    min-height: 22rem;
+    color: #dbeafe;
+    background: #0f172a;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: .8125rem;
+    line-height: 1.65;
+}
+
+.simc-apl-editor-mount .cm-scroller {
+    min-height: 22rem;
+    overflow: auto;
+}
+
+.simc-apl-editor-mount .cm-content {
+    min-height: 22rem;
+    padding: 1rem 0;
+    caret-color: #93c5fd;
+}
+
+.simc-apl-editor-mount .cm-line { padding: 0 .9rem; }
+.simc-apl-editor-mount .cm-gutters { border-right: 1px solid #26334a; color: #64748b; background: #111c31; }
+.simc-apl-editor-mount .cm-activeLine,
+.simc-apl-editor-mount .cm-activeLineGutter { background: rgba(59, 130, 246, .09); }
+.simc-apl-editor-mount .cm-selectionBackground,
+.simc-apl-editor-mount .cm-content ::selection { background: rgba(96, 165, 250, .3) !important; }
+.simc-apl-editor-mount .cm-cursor { border-left-color: #93c5fd; }
+.simc-apl-editor-mount .cm-tooltip { color: #0f172a; background: #fff; border-color: #cbd5e1; }
+.simc-apl-editor-mount .cm-tooltip-autocomplete ul li[aria-selected] { color: #fff; background: #2563eb; }
+.simc-apl-editor-mount .cm-diagnostic { color: #0f172a; }
+
+.simc-apl-diagnostics {
+    display: flex;
+    max-height: 8rem;
+    flex-direction: column;
+    gap: .35rem;
+    overflow: auto;
+    padding: .65rem .8rem;
+    border-top: 1px solid #1e293b;
+    background: #111c31;
+}
+
+.simc-apl-diagnostic {
+    width: 100%;
+    border: 0;
+    padding: .35rem .45rem;
+    color: #fecaca;
+    background: transparent;
+    text-align: left;
+    font-size: .75rem;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+.simc-apl-diagnostic:hover,
+.simc-apl-diagnostic:focus-visible { background: rgba(255, 255, 255, .06); outline: none; }
+.simc-apl-diagnostic--warning { color: #fde68a; }
+.simc-apl-diagnostic--info { color: #bfdbfe; }
+.simc-apl-diagnostic-empty { color: #86efac; font-size: .75rem; }
+
+@media (max-width: 640px) {
+    .simc-apl-editor-mount,
+    .simc-apl-editor-mount .cm-editor,
+    .simc-apl-editor-mount .cm-scroller,
+    .simc-apl-editor-mount .cm-content { min-height: 48dvh; }
+}

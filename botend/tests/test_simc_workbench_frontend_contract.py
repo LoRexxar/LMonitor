@@ -934,11 +934,9 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         apl_start = JS.index('function renderAplStorageForm')
         apl_end = JS.index('function closeAplStorageForm', apl_start)
         apl_form = JS[apl_start:apl_end]
-        for token in ('simc-editor-section', 'simc-code-editor', 'data-code-editor-stats', 'spellcheck="false"'):
+        for token in ('simc-editor-section', 'simc-apl-editor-mount', 'data-code-editor-stats', 'data-apl-editor-diagnostics'):
             self.assertIn(token, apl_form)
-        self.assertIn("event.key !== 'Tab'", JS)
-        self.assertIn("editor.setRangeText('    '", JS)
-        self.assertIn('min-height: 48dvh', HTML)
+        self.assertNotIn('<textarea name="apl_code"', apl_form)
 
 
     def test_batch_dialog_renders_member_dps_and_delta_without_navigation(self):
