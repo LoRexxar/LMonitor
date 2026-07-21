@@ -135,6 +135,18 @@ function createCatalogAssistant(options) {
         renderContext();
     }
 
+    async function loadKeywordCatalog(activeController = controller) {
+        const response = await fetchImpl(KEYWORDS_URL, {credentials: 'same-origin', signal: activeController.signal});
+        const body = await response.json();
+        if (!response.ok || body.success !== true) throw new Error('中英文关键词库不可用');
+        if (destroyed || controller !== activeController || activeController.signal.aborted) return;
+        const matches = keywordPairsToCatalogItems(body.data || [], query);
+        totalPages = Math.max(1, Math.ceil(matches.length / 50));
+        if (page > totalPages) page = totalPages;
+        items = matches.slice((page - 1) * 50, page * 50);
+        render();
+    }
+
     async function load(resetPage = false) {
         if (destroyed) return;
         if (resetPage) page = 1;
@@ -146,7 +158,13 @@ function createCatalogAssistant(options) {
         try {
             const response = await fetchImpl(`${SYMBOLS_URL}?${params}`, {credentials: 'same-origin', signal: controller.signal});
             const body = await response.json();
-            if (!response.ok || body.success !== true) throw new Error(body.error?.message || '技能目录不可用');
+            if (!response.ok || body.success !== true) {
+                if (body.error?.code === 'catalog_unavailable') {
+                    await loadKeywordCatalog(controller);
+                    return;
+                }
+                throw new Error(body.error?.message || '技能目录不可用');
+            }
             if (destroyed) return;
             items = body.data?.items || [];
             totalPages = body.data?.pagination?.total_pages || 1;
@@ -169,7 +187,20 @@ function createCatalogAssistant(options) {
         try {
             const response = await fetchImpl(`${SYMBOLS_URL}?${params}`, {credentials: 'same-origin', signal: contextController.signal});
             const body = await response.json();
-            if (!response.ok || body.success !== true || destroyed || contextToken !== token) return;
+            if (!response.ok || body.success !== true) {
+                if (body.error?.code === 'catalog_unavailable') {
+                    const keywordResponse = await fetchImpl(KEYWORDS_URL, {credentials: 'same-origin', signal: contextController.signal});
+                    const keywordBody = await keywordResponse.json();
+                    if (!keywordResponse.ok || keywordBody.success !== true || destroyed || contextToken !== token) return;
+                    const fallback = keywordPairsToCatalogItems(keywordBody.data || [], token)
+                        .find(row => row.token === token || row.token.replaceAll('_', ' ') === token);
+                    contextItem = fallback || null;
+                    renderContext();
+                    return;
+                }
+                return;
+            }
+            if (destroyed || contextToken !== token) return;
             contextItem = (body.data?.items || []).find(row => row.token === token) || null;
             renderContext();
         } catch (error) {
@@ -280,7 +311,7 @@ export function catalogItemsToCompletionOptions(items) {
         });
 }
 
-export function keywordPairsToCompletionOptions(items, query = '') {
+export function keywordPairsToCatalogItems(items, query = '') {
     const normalizedQuery = String(query || '').trim().toLocaleLowerCase();
     return (Array.isArray(items) ? items : [])
         .filter(item => item?.is_active !== false && /^[a-z0-9_]+$/i.test(String(item?.apl_keyword || '')))
@@ -289,14 +320,28 @@ export function keywordPairsToCompletionOptions(items, query = '') {
             return [item.apl_keyword, item.cn_keyword, item.description]
                 .some(value => String(value || '').toLocaleLowerCase().includes(normalizedQuery));
         })
-        .slice(0, 50)
         .map(item => ({
-            label: item.cn_keyword ? `${item.cn_keyword} · ${item.apl_keyword}` : String(item.apl_keyword),
-            apply: String(item.apl_keyword),
-            type: 'function',
-            detail: 'APL 关键词',
-            info: String(item.description || ''),
+            token: String(item.apl_keyword),
+            kind: 'keyword',
+            scope: 'global',
+            insertable: true,
+            name_zh: String(item.cn_keyword || ''),
+            name_en: '',
+            description_zh: String(item.description || ''),
+            source: '中英文关键词库',
+            simc_revision: '',
+            game_build: '',
         }));
+}
+
+export function keywordPairsToCompletionOptions(items, query = '') {
+    return keywordPairsToCatalogItems(items, query).map(item => ({
+        label: item.name_zh ? `${item.name_zh} · ${item.token}` : item.token,
+        apply: item.token,
+        type: 'function',
+        detail: 'APL 关键词',
+        info: item.description_zh,
+    }));
 }
 
 export function mergeCompletionOptions(documentOptions, catalogOptions) {
@@ -330,15 +375,20 @@ export async function convertDocumentSnapshot({source, version, getValue, getVer
     return String(converted || '');
 }
 
-export function selectDefaultAplForSpec(rows, spec) {
+export function selectDefaultAplsForSpec(rows, spec) {
     const normalizedSpec = String(spec || '').trim().toLowerCase();
-    if (!normalizedSpec) return null;
-    const matches = (Array.isArray(rows) ? rows : []).filter(row => (
+    if (!normalizedSpec) return [];
+    return (Array.isArray(rows) ? rows : []).filter(row => (
         String(row?.spec || '').trim().toLowerCase() === normalizedSpec
         && row?.is_system === true
         && row?.is_active !== false
         && row?.is_selectable !== false
     ));
+}
+
+export function selectDefaultAplForSpec(rows, spec) {
+    const normalizedSpec = String(spec || '').trim().toLowerCase();
+    const matches = selectDefaultAplsForSpec(rows, normalizedSpec);
     if (matches.length > 1) throw new Error(`专精 ${normalizedSpec} 存在多个系统默认 APL`);
     return matches[0] || null;
 }

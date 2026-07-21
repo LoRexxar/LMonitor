@@ -14,10 +14,12 @@ import {
     editorLanguageTransition,
     formatStructuralValidationStatus,
     keywordPairsToCompletionOptions,
+    keywordPairsToCatalogItems,
     mergeCompletionOptions,
     replaceTextMessage,
     runSingleSubmission,
     selectDefaultAplForSpec,
+    selectDefaultAplsForSpec,
 } from '../../../static/dashboard/js/simc-apl-editor.js';
 
 const editorSourceUrl = new URL('../../../static/dashboard/js/simc-apl-editor.js', import.meta.url);
@@ -92,6 +94,18 @@ test('keyword pairs provide a safe bilingual fallback when the symbol catalog is
     ], 'reck'), [{
         label: '鲁莽 · recklessness', apply: 'recklessness', type: 'function',
         detail: 'APL 关键词', info: '战士技能',
+    }]);
+});
+
+test('keyword pairs also populate the visible skill assistant when the symbol catalog is unavailable', () => {
+    assert.deepEqual(keywordPairsToCatalogItems([
+        {apl_keyword: 'recklessness', cn_keyword: '鲁莽', description: '战士技能', is_active: true},
+        {apl_keyword: 'old_token', cn_keyword: '旧词条', is_active: false},
+        {apl_keyword: 'actions=/invalid shape', cn_keyword: '非法', is_active: true},
+    ], '鲁莽'), [{
+        token: 'recklessness', kind: 'keyword', scope: 'global', insertable: true,
+        name_zh: '鲁莽', name_en: '', description_zh: '战士技能',
+        source: '中英文关键词库', simc_revision: '', game_build: '',
     }]);
 });
 
@@ -233,6 +247,17 @@ test('new APL import resolves exactly one active selectable system default for i
     assert.throws(() => selectDefaultAplForSpec([...rows, {...rows[1], id: 4}], 'warrior_fury'), /多个系统默认 APL/);
 });
 
+test('new APL form can list every active selectable system default for the selected spec', () => {
+    const rows = [
+        {id: 1, name: 'Arms', spec: 'warrior_arms', is_system: true, is_active: true, is_selectable: true},
+        {id: 2, name: 'Fury ST', spec: 'warrior_fury', is_system: true, is_active: true, is_selectable: true},
+        {id: 3, name: 'Fury disabled', spec: 'warrior_fury', is_system: true, is_active: false, is_selectable: true},
+        {id: 4, name: 'Mine', spec: 'warrior_fury', is_system: false, is_active: true, is_selectable: true},
+        {id: 5, name: 'Fury AoE', spec: 'warrior_fury', is_system: true, is_active: true, is_selectable: true},
+    ];
+    assert.deepEqual(selectDefaultAplsForSpec(rows, 'warrior_fury').map(row => row.id), [2, 5]);
+});
+
 test('APL workspace contract uses a larger desktop dialog, tall editor, and independent wide assistant sidebar', async () => {
     const [css, workbench] = await Promise.all([
         readFile(editorCssUrl, 'utf8'), readFile(workbenchSourceUrl, 'utf8'),
@@ -248,7 +273,10 @@ test('new APL form exposes default import and replaces readonly bilingual panel 
     const [editorSource, workbench] = await Promise.all([
         readFile(editorSourceUrl, 'utf8'), readFile(workbenchSourceUrl, 'utf8'),
     ]);
-    assert.match(workbench, /data-apl-import-default/);
+    assert.doesNotMatch(workbench, /data-apl-import-default/);
+    assert.match(workbench, /data-apl-default-search/);
+    assert.match(workbench, /data-apl-default-list/);
+    assert.match(workbench, /data-apl-default-choice/);
     assert.match(workbench, /data-apl-language="apl"/);
     assert.match(workbench, /data-apl-language="cn"/);
     assert.doesNotMatch(workbench, /data-apl-bilingual-panel/);
@@ -261,4 +289,11 @@ test('new APL form exposes default import and replaces readonly bilingual panel 
     assert.match(workbench, /originalSpec/);
     assert.match(workbench, /apl-validation/);
     assert.doesNotMatch(await readFile(editorCssUrl, 'utf8'), /\.simc-apl-bilingual/);
+});
+
+test('editor uses an explicit high-contrast neutral palette instead of the pale-yellow default token color', async () => {
+    const css = await readFile(editorCssUrl, 'utf8');
+    assert.match(css, /\.simc-apl-editor-mount \.tok-string[^}]*color:\s*#86efac/s);
+    assert.match(css, /\.simc-apl-editor-mount \.tok-keyword[^}]*color:\s*#c4b5fd/s);
+    assert.doesNotMatch(css, /\.simc-apl-editor-mount[^}]*color:\s*#fde68a/s);
 });

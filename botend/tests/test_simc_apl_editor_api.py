@@ -32,6 +32,24 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(authoritative.status_code, 200)
         self.assertEqual(authoritative.json(), {"success": True, "result": apl})
 
+    def test_editor_language_api_treats_apl_underscores_and_spaces_as_equivalent(self):
+        SimcAplKeywordPair.objects.create(
+            apl_keyword="arcane_blast", cn_keyword="奥术冲击", is_active=True)
+
+        for apl_variant in ("actions=/arcane_blast", "actions=/arcane blast"):
+            with self.subTest(apl_variant=apl_variant):
+                response = self.client.post("/api/convert-text/", data=json.dumps({
+                    "text": apl_variant, "conversion_type": "apl_to_cn",
+                }), content_type="application/json")
+                self.assertEqual(response.json()["result"], "actions=/奥术冲击")
+
+        for chinese_variant in ("actions=/奥术冲击", "actions=/奥术 冲击"):
+            with self.subTest(chinese_variant=chinese_variant):
+                response = self.client.post("/api/convert-text/", data=json.dumps({
+                    "text": chinese_variant, "conversion_type": "cn_to_apl",
+                }), content_type="application/json")
+                self.assertEqual(response.json()["result"], "actions=/arcane_blast")
+
     def test_validation_echoes_document_version_and_uses_stable_one_based_ranges(self):
         response = self.client.post("/api/simc-workbench/apl-validation/", data=json.dumps({
             "content": "not an apl line", "spec": "warrior_fury", "mode": "structural",

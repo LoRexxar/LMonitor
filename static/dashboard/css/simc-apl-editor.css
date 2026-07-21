@@ -108,6 +108,22 @@
 .simc-apl-editor-mount .cm-tooltip { color: #0f172a; background: #fff; border-color: #cbd5e1; }
 .simc-apl-editor-mount .cm-tooltip-autocomplete ul li[aria-selected] { color: #fff; background: #2563eb; }
 .simc-apl-editor-mount .cm-diagnostic { color: #0f172a; }
+.simc-apl-editor-mount .tok-string { color: #86efac; }
+.simc-apl-editor-mount .tok-keyword { color: #c4b5fd; }
+
+.simc-apl-default-library { padding: .75rem; border: 1px solid #cbd5e1; border-radius: .75rem; background: #f8fafc; }
+.simc-apl-default-library__heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.simc-apl-default-library__heading strong { display: block; color: #0f172a; font-size: .85rem; }
+.simc-apl-default-library__heading span { color: #64748b; font-size: .7rem; }
+.simc-apl-default-library__heading input { width: min(15rem, 45%); border: 1px solid #94a3b8; border-radius: .5rem; padding: .4rem .55rem; background: #fff; font-size: .75rem; }
+.simc-apl-default-list { display: grid; gap: .4rem; max-height: 11rem; overflow: auto; margin-top: .6rem; }
+.simc-apl-default-list button { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .5rem .65rem; border: 1px solid #cbd5e1; border-radius: .5rem; background: #fff; text-align: left; }
+.simc-apl-default-list button:hover { border-color: #64748b; background: #f1f5f9; }
+.simc-apl-default-list strong, .simc-apl-default-list small { display: block; }
+.simc-apl-default-list strong { color: #1e293b; font-size: .75rem; }
+.simc-apl-default-list small { margin-top: .15rem; color: #64748b; font-size: .65rem; }
+.simc-apl-default-list em { color: #334155; font-size: .7rem; font-style: normal; white-space: nowrap; }
+.simc-apl-default-list > p { padding: .6rem; color: #64748b; font-size: .75rem; }
 
 .simc-apl-diagnostics {
     display: flex;

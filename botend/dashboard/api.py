@@ -745,8 +745,12 @@ class ConvertTextAPIView(View):
             
             result = text
             for pair in keyword_pairs:
-                # 从APL转换到中文
-                result = result.replace(pair.apl_keyword, pair.cn_keyword)
+                if not pair.apl_keyword or not pair.cn_keyword.strip():
+                    continue
+                # 只允许 token 内部的下划线与空格互换，不吞掉 token 外部空白。
+                parts = [re.escape(part) for part in pair.apl_keyword.split('_')]
+                pattern = r'(?<![A-Za-z0-9_])' + r'[ _]+'.join(parts) + r'(?![A-Za-z0-9_])'
+                result = re.sub(pattern, lambda _match, value=pair.cn_keyword: value, result)
             
             return result
             
@@ -767,8 +771,11 @@ class ConvertTextAPIView(View):
             
             result = text
             for pair in keyword_pairs:
-                # 从中文转换到APL
-                result = result.replace(pair.cn_keyword, pair.apl_keyword)
+                if not pair.apl_keyword or not pair.cn_keyword.strip():
+                    continue
+                parts = [re.escape(char) for char in pair.cn_keyword if not char.isspace()]
+                pattern = r'\s*'.join(parts)
+                result = re.sub(pattern, lambda _match, value=pair.apl_keyword: value, result)
             
             return result
             
