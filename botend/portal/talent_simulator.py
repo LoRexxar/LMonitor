@@ -17,7 +17,7 @@ from django.http import Http404, JsonResponse
 from django.shortcuts import render
 from django.views import View
 
-from botend.constants.wow import CLASS_CN, CLASS_SPEC_MAP, SPEC_CN, SPEC_ICON, SPEC_ROLE
+from botend.constants.wow import CLASS_CN, CLASS_SPEC_MAP, SPEC_CN, SPEC_ICON, SPEC_IDENTITY_MAP, SPEC_ROLE
 from botend.constants.hero_talents import (
     hero_subtree_name_by_id,
     hero_subtree_name_zh,
@@ -39,6 +39,22 @@ def _validate_spec(class_name, spec_name):
     specs = CLASS_SPEC_MAP.get(class_name)
     if not specs or spec_name not in specs:
         raise Http404
+
+
+def _resolve_simulator_spec(class_name='', spec_name='', build_code=''):
+    build_code = str(build_code or '').strip()
+    if build_code:
+        spec_id = TalentBuildCodeDecoder.extract_spec_id(build_code)
+        identity = SPEC_IDENTITY_MAP.get(spec_id)
+        if identity:
+            return identity
+        if not class_name or not spec_name:
+            raise ValueError(f'无法识别天赋字符串中的专精 ID：{spec_id or "未知"}')
+
+    class_name = class_name or DEFAULT_CLASS
+    spec_name = spec_name or (CLASS_SPEC_MAP.get(class_name) or [DEFAULT_SPEC])[0]
+    _validate_spec(class_name, spec_name)
+    return class_name, spec_name
 
 
 def _load_profile_for_simulator(profile_id, class_name, spec_name):
@@ -325,8 +341,8 @@ def _active_hero_subtree(full_nodes, decoded_states=None, requested=None):
     return 0
 
 
-def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=None, version_key='', profile_id=None):
-    _validate_spec(class_name, spec_name)
+def build_simulator_payload(class_name='', spec_name='', build_code='', hero_subtree=None, version_key='', profile_id=None):
+    class_name, spec_name = _resolve_simulator_spec(class_name, spec_name, build_code)
     profile = _load_profile_for_simulator(profile_id, class_name, spec_name)
     profile_talents = getattr(profile, 'talents_json', None) if profile else None
     profile_build_code = str(getattr(profile, 'talent_build_code', '') or '').strip() if profile else ''
@@ -387,9 +403,15 @@ def build_simulator_payload(class_name, spec_name, build_code='', hero_subtree=N
 
 class PortalTalentSimulatorView(View):
     def get(self, request):
-        class_name = request.GET.get('class') or DEFAULT_CLASS
-        spec_name = request.GET.get('spec') or (CLASS_SPEC_MAP.get(class_name) or [DEFAULT_SPEC])[0]
-        _validate_spec(class_name, spec_name)
+        build_code = request.GET.get('code') or ''
+        try:
+            class_name, spec_name = _resolve_simulator_spec(
+                request.GET.get('class') or '',
+                request.GET.get('spec') or '',
+                build_code,
+            )
+        except ValueError:
+            class_name, spec_name = DEFAULT_CLASS, DEFAULT_SPEC
         context = {
             'class_name': class_name,
             'spec_name': spec_name,
@@ -402,13 +424,16 @@ class PortalTalentSimulatorView(View):
 
 class PortalTalentSimulatorAPIView(View):
     def get(self, request):
-        class_name = request.GET.get('class') or DEFAULT_CLASS
-        spec_name = request.GET.get('spec') or (CLASS_SPEC_MAP.get(class_name) or [DEFAULT_SPEC])[0]
         build_code = request.GET.get('code') or ''
         hero_subtree = request.GET.get('hero_subtree') or request.GET.get('hero') or ''
         version_key = request.GET.get('version') or request.GET.get('version_key') or ''
         profile_id = request.GET.get('profile_id') or request.GET.get('profile') or ''
         try:
+            class_name, spec_name = _resolve_simulator_spec(
+                request.GET.get('class') or '',
+                request.GET.get('spec') or '',
+                build_code,
+            )
             payload = build_simulator_payload(
                 class_name,
                 spec_name,

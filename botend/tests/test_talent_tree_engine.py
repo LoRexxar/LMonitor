@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 from django.template.loader import render_to_string
-from django.test import SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase
 
 from botend.services.spec_stats_service import (
     SpecStatsService,
@@ -34,7 +34,12 @@ from botend.wow.talents.build_code import (
     _ImportBitStream,
     _ImportBitWriter,
 )
-from botend.portal.talent_simulator import _merge_nodes_for_simulator, _map_decoded_states_to_full_nodes
+from botend.portal.talent_simulator import (
+    PortalTalentSimulatorAPIView,
+    _map_decoded_states_to_full_nodes,
+    _merge_nodes_for_simulator,
+    _resolve_simulator_spec,
+)
 from botend.wow.talents.view_model import build_talent_view_model
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
 
@@ -758,6 +763,7 @@ class TalentTreeRenderTests(SimpleTestCase):
 
 
 class TalentSimulatorBuildCodeTests(SimpleTestCase):
+    ARMS_REFERENCE_CODE = 'CcEAjLzRlq54bI5v+r8Sr9Xw4jZmZmFzYmZGAAAghphZGmZzMzMzYmxMDAAAAgxyMDsFGLLDsAGwMMBmBbgZGGGMbzsNAzMAYM8AA'
     DEATH_KNIGHT_REFERENCE_CODE = 'CoPAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAA'
     FULL_NODES = [
         {'tree_type': 'class', 'node_id': 96200, 'talent_id': 96200, 'spell_id': 100200, 'max_points': 1},
@@ -775,6 +781,44 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             ],
         },
     ]
+
+    def test_decoder_reads_specialization_id_from_import_header(self):
+        self.assertEqual(TalentBuildCodeDecoder.extract_spec_id(self.ARMS_REFERENCE_CODE), 71)
+
+    def test_simulator_resolves_class_and_spec_from_code_without_explicit_parameters(self):
+        self.assertEqual(
+            _resolve_simulator_spec('', '', self.ARMS_REFERENCE_CODE),
+            ('Warrior', 'Arms'),
+        )
+
+    def test_simulator_code_identity_overrides_mismatched_explicit_parameters(self):
+        self.assertEqual(
+            _resolve_simulator_spec('DeathKnight', 'Blood', self.ARMS_REFERENCE_CODE),
+            ('Warrior', 'Arms'),
+        )
+
+    @patch('botend.portal.talent_simulator.build_simulator_payload')
+    def test_simulator_api_accepts_code_as_its_only_parameter(self, build_payload):
+        build_payload.return_value = {
+            'class_name': 'Warrior',
+            'spec_name': 'Arms',
+            'build_code': self.ARMS_REFERENCE_CODE,
+        }
+        request = RequestFactory().get('/portal/api/talents/simulator/', {
+            'code': self.ARMS_REFERENCE_CODE,
+        })
+
+        response = PortalTalentSimulatorAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        build_payload.assert_called_once_with(
+            'Warrior',
+            'Arms',
+            build_code=self.ARMS_REFERENCE_CODE,
+            hero_subtree='',
+            version_key='',
+            profile_id='',
+        )
 
     @patch('botend.wow.talents.service.TalentMetadataProvider')
     def test_encoder_preserves_choice_selection_for_choice_node(self, mock_provider_cls):

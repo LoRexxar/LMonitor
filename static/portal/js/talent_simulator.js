@@ -132,6 +132,12 @@
             return;
         }
         state.payload = data;
+        if (data.class_name && data.spec_name) {
+            state.className = data.class_name;
+            state.specName = data.spec_name;
+            els.classSelect.value = state.className;
+            renderSpecSelect();
+        }
         if (data.build_code) state.buildCode = data.build_code;
         state.heroSubtree = String(data.active_hero_subtree || state.heroSubtree || '');
         indexNodes();

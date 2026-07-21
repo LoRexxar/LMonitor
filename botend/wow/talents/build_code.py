@@ -11,6 +11,15 @@ class TalentBuildCodeDecoder:
     RANKS_PURCHASED_BITS = 6
 
     @classmethod
+    def extract_spec_id(cls, build_code):
+        build_code = str(build_code or '').strip()
+        stream = _ImportBitStream(build_code)
+        if stream.total_bits < cls.HEADER_VERSION_BITS + cls.SPEC_ID_BITS:
+            return 0
+        stream.extract(cls.HEADER_VERSION_BITS)
+        return stream.extract(cls.SPEC_ID_BITS)
+
+    @classmethod
     def decode_node_states(cls, build_code, full_nodes):
         build_code = str(build_code or '').strip()
         if not build_code or not full_nodes:
