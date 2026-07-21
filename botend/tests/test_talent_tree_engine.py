@@ -900,6 +900,144 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertTrue(merged[1]['selected'])
         self.assertTrue(merged[1]['purchased'])
 
+    def test_encoder_preserves_hidden_hero_anchor_state_from_reference(self):
+        decoder_nodes = [
+            {
+                'tree_type': 'hero_anchor',
+                'node_id': 123390,
+                'talent_id': 99853,
+                'max_points': 1,
+                'is_choice_node': True,
+                'choice_options': [
+                    {'node_id': 123390, 'talent_id': 99853},
+                    {'node_id': 123393, 'talent_id': 99853},
+                ],
+            },
+            {
+                'tree_type': 'hero',
+                'node_id': 117381,
+                'talent_id': 94784,
+                'max_points': 1,
+            },
+        ]
+        reference_code = TalentBuildCodeEncoder.encode_node_states(
+            self.DEATH_KNIGHT_REFERENCE_CODE,
+            decoder_nodes,
+            [
+                {
+                    'tree_type': 'hero_anchor',
+                    'node_id': 123390,
+                    'talent_id': 99853,
+                    'points': 1,
+                    'choice_selection': 1,
+                },
+                {
+                    'tree_type': 'hero',
+                    'node_id': 117381,
+                    'talent_id': 94784,
+                    'points': 1,
+                },
+            ],
+        )
+
+        encoded = TalentBuildCodeEncoder.encode_node_states(
+            reference_code,
+            decoder_nodes,
+            [{
+                'tree_type': 'hero',
+                'node_id': 117381,
+                'talent_id': 94784,
+                'points': 1,
+            }],
+        )
+        decoded = TalentBuildCodeDecoder.decode_node_states(encoded, decoder_nodes)
+
+        self.assertEqual(decoded['hero_anchor:123390']['choice_selection'], 1)
+        self.assertEqual(decoded['hero:117381']['points'], 1)
+
+    def test_explicit_hero_anchor_apex_does_not_suppress_hidden_selector_inheritance(self):
+        decoder_nodes = [
+            {
+                'tree_type': 'hero_anchor',
+                'node_id': 123390,
+                'talent_id': 99853,
+                'max_points': 1,
+                'is_choice_node': True,
+                'choice_options': [
+                    {'node_id': 123390, 'talent_id': 99853},
+                    {'node_id': 123393, 'talent_id': 99853},
+                ],
+            },
+            {
+                'tree_type': 'hero_anchor',
+                'node_id': 136987,
+                'talent_id': 110407,
+                'max_points': 4,
+                'is_choice_node': False,
+                'is_apex_talent': True,
+                'apex_entries': [
+                    {'node_id': 136987, 'talent_id': 110407, 'max_points': 1},
+                    {'node_id': 136988, 'talent_id': 110407, 'max_points': 2},
+                    {'node_id': 136989, 'talent_id': 110407, 'max_points': 1},
+                ],
+            },
+            {
+                'tree_type': 'hero',
+                'node_id': 117381,
+                'talent_id': 94784,
+                'max_points': 1,
+            },
+        ]
+        reference_code = TalentBuildCodeEncoder.encode_node_states(
+            self.DEATH_KNIGHT_REFERENCE_CODE,
+            decoder_nodes,
+            [
+                {
+                    'tree_type': 'hero_anchor',
+                    'node_id': 123390,
+                    'talent_id': 99853,
+                    'points': 1,
+                    'choice_selection': 1,
+                },
+                {
+                    'tree_type': 'hero_anchor',
+                    'node_id': 136987,
+                    'talent_id': 110407,
+                    'points': 1,
+                },
+                {
+                    'tree_type': 'hero',
+                    'node_id': 117381,
+                    'talent_id': 94784,
+                    'points': 1,
+                },
+            ],
+        )
+
+        encoded = TalentBuildCodeEncoder.encode_node_states(
+            reference_code,
+            decoder_nodes,
+            [
+                {
+                    'tree_type': 'hero_anchor',
+                    'node_id': 136987,
+                    'talent_id': 110407,
+                    'points': 2,
+                },
+                {
+                    'tree_type': 'hero',
+                    'node_id': 117381,
+                    'talent_id': 94784,
+                    'points': 1,
+                },
+            ],
+        )
+        decoded = TalentBuildCodeDecoder.decode_node_states(encoded, decoder_nodes)
+
+        self.assertEqual(decoded['hero_anchor:123390']['choice_selection'], 1)
+        self.assertEqual(decoded['hero_anchor:136987']['points'], 2)
+        self.assertFalse(decoded['hero_anchor:136987']['is_choice_node'])
+
     def test_encoder_preserves_selected_unpurchased_default_node(self):
         decoder_nodes = [
             {

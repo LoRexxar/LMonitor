@@ -154,7 +154,19 @@ class TalentBuildCodeEncoder:
         for _ in range(16):
             writer.write(reference_stream.extract(8), 8)
 
+        selected_nodes = list(selected_nodes or [])
         selected_lookup = cls._build_selected_lookup(selected_nodes, ordered_nodes)
+        hidden_selector_keys = {
+            _build_node_key(node)
+            for node in ordered_nodes
+            if cls._is_hidden_hero_selector(node)
+        }
+        if hidden_selector_keys and not (hidden_selector_keys & selected_lookup.keys()):
+            reference_states = TalentBuildCodeDecoder.decode_node_states(reference_build_code, ordered_nodes)
+            for key in hidden_selector_keys:
+                state = reference_states.get(key)
+                if state:
+                    selected_lookup[key] = dict(state)
         for node in ordered_nodes:
             key = _build_node_key(node)
             state = selected_lookup.get(key)
@@ -186,6 +198,15 @@ class TalentBuildCodeEncoder:
         if not cls._states_match(selected_lookup, decoded):
             return ''
         return build_code
+
+    @staticmethod
+    def _is_hidden_hero_selector(node):
+        return (
+            (node.get('tree_type') or 'spec') == 'hero_anchor'
+            and node.get('is_choice_node') is True
+            and not node.get('is_apex_talent')
+            and not node.get('apex_entries')
+        )
 
     @staticmethod
     def _build_selected_lookup(selected_nodes, ordered_nodes):
