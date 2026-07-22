@@ -820,11 +820,11 @@ class ConvertTextAPIView(View):
         try:
             # 解析请求数据
             data = json.loads(request.body)
-            text = data.get('text', '').strip()
+            text = data.get('text', '')
             conversion_type = data.get('conversion_type', '')
             spec = data.get('spec', '')
-            
-            if not text:
+
+            if not isinstance(text, str) or not text.strip():
                 return JsonResponse({
                     'success': False,
                     'error': '输入文本不能为空'

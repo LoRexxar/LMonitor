@@ -94,6 +94,30 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(translated.json()['result'], apl)
         self.assertEqual(restored.json()['result'], apl)
 
+    def test_editor_language_api_preserves_document_edge_whitespace(self):
+        revision, build = 'a' * 40, '12.0.5'
+        SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=23881,
+            name='Bloodthirst', name_zh='嗜血', snapshot_build=build)
+        SimcAplSymbol.objects.create(
+            simc_revision=revision, wow_build=build,
+            class_name='warrior', class_key='warrior', spec='fury', spec_key='fury',
+            token='bloodthirst', symbol_kind='action', spell_id=23881)
+        apl = '  actions+=/bloodthirst\n\n'
+
+        chinese = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': apl, 'conversion_type': 'apl_to_cn', 'spec': 'warrior_fury',
+        }), content_type='application/json')
+        restored = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': chinese.json()['result'], 'conversion_type': 'cn_to_apl',
+            'spec': 'warrior_fury',
+        }), content_type='application/json')
+
+        self.assertEqual(chinese.status_code, 200)
+        self.assertEqual(chinese.json()['result'], '  actions+=/嗜血\n\n')
+        self.assertEqual(restored.json()['result'], apl)
+
     def test_editor_language_api_keeps_one_token_with_multiple_chinese_names_unchanged(self):
         revision, build = 'a' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
