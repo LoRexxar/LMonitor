@@ -23,14 +23,17 @@ SIMC_MAIN = MAIN[
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
-    def test_shared_dialogs_are_not_nested_in_hidden_database_panel(self):
+    def test_dashboard_shell_contains_only_layout_and_shared_dialogs_are_body_level(self):
         soup = BeautifulSoup(HTML, "html.parser")
-        database_panel = soup.find(id="database-tables")
-        self.assertIsNotNone(database_panel)
+        shell = soup.select_one("body > .dashboard-shell")
+        self.assertIsNotNone(shell)
+        self.assertIsNotNone(shell.select_one(":scope > #sidebar"))
+        self.assertIsNotNone(shell.select_one(":scope > .main-content"))
+        self.assertIsNone(shell.find("footer"), "footer must not consume horizontal dashboard-shell space")
         for dialog_id in ("add-record-modal", "edit-record-modal", "simc-workbench-dialog"):
             dialog = soup.find(id=dialog_id)
             self.assertIsNotNone(dialog)
-            self.assertNotIn(database_panel, dialog.parents, f"{dialog_id} must remain visible outside database panel")
+            self.assertIs(dialog.parent, soup.body, f"{dialog_id} must be a body-level overlay")
 
     def test_home_creation_flow_is_spec_driven_and_single_submit(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
