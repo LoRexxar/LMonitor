@@ -1,6 +1,7 @@
 import json
-from unittest import TestCase
 from unittest.mock import patch
+
+from django.test import TestCase
 
 from botend.controller.plugins.wow.wowheadMonitor import wowheadMonitor
 from botend.models import WowArticle
@@ -67,13 +68,73 @@ class WowheadMonitorParserTest(TestCase):
         self.assertEqual(result[0], 1)
         self.assertEqual(result[1], 0)
 
+    def test_fetch_article_html_prefers_complete_requests_html_over_partial_chrome_body(self):
+        class _Driver:
+            html = '<html><body><div class="news-post-content text"><p>Partial intro.</p></div></body></html>'
+
+        class _Resp:
+            status_code = 200
+            text = '<html><body><div class="news-post-content text"><p>{}</p></div></body></html>'.format('Complete article body. ' * 100)
+
+        class _Req:
+            is_chrome = True
+            def __init__(self):
+                self.calls = []
+                self.s = type('S', (), {'proxies': {}, 'trust_env': True})()
+            def get(self, url, mode, *args, **kwargs):
+                self.calls.append(mode)
+                if mode == 'Response':
+                    return _Resp()
+                if mode == 'RespByChrome':
+                    return _Driver()
+                raise AssertionError(mode)
+
+        req = _Req()
+        monitor = wowheadMonitor(req, None)
+
+        html = monitor._fetch_article_html('https://www.wowhead.com/news/test-123')
+
+        self.assertIn('Complete article body', html)
+        self.assertEqual(req.calls, ['Response'])
+
+    def test_existing_html_article_does_not_refetch_only_because_it_has_no_separate_image_block(self):
+        body = 'Complete existing article body. ' * 40
+        article = WowArticle.objects.create(
+            title='Existing article',
+            url='https://www.wowhead.com/news/existing-123',
+            description=body,
+            content=body,
+            content_blocks=json.dumps([{'type': 'html', 'html': '<p>{}</p>'.format(body)}]),
+            source='wowhead',
+            category='news',
+        )
+        monitor = wowheadMonitor(None, None)
+        monitor._parse_posts_from_page_html = lambda page_html, limit=10: [{
+            'type': 'News',
+            'title': 'Existing article',
+            'link': article.url,
+            'preview': 'Preview',
+            'date': '2026/07/22 at 01:00 PM',
+        }]
+        fetch_calls = []
+        monitor._fetch_article_blocks = lambda *args, **kwargs: fetch_calls.append((args, kwargs)) or []
+        monitor._ensure_translated = lambda article: False
+        monitor._translate_budget = 0
+
+        result = monitor.resolve_data(type('D', (), {'html': '<html></html>'})(), 'wowhead', limit=1)
+
+        self.assertEqual(result, (1, 0))
+        self.assertEqual(fetch_calls, [])
+        article.refresh_from_db()
+        self.assertEqual(article.content, body)
+
     def test_fetch_article_html_falls_back_when_chrome_html_has_no_article_body(self):
         class _Driver:
             html = '<html><body><h1>Verification</h1><p>captcha placeholder</p></body></html>'
 
         class _Resp:
             status_code = 200
-            text = '<html><body><div id="news-post"><div class="text"><p>Real article body with enough useful text.</p></div></div></body></html>'
+            text = '<html><body><div id="news-post"><div class="text"><p>Real article body with enough useful text to pass the complete article validation threshold and avoid accepting a truncated page.</p></div></div></body></html>'
 
         class _Req:
             is_chrome = True
@@ -94,7 +155,7 @@ class WowheadMonitorParserTest(TestCase):
         html = monitor._fetch_article_html('https://www.wowhead.com/news/test-123')
 
         self.assertIn('Real article body', html)
-        self.assertEqual(req.calls, ['RespByChrome', 'Response'])
+        self.assertEqual(req.calls, ['Response'])
 
     def test_fetch_article_html_rejects_requests_html_without_article_body(self):
         class _Resp:

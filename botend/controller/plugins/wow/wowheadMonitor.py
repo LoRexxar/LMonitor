@@ -262,7 +262,7 @@ class wowheadMonitor(BaseScan):
                             existing_blocks_cn = json.loads(getattr(wa, "content_blocks_cn", "") or "[]")
                         except Exception:
                             existing_blocks_cn = []
-                        needs_image_blocks = not any(isinstance(b, dict) and b.get("type") == "image" for b in (existing_blocks or []))
+                        needs_image_blocks = not existing_blocks
                         needs_image_upload = self._needs_article_image_upload(existing_blocks)
                         needs_image_upload_cn = self._needs_article_image_upload(existing_blocks_cn)
                         if (needs_image_upload and not needs_image_blocks) or needs_image_upload_cn:
@@ -584,6 +584,10 @@ class wowheadMonitor(BaseScan):
                     article_blocks_match_reference(candidate_blocks, reference_text=reference_text, reference_title=reference_title)
                     or self._html_matches_article_title(html_text, reference_title)
                 ):
+                    candidate_text = blocks_to_plain_text(candidate_blocks)
+                    if reference_text and len(candidate_text) < max(80, int(len(reference_text) * 0.6)):
+                        logger.warning("[wowheadMonitor] Skip short article blocks for {}: candidate={} reference={}".format(url, len(candidate_text), len(reference_text)))
+                        return []
                     return candidate_blocks
                 logger.warning("[wowheadMonitor] Skip unsafe article blocks for {}".format(url))
                 return []
@@ -763,56 +767,50 @@ class wowheadMonitor(BaseScan):
         if not text.strip():
             return False
         lowered = text.lower()
-        return (
-            "news-post-content" in text
-            or "article-content" in text
-            or 'id="blog-post"' in lowered
-            or "id='blog-post'" in lowered
-            or 'id="news-post"' in lowered
-            or "id='news-post'" in lowered
-            or "application/ld+json" in text
-        )
+        markers = ("news-post-content", "article-content", 'id="blog-post"', "id='blog-post'", 'id="news-post"', "id='news-post'")
+        if not any(marker in lowered for marker in markers):
+            return False
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(text, "html.parser")
+            nodes = soup.select(".news-post-content, .article-content, #blog-post .text, #news-post .text")
+            return any(len(node.get_text(" ", strip=True)) >= 80 for node in nodes)
+        except Exception:
+            return True
 
     def _fetch_article_html(self, url, cookies=""):
         try:
             html_text = ""
-            # Wowhead 部分页面正文可能需要前端渲染，优先尝试 Chrome 渲染版本；
-            # 但 Chrome/反爬有时会返回非空验证码/骨架页，必须校验有效性，否则会阻断 requests fallback。
+            # 详情正文优先使用 requests：Wowhead 的 printHtml 数据通常在原始 HTML
+            # 中完整存在，而 Chrome DOM 可能只返回尚未完成的正文壳。
+            try:
+                resp = self.req.get(url, "Response", 0, cookies)
+                if resp:
+                    status_code = getattr(resp, 'status_code', 200)
+                    candidate = getattr(resp, 'text', '') or ''
+                    if int(status_code or 0) < 400 and self._is_valid_article_html(candidate):
+                        return candidate
+            except Exception as exc:
+                logger.warning("[wowheadMonitor] article requests fetch failed url={} error={}".format(url, str(exc)))
+
+            # requests 不可用时再尝试 Chrome；仍需校验，不能把验证码/骨架页入库。
             try:
                 if self.req and getattr(self.req, 'is_chrome', False):
                     driver = self.req.get(url, 'RespByChrome', 0, cookies, is_origin=1)
                     if driver and hasattr(driver, 'html'):
                         for _ in range(8):
                             html_text = (getattr(driver, 'html', '') or '').strip()
-                            if self._is_valid_article_html(html_text):
+                            if self._is_valid_article_html(html_text) and len(self._extract_body_from_html(html_text)) >= 80:
                                 break
                             time.sleep(0.8)
                         if html_text and not self._is_valid_article_html(html_text):
                             logger.warning("[wowheadMonitor] article chrome html invalid, fallback url={} summary={} context={}".format(
-                                url,
-                                self._html_debug_summary(html_text, prefix="chrome_article"),
-                                self._request_debug_context(),
-                            ))
+                                url, self._html_debug_summary(html_text, prefix="chrome_article"), self._request_debug_context()))
                             html_text = ""
-            except Exception:
+            except Exception as exc:
+                logger.warning("[wowheadMonitor] article chrome fetch failed url={} error={}".format(url, str(exc)))
                 html_text = html_text or ""
 
-            if not html_text:
-                # 使用带重试的封装（避免偶发超时导致正文长期为空）
-                resp = self.req.get(url, "Response", 0, cookies)
-                if not resp:
-                    logger.warning("[wowheadMonitor] article requests returned empty url={} context={}".format(url, self._request_debug_context()))
-                    return ""
-                status_code = getattr(resp, 'status_code', 200)
-                html_text = getattr(resp, 'text', '') or ''
-                logger.info("[wowheadMonitor] article response url={} status={} summary={} context={}".format(
-                    url,
-                    status_code,
-                    self._html_debug_summary(html_text, prefix="article"),
-                    self._request_debug_context(),
-                ))
-                if int(status_code or 0) >= 400 or not self._is_valid_article_html(html_text):
-                    return ""
             if not html_text:
                 return ""
             return html_text
