@@ -5,6 +5,11 @@ import re
 from typing import Any, Dict, Iterable, List
 from urllib.parse import urljoin
 
+from botend.services.wowhead_bbcode_renderer import (
+    extract_wowhead_print_html_calls,
+    render_wowhead_bbcode,
+)
+
 try:
     from bs4 import BeautifulSoup
 except Exception:  # pragma: no cover - runtime dependency is present in production
@@ -118,18 +123,18 @@ def extract_structured_article(html_text: str, *, base_url: str = "", source: st
         return []
     soup = BeautifulSoup(html_text, "html.parser")
     if source == "wowhead":
-        _restore_wowhead_markup_screenshots(soup, base_url=base_url)
-        _restore_wowhead_markup_spell_table_cells(soup, base_url=base_url)
-        _restore_wowhead_markup_diff_marks(soup)
-    for tag in soup(["script", "style", "nav", "header", "footer", "aside", "iframe", "form"]):
+        rendered_print_html = _materialize_wowhead_print_html(soup, base_url=base_url)
+        if not rendered_print_html:
+            _restore_wowhead_markup_screenshots(soup, base_url=base_url)
+            _restore_wowhead_markup_item_table_cells(soup, base_url=base_url)
+            _restore_wowhead_markup_spell_table_cells(soup, base_url=base_url)
+            _restore_wowhead_markup_diff_marks(soup)
+    for tag in soup(["script"]):
         tag.decompose()
 
     root = _select_article_root(soup, source=source)
     if not root:
         return []
-
-    if source == "wowhead":
-        _normalize_wowhead_inline_breaks(root)
 
     block = _html_block(root, base_url=base_url)
     if block:
@@ -268,13 +273,10 @@ def _translatable_html_text_nodes(soup):
 
 def _html_block(root, *, base_url: str) -> Dict[str, Any]:
     cloned = copy.copy(root)
-    for tag in cloned.find_all(["script", "style", "nav", "header", "footer", "aside", "iframe", "form"]):
+    for tag in cloned.find_all(["script"]):
         tag.decompose()
     for tag in cloned.find_all("noscript"):
         tag.unwrap()
-    for tag in cloned.select(".advertisement, .ad, .heading-size, .heading-permalink"):
-        tag.decompose()
-    _clean_discourse_lightbox_meta(cloned)
     _restore_empty_image_links(cloned, base_url=base_url)
     for tag in cloned.find_all(True):
         _sanitize_html_tag(tag, base_url=base_url)
@@ -314,8 +316,83 @@ def _restore_empty_image_links(root, *, base_url: str):
             if alt:
                 img["alt"] = alt
             link.append(img)
-        else:
-            link.decompose()
+
+
+def _wowhead_fallback_entity_metadata(soup) -> Dict[tuple, Dict[str, str]]:
+    """Use rendered fallback links as stable names/URLs for BBCode entities."""
+    result = {}
+    entity_pattern = re.compile(r"/(item|spell|npc|object|quest|achievement)=(\d+)(?:/[^?#]*)?", re.I)
+    for link in soup.find_all("a", href=True):
+        match = entity_pattern.search(link.get("href") or "")
+        if not match:
+            continue
+        name = _clean_inline_text(link.get_text(" ", strip=True))
+        if not name:
+            continue
+        kind, entity_id = match.group(1).lower(), match.group(2)
+        result.setdefault((kind, entity_id), {"name": name, "url": link.get("href")})
+    for item_id, item in _wowhead_item_metadata(soup).items():
+        current = result.setdefault(("item", item_id), {})
+        if item.get("name"):
+            current["name"] = item["name"]
+        if item.get("icon"):
+            current["icon"] = item["icon"]
+    return result
+
+
+def _materialize_wowhead_print_html(soup, *, base_url: str) -> bool:
+    """Render authoritative Wowhead BBCode into its target nodes.
+
+    The browser version calls ``WH.markup.printHtml(markup, target_id, ...)``.
+    We parse the same source without executing JavaScript, render it to safe HTML,
+    and replace the adjacent noscript fallback only after a text-completeness check.
+    """
+    if not BeautifulSoup:
+        return False
+    entities = _wowhead_fallback_entity_metadata(soup)
+    screenshot_extensions = _wowhead_screenshot_extensions_by_id(soup)
+    rendered_any = False
+    article_root = _select_article_root(soup, source="wowhead")
+    for script in list(soup.find_all("script")):
+        script_text = script.string or script.get_text("", strip=False) or ""
+        calls = extract_wowhead_print_html_calls(script_text)
+        if not calls:
+            continue
+        fallback = script.find_next_sibling("noscript")
+        script_rendered = False
+        for call in calls:
+            rendered = render_wowhead_bbcode(
+                call.get("markup") or "",
+                base_url=base_url,
+                entities=entities,
+                screenshot_extensions=screenshot_extensions,
+            )
+            if not rendered:
+                continue
+            fragment = BeautifulSoup(rendered, "html.parser")
+            target = soup.find(id=call.get("target_id")) if call.get("target_id") else None
+            if target is not None and article_root is not None and target not in article_root.descendants:
+                target = None
+            if target is not None:
+                target.clear()
+                for child in list(fragment.contents):
+                    target.append(child.extract())
+            elif fallback is not None and fallback.parent is not None:
+                for child in list(fragment.contents):
+                    fallback.insert_before(child.extract())
+            elif script.parent is not None and article_root is not None and script in article_root.descendants:
+                for child in list(fragment.contents):
+                    script.insert_before(child.extract())
+            elif article_root is not None:
+                for child in list(fragment.contents):
+                    article_root.append(child.extract())
+            else:
+                continue
+            script_rendered = True
+            rendered_any = True
+        if script_rendered and fallback is not None and fallback.parent is not None:
+            fallback.decompose()
+    return rendered_any
 
 
 def _restore_wowhead_markup_screenshots(soup, *, base_url: str):
@@ -405,6 +482,111 @@ def _wowhead_screenshot_extensions_by_id(soup) -> Dict[str, str]:
             if ext:
                 result[match.group(1)] = ext
     return result
+
+
+def _wowhead_item_metadata(soup) -> Dict[str, Dict[str, str]]:
+    """Read the item names/icons embedded in Wowhead Gatherer data."""
+    result = {}
+    for script in soup.find_all("script"):
+        text = script.string or script.get_text("", strip=False) or ""
+        if "WH.Gatherer.addData(3" not in text:
+            continue
+        pattern = r'"(\d+)"\s*:\s*\{[^{}]*?"name_enus"\s*:\s*"((?:\\.|[^"\\])*)"[^{}]*?"icon"\s*:\s*"((?:\\.|[^"\\])*)"'
+        for match in re.finditer(pattern, text, re.S):
+            result[match.group(1)] = {
+                "name": _decode_wowhead_markup_string(match.group(2)),
+                "icon": _decode_wowhead_markup_string(match.group(3)),
+            }
+    return result
+
+
+def _restore_wowhead_markup_item_table_cells(soup, *, base_url: str):
+    """Restore item cards that Wowhead's noscript table leaves as empty cells."""
+    if not BeautifulSoup:
+        return
+    item_cells = []
+    centered_tables = False
+    for script in soup.find_all("script"):
+        text = script.string or script.get_text("", strip=False) or ""
+        if "WH.markup.printHtml" not in text or "[item=" not in text:
+            continue
+        decoded = _decode_wowhead_markup_string(text)
+        centered_tables = centered_tables or bool(re.search(r"\[center\]\s*\[table\]", decoded, re.I))
+        for cell_match in re.finditer(r"\[td([^\]]*)\](.*?)\[/td\]", decoded, re.I | re.S):
+            cell_attrs, cell_markup = cell_match.groups()
+            item_match = re.search(r"\[item=(\d+)(?:\s+[^\]]*)?\]", cell_markup, re.I)
+            if item_match:
+                item_cells.append({
+                    "id": item_match.group(1),
+                    "attrs": cell_attrs or "",
+                    "centered": bool(re.search(r"\[center\]", cell_markup, re.I)),
+                })
+    if not item_cells:
+        return
+
+    metadata = _wowhead_item_metadata(soup)
+    factory = BeautifulSoup("", "html.parser")
+    cell_index = 0
+    restored_tables = []
+    for cell in soup.find_all("td"):
+        if cell_index >= len(item_cells):
+            break
+        if _clean_inline_text(cell.get_text(" ", strip=True)) or cell.find(["a", "img", "span"]):
+            continue
+        item_cell = item_cells[cell_index]
+        item_id = item_cell["id"]
+        cell_index += 1
+        colspan_match = re.search(r"\bcolspan\s*=\s*[\"']?(\d+)", item_cell["attrs"], re.I)
+        if colspan_match:
+            cell["colspan"] = colspan_match.group(1)
+        valign_match = re.search(r"\bvalign\s*=\s*[\"']?([\w-]+)", item_cell["attrs"], re.I)
+        if valign_match:
+            existing_style = str(cell.get("style") or "").strip().rstrip(";")
+            vertical_style = "vertical-align: {}".format(valign_match.group(1))
+            cell["style"] = "; ".join(part for part in (existing_style, vertical_style) if part)
+        item = metadata.get(item_id) or {}
+        name = item.get("name") or "Item {}".format(item_id)
+        link = factory.new_tag("a", href=urljoin(base_url, "/item={}".format(item_id)))
+        link["class"] = "wowhead-item-card"
+        icon = item.get("icon")
+        if icon:
+            image = factory.new_tag("img", src="https://wow.zamimg.com/images/wow/icons/large/{}.jpg".format(icon))
+            image["alt"] = name
+            link.append(image)
+        label = factory.new_tag("span")
+        label.string = name
+        link.append(label)
+        if item_cell["centered"]:
+            centered = factory.new_tag("div")
+            centered["class"] = "wh-center"
+            centered["style"] = "text-align: center"
+            centered.append(link)
+            cell.append(centered)
+        else:
+            cell.append(link)
+        table = cell.find_parent("table")
+        if table is not None and table not in restored_tables:
+            restored_tables.append(table)
+
+    # Wowhead's noscript fallback emits source line breaks as direct children of
+    # table/tr. Those nodes are invalid HTML and browsers foster-parent them
+    # before the table, producing large blank gaps. Remove only these structural
+    # breaks from tables whose missing item cells were restored above.
+    for table in restored_tables:
+        for direct_break in list(table.find_all("br", recursive=False)):
+            direct_break.decompose()
+        for row in table.find_all("tr"):
+            for direct_break in list(row.find_all("br", recursive=False)):
+                direct_break.decompose()
+
+    if centered_tables:
+        for table in restored_tables:
+            if table.parent and table.parent.get("class") and "wh-center" in table.parent.get("class", []):
+                continue
+            centered = factory.new_tag("div")
+            centered["class"] = "wh-center"
+            centered["style"] = "text-align: center"
+            table.wrap(centered)
 
 
 def _restore_wowhead_markup_spell_table_cells(soup, *, base_url: str):
@@ -554,14 +736,8 @@ def _clean_discourse_lightbox_meta(root):
 
 
 def _sanitize_html_tag(tag, *, base_url: str):
-    """Preserve source article formatting while stripping executable behavior.
+    """Remove only executable behavior; preserve article markup and metadata."""
 
-    Article bodies should stay visually close to the source.  Do not use a small
-    formatting whitelist here: Wowhead/Discourse markup relies on classes,
-    styles, data-* attributes, table attributes, and inline media metadata.
-    The sanitizer's job is only to remove execution/binding capability and
-    normalize safe URL attributes.
-    """
     url_attrs = {"href", "src", "poster", "data-source-src"}
     for attr in list(tag.attrs.keys()):
         attr_lower = attr.lower()
@@ -589,9 +765,6 @@ def _sanitize_html_tag(tag, *, base_url: str):
             # URL until the uploader rewrites it.
             if attr_lower != "data-source-src":
                 tag.attrs[attr] = urljoin(base_url, normalized)
-    if tag.name == "a" and tag.get("href"):
-        tag.attrs["target"] = "_blank"
-        tag.attrs["rel"] = "noreferrer"
 
 
 def _clean_html_fragment(html_text: str) -> str:
@@ -624,11 +797,13 @@ def _normalize_wowhead_inline_breaks(root):
         "nav", "ol", "p", "pre", "section", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul",
     }
 
-    # Wowhead often materializes BBCode/newline formatting as leading/trailing
-    # ``<br>`` nodes inside list items and around block nodes.  In Portal this
-    # becomes large blank gaps, especially for Blizzard quote boxes.  Keep useful
-    # inline breaks between text fragments, but remove pure block-boundary breaks.
+    noisy_boundary_tags = block_tags - {"table", "tbody", "tfoot", "thead", "tr", "td", "th"}
+
+    # Wowhead uses breaks around lists and ordinary block wrappers as spacing
+    # noise, but breaks around tables can be intentional article layout.
     for tag in root.find_all(["li", "td", "th", "blockquote", "div"]):
+        if tag is root:
+            continue
         _trim_edge_breaks(tag)
 
     changed = True
@@ -637,15 +812,19 @@ def _normalize_wowhead_inline_breaks(root):
         for br in list(root.find_all("br")):
             prev_sig = _significant_sibling(br, previous=True)
             next_sig = _significant_sibling(br, previous=False)
-            if prev_sig is not None and getattr(prev_sig, "name", None) == "br":
+            if (
+                prev_sig is not None
+                and getattr(prev_sig, "name", None) == "br"
+                and getattr(br, "parent", None) is not root
+            ):
                 br.decompose()
                 changed = True
                 continue
-            if prev_sig is not None and getattr(prev_sig, "name", None) in block_tags:
+            if prev_sig is not None and getattr(prev_sig, "name", None) in noisy_boundary_tags:
                 br.decompose()
                 changed = True
                 continue
-            if next_sig is not None and getattr(next_sig, "name", None) in block_tags:
+            if next_sig is not None and getattr(next_sig, "name", None) in noisy_boundary_tags:
                 br.decompose()
                 changed = True
                 continue

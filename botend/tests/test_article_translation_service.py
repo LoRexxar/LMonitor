@@ -2,6 +2,7 @@ import json
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
+from bs4 import BeautifulSoup
 
 from botend.services.article_content_service import (
     article_blocks_match_reference,
@@ -264,7 +265,32 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn("Sun Festival's Painted Roc", blocks_to_plain_text(blocks))
         self.assertIn("Requires Level", blocks_to_plain_text(blocks))
 
-    def test_extract_wowhead_article_trims_noisy_list_breaks(self):
+    def test_extract_wowhead_article_preserves_inline_paragraph_breaks(self):
+        html = """
+        <div id="news-post"><div class="text">
+          First paragraph.<br><br>Second paragraph.<br>Continuation.
+        </div></div>
+        """
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
+        html_result = blocks[0]["html"]
+
+        self.assertEqual(html_result.count("<br"), 3)
+
+    def test_extract_wowhead_article_preserves_breaks_around_source_blocks(self):
+        html = """
+        <div id="news-post"><div class="text">
+          Intro line.<br><br><table><tr><td>Data</td></tr></table><br><br>After table.
+        </div></div>
+        """
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
+        html_result = blocks[0]["html"]
+
+        self.assertGreaterEqual(html_result.count("<br"), 4)
+
+
+    def test_extract_wowhead_article_preserves_source_breaks(self):
         html = """
         <div id="news-post"><div class="text">
           Intro line.<br><br>
@@ -280,13 +306,25 @@ class ArticleContentServiceTests(SimpleTestCase):
         blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
         html_result = blocks[0]["html"]
 
-        self.assertNotIn("<li><br", html_result)
-        self.assertNotIn("<br/></li>", html_result)
-        self.assertNotIn("</ul><br", html_result)
-        self.assertNotIn("<br/><ul", html_result)
-        self.assertIn("<li><b>July 2nd - July 6th:</b> Midnight Dungeons<br/>The Blinding Vale</li>", html_result)
+        self.assertIn("<li><br", html_result)
+        self.assertIn("<br/></li>", html_result)
+        self.assertIn("</ul><br", html_result)
+        self.assertIn("<br/><br/>\n<ul", html_result)
+        self.assertIn("<li><br/><b>July 2nd - July 6th:</b> Midnight Dungeons<br/><br/>The Blinding Vale<br/></li>", html_result)
         self.assertIn("<b>Dungeon Update</b>", html_result)
         self.assertIn("Updated spawning.", blocks_to_plain_text(blocks))
+
+    def test_extract_article_keeps_non_js_body_wrappers(self):
+        html = """
+        <article><style>.source-style { color: red }</style><nav>Source nav text</nav>
+          <div class="source-wrapper">Body <span data-source="x">text</span></div>
+        </article>
+        """
+        blocks = extract_structured_article(html, base_url="https://example.com/news/1", source="generic")
+        result = blocks[0]["html"]
+        self.assertIn("source-wrapper", result)
+        self.assertIn("source-style", result)
+        self.assertIn("Source nav text", result)
 
     def test_extract_article_preserves_format_attributes_but_removes_execution(self):
         html = """
@@ -332,7 +370,7 @@ class ArticleContentServiceTests(SimpleTestCase):
 
         self.assertIn('<img src="https://bnetcmsus-a.akamaihd.net/cms/content_entry_media/ay/IMAGE.png"/>', html_result)
         self.assertIn('href="https://bnetcmsus-a.akamaihd.net/cms/content_entry_media/ay/IMAGE.png"', html_result)
-        self.assertNotIn('<a href="https://www.wowhead.com/item=1"></a>', html_result)
+        self.assertIn('<a href="https://www.wowhead.com/item=1"></a>', html_result)
 
     def test_extract_wowhead_article_restores_screenshot_markup_from_script(self):
         html = r'''
@@ -353,6 +391,36 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn('alt="The Venomous Abyss raid map"', html_result)
         self.assertIn('src="https://wow.zamimg.com/uploads/screenshots/normal/1290356.jpg"', html_result)
         self.assertIn("Raid maps for The Venomous Abyss", blocks_to_plain_text(blocks))
+
+    def test_extract_wowhead_article_restores_item_table_cells_from_markup_script(self):
+        html = r'''
+        <script>WH.Gatherer.addData(3, 2, {"271884":{"name_enus":"Concentrated Silvermoon Health Potion","icon":"inv_health"},"271887":{"name_enus":"Liquid Luster","icon":"inv_luster"},"271890":{"name_enus":"Alluring Nostrum","icon":"inv_nostrum"}});</script>
+        <div id="news-post"><div class="text">
+          <p>Players will have more consumables to choose from in Patch 12.1.</p>
+          <script>WH.markup.printHtml("[center][table][tr][td colspan=2 valign=top][center][item=271884 tooltip][\/center][\/td][\/tr][tr][td valign=top][item=271887 tooltip][\/td][td valign=top][item=271890 tooltip][\/td][\/tr][\/table][\/center]");</script>
+          <noscript><br><table><br><tr><td colspan="2"></td></tr><br><tr><td></td><br><td></td></tr><br></table><br></noscript>
+        </div></div>
+        '''
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/382192", source="wowhead")
+        html_result = blocks[0]["html"]
+
+        self.assertIn('href="https://www.wowhead.com/item=271884"', html_result)
+        self.assertIn("Concentrated Silvermoon Health Potion", html_result)
+        self.assertIn('src="https://wow.zamimg.com/images/wow/icons/large/inv_health.jpg"', html_result)
+        self.assertIn("Liquid Luster", html_result)
+        self.assertIn("Alluring Nostrum", html_result)
+        self.assertEqual(html_result.count('class="wowhead-item-card"'), 3)
+        self.assertIn('class="wh-center"', html_result)
+        self.assertIn('style="text-align: center"', html_result)
+        self.assertIn('colspan="2"', html_result)
+        self.assertIn('style="vertical-align: top"', html_result)
+        result_soup = BeautifulSoup(html_result, "html.parser")
+        item_table = result_soup.find("table")
+        self.assertIsNotNone(item_table)
+        self.assertFalse(item_table.find_all("br", recursive=False))
+        for row in item_table.find_all("tr"):
+            self.assertFalse(row.find_all("br", recursive=False))
 
     def test_extract_wowhead_article_restores_spell_table_cells_from_markup_script(self):
         html = r'''
@@ -557,7 +625,7 @@ class ArticleContentServiceTests(SimpleTestCase):
 
         self.assertIsNone(req.s.calls[0][1]["proxies"])
 
-    def test_extract_structured_article_normalizes_discourse_lightbox_images(self):
+    def test_extract_structured_article_preserves_discourse_lightbox_structure(self):
         html = """
         <article>
           <p>Check out this image:</p>
@@ -582,12 +650,13 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertEqual(len(blocks), 1)
         self.assertEqual(blocks[0]["type"], "html")
         html_result = blocks[0]["html"]
-        self.assertIn('class="article-image-link"', html_result)
+        self.assertIn('class="lightbox-wrapper"', html_result)
+        self.assertIn('class="lightbox"', html_result)
         self.assertIn('href="https://example.com/original.jpg"', html_result)
         self.assertIn('<img alt="Screenshot" src="https://example.com/thumb.jpg"/>', html_result)
-        self.assertNotIn("class=\"meta\"", html_result)
-        self.assertNotIn("class=\"filename\"", html_result)
-        self.assertNotIn("class=\"informations\"", html_result)
-        self.assertNotIn("<svg", html_result)
-        self.assertNotIn("<p><div", html_result)
+        self.assertIn('class="meta"', html_result)
+        self.assertIn('class="filename"', html_result)
+        self.assertIn('class="informations"', html_result)
+        self.assertIn("<svg", html_result)
+        self.assertIn("<p><div", html_result)
         self.assertIn("More text here.", blocks_to_plain_text(blocks))
