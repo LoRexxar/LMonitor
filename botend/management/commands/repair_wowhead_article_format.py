@@ -4,7 +4,7 @@ import re
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from botend.models import WowArticle
+from botend.models import MonitorTask, WowArticle
 from botend.services.article_content_service import blocks_to_plain_text, dumps_blocks, extract_structured_article, loads_blocks
 from botend.services.article_translation_service import build_translation_service
 
@@ -121,8 +121,10 @@ class Command(BaseCommand):
         try:
             from utils.LReq import LReq
             from botend.controller.plugins.wow.wowheadMonitor import wowheadMonitor
+            task = MonitorTask.objects.filter(name="wowheadMonitor", is_active=True).first()
             req = LReq(is_chrome=False)
-            return wowheadMonitor(req, None)
+            req.set_current_task(task)
+            return wowheadMonitor(req, task)
         except Exception:
             return None
 
