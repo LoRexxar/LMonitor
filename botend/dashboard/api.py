@@ -456,16 +456,72 @@ def _editor_spec(raw):
 def _latest_catalog_identity():
     configured = getattr(settings, 'SIMC_APL_CURRENT_IDENTITY', None)
     if configured and len(configured) == 2:
-        return tuple(configured)
+        revision, build = (str(value or '').strip() for value in configured)
+        if re.fullmatch(r'[0-9a-f]{40}', revision) and build:
+            return revision, build
+        return None
     platform = 'linuxarm64' if 'aarch64' in py_platform.machine().lower() else 'linux64'
     current = SimcBackendBinary.objects.filter(platform=platform).values_list('current_version', flat=True).first()
     if not current:
         return None
-    builds = list(SimcAplSymbol.objects.filter(is_active=True, simc_revision=current)
-                  .order_by().values_list('wow_build', flat=True).distinct()[:2])
-    if len(builds) != 1:
+
+    revision = current if re.fullmatch(r'[0-9a-f]{40}', current) else None
+    catalog = SimcAplSymbol.objects.filter(is_active=True)
+    if revision:
+        catalog = catalog.filter(simc_revision=revision)
+    else:
+        suffix = re.search(r'(?:^|-)([0-9a-f]{7,39})$', current)
+        if not suffix:
+            return None
+        catalog = catalog.filter(simc_revision__startswith=suffix.group(1))
+
+    identities = list(catalog.order_by().values_list(
+        'simc_revision', 'wow_build',
+    ).distinct()[:2])
+    if len(identities) != 1:
         return None
-    return current, builds[0]
+    revision, build = identities[0]
+    if not re.fullmatch(r'[0-9a-f]{40}', revision):
+        return None
+    return revision, build
+
+
+def _authoritative_action_tokens(spell_ids, parsed_spec, identity):
+    """Resolve exact SpellID bindings from the visible catalog without guessing."""
+    if not spell_ids or not parsed_spec or not identity:
+        return {}
+    _, class_name, spec_name = parsed_spec
+    symbols = (SimcAplSymbol.objects.filter(
+        simc_revision=identity[0], wow_build=identity[1], is_active=True,
+        symbol_kind=SimcAplSymbol.KIND_ACTION, spell_id__in=spell_ids,
+        hero_tree__isnull=True,
+    ).filter(
+        models.Q(class_name__isnull=True, spec__isnull=True) |
+        models.Q(class_name=class_name, spec__isnull=True) |
+        models.Q(class_name=class_name, spec=spec_name)
+    ).annotate(
+        scope_rank=models.Case(
+            models.When(class_name=class_name, spec=spec_name, then=models.Value(2)),
+            models.When(class_name=class_name, spec__isnull=True, then=models.Value(1)),
+            default=models.Value(0), output_field=models.IntegerField(),
+        )
+    ).values_list('spell_id', 'token', 'scope_rank').order_by('spell_id', '-scope_rank', 'token'))
+
+    selected = {}
+    best_rank = {}
+    ambiguous = set()
+    for spell_id, token, rank in symbols:
+        if not token:
+            continue
+        if spell_id not in best_rank or rank > best_rank[spell_id]:
+            selected[spell_id] = token
+            best_rank[spell_id] = rank
+            ambiguous.discard(spell_id)
+        elif rank == best_rank[spell_id] and token != selected[spell_id]:
+            ambiguous.add(spell_id)
+    for spell_id in ambiguous:
+        selected.pop(spell_id, None)
+    return selected
 
 
 def _catalog_item(item, simc_revision='', game_build=''):
@@ -647,44 +703,12 @@ class SimcAplSymbolsAPIView(SimcAplEditorAPIView):
 
 
 class SimcAplSpellsAPIView(SimcAplEditorAPIView):
-    """Wago bilingual spell list with best-effort, explicitly sourced tokens."""
-
-    @staticmethod
-    def _candidate_token(name):
-        return re.sub(r'_+', '_', re.sub(r'[^a-z0-9]+', '_', name.lower())).strip('_')
-
-    @staticmethod
-    def _symbol_rank(symbol, class_name, spec):
-        if symbol.spec:
-            return 2 if symbol.class_name == class_name and symbol.spec == spec else -1
-        if symbol.class_name:
-            return 1 if symbol.class_name == class_name else -1
-        return 0
-
-    def _symbol_tokens(self, spell_ids, raw_spec):
-        identity = _latest_catalog_identity()
-        parsed_spec = _editor_spec(raw_spec) if raw_spec else None
-        if not identity or not parsed_spec or not spell_ids:
-            return {}
-        _, class_name, spec = parsed_spec
-        symbols = SimcAplSymbol.objects.filter(
-            simc_revision=identity[0], wow_build=identity[1], is_active=True,
-            symbol_kind=SimcAplSymbol.KIND_ACTION, spell_id__in=spell_ids,
-        ).filter(
-            models.Q(class_name__isnull=True) |
-            models.Q(class_name=class_name, spec__isnull=True) |
-            models.Q(class_name=class_name, spec=spec)
-        ).order_by('spell_id', 'token')
-        selected = {}
-        ranks = {}
-        for symbol in symbols:
-            rank = self._symbol_rank(symbol, class_name, spec)
-            if rank > ranks.get(symbol.spell_id, -1):
-                selected[symbol.spell_id] = symbol.token
-                ranks[symbol.spell_id] = rank
-        return selected
+    """Paginated bilingual actions for the current authoritative spec catalog."""
 
     def get(self, request):
+        spec = _editor_spec(request.GET.get('spec'))
+        if not spec:
+            return _editor_error('invalid_spec', 'Unknown specialization.')
         try:
             page = int(request.GET.get('page', 1))
             page_size = int(request.GET.get('page_size', 50))
@@ -693,46 +717,58 @@ class SimcAplSpellsAPIView(SimcAplEditorAPIView):
         if page < 1 or page_size < 1:
             return _editor_error('invalid_pagination', 'Invalid pagination parameters.')
         page_size = min(100, page_size)
+        identity = _latest_catalog_identity()
+        if not identity:
+            return _editor_error('catalog_unavailable', 'The current symbol catalog is unavailable.', 503)
+
+        revision, build = identity
+        _, class_name, spec_name = spec
+        scope = (
+            models.Q(class_name__isnull=True, spec__isnull=True, hero_tree__isnull=True) |
+            models.Q(class_name=class_name, spec__isnull=True, hero_tree__isnull=True) |
+            models.Q(class_name=class_name, spec=spec_name, hero_tree__isnull=True)
+        )
+        localized = WowSpellSnapshot.objects.filter(
+            branch='wow', locale='zhCN', snapshot_build=build,
+            spell_id=models.OuterRef('spell_id'),
+        ).exclude(name='').exclude(name_zh='').order_by('-updated_at', '-id')
+        rows = (SimcAplSymbol.objects.filter(
+            simc_revision=revision, wow_build=build, is_active=True,
+            symbol_kind=SimcAplSymbol.KIND_ACTION,
+            spell_id__isnull=False,
+        ).exclude(token='').filter(scope).annotate(
+            scope_rank=models.Case(
+                models.When(class_name=class_name, spec=spec_name, then=models.Value(2)),
+                models.When(class_name=class_name, spec__isnull=True, then=models.Value(1)),
+                default=models.Value(0), output_field=models.IntegerField(),
+            ),
+            english=models.Subquery(localized.values('name')[:1]),
+            chinese=models.Subquery(localized.values('name_zh')[:1]),
+        ).exclude(english__isnull=True).exclude(chinese__isnull=True).annotate(
+            scope_row=models.Window(
+                expression=models.functions.RowNumber(),
+                partition_by=[models.F('token')],
+                order_by=[models.F('scope_rank').desc(), models.F('id').asc()],
+            )
+        ).filter(scope_row=1))
+
         query = (request.GET.get('query') or '').strip()[:200]
-        rows = (WowSpellSnapshot.objects.filter(branch='wow', locale='zhCN')
-                .exclude(name='').exclude(name_zh=''))
         if query:
-            rows = rows.filter(models.Q(name__icontains=query) | models.Q(name_zh__icontains=query))
-        pairs = rows.values('name', 'name_zh').order_by('name', 'name_zh').distinct()
-        total = pairs.count()
+            rows = rows.filter(
+                models.Q(token__icontains=query) |
+                models.Q(english__icontains=query) |
+                models.Q(chinese__icontains=query)
+            )
+        rows = rows.order_by('english', 'token')
+        total = rows.count()
         total_pages = (total + page_size - 1) // page_size
         start = (page - 1) * page_size
-        page_pairs = list(pairs[start:start + page_size])
-        pair_keys = {(row['name'], row['name_zh']) for row in page_pairs}
-        page_names = {row['name'] for row in page_pairs}
-        snapshots = list(rows.filter(name__in=page_names).values('spell_id', 'name', 'name_zh'))
-        spell_ids_by_pair = {}
-        for row in snapshots:
-            key = (row['name'], row['name_zh'])
-            if key in pair_keys:
-                spell_ids_by_pair.setdefault(key, []).append(row['spell_id'])
-        all_spell_ids = {spell_id for values in spell_ids_by_pair.values() for spell_id in values}
-        symbol_tokens = self._symbol_tokens(all_spell_ids, request.GET.get('spec'))
-
-        items = []
-        for row in page_pairs:
-            key = (row['name'], row['name_zh'])
-            symbol_candidates = {
-                symbol_tokens[sid] for sid in spell_ids_by_pair.get(key, [])
-                if sid in symbol_tokens
-            }
-            token = next(iter(symbol_candidates)) if len(symbol_candidates) == 1 else None
-            if token:
-                token_source, authoritative = 'simc_symbol', True
-            else:
-                token = self._candidate_token(row['name'])
-                token_source, authoritative = 'wago_candidate', False
-            items.append({
-                'english': row['name'], 'chinese': row['name_zh'], 'token': token,
-                'token_source': token_source, 'authoritative': authoritative,
-            })
+        page_rows = list(rows.values('token', 'english', 'chinese')[start:start + page_size])
         return JsonResponse({'success': True, 'data': {
-            'items': items,
+            'items': [{
+                'english': row['english'], 'chinese': row['chinese'], 'token': row['token'],
+                'token_source': 'simc_symbol', 'authoritative': True,
+            } for row in page_rows],
             'pagination': {'page': page, 'page_size': page_size, 'total': total, 'total_pages': total_pages},
         }})
 
@@ -826,26 +862,55 @@ class ConvertTextAPIView(View):
     
     def bilingual_pairs(self, spec=''):
         """Use live Wago names and SimC symbols as the sole bilingual catalog."""
+        identity = _latest_catalog_identity()
+        parsed_spec = _editor_spec(spec) if spec else None
+        if not identity or not parsed_spec:
+            return []
+        _, class_name, short_spec = parsed_spec
+        spell_ids = set(SimcAplSymbol.objects.filter(
+            simc_revision=identity[0], wow_build=identity[1], is_active=True,
+            symbol_kind=SimcAplSymbol.KIND_ACTION, spell_id__isnull=False,
+        ).filter(
+            models.Q(class_name__isnull=True) |
+            models.Q(class_name=class_name, spec__isnull=True) |
+            models.Q(class_name=class_name, spec=short_spec)
+        ).values_list('spell_id', flat=True))
+        if not spell_ids:
+            return []
         rows = list(
-            WowSpellSnapshot.objects.filter(branch='wow', locale='zhCN')
-            .exclude(name='').exclude(name_zh='')
+            WowSpellSnapshot.objects.filter(
+                branch='wow', locale='zhCN', spell_id__in=spell_ids,
+            ).exclude(name='').exclude(name_zh='')
             .values('spell_id', 'name', 'name_zh')
             .order_by('name', 'name_zh', 'spell_id')
         )
-        spell_ids = {row['spell_id'] for row in rows}
-        symbol_tokens = SimcAplSpellsAPIView()._symbol_tokens(spell_ids, spec)
+        symbol_tokens = _authoritative_action_tokens(spell_ids, parsed_spec, identity)
+        candidates = []
+        tokens_by_chinese = {}
+        chinese_by_token = {}
+        for row in rows:
+            # Wago only provides spell_id ↔ localized names. A token is usable
+            # for conversion only when the current revision/spec symbol catalog
+            # binds that exact spell_id; never promote a guessed name slug.
+            token = symbol_tokens.get(row['spell_id'])
+            key = ((token or '').casefold(), row['name_zh'].casefold())
+            if not token:
+                continue
+            candidates.append((token, row['name_zh'], key))
+            tokens_by_chinese.setdefault(row['name_zh'].casefold(), set()).add(token.casefold())
+            chinese_by_token.setdefault(token.casefold(), set()).add(row['name_zh'].casefold())
+
+        # Action/event aliases can make either direction ambiguous: multiple
+        # tokens may share one Chinese name, or one token may bind multiple
+        # localized spells. Only publish a true one-to-one mapping.
         pairs = []
         seen_pairs = set()
-        seen_tokens = set()
-        for row in rows:
-            candidate = SimcAplSpellsAPIView._candidate_token(row['name'])
-            token = symbol_tokens.get(row['spell_id']) or candidate
-            key = (token.casefold(), row['name_zh'].casefold())
-            if not token or key in seen_pairs:
+        for token, chinese, key in candidates:
+            if (len(tokens_by_chinese[chinese.casefold()]) != 1 or
+                    len(chinese_by_token[token.casefold()]) != 1 or key in seen_pairs):
                 continue
-            pairs.append((token, row['name_zh']))
+            pairs.append((token, chinese))
             seen_pairs.add(key)
-            seen_tokens.add(token.casefold())
         return pairs
 
 
@@ -857,13 +922,17 @@ class ConvertTextAPIView(View):
             keyword_pairs = sorted(
                 self.bilingual_pairs(spec), key=lambda pair: len(pair[0]), reverse=True,
             )
-            result = text
+            lines = text.splitlines(keepends=True)
             for apl_keyword, cn_keyword in keyword_pairs:
                 # 只允许 token 内部的下划线与空格互换，不吞掉 token 外部空白。
                 parts = [re.escape(part) for part in apl_keyword.split('_')]
                 pattern = r'(?<![A-Za-z0-9_])' + r'[ _]+'.join(parts) + r'(?![A-Za-z0-9_])'
-                result = re.sub(pattern, lambda _match, value=cn_keyword: value, result)
-            return result
+                lines = [
+                    re.sub(pattern, lambda _match, value=cn_keyword: value, line)
+                    if not line.lstrip().startswith('#') else line
+                    for line in lines
+                ]
+            return ''.join(lines)
         except Exception as e:
             logger.error(f"APL2CN错误: {str(e)}")
             raise e
@@ -876,12 +945,16 @@ class ConvertTextAPIView(View):
             keyword_pairs = sorted(
                 self.bilingual_pairs(spec), key=lambda pair: len(pair[1]), reverse=True,
             )
-            result = text
+            lines = text.splitlines(keepends=True)
             for apl_keyword, cn_keyword in keyword_pairs:
                 parts = [re.escape(char) for char in cn_keyword if not char.isspace()]
                 pattern = r'\s*'.join(parts)
-                result = re.sub(pattern, lambda _match, value=apl_keyword: value, result)
-            return result
+                lines = [
+                    re.sub(pattern, lambda _match, value=apl_keyword: value, line)
+                    if not line.lstrip().startswith('#') else line
+                    for line in lines
+                ]
+            return ''.join(lines)
         except Exception as e:
             logger.error(f"CN2APL错误: {str(e)}")
             raise e

@@ -65,6 +65,18 @@ class RuntimeManifestImportTests(TestCase):
         self.assertEqual(fact['options'], ['if', 'target_if'])
         self.assertEqual(first.completeness, 'runtime/partial')
 
+    def test_runtime_spec_alias_is_normalized_to_dashboard_canonical_spec(self):
+        payload = manifest(symbols=[{
+            'class': 'hunter', 'spec': 'beastmastery', 'scope': 'spec',
+            'token': 'kill_command', 'kind': 'action', 'spell_id': 34026,
+            'source': 'runtime_action', 'options': [], 'aliases': [],
+        }])
+
+        result = load_runtime_manifest(self.write(payload), REVISION, BUILD)
+
+        self.assertEqual(result.facts[0]['class_name'], 'hunter')
+        self.assertEqual(result.facts[0]['spec'], 'beast_mastery')
+
     def test_manifest_requires_granular_runtime_module_statuses(self):
         payload = manifest(completeness={
             'status': 'partial', 'modules': {'global': 'runtime_initialized'},

@@ -83,13 +83,14 @@ class Command(BaseCommand):
         self.sync_version = str(options.get('sync_version') or '').strip()
         strict = bool(options.get('strict'))
         self.strict = strict
-
         if not os.path.isdir(source_dir):
             message = f'APL 目录不存在: {source_dir}'
             self.stdout.write(self.style.ERROR(message))
             if strict:
                 raise CommandError(message)
             return
+        if strict and not re.fullmatch(r'[0-9a-fA-F]{40}', self.sync_version):
+            raise CommandError('严格导入要求 --sync-version 为 40 位 hexadecimal SimC git SHA')
 
         # 扫描 .simc 文件
         files = sorted(f for f in os.listdir(source_dir) if f.endswith('.simc'))
@@ -216,6 +217,14 @@ class Command(BaseCommand):
         if spec_key == 'warrior_fury':
             content = content.replace('talent.slayers_dominance', 'hero_tree.slayer')
             content = content.replace('talent.lightning_strikes', 'hero_tree.mountain_thane')
+        elif spec_key == 'demonhunter_havoc':
+            # Upstream revision 62ababb contains one accidental C-style
+            # conjunction. SimC APL uses a single '&'; normalize that exact
+            # source typo before structural validation and persistence.
+            content = content.replace(
+                'cooldown.eye_beam.remains>5&&equipped.algethar_puzzle_box',
+                'cooldown.eye_beam.remains>5&equipped.algethar_puzzle_box',
+            )
 
         if strict:
             _, _, diagnostics = validate_document(content)

@@ -88,6 +88,29 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.assertIn('actions=/bloodthirst', content)
         self.assertIn('html=validation-result.html', content)
 
+    def test_authoritative_validation_disambiguates_short_spec_with_trusted_class(self):
+        from types import SimpleNamespace
+
+        cases = (
+            ('deathknight', 'frost'),
+            ('paladin', 'protection'),
+        )
+        for class_name, spec in cases:
+            with self.subTest(class_name=class_name, spec=spec):
+                profile = SimpleNamespace(
+                    spec=spec, class_name=class_name,
+                    player_config_mode='manual_equipment',
+                    player_equipment=(
+                        f'{class_name}="Validator"\nspec={spec}\nhead=,id=212048'),
+                    talent='', battlenet_region='', battlenet_realm='',
+                    battlenet_character='', gear_crit=0, gear_haste=0,
+                    gear_mastery=0, gear_versatility=0,
+                )
+                content = SimcComposer(self.user.id).compose_validation_input(
+                    profile, 'actions=/auto_attack')
+                self.assertIn(f'{class_name}="Validator"', content)
+                self.assertIn(f'spec={spec}', content)
+
     def test_authoritative_validation_preserves_battlenet_actor_coordinates(self):
         from types import SimpleNamespace
 

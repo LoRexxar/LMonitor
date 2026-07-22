@@ -29,6 +29,7 @@ from botend.services.simc_apl.authoritative_validator import RestrictedSimcValid
 from botend.services.simc_apl.publish import content_hash
 from botend.services.simc_apl.validation import validate_payload
 from botend.services.simc_composer import SimcComposer
+from botend.services.simc_player_config import canonical_simc_spec_identity
 
 
 DEFAULT_SIMC_SOURCE_DIR = '/home/lighthouse/simc'
@@ -61,11 +62,17 @@ class Command(BaseCommand):
                 return
             if options['sync_inputs_only']:
                 git_hash = self._get_git_hash()
-                if self.row.current_version != git_hash:
+                current_version = self.row.current_version
+                if not self._revision_matches_git_hash(current_version, git_hash):
                     raise CommandError('当前 SimC 二进制 revision 与源码 HEAD 不一致，拒绝仅同步输入')
                 self._sync_generated_inputs(git_hash=git_hash,
                                             binary_path=self.simc_binary_path,
-                                            binary_revision=self.row.current_version)
+                                            binary_revision=git_hash)
+                if current_version != git_hash:
+                    # Promote legacy metadata only after the entire transactional
+                    # corpus/symbol publication has succeeded.
+                    self.row.current_version = git_hash
+                    self.row.save(update_fields=['current_version'])
                 self._set_status(progress=100, status='默认模板和 APL 同步完成', error='', updating=False)
                 return
             if options['apply_patches']:
@@ -252,8 +259,9 @@ class Command(BaseCommand):
 
     def _validate_system_apl(self, apl, baseline, git_hash, binary_path, binary_revision):
         """Run one staged upstream APL against its same-revision MID1 baseline."""
+        class_name, short_spec = canonical_simc_spec_identity(apl.spec)
         profile = type('SystemAplProfile', (), {
-            'id': 0, 'user_id': 0, 'spec': apl.spec,
+            'id': 0, 'user_id': 0, 'spec': short_spec, 'class_name': class_name,
             'player_config_mode': 'manual_equipment',
             'player_equipment': baseline.content, 'talent': '',
             'battlenet_region': '', 'battlenet_realm': '', 'battlenet_character': '',
@@ -275,6 +283,22 @@ class Command(BaseCommand):
             validation_context=context,
         )
 
+    @staticmethod
+    def _validation_baseline_for_spec(spec, baselines):
+        exact = baselines.get(spec)
+        if exact is not None:
+            return exact
+        class_name, short_spec = canonical_simc_spec_identity(spec)
+        source = next((row for row in baselines.values()
+                       if row.class_name == class_name), None)
+        if source is None:
+            return None
+        content = re.sub(r'(?m)^spec\s*=.*$', f'spec={short_spec}', source.content, count=1)
+        content = re.sub(r'(?m)^talents\s*=.*\n?', '', content)
+        return type('ValidationBaseline', (), {
+            'content': content, 'spec': spec, 'class_name': class_name,
+        })()
+
     def _publish_system_apl_corpus(self, git_hash, wow_build, binary_path, binary_revision):
         apls = list(SimcApl.objects.filter(
             source=SimcApl.SOURCE_SIMC_UPSTREAM, is_system=True,
@@ -292,7 +316,7 @@ class Command(BaseCommand):
         failures = []
         results = []
         for apl in apls:
-            baseline = baselines.get(apl.spec)
+            baseline = self._validation_baseline_for_spec(apl.spec, baselines)
             if baseline is None:
                 failures.append(f'{apl.spec}: 缺少同 revision 默认玩家基线')
                 continue
@@ -366,9 +390,45 @@ class Command(BaseCommand):
         handle = tempfile.NamedTemporaryFile(prefix='lmonitor-simc-apl-', suffix='.json', delete=False)
         path = handle.name
         handle.close()
+        generated_profiles = []
         try:
+            profile_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID1')
+            profiles = sorted(
+                os.path.join(profile_dir, name)
+                for name in os.listdir(profile_dir)
+                if name.endswith('.simc') and os.path.isfile(os.path.join(profile_dir, name))
+            ) if os.path.isdir(profile_dir) else []
+            if not profiles:
+                self._fail(
+                    'SimC runtime manifest 缺少 actor profile',
+                    f'未找到可初始化的 MID1 profile: {profile_dir}',
+                    progress=92,
+                )
+            baseline_rows = list(SimcContentTemplate.objects.filter(
+                template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+                source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                is_active=True, sync_version=git_hash,
+            ))
+            baselines = {row.spec: row for row in baseline_rows}
+            available_specs = set(baselines)
+            required_specs = set(SimcApl.objects.filter(
+                source=SimcApl.SOURCE_SIMC_UPSTREAM, is_system=True,
+                is_active=True, sync_version=git_hash,
+            ).values_list('spec', flat=True))
+            for spec in sorted(required_specs - available_specs):
+                baseline = self._validation_baseline_for_spec(spec, baselines)
+                if baseline is None:
+                    continue
+                generated = tempfile.NamedTemporaryFile(
+                    mode='w', prefix='lmonitor-simc-manifest-profile-',
+                    suffix='.simc', delete=False, encoding='utf-8')
+                with generated:
+                    generated.write(baseline.content)
+                generated_profiles.append(generated.name)
+            profiles.extend(generated_profiles)
             self._run(
-                [binary_path or self.simc_binary_path, f'apl_metadata_export={path}',
+                [binary_path or self.simc_binary_path, *profiles,
+                 f'apl_metadata_export={path}',
                  f'apl_metadata_revision={git_hash}',
                  f'apl_metadata_game_build={wow_build}'],
                 cwd=self.simc_source_dir, timeout=120,
@@ -387,6 +447,12 @@ class Command(BaseCommand):
             except FileNotFoundError:
                 pass
             raise
+        finally:
+            for generated_profile in generated_profiles:
+                try:
+                    os.unlink(generated_profile)
+                except FileNotFoundError:
+                    pass
 
     def _preserve_tracked_changes_before_pull(self):
         """Commit tracked source edits only; leave generated and credential files untracked."""
@@ -582,6 +648,18 @@ class Command(BaseCommand):
             raise
         except Exception as exc:
             self._fail('SimC 更新失败', str(exc), progress=0)
+
+    @staticmethod
+    def _revision_matches_git_hash(current_version, git_hash):
+        """Accept canonical SHA or one legacy version string ending in its git prefix."""
+        current = str(current_version or '').strip().lower()
+        revision = str(git_hash or '').strip().lower()
+        if not re.fullmatch(r'[0-9a-f]{40}', revision):
+            return False
+        if current == revision:
+            return True
+        match = re.search(r'(?:^|[-.])([0-9a-f]{7,39})$', current)
+        return bool(match and revision.startswith(match.group(1)))
 
     def _get_git_hash(self):
         try:

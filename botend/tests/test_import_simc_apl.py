@@ -25,6 +25,28 @@ class ImportSimcAplCommandTests(TestCase):
             call_command('import_simc_apl', source_dir=tmpdir, sync_version='deadbeef', stdout=StringIO())
         self.assertEqual(SimcApl.objects.get().sync_version, 'deadbeef')
 
+    def test_strict_import_requires_canonical_revision(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, 'warrior_fury.simc').write_text(
+                'actions=/bloodthirst\n', encoding='utf-8')
+            for revision in ('', '1205-01-62ababb', 'deadbeef'):
+                with self.subTest(revision=revision), self.assertRaisesRegex(
+                        CommandError, '40 位 hexadecimal'):
+                    call_command(
+                        'import_simc_apl', source_dir=tmpdir,
+                        sync_version=revision, strict=True, stdout=StringIO())
+        self.assertFalse(SimcApl.objects.exists())
+
+    def test_strict_import_persists_canonical_revision(self):
+        revision = 'a' * 40
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, 'warrior_fury.simc').write_text(
+                'actions=/bloodthirst\n', encoding='utf-8')
+            call_command(
+                'import_simc_apl', source_dir=tmpdir,
+                sync_version=revision, strict=True, stdout=StringIO())
+        self.assertEqual(SimcApl.objects.get().sync_version, revision)
+
     def test_import_keeps_structurally_checked_state_unpublished(self):
         content = 'actions=/bloodthirst\n'
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -48,7 +70,7 @@ class ImportSimcAplCommandTests(TestCase):
                 Path(tmpdir, filename).write_text(content, encoding='utf-8')
                 with self.assertRaises(CommandError):
                     call_command('import_simc_apl', source_dir=tmpdir, strict=True,
-                                 stdout=StringIO())
+                                 sync_version='a' * 40, stdout=StringIO())
                 self.assertEqual(SimcApl.objects.count(), 0)
 
     def test_strict_full_import_deactivates_only_missing_managed_upstream_rows(self):
@@ -60,7 +82,7 @@ class ImportSimcAplCommandTests(TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             Path(tmpdir, 'warrior_fury.simc').write_text(
                 'actions=/bloodthirst\n', encoding='utf-8')
-            call_command('import_simc_apl', source_dir=tmpdir, sync_version='new',
+            call_command('import_simc_apl', source_dir=tmpdir, sync_version='a' * 40,
                          strict=True, stdout=StringIO())
         for row in (kept, missing, user, manual_system):
             row.refresh_from_db()
@@ -88,7 +110,7 @@ class ImportSimcAplCommandTests(TestCase):
                 'actions=/new,if=buff..foo.up\n', encoding='utf-8')
             with self.assertRaisesRegex(CommandError, '校验失败'):
                 call_command('import_simc_apl', source_dir=tmpdir, strict=True,
-                             stdout=StringIO())
+                             sync_version='a' * 40, stdout=StringIO())
         old.refresh_from_db()
         missing.refresh_from_db()
         self.assertEqual(old.content, 'actions=/old')
@@ -106,7 +128,23 @@ class ImportSimcAplCommandTests(TestCase):
                     patch.object(SimcApl, 'save') as save:
                 with self.assertRaises(CommandError):
                     call_command('import_simc_apl', source_dir=tmpdir, strict=True,
-                                 stdout=StringIO())
+                                 sync_version='a' * 40, stdout=StringIO())
 
         upsert.assert_not_called()
         save.assert_not_called()
+
+    def test_strict_import_normalizes_upstream_double_ampersand(self):
+        revision = 'a' * 40
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, 'demonhunter_havoc.simc').write_text(
+                'actions=/metamorphosis,if=cooldown.eye_beam.remains>5&&equipped.algethar_puzzle_box\n',
+                encoding='utf-8',
+            )
+            call_command(
+                'import_simc_apl', source_dir=tmpdir,
+                sync_version=revision, strict=True, stdout=StringIO())
+
+        content = SimcApl.objects.get(spec='demonhunter_havoc').content
+        self.assertIn(
+            'cooldown.eye_beam.remains>5&equipped.algethar_puzzle_box', content)
+        self.assertNotIn('&&', content)

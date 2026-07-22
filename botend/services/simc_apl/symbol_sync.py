@@ -53,6 +53,7 @@ class SyncSummary:
 MANIFEST_SCHEMA_VERSION = 1
 MANIFEST_COMPLETENESS = frozenset({'partial', 'complete'})
 MANIFEST_SCOPES = frozenset({'global', 'class', 'spec', 'hero_tree'})
+RUNTIME_SPEC_ALIASES = {'beastmastery': 'beast_mastery'}
 
 
 def _manifest_error(message):
@@ -133,6 +134,7 @@ def load_runtime_manifest(path, simc_revision, wow_build):
             _manifest_error(f'{prefix} has invalid field types or values')
         class_name = _string_or_none(symbol.get('class'), f'{prefix}.class')
         spec = _string_or_none(symbol.get('spec'), f'{prefix}.spec')
+        spec = RUNTIME_SPEC_ALIASES.get(spec, spec)
         token = _string_or_none(symbol.get('token'), f'{prefix}.token', required=True)
         if ((scope == 'global' and (class_name or spec)) or
                 (scope == 'class' and (not class_name or spec)) or
@@ -227,9 +229,7 @@ def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=Non
                     facts[_identity(fact)] = fact
         for expression, _, _ in result.symbols.expression_identifiers:
             expression = expression.strip().lower()
-            namespace = expression.split('.', 1)[0]
-            if ('.' not in expression or not namespace or
-                    not is_valid_identifier(expression)):
+            if not is_valid_identifier(expression):
                 invalid += 1
                 continue
             expression_fact = {
@@ -238,6 +238,9 @@ def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=Non
                 'source': SimcAplSymbol.SOURCE_SYSTEM_APL,
             }
             facts[_identity(expression_fact)] = expression_fact
+            if '.' not in expression:
+                continue
+            namespace = expression.split('.', 1)[0]
             fact = {'class_name': class_name, 'spec': spec, 'token': namespace,
                     'symbol_kind': SimcAplSymbol.KIND_NAMESPACE,
                     'source': SimcAplSymbol.SOURCE_SYSTEM_APL}

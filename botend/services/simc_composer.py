@@ -103,6 +103,10 @@ class SimcComposer:
         )
         request = {
             'spec': profile.spec, 'player_import_mode': profile.player_config_mode,
+            # Validation profiles are server-owned.  Carry their canonical class
+            # separately so ambiguous short specs (frost/protection/holy/etc.) do
+            # not fall back to SPEC_CLASS's legacy single-class interpretation.
+            '_trusted_class_name': getattr(profile, 'class_name', ''),
             'player_equipment': profile.player_equipment, 'talent': profile.talent,
             'battlenet_region': profile.battlenet_region,
             'battlenet_realm': profile.battlenet_realm,
@@ -216,7 +220,8 @@ class SimcComposer:
         player_import_mode = request_data.get('player_import_mode', '').strip()
 
         # Derive class from spec using authoritative SPEC_CLASS
-        derived_class = SPEC_CLASS.get(user_spec) if user_spec else None
+        trusted_class = str(request_data.get('_trusted_class_name') or '').strip().lower()
+        derived_class = trusted_class or (SPEC_CLASS.get(user_spec) if user_spec else None)
 
         # For battlenet mode, prefer the frozen actor block. The Battle.net identity
         # is source metadata and is only an execution fallback for legacy rows.

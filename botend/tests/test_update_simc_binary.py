@@ -27,6 +27,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         missing = SimcApl.objects.create(
             name='arms', class_name='warrior', spec='warrior_arms', content='actions=/arms',
             source='simc_upstream', is_system=True, sync_version='old-sha',
+            is_active=True, is_selectable=True,
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             source = Path(tmpdir)
@@ -66,6 +67,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         with mock.patch.object(command, '_get_git_hash', return_value='b' * 40), \
                 mock.patch.object(command, '_sync_default_template'), \
                 mock.patch.object(command, '_export_runtime_manifest', return_value='/tmp/test-runtime-manifest.json'), \
+                mock.patch.object(command, '_publish_system_apl_corpus'), \
                 mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
             command._sync_generated_inputs()
         apl = next(call for call in calls.call_args_list if call.args[0] == 'import_simc_apl')
@@ -102,6 +104,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         with mock.patch.object(command, '_get_git_hash', return_value='d' * 40), \
                 mock.patch.object(command, '_sync_default_template'), \
                 mock.patch.object(command, '_export_runtime_manifest', return_value='/tmp/test-runtime-manifest.json'), \
+                mock.patch.object(command, '_publish_system_apl_corpus'), \
                 mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
             command._sync_generated_inputs()
         symbols = next(c for c in calls.call_args_list if c.args[0] == 'sync_simc_apl_symbols')
@@ -116,6 +119,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         with mock.patch.object(command, '_get_git_hash', return_value='e' * 40), \
                 mock.patch.object(command, '_sync_default_template'), \
                 mock.patch.object(command, '_export_runtime_manifest', return_value='/tmp/test-runtime-manifest.json'), \
+                mock.patch.object(command, '_publish_system_apl_corpus'), \
                 mock.patch('botend.management.commands.update_simc_binary.call_command') as calls:
             command._sync_generated_inputs(wow_build_override='12.0.1.70002')
         symbols = next(c for c in calls.call_args_list if c.args[0] == 'sync_simc_apl_symbols')

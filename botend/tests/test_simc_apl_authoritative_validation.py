@@ -85,15 +85,13 @@ class RestrictedAuthoritativeValidationTests(SimpleTestCase):
         self.assertEqual(result['authoritative_error']['code'], 'validation_input_too_large')
         runner.assert_not_called()
 
-    def test_composed_profile_directive_is_rejected_before_runner(self):
-        runner = mock.Mock()
-        validator = RestrictedSimcValidator(
-            self.executable('exit 0\n'), temp_root=self.root.name, runner=runner,
-            limits=ValidatorLimits(max_source_bytes=1024))
+    def test_server_composed_input_may_contain_profile_directives(self):
+        validator = self.validator()
         result = validator.validate(
-            'actions=/x', validation_context={'validation_input': 'include=secret.simc\nactions=/x'})
-        self.assertEqual(result['authoritative_error']['code'], 'profile_directive_forbidden')
-        runner.assert_not_called()
+            'actions=/x', validation_context={
+                'validation_input': 'warrior="Validation"\nspec=fury\niterations=1\nactions=/x',
+            })
+        self.assertTrue(result['authoritative_valid'])
 
     def test_missing_unique_profile_context_returns_structural_only(self):
         result = validate_payload('actions=/auto_attack', mode='both')

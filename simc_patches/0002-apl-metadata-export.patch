@@ -123,7 +123,9 @@ index 2e746602a8..46f11f63fd 100644
 +  if ( symbol.class_name.empty() ) out << "null"; else apl_metadata_json_string( out, symbol.class_name );
 +  out << ",\"spec\":";
 +  if ( symbol.spec.empty() ) out << "null"; else apl_metadata_json_string( out, symbol.spec );
-+  out << ",\"scope\":\"" << ( symbol.spec.empty() ? "global" : "spec" ) << "\",\"token\":";
++  out << ",\"scope\":\""
++      << ( symbol.class_name.empty() ? "global" : ( symbol.spec.empty() ? "class" : "spec" ) )
++      << "\",\"token\":";
 +  apl_metadata_json_string( out, symbol.token );
 +  out << ",\"kind\":"; apl_metadata_json_string( out, symbol.kind );
 +  out << ",\"spell_id\":";

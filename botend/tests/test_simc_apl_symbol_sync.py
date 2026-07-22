@@ -46,6 +46,23 @@ class SimcAplSymbolSyncTests(TestCase):
         third = sync_symbols('sha1', 'b1')
         self.assertEqual(third.deactivated, 5)
 
+    def test_revision_catalog_upsert_uses_bounded_queries(self):
+        facts = [
+            {'class_name': 'warrior', 'spec': 'fury', 'hero_tree': None,
+             'token': f'action_{index}', 'symbol_kind': 'action',
+             'spell_id': index, 'source': 'system_apl',
+             'aliases': [], 'options': {}}
+            for index in range(100)
+        ]
+        with self.assertNumQueries(5):
+            SimcAplSymbol.sync_revision_catalog('sha1', 'b1', facts)
+        self.assertEqual(
+            SimcAplSymbol.objects.filter(
+                simc_revision='sha1', wow_build='b1', is_active=True,
+            ).count(),
+            100,
+        )
+
     def test_build_or_validation_failure_does_not_deactivate(self):
         SimcAplSymbol.objects.create(simc_revision='sha1', wow_build='b1', token='old')
         with mock.patch('botend.services.simc_apl.symbol_sync.build_symbol_facts',
@@ -121,3 +138,18 @@ class SimcAplSymbolSyncTests(TestCase):
         result = build_symbol_facts('sha1', 'b1')
         self.assertEqual(result.invalid, 0)
         self.assertTrue(any(f['token'] == 'buff.foo.up' for f in result.facts))
+
+    def test_valid_bare_identifier_is_expression_without_namespace(self):
+        apl = SimcApl.objects.get()
+        apl.content = 'actions=/spell,if=fight_remains<30'
+        apl.save()
+        result = build_symbol_facts('sha1', 'b1')
+        self.assertEqual(result.invalid, 0)
+        self.assertTrue(any(
+            f['token'] == 'fight_remains' and f['symbol_kind'] == 'expression'
+            for f in result.facts
+        ))
+        self.assertFalse(any(
+            f['token'] == 'fight_remains' and f['symbol_kind'] == 'namespace'
+            for f in result.facts
+        ))

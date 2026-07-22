@@ -1,4 +1,5 @@
 import hashlib
+import json
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -25,6 +26,65 @@ class SimcGeneratedInputSyncTests(TestCase):
         self.command.simc_binary_path = '/tmp/new-simc'
         self.command.stdout = StringIO()
 
+    def test_sync_inputs_only_promotes_matching_legacy_short_revision(self):
+        revision = '62ababb127bef2a35f96357968d455dde7de7616'
+        command = Command()
+        command.platform = 'linux64'
+        command.simc_source_dir = str(self.source)
+        command.simc_build_dir = str(self.source / 'build-cli')
+        command.simc_binary_path = '/tmp/new-simc'
+        command.wow_build_override = ''
+        command.row = SimpleNamespace(
+            current_version='1205-01-62ababb', save=mock.Mock())
+        command._set_status = mock.Mock()
+        command._sync_generated_inputs = mock.Mock()
+
+        with mock.patch.object(command, '_resolve_paths', return_value=(
+                command.simc_source_dir, command.simc_build_dir, command.simc_binary_path)), \
+                mock.patch.object(command, '_get_row', return_value=command.row), \
+                mock.patch.object(command, '_get_git_hash', return_value=revision), \
+                mock.patch('builtins.open', mock.mock_open()), \
+                mock.patch('fcntl.flock'):
+            command.handle(
+                check=False, sync_inputs_only=True, apply_patches=False,
+                no_pull=True, threads=1, wow_build='')
+
+        self.assertEqual(command.row.current_version, revision)
+        command.row.save.assert_called_once_with(update_fields=['current_version'])
+        command._sync_generated_inputs.assert_called_once_with(
+            git_hash=revision, binary_path='/tmp/new-simc', binary_revision=revision)
+
+    def test_sync_inputs_only_rejects_unrelated_legacy_revision(self):
+        self.assertFalse(Command._revision_matches_git_hash(
+            '1205-01-deadbee', '62ababb127bef2a35f96357968d455dde7de7616'))
+
+    def test_sync_inputs_only_does_not_promote_revision_when_publication_fails(self):
+        revision = '62ababb127bef2a35f96357968d455dde7de7616'
+        command = Command()
+        command.platform = 'linux64'
+        command.simc_source_dir = str(self.source)
+        command.simc_build_dir = str(self.source / 'build-cli')
+        command.simc_binary_path = '/tmp/new-simc'
+        command.wow_build_override = ''
+        command.row = SimpleNamespace(
+            current_version='1205-01-62ababb', save=mock.Mock())
+        command._set_status = mock.Mock()
+        command._sync_generated_inputs = mock.Mock(side_effect=CommandError('publish failed'))
+
+        with mock.patch.object(command, '_resolve_paths', return_value=(
+                command.simc_source_dir, command.simc_build_dir, command.simc_binary_path)), \
+                mock.patch.object(command, '_get_row', return_value=command.row), \
+                mock.patch.object(command, '_get_git_hash', return_value=revision), \
+                mock.patch('builtins.open', mock.mock_open()), \
+                mock.patch('fcntl.flock'):
+            with self.assertRaisesRegex(CommandError, 'publish failed'):
+                command.handle(
+                    check=False, sync_inputs_only=True, apply_patches=False,
+                    no_pull=True, threads=1, wow_build='')
+
+        self.assertEqual(command.row.current_version, '1205-01-62ababb')
+        command.row.save.assert_not_called()
+
     def old_apl(self):
         return SimcApl.objects.create(
             name='old', class_name='warrior', spec='warrior_fury',
@@ -41,6 +101,97 @@ class SimcGeneratedInputSyncTests(TestCase):
             'actions=/bloodthirst\n', encoding='utf-8')
         (self.source / 'profiles' / 'MID1' / 'MID1_warrior_fury.simc').write_text(
             'warrior="Baseline"\nlevel=90\nspec=fury\nhead=id=1\nmain_hand=id=2\n', encoding='utf-8')
+
+    @mock.patch.object(Command, '_run')
+    def test_runtime_manifest_export_loads_mid1_actor_profiles(self, run):
+        self.write_corpus()
+
+        def export(cmd, **_kwargs):
+            target = next(value.split('=', 1)[1] for value in cmd
+                          if value.startswith('apl_metadata_export='))
+            Path(target).write_text(json.dumps({
+                'simc_revision': 'a' * 40,
+                'game_build': '12.0.1.70000',
+            }), encoding='utf-8')
+
+        run.side_effect = export
+        path = self.command._export_runtime_manifest('a' * 40, '12.0.1.70000')
+        self.addCleanup(lambda: Path(path).unlink(missing_ok=True))
+
+        cmd = run.call_args.args[0]
+        self.assertIn(str(self.source / 'profiles' / 'MID1' /
+                          'MID1_warrior_fury.simc'), cmd)
+        export_arg = next(value for value in cmd
+                          if value.startswith('apl_metadata_export='))
+        self.assertEqual(path, export_arg.split('=', 1)[1])
+
+    @mock.patch.object(Command, '_run')
+    def test_runtime_manifest_export_adds_validation_only_profiles_for_missing_specs(self, run):
+        self.write_corpus()
+        SimcApl.objects.create(
+            name='Restoration', spec='druid_restoration', class_name='druid',
+            content='actions=/wrath', source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True, is_active=True, sync_version='a' * 40,
+        )
+        SimcContentTemplate.objects.create(
+            name='Balance', spec='druid_balance', class_name='druid',
+            content=('druid="Balance"\nlevel=90\nspec=balance\ntalents=OLD\n'
+                     'head=id=1\nmain_hand=id=2\n'),
+            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            is_active=True, sync_version='a' * 40,
+        )
+        captured = {}
+
+        def export(cmd, **_kwargs):
+            generated = [Path(value) for value in cmd
+                         if 'lmonitor-simc-manifest-profile-' in value]
+            captured['generated'] = generated
+            captured['content'] = generated[0].read_text(encoding='utf-8')
+            target = next(value.split('=', 1)[1] for value in cmd
+                          if value.startswith('apl_metadata_export='))
+            Path(target).write_text(json.dumps({
+                'simc_revision': 'a' * 40, 'game_build': '12.0.1.70000',
+            }), encoding='utf-8')
+
+        run.side_effect = export
+        path = self.command._export_runtime_manifest('a' * 40, '12.0.1.70000')
+        self.addCleanup(lambda: Path(path).unlink(missing_ok=True))
+
+        self.assertIn('spec=restoration', captured['content'])
+        self.assertNotIn('talents=', captured['content'])
+        self.assertTrue(all(not item.exists() for item in captured['generated']))
+
+    def test_system_apl_validation_uses_short_canonical_spec(self):
+        apl = SimpleNamespace(
+            spec='deathknight_blood', class_name='deathknight',
+            content='actions=/auto_attack')
+        baseline = SimpleNamespace(content=(
+            'deathknight="Baseline"\nlevel=90\nspec=blood\nhead=id=1\nmain_hand=id=2\n'))
+        result = {'structural_valid': True, 'authoritative_valid': True}
+        with mock.patch(
+                'botend.management.commands.update_simc_binary.SimcComposer.compose_validation_input',
+                return_value='validation input') as compose, \
+                mock.patch(
+                    'botend.management.commands.update_simc_binary.validate_payload',
+                    return_value=result):
+            actual = self.command._validate_system_apl(
+                apl, baseline, 'a' * 40, '/tmp/simc', 'a' * 40)
+        self.assertEqual(actual, result)
+        self.assertEqual(compose.call_args.args[0].spec, 'blood')
+        self.assertEqual(compose.call_args.args[0].class_name, 'deathknight')
+
+    def test_missing_exact_baseline_derives_validation_only_same_class_profile(self):
+        source = SimpleNamespace(
+            spec='druid_balance', class_name='druid', content=(
+                'druid="Balance"\nlevel=90\nspec=balance\ntalents=OLD\n'
+                'head=id=1\nmain_hand=id=2\n'))
+        derived = self.command._validation_baseline_for_spec(
+            'druid_restoration', {'druid_balance': source})
+        self.assertIsNotNone(derived)
+        self.assertIn('spec=restoration', derived.content)
+        self.assertNotIn('talents=', derived.content)
+        self.assertEqual(source.content.count('spec=balance'), 1)
 
     @mock.patch('botend.management.commands.update_simc_binary.call_command')
     @mock.patch.object(Command, '_export_runtime_manifest', return_value='/tmp/manifest.json')

@@ -65,13 +65,6 @@ class RestrictedSimcValidator:
         validation_input = str(supplied_input or raw)
         if len(raw.encode('utf-8')) > self.limits.max_source_bytes:
             return self._failure('source_too_large', 'APL source exceeds the validation limit.')
-        for number, line in enumerate(validation_input.splitlines(), 1):
-            stripped = line.strip()
-            if not stripped or stripped.startswith('#'):
-                continue
-            if _FORBIDDEN_DIRECTIVE.match(line):
-                return self._failure('profile_directive_forbidden',
-                                     f'Profile directive is not allowed (line {number}).')
         for number, line in enumerate(raw.splitlines(), 1):
             stripped = line.strip()
             if not stripped or stripped.startswith('#'):

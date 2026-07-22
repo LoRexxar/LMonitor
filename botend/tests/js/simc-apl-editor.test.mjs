@@ -274,9 +274,13 @@ test('new APL form exposes default import and replaces readonly bilingual panel 
         readFile(editorSourceUrl, 'utf8'), readFile(workbenchSourceUrl, 'utf8'),
     ]);
     assert.doesNotMatch(workbench, /data-apl-import-default/);
-    assert.match(workbench, /data-apl-default-search/);
-    assert.match(workbench, /data-apl-default-list/);
-    assert.match(workbench, /data-apl-default-choice/);
+    assert.match(workbench, /data-apl-import-picker/);
+    assert.match(workbench, /data-apl-import-select/);
+    assert.match(workbench, /data-apl-import-load/);
+    assert.match(workbench, /selectAplsForSpec\(state\.rows\.apls \|\| \[\], spec\)/);
+    assert.match(workbench, /importSelect\?\.addEventListener\('change'/);
+    assert.match(workbench, /importButton\?\.addEventListener\('click'/);
+    assert.match(workbench, /editor\.setValue\(detail\.content \|\| '', 'apl'\)/);
     assert.match(workbench, /data-apl-language="apl"/);
     assert.match(workbench, /data-apl-language="cn"/);
     assert.doesNotMatch(workbench, /data-apl-bilingual-panel/);

@@ -1,6 +1,6 @@
 import hashlib
 
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.utils import timezone
 
 
@@ -880,17 +880,27 @@ class SimcAplSymbol(models.Model):
                 raise ValueError(f'conflicting duplicate identity: {identity_key!r}')
             prepared[identity_key] = payload
 
-        seen = []
+        rows = []
+        for identity_key, payload in prepared.items():
+            values = dict(zip(identity_fields, identity_key))
+            values.update(payload)
+            values['is_active'] = True
+            rows.append(cls(**values))
+
+        update_fields = (*fact_fields, 'is_active', 'updated_at')
         with transaction.atomic():
-            for identity_key, payload in prepared.items():
-                identity = dict(zip(identity_fields, identity_key))
-                defaults = dict(payload)
-                defaults['is_active'] = True
-                row, _ = cls.objects.update_or_create(defaults=defaults, **identity)
-                seen.append(row.pk)
             cls.objects.filter(
                 simc_revision=simc_revision, wow_build=wow_build,
-            ).exclude(pk__in=seen).update(is_active=False)
+            ).update(is_active=False)
+            if rows:
+                bulk_kwargs = {
+                    'update_conflicts': True,
+                    'update_fields': update_fields,
+                    'batch_size': 1000,
+                }
+                if connection.features.supports_update_conflicts_with_target:
+                    bulk_kwargs['unique_fields'] = identity_fields
+                cls.objects.bulk_create(rows, **bulk_kwargs)
 
 
 class SimcApl(models.Model):
