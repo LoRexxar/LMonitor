@@ -118,19 +118,33 @@
 .simc-apl-editor-mount .tok-string { color: #86efac; }
 .simc-apl-editor-mount .tok-keyword { color: #c4b5fd; }
 
-.simc-apl-default-library { padding: .75rem; border: 1px solid #cbd5e1; border-radius: .75rem; background: #f8fafc; }
-.simc-apl-default-library__heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
-.simc-apl-default-library__heading strong { display: block; color: #0f172a; font-size: .85rem; }
-.simc-apl-default-library__heading span { color: #64748b; font-size: .7rem; }
-.simc-apl-default-library__heading input { width: min(15rem, 45%); border: 1px solid #94a3b8; border-radius: .5rem; padding: .4rem .55rem; background: #fff; font-size: .75rem; }
-.simc-apl-default-list { display: grid; gap: .4rem; max-height: 11rem; overflow: auto; margin-top: .6rem; }
-.simc-apl-default-list button { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .5rem .65rem; border: 1px solid #cbd5e1; border-radius: .5rem; background: #fff; text-align: left; }
-.simc-apl-default-list button:hover { border-color: #64748b; background: #f1f5f9; }
-.simc-apl-default-list strong, .simc-apl-default-list small { display: block; }
-.simc-apl-default-list strong { color: #1e293b; font-size: .75rem; }
-.simc-apl-default-list small { margin-top: .15rem; color: #64748b; font-size: .65rem; }
-.simc-apl-default-list em { color: #334155; font-size: .7rem; font-style: normal; white-space: nowrap; }
-.simc-apl-default-list > p { padding: .6rem; color: #64748b; font-size: .75rem; }
+.simc-apl-import-picker {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .85rem 1rem;
+    border: 1px solid #cbd5e1;
+    border-radius: .85rem;
+    background: linear-gradient(135deg, #f8fafc, #eff6ff);
+}
+.simc-apl-import-picker__copy { min-width: 0; }
+.simc-apl-import-picker__copy strong { display: block; color: #0f172a; font-size: .85rem; }
+.simc-apl-import-picker__copy span { display: block; margin-top: .2rem; color: #64748b; font-size: .72rem; line-height: 1.45; }
+.simc-apl-import-picker__controls { display: flex; min-width: min(100%, 30rem); align-items: center; gap: .55rem; }
+.simc-apl-import-picker__controls .simc-editor-input { min-width: 0; margin-top: 0; }
+.simc-apl-import-picker__controls button {
+    flex: none;
+    border: 1px solid #2563eb;
+    border-radius: .6rem;
+    padding: .58rem .9rem;
+    color: #fff;
+    background: #2563eb;
+    font-size: .78rem;
+    font-weight: 700;
+}
+.simc-apl-import-picker__controls button:hover { background: #1d4ed8; }
+.simc-apl-import-picker__controls button:disabled { border-color: #cbd5e1; color: #94a3b8; background: #e2e8f0; cursor: not-allowed; }
 
 .simc-apl-diagnostics {
     display: flex;
@@ -192,6 +206,8 @@
     [data-apl-storage-form] .simc-apl-workspace,
     [data-apl-storage-form] .simc-apl-editor-column { min-width: 0; max-width: 100%; }
     .simc-apl-workspace { display: block; }
+    .simc-apl-import-picker { align-items: stretch; flex-direction: column; gap: .65rem; }
+    .simc-apl-import-picker__controls { width: 100%; min-width: 0; }
     .simc-apl-assistant-toggle { display: block; width: 100%; padding: .65rem; border-top: 1px solid #dbe3ef; color: #1d4ed8; background: #eff6ff; font-size: .8rem; font-weight: 600; }
     .simc-apl-assistant { position: fixed; z-index: 80; right: 0; bottom: 0; left: 0; visibility: hidden; max-height: 72dvh; border: 0; border-radius: 1rem 1rem 0 0; box-shadow: 0 -12px 40px rgba(15, 23, 42, .28); pointer-events: none; transform: translateY(105%); transition: transform .2s ease, visibility 0s linear .2s; }
     .simc-apl-assistant.is-open { visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }

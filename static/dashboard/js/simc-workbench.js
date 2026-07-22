@@ -534,9 +534,12 @@
                     <label class="simc-editor-label">适用专精<select name="spec" required class="simc-editor-input">${specHtml}</select><span class="simc-editor-help">统一使用“职业_专精”标识，便于任务引用与筛选。</span></label>
                 </div>
             </section>
+            <section class="simc-apl-import-picker" data-apl-import-picker>
+                <div class="simc-apl-import-picker__copy"><strong>加载其他 APL 内容</strong><span data-apl-import-summary>请选择专精后选择可用 APL；仅点击“加载”后才会替换编辑区正文。</span></div>
+                <div class="simc-apl-import-picker__controls"><select data-apl-import-select class="simc-editor-input" aria-label="选择要加载的 APL"><option value="">请选择 APL</option></select><button type="button" data-apl-import-load disabled>加载</button></div>
+            </section>
             <section class="simc-editor-section">
                 <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">APL/中文共用一个可编辑正文；保存时会自动转换为权威 APL。</p></div><div class="simc-apl-editor-heading-actions"><div class="simc-apl-language-switch" role="group" aria-label="正文语言"><button type="button" data-apl-language="apl" aria-pressed="true">APL</button><button type="button" data-apl-language="cn" aria-pressed="false">中文</button></div><button type="button" data-apl-validate-now>立即结构检查</button></div></div>
-                <div class="simc-apl-default-library__heading"><div><strong>可用 APL 列表</strong><span data-apl-default-summary>请选择专精</span></div><input type="search" data-apl-default-search placeholder="搜索名称、来源或专精"></div><div class="simc-apl-default-list" data-apl-default-list></div>
                 <input type="hidden" name="apl_code" value="">
                 <div class="simc-apl-workspace">
                     <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div></div>
@@ -555,30 +558,40 @@
         const assistantHost = host.querySelector('[data-apl-assistant-host]');
         const assistantPanel = host.querySelector('[data-apl-assistant]');
         const languageButtons = Array.from(host.querySelectorAll('[data-apl-language]'));
-        const defaultSearch = host.querySelector('[data-apl-default-search]');
-        const defaultList = host.querySelector('[data-apl-default-list]');
-        const defaultSummary = host.querySelector('[data-apl-default-summary]');
+        const importSelect = host.querySelector('[data-apl-import-select]');
+        const importButton = host.querySelector('[data-apl-import-load]');
+        const importSummary = host.querySelector('[data-apl-import-summary]');
         const validateButton = host.querySelector('[data-apl-validate-now]');
-        let defaultAplRows = [];
-        const renderDefaultChoices = () => {
-            if (!defaultList) return;
-            const query = String(defaultSearch?.value || '').trim().toLocaleLowerCase();
-            const visible = query ? defaultAplRows.filter(item => [item.name, item.title, item.class_name, item.spec]
-                .some(value => String(value || '').toLocaleLowerCase().includes(query))) : defaultAplRows;
-            if (defaultSummary) defaultSummary.textContent = `共 ${defaultAplRows.length} 个${query ? ` · 匹配 ${visible.length} 个` : ''}`;
-            defaultList.innerHTML = visible.length ? visible.map(item => `<button type="button" data-apl-default-choice="${idOf(item.id)}"><span><strong>${esc(item.name || item.title || 'APL')}</strong><small>${esc(item.is_system ? '系统' : '个人')} · ${esc(item.class_name || '')}${item.class_name && item.spec ? ' · ' : ''}${esc(item.spec || '')}</small></span><em>加载到编辑器</em></button>`).join('') : '<p>当前专精没有可用 APL</p>';
+        let importAplRows = [];
+        const renderImportChoices = () => {
+            if (!importSelect) return;
+            const selectedId = idOf(importSelect.value);
+            importSelect.innerHTML = '<option value="">请选择 APL</option>' + importAplRows.map(item => {
+                const source = item.is_system ? (item.source === 'simc_upstream' ? 'SimC 上游' : '系统') : '个人';
+                return `<option value="${idOf(item.id)}">${esc(item.name || item.title || 'APL')} · ${esc(source)}</option>`;
+            }).join('');
+            importSelect.value = importAplRows.some(item => idOf(item.id) === selectedId) ? String(selectedId) : '';
+            if (importButton) importButton.disabled = !importSelect.value;
+            if (importSummary) importSummary.textContent = importAplRows.length
+                ? `当前专精共 ${importAplRows.length} 个可用 APL；选择不会修改正文。`
+                : '当前专精没有可用 APL。';
         };
-        const loadDefaultChoices = async () => {
-            if (!defaultList) return;
+        const loadImportChoices = async () => {
+            if (!importSelect) return;
             const spec = host.querySelector('select[name="spec"]')?.value || '';
             const {selectAplsForSpec} = await import(window.SIMC_APL_EDITOR_MODULE_URL);
-            defaultAplRows = selectAplsForSpec(state.rows.apls || [], spec);
-            renderDefaultChoices();
+            importAplRows = selectAplsForSpec(state.rows.apls || [], spec);
+            renderImportChoices();
         };
-        defaultSearch?.addEventListener('input', renderDefaultChoices);
-        defaultList?.addEventListener('click', async event => {
-            const choice = event.target.closest('[data-apl-default-choice]');
-            if (!choice || !state.aplEditor) return;
+        importSelect?.addEventListener('change', () => {
+            if (importButton) importButton.disabled = !importSelect.value;
+            const selected = importAplRows.find(item => idOf(item.id) === idOf(importSelect.value));
+            if (importSummary) importSummary.textContent = selected
+                ? `${selected.is_system ? (selected.source === 'simc_upstream' ? 'SimC 上游' : '系统') : '个人'} · ${selected.class_name || ''}${selected.class_name && selected.spec ? ' · ' : ''}${selected.spec || ''}；点击“加载”后替换正文。`
+                : `当前专精共 ${importAplRows.length} 个可用 APL；选择不会修改正文。`;
+        });
+        importButton?.addEventListener('click', async () => {
+            if (!importSelect?.value || !state.aplEditor) return;
             state.aplImportGeneration += 1;
             state.aplImportAbortController?.abort();
             const importGeneration = state.aplImportGeneration;
@@ -587,29 +600,31 @@
             const editor = state.aplEditor;
             const specSelect = host.querySelector('select[name="spec"]');
             const originalSpec = specSelect?.value || '';
+            const selectedId = importSelect.value;
             const isCurrentImport = () => importGeneration === state.aplImportGeneration
                 && state.aplImportAbortController === controller
                 && state.aplEditor === editor
                 && host.isConnected
                 && document.getElementById('simc-dialog-body') === host
-                && (specSelect?.value || '') === originalSpec;
-            defaultList.querySelectorAll('button').forEach(button => { button.disabled = true; });
+                && (specSelect?.value || '') === originalSpec
+                && importSelect.value === selectedId;
+            importSelect.disabled = true;
+            importButton.disabled = true;
             try {
-                const detail = (await json(resourceUrl('apls', idOf(choice.dataset.aplDefaultChoice)), {signal: controller.signal})).data || {};
+                const detail = (await json(resourceUrl('apls', selectedId), {signal: controller.signal})).data || {};
                 if (!isCurrentImport()) return;
                 editor.setValue(detail.content || '', 'apl');
-                const titleInput = host.querySelector('input[name="title"]');
-                if (titleInput && !titleInput.value.trim()) titleInput.value = `${detail.name || '默认 APL'}（副本）`;
-                window.showMessage('已导入所选默认 APL，可继续编辑', 'success');
+                window.showMessage('已加载所选 APL 内容，可继续编辑', 'success');
             } catch (error) {
                 if (error.name !== 'AbortError' && isCurrentImport()) notify(error);
             } finally {
                 if (state.aplImportAbortController === controller) state.aplImportAbortController = null;
-                if (defaultList.isConnected) defaultList.querySelectorAll('button').forEach(button => { button.disabled = false; });
+                if (importSelect.isConnected) importSelect.disabled = false;
+                if (importButton.isConnected) importButton.disabled = !importSelect.value;
             }
         });
-        host.querySelector('select[name="spec"]')?.addEventListener('change', loadDefaultChoices);
-        loadDefaultChoices().catch(notify);
+        host.querySelector('select[name="spec"]')?.addEventListener('change', loadImportChoices);
+        loadImportChoices().catch(notify);
         const updateLanguageButtons = language => {
             languageButtons.forEach(button => button.setAttribute('aria-pressed', button.dataset.aplLanguage === language ? 'true' : 'false'));
             if (validateButton) validateButton.disabled = language !== 'apl';

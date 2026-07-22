@@ -160,6 +160,20 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('aria-pressed', JS)
         self.assertIn('data-template-filter-summary', template_panel)
 
+    def test_apl_import_uses_external_select_and_explicit_load_button(self):
+        start = JS.index('function renderAplStorageForm')
+        end = JS.index('function closeAplStorageForm', start)
+        form = JS[start:end]
+        picker = form.index('data-apl-import-picker')
+        editor_section = form.index('<h5 class="text-sm font-bold text-slate-900">APL 内容</h5>')
+        self.assertLess(picker, editor_section)
+        self.assertIn('data-apl-import-select', form)
+        self.assertIn('data-apl-import-load', form)
+        self.assertIn("importButton?.addEventListener('click'", form)
+        self.assertNotIn("importSelect?.addEventListener('change', async", form)
+        self.assertNotIn('data-apl-default-choice', form)
+        self.assertNotIn("titleInput.value =", form)
+
     def test_content_template_editor_and_detail_use_code_workspace(self):
         form_start = JS.index('function renderTemplateForm')
         form_end = JS.index('function closeTemplateForm', form_start)
@@ -544,7 +558,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
 
     def test_script_is_really_loaded(self):
         self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260722b", HTML)
-        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260722a", HTML)
+        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260722c", HTML)
         self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260722a", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
 

@@ -118,7 +118,7 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn('data-copy-talent-code', editor)
         self.assertIn('navigator.clipboard.writeText', editor)
         self.assertIn('复制', editor)
-        self.assertIn("dashboard/js/main.js' %}?v=20260720k", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260722b", HTML)
 
     def test_batch_detail_has_visual_comparison_and_attribute_analysis(self):
         for token in (
