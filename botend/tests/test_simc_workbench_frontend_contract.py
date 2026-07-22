@@ -1,6 +1,8 @@
 import unittest
 from pathlib import Path
 
+from bs4 import BeautifulSoup
+
 
 ROOT = Path(__file__).resolve().parents[2]
 HTML = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
@@ -21,6 +23,15 @@ SIMC_MAIN = MAIN[
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
+    def test_shared_dialogs_are_not_nested_in_hidden_database_panel(self):
+        soup = BeautifulSoup(HTML, "html.parser")
+        database_panel = soup.find(id="database-tables")
+        self.assertIsNotNone(database_panel)
+        for dialog_id in ("add-record-modal", "edit-record-modal", "simc-workbench-dialog"):
+            dialog = soup.find(id=dialog_id)
+            self.assertIsNotNone(dialog)
+            self.assertNotIn(database_panel, dialog.parents, f"{dialog_id} must remain visible outside database panel")
+
     def test_home_creation_flow_is_spec_driven_and_single_submit(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
         source_panel = workflow[workflow.index('id="simc-sim-player-sources"'):workflow.index('id="simc-sim-apl-list"')]
