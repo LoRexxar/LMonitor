@@ -688,25 +688,6 @@ class SimcResourceVersion(models.Model):
         super().save(*args, **kwargs)
 
 
-class SimcAplKeywordPair(models.Model):
-    """
-    SimC APL关键字对照表
-    """
-    apl_keyword = models.CharField(max_length=100, help_text="APL格式关键字")
-    cn_keyword = models.CharField(max_length=100, help_text="CN关键字")
-    description = models.CharField(max_length=500, null=True, blank=True, help_text="描述")
-    create_time = models.DateTimeField(auto_now_add=True)
-    is_active = models.BooleanField(default=True, help_text="是否启用")
-
-    class Meta:
-        db_table = 'simc_apl_keyword_pair'
-        verbose_name = 'SimC APL关键字对'
-        verbose_name_plural = 'SimC APL关键字对'
-
-    def __str__(self):
-        return f"{self.apl_keyword} <-> {self.cn_keyword}"
-
-
 class SimcAplSymbol(models.Model):
     """Versioned SimC token facts, updated in place within a revision.
 

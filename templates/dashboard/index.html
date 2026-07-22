@@ -256,12 +256,7 @@
             #simc-workbench .simc-responsive-table tr, #simc-workbench .simc-responsive-table td { display: block; width: 100%; }
             #simc-workbench .simc-responsive-table tr { padding: .5rem; border-bottom: 1px solid #e5e7eb; }
             #simc-workbench .simc-responsive-table td { padding: .25rem !important; text-align: left !important; max-width: none !important; }
-            #simc-workbench-apl-keywords-panel .simc-responsive-table tr { padding: .65rem; border: 1px solid #e5e7eb; border-radius: .75rem; margin-bottom: .625rem; background: #fff; }
-            #simc-workbench-apl-keywords-panel .simc-responsive-table td { display: grid; grid-template-columns: 5.75rem minmax(0, 1fr); gap: .5rem; align-items: start; padding: .3rem .25rem !important; max-width: none !important; }
-            #simc-workbench-apl-keywords-panel .simc-responsive-table td:last-child { margin-top: .25rem; padding-top: .5rem !important; border-top: 1px solid #f1f5f9; }
-            #simc-workbench-apl-keywords-panel .simc-table-cell-label { display: block; color: #64748b; font-size: .75rem; font-weight: 600; }
-            #simc-workbench-apl-keywords-panel .simc-responsive-table td > :last-child { min-width: 0; overflow-wrap: anywhere; }
-            #simc-workbench-apl-keywords-panel .simc-apl-description { white-space: normal; overflow-wrap: anywhere; }
+
             #simc-workbench .simc-pagination { justify-content: space-between; gap: .5rem; }
         }
     </style>
@@ -1271,29 +1266,9 @@
                                 <button type="button" data-simc-model="backend" data-simc-tab="backend" class="simc-model-entry rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">执行后端</button>
                                 <button type="button" data-simc-model="secondary-rules" data-simc-tab="rules" data-rule-subtab="secondary-rules" class="simc-model-entry rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">次级属性换算</button>
                                 <button type="button" data-simc-model="mastery-rules" data-simc-tab="rules" data-rule-subtab="mastery-rules" class="simc-model-entry rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">精通系数</button>
-                                <button type="button" data-simc-model="apl-keywords" data-simc-tab="apl-keywords" class="simc-model-entry rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">APL 关键词</button>
                             </nav>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-backend-panel" data-simc-panel="backend"><div class="rounded-2xl border bg-white p-5"><div class="flex justify-between"><div><h3 class="text-xl font-bold">BackendBinary 实例安全状态</h3><p class="text-sm text-gray-500">普通用户只读；维护按钮仅按 API can_write 显示。</p></div><button data-simc-refresh="backend" class="rounded bg-slate-100 px-3 py-2">刷新</button></div><div id="simc-wb-backend-status" class="mt-4"></div><div id="simc-wb-backend-actions" class="mt-4"></div></div></div>
-                        <div class="simc-workbench-panel hidden" id="simc-workbench-apl-keywords-panel" data-simc-panel="apl-keywords">
-                            <section class="rounded-2xl border bg-white p-5">
-                                <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                                    <div>
-                                        <h3 class="text-xl font-bold">APL 关键词（AplKeywordPair）</h3>
-                                        <p class="text-xs text-gray-500">系统转换规则；写权限由服务端 can_write 决定。</p>
-                                    </div>
-                                    <button data-inline-create="apl-keywords" class="hidden self-start rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">新增</button>
-                                </div>
-                                <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                    <label class="relative block w-full sm:max-w-sm">
-                                        <span class="sr-only">搜索 APL 关键词</span>
-                                        <i class="fas fa-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></i>
-                                        <input type="search" id="simc-wb-apl-keyword-search" aria-label="搜索 APL 关键词" autocomplete="off" placeholder="搜索 APL、中文关键词或说明" class="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
-                                    </label>
-                                    <p id="simc-wb-apl-keyword-summary" class="text-xs text-gray-500" aria-live="polite">共 0 条</p>
-                                </div>
-                                <div id="simc-wb-apl-keyword-list" class="mt-3"></div>
-                            </section>
-                        </div>
+
                         <div class="simc-workbench-panel hidden" id="simc-workbench-rules-panel" data-simc-panel="rules">
                             <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
                                 <div data-rule-panel="secondary-rules">
@@ -1734,70 +1709,6 @@
             </div>
         </div>
     </footer>
-    
-    <!-- 关键字编辑模态框 -->
-    <div id="keyword-modal" class="fixed inset-0 bg-black bg-opacity-60 overflow-y-auto h-full w-full hidden z-50 flex items-center justify-center p-4">
-        <div class="relative w-full max-w-lg max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <!-- 弹窗头部 -->
-            <div class="bg-gradient-to-r from-green-500 to-teal-600 px-8 py-6">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-3">
-                        <div class="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
-                            <i class="fas fa-key text-white text-lg"></i>
-                        </div>
-                        <h3 class="text-2xl font-bold text-white" id="keyword-modal-title">新增关键字</h3>
-                    </div>
-                    <button id="close-keyword-modal" class="text-white hover:text-gray-200 transition-colors duration-200 p-2 hover:bg-white hover:bg-opacity-20 rounded-full">
-                        <i class="fas fa-times text-xl"></i>
-                    </button>
-                </div>
-            </div>
-            
-            <!-- 弹窗内容 -->
-            <div class="overflow-y-auto max-h-[calc(90vh-140px)]">
-                <div class="px-8 py-6">
-                    <form id="keyword-form">
-                        <input type="hidden" id="keyword-id" value="">
-                        <div class="space-y-6">
-                            <div>
-                                <label for="apl-keyword" class="block text-sm font-semibold text-gray-700 mb-3">APL关键字</label>
-                                <input type="text" id="apl-keyword" name="apl_keyword" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200" required>
-                            </div>
-                            <div>
-                                <label for="cn-keyword" class="block text-sm font-semibold text-gray-700 mb-3">中文关键字</label>
-                                <input type="text" id="cn-keyword" name="cn_keyword" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200" required>
-                            </div>
-                            <div>
-                                <label for="description" class="block text-sm font-semibold text-gray-700 mb-3">描述</label>
-                                <textarea id="description" name="description" rows="4" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200 resize-none"></textarea>
-                            </div>
-                            <div class="bg-gray-50 p-4 rounded-lg">
-                                <label class="flex items-center cursor-pointer">
-                                    <input type="checkbox" id="is-active" name="is_active" class="w-5 h-5 rounded border-gray-300 text-green-600 shadow-sm focus:border-green-300 focus:ring focus:ring-green-200 focus:ring-opacity-50" checked>
-                                    <span class="ml-3 text-sm font-medium text-gray-700">启用状态</span>
-                                </label>
-                            </div>
-                        </div>
-                    </form>
-                </div>
-            </div>
-            
-            <!-- 弹窗底部 -->
-            <div class="bg-gray-50 px-8 py-6 border-t border-gray-200">
-                <div class="flex justify-end space-x-4">
-                    <button type="button" id="cancel-keyword-btn" class="px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 font-medium">
-                        <i class="fas fa-times mr-2"></i>取消
-                    </button>
-                    <button type="submit" id="save-keyword-btn" class="px-6 py-3 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-lg hover:from-green-600 hover:to-teal-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl">
-                        <i class="fas fa-save mr-2"></i>保存
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-            </div>
-        </div>
-    </div>
     
     <!-- 新增记录弹窗 -->
     <div id="add-record-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden z-[1000] items-start justify-center overflow-y-auto p-2">

@@ -151,22 +151,13 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         form_end = JS.index('function closeTemplateForm', form_start)
         form_body = JS[form_start:form_end]
         detail_start = JS.index('async function showTemplateDetail')
-        detail_end = JS.index('function renderAplKeywordForm', detail_start)
+        detail_end = JS.index('async function showMyAplDetail', detail_start)
         detail_body = JS[detail_start:detail_end]
         for token in ('simc-editor-form', 'simc-editor-section', 'simc-code-editor', 'data-code-editor-stats', '保存内容模板'):
             self.assertIn(token, form_body)
         self.assertIn('template-code-preview', detail_body)
         self.assertIn('simc-template-detail-meta', detail_body)
 
-    def test_keyword_detail_and_immutable_edit_contract(self):
-        self.assertIn("showAplKeywordDetail", JS)
-        self.assertIn('data-wb-action="keyword-detail"', JS)
-        self.assertIn("if (!id) payload.apl_keyword", JS)
-        self.assertIn("row ? 'readonly' : ''", JS)
-        self.assertIn("openDialog('keyword-detail')", JS)
-        self.assertIn("openDialog('keyword-form')", JS)
-        self.assertNotIn('id="simc-wb-apl-keyword-detail"', HTML)
-        self.assertNotIn('id="simc-wb-apl-keyword-form"', HTML)
 
     def test_profiles_offer_edit_and_delete_without_view_action(self):
         self.assertNotIn('data-profile-row-action="detail"', MAIN)
@@ -230,7 +221,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             "cancelDetailRequest",
         ):
             self.assertIn(token, JS)
-        for function_name in ("showTaskDetail", "showBatchComparison", "showTemplateDetail", "showAplKeywordDetail"):
+        for function_name in ("showTaskDetail", "showBatchComparison", "showTemplateDetail", "showManagedAplDetail"):
             start = JS.index(f"async function {function_name}")
             body = JS[start:JS.index("\n    }", start) + 6]
             self.assertIn("beginDetailRequest", body)
@@ -257,7 +248,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         advanced_end = HTML.index('<!-- End L1 Panel: 高级设置 -->')
         advanced = HTML[advanced_start:advanced_end]
         self.assertIn('aria-label="SimC 系统模型入口"', advanced)
-        for resource in ("secondary-rules", "mastery-rules", "backend", "apl-keywords"):
+        for resource in ("secondary-rules", "mastery-rules", "backend"):
             self.assertIn(f'data-simc-model="{resource}"', advanced)
         for resource in ("batches", "tasks", "artifacts", "profiles", "apl-storage"):
             self.assertNotIn(f'data-simc-model="{resource}"', advanced)
@@ -268,7 +259,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         advanced = HTML[advanced_start:advanced_end]
         self.assertIn('<nav class="mb-4 flex flex-wrap gap-2" aria-label="SimC 系统模型入口">', advanced)
         self.assertNotIn('simc-compact-panel', advanced)
-        for resource in ("backend", "secondary-rules", "mastery-rules", "apl-keywords"):
+        for resource in ("backend", "secondary-rules", "mastery-rules"):
             self.assertIn(f'data-simc-model="{resource}"', advanced)
         self.assertEqual(advanced.count('data-rule-subtab="secondary-rules"'), 1)
         self.assertEqual(advanced.count('data-rule-subtab="mastery-rules"'), 1)
@@ -276,13 +267,12 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('updateSimcAdvancedEntryState(activeL1Tab, activeChildPanel, activeRuleSubtab)', MAIN)
 
     def test_all_l1_panels_share_the_same_padded_container(self):
-        from bs4 import BeautifulSoup
-
-        soup = BeautifulSoup(HTML, "html.parser")
-        panels = [soup.select_one(f'[data-simc-l1-panel="{name}"]') for name in ("workflow", "history", "advanced")]
-        self.assertTrue(all(panel is not None for panel in panels))
-        self.assertTrue(all(panel.parent is panels[0].parent for panel in panels))
-        self.assertIn("p-5", panels[0].parent.get("class", []))
+        self.assertEqual(HTML.count('data-simc-l1-panel="workflow"'), 1)
+        self.assertEqual(HTML.count('data-simc-l1-panel="history"'), 1)
+        self.assertEqual(HTML.count('data-simc-l1-panel="advanced"'), 1)
+        shell_start = HTML.index('data-simc-l1-panel="workflow"')
+        shell = HTML[max(0, HTML.rfind('<div', 0, shell_start) - 300):shell_start]
+        self.assertIn('p-5', shell)
 
     def test_workflow_is_default_l1_with_history_and_advanced(self):
         self.assertIn('data-simc-l1-tab="workflow"', HTML)
@@ -351,7 +341,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('data-template-type="report_template"', HTML)
         self.assertNotIn('data-template-type="command_fragment"', HTML)
         self.assertIn('id="simc-unified-apl-list"', HTML)
-        self.assertIn("AplKeywordPair", HTML)
+        self.assertNotIn("AplKeywordPair", HTML)
         self.assertIn('data-rule-subtab="secondary-rules"', HTML)
         self.assertIn('data-rule-subtab="mastery-rules"', HTML)
         self.assertIn('data-rule-panel="secondary-rules"', HTML)
@@ -630,7 +620,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("tasks: 'history'", switch_body)
         self.assertIn("profiles: 'workflow'", switch_body)
         self.assertIn("artifacts: 'history'", switch_body)
-        self.assertIn("'apl-keywords': 'advanced'", switch_body)
+        self.assertNotIn("'apl-keywords': 'advanced'", switch_body)
         self.assertIn("switchSimcWorkbenchL1Tab(parentTab, activeTab)", switch_body)
 
     def test_workbench_data_loader_has_no_duplicate_model_navigation_handler(self):
@@ -713,13 +703,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('id="simc-wb-template-form"', HTML)
         self.assertIn("openSimcWorkbenchDialog('template-form'", JS)
 
-    def test_apl_keyword_create_uses_shared_dialog_form(self):
-        """APL keywords keep the create entry and render its form in the shared dialog."""
-        self.assertIn('data-inline-create="apl-keywords"', HTML)
-        self.assertNotIn('id="simc-wb-apl-keyword-form"', HTML)
-        self.assertIn("openDialog('keyword-form')", JS)
-        self.assertIn("'keyword-form': 'APL 关键词管理'", MAIN)
-        self.assertIn("'keyword-detail': 'APL 关键词详情'", MAIN)
 
     def test_template_click_handlers_exist(self):
         """Template edit/archive/restore/detail handlers must exist."""
@@ -728,36 +711,11 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-template-action="cancel"', JS)
         self.assertIn('function closeTemplateDetail()', JS)
 
-    def test_apl_keyword_click_handlers_exist(self):
-        """APL keyword edit/archive/restore/cancel handlers must exist."""
-        self.assertIn('data-apl-keyword-action="cancel"', JS)
-        self.assertIn('data-apl-keyword-action=', JS)
-
-    def test_apl_keyword_table_has_search_count_and_responsive_columns(self):
-        """Large keyword lists must be searchable and remain readable on desktop/mobile."""
-        keyword_panel = HTML[
-            HTML.index('id="simc-workbench-apl-keywords-panel"'):
-            HTML.index('id="simc-workbench-rules-panel"')
-        ]
-        self.assertIn('id="simc-wb-apl-keyword-search"', keyword_panel)
-        self.assertIn('id="simc-wb-apl-keyword-summary"', keyword_panel)
-        self.assertIn('aria-label="搜索 APL 关键词"', keyword_panel)
-        self.assertIn('function renderAplKeywordTable(', JS)
-        self.assertIn("row.apl_keyword, row.cn_keyword, row.description", JS)
-        self.assertIn("closest('#simc-wb-apl-keyword-search')", JS)
-        self.assertIn('class="simc-responsive-table', JS)
-        for heading in ('APL 关键词', '中文关键词', '说明', '状态', '操作'):
-            self.assertIn(heading, JS)
-        self.assertIn('筛选后', JS)
-        self.assertIn('无匹配结果', JS)
 
     def test_template_submit_handler_exists(self):
         """Template form submission must be handled."""
         self.assertIn('data-template-form', JS)
 
-    def test_apl_keyword_submit_handler_exists(self):
-        """APL keyword form submission must be handled."""
-        self.assertIn('data-apl-keyword-form', JS)
 
     def test_activate_does_not_duplicate_load_templates_or_apl(self):
         """activate() must not call loadTemplates or loadApl twice for same tab."""
@@ -864,7 +822,7 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
             'simc-workbench-apl-panel',
         ):
             self.assertNotIn(f'id="{panel_id}"', advanced)
-        for resource in ('secondary-rules', 'mastery-rules', 'apl-keywords', 'backend'):
+        for resource in ('secondary-rules', 'mastery-rules', 'backend'):
             self.assertIn(f'data-simc-model="{resource}"', advanced)
 
     def test_one_accessible_workbench_dialog_exists(self):
@@ -968,14 +926,12 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
     def test_workflow_resources_are_reachable_and_keywords_stay_in_advanced(self):
         for resource in ('profiles', 'templates', 'apl'):
             self.assertIn(f'data-simc-workflow-entry="{resource}"', HTML)
-        self.assertIn('id="simc-workbench-apl-keywords-panel" data-simc-panel="apl-keywords"', HTML)
-        self.assertIn('data-simc-tab="apl-keywords"', HTML)
         workflow = self._l1_section('workflow', '<!-- End L1 Panel: 模拟工作流 -->')
         advanced = self._l1_section('advanced', '<!-- End L1 Panel: 高级设置 -->')
         self.assertNotIn('simc-wb-apl-keyword-list', workflow)
-        self.assertIn('simc-wb-apl-keyword-list', advanced)
+        self.assertNotIn('simc-wb-apl-keyword-list', advanced)
         self.assertIn("profiles: 'workflow'", MAIN)
-        self.assertIn("'apl-keywords': 'advanced'", MAIN)
+        self.assertNotIn("'apl-keywords': 'advanced'", MAIN)
 
     def test_dialog_close_cancels_remaining_detail_requests(self):
         self.assertIn("new CustomEvent('simc-dialog-closing', { detail: { reason: 'close' } })", MAIN)

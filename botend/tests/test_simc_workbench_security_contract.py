@@ -15,7 +15,6 @@ class SimcWorkbenchSecurityContractTests(TestCase):
         client = Client(enforce_csrf_checks=True)
         client.force_login(self.user)
         requests = (
-            ("post", "/api/keyword-manager/", {"apl_keyword": "actions=/x", "cn_keyword": "x"}),
             ("post", "/api/simc-task/", {"name": "csrf-task"}),
             ("post", "/api/simc-task/batch/", {"name": "csrf-batch"}),
             ("post", "/api/simc-profile/", {"name": "csrf-profile"}),
@@ -92,7 +91,7 @@ class SimcWorkbenchSecurityContractTests(TestCase):
         simc_models = (
             "SimcTask", "SimcTaskBatch", "SimcTaskArtifact", "SimcProfile",
             "SimcContentTemplate", "SimcSecondaryStatRule", "SimcMasteryCoefficient",
-            "SimcAplKeywordPair", "SimcApl", "SimcBackendBinary",
+            "SimcApl", "SimcBackendBinary",
         )
         for model_name in simc_models:
             with self.subTest(model_name=model_name):
@@ -114,6 +113,5 @@ class SimcWorkbenchSecurityContractTests(TestCase):
         self.assertTrue(visible_tables.isdisjoint({
             "SimcTask", "SimcTaskBatch", "SimcTaskArtifact", "SimcProfile",
             "SimcContentTemplate", "SimcSecondaryStatRule", "SimcMasteryCoefficient",
-            "SimcAplKeywordPair", "SimcBackendBinary",
+            "SimcBackendBinary",
         }))
-        self.assertNotContains(response, 'data-table="SimcAplKeywordPair"')

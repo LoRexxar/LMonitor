@@ -13,13 +13,13 @@ import {
     editorIndentKeymap,
     editorLanguageTransition,
     formatStructuralValidationStatus,
-    keywordPairsToCompletionOptions,
-    keywordPairsToCatalogItems,
+
     mergeCompletionOptions,
     replaceTextMessage,
     runSingleSubmission,
     selectDefaultAplForSpec,
     selectDefaultAplsForSpec,
+    selectAplsForSpec,
 } from '../../../static/dashboard/js/simc-apl-editor.js';
 
 const editorSourceUrl = new URL('../../../static/dashboard/js/simc-apl-editor.js', import.meta.url);
@@ -86,27 +86,14 @@ test('catalog completions show bilingual labels and only insert authoritative to
     }]);
 });
 
-test('keyword pairs provide a safe bilingual fallback when the symbol catalog is unavailable', () => {
-    assert.deepEqual(keywordPairsToCompletionOptions([
-        {apl_keyword: 'recklessness', cn_keyword: '鲁莽', description: '战士技能', is_active: true},
-        {apl_keyword: 'old_token', cn_keyword: '旧词条', is_active: false},
-        {apl_keyword: 'actions=/invalid shape', cn_keyword: '非法', is_active: true},
-    ], 'reck'), [{
-        label: '鲁莽 · recklessness', apply: 'recklessness', type: 'function',
-        detail: 'APL 关键词', info: '战士技能',
-    }]);
-});
-
-test('keyword pairs also populate the visible skill assistant when the symbol catalog is unavailable', () => {
-    assert.deepEqual(keywordPairsToCatalogItems([
-        {apl_keyword: 'recklessness', cn_keyword: '鲁莽', description: '战士技能', is_active: true},
-        {apl_keyword: 'old_token', cn_keyword: '旧词条', is_active: false},
-        {apl_keyword: 'actions=/invalid shape', cn_keyword: '非法', is_active: true},
-    ], '鲁莽'), [{
-        token: 'recklessness', kind: 'keyword', scope: 'global', insertable: true,
-        name_zh: '鲁莽', name_en: '', description_zh: '战士技能',
-        source: '中英文关键词库', simc_revision: '', game_build: '',
-    }]);
+test('APL picker selects active accessible system and personal rows by spec', () => {
+    const rows = [
+        {id: 1, spec: 'warrior_fury', is_system: true, is_active: true},
+        {id: 2, spec: 'warrior_fury', is_system: false, is_active: true},
+        {id: 3, spec: 'warrior_fury', is_system: true, is_active: false},
+        {id: 4, spec: 'mage_fire', is_system: true, is_active: true},
+    ];
+    assert.deepEqual(selectAplsForSpec(rows, 'WARRIOR_FURY').map(row => row.id), [1, 2]);
 });
 
 test('visible APL list is a compact Wago bilingual row list and the whole row inserts', async () => {

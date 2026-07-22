@@ -13,7 +13,7 @@ const VALIDATION_URL = '/api/simc-workbench/apl-validation/';
 const COMPLETION_URL = '/api/simc-workbench/apl-completions/';
 const SYMBOLS_URL = '/api/simc-workbench/apl-symbols/';
 const SPELLS_URL = '/api/simc-workbench/apl-spells/';
-const KEYWORDS_URL = '/api/simc-workbench/apl-keywords/';
+
 const BILINGUAL_URL = '/api/convert-text/';
 
 const CATALOG_CATEGORIES = [
@@ -193,38 +193,6 @@ export function catalogItemsToCompletionOptions(items) {
         });
 }
 
-export function keywordPairsToCatalogItems(items, query = '') {
-    const normalizedQuery = String(query || '').trim().toLocaleLowerCase();
-    return (Array.isArray(items) ? items : [])
-        .filter(item => item?.is_active !== false && /^[a-z0-9_]+$/i.test(String(item?.apl_keyword || '')))
-        .filter(item => {
-            if (!normalizedQuery) return true;
-            return [item.apl_keyword, item.cn_keyword, item.description]
-                .some(value => String(value || '').toLocaleLowerCase().includes(normalizedQuery));
-        })
-        .map(item => ({
-            token: String(item.apl_keyword),
-            kind: 'keyword',
-            scope: 'global',
-            insertable: true,
-            name_zh: String(item.cn_keyword || ''),
-            name_en: '',
-            description_zh: String(item.description || ''),
-            source: '中英文关键词库',
-            simc_revision: '',
-            game_build: '',
-        }));
-}
-
-export function keywordPairsToCompletionOptions(items, query = '') {
-    return keywordPairsToCatalogItems(items, query).map(item => ({
-        label: item.name_zh ? `${item.name_zh} · ${item.token}` : item.token,
-        apply: item.token,
-        type: 'function',
-        detail: 'APL 关键词',
-        info: item.description_zh,
-    }));
-}
 
 export function mergeCompletionOptions(documentOptions, catalogOptions) {
     const merged = [];
@@ -273,6 +241,17 @@ export function selectDefaultAplForSpec(rows, spec) {
     const matches = selectDefaultAplsForSpec(rows, normalizedSpec);
     if (matches.length > 1) throw new Error(`专精 ${normalizedSpec} 存在多个系统默认 APL`);
     return matches[0] || null;
+}
+
+export function selectAplsForSpec(rows, spec) {
+    const normalizedSpec = String(spec || '').trim().toLowerCase();
+    if (!normalizedSpec) return [];
+    return (Array.isArray(rows) ? rows : []).filter(row => (
+        String(row?.spec || '').trim().toLowerCase() === normalizedSpec
+        && row?.is_active !== false
+        && row?.is_selectable !== false
+        && (row?.is_system === true || row?.is_system === false)
+    ));
 }
 
 export function formatStructuralValidationStatus(summary) {
@@ -339,7 +318,7 @@ export function createSimcAplEditor(options) {
     let assistant = null;
     let catalogCompletionController = null;
     let completionGeneration = 0;
-    let keywordPairsPromise = null;
+
     let languageController = null;
     let languageVersion = 0;
     let documentVersion = 0;
@@ -448,21 +427,6 @@ export function createSimcAplEditor(options) {
         }
     }
 
-    async function loadKeywordFallback(query) {
-        if (!keywordPairsPromise) {
-            keywordPairsPromise = fetchImpl(KEYWORDS_URL, {credentials: 'same-origin'})
-                .then(async response => {
-                    const body = await response.json();
-                    if (!response.ok || body.success !== true) throw new Error('关键词库不可用');
-                    return Array.isArray(body.data) ? body.data : [];
-                })
-                .catch(() => {
-                    keywordPairsPromise = null;
-                    return [];
-                });
-        }
-        return keywordPairsToCompletionOptions(await keywordPairsPromise, query);
-    }
 
     async function requestLanguageConversion(text, conversionType, signal) {
         const response = await fetchImpl(BILINGUAL_URL, {
@@ -521,8 +485,7 @@ export function createSimcAplEditor(options) {
         if (destroyed || generation !== completionGeneration) return null;
         const data = documentResult.status === 'fulfilled' ? documentResult.value : null;
         const documentOptions = completionItemsToOptions(data?.items || []);
-        let catalogOptions = catalogResult.status === 'fulfilled' ? catalogResult.value : null;
-        if (catalogOptions === null) catalogOptions = await loadKeywordFallback(query);
+        const catalogOptions = catalogResult.status === 'fulfilled' ? catalogResult.value : [];
         if (destroyed || generation !== completionGeneration) return null;
         const completionOptions = mergeCompletionOptions(documentOptions, catalogOptions || []);
         if (!completionOptions.length) return null;

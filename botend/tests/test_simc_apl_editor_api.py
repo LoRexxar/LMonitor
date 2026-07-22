@@ -4,7 +4,7 @@ from unittest import mock
 from django.contrib.auth.models import User
 from django.test import Client, TestCase, override_settings
 
-from botend.models import SimcAplKeywordPair, SimcAplSymbol, SimcProfile, SimcBackendBinary, WowSpellSnapshot
+from botend.models import SimcAplSymbol, SimcProfile, SimcBackendBinary, WowSpellSnapshot
 
 
 class SimcAplEditorApiTests(TestCase):
@@ -13,8 +13,9 @@ class SimcAplEditorApiTests(TestCase):
         self.client.force_login(self.user)
 
     def test_editor_language_api_converts_the_same_document_in_both_directions(self):
-        SimcAplKeywordPair.objects.create(
-            apl_keyword="bloodthirst", cn_keyword="嗜血", is_active=True)
+        WowSpellSnapshot.objects.create(
+            branch="wow", locale="zhCN", spell_id=23881,
+            name="Bloodthirst", name_zh="嗜血", snapshot_build="12.0.5")
         apl = "actions+=/bloodthirst,if=target.health.pct<20"
 
         chinese = self.client.post("/api/convert-text/", data=json.dumps({
@@ -41,9 +42,6 @@ class SimcAplEditorApiTests(TestCase):
             branch="wowt", locale="zhCN", spell_id=23881,
             name="Bloodthirst", name_zh="测试服嗜血", snapshot_build="12.1.0",
         )
-        SimcAplKeywordPair.objects.create(
-            apl_keyword="bloodthirst", cn_keyword="旧关键词表嗜血", is_active=True,
-        )
 
         chinese = self.client.post("/api/convert-text/", data=json.dumps({
             "text": "actions+=/bloodthirst", "conversion_type": "apl_to_cn",
@@ -60,8 +58,9 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(authoritative.json()["result"], "actions+=/bloodthirst")
 
     def test_editor_language_api_treats_apl_underscores_and_spaces_as_equivalent(self):
-        SimcAplKeywordPair.objects.create(
-            apl_keyword="arcane_blast", cn_keyword="奥术冲击", is_active=True)
+        WowSpellSnapshot.objects.create(
+            branch="wow", locale="zhCN", spell_id=30451,
+            name="Arcane Blast", name_zh="奥术冲击", snapshot_build="12.0.5")
 
         for apl_variant in ("actions=/arcane_blast", "actions=/arcane blast"):
             with self.subTest(apl_variant=apl_variant):
@@ -199,9 +198,6 @@ class SimcAplEditorApiTests(TestCase):
             locale="zhCN", spell_id=23881, name="Bloodthirst", name_zh="嗜血",
             snapshot_build="12.0.5",
         )
-        SimcAplKeywordPair.objects.create(
-            apl_keyword="legacy_only", cn_keyword="旧翻译表词条", is_active=True,
-        )
 
         response = self.client.get("/api/simc-workbench/apl-spells/?spec=warrior_fury")
 
@@ -256,13 +252,10 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(item["token_source"], "wago_candidate")
         self.assertIs(item["authoritative"], False)
 
-    def test_wago_spell_catalog_uses_keyword_pair_only_as_token_mapping(self):
+    def test_wago_spell_catalog_uses_wago_candidate_when_symbol_is_missing(self):
         WowSpellSnapshot.objects.create(
             branch="wow", locale="zhCN", spell_id=30451,
             name="Arcane Blast", name_zh="奥术冲击", snapshot_build="12.0.5",
-        )
-        SimcAplKeywordPair.objects.create(
-            apl_keyword="arcane_blast", cn_keyword="奥术冲击", is_active=True,
         )
 
         payload = self.client.get(
@@ -271,16 +264,13 @@ class SimcAplEditorApiTests(TestCase):
 
         self.assertEqual(payload["pagination"]["total"], 1)
         self.assertEqual(payload["items"][0]["token"], "arcane_blast")
-        self.assertEqual(payload["items"][0]["token_source"], "keyword_pair")
+        self.assertEqual(payload["items"][0]["token_source"], "wago_candidate")
         self.assertIs(payload["items"][0]["authoritative"], False)
 
     def test_wago_spell_catalog_keyword_mapping_requires_exact_english_and_chinese_pair(self):
         WowSpellSnapshot.objects.create(
             branch="wow", locale="zhCN", spell_id=90001,
             name="Unrelated Blast", name_zh="奥术冲击", snapshot_build="12.0.5",
-        )
-        SimcAplKeywordPair.objects.create(
-            apl_keyword="arcane_blast", cn_keyword="奥术冲击", is_active=True,
         )
 
         item = self.client.get(

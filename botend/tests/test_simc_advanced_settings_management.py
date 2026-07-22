@@ -1,5 +1,5 @@
 """
-测试 SimC 高级设置（templates/apl-keywords）的完整管理闭环。
+测试 SimC 高级设置（templates/APL）的完整管理闭环。
 包括权限、CSRF、owner 隔离、唯一键校验、只读模板保护。
 """
 import json
@@ -7,7 +7,7 @@ import json
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
-from botend.models import SimcContentTemplate, SimcAplKeywordPair, SimcApl
+from botend.models import SimcContentTemplate, SimcApl
 
 
 class SimcAdvancedSettingsManagementTests(TestCase):
@@ -215,7 +215,8 @@ class SimcAdvancedSettingsManagementTests(TestCase):
         )
         upstream_apl = SimcApl.objects.create(
             name="Upstream",
-            spec="fury",
+            spec="warrior_fury",
+            class_name="warrior",
             content="upstream apl",
             source=SimcApl.SOURCE_SIMC_UPSTREAM,
             is_system=True,
@@ -331,164 +332,6 @@ class SimcAdvancedSettingsManagementTests(TestCase):
                 )
                 self.assertEqual(response.status_code, 403)
 
-    def test_apl_keywords_get_returns_list_and_can_write_flag(self):
-        SimcAplKeywordPair.objects.create(
-            apl_keyword="actions=/test",
-            cn_keyword="测试",
-            description="test keyword",
-        )
-        self.client.force_login(self.user)
-        response = self.client.get('/api/simc-workbench/apl-keywords/')
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn('data', data)
-        self.assertIn('can_write', data)
-        self.assertFalse(data['can_write'])
-
-        self.client.force_login(self.staff)
-        response = self.client.get('/api/simc-workbench/apl-keywords/')
-        self.assertTrue(response.json()['can_write'])
-
-    def test_apl_keywords_create_requires_staff(self):
-        self.client.force_login(self.user)
-        response = self.client.post(
-            '/api/simc-workbench/apl-keywords/',
-            data=json.dumps({
-                'apl_keyword': 'actions=/new',
-                'cn_keyword': '新建',
-                'description': 'new keyword',
-            }),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 403)
-        self.assertIn('仅管理员可修改', response.json()['error'])
-
-    def test_apl_keywords_create_staff_succeeds(self):
-        self.client.force_login(self.staff)
-        response = self.client.post(
-            '/api/simc-workbench/apl-keywords/',
-            data=json.dumps({
-                'apl_keyword': 'actions=/staff',
-                'cn_keyword': '管理员',
-                'description': 'staff keyword',
-            }),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 200)
-        kw_id = response.json()['data']['id']
-        kw = SimcAplKeywordPair.objects.get(id=kw_id)
-        self.assertEqual(kw.apl_keyword, 'actions=/staff')
-        self.assertEqual(kw.cn_keyword, '管理员')
-        self.assertTrue(kw.is_active)
-
-    def test_apl_keywords_enforces_unique_apl_keyword_when_active(self):
-        self.client.force_login(self.staff)
-        SimcAplKeywordPair.objects.create(
-            apl_keyword="actions=/duplicate",
-            cn_keyword="重复",
-            is_active=True,
-        )
-        response = self.client.post(
-            '/api/simc-workbench/apl-keywords/',
-            data=json.dumps({
-                'apl_keyword': 'actions=/duplicate',
-                'cn_keyword': '再次',
-            }),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 409)
-        self.assertIn('已存在', response.json()['error'])
-
-    def test_apl_keywords_edit_requires_staff(self):
-        kw = SimcAplKeywordPair.objects.create(
-            apl_keyword="actions=/edit",
-            cn_keyword="编辑",
-        )
-        self.client.force_login(self.user)
-        response = self.client.put(
-            f'/api/simc-workbench/apl-keywords/{kw.id}/',
-            data=json.dumps({'cn_keyword': '修改'}),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 403)
-        self.assertIn('仅管理员可修改', response.json()['error'])
-
-    def test_apl_keywords_edit_staff_succeeds(self):
-        kw = SimcAplKeywordPair.objects.create(
-            apl_keyword="actions=/edit",
-            cn_keyword="编辑",
-            description="old",
-        )
-        self.client.force_login(self.staff)
-        response = self.client.put(
-            f'/api/simc-workbench/apl-keywords/{kw.id}/',
-            data=json.dumps({'cn_keyword': '修改后', 'description': 'new'}),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 200)
-        kw.refresh_from_db()
-        self.assertEqual(kw.cn_keyword, '修改后')
-        self.assertEqual(kw.description, 'new')
-
-    def test_apl_keywords_archive_restore_requires_staff(self):
-        kw = SimcAplKeywordPair.objects.create(
-            apl_keyword="actions=/archive",
-            cn_keyword="归档",
-            is_active=True,
-        )
-        self.client.force_login(self.user)
-        response = self.client.post(
-            f'/api/simc-workbench/apl-keywords/{kw.id}/',
-            data=json.dumps({'action': 'archive'}),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 403)
-        kw.refresh_from_db()
-        self.assertTrue(kw.is_active)
-
-    def test_apl_keywords_archive_restore_staff_succeeds(self):
-        kw = SimcAplKeywordPair.objects.create(
-            apl_keyword="actions=/archive_staff",
-            cn_keyword="归档",
-            is_active=True,
-        )
-        self.client.force_login(self.staff)
-        response = self.client.post(
-            f'/api/simc-workbench/apl-keywords/{kw.id}/',
-            data=json.dumps({'action': 'archive'}),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 200)
-        kw.refresh_from_db()
-        self.assertFalse(kw.is_active)
-
-        response = self.client.post(
-            f'/api/simc-workbench/apl-keywords/{kw.id}/',
-            data=json.dumps({'action': 'restore'}),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 200)
-        kw.refresh_from_db()
-        self.assertTrue(kw.is_active)
-
-    def test_apl_keywords_write_requires_csrf(self):
-        self.csrf_client.force_login(self.staff)
-        kw = SimcAplKeywordPair.objects.create(
-            apl_keyword="actions=/csrf",
-            cn_keyword="测试",
-        )
-        for method, path, payload in [
-            ('post', '/api/simc-workbench/apl-keywords/', {'apl_keyword': 'actions=/new', 'cn_keyword': 'x'}),
-            ('put', f'/api/simc-workbench/apl-keywords/{kw.id}/', {'cn_keyword': 'updated'}),
-            ('post', f'/api/simc-workbench/apl-keywords/{kw.id}/', {'action': 'archive'}),
-        ]:
-            with self.subTest(method=method, path=path):
-                response = getattr(self.csrf_client, method)(
-                    path,
-                    data=json.dumps(payload),
-                    content_type='application/json',
-                )
-                self.assertEqual(response.status_code, 403)
 
     def test_validation_rejects_invalid_fields(self):
         self.client.force_login(self.staff)

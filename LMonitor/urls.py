@@ -23,9 +23,9 @@ from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView, SimcWorkbenchDetailPageView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
 from botend.dashboard.api import (
-    ConvertTextAPIView, KeywordManagerAPIView, AplStorageAPIView, AplDetailAPIView,
+    ConvertTextAPIView, AplStorageAPIView, AplDetailAPIView,
     SimcTaskAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcPlayerConfigDetailAPIView,
-    SimcTemplateAPIView, SimcAplCandidatesAPIView, SimcSpecOptionsAPIView, KeywordTranslationAPIView,
+    SimcTemplateAPIView, SimcAplCandidatesAPIView, SimcSpecOptionsAPIView,
     OssConfigAPIView, SimcResultProxyAPIView, SimcTaskPreviewAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView,
     SimcBattlenetPreflightAPIView, SimcBattlenetTopPlayersAPIView,
     SimcBackendBinaryAPIView, SimcWorkbenchAPIView, SimcArtifactPreviewAPIView, SimcTaskReportPreviewAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView,
@@ -116,7 +116,7 @@ urlpatterns = [
 
     # API路由
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),
-    path('api/keyword-manager/', KeywordManagerAPIView.as_view(), name="keyword_manager"),
+
     path('api/apl-storage/', AplStorageAPIView.as_view(), name="apl_storage"),
     path('api/apl-storage/<int:apl_id>/', AplDetailAPIView.as_view(), name="apl_detail"),
     path('api/simc-task/', SimcTaskAPIView.as_view(), name="simc_task"),
@@ -148,7 +148,7 @@ urlpatterns = [
     path('api/wow-daily-report/generate/', csrf_exempt(WowDailyReportGenerateAPIView.as_view()), name="wow_daily_report_generate"),
     path('api/wago-skill-diff/rerun/', csrf_exempt(WagoSkillDiffRerunAPIView.as_view()), name="wago_skill_diff_rerun"),
     path('api/wago-hotfix-reports/', csrf_exempt(WagoHotfixReportListAPIView.as_view()), name="wago_hotfix_reports"),
-    path('api/keyword-translation/', csrf_exempt(KeywordTranslationAPIView.as_view()), name="keyword_translation"),
+
     path('api/oss-config/', csrf_exempt(OssConfigAPIView.as_view()), name="oss_config"),
     path('api/simc-result-proxy/', csrf_exempt(SimcResultProxyAPIView.as_view()), name="simc_result_proxy"),
     path('api/simc-attribute-analysis/', csrf_exempt(SimcAttributeAnalysisAPIView.as_view()), name="simc_attribute_analysis"),

@@ -28,7 +28,7 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask,
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask,
-                          RssArticle, WowArticle, SimcAplKeywordPair, SimcTask, SimcTaskBatch, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl)
+                          RssArticle, WowArticle, SimcTask, SimcTaskBatch, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl)
 
 from botend.services.simc_attribute_results import parse_attribute_result_filename
 
@@ -53,7 +53,7 @@ MODEL_DESCRIPTIONS = {
     'RssMonitorTask': 'RSS监控任务',
     'RssArticle': 'RSS文章',
     'WowArticle': '魔兽文章',
-    'SimcAplKeywordPair': '关键字管理',
+
     'SimcTask': 'SimC任务管理',
     'SimcProfile': 'SimC配置管理',
     'SimcSecondaryStatRule': '绿字转换比例（按职业）',
@@ -169,7 +169,7 @@ class DashboardView(View):
     SIMC_DEDICATED_API_MODELS = {
         'SimcTask', 'SimcTaskBatch', 'SimcTaskArtifact', 'SimcProfile',
         'SimcContentTemplate', 'SimcSecondaryStatRule',
-        'SimcMasteryCoefficient', 'SimcAplKeywordPair',
+        'SimcMasteryCoefficient',
         'SimcApl', 'SimcBackendBinary',
     }
     
@@ -417,11 +417,7 @@ class DashboardView(View):
                     queryset = apply_search_filter(queryset, ['appId', 'uuid'])
                     total_count = queryset.count()
                     items = list(queryset[offset:offset + page_size])
-                elif table_name == 'SimcAplKeywordPair':
-                    queryset = model.objects.values('id', 'apl_keyword', 'cn_keyword', 'description', 'is_active', 'create_time').order_by('create_time')
-                    queryset = apply_search_filter(queryset, ['apl_keyword', 'cn_keyword', 'description'])
-                    total_count = queryset.count()
-                    items = list(queryset[offset:offset + page_size])
+
                 elif table_name == 'SimcProfile':
                     queryset = model.objects.values(
                         'id', 'name', 'spec',

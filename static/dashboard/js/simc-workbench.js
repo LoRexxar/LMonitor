@@ -8,7 +8,6 @@
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
         dialogStack: [],
         templateType: '', rows: Object.create(null),
-        aplKeywordQuery: '', aplKeywordCanWrite: false,
         aplQuery: '',
         aplLoadState: {
             personal: { loading: false, error: '' },
@@ -514,53 +513,6 @@
             <section class="simc-editor-section"><div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">模板内容</h5><p class="mt-1 text-xs text-slate-500">只读预览，保持原始换行与缩进。</p></div><span class="text-xs text-slate-500">${codeStats(row.content)}</span></div><pre class="template-code-preview">${esc(row.content)}</pre></section>
         </div>`;
     }
-    function renderAplKeywordForm(row = null) {
-        const host = openDialog('keyword-form');
-        if (!host) return;
-        host.innerHTML = `<form data-apl-keyword-form class="rounded-xl border border-blue-200 bg-blue-50 p-4">
-            <input type="hidden" name="id" value="${idOf(row?.id)}">
-            <label class="block text-sm font-medium text-gray-700">APL 关键词<input name="apl_keyword" ${row ? 'readonly' : ''} required maxlength="100" value="${esc(row?.apl_keyword)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
-            <label class="mt-3 block text-sm font-medium text-gray-700">中文关键词<input name="cn_keyword" required maxlength="100" value="${esc(row?.cn_keyword)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
-            <label class="mt-3 block text-sm font-medium text-gray-700">描述<input name="description" maxlength="500" value="${esc(row?.description)}" class="mt-1 w-full rounded-lg border bg-white p-2"></label>
-            <div class="mt-3 flex gap-2"><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-white">保存</button><button type="button" data-apl-keyword-action="cancel" class="rounded-lg border bg-white px-4 py-2">取消</button></div>
-        </form>`;
-    }
-    function closeAplKeywordForm() {
-        closeDialog();
-    }
-    async function saveAplKeyword(form) {
-        const formData = new FormData(form);
-        const id = idOf(formData.get('id'));
-        const payload = {
-            cn_keyword: String(formData.get('cn_keyword') || '').trim(),
-            description: String(formData.get('description') || '').trim(),
-        };
-        if (!id) payload.apl_keyword = String(formData.get('apl_keyword') || '').trim();
-        await json(resourceUrl('apl-keywords', id), {
-            method: id ? 'PUT' : 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
-            body: JSON.stringify(payload),
-        });
-        closeAplKeywordForm();
-        await loadApl('apl-keywords', 'simc-wb-apl-keyword-list');
-        window.showMessage(id ? '关键词已更新' : '关键词已创建', 'success');
-    }
-    async function showAplKeywordDetail(id) {
-        const host = openDialog('keyword-detail');
-        if (!host) return;
-        const detailRequest = beginDetailRequest(`keyword:${id}`);
-        renderState(host, 'loading', '正在加载关键词…');
-        let data;
-        try {
-            data = await json(resourceUrl('apl-keywords', id), { signal: detailRequest.controller.signal });
-        } catch (error) {
-            if (error.name === 'AbortError') return;
-            throw error;
-        }
-        if (!isCurrentDetailRequest(detailRequest)) return;
-        const row = data.data || {};
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">规则关键词详情</h4><button class="simc-touch-action" data-apl-keyword-action="close-detail">关闭</button></div><dl class="mt-3 grid gap-2 text-sm"><div>APL 关键词：<code>${esc(row.apl_keyword)}</code></div><div>中文关键词：${esc(row.cn_keyword)}</div><div>说明：${esc(row.description || '-')}</div><div>状态：${row.is_active === false ? '已停用' : '启用'}</div></dl>`;
-    }
     function codeStats(value) {
         const text = String(value || '');
         return `${text ? text.split('\n').length : 0} 行 · ${text.length} 字符`;
@@ -584,7 +536,7 @@
             </section>
             <section class="simc-editor-section">
                 <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">APL/中文共用一个可编辑正文；保存时会自动转换为权威 APL。</p></div><div class="simc-apl-editor-heading-actions"><div class="simc-apl-language-switch" role="group" aria-label="正文语言"><button type="button" data-apl-language="apl" aria-pressed="true">APL</button><button type="button" data-apl-language="cn" aria-pressed="false">中文</button></div><button type="button" data-apl-validate-now>立即结构检查</button></div></div>
-                ${row?.id ? '' : '<div class="simc-apl-default-library"><div class="simc-apl-default-library__heading"><div><strong>默认 APL 列表</strong><span data-apl-default-summary>请选择专精</span></div><input type="search" data-apl-default-search placeholder="筛选默认 APL"></div><div class="simc-apl-default-list" data-apl-default-list></div></div>'}
+                <div class="simc-apl-default-library__heading"><div><strong>可用 APL 列表</strong><span data-apl-default-summary>请选择专精</span></div><input type="search" data-apl-default-search placeholder="搜索名称、来源或专精"></div><div class="simc-apl-default-list" data-apl-default-list></div>
                 <input type="hidden" name="apl_code" value="">
                 <div class="simc-apl-workspace">
                     <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div></div>
@@ -614,13 +566,13 @@
             const visible = query ? defaultAplRows.filter(item => [item.name, item.title, item.class_name, item.spec]
                 .some(value => String(value || '').toLocaleLowerCase().includes(query))) : defaultAplRows;
             if (defaultSummary) defaultSummary.textContent = `共 ${defaultAplRows.length} 个${query ? ` · 匹配 ${visible.length} 个` : ''}`;
-            defaultList.innerHTML = visible.length ? visible.map(item => `<button type="button" data-apl-default-choice="${idOf(item.id)}"><span><strong>${esc(item.name || item.title || '默认 APL')}</strong><small>${esc(item.class_name || '')}${item.class_name && item.spec ? ' · ' : ''}${esc(item.spec || '')}</small></span><em>选择并导入</em></button>`).join('') : '<p>当前专精没有匹配的默认 APL</p>';
+            defaultList.innerHTML = visible.length ? visible.map(item => `<button type="button" data-apl-default-choice="${idOf(item.id)}"><span><strong>${esc(item.name || item.title || 'APL')}</strong><small>${esc(item.is_system ? '系统' : '个人')} · ${esc(item.class_name || '')}${item.class_name && item.spec ? ' · ' : ''}${esc(item.spec || '')}</small></span><em>加载到编辑器</em></button>`).join('') : '<p>当前专精没有可用 APL</p>';
         };
         const loadDefaultChoices = async () => {
             if (!defaultList) return;
             const spec = host.querySelector('select[name="spec"]')?.value || '';
-            const {selectDefaultAplsForSpec} = await import(window.SIMC_APL_EDITOR_MODULE_URL);
-            defaultAplRows = selectDefaultAplsForSpec(state.rows.apls || [], spec);
+            const {selectAplsForSpec} = await import(window.SIMC_APL_EDITOR_MODULE_URL);
+            defaultAplRows = selectAplsForSpec(state.rows.apls || [], spec);
             renderDefaultChoices();
         };
         defaultSearch?.addEventListener('input', renderDefaultChoices);
@@ -701,52 +653,6 @@
     }
     function closeAplStorageForm() {
         closeDialog();
-    }
-    function renderAplKeywordTable() {
-        const host = document.getElementById('simc-wb-apl-keyword-list');
-        const summary = document.getElementById('simc-wb-apl-keyword-summary');
-        if (!host) return;
-        const rows = state.rows['apl-keywords'] || [];
-        const query = state.aplKeywordQuery.trim().toLocaleLowerCase();
-        const filteredRows = query ? rows.filter(row => {
-            const searchable = [row.apl_keyword, row.cn_keyword, row.description]
-                .map(value => String(value || '').toLocaleLowerCase())
-                .join('\n');
-            return searchable.includes(query);
-        }) : rows;
-        if (summary) {
-            summary.textContent = query
-                ? `共 ${rows.length} 条 · 筛选后 ${filteredRows.length} 条`
-                : `共 ${rows.length} 条`;
-        }
-        if (!filteredRows.length) {
-            host.innerHTML = empty(query ? '无匹配结果' : '暂无数据');
-            return;
-        }
-        const body = filteredRows.map(row => {
-            const active = row.is_active !== false;
-            const description = row.description || '-';
-            const actions = `<div class="flex flex-wrap gap-1 sm:justify-end">
-                <button data-wb-action="keyword-detail" data-resource="apl-keywords" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button>
-                ${state.aplKeywordCanWrite ? `<button data-wb-action="keyword-edit" data-resource="apl-keywords" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="apl-keywords" data-id="${idOf(row.id)}" class="simc-touch-action ${active ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}">${active ? '停用' : '恢复'}</button>` : ''}
-            </div>`;
-            return `<tr class="align-top transition-colors hover:bg-slate-50">
-                <td class="px-3 py-2.5"><span class="simc-table-cell-label">APL 关键词</span><code class="break-all rounded bg-slate-100 px-1.5 py-1 text-xs text-slate-800">${esc(row.apl_keyword)}</code></td>
-                <td class="px-3 py-2.5 text-slate-700"><span class="simc-table-cell-label">中文关键词</span><span>${esc(row.cn_keyword || '-')}</span></td>
-                <td class="max-w-0 px-3 py-2.5 text-slate-500"><span class="simc-table-cell-label">说明</span><span class="simc-apl-description block" title="${esc(description)}">${esc(description)}</span></td>
-                <td class="px-3 py-2.5"><span class="simc-table-cell-label">状态</span><span class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${active ? '启用' : '已停用'}</span></td>
-                <td class="px-3 py-1.5 text-right"><span class="simc-table-cell-label">操作</span>${actions}</td>
-            </tr>`;
-        }).join('');
-        host.innerHTML = `<div class="overflow-hidden rounded-xl border border-slate-200">
-            <table class="simc-responsive-table w-full table-fixed text-sm">
-                <colgroup><col class="w-[25%]"><col class="w-[18%]"><col class="w-[27%]"><col class="w-[12%]"><col class="w-[18%]"></colgroup>
-                <thead class="bg-slate-50 text-xs font-medium text-slate-500"><tr>
-                    <th class="border-b px-3 py-2.5 text-left">APL 关键词</th><th class="border-b px-3 py-2.5 text-left">中文关键词</th><th class="border-b px-3 py-2.5 text-left">说明</th><th class="border-b px-3 py-2.5 text-left">状态</th><th class="border-b px-3 py-2.5 text-right">操作</th>
-                </tr></thead>
-                <tbody class="divide-y divide-slate-100">${body}</tbody>
-            </table>
-        </div>`;
     }
     function renderUnifiedAplList() {
         const host = document.getElementById('simc-unified-apl-list');
@@ -837,11 +743,6 @@
         if (unifiedApl) state.aplLoadState.personal = { loading: false, error: '' };
         const canWrite = resource === 'apl-storage' || resource === 'apls' || data.can_write === true;
         document.querySelector(`[data-inline-create="${resource}"]`)?.classList.toggle('hidden', !canWrite);
-        if (resource === 'apl-keywords') {
-            state.aplKeywordCanWrite = canWrite;
-            renderAplKeywordTable();
-            return;
-        }
         renderUnifiedAplList();
     }
     async function loadDefaultAplLibrary() {
@@ -1024,7 +925,6 @@
         await json(resourceUrl(resource, id), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() }, body: JSON.stringify({ action }) });
         if (resource === 'tasks' || resource === 'batches') await loadTasks(state.taskPage);
         else if (resource === 'apl-storage') await loadApl(resource, 'simc-unified-apl-list');
-        else if (resource === 'apl-keywords') await loadApl(resource, 'simc-wb-apl-keyword-list');
         else if (resource === 'templates') await loadTemplates();
     }
     async function fetchManagedAplDetail(id, options = {}) {
@@ -1051,14 +951,17 @@
         if (!host) return;
         const request = beginDetailRequest(`managed-apl-edit:${id}`);
         renderState(host, 'loading', '正在加载 APL 编辑器…');
+        const detailPromise = fetchManagedAplDetail(id, { signal: request.controller.signal });
+        const specsPromise = state.specOptions.length ? Promise.resolve() : loadSpecOptions();
+        const aplsPromise = Array.isArray(state.rows.apls) ? Promise.resolve() : loadApl('apls', 'simc-unified-apl-list');
         let row;
         try {
-            row = await fetchManagedAplDetail(id, { signal: request.controller.signal });
+            [row] = await Promise.all([detailPromise, specsPromise, aplsPromise]);
         } catch (error) {
             if (error.name === 'AbortError') return;
             throw error;
         }
-        if (!isCurrentDetailRequest(request)) return;
+        if (!isCurrentDetailRequest(request) || document.getElementById('simc-dialog-body') !== host) return;
         renderAplStorageForm(row);
     }
     function confirmDeleteApl(id) {
@@ -1084,7 +987,7 @@
             loadApl('apls', 'simc-unified-apl-list').catch(notify);
             loadSpecOptions().catch(notify);
         }
-        if (tab === 'apl-keywords') loadApl('apl-keywords', 'simc-wb-apl-keyword-list').catch(notify);
+
         if (tab === 'backend') loadBackend().catch(notify);
     }
     function deactivate(nextPanel) {
@@ -1123,8 +1026,7 @@
             if (aplCreate) openNewAplStorageForm().catch(notify);
             const templateCreate = event.target.closest('[data-inline-create="templates"]');
             if (templateCreate) renderTemplateForm();
-            const aplKeywordCreate = event.target.closest('[data-inline-create="apl-keywords"]');
-            if (aplKeywordCreate) renderAplKeywordForm();
+
             const myAplAction = event.target.closest('[data-my-apl-action]');
             if (myAplAction) {
                 const id = idOf(myAplAction.dataset.id);
@@ -1205,12 +1107,7 @@
                 else if (actionName === 'edit' && id) fetchAplStorageDetail(id).then(renderAplStorageForm).catch(notify);
                 else if ((actionName === 'archive' || actionName === 'restore') && id) lifecycle('apl-storage', id, actionName).catch(notify);
             }
-            const aplKeywordAction = event.target.closest('[data-apl-keyword-action]');
-            if (aplKeywordAction) {
-                const actionName = aplKeywordAction.dataset.aplKeywordAction;
-                if (actionName === 'cancel') closeAplKeywordForm();
-                if (actionName === 'close-detail') closeDialog();
-            }
+
             const templateAction = event.target.closest('[data-template-action]');
             if (templateAction) {
                 const actionName = templateAction.dataset.templateAction;
@@ -1246,11 +1143,7 @@
                 }
                 else if (name === 'compare' && resource === 'batches') showBatchComparison(id).catch(notify);
                 else if (name === 'template-detail') showTemplateDetail(id).catch(notify);
-                else if (name === 'keyword-detail') showAplKeywordDetail(id).catch(notify);
-                else if (name === 'keyword-edit') {
-                    const row = (state.rows['apl-keywords'] || []).find(item => idOf(item.id) === id);
-                    if (row) renderAplKeywordForm(row);
-                }
+
                 else if (name === 'template-edit') {
                     const row = (state.rows.templates || []).find(item => idOf(item.id) === id);
                     if (row) renderTemplateForm(row);
@@ -1271,7 +1164,7 @@
                 const target = retry.dataset.wbRetry;
                 if (target === 'tasks') loadTasks(state.taskPage);
                 else if (target === 'templates') loadTemplates();
-                else if (target === 'apl-keywords') loadApl(target, 'simc-wb-apl-keyword-list');
+
                 else if (target === 'apl-storage') loadApl(target, 'simc-unified-apl-list');
             }
         });
@@ -1292,12 +1185,7 @@
             }
         }
         document.addEventListener('input', event => {
-            const keywordSearch = event.target.closest('#simc-wb-apl-keyword-search');
-            if (keywordSearch) {
-                state.aplKeywordQuery = keywordSearch.value || '';
-                renderAplKeywordTable();
-                return;
-            }
+
             const aplSearch = event.target.closest('#simc-apl-search');
             if (aplSearch) {
                 state.aplQuery = aplSearch.value || '';
@@ -1350,12 +1238,7 @@
                 saveTemplate(templateForm).catch(notify);
                 return;
             }
-            const aplKeywordForm = event.target.closest('[data-apl-keyword-form]');
-            if (aplKeywordForm) {
-                event.preventDefault();
-                saveAplKeyword(aplKeywordForm).catch(notify);
-                return;
-            }
+
         });
     });
 })();

@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcAplKeywordPair, SimcApl, SimcAplSymbol, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot
 from botend.alerting import upsert_system_alert
 from django.db import IntegrityError, models, transaction
 from core.glm import GLMClient
@@ -713,11 +713,7 @@ class SimcAplSpellsAPIView(SimcAplEditorAPIView):
                 spell_ids_by_pair.setdefault(key, []).append(row['spell_id'])
         all_spell_ids = {spell_id for values in spell_ids_by_pair.values() for spell_id in values}
         symbol_tokens = self._symbol_tokens(all_spell_ids, request.GET.get('spec'))
-        keyword_tokens = {
-            (row.apl_keyword.casefold(), row.cn_keyword.casefold()): row.apl_keyword
-            for row in SimcAplKeywordPair.objects.filter(is_active=True)
-            if row.cn_keyword and row.apl_keyword
-        }
+
         items = []
         for row in page_pairs:
             key = (row['name'], row['name_zh'])
@@ -729,14 +725,8 @@ class SimcAplSpellsAPIView(SimcAplEditorAPIView):
             if token:
                 token_source, authoritative = 'simc_symbol', True
             else:
-                token = keyword_tokens.get((
-                    self._candidate_token(row['name']).casefold(), row['name_zh'].casefold(),
-                ))
-                if token:
-                    token_source, authoritative = 'keyword_pair', False
-                else:
-                    token = self._candidate_token(row['name'])
-                    token_source, authoritative = 'wago_candidate', False
+                token = self._candidate_token(row['name'])
+                token_source, authoritative = 'wago_candidate', False
             items.append({
                 'english': row['name'], 'chinese': row['name_zh'], 'token': token,
                 'token_source': token_source, 'authoritative': authoritative,
@@ -835,7 +825,7 @@ class ConvertTextAPIView(View):
             })
     
     def bilingual_pairs(self, spec=''):
-        """Use live Wago names; keep legacy rows only for uncovered rule tokens."""
+        """Use live Wago names and SimC symbols as the sole bilingual catalog."""
         rows = list(
             WowSpellSnapshot.objects.filter(branch='wow', locale='zhCN')
             .exclude(name='').exclude(name_zh='')
@@ -844,32 +834,20 @@ class ConvertTextAPIView(View):
         )
         spell_ids = {row['spell_id'] for row in rows}
         symbol_tokens = SimcAplSpellsAPIView()._symbol_tokens(spell_ids, spec)
-        legacy_pairs = list(SimcAplKeywordPair.objects.filter(is_active=True))
-        legacy_tokens = {
-            (pair.apl_keyword.casefold(), pair.cn_keyword.casefold()): pair.apl_keyword
-            for pair in legacy_pairs if pair.apl_keyword and pair.cn_keyword.strip()
-        }
         pairs = []
         seen_pairs = set()
         seen_tokens = set()
         for row in rows:
             candidate = SimcAplSpellsAPIView._candidate_token(row['name'])
-            token = symbol_tokens.get(row['spell_id']) or legacy_tokens.get(
-                (candidate.casefold(), row['name_zh'].casefold()),
-            ) or candidate
+            token = symbol_tokens.get(row['spell_id']) or candidate
             key = (token.casefold(), row['name_zh'].casefold())
             if not token or key in seen_pairs:
                 continue
             pairs.append((token, row['name_zh']))
             seen_pairs.add(key)
             seen_tokens.add(token.casefold())
-        for pair in legacy_pairs:
-            if not pair.apl_keyword or not pair.cn_keyword.strip():
-                continue
-            if pair.apl_keyword.casefold() in seen_tokens:
-                continue
-            pairs.append((pair.apl_keyword, pair.cn_keyword))
         return pairs
+
 
     def convert_apl_to_cn(self, text, spec=''):
         """
@@ -3142,221 +3120,6 @@ class SimcRawInspectAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class KeywordManagerAPIView(View):
-    """
-    关键字管理API
-    """
-    
-    def get(self, request):
-        """获取关键字列表"""
-        try:
-            # 获取查询参数
-            page = int(request.GET.get('page', 1))
-            page_size = int(request.GET.get('page_size', 10))
-            search = request.GET.get('search', '').strip()
-            
-            # 构建查询
-            queryset = SimcAplKeywordPair.objects.all()
-            
-            if search:
-                queryset = queryset.filter(
-                    models.Q(apl_keyword__icontains=search) |
-                    models.Q(cn_keyword__icontains=search) |
-                    models.Q(description__icontains=search)
-                )
-            
-            # 计算分页
-            total = queryset.count()
-            start = (page - 1) * page_size
-            end = start + page_size
-            keywords = queryset.order_by('-create_time')[start:end]
-            
-            # 序列化数据
-            data = []
-            for keyword in keywords:
-                data.append({
-                    'id': keyword.id,
-                    'apl_keyword': keyword.apl_keyword,
-                    'cn_keyword': keyword.cn_keyword,
-                    'description': keyword.description or '',
-                    'is_active': keyword.is_active,
-                    'create_time': _fmt_dt(keyword.create_time) or ''
-                })
-            
-            return JsonResponse({
-                'success': True,
-                'data': data,
-                'pagination': {
-                    'page': page,
-                    'page_size': page_size,
-                    'total': total,
-                    'total_pages': (total + page_size - 1) // page_size
-                }
-            })
-            
-        except Exception as e:
-            logger.error(f"获取关键字列表失败: {str(e)}")
-            return JsonResponse({
-                'success': False,
-                'error': '获取数据失败'
-            })
-    
-    def post(self, request):
-        """创建新关键字"""
-        if not request.user.is_staff:
-            return JsonResponse({'success': False, 'error': '仅管理员可修改全局关键词'}, status=403)
-        try:
-            data = json.loads(request.body)
-            
-            # 验证必填字段
-            apl_keyword = data.get('apl_keyword', '').strip()
-            cn_keyword = data.get('cn_keyword', '').strip()
-            
-            if not apl_keyword or not cn_keyword:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'APL关键字和中文关键字不能为空'
-                })
-            
-            # 检查是否已存在相同的关键字对
-            if SimcAplKeywordPair.objects.filter(
-                apl_keyword=apl_keyword, 
-                cn_keyword=cn_keyword
-            ).exists():
-                return JsonResponse({
-                    'success': False,
-                    'error': '该关键字对已存在'
-                })
-            
-            # 创建新记录
-            keyword = SimcAplKeywordPair.objects.create(
-                apl_keyword=apl_keyword,
-                cn_keyword=cn_keyword,
-                description=data.get('description', ''),
-                is_active=data.get('is_active', True)
-            )
-            
-            return JsonResponse({
-                'success': True,
-                'data': {
-                    'id': keyword.id,
-                    'apl_keyword': keyword.apl_keyword,
-                    'cn_keyword': keyword.cn_keyword,
-                    'description': keyword.description,
-                    'is_active': keyword.is_active,
-                    'create_time': _fmt_dt(keyword.create_time)
-                }
-            })
-            
-        except Exception as e:
-            logger.error(f"创建关键字失败: {str(e)}")
-            return JsonResponse({
-                'success': False,
-                'error': '创建失败'
-            })
-    
-    def put(self, request):
-        """更新关键字"""
-        if not request.user.is_staff:
-            return JsonResponse({'success': False, 'error': '仅管理员可修改全局关键词'}, status=403)
-        try:
-            data = json.loads(request.body)
-            keyword_id = data.get('id')
-            
-            if not keyword_id:
-                return JsonResponse({
-                    'success': False,
-                    'error': '缺少关键字ID'
-                })
-            
-            try:
-                keyword = SimcAplKeywordPair.objects.get(id=keyword_id)
-            except SimcAplKeywordPair.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': '关键字不存在'
-                })
-            
-            # 验证必填字段
-            apl_keyword = data.get('apl_keyword', '').strip()
-            cn_keyword = data.get('cn_keyword', '').strip()
-            
-            if not apl_keyword or not cn_keyword:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'APL关键字和中文关键字不能为空'
-                })
-            
-            # 检查APL关键字是否与其他记录冲突
-            if SimcAplKeywordPair.objects.filter(apl_keyword=apl_keyword).exclude(id=keyword_id).exists():
-                return JsonResponse({
-                    'success': False,
-                    'error': 'APL关键字已存在'
-                })
-            
-            # 更新记录
-            keyword.apl_keyword = apl_keyword
-            keyword.cn_keyword = cn_keyword
-            keyword.description = data.get('description', '')
-            keyword.is_active = data.get('is_active', True)
-            keyword.save()
-            
-            return JsonResponse({
-                'success': True,
-                'data': {
-                    'id': keyword.id,
-                    'apl_keyword': keyword.apl_keyword,
-                    'cn_keyword': keyword.cn_keyword,
-                    'description': keyword.description,
-                    'is_active': keyword.is_active
-                }
-            })
-            
-        except Exception as e:
-            logger.error(f"更新关键字失败: {str(e)}")
-            return JsonResponse({
-                'success': False,
-                'error': '更新失败'
-            })
-    
-    def delete(self, request):
-        """删除关键字"""
-        if not request.user.is_staff:
-            return JsonResponse({'success': False, 'error': '仅管理员可修改全局关键词'}, status=403)
-        try:
-            data = json.loads(request.body)
-            keyword_id = data.get('id')
-            
-            if not keyword_id:
-                return JsonResponse({
-                    'success': False,
-                    'error': '缺少关键字ID'
-                })
-            
-            try:
-                keyword = SimcAplKeywordPair.objects.get(id=keyword_id)
-                keyword.delete()
-                
-                return JsonResponse({
-                    'success': True,
-                    'message': '删除成功'
-                })
-                
-            except SimcAplKeywordPair.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': '关键字不存在'
-                })
-                
-        except Exception as e:
-            logger.error(f"删除关键字失败: {str(e)}")
-            return JsonResponse({
-                'success': False,
-                'error': '删除失败'
-            })
-
-
-@method_decorator(login_required, name='dispatch')
 class AplStorageAPIView(View):
     """
     APL存储API
@@ -4917,73 +4680,6 @@ class SimcAplCandidatesAPIView(View):
             if batch_id:
                 SimcMonitor(None, None).sync_batch_lifecycle(batch_id)
 
-@method_decorator([csrf_exempt], name='dispatch')
-class KeywordTranslationAPIView(View):
-    """
-    关键字翻译API - 用于SimC结果分析页面
-    """
-    
-    def get(self, request):
-        """获取所有活跃的关键字映射"""
-        try:
-            import re
-            # 获取所有活跃的关键字映射
-            keywords = SimcAplKeywordPair.objects.filter(is_active=True)
-            
-            # 构建映射字典
-            translation_map = {}
-            
-            def title_case(s):
-                parts = re.split(r'[\s_\-]+', s.strip())
-                return ' '.join(p.capitalize() for p in parts if p)
-            
-            for keyword in keywords:
-                apl = (keyword.apl_keyword or '').strip()
-                cn = (keyword.cn_keyword or '').strip()
-                if not apl or not cn:
-                    continue
-                
-                # 原始键
-                translation_map[apl] = cn
-                
-                # 常见变体：下划线、空格、连字符、大小写、标题化
-                variants = set()
-                variants.add(apl.lower())
-                variants.add(apl.replace('_', ' '))
-                variants.add(apl.replace('_', '-'))
-                
-                v_space = apl.replace('_', ' ')
-                variants.add(v_space.lower())
-                variants.add(title_case(v_space))
-                
-                v_hyphen = apl.replace('_', '-')
-                variants.add(v_hyphen.lower())
-                variants.add(title_case(v_hyphen))
-                
-                # 下划线标题化（少见，但兼容）
-                v_underscore_title = '_'.join(w.capitalize() for w in apl.split('_') if w)
-                if v_underscore_title:
-                    variants.add(v_underscore_title)
-                
-                for v in variants:
-                    if not v:
-                        continue
-                    translation_map.setdefault(v, cn)
-            
-            return JsonResponse({
-                'success': True,
-                'translations': translation_map
-            })
-            
-        except Exception as e:
-            logger.error(f"获取关键字翻译映射失败: {str(e)}")
-            return JsonResponse({
-                'success': False,
-                'error': '获取翻译映射失败'
-            })
-
-
-@method_decorator([csrf_exempt], name='dispatch')
 class OssConfigAPIView(View):
     """
     OSS配置API
@@ -6856,15 +6552,6 @@ class SimcWorkbenchAPIView(View):
                 return JsonResponse({'success': True, 'data': row})
             return JsonResponse({'success': True, 'data': list(model.objects.order_by(fields[1]).values(*fields)), 'can_write': request.user.is_staff})
 
-        if resource == 'apl-keywords':
-            qs = SimcAplKeywordPair.objects.order_by('apl_keyword')
-            fields = ('id', 'apl_keyword', 'cn_keyword', 'description', 'is_active')
-            if object_id:
-                row = qs.filter(id=object_id).values(*fields).first()
-                if not row:
-                    return JsonResponse({'success': False, 'error': 'APL 关键字不存在'}, status=404)
-                return JsonResponse({'success': True, 'data': row, 'can_write': request.user.is_staff})
-            return JsonResponse({'success': True, 'data': list(qs.values(*fields)), 'can_write': request.user.is_staff})
 
         if resource == 'apl-storage':
             qs = SimcApl.objects.filter(owner_user_id=request.user.id).order_by('-id')
@@ -7106,34 +6793,7 @@ class SimcWorkbenchAPIView(View):
                     return JsonResponse({'success': False, 'error': '同一专精下已存在同名 APL'}, status=409)
                 raise
             return JsonResponse({'success': True, 'data': {'id': apl.id}})
-        if resource == 'apl-keywords':
-            if not request.user.is_staff:
-                return JsonResponse({'success': False, 'error': '仅管理员可修改关键词'}, status=403)
-            if object_id and action in ('archive', 'restore'):
-                kw = SimcAplKeywordPair.objects.filter(id=object_id).first()
-                if not kw:
-                    return JsonResponse({'success': False, 'error': '关键词不存在'}, status=404)
-                kw.is_active = action == 'restore'
-                kw.save(update_fields=['is_active'])
-                return JsonResponse({'success': True})
-            if not object_id:
-                try:
-                    apl_keyword = str(data.get('apl_keyword') or '').strip()
-                    cn_keyword = str(data.get('cn_keyword') or '').strip()
-                    if not apl_keyword or not cn_keyword:
-                        return JsonResponse({'success': False, 'error': 'apl_keyword 和 cn_keyword 不能为空'}, status=400)
-                    if SimcAplKeywordPair.objects.filter(apl_keyword=apl_keyword, is_active=True).exists():
-                        return JsonResponse({'success': False, 'error': f'活跃关键词 {apl_keyword} 已存在'}, status=409)
-                    kw = SimcAplKeywordPair.objects.create(
-                        apl_keyword=apl_keyword,
-                        cn_keyword=cn_keyword,
-                        description=str(data.get('description') or '').strip(),
-                        is_active=True,
-                    )
-                    return JsonResponse({'success': True, 'data': {'id': kw.id}})
-                except Exception as e:
-                    logger.error(f"创建关键词失败: {str(e)}")
-                    return JsonResponse({'success': False, 'error': '创建关键词失败'}, status=500)
+
         if resource in ('secondary-rules', 'mastery-rules'):
             if not request.user.is_staff:
                 return JsonResponse({'success': False, 'error': '仅管理员可修改规则'}, status=403)
@@ -7253,26 +6913,7 @@ class SimcWorkbenchAPIView(View):
                     return JsonResponse({'success': False, 'error': '修改后的模板与已有活跃模板冲突'}, status=409)
                 logger.error(f"更新模板失败: {str(e)}")
                 return JsonResponse({'success': False, 'error': '更新模板失败'}, status=500)
-        if resource == 'apl-keywords':
-            if not request.user.is_staff:
-                return JsonResponse({'success': False, 'error': '仅管理员可修改关键词'}, status=403)
-            if not object_id:
-                return JsonResponse({'success': False, 'error': '缺少关键词ID'}, status=400)
-            kw = SimcAplKeywordPair.objects.filter(id=object_id).first()
-            if not kw:
-                return JsonResponse({'success': False, 'error': '关键词不存在'}, status=404)
-            try:
-                if 'apl_keyword' in data and str(data.get('apl_keyword') or '').strip() != kw.apl_keyword:
-                    return JsonResponse({'success': False, 'error': 'apl_keyword 不可修改'}, status=400)
-                if 'cn_keyword' in data:
-                    kw.cn_keyword = str(data['cn_keyword'] or '').strip()
-                if 'description' in data:
-                    kw.description = str(data['description'] or '').strip()
-                kw.save()
-                return JsonResponse({'success': True})
-            except Exception as e:
-                logger.error(f"更新关键词失败: {str(e)}")
-                return JsonResponse({'success': False, 'error': '更新关键词失败'}, status=500)
+
         if resource in ('secondary-rules', 'mastery-rules'):
             if not request.user.is_staff:
                 return JsonResponse({'success': False, 'error': '仅管理员可修改规则'}, status=403)
@@ -7319,8 +6960,7 @@ class SimcWorkbenchAPIView(View):
             return JsonResponse({'success': True})
         if resource == 'templates':
             return JsonResponse({'success': False, 'error': '模板不支持真实删除，请使用停用操作'}, status=400)
-        if resource == 'apl-keywords':
-            return JsonResponse({'success': False, 'error': '关键词不支持真实删除，请使用停用操作'}, status=400)
+
         if resource in ('secondary-rules', 'mastery-rules'):
             if not request.user.is_staff:
                 return JsonResponse({'success': False, 'error': '仅管理员可修改规则'}, status=403)

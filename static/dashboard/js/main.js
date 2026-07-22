@@ -1470,8 +1470,7 @@ function getTitleForDialogContent(contentType) {
         'template-detail': '模板详情',
         'template-form': '模板管理',
         'apl-form': 'APL 管理',
-        'keyword-detail': 'APL 关键词详情',
-        'keyword-form': 'APL 关键词管理',
+
         'task-detail': '任务详情',
         'batch-detail': '批次详情'
     };
@@ -1633,7 +1632,7 @@ function switchSimcWorkbenchTab(tabName) {
         profiles: 'workflow',
         templates: 'workflow',
         apl: 'workflow',
-        'apl-keywords': 'advanced',
+
         backend: 'advanced',
         rules: 'advanced'
     };
@@ -6536,22 +6535,13 @@ function submitAddRecord() {
         return;
     }
 
-    // 根据表名选择不同的API端点
-    let apiUrl, requestData;
-
-    if (currentTableName === 'SimcAplKeywordPair') {
-        // 使用关键字管理API
-        apiUrl = '/api/keyword-manager/';
-        requestData = data;
-    } else {
-        // 使用通用的dashboard API
-        apiUrl = '/dashboard/';
-        requestData = {
-            action: 'create_table_row',
-            table_name: currentTableName,
-            create_data: data
-        };
-    }
+    // 使用通用的 dashboard API
+    const apiUrl = '/dashboard/';
+    const requestData = {
+        action: 'create_table_row',
+        table_name: currentTableName,
+        create_data: data
+    };
 
     // 发送POST请求
     fetch(apiUrl, {

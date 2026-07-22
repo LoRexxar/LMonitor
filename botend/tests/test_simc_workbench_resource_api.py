@@ -8,7 +8,7 @@ from django.test import TestCase
 
 from botend.models import (
     SimulationRun,
-    SimcAplKeywordPair,
+
     SimcContentTemplate,
     SimcProfile,
     SimcTask,
@@ -143,42 +143,6 @@ class SimcWorkbenchTemplateResourceTests(TestCase):
             path = f'/api/simc-workbench/templates/{template.id}/'
             self.assertEqual(self._put(path, {'content': 'actions=/stolen'}).status_code, 404)
             self.assertEqual(self._post(path, {'action': 'archive'}).status_code, 404)
-
-
-class SimcWorkbenchKeywordResourceTests(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(username='kw-user', password='pwd')
-        self.staff = User.objects.create_user(username='kw-staff', password='pwd', is_staff=True)
-        self.keyword = SimcAplKeywordPair.objects.create(
-            apl_keyword='actions=/old', cn_keyword='旧', description='old')
-
-    def test_read_for_all_but_only_staff_can_write_and_apl_keyword_is_immutable(self):
-        self.client.force_login(self.user)
-        self.assertEqual(self.client.get('/api/simc-workbench/apl-keywords/').status_code, 200)
-        self.assertEqual(self.client.get(
-            f'/api/simc-workbench/apl-keywords/{self.keyword.id}/').status_code, 200)
-        denied = self.client.put(
-            f'/api/simc-workbench/apl-keywords/{self.keyword.id}/',
-            json.dumps({'cn_keyword': '改'}), content_type='application/json')
-        self.assertEqual(denied.status_code, 403)
-
-        self.client.force_login(self.staff)
-        immutable = self.client.put(
-            f'/api/simc-workbench/apl-keywords/{self.keyword.id}/',
-            json.dumps({'apl_keyword': 'actions=/new', 'cn_keyword': '新'}),
-            content_type='application/json')
-        self.assertEqual(immutable.status_code, 400)
-        self.keyword.refresh_from_db()
-        self.assertEqual(self.keyword.apl_keyword, 'actions=/old')
-        self.assertEqual(self.keyword.cn_keyword, '旧')
-
-        updated = self.client.put(
-            f'/api/simc-workbench/apl-keywords/{self.keyword.id}/',
-            json.dumps({'cn_keyword': '已更新', 'description': 'new'}),
-            content_type='application/json')
-        self.assertEqual(updated.status_code, 200)
-        self.keyword.refresh_from_db()
-        self.assertEqual(self.keyword.cn_keyword, '已更新')
 
 
 class SimcWorkbenchHistoryResourceTests(TestCase):
