@@ -529,6 +529,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('.spec', detail_body)
 
     def test_script_is_really_loaded(self):
+        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260722b", HTML)
         self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260722a", HTML)
         self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260722a", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
