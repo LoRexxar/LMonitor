@@ -469,7 +469,10 @@ export function createSimcAplEditor(options) {
             method: 'POST',
             headers: {'Content-Type': 'application/json', ...requestHeaders},
             credentials: 'same-origin',
-            body: JSON.stringify({text, conversion_type: conversionType}),
+            body: JSON.stringify({
+                text, conversion_type: conversionType,
+                spec: String(options.getSpec?.() || ''),
+            }),
             signal,
         });
         const body = await response.json();

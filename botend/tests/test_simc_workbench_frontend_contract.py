@@ -496,6 +496,18 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('.spec', JS)
         self.assertIn('data-apl-action="edit"', JS)
 
+    def test_new_apl_waits_for_spec_options_and_unified_apl_rows_before_rendering(self):
+        """Opening create must not snapshot empty async resources into the form."""
+        self.assertIn('async function openNewAplStorageForm()', JS)
+        start = JS.index('async function openNewAplStorageForm()')
+        end = JS.index('\n    function ', start + 20)
+        body = JS[start:end]
+        self.assertIn("loadApl('apls', 'simc-unified-apl-list')", body)
+        self.assertIn('loadSpecOptions()', body)
+        self.assertIn('await Promise.all', body)
+        self.assertLess(body.index('await Promise.all'), body.index('renderAplStorageForm()'))
+        self.assertIn("if (aplCreate) openNewAplStorageForm().catch(notify)", JS)
+
     def test_default_apl_copy_button_obeys_api_can_copy_contract(self):
         render_start = JS.index('function renderUnifiedAplList()')
         render_end = JS.index('function renderMyAplList()', render_start)

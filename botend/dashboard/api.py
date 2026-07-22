@@ -796,6 +796,7 @@ class ConvertTextAPIView(View):
             data = json.loads(request.body)
             text = data.get('text', '').strip()
             conversion_type = data.get('conversion_type', '')
+            spec = data.get('spec', '')
             
             if not text:
                 return JsonResponse({
@@ -811,9 +812,9 @@ class ConvertTextAPIView(View):
             
             # 执行转换
             if conversion_type == 'apl_to_cn':
-                result = self.convert_apl_to_cn(text)
+                result = self.convert_apl_to_cn(text, spec)
             else:
-                result = self.convert_cn_to_apl(text)
+                result = self.convert_cn_to_apl(text, spec)
             
             return JsonResponse({
                 'success': True,
@@ -833,53 +834,76 @@ class ConvertTextAPIView(View):
                 'error': f'获取APL详情失败: {str(e)}'
             })
     
-    def convert_apl_to_cn(self, text):
+    def bilingual_pairs(self, spec=''):
+        """Use live Wago names; keep legacy rows only for uncovered rule tokens."""
+        rows = list(
+            WowSpellSnapshot.objects.filter(branch='wow', locale='zhCN')
+            .exclude(name='').exclude(name_zh='')
+            .values('spell_id', 'name', 'name_zh')
+            .order_by('name', 'name_zh', 'spell_id')
+        )
+        spell_ids = {row['spell_id'] for row in rows}
+        symbol_tokens = SimcAplSpellsAPIView()._symbol_tokens(spell_ids, spec)
+        legacy_pairs = list(SimcAplKeywordPair.objects.filter(is_active=True))
+        legacy_tokens = {
+            (pair.apl_keyword.casefold(), pair.cn_keyword.casefold()): pair.apl_keyword
+            for pair in legacy_pairs if pair.apl_keyword and pair.cn_keyword.strip()
+        }
+        pairs = []
+        seen_pairs = set()
+        seen_tokens = set()
+        for row in rows:
+            candidate = SimcAplSpellsAPIView._candidate_token(row['name'])
+            token = symbol_tokens.get(row['spell_id']) or legacy_tokens.get(
+                (candidate.casefold(), row['name_zh'].casefold()),
+            ) or candidate
+            key = (token.casefold(), row['name_zh'].casefold())
+            if not token or key in seen_pairs:
+                continue
+            pairs.append((token, row['name_zh']))
+            seen_pairs.add(key)
+            seen_tokens.add(token.casefold())
+        for pair in legacy_pairs:
+            if not pair.apl_keyword or not pair.cn_keyword.strip():
+                continue
+            if pair.apl_keyword.casefold() in seen_tokens:
+                continue
+            pairs.append((pair.apl_keyword, pair.cn_keyword))
+        return pairs
+
+    def convert_apl_to_cn(self, text, spec=''):
         """
         将APL关键字转换为中文
         """
         try:
-            # 获取所有关键字对
-            keyword_pairs = SimcAplKeywordPair.objects.filter(is_active=True)
-            
-            # 按APL关键字长度降序排列，优先替换更长的关键字
-            keyword_pairs = sorted(keyword_pairs, key=lambda x: len(x.apl_keyword), reverse=True)
-            
+            keyword_pairs = sorted(
+                self.bilingual_pairs(spec), key=lambda pair: len(pair[0]), reverse=True,
+            )
             result = text
-            for pair in keyword_pairs:
-                if not pair.apl_keyword or not pair.cn_keyword.strip():
-                    continue
+            for apl_keyword, cn_keyword in keyword_pairs:
                 # 只允许 token 内部的下划线与空格互换，不吞掉 token 外部空白。
-                parts = [re.escape(part) for part in pair.apl_keyword.split('_')]
+                parts = [re.escape(part) for part in apl_keyword.split('_')]
                 pattern = r'(?<![A-Za-z0-9_])' + r'[ _]+'.join(parts) + r'(?![A-Za-z0-9_])'
-                result = re.sub(pattern, lambda _match, value=pair.cn_keyword: value, result)
-            
+                result = re.sub(pattern, lambda _match, value=cn_keyword: value, result)
             return result
-            
         except Exception as e:
             logger.error(f"APL2CN错误: {str(e)}")
             raise e
     
-    def convert_cn_to_apl(self, text):
+    def convert_cn_to_apl(self, text, spec=''):
         """
         将中文关键字转换为APL
         """
         try:
-            # 获取所有关键字对
-            keyword_pairs = SimcAplKeywordPair.objects.filter(is_active=True)
-            
-            # 按中文关键字长度降序排列，优先替换更长的关键字
-            keyword_pairs = sorted(keyword_pairs, key=lambda x: len(x.cn_keyword), reverse=True)
-            
+            keyword_pairs = sorted(
+                self.bilingual_pairs(spec), key=lambda pair: len(pair[1]), reverse=True,
+            )
             result = text
-            for pair in keyword_pairs:
-                if not pair.apl_keyword or not pair.cn_keyword.strip():
-                    continue
-                parts = [re.escape(char) for char in pair.cn_keyword if not char.isspace()]
+            for apl_keyword, cn_keyword in keyword_pairs:
+                parts = [re.escape(char) for char in cn_keyword if not char.isspace()]
                 pattern = r'\s*'.join(parts)
-                result = re.sub(pattern, lambda _match, value=pair.apl_keyword: value, result)
-            
+                result = re.sub(pattern, lambda _match, value=apl_keyword: value, result)
             return result
-            
         except Exception as e:
             logger.error(f"CN2APL错误: {str(e)}")
             raise e

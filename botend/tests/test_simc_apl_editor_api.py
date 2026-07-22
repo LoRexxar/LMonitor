@@ -32,6 +32,33 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(authoritative.status_code, 200)
         self.assertEqual(authoritative.json(), {"success": True, "result": apl})
 
+    def test_editor_language_api_prefers_live_wago_bilingual_names_over_legacy_pairs(self):
+        WowSpellSnapshot.objects.create(
+            branch="wow", locale="zhCN", spell_id=23881,
+            name="Bloodthirst", name_zh="嗜血", snapshot_build="12.0.5",
+        )
+        WowSpellSnapshot.objects.create(
+            branch="wowt", locale="zhCN", spell_id=23881,
+            name="Bloodthirst", name_zh="测试服嗜血", snapshot_build="12.1.0",
+        )
+        SimcAplKeywordPair.objects.create(
+            apl_keyword="bloodthirst", cn_keyword="旧关键词表嗜血", is_active=True,
+        )
+
+        chinese = self.client.post("/api/convert-text/", data=json.dumps({
+            "text": "actions+=/bloodthirst", "conversion_type": "apl_to_cn",
+            "spec": "warrior_fury",
+        }), content_type="application/json")
+        authoritative = self.client.post("/api/convert-text/", data=json.dumps({
+            "text": "actions+=/嗜血", "conversion_type": "cn_to_apl",
+            "spec": "warrior_fury",
+        }), content_type="application/json")
+
+        self.assertEqual(chinese.status_code, 200)
+        self.assertEqual(chinese.json()["result"], "actions+=/嗜血")
+        self.assertEqual(authoritative.status_code, 200)
+        self.assertEqual(authoritative.json()["result"], "actions+=/bloodthirst")
+
     def test_editor_language_api_treats_apl_underscores_and_spaces_as_equivalent(self):
         SimcAplKeywordPair.objects.create(
             apl_keyword="arcane_blast", cn_keyword="奥术冲击", is_active=True)

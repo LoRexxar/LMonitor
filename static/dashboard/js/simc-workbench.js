@@ -867,6 +867,15 @@
         state.aplLoadState.default = { loading: false, error: '' };
         renderUnifiedAplList();
     }
+    async function openNewAplStorageForm() {
+        const pending = [];
+        if (!state.specOptions.length) pending.push(loadSpecOptions());
+        if (!Array.isArray(state.rows.apls)) {
+            pending.push(loadApl('apls', 'simc-unified-apl-list'));
+        }
+        await Promise.all(pending);
+        renderAplStorageForm();
+    }
     async function fetchAplStorageDetail(id) {
         return fetchManagedAplDetail(id);
     }
@@ -1111,7 +1120,7 @@
         if (!root) return;
         document.addEventListener('click', async event => {
             const aplCreate = event.target.closest('[data-inline-create="apl-storage"]');
-            if (aplCreate) renderAplStorageForm();
+            if (aplCreate) openNewAplStorageForm().catch(notify);
             const templateCreate = event.target.closest('[data-inline-create="templates"]');
             if (templateCreate) renderTemplateForm();
             const aplKeywordCreate = event.target.closest('[data-inline-create="apl-keywords"]');
