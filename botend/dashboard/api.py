@@ -487,7 +487,7 @@ def _latest_catalog_identity():
 
 
 def _authoritative_action_tokens(spell_ids, parsed_spec, identity):
-    """Resolve exact SpellID bindings from the visible catalog without guessing."""
+    """Resolve the authoritative tokens bound to each SpellID in the visible scope."""
     if not spell_ids or not parsed_spec or not identity:
         return {}
     _, class_name, spec_name = parsed_spec
@@ -509,19 +509,36 @@ def _authoritative_action_tokens(spell_ids, parsed_spec, identity):
 
     selected = {}
     best_rank = {}
-    ambiguous = set()
     for spell_id, token, rank in symbols:
         if not token:
             continue
         if spell_id not in best_rank or rank > best_rank[spell_id]:
-            selected[spell_id] = token
+            selected[spell_id] = {token}
             best_rank[spell_id] = rank
-            ambiguous.discard(spell_id)
-        elif rank == best_rank[spell_id] and token != selected[spell_id]:
-            ambiguous.add(spell_id)
-    for spell_id in ambiguous:
-        selected.pop(spell_id, None)
-    return selected
+        elif rank == best_rank[spell_id]:
+            selected[spell_id].add(token)
+
+    # Some spec actors expose a valid action token but omit its SpellID,
+    # while the same class action in another spec carries the authoritative
+    # binding. Reuse only exact token bindings from the same class/revision;
+    # this is not an English-name guess and never crosses classes.
+    missing_tokens = set(SimcAplSymbol.objects.filter(
+        simc_revision=identity[0], wow_build=identity[1], is_active=True,
+        symbol_kind=SimcAplSymbol.KIND_ACTION, spell_id__isnull=True,
+        hero_tree__isnull=True,
+    ).filter(
+        models.Q(class_name=class_name, spec__isnull=True) |
+        models.Q(class_name=class_name, spec=spec_name)
+    ).exclude(token='').values_list('token', flat=True))
+    fallback = SimcAplSymbol.objects.filter(
+        simc_revision=identity[0], wow_build=identity[1], is_active=True,
+        symbol_kind=SimcAplSymbol.KIND_ACTION, class_name=class_name,
+        hero_tree__isnull=True,
+        token__in=missing_tokens, spell_id__isnull=False,
+    ).values_list('spell_id', 'token')
+    for spell_id, token in fallback:
+        selected.setdefault(spell_id, set()).add(token)
+    return {spell_id: tuple(sorted(tokens)) for spell_id, tokens in selected.items()}
 
 
 def _catalog_item(item, simc_revision='', game_build=''):
@@ -865,21 +882,21 @@ class ConvertTextAPIView(View):
         identity = _latest_catalog_identity()
         parsed_spec = _editor_spec(spec) if spec else None
         if not identity or not parsed_spec:
-            return []
-        _, class_name, short_spec = parsed_spec
+            return [], []
+        _, class_name, _ = parsed_spec
         spell_ids = set(SimcAplSymbol.objects.filter(
             simc_revision=identity[0], wow_build=identity[1], is_active=True,
             symbol_kind=SimcAplSymbol.KIND_ACTION, spell_id__isnull=False,
         ).filter(
-            models.Q(class_name__isnull=True) |
-            models.Q(class_name=class_name, spec__isnull=True) |
-            models.Q(class_name=class_name, spec=short_spec)
+            models.Q(class_name__isnull=True, spec__isnull=True) |
+            models.Q(class_name=class_name)
         ).values_list('spell_id', flat=True))
         if not spell_ids:
-            return []
+            return [], []
         rows = list(
             WowSpellSnapshot.objects.filter(
-                branch='wow', locale='zhCN', spell_id__in=spell_ids,
+                branch='wow', locale='zhCN', snapshot_build=identity[1],
+                spell_id__in=spell_ids,
             ).exclude(name='').exclude(name_zh='')
             .values('spell_id', 'name', 'name_zh')
             .order_by('name', 'name_zh', 'spell_id')
@@ -889,29 +906,32 @@ class ConvertTextAPIView(View):
         tokens_by_chinese = {}
         chinese_by_token = {}
         for row in rows:
-            # Wago only provides spell_id ↔ localized names. A token is usable
-            # for conversion only when the current revision/spec symbol catalog
-            # binds that exact spell_id; never promote a guessed name slug.
-            token = symbol_tokens.get(row['spell_id'])
-            key = ((token or '').casefold(), row['name_zh'].casefold())
-            if not token:
-                continue
-            candidates.append((token, row['name_zh'], key))
-            tokens_by_chinese.setdefault(row['name_zh'].casefold(), set()).add(token.casefold())
-            chinese_by_token.setdefault(token.casefold(), set()).add(row['name_zh'].casefold())
+            # Wago only provides spell_id ↔ localized names. Tokens are usable
+            # only when the current revision/spec catalog binds that exact
+            # SpellID; never promote a guessed name slug.
+            tokens = symbol_tokens.get(row['spell_id'], ())
+            for token in tokens:
+                key = (token.casefold(), row['name_zh'].casefold())
+                candidates.append((token, row['name_zh'], key))
+                tokens_by_chinese.setdefault(row['name_zh'].casefold(), set()).add(token.casefold())
+                chinese_by_token.setdefault(token.casefold(), set()).add(row['name_zh'].casefold())
 
-        # Action/event aliases can make either direction ambiguous: multiple
-        # tokens may share one Chinese name, or one token may bind multiple
-        # localized spells. Only publish a true one-to-one mapping.
-        pairs = []
+        # Conversion remains one-to-one in both directions. If multiple action
+        # tokens share a localized label, keep every token unchanged rather than
+        # producing Chinese text that cannot be restored exactly.
+        forward_pairs = []
+        reverse_pairs = []
         seen_pairs = set()
         for token, chinese, key in candidates:
-            if (len(tokens_by_chinese[chinese.casefold()]) != 1 or
-                    len(chinese_by_token[token.casefold()]) != 1 or key in seen_pairs):
+            if (
+                    len(chinese_by_token[token.casefold()]) != 1 or
+                    len(tokens_by_chinese[chinese.casefold()]) != 1 or
+                    key in seen_pairs):
                 continue
-            pairs.append((token, chinese))
+            forward_pairs.append((token, chinese))
+            reverse_pairs.append((token, chinese))
             seen_pairs.add(key)
-        return pairs
+        return forward_pairs, reverse_pairs
 
 
     def convert_apl_to_cn(self, text, spec=''):
@@ -920,7 +940,7 @@ class ConvertTextAPIView(View):
         """
         try:
             keyword_pairs = sorted(
-                self.bilingual_pairs(spec), key=lambda pair: len(pair[0]), reverse=True,
+                self.bilingual_pairs(spec)[0], key=lambda pair: len(pair[0]), reverse=True,
             )
             lines = text.splitlines(keepends=True)
             for apl_keyword, cn_keyword in keyword_pairs:
@@ -943,7 +963,7 @@ class ConvertTextAPIView(View):
         """
         try:
             keyword_pairs = sorted(
-                self.bilingual_pairs(spec), key=lambda pair: len(pair[1]), reverse=True,
+                self.bilingual_pairs(spec)[1], key=lambda pair: len(pair[1]), reverse=True,
             )
             lines = text.splitlines(keepends=True)
             for apl_keyword, cn_keyword in keyword_pairs:

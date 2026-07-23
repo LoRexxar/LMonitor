@@ -109,6 +109,15 @@ test('visible APL list is a compact Wago bilingual row list and the whole row in
     assert.match(source, /error\.name !== 'AbortError' && !destroyed && controller === activeController/);
 });
 
+test('APL editor uses a light yellow code surface and desktop assistant follows workspace height', async () => {
+    const source = await readFile(editorCssUrl, 'utf8');
+    assert.match(source, /\.simc-apl-editor-shell\s*\{[^}]*background:\s*#fffbea/s);
+    assert.match(source, /\.simc-apl-editor-mount \.cm-editor\s*\{[^}]*color:\s*#422006[^}]*background:\s*#fffbea/s);
+    assert.doesNotMatch(source, /\.simc-apl-assistant\s*\{[^}]*max-height:\s*34rem/s);
+    assert.doesNotMatch(source, /\.simc-apl-assistant\s*>\s*div\s*\{[^}]*(?:^|[;\s])height:\s*100%/s);
+    assert.match(source, /\.simc-apl-assistant\s*>\s*div\s*\{[^}]*min-height:\s*100%/s);
+});
+
 test('document and catalog completions merge without duplicate insertions', () => {
     assert.deepEqual(mergeCompletionOptions(
         [{label: 'bloodthirst', apply: 'bloodthirst', type: 'keyword'}],
@@ -295,9 +304,8 @@ test('new APL form exposes default import and replaces readonly bilingual panel 
     assert.doesNotMatch(await readFile(editorCssUrl, 'utf8'), /\.simc-apl-bilingual/);
 });
 
-test('editor uses an explicit high-contrast neutral palette instead of the pale-yellow default token color', async () => {
+test('editor uses readable token colors on the light-yellow surface', async () => {
     const css = await readFile(editorCssUrl, 'utf8');
-    assert.match(css, /\.simc-apl-editor-mount \.tok-string[^}]*color:\s*#86efac/s);
-    assert.match(css, /\.simc-apl-editor-mount \.tok-keyword[^}]*color:\s*#c4b5fd/s);
-    assert.doesNotMatch(css, /\.simc-apl-editor-mount[^}]*color:\s*#fde68a/s);
+    assert.match(css, /\.simc-apl-editor-mount \.tok-string[^}]*color:\s*#166534/s);
+    assert.match(css, /\.simc-apl-editor-mount \.tok-keyword[^}]*color:\s*#6d28d9/s);
 });

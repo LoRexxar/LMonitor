@@ -12,13 +12,12 @@
 .simc-apl-editor-column { min-width: 0; }
 
 .simc-apl-assistant {
-    max-height: 34rem;
-    overflow: hidden;
+    overflow: visible;
     border-left: 1px solid #dbe3ef;
     background: #f8fafc;
 }
 
-.simc-apl-assistant > div { display: flex; height: 100%; flex-direction: column; }
+.simc-apl-assistant > div { display: flex; min-height: 100%; flex-direction: column; }
 .simc-apl-assistant__mobile-heading { display: none; }
 .simc-apl-assistant__toolbar { padding: .75rem; border-bottom: 1px solid #e2e8f0; }
 .simc-apl-assistant__search input { width: 100%; border: 1px solid #cbd5e1; border-radius: .6rem; padding: .55rem .7rem; background: #fff; font-size: .8rem; }
@@ -76,19 +75,19 @@
 .simc-apl-editor-heading-actions button:disabled { opacity: .55; cursor: wait; }
 
 .simc-apl-editor-shell {
-    border-top: 1px solid #1e293b;
-    background: #0f172a;
+    border-top: 1px solid #e7d9a4;
+    background: #fffbea;
 }
 
 .simc-apl-editor-mount {
     min-height: 34rem;
-    background: #0f172a;
+    background: #fffbea;
 }
 
 .simc-apl-editor-mount .cm-editor {
     min-height: 34rem;
-    color: #dbeafe;
-    background: #0f172a;
+    color: #422006;
+    background: #fffbea;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     font-size: .8125rem;
     line-height: 1.65;
@@ -102,21 +101,21 @@
 .simc-apl-editor-mount .cm-content {
     min-height: 34rem;
     padding: 1rem 0;
-    caret-color: #93c5fd;
+    caret-color: #92400e;
 }
 
 .simc-apl-editor-mount .cm-line { padding: 0 .9rem; }
-.simc-apl-editor-mount .cm-gutters { border-right: 1px solid #26334a; color: #64748b; background: #111c31; }
+.simc-apl-editor-mount .cm-gutters { border-right: 1px solid #e7d9a4; color: #8a6a32; background: #fff7d6; }
 .simc-apl-editor-mount .cm-activeLine,
-.simc-apl-editor-mount .cm-activeLineGutter { background: rgba(59, 130, 246, .09); }
+.simc-apl-editor-mount .cm-activeLineGutter { background: rgba(245, 158, 11, .1); }
 .simc-apl-editor-mount .cm-selectionBackground,
-.simc-apl-editor-mount .cm-content ::selection { background: rgba(96, 165, 250, .3) !important; }
-.simc-apl-editor-mount .cm-cursor { border-left-color: #93c5fd; }
+.simc-apl-editor-mount .cm-content ::selection { background: rgba(251, 191, 36, .28) !important; }
+.simc-apl-editor-mount .cm-cursor { border-left-color: #92400e; }
 .simc-apl-editor-mount .cm-tooltip { color: #0f172a; background: #fff; border-color: #cbd5e1; }
 .simc-apl-editor-mount .cm-tooltip-autocomplete ul li[aria-selected] { color: #fff; background: #2563eb; }
 .simc-apl-editor-mount .cm-diagnostic { color: #0f172a; }
-.simc-apl-editor-mount .tok-string { color: #86efac; }
-.simc-apl-editor-mount .tok-keyword { color: #c4b5fd; }
+.simc-apl-editor-mount .tok-string { color: #166534; }
+.simc-apl-editor-mount .tok-keyword { color: #6d28d9; }
 
 .simc-apl-import-picker {
     display: flex;
@@ -192,7 +191,6 @@
     [data-apl-storage-form] .simc-apl-editor-mount .cm-editor,
     [data-apl-storage-form] .simc-apl-editor-mount .cm-scroller,
     [data-apl-storage-form] .simc-apl-editor-mount .cm-content { min-height: 20rem; }
-    [data-apl-storage-form] .simc-apl-assistant { max-height: 20rem; }
     [data-apl-storage-form] .simc-apl-diagnostics { max-height: 3rem; padding: .35rem .6rem; }
     [data-apl-storage-form] .simc-code-editor-toolbar { padding: .35rem .75rem; }
     [data-apl-storage-form] .simc-editor-actions { margin-top: .5rem; padding: .35rem .75rem; }

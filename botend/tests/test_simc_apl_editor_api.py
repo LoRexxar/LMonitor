@@ -94,6 +94,46 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(translated.json()['result'], apl)
         self.assertEqual(restored.json()['result'], apl)
 
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, "12.0.5"))
+    def test_editor_language_api_reuses_same_class_exact_token_spell_binding(self):
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', snapshot_build='12.0.5',
+            spell_id=6343, name='Thunder Clap', name_zh='雷霆一击',
+        )
+        SimcAplSymbol.objects.bulk_create([
+            SimcAplSymbol(
+                simc_revision=self.REVISION, wow_build='12.0.5',
+                class_name='warrior', class_key='warrior',
+                spec='fury', spec_key='fury', token='thunder_clap',
+                symbol_kind='action', spell_id=None,
+            ),
+            SimcAplSymbol(
+                simc_revision=self.REVISION, wow_build='12.0.5',
+                class_name='warrior', class_key='warrior',
+                spec='protection', spec_key='protection', token='thunder_clap',
+                symbol_kind='action', spell_id=6343,
+            ),
+            SimcAplSymbol(
+                simc_revision=self.REVISION, wow_build='12.0.5',
+                class_name='warrior', class_key='warrior',
+                spec='fury', spec_key='fury', hero_tree='slayer', hero_tree_key='slayer',
+                token='thunder_clap', symbol_kind='action', spell_id=99999,
+            ),
+        ])
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', snapshot_build='12.0.5',
+            spell_id=99999, name='Wrong Hero Action', name_zh='错误英雄技能',
+        )
+
+        translated = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': 'actions=/thunder_clap',
+            'conversion_type': 'apl_to_cn',
+            'spec': 'warrior_fury',
+        }), content_type='application/json')
+
+        self.assertEqual(translated.status_code, 200)
+        self.assertEqual(translated.json()['result'], 'actions=/雷霆一击')
+
     def test_editor_language_api_preserves_document_edge_whitespace(self):
         revision, build = 'a' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
