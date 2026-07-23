@@ -2784,7 +2784,7 @@ function clearSimcResolvedResources() {
     renderSimcComparisonCandidates({}, []);
 }
 
-function collectSimcPlayerSource() {
+function collectSimcPlayerSource({ requireComplete = true } = {}) {
     const type = document.querySelector('input[name="simc-sim-player-source"]:checked')?.value || 'battlenet';
     if (type === 'specified_spec') {
         const selected = document.getElementById('simc-sim-profile-select')?.value || 'default';
@@ -2797,7 +2797,7 @@ function collectSimcPlayerSource() {
         const region = document.getElementById('simc-sim-bnet-region')?.value || '';
         const realm = document.getElementById('simc-sim-bnet-realm')?.value?.trim() || '';
         const character = document.getElementById('simc-sim-bnet-character')?.value?.trim() || '';
-        if (!region || !realm || !character) throw new Error('请完整填写 Battle.net 区域、服务器和角色名');
+        if (requireComplete && (!region || !realm || !character)) throw new Error('请完整填写 Battle.net 区域、服务器和角色名');
         return { type: 'battlenet', region, realm, character };
     }
     if (type === 'simc_addon') {
@@ -2957,7 +2957,7 @@ async function resolveSimcPlayerSource() {
             canonicalSpec = String(document.getElementById('simc-sim-spec')?.value || '');
             if (!canonicalSpec) return;
         } else {
-            const source = collectSimcPlayerSource();
+            const source = collectSimcPlayerSource({ requireComplete: false });
             if (type === 'battlenet') {
                 const battlenetRealm = String(source.realm || '').trim();
                 const battlenetCharacter = String(source.character || '').trim();
