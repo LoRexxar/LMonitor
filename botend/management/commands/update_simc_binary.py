@@ -721,12 +721,22 @@ class Command(BaseCommand):
 
                 final_paths = sorted(legacy_paths | touched_paths)
                 with tempfile.TemporaryDirectory(prefix='lmonitor-simc-legacy-') as staged_dir:
-                    run_staged(
-                        ['git', 'clone', '--quiet', '--shared', '--no-checkout',
-                         self.simc_source_dir, staged_dir],
-                        cwd=self.simc_source_dir,
-                    )
-                    run_staged(['git', 'checkout', '--quiet', source_revision], cwd=staged_dir)
+                    base_files = {}
+                    for path in final_paths:
+                        base_result = subprocess.run(
+                            ['git', 'show', f'{source_revision}:{path}'],
+                            cwd=self.simc_source_dir, capture_output=True, timeout=30,
+                        )
+                        if base_result.returncode != 0:
+                            detail = (base_result.stderr or base_result.stdout or b'').decode(
+                                'utf-8', errors='replace'
+                            ).strip()[-1000:]
+                            self._fail('迁移 SimC 旧补丁状态失败', detail, progress=20)
+                        base_files[path] = base_result.stdout
+                        staged_path = os.path.join(staged_dir, path)
+                        os.makedirs(os.path.dirname(staged_path), exist_ok=True)
+                        with open(staged_path, 'wb') as staged_file:
+                            staged_file.write(base_result.stdout)
                     run_staged(['git', 'apply', '-'], cwd=staged_dir, patch_content=legacy_patch_content)
 
                     def staged_digest(path):
@@ -738,14 +748,19 @@ class Command(BaseCommand):
                         for path, digest in manifest['files'].items()
                     ):
                         self._fail('迁移 SimC 旧补丁状态失败', '旧补丁与 manifest 指纹不一致', progress=20)
-                    run_staged(['git', 'reset', '--hard', '--quiet', source_revision], cwd=staged_dir)
+                    for path, content in base_files.items():
+                        with open(os.path.join(staged_dir, path), 'wb') as staged_file:
+                            staged_file.write(content)
                     for entry in patch_entries:
                         run_staged(['git', 'apply', '-'], cwd=staged_dir, patch_content=entry['content'])
                     staged_files = {}
                     for path in final_paths:
                         staged_path = os.path.join(staged_dir, path)
+                        live_path = os.path.join(self.simc_source_dir, path)
                         with open(staged_path, 'rb') as staged_file:
-                            staged_files[path] = (staged_file.read(), os.stat(staged_path).st_mode & 0o777)
+                            staged_files[path] = (
+                                staged_file.read(), os.stat(live_path).st_mode & 0o777,
+                            )
                     migrated_expected_fingerprints = {
                         path: hashlib.sha256(staged_files[path][0]).hexdigest()
                         for path in touched_paths
