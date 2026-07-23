@@ -86,6 +86,38 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(authoritative.status_code, 200)
         self.assertEqual(authoritative.json(), {"success": True, "result": apl})
 
+    def test_editor_language_api_round_trips_talent_before_arithmetic_operator(self):
+        revision, build = 'a' * 40, '12.0.5'
+        SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
+        version = WowTalentVersion.objects.create(
+            key='retail-arithmetic', branch='retail', current_build=build,
+            is_active=True, is_default_simulator=True,
+        )
+        WowTalentNodeMetadata.objects.create(
+            talent_version=version, class_name='Warrior', spec_name='Fury',
+            tree_type='spec', node_id=112292, talent_id=90421,
+            name='Deft Experience', name_zh='熟能生巧',
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision=revision, wow_build=build, class_name='warrior', spec='fury',
+            token='deft_experience', symbol_kind='talent', trait_id=112292,
+        )
+        apl = (
+            'actions+=/foo,if=2*talent.deft_experience+talent.deft_experience-1'
+            '&talent.deft_experience^1&talent.deft_experience~1'
+            '&@talent.deft_experience%2'
+        )
+
+        chinese = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': apl, 'conversion_type': 'apl_to_cn', 'spec': 'warrior_fury',
+        }), content_type='application/json')
+        restored = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': chinese.json()['result'], 'conversion_type': 'cn_to_apl',
+            'spec': 'warrior_fury',
+        }), content_type='application/json')
+
+        self.assertEqual(restored.json()['result'], apl)
+
     def test_editor_language_api_disambiguates_shared_chinese_names_reversibly(self):
         revision, build = 'a' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)

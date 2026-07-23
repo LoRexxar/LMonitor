@@ -55,13 +55,18 @@ def _absolute(offsets: List[int], position) -> int:
     return offsets[position.line - 1] + position.column - 1
 
 
-def _component_span(identifier: str, start: int, kind: str) -> Tuple[int, int, str]:
+def _component_span(
+    source: str, identifier: str, start: int, end: int, kind: str,
+) -> Tuple[int, int, str]:
     prefix = kind + "."
     if not identifier.casefold().startswith(prefix) or len(identifier) <= len(prefix):
         return start, start, ""
     tail = identifier[len(prefix):]
     token = tail.split(".", 1)[0]
-    token_start = start + len(prefix)
+    identifier_start = source.find(identifier, start, end)
+    if identifier_start < 0:
+        return start, start, ""
+    token_start = identifier_start + len(prefix)
     return token_start, token_start + len(token), token
 
 
@@ -78,10 +83,13 @@ def _parsed_spans(source: str) -> Tuple[List[_Span], bool]:
         spans.append(_Span(start, end, "action", name))
     for identifier, source_range, _list_name in semantic.symbols.expression_identifiers:
         start = _absolute(offsets, source_range.start)
+        end = _absolute(offsets, source_range.end)
         kind = _PREFIX_KINDS.get(identifier.split(".", 1)[0].casefold())
         if not kind:
             continue
-        token_start, token_end, token = _component_span(identifier, start, kind)
+        token_start, token_end, token = _component_span(
+            source, identifier, start, end, kind,
+        )
         if token:
             spans.append(_Span(token_start, token_end, kind, token))
     spans.sort(key=lambda item: (item.start, item.end, item.kind, item.token))

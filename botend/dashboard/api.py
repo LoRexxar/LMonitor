@@ -995,8 +995,8 @@ class ConvertTextAPIView(View):
             by_cn.setdefault(chinese.casefold(), []).append(token)
         for (kind, token), chinese in mapping.items():
             rendered = chinese if len(by_cn[chinese.casefold()]) == 1 else f'{chinese}〔{token}〕'
-            forward_pairs.append((token, rendered))
-            reverse_pairs.append((token, rendered))
+            forward_pairs.append((kind, token, rendered))
+            reverse_pairs.append((kind, token, rendered))
         return forward_pairs, reverse_pairs
 
 
@@ -1006,23 +1006,28 @@ class ConvertTextAPIView(View):
         """
         try:
             keyword_pairs = sorted(
-                self.bilingual_pairs(spec, text=text)[0], key=lambda pair: len(pair[0]), reverse=True,
+                self.bilingual_pairs(spec, text=text)[0], key=lambda pair: len(pair[1]), reverse=True,
             )
-            pair_by_token = {apl_keyword.casefold(): cn_keyword for apl_keyword, cn_keyword in keyword_pairs}
+            pair_by_token = {
+                (kind, apl_keyword.casefold()): cn_keyword
+                for kind, apl_keyword, cn_keyword in keyword_pairs
+            }
             mapping = {
-                (demand.kind, demand.token.casefold()): pair_by_token[demand.token.casefold()]
+                (demand.kind, demand.token.casefold()): pair_by_token[(demand.kind, demand.token.casefold())]
                 for demand in extract_translation_demands(text)
-                if demand.token.casefold() in pair_by_token
+                if (demand.kind, demand.token.casefold()) in pair_by_token
             }
             translated = translate_apl_ranges(text, mapping)
             # Legacy editor input also accepts spaces in an action token. Such
             # input is outside canonical SimC token grammar, so apply a narrow
             # fallback only at the parser-defined action slot, never to
             # comments, expressions, option values, or arbitrary text.
-            for apl_keyword, cn_keyword in keyword_pairs:
+            for kind, apl_keyword, cn_keyword in keyword_pairs:
+                if kind != 'action':
+                    continue
                 token_pattern = r'[ _]+'.join(re.escape(part) for part in apl_keyword.split('_'))
                 pattern = (
-                    r'(?m)^(?P<prefix>\s*actions(?:\.[A-Za-z0-9_]+)?\+?=/)'
+                    r'(?m)^(?P<prefix>\s*actions(?:\.[A-Za-z0-9_]+)?\+?=\/?)'
                     + token_pattern + r'(?=[,\s#]|$)'
                 )
                 translated = re.sub(
@@ -1041,25 +1046,25 @@ class ConvertTextAPIView(View):
         """
         try:
             keyword_pairs = sorted(
-                self.bilingual_pairs(spec, text=text)[1], key=lambda pair: len(pair[1]), reverse=True,
+                self.bilingual_pairs(spec)[1], key=lambda pair: len(pair[2]), reverse=True,
             )
             lines = text.splitlines(keepends=True)
             # Reverse only known SimC slots. Chinese input cannot be parsed by
             # the English parser, so do not run a document-wide substitution:
             # action names occur after ``actions...=/`` and expression names
             # occur after one of the typed prefixes.
-            for apl_keyword, cn_keyword in keyword_pairs:
+            for kind, apl_keyword, cn_keyword in keyword_pairs:
                 value_pattern = r'\s*'.join(
                     re.escape(char) for char in cn_keyword if not char.isspace()
                 )
                 action_pattern = (
-                    r'(?m)^(?P<prefix>\s*actions(?:\.[A-Za-z0-9_]+)?\+?=/)'
+                    r'(?m)^(?P<prefix>\s*actions(?:\.[A-Za-z0-9_]+)?\+?=\/?)'
                     + value_pattern + r'(?=[,\s#]|$)'
-                )
+                ) if kind == 'action' else r'(?!x)x'
                 expression_pattern = (
-                    r'(?P<prefix>\b(?:buff|debuff|dot|cooldown|talent)\.)'
-                    + value_pattern + r'(?=\.|[\s<>=!,)&|]|$)'
-                )
+                    rf'(?P<prefix>\b{re.escape(kind)}\.)'
+                    + value_pattern + r'(?=\.|[\s<>=!,)&|+*/%@^~?-]|$)'
+                ) if kind in {'buff', 'debuff', 'dot', 'cooldown', 'talent'} else r'(?!x)x'
                 lines = [
                     re.sub(
                         expression_pattern,

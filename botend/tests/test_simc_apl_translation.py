@@ -39,6 +39,22 @@ class SimcAplTranslationTests(SimpleTestCase):
         )
         self.assertEqual(result, "actions=/嗜血,if=buff.激怒.up\n")
 
+    def test_range_translation_preserves_adjacent_characters_for_long_expression_tokens(self):
+        source = (
+            "actions+=/spell,if=(talent.killing_streak)&buff.hot_streak.react"
+            "&talent.icy_onslaught\n"
+        )
+        result = translate_apl_ranges(source, {
+            ('talent', 'killing_streak'): '血性大发',
+            ('buff', 'hot_streak'): '炽热连击！',
+            ('talent', 'icy_onslaught'): '冷冽强袭〔icy_onslaught〕',
+        })
+        self.assertEqual(
+            result,
+            "actions+=/spell,if=(talent.血性大发)&buff.炽热连击！.react"
+            "&talent.冷冽强袭〔icy_onslaught〕\n",
+        )
+
     def test_invalid_document_is_not_partially_translated(self):
         source = "actions=/bloodthirst,if=(buff.enrage.up\n"
         self.assertEqual(
