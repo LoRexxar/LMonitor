@@ -19,7 +19,7 @@ class SimcAplEditorApiTests(TestCase):
         self.user = User.objects.create_user(username="editor", password="password")
         self.client.force_login(self.user)
 
-    def test_editor_language_api_resolves_runtime_trait_id_as_node_id(self):
+    def test_editor_language_api_resolves_runtime_trait_node_id_as_talent_id(self):
         revision, build = 'b' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
         version = WowTalentVersion.objects.create(
@@ -28,7 +28,7 @@ class SimcAplEditorApiTests(TestCase):
         )
         WowTalentNodeMetadata.objects.create(
             talent_version=version, class_name='Warrior', spec_name='Fury',
-            tree_type='spec', node_id=112292, talent_id=90421,
+            tree_type='spec', node_id=90421, talent_id=112292,
             name='Deft Experience', name_zh='熟能生巧',
         )
         SimcAplSymbol.objects.create(
@@ -95,7 +95,7 @@ class SimcAplEditorApiTests(TestCase):
         )
         WowTalentNodeMetadata.objects.create(
             talent_version=version, class_name='Warrior', spec_name='Fury',
-            tree_type='spec', node_id=112292, talent_id=90421,
+            tree_type='spec', node_id=90421, talent_id=112292,
             name='Deft Experience', name_zh='熟能生巧',
         )
         SimcAplSymbol.objects.create(
@@ -116,6 +116,7 @@ class SimcAplEditorApiTests(TestCase):
             'spec': 'warrior_fury',
         }), content_type='application/json')
 
+        self.assertIn('熟能生巧', chinese.json()['result'])
         self.assertEqual(restored.json()['result'], apl)
 
     def test_editor_language_api_disambiguates_shared_chinese_names_reversibly(self):
