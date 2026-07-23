@@ -119,6 +119,30 @@ class RuntimeManifestImportTests(TestCase):
         with self.assertRaisesRegex(ValueError, 'trait_id'):
             load_runtime_manifest(self.write(payload), REVISION, BUILD)
 
+    def test_unresolved_talent_diagnostic_does_not_block_valid_runtime_facts(self):
+        payload = manifest(symbols=[
+            {
+                'class': 'druid', 'spec': 'balance', 'scope': 'spec',
+                'token': 'incarnation', 'kind': 'talent', 'spell_id': None,
+                'trait_id': None, 'hero_talent': False, 'candidates': [],
+                'reason': 'talent_not_found', 'source': 'runtime_expression_resolver',
+                'options': [], 'aliases': [],
+            },
+            {
+                'class': 'warrior', 'spec': 'fury', 'scope': 'spec',
+                'token': 'enrage', 'kind': 'buff', 'spell_id': 184362,
+                'trait_id': None, 'hero_talent': False, 'candidates': [],
+                'reason': None, 'source': 'runtime_expression_resolver',
+                'options': [], 'aliases': [],
+            },
+        ])
+
+        result = load_runtime_manifest(self.write(payload), REVISION, BUILD)
+
+        self.assertEqual(len(result.facts), 1)
+        self.assertEqual((result.facts[0]['symbol_kind'], result.facts[0]['token'],
+                          result.facts[0]['spell_id']), ('buff', 'enrage', 184362))
+
     def test_manifest_requires_granular_runtime_module_statuses(self):
         payload = manifest(completeness={
             'status': 'partial', 'modules': {'global': 'runtime_initialized'},

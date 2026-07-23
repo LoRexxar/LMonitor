@@ -143,6 +143,13 @@ def load_runtime_manifest(path, simc_revision, wow_build):
                 (scope == 'class' and (not class_name or spec)) or
                 (scope in {'spec', 'hero_tree'} and (not class_name or not spec))):
             _manifest_error(f'{prefix} scope does not match class/spec')
+        # Runtime diagnostics for unresolved identities are evidence that the
+        # token must remain English, not malformed catalog facts.  Drop only
+        # those unresolved talent diagnostics; a talent with an ID is imported
+        # normally, and an ID-less talent without a diagnostic is invalid.
+        reason = symbol.get('reason')
+        if kind == 'talent' and trait_id is None and isinstance(reason, str) and reason.strip():
+            continue
         if kind == 'talent' and trait_id is None:
             _manifest_error(f'{prefix} talent requires trait_id')
         if kind != 'talent' and trait_id is not None:

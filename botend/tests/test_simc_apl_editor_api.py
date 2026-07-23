@@ -6,7 +6,10 @@ from django.db import connection
 from django.test import Client, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
-from botend.models import SimcAplSymbol, SimcProfile, SimcBackendBinary, WowSpellSnapshot
+from botend.models import (
+    SimcAplSymbol, SimcProfile, SimcBackendBinary, WowSpellSnapshot,
+    WowTalentNodeMetadata, WowTalentVersion,
+)
 
 
 class SimcAplEditorApiTests(TestCase):
@@ -16,7 +19,30 @@ class SimcAplEditorApiTests(TestCase):
         self.user = User.objects.create_user(username="editor", password="password")
         self.client.force_login(self.user)
 
-    def test_editor_language_api_requires_current_spec_symbol_binding(self):
+    def test_editor_language_api_resolves_runtime_trait_id_as_node_id(self):
+        revision, build = 'b' * 40, '12.0.5'
+        SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
+        version = WowTalentVersion.objects.create(
+            key='retail-test', branch='retail', current_build=build,
+            is_active=True, is_default_simulator=True,
+        )
+        WowTalentNodeMetadata.objects.create(
+            talent_version=version, class_name='Warrior', spec_name='Fury',
+            tree_type='spec', node_id=112292, talent_id=90421,
+            name='Deft Experience', name_zh='熟能生巧',
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision=revision, wow_build=build, class_name='warrior', spec='fury',
+            token='deft_experience', symbol_kind='talent', trait_id=112292,
+        )
+        response = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': 'actions+=/foo,if=talent.deft_experience.enabled',
+            'conversion_type': 'apl_to_cn', 'spec': 'warrior_fury',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('熟能生巧', response.json()['result'])
+
+
         WowSpellSnapshot.objects.create(
             branch="wow", locale="zhCN", spell_id=23881,
             name="Bloodthirst", name_zh="嗜血", snapshot_build="12.0.5")

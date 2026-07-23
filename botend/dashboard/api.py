@@ -959,9 +959,9 @@ class ConvertTextAPIView(View):
         for row in WowTalentNodeMetadata.objects.filter(
             talent_version__branch='retail', talent_version__is_active=True,
             talent_version__current_build__in=(identity[1], ''),
-            name_zh__gt='', talent_id__in=trait_ids,
-        ).values('talent_id', 'name_zh').order_by('talent_id', '-last_updated', '-id'):
-            localized.setdefault(('trait', row['talent_id']), row['name_zh'])
+            name_zh__gt='', node_id__in=trait_ids,
+        ).values('node_id', 'name_zh').order_by('node_id', '-last_updated', '-id'):
+            localized.setdefault(('trait', row['node_id']), row['name_zh'])
         mapping, _failures = resolve_demand_mappings(demands, facts, localized)
         scoped_facts = {}
         for fact in facts:
