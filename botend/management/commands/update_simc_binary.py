@@ -538,6 +538,7 @@ class Command(BaseCommand):
             or not isinstance(ledger.get('files'), dict)
         ):
             self._fail('读取 SimC 补丁状态失败', '补丁 ledger 结构无效。', progress=20)
+        had_ledger = ledger is not None
         ledger = ledger or {}
 
         def file_digest(path):
@@ -620,9 +621,187 @@ class Command(BaseCommand):
             {'name': entry['name'], 'sha256': entry['sha256']}
             for entry in patch_entries
         ]
+        migrated_legacy_state = False
+        migrated_trusted_prefix = 0
+        legacy_backup = None
+        migrated_expected_fingerprints = None
+        legacy_patch_dir = str(
+            cfg.get('simc_legacy_patch_dir')
+            or os.path.join(settings.BASE_DIR, 'simc_legacy_patches')
+        )
+        if not had_ledger and os.path.isdir(legacy_patch_dir):
+            revision_result = subprocess.run(
+                ['git', 'rev-parse', 'HEAD'], cwd=self.simc_source_dir,
+                capture_output=True, text=True, timeout=30,
+            )
+            if revision_result.returncode != 0:
+                detail = (revision_result.stderr or revision_result.stdout or '').strip()[-1000:]
+                self._fail('读取 SimC 旧补丁状态失败', detail or '无法读取源码 revision', progress=20)
+            source_revision = revision_result.stdout.strip()
+            revision_legacy_states = []
+            matching_legacy_states = []
+            for manifest_name in sorted(
+                name for name in os.listdir(legacy_patch_dir) if name.endswith('.json')
+            ):
+                manifest_path = os.path.join(legacy_patch_dir, manifest_name)
+                try:
+                    with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
+                        manifest = json.load(manifest_file)
+                except (json.JSONDecodeError, UnicodeError, OSError) as exc:
+                    self._fail('读取 SimC 旧补丁状态失败', f'{manifest_name}: {exc}', progress=20)
+                if (
+                    not isinstance(manifest, dict)
+                    or set(manifest) != {'base_revision', 'patch', 'files'}
+                    or not re.fullmatch(r'[0-9a-fA-F]{40}', str(manifest.get('base_revision') or ''))
+                    or not isinstance(manifest.get('patch'), str)
+                    or os.path.basename(manifest['patch']) != manifest['patch']
+                    or not isinstance(manifest.get('files'), dict)
+                    or not manifest['files']
+                    or not all(
+                        isinstance(path, str) and path
+                        and isinstance(digest, str)
+                        and re.fullmatch(r'[0-9a-f]{64}', digest)
+                        for path, digest in manifest['files'].items()
+                    )
+                ):
+                    self._fail('读取 SimC 旧补丁状态失败', f'{manifest_name}: manifest 结构无效', progress=20)
+                if manifest['base_revision'].lower() != source_revision.lower():
+                    continue
+                revision_legacy_states.append((manifest_name, manifest))
+                if all(file_digest(path) == digest for path, digest in manifest['files'].items()):
+                    matching_legacy_states.append((manifest_name, manifest))
+            if len(matching_legacy_states) > 1:
+                self._fail('读取 SimC 旧补丁状态失败', '多个旧补丁状态同时匹配。', progress=20)
+            if matching_legacy_states:
+                manifest_name, manifest = matching_legacy_states[0]
+                legacy_patch_path = os.path.join(legacy_patch_dir, manifest['patch'])
+                try:
+                    with open(legacy_patch_path, 'rb') as legacy_patch_file:
+                        legacy_patch_content = legacy_patch_file.read()
+                except OSError as exc:
+                    self._fail('读取 SimC 旧补丁状态失败', f'{manifest_name}: {exc}', progress=20)
+                if re.search(
+                    br'(?m)^(?:---|\+\+\+) /dev/null(?:\t[^\r\n]*)?\r?$',
+                    legacy_patch_content,
+                ):
+                    self._fail('读取 SimC 旧补丁状态失败', '旧补丁不得新增或删除文件。', progress=20)
+                numstat = subprocess.run(
+                    ['git', 'apply', '-z', '--numstat', '-'], cwd=self.simc_source_dir,
+                    input=legacy_patch_content, capture_output=True, timeout=30,
+                )
+                if numstat.returncode != 0:
+                    detail = (numstat.stderr or numstat.stdout or b'').decode(
+                        'utf-8', errors='replace'
+                    ).strip()[-1000:]
+                    self._fail('读取 SimC 旧补丁状态失败', detail, progress=20)
+                legacy_paths = set()
+                for record in (numstat.stdout or b'').split(b'\0'):
+                    if not record:
+                        continue
+                    parts = record.split(b'\t', 2)
+                    if len(parts) != 3 or not parts[2]:
+                        self._fail('读取 SimC 旧补丁状态失败', '旧补丁路径无法安全解析。', progress=20)
+                    path = os.fsdecode(parts[2])
+                    if any(0xDC80 <= ord(character) <= 0xDCFF for character in path):
+                        self._fail('读取 SimC 旧补丁状态失败', '旧补丁路径不是有效 UTF-8。', progress=20)
+                    legacy_paths.add(path)
+                if legacy_paths != set(manifest['files']):
+                    self._fail('读取 SimC 旧补丁状态失败', '旧补丁路径与 manifest 不一致。', progress=20)
+
+                def run_staged(args, cwd, patch_content=None):
+                    result = subprocess.run(
+                        args, cwd=cwd, input=patch_content,
+                        capture_output=True, timeout=60,
+                    )
+                    if result.returncode != 0:
+                        detail = (result.stderr or result.stdout or b'')
+                        if isinstance(detail, bytes):
+                            detail = detail.decode('utf-8', errors='replace')
+                        self._fail('迁移 SimC 旧补丁状态失败', str(detail).strip()[-1000:], progress=20)
+
+                final_paths = sorted(legacy_paths | touched_paths)
+                with tempfile.TemporaryDirectory(prefix='lmonitor-simc-legacy-') as staged_dir:
+                    run_staged(
+                        ['git', 'clone', '--quiet', '--shared', '--no-checkout',
+                         self.simc_source_dir, staged_dir],
+                        cwd=self.simc_source_dir,
+                    )
+                    run_staged(['git', 'checkout', '--quiet', source_revision], cwd=staged_dir)
+                    run_staged(['git', 'apply', '-'], cwd=staged_dir, patch_content=legacy_patch_content)
+
+                    def staged_digest(path):
+                        with open(os.path.join(staged_dir, path), 'rb') as staged_file:
+                            return hashlib.sha256(staged_file.read()).hexdigest()
+
+                    if not all(
+                        staged_digest(path) == digest
+                        for path, digest in manifest['files'].items()
+                    ):
+                        self._fail('迁移 SimC 旧补丁状态失败', '旧补丁与 manifest 指纹不一致', progress=20)
+                    run_staged(['git', 'reset', '--hard', '--quiet', source_revision], cwd=staged_dir)
+                    for entry in patch_entries:
+                        run_staged(['git', 'apply', '-'], cwd=staged_dir, patch_content=entry['content'])
+                    staged_files = {}
+                    for path in final_paths:
+                        staged_path = os.path.join(staged_dir, path)
+                        with open(staged_path, 'rb') as staged_file:
+                            staged_files[path] = (staged_file.read(), os.stat(staged_path).st_mode & 0o777)
+                    migrated_expected_fingerprints = {
+                        path: hashlib.sha256(staged_files[path][0]).hexdigest()
+                        for path in touched_paths
+                    }
+
+                if not all(file_digest(path) == digest for path, digest in manifest['files'].items()):
+                    self._fail('迁移 SimC 旧补丁状态失败', '源码指纹已变化', progress=20)
+                legacy_backup = {}
+                for path in final_paths:
+                    live_path = os.path.join(self.simc_source_dir, path)
+                    with open(live_path, 'rb') as live_file:
+                        legacy_backup[path] = (live_file.read(), os.stat(live_path).st_mode & 0o777)
+
+                def replace_source_files(files):
+                    for path, (content, mode) in files.items():
+                        live_path = os.path.join(self.simc_source_dir, path)
+                        fd, temp_source_path = tempfile.mkstemp(
+                            prefix='.lmonitor-simc-source.', dir=os.path.dirname(live_path),
+                        )
+                        try:
+                            os.fchmod(fd, mode)
+                            with os.fdopen(fd, 'wb') as temp_source:
+                                temp_source.write(content)
+                                temp_source.flush()
+                                os.fsync(temp_source.fileno())
+                            os.replace(temp_source_path, live_path)
+                        finally:
+                            if os.path.exists(temp_source_path):
+                                os.unlink(temp_source_path)
+
+                try:
+                    replace_source_files(staged_files)
+                except BaseException:
+                    replace_source_files(legacy_backup)
+                    raise
+                migrated_legacy_state = True
+                migrated_trusted_prefix = len(current_chain)
+            elif revision_legacy_states:
+                known_paths = sorted({
+                    path
+                    for _, manifest in revision_legacy_states
+                    for path in manifest['files']
+                })
+                source_status = subprocess.run(
+                    ['git', 'status', '--porcelain', '--untracked-files=no', '--', *known_paths],
+                    cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+                )
+                if source_status.returncode != 0 or source_status.stdout.strip():
+                    self._fail(
+                        'SimC 旧补丁状态无法识别',
+                        '源码 revision 命中已知旧部署，但完整文件指纹不匹配。',
+                        progress=20,
+                    )
         previous_chain = ledger.get('patches')
         previous_files = ledger.get('files')
-        trusted_prefix = 0
+        trusted_prefix = migrated_trusted_prefix
         if isinstance(previous_chain, list) and previous_chain:
             if current_chain[:len(previous_chain)] != previous_chain:
                 self._fail(
@@ -649,7 +828,7 @@ class Command(BaseCommand):
             ):
                 trusted_prefix = len(previous_chain)
 
-        changed = False
+        changed = migrated_legacy_state
         for index, entry in enumerate(patch_entries):
             patch_name = entry['name']
             patch_content = entry['content']
@@ -701,37 +880,56 @@ class Command(BaseCommand):
                 progress=20,
             )
 
-        file_fingerprints = {path: file_digest(path) for path in sorted(touched_paths)}
-        missing_paths = [path for path, digest in file_fingerprints.items() if digest is None]
-        if missing_paths:
-            self._fail(
-                '记录 SimC 补丁状态失败',
-                f'暂不支持补丁删除文件: {", ".join(missing_paths)}',
-                progress=20,
+        def persist_patch_ledger():
+            file_fingerprints = {path: file_digest(path) for path in sorted(touched_paths)}
+            if (
+                migrated_expected_fingerprints is not None
+                and file_fingerprints != migrated_expected_fingerprints
+            ):
+                self._fail('记录 SimC 补丁状态失败', '迁移后的源码指纹已变化。', progress=20)
+            missing_paths = [path for path, digest in file_fingerprints.items() if digest is None]
+            if missing_paths:
+                self._fail(
+                    '记录 SimC 补丁状态失败',
+                    f'暂不支持补丁删除文件: {", ".join(missing_paths)}',
+                    progress=20,
+                )
+            next_ledger = {
+                'patches': current_chain,
+                'files': file_fingerprints,
+            }
+            fd, temp_path = tempfile.mkstemp(
+                prefix='.lmonitor-applied-patches.', suffix='.tmp', dir=git_dir, text=True,
             )
-        ledger = {
-            'patches': current_chain,
-            'files': file_fingerprints,
-        }
-        fd, temp_path = tempfile.mkstemp(
-            prefix='.lmonitor-applied-patches.', suffix='.tmp', dir=git_dir, text=True,
-        )
-        try:
-            os.fchmod(fd, 0o600)
-            with os.fdopen(fd, 'w', encoding='utf-8') as ledger_file:
-                json.dump(ledger, ledger_file, ensure_ascii=False, indent=2, sort_keys=True)
-                ledger_file.write('\n')
-                ledger_file.flush()
-                os.fsync(ledger_file.fileno())
-            os.replace(temp_path, ledger_path)
-            directory_fd = os.open(git_dir, os.O_RDONLY | os.O_DIRECTORY)
             try:
-                os.fsync(directory_fd)
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, 'w', encoding='utf-8') as ledger_file:
+                    json.dump(next_ledger, ledger_file, ensure_ascii=False, indent=2, sort_keys=True)
+                    ledger_file.write('\n')
+                    ledger_file.flush()
+                    os.fsync(ledger_file.fileno())
+                os.replace(temp_path, ledger_path)
+                directory_fd = os.open(git_dir, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
             finally:
-                os.close(directory_fd)
-        finally:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+
+        try:
+            persist_patch_ledger()
+        except BaseException:
+            if legacy_backup is not None:
+                replace_source_files(legacy_backup)
+                try:
+                    os.unlink(ledger_path)
+                except FileNotFoundError:
+                    pass
+            raise
+        if migrated_legacy_state:
+            self.stdout.write(f'迁移 SimC 旧补丁状态 {manifest_name}')
         return changed
 
     def _apply_patches_only(self, threads=2):

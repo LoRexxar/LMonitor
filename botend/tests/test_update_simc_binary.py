@@ -1,4 +1,5 @@
 import os
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -397,6 +398,175 @@ class UpdateSimcBinaryCommandTests(TestCase):
                 )
                 with self.assertRaises(CommandError):
                     command._apply_local_patches()
+
+    def test_known_pre_ledger_patch_state_is_replayed_into_current_chain(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            legacy_dir = Path(tmpdir) / 'legacy'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            legacy_dir.mkdir()
+            target = source_dir / 'runtime.cpp'
+            target.write_text('base\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'runtime.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'], cwd=source_dir, check=True,
+            )
+            revision = subprocess.run(
+                ['git', 'rev-parse', 'HEAD'], cwd=source_dir, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
+            current_patch = (
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -1 +1 @@\n-base\n+current\n'
+            )
+            legacy_patch = current_patch.replace('+current', '+legacy')
+            (patch_dir / '0001-current.patch').write_text(current_patch, encoding='utf-8')
+            (legacy_dir / 'pre-ledger.patch').write_text(legacy_patch, encoding='utf-8')
+            target.write_text('legacy\n', encoding='utf-8')
+            (legacy_dir / 'pre-ledger.json').write_text(json.dumps({
+                'base_revision': revision,
+                'patch': 'pre-ledger.patch',
+                'files': {'runtime.cpp': hashlib.sha256(b'legacy\n').hexdigest()},
+            }), encoding='utf-8')
+
+            command = Command()
+            command.stdout = StringIO()
+            command.row = mock.Mock()
+            command.simc_source_dir = str(source_dir)
+            with override_settings(SIMC_CONFIG={
+                'simc_patch_dir': str(patch_dir),
+                'simc_legacy_patch_dir': str(legacy_dir),
+            }):
+                self.assertTrue(command._apply_local_patches())
+                self.assertEqual(target.read_text(encoding='utf-8'), 'current\n')
+                self.assertFalse(command._apply_local_patches())
+
+    def test_known_pre_ledger_patch_state_rejects_source_fingerprint_mismatch(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            legacy_dir = Path(tmpdir) / 'legacy'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            legacy_dir.mkdir()
+            target = source_dir / 'runtime.cpp'
+            target.write_text('top\nbase\nkeep-1\nkeep-2\nkeep-3\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'runtime.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'], cwd=source_dir, check=True,
+            )
+            revision = subprocess.run(
+                ['git', 'rev-parse', 'HEAD'], cwd=source_dir, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
+            legacy_patch = (
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -1,2 +1,2 @@\n top\n-base\n+legacy\n'
+            )
+            (patch_dir / '0001-current.patch').write_text(
+                legacy_patch.replace('+legacy', '+current'), encoding='utf-8',
+            )
+            (legacy_dir / 'pre-ledger.patch').write_text(legacy_patch, encoding='utf-8')
+            (legacy_dir / 'pre-ledger.json').write_text(json.dumps({
+                'base_revision': revision,
+                'patch': 'pre-ledger.patch',
+                'files': {
+                    'runtime.cpp': hashlib.sha256(
+                        b'top\nlegacy\nkeep-1\nkeep-2\nkeep-3\n'
+                    ).hexdigest(),
+                },
+            }), encoding='utf-8')
+            target.write_text(
+                'top\nlegacy\nkeep-1\nkeep-2\nunknown-outside-hunk\n',
+                encoding='utf-8',
+            )
+
+            command = Command()
+            command.stdout = StringIO()
+            command.row = mock.Mock()
+            command.simc_source_dir = str(source_dir)
+            with override_settings(SIMC_CONFIG={
+                'simc_patch_dir': str(patch_dir),
+                'simc_legacy_patch_dir': str(legacy_dir),
+            }):
+                with self.assertRaises(CommandError):
+                    command._apply_local_patches()
+            self.assertEqual(
+                target.read_text(encoding='utf-8'),
+                'top\nlegacy\nkeep-1\nkeep-2\nunknown-outside-hunk\n',
+            )
+
+    def test_known_pre_ledger_patch_state_rolls_back_when_ledger_temp_create_fails(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            legacy_dir = Path(tmpdir) / 'legacy'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            legacy_dir.mkdir()
+            target = source_dir / 'runtime.cpp'
+            target.write_text('base\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'runtime.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'], cwd=source_dir, check=True,
+            )
+            revision = subprocess.run(
+                ['git', 'rev-parse', 'HEAD'], cwd=source_dir, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
+            current_patch = (
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -1 +1 @@\n-base\n+current\n'
+            )
+            legacy_patch = current_patch.replace('+current', '+legacy')
+            (patch_dir / '0001-current.patch').write_text(current_patch, encoding='utf-8')
+            (legacy_dir / 'pre-ledger.patch').write_text(legacy_patch, encoding='utf-8')
+            target.write_text('legacy\n', encoding='utf-8')
+            (legacy_dir / 'pre-ledger.json').write_text(json.dumps({
+                'base_revision': revision,
+                'patch': 'pre-ledger.patch',
+                'files': {'runtime.cpp': hashlib.sha256(b'legacy\n').hexdigest()},
+            }), encoding='utf-8')
+
+            command = Command()
+            command.stdout = StringIO()
+            command.row = mock.Mock()
+            command.simc_source_dir = str(source_dir)
+            real_mkstemp = tempfile.mkstemp
+
+            def fail_ledger_mkstemp(*args, **kwargs):
+                if str(kwargs.get('prefix', '')).startswith('.lmonitor-applied-patches.'):
+                    raise OSError('simulated ledger temp create failure')
+                return real_mkstemp(*args, **kwargs)
+
+            with override_settings(SIMC_CONFIG={
+                'simc_patch_dir': str(patch_dir),
+                'simc_legacy_patch_dir': str(legacy_dir),
+            }), mock.patch(
+                'botend.management.commands.update_simc_binary.tempfile.mkstemp',
+                side_effect=fail_ledger_mkstemp,
+            ):
+                with self.assertRaises(OSError):
+                    command._apply_local_patches()
+            self.assertEqual(target.read_text(encoding='utf-8'), 'legacy\n')
+            self.assertFalse((source_dir / '.git' / 'lmonitor-applied-patches.json').exists())
 
     def test_binary_probe_uses_no_arguments_not_help_or_version(self):
         """Binary probe must invoke [simc_binary_path] with no arguments, not --help/--version."""

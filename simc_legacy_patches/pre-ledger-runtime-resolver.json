@@ -1,0 +1,13 @@
+{
+  "base_revision": "62ababb127bef2a35f96357968d455dde7de7616",
+  "files": {
+    "engine/Makefile": "ca5b668e780ff33f8fb707a8615c0e5997c432be83d6872420a90685cef44caf",
+    "engine/action/action.cpp": "a4b2e82bed336180aa92cb9b3faaa59155b7acef9473a3ff2a56c74baf35fb33",
+    "engine/action/action.hpp": "73c3e970978176c6d3ac939d756cf4c3fe6900b5da192a8a6f39894f27d80b21",
+    "engine/class_modules/sc_warrior.cpp": "7a86490660c1c55c38b9ab9575b1ac0ecd3d42db9508bab09a66373877dd57a3",
+    "engine/sc_main.cpp": "182978fb435740289418af39d20b4bfa4dd55f712ec038ad6d7f991f813bc80a",
+    "engine/sim/sim.cpp": "b067ef3b6a8f12f7d9670533236d64a238ec727316ceb5738fcdbe84847bd1c8",
+    "engine/sim/sim.hpp": "1cad16494d68dabdbbed1aa9c99e76e72e4b1eb51d90b2855eec99691f2e0294"
+  },
+  "patch": "pre-ledger-runtime-resolver.patch"
+}
