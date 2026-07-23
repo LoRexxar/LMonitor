@@ -121,11 +121,14 @@ def load_runtime_manifest(path, simc_revision, wow_build):
         scope = symbol.get('scope')
         kind = symbol.get('kind')
         spell_id = symbol.get('spell_id')
+        trait_id = symbol.get('trait_id', symbol.get('trait_node_entry_id'))
         options = symbol.get('options')
         aliases = symbol.get('aliases')
         if (scope not in MANIFEST_SCOPES or kind not in valid_kinds or
                 (spell_id is not None and (not isinstance(spell_id, int) or
                                            isinstance(spell_id, bool) or spell_id <= 0)) or
+                (trait_id is not None and (not isinstance(trait_id, int) or
+                                           isinstance(trait_id, bool) or trait_id <= 0)) or
                 not isinstance(options, list) or
                 not all(isinstance(value, str) and value.strip() for value in options) or
                 not isinstance(aliases, list) or
@@ -140,11 +143,23 @@ def load_runtime_manifest(path, simc_revision, wow_build):
                 (scope == 'class' and (not class_name or spec)) or
                 (scope in {'spec', 'hero_tree'} and (not class_name or not spec))):
             _manifest_error(f'{prefix} scope does not match class/spec')
+        if kind == 'talent' and trait_id is None:
+            _manifest_error(f'{prefix} talent requires trait_id')
+        if kind != 'talent' and trait_id is not None:
+            _manifest_error(f'{prefix} non-talent cannot carry trait_id')
         if token in {'apl_metadata_export', 'apl_metadata_revision', 'apl_metadata_game_build'}:
             _manifest_error(f'{prefix} contains a control option')
+        # Retain hero-tree identity from the manifest. A hero-scoped symbol
+        # must never be flattened into ordinary spec scope.
+        hero_tree = _string_or_none(symbol.get('hero_tree'), f'{prefix}.hero_tree')
+        if scope == 'hero_tree' and not hero_tree:
+            _manifest_error(f'{prefix}.hero_tree is required for hero_tree scope')
+        if scope != 'hero_tree' and hero_tree:
+            _manifest_error(f'{prefix}.hero_tree is only valid for hero_tree scope')
         fact = {
-            'class_name': class_name, 'spec': spec, 'hero_tree': None,
+            'class_name': class_name, 'spec': spec, 'hero_tree': hero_tree,
             'token': token, 'symbol_kind': kind, 'spell_id': spell_id,
+            'trait_id': trait_id,
             'source': SimcAplSymbol.SOURCE_SIMC_MANIFEST,
             'options': sorted(set(value.strip().lower() for value in options)),
             'aliases': sorted(set(value.strip().lower() for value in aliases)),
@@ -296,7 +311,7 @@ def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=Non
 
 def _snapshot(revision, build):
     fields = ('class_key', 'spec_key', 'hero_tree_key', 'token', 'symbol_kind',
-              'class_name', 'spec', 'hero_tree', 'spell_id', 'source', 'aliases',
+              'class_name', 'spec', 'hero_tree', 'spell_id', 'trait_id', 'source', 'aliases',
               'options', 'is_active')
     return {tuple(row[:5]): tuple(row[5:]) for row in
             SimcAplSymbol.objects.filter(simc_revision=revision, wow_build=build)

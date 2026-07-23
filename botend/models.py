@@ -751,6 +751,7 @@ class SimcAplSymbol(models.Model):
         max_length=32, choices=SYMBOL_KIND_CHOICES, default=KIND_ACTION,
     )
     spell_id = models.BigIntegerField(null=True, blank=True)
+    trait_id = models.BigIntegerField(null=True, blank=True)
     source = models.CharField(
         max_length=32, choices=SOURCE_CHOICES, default=SOURCE_MANIFEST,
     )
@@ -801,6 +802,10 @@ class SimcAplSymbol(models.Model):
             models.Index(
                 fields=['simc_revision', 'spell_id'],
                 name='simc_sym_rev_spell_idx',
+            ),
+            models.Index(
+                fields=['simc_revision', 'trait_id'],
+                name='simc_sym_rev_trait_idx',
             ),
             models.Index(
                 fields=['simc_revision', 'class_name', 'hero_tree'],
@@ -861,7 +866,7 @@ class SimcAplSymbol(models.Model):
             'hero_tree_key', 'token', 'symbol_kind',
         )
         fact_fields = (
-            'class_name', 'spec', 'hero_tree', 'spell_id', 'source',
+            'class_name', 'spec', 'hero_tree', 'spell_id', 'trait_id', 'source',
             'aliases', 'options',
         )
         prepared = {}

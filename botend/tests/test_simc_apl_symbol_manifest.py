@@ -77,6 +77,48 @@ class RuntimeManifestImportTests(TestCase):
         self.assertEqual(result.facts[0]['class_name'], 'hunter')
         self.assertEqual(result.facts[0]['spec'], 'beast_mastery')
 
+    def test_typed_runtime_identity_preserves_spell_and_trait_ids(self):
+        payload = manifest(symbols=[{
+            'class': 'warrior', 'spec': 'fury', 'scope': 'spec',
+            'token': 'titans_torment', 'kind': 'talent', 'spell_id': 390135,
+            'trait_id': 123456, 'hero_talent': False,
+            'candidates': [], 'reason': None,
+            'source': 'runtime_expression_resolver', 'options': [], 'aliases': [],
+        }])
+
+        result = load_runtime_manifest(self.write(payload), REVISION, BUILD)
+
+        self.assertEqual(result.facts[0]['spell_id'], 390135)
+        self.assertEqual(result.facts[0]['trait_id'], 123456)
+
+    def test_invalid_runtime_trait_id_is_rejected(self):
+        payload = manifest(symbols=[{
+            'class': 'warrior', 'spec': 'fury', 'scope': 'spec',
+            'token': 'titans_torment', 'kind': 'talent', 'spell_id': 390135,
+            'trait_id': True,
+            'source': 'runtime_expression_resolver', 'options': [], 'aliases': [],
+        }])
+        with self.assertRaisesRegex(ValueError, 'symbols\\[0\\]'):
+            load_runtime_manifest(self.write(payload), REVISION, BUILD)
+
+    def test_hero_tree_scope_requires_and_preserves_hero_identity(self):
+        payload = manifest(symbols=[{
+            'class': 'warrior', 'spec': 'fury', 'scope': 'hero_tree',
+            'hero_tree': 'colossus', 'token': 'demolish', 'kind': 'action',
+            'spell_id': 123, 'source': 'runtime_action', 'options': [], 'aliases': [],
+        }])
+        result = load_runtime_manifest(self.write(payload), REVISION, BUILD)
+        self.assertEqual(result.facts[0]['hero_tree'], 'colossus')
+
+    def test_talent_requires_trait_id(self):
+        payload = manifest(symbols=[{
+            'class': 'warrior', 'spec': 'fury', 'scope': 'spec',
+            'token': 'some_talent', 'kind': 'talent', 'spell_id': 123,
+            'source': 'runtime_expression_resolver', 'options': [], 'aliases': [],
+        }])
+        with self.assertRaisesRegex(ValueError, 'trait_id'):
+            load_runtime_manifest(self.write(payload), REVISION, BUILD)
+
     def test_manifest_requires_granular_runtime_module_statuses(self):
         payload = manifest(completeness={
             'status': 'partial', 'modules': {'global': 'runtime_initialized'},

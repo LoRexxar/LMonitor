@@ -44,18 +44,22 @@ index 8e4f3e7570..b4b043339a 100644
    void   check_spec( specialization_e );
  
 diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
-index 2e746602a8..46f11f63fd 100644
+index 2e746602a8..3173f694ec 100644
 --- a/engine/sc_main.cpp
 +++ b/engine/sc_main.cpp
-@@ -11,6 +11,7 @@
+@@ -11,6 +11,11 @@
  #include "lib/fmt/format.h"
  #include "player/player.hpp"
  #include "player/unique_gear.hpp"
 +#include "action/action.hpp"
++#include "action/dot.hpp"
++#include "buff/buff.hpp"
++#include "dbc/trait_data.hpp"
++#include "sim/cooldown.hpp"
  #include "report/reports.hpp"
  #include "sim/plot.hpp"
  #include "sim/reforge_plot.hpp"
-@@ -22,6 +23,14 @@
+@@ -22,6 +27,14 @@
  #include "util/io.hpp"
  
  #include <locale>
@@ -70,7 +74,7 @@ index 2e746602a8..46f11f63fd 100644
  
  #ifdef SC_SIGACTION
  #include <csignal>
-@@ -141,6 +150,131 @@ struct sim_signal_handler_t
+@@ -141,6 +154,202 @@ struct sim_signal_handler_t
  
  sim_t* sim_signal_handler_t::global_sim = nullptr;
  
@@ -97,21 +101,81 @@ index 2e746602a8..46f11f63fd 100644
 +{
 +  std::string class_name, spec, token, kind, source;
 +  unsigned spell_id = 0;
++  std::string reason;
++  unsigned trait_node_entry_id = 0;
++  bool hero_talent = false;
++  std::set<unsigned> candidates;
 +  std::set<std::string> options;
 +
 +  bool operator<( const apl_metadata_symbol_t& other ) const
 +  { return std::tie( class_name, spec, kind, token ) < std::tie( other.class_name, other.spec, other.kind, other.token ); }
 +};
 +
-+void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const std::string& class_name,
-+                                 const std::string& spec, const std::string& expression )
++void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const player_t& player,
++                                 const std::string& class_name, const std::string& spec,
++                                 const std::string& expression )
 +{
 +  static const std::regex identifier( R"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)" );
 +  for ( auto it = std::sregex_iterator( expression.begin(), expression.end(), identifier ); it != std::sregex_iterator(); ++it )
 +  {
-+    std::string token = util::tokenize_fn( it->str() );
-+    symbols.insert( { class_name, spec, token, "expression", "runtime_apl_expression" } );
-+    symbols.insert( { class_name, spec, token.substr( 0, token.find( '.' ) ), "namespace", "runtime_apl_expression" } );
++    std::string full = util::tokenize_fn( it->str() );
++    symbols.insert( { class_name, spec, full, "expression", "runtime_apl_expression" } );
++    const auto first = full.find( '.' );
++    symbols.insert( { class_name, spec, full.substr( 0, first ), "namespace", "runtime_apl_expression" } );
++    if ( first == std::string::npos ) continue;
++    const auto second = full.find( '.', first + 1 );
++    const std::string kind = full.substr( 0, first );
++    const std::string token = full.substr( first + 1, second - first - 1 );
++    apl_metadata_symbol_t object{ class_name, spec, token, kind, "runtime_expression_resolver" };
++    if ( kind == "buff" )
++    {
++      if ( auto* buff = buff_t::find( const_cast<player_t*>( &player ), token ) ) object.spell_id = buff->data().id();
++      else object.reason = "buff_not_found";
++    }
++    else if ( kind == "debuff" )
++    {
++      buff_t* debuff = nullptr;
++      for ( player_t* target : player.sim->target_non_sleeping_list )
++        if ( ( debuff = buff_t::find( target, token, const_cast<player_t*>( &player ) ) ) ) break;
++      if ( debuff ) object.spell_id = debuff->data().id();
++      else object.reason = "target_source_debuff_not_found";
++    }
++    else if ( kind == "dot" )
++    {
++      for ( const dot_t* dot : player.dot_list )
++        if ( dot->name_str == token && dot->current_action && dot->current_action->data().id() )
++          object.candidates.insert( dot->current_action->data().id() );
++      if ( object.candidates.size() == 1 ) object.spell_id = *object.candidates.begin();
++      else object.reason = object.candidates.empty() ? "runtime_dot_action_not_found" : "ambiguous_runtime_dot_actions";
++    }
++    else if ( kind == "cooldown" )
++    {
++      for ( const action_t* action : player.action_list )
++        if ( action->cooldown && action->cooldown->name_str == token && action->data().id() )
++          object.candidates.insert( action->data().id() );
++      if ( object.candidates.size() == 1 ) object.spell_id = *object.candidates.begin();
++      else object.reason = object.candidates.empty() ? "no_action_bound_spell" : "ambiguous_action_bound_spells";
++    }
++    else if ( kind == "talent" )
++    {
++      const trait_data_t* trait = trait_data_t::find( talent_tree::CLASS, token, util::class_id( player.type ),
++                                                     player.specialization(), player.is_ptr(), true );
++      if ( trait == &trait_data_t::nil() )
++        trait = trait_data_t::find( talent_tree::SPECIALIZATION, token, util::class_id( player.type ),
++                                    player.specialization(), player.is_ptr(), true );
++      if ( trait == &trait_data_t::nil() )
++        trait = trait_data_t::find( talent_tree::HERO, token, util::class_id( player.type ),
++                                    player.specialization(), player.is_ptr(), true );
++      if ( trait != &trait_data_t::nil() )
++      {
++        object.trait_node_entry_id = trait->id_trait_node_entry;
++        object.spell_id = trait->id_spell;
++        object.hero_talent = trait->tree_index == static_cast<unsigned>( talent_tree::HERO );
++      }
++      else object.reason = "talent_not_found";
++    }
++    else continue;
++    symbols.insert( std::move( object ) );
 +  }
 +}
 +
@@ -130,6 +194,15 @@ index 2e746602a8..46f11f63fd 100644
 +  out << ",\"kind\":"; apl_metadata_json_string( out, symbol.kind );
 +  out << ",\"spell_id\":";
 +  if ( symbol.spell_id ) out << symbol.spell_id; else out << "null";
++  out << ",\"trait_id\":";
++  if ( symbol.trait_node_entry_id ) out << symbol.trait_node_entry_id; else out << "null";
++  out << ",\"hero_talent\":" << ( symbol.hero_talent ? "true" : "false" );
++  out << ",\"candidates\":[";
++  bool first_candidate = true;
++  for ( unsigned candidate : symbol.candidates )
++  { if ( !first_candidate ) out << ','; first_candidate = false; out << candidate; }
++  out << "],\"reason\":";
++  if ( symbol.reason.empty() ) out << "null"; else apl_metadata_json_string( out, symbol.reason );
 +  out << ",\"source\":"; apl_metadata_json_string( out, symbol.source );
 +  out << ",\"options\":[";
 +  bool first_option = true;
@@ -169,11 +242,11 @@ index 2e746602a8..46f11f63fd 100644
 +        symbols.insert( { class_name, spec, option, "action_option", "runtime_action_option" } );
 +      }
 +      symbols.insert( std::move( action_symbol ) );
-+      add_apl_expression_symbols( symbols, class_name, spec, action->option.if_expr_str );
-+      add_apl_expression_symbols( symbols, class_name, spec, action->option.target_if_str );
-+      add_apl_expression_symbols( symbols, class_name, spec, action->option.interrupt_if_expr_str );
-+      add_apl_expression_symbols( symbols, class_name, spec, action->option.early_chain_if_expr_str );
-+      add_apl_expression_symbols( symbols, class_name, spec, action->option.cancel_if_expr_str );
++      add_apl_expression_symbols( symbols, *player, class_name, spec, action->option.if_expr_str );
++      add_apl_expression_symbols( symbols, *player, class_name, spec, action->option.target_if_str );
++      add_apl_expression_symbols( symbols, *player, class_name, spec, action->option.interrupt_if_expr_str );
++      add_apl_expression_symbols( symbols, *player, class_name, spec, action->option.early_chain_if_expr_str );
++      add_apl_expression_symbols( symbols, *player, class_name, spec, action->option.cancel_if_expr_str );
 +    }
 +  }
 +
@@ -204,7 +277,7 @@ index 2e746602a8..46f11f63fd 100644
  [[maybe_unused]] sim_signal_handler_t handler;
  
  // need_to_save_profiles ====================================================
-@@ -293,6 +427,13 @@ int sim_t::main( const std::vector<std::string>& args )
+@@ -293,6 +502,13 @@ int sim_t::main( const std::vector<std::string>& args )
        std::throw_with_nested( std::runtime_error( "Setup failure" ) );
      }
  

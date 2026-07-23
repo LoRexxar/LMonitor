@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimcTaskBatch, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata
 from botend.alerting import upsert_system_alert
 from django.db import IntegrityError, models, transaction
 from core.glm import GLMClient
@@ -62,6 +62,10 @@ from botend.services.simc_apl.authoritative_validator import RestrictedSimcValid
 from botend.services.simc_apl.publish import validate_apl_for_profile, content_hash, current_validation_identity
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_apl.completion import complete_document
+from botend.services.simc_apl.translation import (
+    extract_translation_demands, resolve_demand_mappings, translate_apl_ranges,
+    CONTROL_ACTIONS,
+)
 from django.core.exceptions import SuspiciousOperation
 from collections import defaultdict, deque
 
@@ -893,57 +897,104 @@ class ConvertTextAPIView(View):
                 'error': f'获取APL详情失败: {str(e)}'
             })
     
-    def bilingual_pairs(self, spec=''):
-        """Use live Wago names and SimC symbols as the sole bilingual catalog."""
+    def bilingual_pairs(self, spec='', text=''):
+        """Build a typed catalog from default APL demands plus the current document."""
         identity = _latest_catalog_identity()
         parsed_spec = _editor_spec(spec) if spec else None
         if not identity or not parsed_spec:
             return [], []
-        bindings = _authoritative_action_bindings(parsed_spec, identity)
-        spell_ids = {spell_id for spell_id, _source in bindings.values()}
-        if not spell_ids:
-            return [], []
-        rows = list(
-            WowSpellSnapshot.objects.filter(
-                branch='wow', locale='zhCN', snapshot_build=identity[1],
-                spell_id__in=spell_ids,
-            ).exclude(name_zh='')
-            .values('spell_id', 'name_zh')
-            .order_by('name_zh', 'spell_id')
+        class_key, class_name, spec_name = parsed_spec
+        # Stored system APLs use the canonical full key (for example
+        # ``warrior_fury``), while older/test rows may use the short spec.
+        # Accept both, but never broaden the class scope.
+        apl_queryset = SimcApl.objects.filter(
+            is_active=True, is_system=True, class_name=class_name,
+            spec__in=(spec_name, class_key),
         )
-        chinese_by_spell_id = {}
-        for row in rows:
-            chinese_by_spell_id.setdefault(row['spell_id'], row['name_zh'])
-        candidates = []
-        chinese_by_token = {}
-        for token, (spell_id, _source) in bindings.items():
-            chinese = chinese_by_spell_id.get(spell_id)
-            if not chinese:
-                continue
-            chinese_by_token.setdefault(token.casefold(), set()).add(chinese)
-            candidates.append((token, chinese))
-
-        valid_candidates = [
-            (token, next(iter(chinese_by_token[token.casefold()])))
-            for token, _chinese in candidates
-            if len(chinese_by_token[token.casefold()]) == 1
+        revision_rows = apl_queryset.filter(sync_version=identity[0])
+        # Tests and manually maintained system defaults may predate revision
+        # tagging. Use those only when no revision-bound default exists; never
+        # merge historical revisions into the current demand set.
+        apl_rows = (revision_rows if revision_rows.exists() else apl_queryset.filter(sync_version='')).values_list(
+            'content', flat=True,
+        )
+        demands = []
+        seen = set()
+        for content in list(apl_rows) + ([text] if text else []):
+            for demand in extract_translation_demands(content):
+                key = (demand.kind, demand.token.casefold())
+                if key not in seen:
+                    seen.add(key)
+                    demands.append(demand)
+        symbol_rows = SimcAplSymbol.objects.filter(
+            simc_revision=identity[0], wow_build=identity[1], is_active=True,
+        ).filter(
+            models.Q(class_name__isnull=True, spec__isnull=True) |
+            models.Q(class_name=class_name, spec__isnull=True) |
+            models.Q(class_name=class_name, spec=spec_name)
+        ).filter(models.Q(hero_tree__isnull=True) | models.Q(hero_tree='')).values('symbol_kind', 'token', 'spell_id', 'trait_id', 'hero_tree')
+        facts = list(symbol_rows)
+        action_bindings = _authoritative_action_bindings(parsed_spec, identity)
+        # The action resolver is the stricter source of truth (including the
+        # same-class exact-token fallback). Replace visible action rows with
+        # its single resolved fact so a visible NULL row cannot conflict with
+        # the fallback fact we just proved authoritative.
+        non_action_facts = [row for row in facts if row['symbol_kind'] != 'action']
+        action_facts = [
+            {
+                'symbol_kind': 'action', 'token': token, 'spell_id': spell_id,
+                'trait_id': None, 'hero_tree': None,
+            }
+            for token, (spell_id, _source) in action_bindings.items()
         ]
-        tokens_by_chinese = {}
-        for token, chinese in valid_candidates:
-            tokens_by_chinese.setdefault(chinese.casefold(), set()).add(token.casefold())
-
+        facts = non_action_facts + action_facts
+        spell_ids = {row['spell_id'] for row in facts if row['spell_id']}
+        trait_ids = {row['trait_id'] for row in facts if row['trait_id']}
+        localized = {}
+        for row in WowSpellSnapshot.objects.filter(
+            branch='wow', locale='zhCN', snapshot_build=identity[1],
+            spell_id__in=spell_ids,
+        ).exclude(name_zh='').values('spell_id', 'name_zh').order_by('spell_id', '-updated_at', '-id'):
+            localized.setdefault(('spell', row['spell_id']), row['name_zh'])
+        for row in WowTalentNodeMetadata.objects.filter(
+            talent_version__branch='retail', talent_version__is_active=True,
+            talent_version__current_build__in=(identity[1], ''),
+            name_zh__gt='', talent_id__in=trait_ids,
+        ).values('talent_id', 'name_zh').order_by('talent_id', '-last_updated', '-id'):
+            localized.setdefault(('trait', row['talent_id']), row['name_zh'])
+        mapping, _failures = resolve_demand_mappings(demands, facts, localized)
+        scoped_facts = {}
+        for fact in facts:
+            kind = str(fact.get('symbol_kind') or '')
+            token = str(fact.get('token') or '')
+            if not token or kind not in {'action', 'buff', 'debuff', 'dot', 'cooldown', 'talent'}:
+                continue
+            scoped_facts.setdefault((kind, token.casefold()), []).append(fact)
+        for (kind, token_key), token_facts in scoped_facts.items():
+            if len(token_facts) != 1:
+                continue
+            fact = token_facts[0]
+            identity_type = 'trait' if kind == 'talent' else 'spell'
+            identity_id = fact.get('trait_id') if identity_type == 'trait' else fact.get('spell_id')
+            chinese = localized.get((identity_type, identity_id))
+            if isinstance(identity_id, int) and not isinstance(identity_id, bool) and identity_id > 0 and chinese:
+                mapping.setdefault((kind, token_key), chinese)
+        # A token that resolves to multiple localized names is not reversible.
+        token_names = {}
+        for key, chinese in mapping.items():
+            token_names.setdefault(key, set()).add(chinese.casefold())
+        mapping = {key: value for key, value in mapping.items() if len(token_names[key]) == 1}
+        mapping = {
+            key: value for key, value in mapping.items()
+            if key[0] != 'action' or key[1] not in CONTROL_ACTIONS
+        }
         forward_pairs = []
         reverse_pairs = []
-        seen_tokens = set()
-        for token, chinese in valid_candidates:
-            token_key = token.casefold()
-            if token_key in seen_tokens:
-                continue
-            seen_tokens.add(token_key)
-            if len(tokens_by_chinese[chinese.casefold()]) == 1:
-                rendered = chinese
-            else:
-                rendered = f'{chinese}〔{token}〕'
+        by_cn = {}
+        for (kind, token), chinese in mapping.items():
+            by_cn.setdefault(chinese.casefold(), []).append(token)
+        for (kind, token), chinese in mapping.items():
+            rendered = chinese if len(by_cn[chinese.casefold()]) == 1 else f'{chinese}〔{token}〕'
             forward_pairs.append((token, rendered))
             reverse_pairs.append((token, rendered))
         return forward_pairs, reverse_pairs
@@ -955,19 +1006,31 @@ class ConvertTextAPIView(View):
         """
         try:
             keyword_pairs = sorted(
-                self.bilingual_pairs(spec)[0], key=lambda pair: len(pair[0]), reverse=True,
+                self.bilingual_pairs(spec, text=text)[0], key=lambda pair: len(pair[0]), reverse=True,
             )
-            lines = text.splitlines(keepends=True)
+            pair_by_token = {apl_keyword.casefold(): cn_keyword for apl_keyword, cn_keyword in keyword_pairs}
+            mapping = {
+                (demand.kind, demand.token.casefold()): pair_by_token[demand.token.casefold()]
+                for demand in extract_translation_demands(text)
+                if demand.token.casefold() in pair_by_token
+            }
+            translated = translate_apl_ranges(text, mapping)
+            # Legacy editor input also accepts spaces in an action token. Such
+            # input is outside canonical SimC token grammar, so apply a narrow
+            # fallback only at the parser-defined action slot, never to
+            # comments, expressions, option values, or arbitrary text.
             for apl_keyword, cn_keyword in keyword_pairs:
-                # 只允许 token 内部的下划线与空格互换，不吞掉 token 外部空白。
-                parts = [re.escape(part) for part in apl_keyword.split('_')]
-                pattern = r'(?<![A-Za-z0-9_])' + r'[ _]+'.join(parts) + r'(?![A-Za-z0-9_])'
-                lines = [
-                    re.sub(pattern, lambda _match, value=cn_keyword: value, line)
-                    if not line.lstrip().startswith('#') else line
-                    for line in lines
-                ]
-            return ''.join(lines)
+                token_pattern = r'[ _]+'.join(re.escape(part) for part in apl_keyword.split('_'))
+                pattern = (
+                    r'(?m)^(?P<prefix>\s*actions(?:\.[A-Za-z0-9_]+)?\+?=/)'
+                    + token_pattern + r'(?=[,\s#]|$)'
+                )
+                translated = re.sub(
+                    pattern,
+                    lambda match, value=cn_keyword: match.group('prefix') + value,
+                    translated,
+                )
+            return translated
         except Exception as e:
             logger.error(f"APL2CN错误: {str(e)}")
             raise e
@@ -978,15 +1041,35 @@ class ConvertTextAPIView(View):
         """
         try:
             keyword_pairs = sorted(
-                self.bilingual_pairs(spec)[1], key=lambda pair: len(pair[1]), reverse=True,
+                self.bilingual_pairs(spec, text=text)[1], key=lambda pair: len(pair[1]), reverse=True,
             )
             lines = text.splitlines(keepends=True)
+            # Reverse only known SimC slots. Chinese input cannot be parsed by
+            # the English parser, so do not run a document-wide substitution:
+            # action names occur after ``actions...=/`` and expression names
+            # occur after one of the typed prefixes.
             for apl_keyword, cn_keyword in keyword_pairs:
-                parts = [re.escape(char) for char in cn_keyword if not char.isspace()]
-                pattern = r'\s*'.join(parts)
+                value_pattern = r'\s*'.join(
+                    re.escape(char) for char in cn_keyword if not char.isspace()
+                )
+                action_pattern = (
+                    r'(?m)^(?P<prefix>\s*actions(?:\.[A-Za-z0-9_]+)?\+?=/)'
+                    + value_pattern + r'(?=[,\s#]|$)'
+                )
+                expression_pattern = (
+                    r'(?P<prefix>\b(?:buff|debuff|dot|cooldown|talent)\.)'
+                    + value_pattern + r'(?=\.|[\s<>=!,)&|]|$)'
+                )
                 lines = [
-                    re.sub(pattern, lambda _match, value=apl_keyword: value, line)
-                    if not line.lstrip().startswith('#') else line
+                    re.sub(
+                        expression_pattern,
+                        lambda match, value=apl_keyword: match.group('prefix') + value,
+                        re.sub(
+                            action_pattern,
+                            lambda match, value=apl_keyword: match.group('prefix') + value,
+                            line,
+                        ),
+                    ) if not line.lstrip().startswith('#') else line
                     for line in lines
                 ]
             return ''.join(lines)
