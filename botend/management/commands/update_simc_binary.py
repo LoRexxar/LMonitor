@@ -239,7 +239,7 @@ class Command(BaseCommand):
         call_command('import_simc_apl', source_dir=source_dir, sync_version=git_hash, strict=True)
 
     def _resolve_wow_build(self, override=''):
-        """Resolve one authoritative build: CLI, config, then agreeing current DB state."""
+        """Resolve one authoritative build: CLI, config, SimC DBC, then DB fallback."""
         explicit = str(override or '').strip()
         if explicit:
             return explicit
@@ -247,6 +247,22 @@ class Command(BaseCommand):
         configured = str(cfg.get('wow_build') or '').strip()
         if configured:
             return configured
+        version_path = os.path.join(
+            self.simc_source_dir, 'engine', 'dbc', 'generated',
+            'client_data_version.inc',
+        )
+        try:
+            with open(version_path, encoding='utf-8') as version_file:
+                version_source = version_file.read()
+        except FileNotFoundError:
+            version_source = ''
+        match = re.search(
+            r'^#define\s+CLIENT_DATA_WOW_VERSION\s+"([0-9]+(?:\.[0-9]+){3})"\s*$',
+            version_source,
+            flags=re.MULTILINE,
+        )
+        if match:
+            return match.group(1)
         candidates = set(WowSpellSnapshotState.objects.filter(
             branch='wow').exclude(snapshot_build='').values_list('snapshot_build', flat=True))
         candidates.update(WowTalentVersion.objects.filter(

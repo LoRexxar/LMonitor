@@ -13,7 +13,7 @@ from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
 from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate,
-                           WowSpellSnapshotState)
+                           WowSpellSnapshotState, WowTalentVersion)
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
@@ -111,6 +111,27 @@ class UpdateSimcBinaryCommandTests(TestCase):
             command._sync_generated_inputs()
         symbols = next(c for c in calls.call_args_list if c.args[0] == 'sync_simc_apl_symbols')
         self.assertEqual(symbols.kwargs['wow_build'], '12.0.1.70001')
+
+    @override_settings(SIMC_CONFIG={})
+    def test_simc_dbc_build_wins_over_ambiguous_database_snapshots(self):
+        from botend.management.commands.update_simc_binary import Command
+        WowSpellSnapshotState.objects.create(branch='wow', locale='enUS',
+                                             snapshot_build='12.0.7.68453')
+        WowTalentVersion.objects.create(
+            key='test', current_build='12.0.7.68887',
+            is_active=True, is_default_simulator=True,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir)
+            version_file = source / 'engine' / 'dbc' / 'generated' / 'client_data_version.inc'
+            version_file.parent.mkdir(parents=True)
+            version_file.write_text(
+                '#define CLIENT_DATA_WOW_VERSION "12.0.7.68453"\n',
+                encoding='utf-8',
+            )
+            command = Command()
+            command.simc_source_dir = str(source)
+            self.assertEqual(command._resolve_wow_build(), '12.0.7.68453')
 
     @override_settings(SIMC_CONFIG={})
     def test_explicit_wow_build_override_wins(self):
