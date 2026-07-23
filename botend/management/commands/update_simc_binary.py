@@ -15,6 +15,7 @@ import subprocess
 import fcntl
 import tempfile
 import json
+import hashlib
 from datetime import datetime, timezone as datetime_timezone
 
 from django.conf import settings
@@ -512,20 +513,167 @@ class Command(BaseCommand):
         if not os.path.isdir(patch_dir):
             return False
 
-        changed = False
+        git_dir_result = subprocess.run(
+            ['git', 'rev-parse', '--git-dir'],
+            cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+        )
+        if git_dir_result.returncode != 0:
+            detail = (git_dir_result.stderr or git_dir_result.stdout or '').strip()[-1000:]
+            self._fail('读取 SimC 补丁状态失败', detail or '无法定位 SimC git 目录', progress=20)
+        git_dir = git_dir_result.stdout.strip()
+        if not os.path.isabs(git_dir):
+            git_dir = os.path.join(self.simc_source_dir, git_dir)
+        ledger_path = os.path.join(git_dir, 'lmonitor-applied-patches.json')
+        try:
+            with open(ledger_path, 'r', encoding='utf-8') as ledger_file:
+                ledger = json.load(ledger_file)
+        except FileNotFoundError:
+            ledger = None
+        except (json.JSONDecodeError, UnicodeError, OSError) as exc:
+            self._fail('读取 SimC 补丁状态失败', f'补丁 ledger 损坏或不可读: {exc}', progress=20)
+        if ledger is not None and (
+            not isinstance(ledger, dict)
+            or set(ledger) != {'patches', 'files'}
+            or not isinstance(ledger.get('patches'), list)
+            or not isinstance(ledger.get('files'), dict)
+        ):
+            self._fail('读取 SimC 补丁状态失败', '补丁 ledger 结构无效。', progress=20)
+        ledger = ledger or {}
+
+        def file_digest(path):
+            full_path = os.path.realpath(os.path.join(self.simc_source_dir, path))
+            source_root = os.path.realpath(self.simc_source_dir)
+            if os.path.commonpath([source_root, full_path]) != source_root:
+                self._fail('读取 SimC 补丁状态失败', f'补丁路径越界: {path}', progress=20)
+            if not os.path.isfile(full_path):
+                return None
+            digest = hashlib.sha256()
+            with open(full_path, 'rb') as source_file:
+                for chunk in iter(lambda: source_file.read(65536), b''):
+                    digest.update(chunk)
+            return digest.hexdigest()
+
+        patch_entries = []
+        touched_paths = set()
         for patch_name in sorted(name for name in os.listdir(patch_dir) if name.endswith('.patch')):
             patch_path = os.path.join(patch_dir, patch_name)
+            with open(patch_path, 'rb') as patch_file:
+                patch_content = patch_file.read()
+            digest = hashlib.sha256(patch_content)
+            if re.search(br'(?m)^\+\+\+ /dev/null(?:\t[^\r\n]*)?\r?$', patch_content):
+                self._fail(
+                    f'读取 SimC 补丁失败 {patch_name}',
+                    '暂不支持补丁删除文件。',
+                    progress=20,
+                )
+            numstat = subprocess.run(
+                ['git', 'apply', '-z', '--numstat', '-'],
+                cwd=self.simc_source_dir,
+                input=patch_content,
+                capture_output=True,
+                timeout=30,
+            )
+            if numstat.returncode != 0:
+                detail = (numstat.stderr or numstat.stdout or b'').decode(
+                    'utf-8', errors='replace'
+                ).strip()[-1000:]
+                self._fail(f'读取 SimC 补丁失败 {patch_name}', detail, progress=20)
+            numstat_output = numstat.stdout
+            if isinstance(numstat_output, str):
+                numstat_output = numstat_output.encode('utf-8')
+            numstat_output = numstat_output or b''
+            paths = []
+            for record in numstat_output.split(b'\0'):
+                if not record:
+                    continue
+                parts = record.split(b'\t', 2)
+                if len(parts) != 3 or not parts[2]:
+                    self._fail(
+                        f'读取 SimC 补丁失败 {patch_name}',
+                        '补丁包含无法安全解析的路径或 rename 记录。',
+                        progress=20,
+                    )
+                try:
+                    path = os.fsdecode(parts[2])
+                except UnicodeDecodeError:
+                    self._fail(
+                        f'读取 SimC 补丁失败 {patch_name}',
+                        '补丁路径编码无效。',
+                        progress=20,
+                    )
+                if any(0xDC80 <= ord(character) <= 0xDCFF for character in path):
+                    self._fail(
+                        f'读取 SimC 补丁失败 {patch_name}',
+                        '补丁路径不是有效 UTF-8。',
+                        progress=20,
+                    )
+                paths.append(path)
+                touched_paths.add(path)
+            patch_entries.append({
+                'name': patch_name,
+                'sha256': digest.hexdigest(),
+                'content': patch_content,
+                'paths': paths,
+            })
+
+        current_chain = [
+            {'name': entry['name'], 'sha256': entry['sha256']}
+            for entry in patch_entries
+        ]
+        previous_chain = ledger.get('patches')
+        previous_files = ledger.get('files')
+        trusted_prefix = 0
+        if isinstance(previous_chain, list) and previous_chain:
+            if current_chain[:len(previous_chain)] != previous_chain:
+                self._fail(
+                    'SimC 补丁链发生非追加变更',
+                    '已应用补丁被删除、改名或改写；请先人工重置 SimC checkout 后重新应用补丁。',
+                    progress=20,
+                )
+            expected_previous_paths = {
+                path
+                for entry in patch_entries[:len(previous_chain)]
+                for path in entry['paths']
+            }
+            ledger_shape_valid = (
+                isinstance(previous_files, dict)
+                and set(previous_files) == expected_previous_paths
+                and all(
+                    isinstance(digest, str)
+                    and re.fullmatch(r'[0-9a-f]{64}', digest)
+                    for digest in previous_files.values()
+                )
+            )
+            if ledger_shape_valid and all(
+                file_digest(path) == digest for path, digest in previous_files.items()
+            ):
+                trusted_prefix = len(previous_chain)
+
+        changed = False
+        for index, entry in enumerate(patch_entries):
+            patch_name = entry['name']
+            patch_content = entry['content']
+            if index < trusted_prefix:
+                continue
             check = subprocess.run(
-                ['git', 'apply', '--check', patch_path],
-                cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+                ['git', 'apply', '--check', '-'],
+                cwd=self.simc_source_dir,
+                input=patch_content,
+                capture_output=True,
+                timeout=30,
             )
             if check.returncode == 0:
                 applied = subprocess.run(
-                    ['git', 'apply', patch_path],
-                    cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+                    ['git', 'apply', '-'],
+                    cwd=self.simc_source_dir,
+                    input=patch_content,
+                    capture_output=True,
+                    timeout=30,
                 )
                 if applied.returncode != 0:
-                    detail = (applied.stderr or applied.stdout or '').strip()[-1000:]
+                    detail = (applied.stderr or applied.stdout or b'').decode(
+                        'utf-8', errors='replace'
+                    ).strip()[-1000:]
                     self._fail(
                         f'应用 SimC 补丁失败 {patch_name}',
                         detail or f'git apply 失败: {patch_name}',
@@ -536,17 +684,54 @@ class Command(BaseCommand):
                 continue
 
             reverse = subprocess.run(
-                ['git', 'apply', '--reverse', '--check', patch_path],
-                cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+                ['git', 'apply', '--reverse', '--check', '-'],
+                cwd=self.simc_source_dir,
+                input=patch_content,
+                capture_output=True,
+                timeout=30,
             )
             if reverse.returncode == 0:
                 continue
-            detail = (check.stderr or check.stdout or '').strip()[-1000:]
+            detail = (check.stderr or check.stdout or b'').decode(
+                'utf-8', errors='replace'
+            ).strip()[-1000:]
             self._fail(
                 f'SimC 补丁冲突 {patch_name}',
                 detail or f'无法应用或识别 SimC 补丁: {patch_name}',
                 progress=20,
             )
+
+        file_fingerprints = {path: file_digest(path) for path in sorted(touched_paths)}
+        missing_paths = [path for path, digest in file_fingerprints.items() if digest is None]
+        if missing_paths:
+            self._fail(
+                '记录 SimC 补丁状态失败',
+                f'暂不支持补丁删除文件: {", ".join(missing_paths)}',
+                progress=20,
+            )
+        ledger = {
+            'patches': current_chain,
+            'files': file_fingerprints,
+        }
+        fd, temp_path = tempfile.mkstemp(
+            prefix='.lmonitor-applied-patches.', suffix='.tmp', dir=git_dir, text=True,
+        )
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, 'w', encoding='utf-8') as ledger_file:
+                json.dump(ledger, ledger_file, ensure_ascii=False, indent=2, sort_keys=True)
+                ledger_file.write('\n')
+                ledger_file.flush()
+                os.fsync(ledger_file.fileno())
+            os.replace(temp_path, ledger_path)
+            directory_fd = os.open(git_dir, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
         return changed
 
     def _apply_patches_only(self, threads=2):

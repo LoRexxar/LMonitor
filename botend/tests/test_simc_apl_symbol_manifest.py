@@ -234,11 +234,14 @@ class RuntimeManifestImportTests(TestCase):
             self.assertTrue(all((class_name, spec, action) in runtime_actions for action in actions))
 
 
-SIMC_CHECKOUT = os.environ.get('SIMC_TASK7_CHECKOUT', '/home/ubuntu/simc-task7-spike')
-SIMC_BINARY = Path(SIMC_CHECKOUT) / 'engine' / 'simc'
+SIMC_CHECKOUT = os.environ.get('SIMC_TASK7_CHECKOUT', '').strip()
+SIMC_BINARY = Path(SIMC_CHECKOUT) / 'engine' / 'simc' if SIMC_CHECKOUT else None
 
 
-@skipUnless(SIMC_BINARY.is_file(), 'set SIMC_TASK7_CHECKOUT to a built patched SimC checkout')
+@skipUnless(
+    SIMC_BINARY is not None and SIMC_BINARY.is_file(),
+    'set SIMC_TASK7_CHECKOUT explicitly to a built patched SimC checkout',
+)
 class RuntimeBinaryManifestRegressionTests(TestCase):
     def test_real_binary_exports_runtime_symbols_for_multiple_specs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -266,3 +269,55 @@ class RuntimeBinaryManifestRegressionTests(TestCase):
             self.assertFalse(any(s['token'].startswith('apl_metadata_') for s in symbols))
             self.assertEqual(set(payload['completeness']['modules']), {
                 'global_options', 'actions', 'action_options', 'expressions', 'class_specs'})
+
+    def test_real_binary_preserves_experimental_devourer_spec_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'manifest.json'
+            profile = Path(directory) / 'devourer.simc'
+            profile.write_text(
+                'demonhunter="Devourer"\nlevel=90\nrace=night_elf\nspec=devourer\n'
+                'role=spell\nposition=back\nallow_experimental_specializations=1\n'
+                'actions=/consume\n', encoding='utf-8')
+            revision = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=SIMC_CHECKOUT, text=True).strip()
+            subprocess.run([
+                str(SIMC_BINARY), str(profile), f'apl_metadata_export={output}',
+                f'apl_metadata_revision={revision}', 'apl_metadata_game_build=test-build',
+            ], cwd=SIMC_CHECKOUT, check=True, capture_output=True, text=True)
+            symbols = json.loads(output.read_text(encoding='utf-8'))['symbols']
+            actor_symbols = [symbol for symbol in symbols if symbol['class'] == 'demonhunter']
+            self.assertTrue(actor_symbols)
+            self.assertTrue(all(symbol['spec'] == 'devourer' for symbol in actor_symbols))
+            self.assertTrue(all(symbol['scope'] == 'spec' for symbol in actor_symbols))
+
+    def test_real_binary_resolves_only_authoritative_dot_and_debuff_identities(self):
+        profiles = [
+            Path(SIMC_CHECKOUT) / 'profiles' / 'MID1' / name
+            for name in (
+                'MID1_Druid_Balance.simc',
+                'MID1_Druid_Feral.simc',
+                'MID1_Demon_Hunter_Havoc.simc',
+            )
+        ]
+        self.assertTrue(all(profile.is_file() for profile in profiles))
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'manifest.json'
+            revision = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=SIMC_CHECKOUT, text=True).strip()
+            subprocess.run([
+                str(SIMC_BINARY), *(str(profile) for profile in profiles),
+                f'apl_metadata_export={output}', f'apl_metadata_revision={revision}',
+                'apl_metadata_game_build=test-build',
+            ], cwd=SIMC_CHECKOUT, check=True, capture_output=True, text=True)
+            symbols = json.loads(output.read_text(encoding='utf-8'))['symbols']
+            identities = {
+                (symbol['class'], symbol['spec'], symbol['kind'], symbol['token']): symbol['spell_id']
+                for symbol in symbols
+            }
+            self.assertEqual(identities[('druid', 'balance', 'dot', 'moonfire')], 8921)
+            self.assertEqual(identities[('druid', 'balance', 'dot', 'sunfire')], 93402)
+            self.assertEqual(
+                identities[('druid', 'balance', 'debuff', 'atmospheric_exposure')], 430589)
+            self.assertIsNone(identities[('druid', 'feral', 'dot', 'primal_wrath')])
+            self.assertIsNone(
+                identities[('demonhunter', 'havoc', 'debuff', 'burning_wound')])

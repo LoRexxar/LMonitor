@@ -1,0 +1,169 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 3173f694ec..3dffada7ae 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -180,5 +180,8 @@ struct apl_metadata_symbol_t
+   std::string reason;
+-  unsigned trait_node_entry_id = 0;
++  // This is the DB2 TraitNode ID (not TraitNodeEntry ID).  LMonitor
++  // resolves talent localization against node_id.
++  unsigned trait_node_id = 0;
+   bool hero_talent = false;
+   std::set<unsigned> candidates;
++  std::set<unsigned> trait_node_candidates;
+   std::set<std::string> options;
+@@ -189,2 +192,51 @@ struct apl_metadata_symbol_t
+ 
++void upsert_apl_metadata_symbol( std::set<apl_metadata_symbol_t>& symbols, apl_metadata_symbol_t symbol )
++{
++  auto existing = symbols.find( symbol );
++  if ( existing == symbols.end() )
++  {
++    symbols.insert( std::move( symbol ) );
++    return;
++  }
++
++  apl_metadata_symbol_t merged = *existing;
++  symbols.erase( existing );
++  merged.candidates.insert( symbol.candidates.begin(), symbol.candidates.end() );
++  if ( merged.spell_id ) merged.candidates.insert( merged.spell_id );
++  if ( symbol.spell_id ) merged.candidates.insert( symbol.spell_id );
++  if ( merged.trait_node_id ) merged.trait_node_candidates.insert( merged.trait_node_id );
++  if ( symbol.trait_node_id ) merged.trait_node_candidates.insert( symbol.trait_node_id );
++  merged.options.insert( symbol.options.begin(), symbol.options.end() );
++  merged.hero_talent = merged.hero_talent || symbol.hero_talent;
++
++  if ( merged.trait_node_candidates.size() == 1 )
++  {
++    merged.trait_node_id = *merged.trait_node_candidates.begin();
++  }
++  else if ( merged.trait_node_candidates.size() > 1 )
++  {
++    merged.trait_node_id = 0;
++    merged.reason = "ambiguous_trait_node_identity";
++  }
++
++  if ( merged.candidates.size() == 1 )
++  {
++    merged.spell_id = *merged.candidates.begin();
++    if ( merged.trait_node_id || merged.kind != "talent" ) merged.reason.clear();
++  }
++  else if ( merged.candidates.size() > 1 )
++  {
++    merged.spell_id = 0;
++    merged.reason = "ambiguous_spell_identity";
++  }
++  else if ( merged.reason.empty() && !symbol.reason.empty() )
++  {
++    merged.reason = std::move( symbol.reason );
++  }
++
++  if ( merged.source.empty() || ( !symbol.source.empty() && symbol.spell_id ) )
++    merged.source = std::move( symbol.source );
++  symbols.insert( std::move( merged ) );
++}
++
+ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const player_t& player,
+@@ -193,3 +245,3 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+ {
+-  static const std::regex identifier( R"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)" );
++  static const std::regex identifier( R"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)" );
+   for ( auto it = std::sregex_iterator( expression.begin(), expression.end(), identifier ); it != std::sregex_iterator(); ++it )
+@@ -197,5 +249,5 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+     std::string full = util::tokenize_fn( it->str() );
+-    symbols.insert( { class_name, spec, full, "expression", "runtime_apl_expression" } );
++    upsert_apl_metadata_symbol( symbols, { class_name, spec, full, "expression", "runtime_apl_expression" } );
+     const auto first = full.find( '.' );
+-    symbols.insert( { class_name, spec, full.substr( 0, first ), "namespace", "runtime_apl_expression" } );
++    upsert_apl_metadata_symbol( symbols, { class_name, spec, full.substr( 0, first ), "namespace", "runtime_apl_expression" } );
+     if ( first == std::string::npos ) continue;
+@@ -207,3 +259,7 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+     {
+-      if ( auto* buff = buff_t::find( const_cast<player_t*>( &player ), token ) ) object.spell_id = buff->data().id();
++      if ( auto* buff = buff_t::find( const_cast<player_t*>( &player ), token ) )
++      {
++        object.spell_id = buff->data_reporting().id();
++        if ( !object.spell_id ) object.reason = "fallback_or_unbound_buff";
++      }
+       else object.reason = "buff_not_found";
+@@ -212,7 +268,21 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+     {
+-      buff_t* debuff = nullptr;
+-      for ( player_t* target : player.sim->target_non_sleeping_list )
+-        if ( ( debuff = buff_t::find( target, token, const_cast<player_t*>( &player ) ) ) ) break;
+-      if ( debuff ) object.spell_id = debuff->data().id();
+-      else object.reason = "target_source_debuff_not_found";
++      // Match the runtime debuff expression path: target data is lazily
++      // initialized, then the target aura registry is searched for this source.
++      auto* mutable_player = const_cast<player_t*>( &player );
++      std::set<player_t*> targets;
++      if ( mutable_player->target ) targets.insert( mutable_player->target );
++      targets.insert( player.sim->target_list.begin(), player.sim->target_list.end() );
++      for ( player_t* target : targets )
++      {
++        if ( !target || !target->is_enemy() ) continue;
++        mutable_player->get_target_data( target );
++        if ( auto* debuff = buff_t::find( target, token, mutable_player ); debuff )
++        {
++          const unsigned spell_id = debuff->data_reporting().id()
++            ? debuff->data_reporting().id() : debuff->data().id();
++          if ( spell_id ) object.candidates.insert( spell_id );
++        }
++      }
++      if ( object.candidates.size() == 1 ) object.spell_id = *object.candidates.begin();
++      else object.reason = object.candidates.empty() ? "target_source_debuff_not_found" : "ambiguous_target_source_debuffs";
+     }
+@@ -220,7 +290,10 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+     {
+-      for ( const dot_t* dot : player.dot_list )
+-        if ( dot->name_str == token && dot->current_action && dot->current_action->data().id() )
+-          object.candidates.insert( dot->current_action->data().id() );
++      // Match dot expression construction: identity belongs to the initialized
++      // APL action. Do not require periodic fields on proxy actions such as
++      // moonfire/rake, and do not infer an ID from their damage children.
++      if ( const action_t* action = player.find_action( token );
++           action && action->data().id() )
++        object.candidates.insert( action->data().id() );
+       if ( object.candidates.size() == 1 ) object.spell_id = *object.candidates.begin();
+-      else object.reason = object.candidates.empty() ? "runtime_dot_action_not_found" : "ambiguous_runtime_dot_actions";
++      else object.reason = "action_dot_not_found";
+     }
+@@ -228,2 +301,5 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+     {
++      if ( const cooldown_t* cooldown = player.find_cooldown( token );
++           cooldown && cooldown->action && cooldown->action->data().id() )
++        object.candidates.insert( cooldown->action->data().id() );
+       for ( const action_t* action : player.action_list )
+@@ -246,3 +322,3 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+       {
+-        object.trait_node_entry_id = trait->id_trait_node_entry;
++        object.trait_node_id = trait->id_node;
+         object.spell_id = trait->id_spell;
+@@ -253,3 +329,3 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+     else continue;
+-    symbols.insert( std::move( object ) );
++    upsert_apl_metadata_symbol( symbols, std::move( object ) );
+   }
+@@ -273,3 +349,3 @@ void write_apl_symbol( std::ostream& out, const apl_metadata_symbol_t& symbol, b
+   out << ",\"trait_id\":";
+-  if ( symbol.trait_node_entry_id ) out << symbol.trait_node_entry_id; else out << "null";
++  if ( symbol.trait_node_id ) out << symbol.trait_node_id; else out << "null";
+   out << ",\"hero_talent\":" << ( symbol.hero_talent ? "true" : "false" );
+@@ -302,3 +378,3 @@ void export_apl_metadata( const sim_t& sim )
+     std::string name( option->name() );
+-    if ( !controls.count( name ) ) symbols.insert( { {}, {}, name, "option", "runtime_option" } );
++    if ( !controls.count( name ) ) upsert_apl_metadata_symbol( symbols, { {}, {}, name, "option", "runtime_option" } );
+   }
+@@ -309,3 +385,3 @@ void export_apl_metadata( const sim_t& sim )
+     const std::string class_name = util::player_type_string( player->type );
+-    const std::string spec = util::tokenize_fn( util::spec_string_no_class( *player ) );
++    const std::string spec = util::tokenize_fn( dbc::specialization_string( player->specialization() ) );
+     for ( const action_t* action : player->action_list )
+@@ -317,5 +393,5 @@ void export_apl_metadata( const sim_t& sim )
+         action_symbol.options.insert( option );
+-        symbols.insert( { class_name, spec, option, "action_option", "runtime_action_option" } );
++        upsert_apl_metadata_symbol( symbols, { class_name, spec, option, "action_option", "runtime_action_option" } );
+       }
+-      symbols.insert( std::move( action_symbol ) );
++      upsert_apl_metadata_symbol( symbols, std::move( action_symbol ) );
+       add_apl_expression_symbols( symbols, *player, class_name, spec, action->option.if_expr_str );
