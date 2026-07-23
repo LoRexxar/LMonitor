@@ -33,25 +33,28 @@ echo "=== 2. Migrate ==="
 echo "=== 3. Collectstatic ==="
 "$PYTHON_BIN" manage.py collectstatic --no-input
 
-echo "=== 4. 重启 lmweb ==="
+echo "=== 4. 应用 SimC 本地补丁 ==="
+"$PYTHON_BIN" manage.py update_simc_binary --apply-patches --threads 2
+
+echo "=== 5. 重启 lmweb ==="
 screen -S lmweb -X quit 2>/dev/null || true
 kill_processes 'manage.py runserver 0.0.0.0:18000'
 sleep 2
 screen -dmS lmweb bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py runserver 0.0.0.0:18000"
 
-echo "=== 5. 重启 lmback ==="
+echo "=== 6. 重启 lmback ==="
 screen -S lmback -X quit 2>/dev/null || true
 kill_processes 'LMonitorCoreBackend'
 sleep 2
 screen -dmS lmback bash -lc 'cd ~/LMonitor && ./start.sh'
 
-echo "=== 6. 重启 lmsimc ==="
+echo "=== 7. 重启 lmsimc ==="
 screen -S lmsimc -X quit 2>/dev/null || true
 kill_processes 'manage.py simc_worker'
 sleep 2
 screen -dmS lmsimc bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py simc_worker"
 
-echo "=== 7. 检查 screen 会话 ==="
+echo "=== 8. 检查 screen 会话 ==="
 screen -list | grep -E '\.(lmweb|lmback|lmsimc)'
 
 echo "=== 部署完成 ==="
