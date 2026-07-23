@@ -60,7 +60,7 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(authoritative.status_code, 200)
         self.assertEqual(authoritative.json(), {"success": True, "result": apl})
 
-    def test_editor_language_api_keeps_ambiguous_chinese_names_as_tokens(self):
+    def test_editor_language_api_disambiguates_shared_chinese_names_reversibly(self):
         revision, build = 'a' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
         WowSpellSnapshot.objects.bulk_create([
@@ -91,7 +91,10 @@ class SimcAplEditorApiTests(TestCase):
             'spec': 'deathknight_blood',
         }), content_type='application/json')
 
-        self.assertEqual(translated.json()['result'], apl)
+        self.assertEqual(translated.json()['result'], (
+            'actions=/灵界打击〔death_strike〕\n'
+            'actions+=/灵界打击〔death_strike_heal〕'
+        ))
         self.assertEqual(restored.json()['result'], apl)
 
     @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, "12.0.5"))
@@ -133,6 +136,80 @@ class SimcAplEditorApiTests(TestCase):
 
         self.assertEqual(translated.status_code, 200)
         self.assertEqual(translated.json()['result'], 'actions=/雷霆一击')
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, "12.0.5"))
+    def test_spells_api_reuses_binding_without_exposing_other_spec_tokens(self):
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', snapshot_build='12.0.5',
+            spell_id=6343, name='Thunder Clap', name_zh='雷霆一击',
+        )
+        SimcAplSymbol.objects.bulk_create([
+            SimcAplSymbol(
+                simc_revision=self.REVISION, wow_build='12.0.5',
+                class_name='warrior', class_key='warrior',
+                spec='fury', spec_key='fury', token='thunder_clap',
+                symbol_kind='action', spell_id=None,
+            ),
+            SimcAplSymbol(
+                simc_revision=self.REVISION, wow_build='12.0.5',
+                class_name='warrior', class_key='warrior',
+                spec='protection', spec_key='protection', token='thunder_clap',
+                symbol_kind='action', spell_id=6343,
+            ),
+            SimcAplSymbol(
+                simc_revision=self.REVISION, wow_build='12.0.5',
+                class_name='warrior', class_key='warrior',
+                spec='protection', spec_key='protection', token='shield_slam',
+                symbol_kind='action', spell_id=23922,
+            ),
+        ])
+
+        response = self.client.get(
+            '/api/simc-workbench/apl-spells/?spec=warrior_fury&page_size=100'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        items = response.json()['data']['items']
+        self.assertEqual([item['token'] for item in items], ['thunder_clap'])
+        self.assertEqual(items[0]['chinese'], '雷霆一击')
+        self.assertEqual(items[0]['binding_source'], 'same_class_exact_token')
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, "12.0.5"))
+    def test_binding_conflicts_never_fallback(self):
+        SimcAplSymbol.objects.bulk_create([
+            SimcAplSymbol(
+                simc_revision=self.REVISION, wow_build='12.0.5',
+                class_name='warrior', class_key='warrior', spec=None, spec_key='',
+                token='conflict', symbol_kind='action', spell_id=1001,
+            ),
+            SimcAplSymbol(
+                simc_revision=self.REVISION, wow_build='12.0.5',
+                class_name='warrior', class_key='warrior', spec='fury', spec_key='fury',
+                token='conflict', symbol_kind='action', spell_id=1002,
+            ),
+        ])
+        WowSpellSnapshot.objects.bulk_create([
+            WowSpellSnapshot(branch='wow', locale='zhCN', snapshot_build='12.0.5',
+                             spell_id=1001, name='One', name_zh='一'),
+            WowSpellSnapshot(branch='wow', locale='zhCN', snapshot_build='12.0.5',
+                             spell_id=1002, name='Two', name_zh='二'),
+        ])
+
+        result = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': 'actions=/conflict',
+            'conversion_type': 'apl_to_cn', 'spec': 'warrior_fury',
+        }), content_type='application/json').json()['result']
+
+        self.assertEqual(result, 'actions=/conflict')
+
+    @override_settings(SIMC_APL_EDITOR_MAX_CONTENT_LENGTH=10)
+    def test_editor_language_api_rejects_oversized_documents(self):
+        response = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': 'actions=/too_long', 'conversion_type': 'apl_to_cn',
+            'spec': 'warrior_fury',
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 413)
 
     def test_editor_language_api_preserves_document_edge_whitespace(self):
         revision, build = 'a' * 40, '12.0.5'
@@ -559,9 +636,9 @@ class SimcAplEditorApiTests(TestCase):
                     row["sql"] for row in captured.captured_queries
                     if "simc_apl_symbol" in row["sql"]
                 ).upper()
-                self.assertIn("LIMIT 1", catalog_sql)
                 self.assertIn("SYMBOL_KIND", catalog_sql)
                 self.assertIn("SPEC", catalog_sql)
+                self.assertLessEqual(len(captured.captured_queries), 6)
 
     def test_completion_echoes_version_without_returning_document_or_querying_catalog(self):
         content = "actions.burst=/bloodthirst\nactions=/call_action_list,name=bu"

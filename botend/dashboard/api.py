@@ -486,58 +486,81 @@ def _latest_catalog_identity():
     return revision, build
 
 
-def _authoritative_action_tokens(spell_ids, parsed_spec, identity):
-    """Resolve the authoritative tokens bound to each SpellID in the visible scope."""
-    if not spell_ids or not parsed_spec or not identity:
+def _authoritative_action_bindings(parsed_spec, identity):
+    """Resolve each visible action token to one authoritative SpellID.
+
+    The visible token set remains global + current class + current spec.  A
+    token that has no SpellID there may borrow a binding only from the exact
+    same token in another spec of the same class.  Conflicting bindings are
+    left unresolved rather than guessed.
+    """
+    if not parsed_spec or not identity:
         return {}
     _, class_name, spec_name = parsed_spec
-    symbols = (SimcAplSymbol.objects.filter(
+    base = SimcAplSymbol.objects.filter(
         simc_revision=identity[0], wow_build=identity[1], is_active=True,
-        symbol_kind=SimcAplSymbol.KIND_ACTION, spell_id__in=spell_ids,
-        hero_tree__isnull=True,
-    ).filter(
+        symbol_kind=SimcAplSymbol.KIND_ACTION, hero_tree__isnull=True,
+    ).exclude(token='')
+    visible_scope = (
         models.Q(class_name__isnull=True, spec__isnull=True) |
         models.Q(class_name=class_name, spec__isnull=True) |
         models.Q(class_name=class_name, spec=spec_name)
-    ).annotate(
-        scope_rank=models.Case(
-            models.When(class_name=class_name, spec=spec_name, then=models.Value(2)),
-            models.When(class_name=class_name, spec__isnull=True, then=models.Value(1)),
-            default=models.Value(0), output_field=models.IntegerField(),
-        )
-    ).values_list('spell_id', 'token', 'scope_rank').order_by('spell_id', '-scope_rank', 'token'))
-
-    selected = {}
-    best_rank = {}
-    for spell_id, token, rank in symbols:
-        if not token:
+    )
+    visible_rows = list(base.filter(visible_scope).values_list(
+        'token', 'spell_id', 'class_name', 'spec',
+    ))
+    visible_tokens = {token for token, _spell_id, _class, _spec in visible_rows}
+    visible_spell_ids = {}
+    candidates = {}
+    for token, spell_id, row_class, row_spec in visible_rows:
+        if not spell_id:
             continue
-        if spell_id not in best_rank or rank > best_rank[spell_id]:
-            selected[spell_id] = {token}
-            best_rank[spell_id] = rank
-        elif rank == best_rank[spell_id]:
-            selected[spell_id].add(token)
+        visible_spell_ids.setdefault(token, set()).add(spell_id)
+        rank = 2 if row_class == class_name and row_spec == spec_name else (
+            1 if row_class == class_name and row_spec is None else 0
+        )
+        current_rank, current_ids = candidates.get(token, (-1, set()))
+        if rank > current_rank:
+            candidates[token] = (rank, {spell_id})
+        elif rank == current_rank:
+            current_ids.add(spell_id)
 
-    # Some spec actors expose a valid action token but omit its SpellID,
-    # while the same class action in another spec carries the authoritative
-    # binding. Reuse only exact token bindings from the same class/revision;
-    # this is not an English-name guess and never crosses classes.
-    missing_tokens = set(SimcAplSymbol.objects.filter(
-        simc_revision=identity[0], wow_build=identity[1], is_active=True,
-        symbol_kind=SimcAplSymbol.KIND_ACTION, spell_id__isnull=True,
-        hero_tree__isnull=True,
-    ).filter(
-        models.Q(class_name=class_name, spec__isnull=True) |
-        models.Q(class_name=class_name, spec=spec_name)
-    ).exclude(token='').values_list('token', flat=True))
-    fallback = SimcAplSymbol.objects.filter(
-        simc_revision=identity[0], wow_build=identity[1], is_active=True,
-        symbol_kind=SimcAplSymbol.KIND_ACTION, class_name=class_name,
-        hero_tree__isnull=True,
-        token__in=missing_tokens, spell_id__isnull=False,
-    ).values_list('spell_id', 'token')
-    for spell_id, token in fallback:
-        selected.setdefault(spell_id, set()).add(token)
+    bindings = {}
+    for token in visible_tokens:
+        # Different SpellIDs for one visible token are an authoritative
+        # conflict even when they occur at different scope ranks.
+        if len(visible_spell_ids.get(token, ())) > 1:
+            continue
+        rank, spell_ids = candidates.get(token, (-1, set()))
+        if len(spell_ids) == 1:
+            bindings[token] = (next(iter(spell_ids)), 'visible_scope')
+
+    # A visible token with conflicting SpellIDs must remain unresolved; it is
+    # not eligible for same-class fallback.
+    conflicts = {token for token, spell_ids in visible_spell_ids.items() if len(spell_ids) > 1}
+    missing = {token for token in visible_tokens if token not in bindings and token not in conflicts}
+    fallback_rows = base.filter(
+        class_name=class_name, token__in=missing, spell_id__isnull=False,
+    ).values_list('token', 'spell_id')
+    fallback_ids = {}
+    for token, spell_id in fallback_rows:
+        if token not in missing:
+            continue
+        fallback_ids.setdefault(token, set()).add(spell_id)
+    for token, spell_ids in fallback_ids.items():
+        if len(spell_ids) == 1:
+            bindings[token] = (next(iter(spell_ids)), 'same_class_exact_token')
+    return bindings
+
+
+def _authoritative_action_tokens(spell_ids, parsed_spec, identity):
+    """Return the visible authoritative tokens grouped by requested SpellID."""
+    requested = set(spell_ids or ())
+    selected = {}
+    for token, (spell_id, _source) in _authoritative_action_bindings(
+            parsed_spec, identity).items():
+        if spell_id in requested:
+            selected.setdefault(spell_id, set()).add(token)
     return {spell_id: tuple(sorted(tokens)) for spell_id, tokens in selected.items()}
 
 
@@ -739,53 +762,40 @@ class SimcAplSpellsAPIView(SimcAplEditorAPIView):
             return _editor_error('catalog_unavailable', 'The current symbol catalog is unavailable.', 503)
 
         revision, build = identity
-        _, class_name, spec_name = spec
-        scope = (
-            models.Q(class_name__isnull=True, spec__isnull=True, hero_tree__isnull=True) |
-            models.Q(class_name=class_name, spec__isnull=True, hero_tree__isnull=True) |
-            models.Q(class_name=class_name, spec=spec_name, hero_tree__isnull=True)
-        )
-        localized = WowSpellSnapshot.objects.filter(
-            branch='wow', locale='zhCN', snapshot_build=build,
-            spell_id=models.OuterRef('spell_id'),
-        ).exclude(name='').exclude(name_zh='').order_by('-updated_at', '-id')
-        rows = (SimcAplSymbol.objects.filter(
-            simc_revision=revision, wow_build=build, is_active=True,
-            symbol_kind=SimcAplSymbol.KIND_ACTION,
-            spell_id__isnull=False,
-        ).exclude(token='').filter(scope).annotate(
-            scope_rank=models.Case(
-                models.When(class_name=class_name, spec=spec_name, then=models.Value(2)),
-                models.When(class_name=class_name, spec__isnull=True, then=models.Value(1)),
-                default=models.Value(0), output_field=models.IntegerField(),
-            ),
-            english=models.Subquery(localized.values('name')[:1]),
-            chinese=models.Subquery(localized.values('name_zh')[:1]),
-        ).exclude(english__isnull=True).exclude(chinese__isnull=True).annotate(
-            scope_row=models.Window(
-                expression=models.functions.RowNumber(),
-                partition_by=[models.F('token')],
-                order_by=[models.F('scope_rank').desc(), models.F('id').asc()],
-            )
-        ).filter(scope_row=1))
+        bindings = _authoritative_action_bindings(spec, identity)
+        spell_ids = {spell_id for spell_id, _source in bindings.values()}
+        localized = {
+            row['spell_id']: row
+            for row in WowSpellSnapshot.objects.filter(
+                branch='wow', locale='zhCN', snapshot_build=build,
+                spell_id__in=spell_ids,
+            ).exclude(name='').exclude(name_zh='').values(
+                'spell_id', 'name', 'name_zh',
+            ).order_by('spell_id', '-updated_at', '-id')
+        }
+        items = []
+        for token, (spell_id, binding_source) in bindings.items():
+            names = localized.get(spell_id)
+            if not names:
+                continue
+            items.append({
+                'english': names['name'], 'chinese': names['name_zh'],
+                'token': token, 'spell_id': spell_id,
+                'token_source': 'simc_symbol',
+                'binding_source': binding_source, 'authoritative': True,
+            })
 
-        query = (request.GET.get('query') or '').strip()[:200]
+        query = (request.GET.get('query') or '').strip()[:200].casefold()
         if query:
-            rows = rows.filter(
-                models.Q(token__icontains=query) |
-                models.Q(english__icontains=query) |
-                models.Q(chinese__icontains=query)
-            )
-        rows = rows.order_by('english', 'token')
-        total = rows.count()
+            items = [item for item in items if query in item['token'].casefold()
+                     or query in item['english'].casefold()
+                     or query in item['chinese'].casefold()]
+        items.sort(key=lambda item: (item['english'].casefold(), item['token']))
+        total = len(items)
         total_pages = (total + page_size - 1) // page_size
         start = (page - 1) * page_size
-        page_rows = list(rows.values('token', 'english', 'chinese')[start:start + page_size])
         return JsonResponse({'success': True, 'data': {
-            'items': [{
-                'english': row['english'], 'chinese': row['chinese'], 'token': row['token'],
-                'token_source': 'simc_symbol', 'authoritative': True,
-            } for row in page_rows],
+            'items': items[start:start + page_size],
             'pagination': {'page': page, 'page_size': page_size, 'total': total, 'total_pages': total_pages},
         }})
 
@@ -846,6 +856,12 @@ class ConvertTextAPIView(View):
                     'success': False,
                     'error': '输入文本不能为空'
                 })
+            maximum = int(getattr(settings, 'SIMC_APL_EDITOR_MAX_CONTENT_LENGTH', 200000))
+            if len(text) > maximum:
+                return JsonResponse({
+                    'success': False,
+                    'error': f'输入文本不能超过 {maximum} 个字符'
+                }, status=413)
             
             if conversion_type not in ['apl_to_cn', 'cn_to_apl']:
                 return JsonResponse({
@@ -883,54 +899,53 @@ class ConvertTextAPIView(View):
         parsed_spec = _editor_spec(spec) if spec else None
         if not identity or not parsed_spec:
             return [], []
-        _, class_name, _ = parsed_spec
-        spell_ids = set(SimcAplSymbol.objects.filter(
-            simc_revision=identity[0], wow_build=identity[1], is_active=True,
-            symbol_kind=SimcAplSymbol.KIND_ACTION, spell_id__isnull=False,
-        ).filter(
-            models.Q(class_name__isnull=True, spec__isnull=True) |
-            models.Q(class_name=class_name)
-        ).values_list('spell_id', flat=True))
+        bindings = _authoritative_action_bindings(parsed_spec, identity)
+        spell_ids = {spell_id for spell_id, _source in bindings.values()}
         if not spell_ids:
             return [], []
         rows = list(
             WowSpellSnapshot.objects.filter(
                 branch='wow', locale='zhCN', snapshot_build=identity[1],
                 spell_id__in=spell_ids,
-            ).exclude(name='').exclude(name_zh='')
-            .values('spell_id', 'name', 'name_zh')
-            .order_by('name', 'name_zh', 'spell_id')
+            ).exclude(name_zh='')
+            .values('spell_id', 'name_zh')
+            .order_by('name_zh', 'spell_id')
         )
-        symbol_tokens = _authoritative_action_tokens(spell_ids, parsed_spec, identity)
-        candidates = []
-        tokens_by_chinese = {}
-        chinese_by_token = {}
+        chinese_by_spell_id = {}
         for row in rows:
-            # Wago only provides spell_id ↔ localized names. Tokens are usable
-            # only when the current revision/spec catalog binds that exact
-            # SpellID; never promote a guessed name slug.
-            tokens = symbol_tokens.get(row['spell_id'], ())
-            for token in tokens:
-                key = (token.casefold(), row['name_zh'].casefold())
-                candidates.append((token, row['name_zh'], key))
-                tokens_by_chinese.setdefault(row['name_zh'].casefold(), set()).add(token.casefold())
-                chinese_by_token.setdefault(token.casefold(), set()).add(row['name_zh'].casefold())
+            chinese_by_spell_id.setdefault(row['spell_id'], row['name_zh'])
+        candidates = []
+        chinese_by_token = {}
+        for token, (spell_id, _source) in bindings.items():
+            chinese = chinese_by_spell_id.get(spell_id)
+            if not chinese:
+                continue
+            chinese_by_token.setdefault(token.casefold(), set()).add(chinese)
+            candidates.append((token, chinese))
 
-        # Conversion remains one-to-one in both directions. If multiple action
-        # tokens share a localized label, keep every token unchanged rather than
-        # producing Chinese text that cannot be restored exactly.
+        valid_candidates = [
+            (token, next(iter(chinese_by_token[token.casefold()])))
+            for token, _chinese in candidates
+            if len(chinese_by_token[token.casefold()]) == 1
+        ]
+        tokens_by_chinese = {}
+        for token, chinese in valid_candidates:
+            tokens_by_chinese.setdefault(chinese.casefold(), set()).add(token.casefold())
+
         forward_pairs = []
         reverse_pairs = []
-        seen_pairs = set()
-        for token, chinese, key in candidates:
-            if (
-                    len(chinese_by_token[token.casefold()]) != 1 or
-                    len(tokens_by_chinese[chinese.casefold()]) != 1 or
-                    key in seen_pairs):
+        seen_tokens = set()
+        for token, chinese in valid_candidates:
+            token_key = token.casefold()
+            if token_key in seen_tokens:
                 continue
-            forward_pairs.append((token, chinese))
-            reverse_pairs.append((token, chinese))
-            seen_pairs.add(key)
+            seen_tokens.add(token_key)
+            if len(tokens_by_chinese[chinese.casefold()]) == 1:
+                rendered = chinese
+            else:
+                rendered = f'{chinese}〔{token}〕'
+            forward_pairs.append((token, rendered))
+            reverse_pairs.append((token, rendered))
         return forward_pairs, reverse_pairs
 
 
