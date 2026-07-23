@@ -138,6 +138,15 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertIn('正在从 Battle.net 加载角色信息', MAIN)
         self.assertIn('Battle.net 角色信息加载失败', MAIN)
 
+    def test_battlenet_preflight_waits_for_both_realm_and_character(self):
+        resolution = MAIN.split('async function resolveSimcPlayerSource', 1)[1].split('\nasync function', 1)[0]
+        self.assertIn("const battlenetRealm = String(source.realm || '').trim();", resolution)
+        self.assertIn("const battlenetCharacter = String(source.character || '').trim();", resolution)
+        self.assertIn("if (!battlenetRealm || !battlenetCharacter)", resolution)
+        guard = resolution.split("if (!battlenetRealm || !battlenetCharacter)", 1)[1].split('}', 1)[0]
+        self.assertIn("renderSimcBattlenetLoadState('idle');", guard)
+        self.assertIn('return;', guard)
+
     def test_dashboard_initialization_does_not_validate_unopened_battlenet_source(self):
         switch = MAIN.split('function switchSimcPlayerImportMode', 1)[1].split('\n}', 1)[0]
         binding = MAIN.split('function bindSimcWorkbenchSimulationControls', 1)[1].split('\n}', 1)[0]
@@ -148,4 +157,4 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertNotIn('\n    onSimcTargetSpecChange().catch', binding)
         self.assertIn("if (sectionId === 'simc-workbench')", navigation)
         self.assertIn('switchSimcPlayerImportMode();', navigation)
-        self.assertIn("dashboard/js/main.js' %}?v=20260720j", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260723a", HTML)

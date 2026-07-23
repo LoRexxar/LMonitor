@@ -2958,6 +2958,14 @@ async function resolveSimcPlayerSource() {
             if (!canonicalSpec) return;
         } else {
             const source = collectSimcPlayerSource();
+            if (type === 'battlenet') {
+                const battlenetRealm = String(source.realm || '').trim();
+                const battlenetCharacter = String(source.character || '').trim();
+                if (!battlenetRealm || !battlenetCharacter) {
+                    renderSimcBattlenetLoadState('idle');
+                    return;
+                }
+            }
             const url = type === 'battlenet' ? '/api/simc-battlenet-preflight/' : '/api/simc-player-config-detail/';
             const body = type === 'battlenet' ? source : { player_config_mode: 'simc_addon', simc_code: source.simc_code };
             if (type === 'battlenet') renderSimcBattlenetLoadState('loading');
