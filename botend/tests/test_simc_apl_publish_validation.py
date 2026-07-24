@@ -6,8 +6,10 @@ from django.contrib.auth.models import User
 from django.db.models.deletion import ProtectedError
 from django.test import TestCase, override_settings
 
-from botend.models import (SimcApl, SimcContentTemplate, SimcProfile,
+from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary,
+                           SimcContentTemplate, SimcProfile,
                            SimcResourceVersion, SimcTask)
+from botend.services.simc_apl.publish import current_validation_identity
 from botend.services.simc_task_service import TaskCreationError, create_task
 
 
@@ -18,6 +20,23 @@ BUILD = "12.0.1.70000"
 
 def digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+@override_settings(SIMC_APL_CURRENT_IDENTITY=None)
+class SimcAplCurrentIdentityTests(TestCase):
+    def test_resolves_unique_full_revision_from_binary_version_suffix(self):
+        full_revision = "62ababb127bef2a35f96357968d455dde7de7616"
+        SimcBackendBinary.objects.create(
+            platform="linux64", current_version="1205-01-62ababb")
+        SimcAplSymbol.objects.create(
+            simc_revision=full_revision, wow_build="12.0.7.68453",
+            token="bloodthirst", symbol_kind="action", is_active=True,
+        )
+
+        self.assertEqual(
+            current_validation_identity(),
+            (full_revision, "12.0.7.68453"),
+        )
 
 
 @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, BUILD))

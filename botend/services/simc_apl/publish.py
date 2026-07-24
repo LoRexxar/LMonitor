@@ -1,6 +1,7 @@
 """Persisted APL publication state and authoritative final-gate helpers."""
 import hashlib
 import platform as py_platform
+import re
 
 from django.conf import settings
 from django.db import transaction
@@ -24,12 +25,24 @@ def current_validation_identity():
     backend = SimcBackendBinary.objects.filter(platform=platform).first()
     if not backend or not backend.current_version:
         return None
-    builds = list(SimcAplSymbol.objects.filter(
-        is_active=True, simc_revision=backend.current_version,
-    ).order_by().values_list('wow_build', flat=True).distinct()[:2])
-    if len(builds) != 1:
+    current = str(backend.current_version).strip()
+    revision = current if re.fullmatch(r'[0-9a-f]{40}', current) else None
+    catalog = SimcAplSymbol.objects.filter(is_active=True)
+    if revision:
+        catalog = catalog.filter(simc_revision=revision)
+    else:
+        suffix = re.search(r'(?:^|-)([0-9a-f]{7,39})$', current)
+        if not suffix:
+            return None
+        catalog = catalog.filter(simc_revision__startswith=suffix.group(1))
+    identities = list(catalog.order_by().values_list(
+        'simc_revision', 'wow_build').distinct()[:2])
+    if len(identities) != 1:
         return None
-    return backend.current_version, builds[0]
+    revision, build = identities[0]
+    if not re.fullmatch(r'[0-9a-f]{40}', revision):
+        return None
+    return revision, build
 
 
 def validate_apl_for_profile(profile, apl):
