@@ -162,6 +162,23 @@ class SimcCoreClosureTests(TestCase):
         self.assertEqual(task.current_status, 3)
         self.assertIn('心跳超时', task.error_detail)
 
+    def test_attribute_search_advance_requires_worker_lease(self):
+        task = create_task(
+            user_id=self.user.id,
+            name='unclaimed attribute',
+            profile_id=self.profile.id,
+            template_id=self.template.id,
+            apl_id=self.apl.id,
+            mode='attribute_sweep',
+            candidates=[{'candidate_key': 'round-1', 'candidate_label': 'round 1'}],
+        )
+        from botend.services.simc_attribute_search import advance_attribute_search
+
+        with self.assertRaisesRegex(ValueError, '执行租约'):
+            advance_attribute_search(task.id)
+
+        self.assertEqual(task.simulation_runs.count(), 0)
+
     def test_stale_attribute_claim_cannot_append_runs_or_reopen_failed_task(self):
         task = create_task(
             user_id=self.user.id,

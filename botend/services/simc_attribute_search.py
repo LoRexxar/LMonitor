@@ -101,7 +101,7 @@ def advance_attribute_search(task_id, expected_started_at=None):
     ).get(
         pk=task_id, is_active=True, mode='attribute_sweep',
     )
-    if expected_started_at is not None and (
+    if expected_started_at is None or (
         task.current_status != 1 or task.started_at != expected_started_at
     ):
         raise ValueError('属性寻优执行租约已失效')

@@ -56,8 +56,6 @@ from botend.services.simc_attribute_search import (
     ATTRIBUTE_DPS_TOLERANCE as SIMC_ATTRIBUTE_DPS_TOLERANCE,
     ATTRIBUTE_SEARCH_STEP as SIMC_ATTRIBUTE_SEARCH_STEP,
     ATTRIBUTE_STATS as SIMC_ATTRIBUTE_STATS,
-    MAX_ATTRIBUTE_SEARCH_ROUNDS as SIMC_MAX_ATTRIBUTE_SEARCH_ROUNDS,
-    advance_attribute_search,
     attribute_variants,
 )
 from botend.services.task_rerun import create_rerun, TaskRerunError
@@ -2026,9 +2024,7 @@ class SimcComparisonTaskAPIView(View):
     MAX_TASKS = 8
     MAX_ATTRIBUTE_TASKS = 13
     ATTRIBUTE_STATS = SIMC_ATTRIBUTE_STATS
-    MAX_ATTRIBUTE_SEARCH_ROUNDS = SIMC_MAX_ATTRIBUTE_SEARCH_ROUNDS
     ATTRIBUTE_SEARCH_STEP = SIMC_ATTRIBUTE_SEARCH_STEP
-    DEFAULT_MIN_ATTRIBUTE_STEP = SIMC_ATTRIBUTE_SEARCH_STEP
     ATTRIBUTE_DPS_TOLERANCE = SIMC_ATTRIBUTE_DPS_TOLERANCE
 
     @staticmethod
@@ -2052,101 +2048,6 @@ class SimcComparisonTaskAPIView(View):
             raise ValueError(f'四属性自动寻优固定使用 {cls.ATTRIBUTE_SEARCH_STEP} 绿字步长')
         return attribute_variants(values, round_number=round_number, mark_base=mark_base)
 
-    @classmethod
-    def _next_attribute_search_center(cls, results, step, min_step=50):
-        """Choose the next centre from one completed 50-rating local neighborhood."""
-        if not results:
-            raise ValueError('属性寻优需要至少一个完成结果')
-        try:
-            current_step = max(1, int(step))
-            minimum_step = max(1, int(min_step))
-        except (TypeError, ValueError):
-            raise ValueError('属性寻优步长无效')
-        if current_step != cls.ATTRIBUTE_SEARCH_STEP or minimum_step != cls.ATTRIBUTE_SEARCH_STEP:
-            raise ValueError(f'四属性自动寻优固定使用 {cls.ATTRIBUTE_SEARCH_STEP} 绿字步长')
-        if any(int(row.get('ratings', {}).get(stat, -1)) < 0 for row in results if isinstance(row, dict) for stat in cls.ATTRIBUTE_STATS):
-            raise ValueError('属性寻优绿字不能为负数')
-        valid = []
-        for row in results:
-            ratings = row.get('ratings') if isinstance(row, dict) else None
-            dps = row.get('dps') if isinstance(row, dict) else None
-            if not isinstance(ratings, dict) or any(stat not in ratings for stat in cls.ATTRIBUTE_STATS):
-                continue
-            try:
-                normalized = {stat: int(ratings[stat]) for stat in cls.ATTRIBUTE_STATS}
-                score = float(dps)
-            except (TypeError, ValueError):
-                continue
-            if min(normalized.values()) < 0:
-                continue
-            valid.append({'ratings': normalized, 'dps': score, 'is_center': bool(row.get('is_center'))})
-        if not valid:
-            raise ValueError('属性寻优缺少有效 DPS 结果')
-        center = next((row for row in valid if row['is_center']), None)
-        if center is None:
-            raise ValueError('属性寻优当前轮缺少基准点')
-        tolerance = float(cls.ATTRIBUTE_DPS_TOLERANCE)
-        best_neighbor = max((row for row in valid if not row['is_center']), key=lambda row: row['dps'], default=None)
-        improved = bool(best_neighbor and best_neighbor['dps'] > center['dps'] + tolerance)
-        winner = best_neighbor if improved else center
-        return {
-            'ratings': winner['ratings'],
-            'step': cls.ATTRIBUTE_SEARCH_STEP,
-            'round': 2,
-            'dps': winner['dps'],
-            'converged': not improved,
-            'stop_reason': '' if improved else 'local_optimum_50_pairwise',
-        }
-
-    @classmethod
-    def _attribute_center_signature(cls, ratings, step):
-        return tuple(int(ratings[stat]) for stat in cls.ATTRIBUTE_STATS), int(step)
-
-    @classmethod
-    def _attribute_search_stop_reason(cls, round_number, ratings, step, visited_centers, max_rounds=None):
-        limit = cls.MAX_ATTRIBUTE_SEARCH_ROUNDS if max_rounds is None else max(1, int(max_rounds))
-        if int(round_number) >= limit:
-            return 'max_rounds_reached'
-        if cls._attribute_center_signature(ratings, step) in (visited_centers or set()):
-            return 'cycle_detected'
-        return ''
-
-    @classmethod
-    def _attribute_search_history(cls, tasks):
-        """Read visited centres from reference mode_params only."""
-        history = set()
-        for task in tasks:
-            params = task.mode_params if isinstance(task.mode_params, dict) else {}
-            if not params.get('is_base'):
-                continue
-            search = params.get('search') or {}
-            ratings = params.get('attribute_ratings') or {}
-            step = search.get('step')
-            if step in (None, '') or any(ratings.get(stat) is None for stat in cls.ATTRIBUTE_STATS):
-                continue
-            try:
-                history.add(cls._attribute_center_signature(ratings, step))
-            except (KeyError, TypeError, ValueError):
-                continue
-        return history
-
-    @staticmethod
-    def _parse_task_ext(ext_data):
-        if isinstance(ext_data, dict):
-            return ext_data
-        try:
-            parsed = json.loads(ext_data or '{}')
-        except (TypeError, ValueError):
-            parsed = {}
-        return parsed if isinstance(parsed, dict) else {}
-
-    @staticmethod
-    def _parse_manifest_round(mode_params):
-        try:
-            return int((mode_params.get('search') or {}).get('round') or 1)
-        except (AttributeError, TypeError, ValueError):
-            return 1
-
     @staticmethod
     def _run_result_file(run):
         artifact = run.artifacts.filter(artifact_type='html_report').order_by('-created_at').first()
@@ -2155,73 +2056,6 @@ class SimcComparisonTaskAPIView(View):
         params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
         value = str(params.get('legacy_result_file') or '').strip()
         return value if value and '/' not in value and '\\' not in value and '\n' not in value else ''
-
-    @classmethod
-    def _attribute_search_history(cls, runs):
-        """Read visited centres from frozen run candidate parameters only."""
-        history = set()
-        for run in runs:
-            params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
-            if not params.get('is_base'):
-                continue
-            search = params.get('search') or {}
-            ratings = params.get('attribute_ratings') or {}
-            step = search.get('step')
-            if step in (None, '') or any(ratings.get(stat) is None for stat in cls.ATTRIBUTE_STATS):
-                continue
-            try:
-                history.add(cls._attribute_center_signature(ratings, step))
-            except (KeyError, TypeError, ValueError):
-                continue
-        return history
-
-    def _continue_attribute_search(self, request, data, continue_task_id):
-        """Compatibility helper; lifecycle decisions remain server-side."""
-        try:
-            task = SimcTask.objects.get(
-                id=int(continue_task_id), user_id=request.user.id,
-                is_active=True, mode='attribute_sweep',
-            )
-        except (TypeError, ValueError, SimcTask.DoesNotExist):
-            raise ValueError('当前属性搜索任务不存在或无权限访问')
-        result = advance_attribute_search(task.id)
-        return {
-            'task_id': task.id,
-            'accepted': int(result.get('appended') or 0),
-            'run_ids': result.get('run_ids') or [],
-            'converged': bool(result.get('converged')),
-            'recommendation': result.get('recommendation'),
-        }
-
-    def _safe_error_summary(self, task):
-        """安全错误摘要：从ext的simc_error_summary提取，或返回固定文案"""
-        try:
-            ext = json.loads(task.ext) if isinstance(task.ext, str) else (task.ext or {})
-        except (json.JSONDecodeError, TypeError):
-            ext = {}
-
-        summary = ext.get('simc_error_summary', '')
-        if summary and isinstance(summary, str):
-            # 从现有安全摘要中提取，禁止路径、命令、stderr、冻结输入
-            safe = summary.strip()[:200]
-            # 移除可能的敏感模式
-            if any(x in safe.lower() for x in ['traceback', 'file "/', 'command', 'stderr', 'gear_', 'player=']):
-                return '任务执行失败'
-            return safe if safe else '任务执行失败'
-        return '任务执行失败'
-
-    def _has_valid_html_results(self, tasks):
-        """检查是否所有任务都成功且有通过安全验证的HTML结果"""
-        if not tasks:
-            return False
-        task_api = SimcTaskAPIView()
-        for task in tasks:
-            if task.current_status != 2:
-                return False
-            # 复用任务列表既有的文件名白名单；属性任务也必须逐个通过解析器。
-            if not task_api._task_result_file_summary(task):
-                return False
-        return True
 
     def get(self, request):
         """Return one owned comparison/attribute task with safe run summaries."""

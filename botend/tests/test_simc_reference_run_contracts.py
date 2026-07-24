@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
 from django.test import TestCase
+from django.utils import timezone
 
 from botend.services.simc_task_service import _build_profile_payload
 
@@ -236,6 +237,85 @@ class SimcReferenceRunContractTests(TestCase):
             task.analysis_result['attribute_search']['stop_reason'],
             'local_optimum_50_pairwise',
         )
+
+    def _make_completed_attribute_round(self, task, center, round_number, winner_index=1):
+        from botend.services.simc_attribute_search import attribute_variants
+
+        created = []
+        sequence = task.simulation_runs.count() + 1
+        for index, (label, ratings, is_base, search) in enumerate(
+            attribute_variants(center, round_number=round_number)
+        ):
+            created.append(SimulationRun.objects.create(
+                task=task,
+                sequence=sequence + index,
+                candidate_key=f'round-{round_number}-candidate-{index}',
+                candidate_label=label,
+                round_number=round_number,
+                candidate_params={
+                    'candidate_type': 'attribute_ratings',
+                    'is_base': is_base,
+                    'attribute_ratings': ratings,
+                    'search': search,
+                },
+                status='completed',
+                result_summary={'dps': 101500 if index == winner_index else 100000},
+            ))
+        return created
+
+    def test_attribute_search_stops_when_best_center_was_already_visited(self):
+        from botend.services.simc_attribute_search import advance_attribute_search, attribute_variants
+
+        center = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        winner = attribute_variants(center, round_number=2)[1][1]
+        task = self.make_task(name='cycle search', mode='attribute_sweep')
+        SimulationRun.objects.create(
+            task=task,
+            sequence=1,
+            candidate_key='round-1-base',
+            candidate_label='visited center',
+            round_number=1,
+            candidate_params={
+                'candidate_type': 'attribute_ratings',
+                'is_base': True,
+                'attribute_ratings': winner,
+                'search': {'round': 1, 'step': 50},
+            },
+            status='completed',
+            result_summary={'dps': 99000},
+        )
+        self._make_completed_attribute_round(task, center, round_number=2)
+        lease = timezone.now()
+        task.current_status = 1
+        task.started_at = lease
+        task.save(update_fields=['current_status', 'started_at'])
+
+        result = advance_attribute_search(task.id, expected_started_at=lease)
+
+        task.refresh_from_db()
+        self.assertTrue(result['converged'])
+        self.assertEqual(result['recommendation']['stop_reason'], 'cycle_detected')
+        self.assertEqual(task.analysis_result['attribute_search']['stop_reason'], 'cycle_detected')
+        self.assertEqual(task.simulation_runs.count(), 14)
+
+    def test_attribute_search_stops_at_max_round_without_appending_runs(self):
+        from botend.services.simc_attribute_search import advance_attribute_search
+
+        center = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        task = self.make_task(name='max round search', mode='attribute_sweep')
+        self._make_completed_attribute_round(task, center, round_number=20)
+        lease = timezone.now()
+        task.current_status = 1
+        task.started_at = lease
+        task.save(update_fields=['current_status', 'started_at'])
+
+        result = advance_attribute_search(task.id, expected_started_at=lease)
+
+        task.refresh_from_db()
+        self.assertTrue(result['converged'])
+        self.assertEqual(result['recommendation']['stop_reason'], 'max_rounds_reached')
+        self.assertEqual(task.analysis_result['attribute_search']['stop_reason'], 'max_rounds_reached')
+        self.assertEqual(task.simulation_runs.count(), 13)
 
     def test_success_persists_semantic_summary_on_run_and_task(self):
         task = self.make_task()

@@ -10,6 +10,7 @@ from django.contrib.auth.models import User
 from unittest.mock import patch
 
 from django.test import Client, RequestFactory, TestCase
+from django.utils import timezone
 
 from botend.models import (
     SimcApl,
@@ -18,6 +19,7 @@ from botend.models import (
     SimcTask,
     SimulationRun,
 )
+from botend.services.simc_attribute_search import advance_attribute_search
 from botend.services.simc_task_service import append_candidate_runs, create_task
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.services.simc_composer import SimcComposer
@@ -307,11 +309,14 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.apl.content = 'actions=/changed_after_round_one'
         self.apl.save(update_fields=['content'])
 
-        request = RequestFactory().post('/api/simc-task/batch/', data='{}', content_type='application/json')
-        request.user = self.user
-        result = api._continue_attribute_search(request, {}, str(task.id))
+        lease = timezone.now()
+        task.current_status = 1
+        task.started_at = lease
+        task.save(update_fields=['current_status', 'started_at'])
+        task.refresh_from_db()
+        result = advance_attribute_search(task.id, expected_started_at=lease)
         next_runs = list(SimulationRun.objects.filter(id__in=result['run_ids']).order_by('sequence'))
-        self.assertEqual(result['accepted'], len(rows))
+        self.assertEqual(result['appended'], len(rows))
         self.assertEqual({run.task_id for run in next_runs}, {task.id})
         self.assertEqual({run.round_number for run in next_runs}, {2})
         task.refresh_from_db()
@@ -329,7 +334,7 @@ class ReferenceBatchAPIViewTests(TestCase):
             run.status = 'completed'
             run.result_summary = {'dps': [100000, 101500][index] if index < 2 else 100100}
             run.save(update_fields=['status', 'result_summary'])
-        third = api._continue_attribute_search(request, {}, str(task.id))
+        third = advance_attribute_search(task.id, expected_started_at=lease)
         self.assertEqual(set(SimulationRun.objects.filter(id__in=third['run_ids']).values_list(
             'round_number', flat=True)), {3})
 
@@ -356,24 +361,26 @@ class ReferenceBatchAPIViewTests(TestCase):
         for run in runs:
             run.status = 'completed'; run.result_summary = {'dps': 100000}
             run.save(update_fields=['status', 'result_summary'])
-        request = RequestFactory().post('/api/simc-task/batch/', data='{}', content_type='application/json')
-        request.user = self.user
+        lease = timezone.now()
+        task.current_status = 1
+        task.started_at = lease
+        task.save(update_fields=['current_status', 'started_at'])
 
         runs[1].status = 'failed'; runs[1].save(update_fields=['status'])
         with self.assertRaisesRegex(ValueError, '全部成功'):
-            api._continue_attribute_search(request, {}, str(task.id))
+            advance_attribute_search(task.id, expected_started_at=lease)
         runs[1].status = 'completed'; runs[1].result_summary = {}
         runs[1].save(update_fields=['status', 'result_summary'])
 
         with patch('botend.dashboard.api.SimcRegularCompareAPIView._get_result_file_content', return_value='<html></html>'), \
                 patch('botend.dashboard.api.SimcRegularCompareAPIView._parse_regular_result', return_value={}):
             with self.assertRaisesRegex(ValueError, 'DPS'):
-                api._continue_attribute_search(request, {}, str(task.id))
+                advance_attribute_search(task.id, expected_started_at=lease)
 
         task.profile_version_id = task.template_version_id
         task.save(update_fields=['profile_version'])
         with self.assertRaisesRegex(ValueError, '资源版本不一致'):
-            api._continue_attribute_search(request, {}, str(task.id))
+            advance_attribute_search(task.id, expected_started_at=lease)
 
     def test_complete_reference_task_put_only_renames_and_cannot_reset_status_or_inputs(self):
         task = create_task(

@@ -848,7 +848,7 @@ main_hand=,id=222222
 
 
 
-    def test_auto_attribute_batch_projects_anchor_direction_to_boundary_instead_of_dropping_it(self):
+    def test_auto_attribute_batch_keeps_fixed_grid_moves(self):
         # 50-rating 离散搜索不允许把不足一步的余额投影成 100 等非网格转移。
         base = {'crit': 400, 'haste': 1100, 'mastery': 1140, 'versatility': 100}
         rows = SimcComparisonTaskAPIView._attribute_variants(base, 50)
@@ -856,20 +856,6 @@ main_hand=,id=222222
         self.assertTrue(all(sum(ratings.values()) == sum(base.values()) for _, ratings, _, _ in rows))
         self.assertTrue(all(candidate['move'].get('type') == 'baseline' or candidate['move']['transfer'] == 50 for _, _, _, candidate in rows))
 
-        chosen = SimcComparisonTaskAPIView._next_attribute_search_center([
-            {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 100000, 'is_center': True},
-            {'ratings': {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000}, 'dps': 101500},
-        ], step=50, min_step=50)
-        self.assertEqual(chosen['ratings'], {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000})
-        self.assertEqual(chosen['step'], 50)
-        self.assertFalse(chosen['converged'])
-
-        local_optimum = SimcComparisonTaskAPIView._next_attribute_search_center([
-            {'ratings': {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000}, 'dps': 102000, 'is_center': True},
-            {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 101800},
-        ], step=50, min_step=50)
-        self.assertTrue(local_optimum['converged'])
-        self.assertEqual(local_optimum['stop_reason'], 'local_optimum_50_pairwise')
 
     def test_next_attribute_round_preserves_budget_and_marks_new_center(self):
         base = {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800}
@@ -1043,14 +1029,6 @@ main_hand=,id=222222
         self.assertTrue(rendered.endswith('html=simc_task_44.html'))
         self.assertNotIn('stale_report.html', rendered)
 
-    def test_attribute_search_stops_when_it_revisits_same_center_and_step(self):
-        ratings = {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800}
-        stop = SimcComparisonTaskAPIView._attribute_search_stop_reason(
-            round_number=4, ratings=ratings, step=200,
-            visited_centers={(tuple(ratings[stat] for stat in SimcComparisonTaskAPIView.ATTRIBUTE_STATS), 200)},
-            max_rounds=20,
-        )
-        self.assertEqual(stop, 'cycle_detected')
 
     def test_execute_simc_command_passes_absolute_task_result_path(self):
         from unittest.mock import patch
@@ -1192,12 +1170,6 @@ main_hand=,id=222222
     def test_attribute_search_rejects_any_non_50_step(self):
         self.profile.player_config_mode = 'attribute_only'
         self.profile.save(update_fields=['player_config_mode'])
-        results = [
-            {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 100000, 'is_center': True},
-            {'ratings': {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000}, 'dps': 100100, 'is_center': False},
-        ]
-        with self.assertRaisesRegex(ValueError, '固定使用 50'):
-            SimcComparisonTaskAPIView._next_attribute_search_center(results, step=100, min_step=50)
         bad_response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'attribute_variants', 'name': '错误步长',
             'simc_profile_id': self.profile.id,
@@ -1207,12 +1179,6 @@ main_hand=,id=222222
         }), content_type='application/json')
         self.assertFalse(bad_response.json()['success'])
         self.assertIn('固定使用 50', bad_response.json()['error'])
-
-        stop = SimcComparisonTaskAPIView._attribute_search_stop_reason(
-            round_number=20, ratings={'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800},
-            step=100, visited_centers=set(), max_rounds=20,
-        )
-        self.assertEqual(stop, 'max_rounds_reached')
 
 
 

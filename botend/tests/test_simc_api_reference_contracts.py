@@ -55,6 +55,26 @@ def mark_apl_current(test_case, apl):
     test_case.addCleanup(validation_patcher.stop)
 
 
+class SimcComparisonLifecycleOwnershipTests(TestCase):
+    def test_comparison_view_does_not_own_attribute_search_continuation(self):
+        forbidden_methods = {
+            '_continue_attribute_search',
+            '_next_attribute_search_center',
+            '_attribute_center_signature',
+            '_attribute_search_stop_reason',
+            '_attribute_search_history',
+            '_parse_task_ext',
+            '_parse_manifest_round',
+            '_safe_error_summary',
+            '_has_valid_html_results',
+        }
+
+        self.assertFalse(
+            forbidden_methods.intersection(vars(SimcComparisonTaskAPIView)),
+            '属性续轮和搜索算法必须只由带有效 lease 的后端 Service/Worker 持有',
+        )
+
+
 class SimcTaskAPIReferenceContractsTests(TestCase):
     """Test POST /api/simc-task/ reference-based task creation."""
 
