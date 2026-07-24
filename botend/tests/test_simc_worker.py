@@ -7,18 +7,18 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcTask, SimcTaskBatch, SimulationRun
+from botend.models import SimcTask, SimulationRun
 
 
 class SimcWorkerTests(TestCase):
-    def make_task(self, *, name='worker task', status=0, batch=None, started_at=None):
+    def make_task(self, *, name='worker task', status=0, started_at=None):
         return SimcTask.objects.create(
             user_id=9001,
             name=name,
             simc_profile_id=0,
             task_type=1,
             current_status=status,
-            batch=batch,
+
             started_at=started_at,
             is_active=True,
         )
@@ -82,14 +82,18 @@ class SimcWorkerTests(TestCase):
 
         monitor = SimcMonitor(None, task)
         monitor.result_path = '/tmp/simc_worker_results'
+        def complete_recovered_run(claimed):
+            recovered_run = SimulationRun.objects.get(
+                task=claimed, sequence=2, status='pending',
+            )
+            recovered_run.status = 'completed'
+            recovered_run.started_at = timezone.now()
+            recovered_run.completed_at = timezone.now()
+            recovered_run.save(update_fields=['status', 'started_at', 'completed_at'])
+            return True
+
         with patch.object(monitor, 'is_reference_task', return_value=True), \
-             patch.object(monitor, 'process_reference_task', side_effect=lambda claimed: SimulationRun.objects.create(
-                 task=claimed,
-                 sequence=2,
-                 status='completed',
-                 started_at=timezone.now(),
-                 completed_at=timezone.now(),
-             ) and True):
+             patch.object(monitor, 'process_reference_task', side_effect=complete_recovered_run):
             self.assertTrue(monitor.process_simc_task(task))
         self.assertEqual(list(task.simulation_runs.order_by('sequence').values_list('sequence', flat=True)), [1, 2])
 
@@ -98,10 +102,15 @@ class SimcWorkerTests(TestCase):
         from botend.services.simc_worker import SimcWorker
 
         stale_at = timezone.now() - timedelta(minutes=5)
-        batch = SimcTaskBatch.objects.create(user_id=9001, name='retry batch', status=1)
-        task = self.make_task(status=1, batch=batch, started_at=stale_at)
-        SimulationRun.objects.create(task=task, sequence=1, status='failed', started_at=stale_at, completed_at=stale_at)
-        active_run = SimulationRun.objects.create(task=task, sequence=2, status='running', started_at=stale_at)
+        task = self.make_task(status=1, started_at=stale_at)
+        SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='same-candidate', status='failed',
+            started_at=stale_at, completed_at=stale_at,
+        )
+        active_run = SimulationRun.objects.create(
+            task=task, sequence=2, candidate_key='same-candidate', status='running',
+            started_at=stale_at,
+        )
         monitor = MagicMock()
         worker = SimcWorker(monitor=monitor, poll_interval=0)
 
@@ -111,7 +120,7 @@ class SimcWorkerTests(TestCase):
         self.assertEqual(task.current_status, 3)
         self.assertIn('重试次数上限', task.error_detail)
         self.assertEqual(active_run.status, 'failed')
-        monitor.sync_batch_lifecycle.assert_called_once_with(batch.id)
+        self.assertEqual(task.simulation_runs.count(), 2)
 
     def test_run_stops_claiming_after_stop_request(self):
         from botend.services.simc_worker import SimcWorker

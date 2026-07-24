@@ -21,7 +21,7 @@ from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
 from utils.log import logger
-from botend.models import SimcTask, SimcTaskBatch, SimcProfile, SimcBackendBinary
+from botend.models import SimcTask, SimcProfile, SimcBackendBinary, SimulationRun
 from botend.alerting import upsert_system_alert
 from botend.controller.BaseScan import BaseScan
 from botend.services.simc_player_config import (
@@ -229,51 +229,6 @@ class SimcMonitor(BaseScan):
         self._set_update_status(row, status=status, progress=100, is_updating=False, latest_version=latest_version, current_version=current_hash or row.current_version, last_error='')
         return True
 
-    def sync_batch_lifecycle(self, batch_id):
-        """Recompute one real Batch strictly from its FK-owned task statuses."""
-        if not batch_id:
-            return
-        try:
-            with transaction.atomic():
-                batch = SimcTaskBatch.objects.select_for_update().filter(id=batch_id).first()
-                if batch is None:
-                    return
-                statuses = list(
-                    SimcTask.objects.filter(batch_id=batch.id, is_active=True)
-                    .values_list('current_status', flat=True)
-                )
-                if not statuses:
-                    resolved_status = 0
-                elif all(status in (2, 3) for status in statuses):
-                    resolved_status = 3 if any(status == 3 for status in statuses) else 2
-                else:
-                    resolved_status = 1
-
-                update_fields = []
-                if batch.status != resolved_status:
-                    batch.status = resolved_status
-                    update_fields.append('status')
-                if resolved_status in (2, 3):
-                    if batch.completed_at is None:
-                        batch.completed_at = timezone.now()
-                        update_fields.append('completed_at')
-                elif batch.completed_at is not None:
-                    batch.completed_at = None
-                    update_fields.append('completed_at')
-                if update_fields:
-                    update_fields.append('updated_at')
-                    batch.save(update_fields=update_fields)
-        except Exception as exc:
-            logger.error(f"[SimC Monitor] Failed to sync batch {batch_id} lifecycle: {exc}")
-
-    def reconcile_open_batches(self):
-        """Retry lifecycle reconciliation for non-terminal real batches."""
-        for batch_id in SimcTaskBatch.objects.filter(
-            is_active=True,
-            status__in=(0, 1),
-        ).values_list('id', flat=True):
-            self.sync_batch_lifecycle(batch_id)
-
     def mark_task_failed(self, simc_task, reason, exc=None, overwrite_when_has_error=False):
         """
         将任务标记为失败，并写入可见错误信息。
@@ -292,8 +247,8 @@ class SimcMonitor(BaseScan):
 
             simc_task.current_status = 3
             simc_task.error_detail = detail
+            simc_task.completed_at = timezone.now()
             simc_task.save()
-            self.sync_batch_lifecycle(simc_task.batch_id)
         except Exception as save_err:
             logger.error(f"[SimC Monitor] Failed to persist task error for task {getattr(simc_task, 'id', '-')}: {save_err}")
 
@@ -386,7 +341,6 @@ class SimcMonitor(BaseScan):
         logger.info("[SimC Monitor] Start SimC simulation check.")
         
         try:
-            self.reconcile_open_batches()
             if not self.ensure_local_simc_backend_current():
                 logger.error("[SimC Monitor] Local SimC backend is not ready")
                 self.fail_pending_tasks("SimC本地编译产物不可用，请先完成后端编译更新")
@@ -417,19 +371,8 @@ class SimcMonitor(BaseScan):
                 logger.info("[SimC Monitor] No pending SimC task.")
                 return True
 
-            # Batch membership is authoritative only through the database FK. Legacy
-            # ext.batch_compare.batch_id strings are intentionally not used for dispatch.
-            pending_tasks = [first_task]
-            if first_task.batch_id:
-                pending_tasks = list(SimcTask.objects.filter(
-                    is_active=True,
-                    current_status=0,
-                    batch_id=first_task.batch_id,
-                ).order_by('modified_time', 'id'))
-
-            for simc_task in pending_tasks:
-                logger.info(f"[SimC Monitor] Processing task: {simc_task.name} (ID: {simc_task.id})")
-                self.process_simc_task(simc_task)
+            logger.info(f"[SimC Monitor] Processing task: {first_task.name} (ID: {first_task.id})")
+            self.process_simc_task(first_task)
                 
         except Exception as e:
             logger.error(f"[SimC Monitor] Error during SimC simulation: {str(e)}")
@@ -514,18 +457,8 @@ class SimcMonitor(BaseScan):
 
         return request_data
 
-    def process_reference_task(self, simc_task):
-        """
-        Process reference-based task with immutable version snapshots.
-
-        Contract:
-        1. Only accepts complete 6-reference tasks
-        2. Calls task_resolver.resolve_task for version payloads
-        3. Uses SimcComposer.compose() to generate SimC input
-        4. Creates SimulationRun with input_hash and metadata
-        5. Uses existing execute_simc_command
-        """
-        run = None
+    def process_reference_run(self, simc_task, run):
+        """Execute one already-created candidate Run from its frozen params."""
         try:
             # Validate complete 6-reference task
             if not is_reference_task(simc_task):
@@ -536,22 +469,11 @@ class SimcMonitor(BaseScan):
                 )
                 return False
 
-            # Allocate under a lock on the parent row. Locking an empty child
-            # queryset does not serialize first-run allocation.
-            with transaction.atomic():
-                SimcTask.objects.select_for_update().get(pk=simc_task.pk)
-                max_sequence = SimulationRun.objects.filter(task=simc_task).aggregate(
-                    value=models.Max('sequence')
-                )['value'] or 0
-                run = SimulationRun.objects.create(
-                    task=simc_task,
-                    sequence=max_sequence + 1,
-                    candidate_label=simc_task.candidate_label or '',
-                    status='running',
-                    input_hash='',
-                    resource_manifest={},
-                    started_at=timezone.now(),
-                )
+            run.status = 'running'
+            run.started_at = timezone.now()
+            run.completed_at = None
+            run.error_detail = None
+            run.save(update_fields=['status', 'started_at', 'completed_at', 'error_detail'])
 
             # Resolve task to version payloads
             try:
@@ -596,7 +518,7 @@ class SimcMonitor(BaseScan):
             }
             composer_request = self.apply_candidate_overrides(
                 composer_request,
-                resolved.mode_params,
+                run.candidate_params,
             )
             # Compose final SimC input using SimcComposer
             composer = SimcComposer(simc_task.user_id)
@@ -607,8 +529,8 @@ class SimcMonitor(BaseScan):
                 else (composition_manifest or {})
             )
             talent_candidate = None
-            if isinstance(simc_task.mode_params, dict):
-                raw_candidate = simc_task.mode_params.get('talent_candidate')
+            if isinstance(run.candidate_params, dict):
+                raw_candidate = run.candidate_params.get('talent_candidate')
                 if isinstance(raw_candidate, dict):
                     talent_candidate = {
                         key: raw_candidate.get(key) for key in ('name', 'talent', 'source')
@@ -707,6 +629,76 @@ class SimcMonitor(BaseScan):
             self.mark_task_failed(simc_task, "引用型任务处理异常", e)
             return False
 
+    def process_reference_task(self, simc_task):
+        """Drain all pending Runs; candidate failure never blocks its siblings."""
+        if not SimulationRun.objects.filter(task=simc_task).exists():
+            # Compatibility for pre-Run normal tasks and old callers.
+            SimulationRun.objects.create(
+                task=simc_task, sequence=1, candidate_key='normal',
+                candidate_label='normal', candidate_params={}, status='pending',
+            )
+        runs = list(SimulationRun.objects.filter(task=simc_task, status='pending').order_by('sequence'))
+        for run in runs:
+            simc_task.current_status = 1
+            simc_task.completed_at = None
+            simc_task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
+            try:
+                self.process_reference_run(simc_task, run)
+            except Exception as exc:
+                logger.exception('[SimC Monitor] run %s failed unexpectedly', run.id)
+                SimulationRun.objects.filter(pk=run.pk).update(
+                    status='failed', error_detail=str(exc), completed_at=timezone.now(),
+                )
+
+        all_runs = list(SimulationRun.objects.filter(task=simc_task).order_by('sequence'))
+        nonterminal = [run for run in all_runs if run.status not in ('completed', 'failed')]
+        if nonterminal:
+            simc_task.current_status = 0
+            simc_task.completed_at = None
+            simc_task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
+            return False
+
+        succeeded = [run for run in all_runs if run.status == 'completed']
+        failed = [run for run in all_runs if run.status == 'failed']
+        analysis = {
+            'total': len(all_runs), 'succeeded': len(succeeded), 'failed': len(failed),
+            'failed_candidates': [
+                {'run_id': run.id, 'candidate_key': run.candidate_key,
+                 'candidate_label': run.candidate_label, 'error': run.error_detail or ''}
+                for run in failed
+            ],
+            'candidates': [
+                {'run_id': run.id, 'candidate_key': run.candidate_key,
+                 'candidate_label': run.candidate_label, 'round_number': run.round_number,
+                 'status': run.status, 'result_summary': run.result_summary or {}}
+                for run in all_runs
+            ],
+        }
+        simc_task.analysis_result = analysis
+        if simc_task.completed_at is None:
+            simc_task.completed_at = timezone.now()
+        if succeeded:
+            simc_task.current_status = 2
+            simc_task.error_detail = None
+            # Keep the long-standing single-run contract (top-level dps, etc.)
+            # while candidate tasks expose all successful run summaries.
+            summary_payload = (
+                succeeded[0].result_summary or {}
+                if len(all_runs) == 1 and len(succeeded) == 1
+                else {'runs': [run.result_summary or {} for run in succeeded]}
+            )
+            simc_task.result_summary = json.dumps(summary_payload, ensure_ascii=False)
+        else:
+            simc_task.current_status = 3
+            simc_task.error_detail = '; '.join(
+                filter(None, (run.error_detail for run in failed))
+            ) or '所有候选执行失败'
+        simc_task.save(update_fields=[
+            'current_status', 'error_detail', 'result_summary', 'analysis_result',
+            'completed_at', 'modified_time',
+        ])
+        return bool(succeeded)
+
     def process_simc_task(self, simc_task, already_claimed=False):
         """
         处理单个SimC任务。
@@ -729,7 +721,6 @@ class SimcMonitor(BaseScan):
                     logger.info(f"[SimC Monitor] Task {simc_task.id} was already claimed or no longer pending, skip")
                     return False
             simc_task.refresh_from_db()
-            self.sync_batch_lifecycle(simc_task.batch_id)
             self.clear_simc_error_details(simc_task)
             simc_task.save(update_fields=['ext', 'modified_time'])
 
@@ -749,10 +740,6 @@ class SimcMonitor(BaseScan):
             logger.error(f"[SimC Monitor] Error processing task {simc_task.id}: {str(e)}")
             self.mark_task_failed(simc_task, "任务处理失败", e)
             return False
-        finally:
-            self.sync_batch_lifecycle(getattr(simc_task, 'batch_id', None))
-
-        return True
 
     def build_attribute_test_points(self, total_value, base_value, requested_step):
         """Build an exact requested-step two-stat curve, retaining endpoints and baseline.

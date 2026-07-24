@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from unittest.mock import MagicMock, patch
@@ -8,9 +9,36 @@ from django.test import TestCase
 from botend.services.simc_task_service import _build_profile_payload
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTaskBatch, SimulationRun
+from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimulationRun
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import create_task
+
+
+TEST_VALIDATION_IDENTITY = ('test-simc-revision', 'test-game-build')
+
+
+def mark_apl_valid(apl):
+    values = {'validation_status': SimcApl.VALIDATION_VALID,
+              'validated_content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+              'validation_revision': TEST_VALIDATION_IDENTITY[0],
+              'validation_game_build': TEST_VALIDATION_IDENTITY[1], 'is_selectable': True}
+    SimcApl.objects.filter(pk=apl.pk).update(**values)
+    for key, value in values.items(): setattr(apl, key, value)
+
+
+def setUpModule():
+    from django.test import override_settings
+    global _validation_settings, _validation_mock
+    _validation_settings = override_settings(SIMC_APL_CURRENT_IDENTITY=TEST_VALIDATION_IDENTITY)
+    _validation_settings.enable()
+    _validation_mock = patch('botend.services.simc_task_service.validate_apl_for_profile', side_effect=lambda _p, apl: {
+        'valid': True, 'content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+        'revision': TEST_VALIDATION_IDENTITY[0], 'game_build': TEST_VALIDATION_IDENTITY[1]})
+    _validation_mock.start()
+
+
+def tearDownModule():
+    _validation_mock.stop(); _validation_settings.disable()
 
 
 class SimcReferenceRunContractTests(TestCase):
@@ -63,6 +91,7 @@ class SimcReferenceRunContractTests(TestCase):
             name='contract apl', spec='fury', content='actions=/bloodthirst',
             is_system=True, is_active=True, is_selectable=True,
         )
+        mark_apl_valid(self.apl)
 
     def make_task(self, **kwargs):
         values = {
@@ -115,21 +144,31 @@ class SimcReferenceRunContractTests(TestCase):
         self.assertIn('iterations', error)
 
     def test_batch_does_not_finish_until_every_member_is_terminal(self):
-        batch = SimcTaskBatch.objects.create(user_id=self.user_id, name='batch', status=1)
-        failed = self.make_task(name='failed', batch_id=batch.id)
-        pending = self.make_task(name='pending', batch_id=batch.id)
-        failed.current_status = 3
-        failed.save(update_fields=['current_status'])
-        SimcMonitor(None, failed).sync_batch_lifecycle(batch.id)
-        batch.refresh_from_db()
-        self.assertEqual(batch.status, 1)
-        self.assertIsNone(batch.completed_at)
-        pending.current_status = 2
-        pending.save(update_fields=['current_status'])
-        SimcMonitor(None, pending).sync_batch_lifecycle(batch.id)
-        batch.refresh_from_db()
-        self.assertEqual(batch.status, 3)
-        self.assertIsNotNone(batch.completed_at)
+        """The request Task lifecycle is aggregated from all of its Runs."""
+        task = self.make_task(name='multi-run request')
+        first = task.simulation_runs.get(sequence=1)
+        first.status = 'failed'
+        first.error_detail = 'candidate failed'
+        first.save(update_fields=['status', 'error_detail'])
+        pending = SimulationRun.objects.create(
+            task=task, sequence=2, candidate_key='second', status='pending',
+        )
+        monitor = SimcMonitor(None, task)
+
+        with patch.object(monitor, 'process_reference_run', return_value=False):
+            self.assertFalse(monitor.process_reference_task(task))
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 0)
+        self.assertIsNone(task.completed_at)
+
+        pending.status = 'completed'
+        pending.result_summary = {'dps': 42}
+        pending.save(update_fields=['status', 'result_summary'])
+        self.assertTrue(monitor.process_reference_task(task))
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 2)
+        self.assertIsNotNone(task.completed_at)
+        self.assertEqual(task.analysis_result['total'], 2)
 
     def test_success_persists_semantic_summary_on_run_and_task(self):
         task = self.make_task()
@@ -171,7 +210,7 @@ class SimcReferenceRunContractTests(TestCase):
 
     def test_run_sequence_is_unique_per_task(self):
         task = self.make_task()
-        SimulationRun.objects.create(task=task, sequence=1)
+        self.assertTrue(SimulationRun.objects.filter(task=task, sequence=1).exists())
         with self.assertRaises(IntegrityError):
             with __import__('django.db', fromlist=['transaction']).transaction.atomic():
                 SimulationRun.objects.create(task=task, sequence=1)

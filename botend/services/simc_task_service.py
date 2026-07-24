@@ -14,6 +14,7 @@ from typing import Optional, Dict, Any
 from django.db import transaction
 from botend.models import (
     SimcTask,
+    SimulationRun,
     SimcProfile,
     SimcContentTemplate,
     SimcApl,
@@ -45,15 +46,13 @@ SIMULATION_PARAMS_WHITELIST = {
 # Candidate differences for comparison / attribute-sweep tasks.  Values remain
 # structured JSON, but unknown top-level keys are discarded at task creation.
 MODE_PARAMS_WHITELIST = {
-    'candidate_type',
-    'is_base',
-    'batch_index',
-    'gear_swap',
-    'talent_override',
-    'talent_candidate',
-    'apl_override',
-    'attribute_ratings',
     'search',
+    'request_manifest',
+}
+
+CANDIDATE_PARAMS_WHITELIST = {
+    'candidate_type', 'is_base', 'gear_swap', 'talent_override',
+    'talent_candidate', 'apl_override', 'attribute_ratings', 'search',
 }
 
 
@@ -208,6 +207,40 @@ def _normalize_params(params: Optional[Dict[str, Any]], whitelist: set) -> Optio
     return {k: v for k, v in params.items() if k in whitelist}
 
 
+def append_candidate_runs(task, candidates, round_number=1):
+    """Append frozen candidate executions to one request-level Task."""
+    candidates = list(candidates or [])
+    if not candidates:
+        candidates = [{'candidate_key': 'normal', 'candidate_label': 'normal'}]
+    with transaction.atomic():
+        locked = SimcTask.objects.select_for_update().get(pk=task.pk)
+        next_sequence = (SimulationRun.objects.filter(task=locked).order_by('-sequence')
+                         .values_list('sequence', flat=True).first() or 0) + 1
+        rows = []
+        for offset, candidate in enumerate(candidates):
+            if not isinstance(candidate, dict):
+                raise TaskCreationError('candidate must be an object')
+            params = _normalize_params(
+                candidate.get('candidate_params') or candidate.get('params') or {},
+                CANDIDATE_PARAMS_WHITELIST,
+            ) or {}
+            key = str(candidate.get('candidate_key') or candidate.get('key') or f'candidate-{next_sequence + offset}')[:200]
+            label = str(candidate.get('candidate_label') or candidate.get('label') or key)[:200]
+            rows.append(SimulationRun(
+                task=locked, sequence=next_sequence + offset, candidate_key=key,
+                candidate_label=label,
+                round_number=max(1, int(candidate.get('round_number') or round_number)),
+                candidate_params=params, status='pending',
+            ))
+        SimulationRun.objects.bulk_create(rows)
+        if locked.current_status in (2, 3):
+            locked.current_status = 0
+            locked.started_at = locked.completed_at = None
+            locked.error_detail = None
+            locked.save(update_fields=['current_status', 'started_at', 'completed_at', 'error_detail', 'modified_time'])
+    return rows
+
+
 def create_task_from_request(
     user_id: int,
     profile_fields: Dict[str, Any],
@@ -215,6 +248,9 @@ def create_task_from_request(
     selected_apl_id: int,
     simulation_params: Optional[Dict[str, Any]] = None,
     name: Optional[str] = None,
+    mode: str = 'normal',
+    mode_params: Optional[Dict[str, Any]] = None,
+    candidates: Optional[list] = None,
 ) -> SimcTask:
     """
     Unified entry for homepage "auto-save/update player config and create Task" atomic operation.
@@ -326,8 +362,10 @@ def create_task_from_request(
             profile_id=profile.id,
             template_id=base_template_id,
             apl_id=selected_apl_id,
-            mode='normal',
+            mode=mode,
             simulation_params=normalized_simulation_params,
+            mode_params=mode_params,
+            candidates=candidates,
         )
 
         return task
@@ -343,8 +381,7 @@ def create_task(
     mode: str = 'normal',
     simulation_params: Optional[Dict[str, Any]] = None,
     mode_params: Optional[Dict[str, Any]] = None,
-    candidate_label: str = '',
-    batch_id: Optional[int] = None,
+    candidates: Optional[list] = None,
 ) -> SimcTask:
     """
     Create a reference-based SimC task with immutable version snapshots.
@@ -357,9 +394,8 @@ def create_task(
         apl_id: SimcApl FK
         mode: Task mode (normal/comparison/attribute_sweep)
         simulation_params: Simulation options (will be normalized)
-        mode_params: Mode-specific params (will be normalized)
-        candidate_label: Label for comparison tasks
-        batch_id: Optional batch FK
+        mode_params: Request-level mode manifest (will be normalized)
+        candidates: Frozen candidate manifests; normal defaults to one run.
 
     Returns:
         Created SimcTask with version FKs set
@@ -379,9 +415,6 @@ def create_task(
         raise TaskCreationError(
             f"Mode '{mode}' requires complete references: profile_id, template_id, and apl_id must all be provided"
         )
-
-    if mode != 'normal' and not batch_id:
-        raise TaskCreationError(f"Mode '{mode}' requires batch_id")
 
     # Resolve and validate resources
     profile = None
@@ -491,11 +524,11 @@ def create_task(
         mode_params=normalized_mode_params,
 
         # Task metadata
-        candidate_label=candidate_label,
-        batch_id=batch_id,
+        candidate_label='',
         result_file=result_file,
         current_status=0,  # pending
         is_active=True,
     )
 
+    append_candidate_runs(task, candidates)
     return task

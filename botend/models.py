@@ -1019,29 +1019,6 @@ class SimcApl(models.Model):
 
 
 
-class SimcTaskBatch(models.Model):
-    """SimC任务批次 - 用于聚合对比任务（属性/天赋/饰品/装备/APL对比）"""
-    user_id = models.IntegerField(help_text="用户ID")
-    name = models.CharField(max_length=200, help_text="批次名称")
-    batch_type = models.CharField(max_length=50, default='comparison', help_text="批次类型：comparison/attribute_sweep")
-    request_manifest = models.TextField(null=True, blank=True, help_text="冻结批次输入（JSON）")
-    status = models.IntegerField(default=0, help_text="0=待创建,1=运行中,2=完成,3=失败")
-    error_detail = models.TextField(null=True, blank=True, help_text="错误详情")
-    completed_at = models.DateTimeField(null=True, blank=True, help_text="完成时间")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        db_table = 'simc_task_batch'
-        verbose_name = 'SimC任务批次'
-        verbose_name_plural = 'SimC任务批次'
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['user_id', '-created_at']),
-        ]
-
-
 class SimcTask(models.Model):
     """
     SimC任务模型 - Phase 2重构：引用型任务保存模块引用和参数，不保存最终正文
@@ -1053,7 +1030,6 @@ class SimcTask(models.Model):
     task_type = models.IntegerField(default=1, help_text="任务类型：1=常规模拟，2=属性模拟")
     ext = models.TextField(null=True, blank=True, help_text="扩展信息（legacy兼容）")
 
-    batch = models.ForeignKey(SimcTaskBatch, null=True, blank=True, on_delete=models.SET_NULL, help_text="所属批次")
     candidate_label = models.CharField(max_length=200, default='', blank=True, help_text="对比任务标签，如 crit+1000")
 
     # Reference-based fields (live resource FKs)
@@ -1073,6 +1049,7 @@ class SimcTask(models.Model):
 
     error_detail = models.TextField(null=True, blank=True, help_text="创建或执行错误详情")
     result_summary = models.TextField(null=True, blank=True, help_text="结果摘要JSON：DPS/HPS等关键指标")
+    analysis_result = models.JSONField(default=dict, blank=True, help_text="请求级分析结果")
 
     modified_time = models.DateTimeField(auto_now=True, help_text="修改时间")
     current_status = models.IntegerField(default=0, help_text="当前状态：0=待执行,1=执行中,2=完成,3=失败")
@@ -1088,7 +1065,6 @@ class SimcTask(models.Model):
         ordering = ['-modified_time']
         indexes = [
             models.Index(fields=['user_id', '-create_time']),
-            models.Index(fields=['batch', '-create_time']),
         ]
 
 
@@ -1118,7 +1094,10 @@ class SimulationRun(models.Model):
     """
     task = models.ForeignKey(SimcTask, on_delete=models.CASCADE, related_name='simulation_runs', help_text="所属任务")
     sequence = models.IntegerField(default=1, help_text="执行序号（轮次/候选编号）")
+    candidate_key = models.CharField(max_length=200, default='', blank=True, help_text="候选稳定标识")
     candidate_label = models.CharField(max_length=200, default='', blank=True, help_text="候选标签，如 baseline/crit+1000/apl_variant_2")
+    round_number = models.PositiveIntegerField(default=1, help_text="候选轮次")
+    candidate_params = models.JSONField(default=dict, blank=True, help_text="候选参数快照")
 
     status = models.CharField(max_length=20, default='pending', help_text="状态：pending/running/completed/failed")
     input_hash = models.CharField(max_length=64, default='', blank=True, help_text="本次输入的SHA256")

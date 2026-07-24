@@ -29,28 +29,41 @@ class SimcWorker:
         self._stop.set()
 
     def recover_stale_tasks(self):
-        """回收无心跳的 running Task；历史 Run 保留，只重新排队有限次数。"""
+        """回收无心跳的 Task，并按候选 Run 独立追加有限次重试。"""
         threshold = timezone.now() - timedelta(seconds=self.stale_seconds)
         recovered = 0
         tasks = SimcTask.objects.filter(
             is_active=True, current_status=1,
         ).filter(started_at__lt=threshold)
         for task in tasks:
-            runs = SimulationRun.objects.filter(task=task).order_by('sequence')
-            latest = runs.last()
-            if latest is not None and latest.status == 'running':
-                latest.status = 'failed'
-                latest.error_detail = 'Worker 回收超时 running 任务，原执行已中断'
-                latest.completed_at = timezone.now()
-                latest.save(update_fields=['status', 'error_detail', 'completed_at'])
-            attempts = runs.count()
-            if attempts >= self.max_attempts:
+            runs = list(SimulationRun.objects.filter(task=task).order_by('sequence'))
+            running = [run for run in runs if run.status == 'running']
+            next_sequence = max((run.sequence for run in runs), default=0) + 1
+            retry_rows = []
+            for run in running:
+                run.status = 'failed'
+                run.error_detail = 'Worker 回收超时 running Run，原执行已中断'
+                run.completed_at = timezone.now()
+                run.save(update_fields=['status', 'error_detail', 'completed_at'])
+                attempts = sum(1 for item in runs if item.candidate_key == run.candidate_key)
+                if attempts < self.max_attempts:
+                    retry_rows.append(SimulationRun(
+                        task=task, sequence=next_sequence,
+                        candidate_key=run.candidate_key,
+                        candidate_label=run.candidate_label,
+                        round_number=run.round_number,
+                        candidate_params=run.candidate_params,
+                        status='pending',
+                    ))
+                    next_sequence += 1
+            if retry_rows:
+                SimulationRun.objects.bulk_create(retry_rows)
+            has_work = bool(retry_rows or any(run.status == 'pending' for run in runs))
+            if not has_work:
                 task.current_status = 3
                 task.error_detail = f'Worker 重试次数上限（{self.max_attempts}）'
                 task.completed_at = timezone.now()
                 task.save(update_fields=['current_status', 'error_detail', 'completed_at', 'modified_time'])
-                if task.batch_id:
-                    self.monitor.sync_batch_lifecycle(task.batch_id)
             else:
                 task.current_status = 0
                 task.started_at = None
@@ -103,12 +116,6 @@ class SimcWorker:
         except Exception as exc:
             logger.exception('[SimC Worker] task %s failed', task.id)
             self._mark_unexpected_failure(task, exc)
-        finally:
-            if task.batch_id:
-                try:
-                    self.monitor.sync_batch_lifecycle(task.batch_id)
-                except Exception:
-                    logger.exception('[SimC Worker] batch lifecycle sync failed')
         return True
 
     def run(self):

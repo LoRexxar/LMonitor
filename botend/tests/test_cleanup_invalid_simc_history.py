@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import TestCase
 
-from botend.models import SimcProfile, SimcTask, SimcTaskArtifact, SimcTaskBatch, SimulationRun
+from botend.models import SimcProfile, SimcTask, SimcTaskArtifact, SimulationRun
 
 
 VALID_PLAYER = '''warrior="Valid"
@@ -51,16 +51,15 @@ class CleanupInvalidSimcHistoryCommandTests(TestCase):
         self.assertIn('invalid_profiles=1', report)
         self.assertIn('deletable_tasks=1', report)
 
-    def test_apply_deletes_invalid_profile_unrunnable_task_and_empty_batch(self):
+    def test_apply_deletes_invalid_profile_and_unrunnable_task_without_runs(self):
         invalid = self._profile('bad baseline', equipment='not simc')
-        batch = SimcTaskBatch.objects.create(user_id=self.user.id, name='invalid batch')
-        task = self._task(invalid, 'bad task', batch=batch, current_status=3)
+        task = self._task(invalid, 'bad task', current_status=3)
 
         call_command('cleanup_invalid_simc_history', apply=True, stdout=StringIO())
 
         self.assertFalse(SimcProfile.objects.filter(id=invalid.id).exists())
         self.assertFalse(SimcTask.objects.filter(id=task.id).exists())
-        self.assertFalse(SimcTaskBatch.objects.filter(id=batch.id).exists())
+
 
     def test_preserves_valid_profiles_and_battlenet_identity(self):
         valid_manual = self._profile('valid manual', mode='manual_equipment', equipment=VALID_PLAYER)

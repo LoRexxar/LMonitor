@@ -1,3 +1,4 @@
+import hashlib
 import json
 from unittest.mock import patch
 
@@ -7,9 +8,36 @@ from django.test import RequestFactory, TestCase
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.dashboard.api import SimcAplCandidatesAPIView, SimcTaskAPIView, SimcWorkbenchAPIView
 from botend.models import (SimcApl, SimcContentTemplate, SimcProfile, SimcTask,
-                           SimcTaskArtifact, SimcTaskBatch, SimulationRun)
+                           SimcTaskArtifact, SimulationRun)
 from botend.services.simc_task_service import create_task
 from botend.services.task_rerun import create_rerun, TaskRerunError
+
+
+TEST_VALIDATION_IDENTITY = ('test-simc-revision', 'test-game-build')
+
+
+def mark_apl_valid(apl):
+    values = {'validation_status': SimcApl.VALIDATION_VALID,
+              'validated_content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+              'validation_revision': TEST_VALIDATION_IDENTITY[0],
+              'validation_game_build': TEST_VALIDATION_IDENTITY[1], 'is_selectable': True}
+    SimcApl.objects.filter(pk=apl.pk).update(**values)
+    for key, value in values.items(): setattr(apl, key, value)
+
+
+def setUpModule():
+    from django.test import override_settings
+    global _validation_settings, _validation_mock
+    _validation_settings = override_settings(SIMC_APL_CURRENT_IDENTITY=TEST_VALIDATION_IDENTITY)
+    _validation_settings.enable()
+    _validation_mock = patch('botend.services.simc_task_service.validate_apl_for_profile', side_effect=lambda _p, apl: {
+        'valid': True, 'content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+        'revision': TEST_VALIDATION_IDENTITY[0], 'game_build': TEST_VALIDATION_IDENTITY[1]})
+    _validation_mock.start()
+
+
+def tearDownModule():
+    _validation_mock.stop(); _validation_settings.disable()
 
 
 class SimcCoreClosureTests(TestCase):
@@ -19,6 +47,7 @@ class SimcCoreClosureTests(TestCase):
         self.profile = SimcProfile.objects.create(user_id=self.user.id, name='P', spec='fury', player_config_mode='manual_equipment', player_equipment='warrior="x"\nspec=fury', is_active=True)
         self.template = SimcContentTemplate.objects.create(name='T', template_type='base_template', spec='fury', content='{simulation_options}\n{player_config}\n{action_list}\n{output_options}', is_active=True, is_selectable=True)
         self.apl = SimcApl.objects.create(name='A', spec='fury', content='actions=/bloodthirst', is_system=True, is_active=True, is_selectable=True)
+        mark_apl_valid(self.apl)
         self.factory = RequestFactory()
 
     def request(self, path, payload):
@@ -52,18 +81,22 @@ class SimcCoreClosureTests(TestCase):
         self.assertEqual(SimcProfile.objects.count(), count)
 
     @patch.object(SimcAplCandidatesAPIView, '_start_compare_preprocess_async')
-    def test_apl_candidates_create_real_batch_and_complete_reference_tasks(self, start):
+    def test_apl_candidates_create_one_reference_task_with_candidate_runs(self, start):
         response = SimcAplCandidatesAPIView.as_view()(self.request('/api/simc-apl-candidates/', {
             'profile_id': self.profile.id, 'base_template_id': self.template.id,
             'selected_apl_id': self.apl.id, 'candidate_count': 5, 'include_base': True,
         }))
         body = json.loads(response.content)
         self.assertTrue(body['success'], body)
-        batch = SimcTaskBatch.objects.get(id=body['data']['batch_id'])
-        tasks = list(batch.simctask_set.all())
-        self.assertEqual(len(tasks), 6)
-        self.assertTrue(all(t.profile_id and t.template_id and t.apl_id and t.profile_version_id and t.template_version_id and t.apl_version_id for t in tasks))
-        self.assertTrue(all(t.mode == 'comparison' and not t.ext for t in tasks))
+        task = SimcTask.objects.get(id=body['data']['task_id'])
+        runs = list(task.simulation_runs.order_by('sequence'))
+        self.assertEqual(SimcTask.objects.filter(mode='comparison').count(), 1)
+        self.assertEqual(len(runs), 6)
+        self.assertTrue(task.profile_id and task.template_id and task.apl_id)
+        self.assertTrue(task.profile_version_id and task.template_version_id and task.apl_version_id)
+        self.assertEqual(task.mode, 'comparison')
+        self.assertTrue(all(run.task_id == task.id for run in runs))
+        self.assertEqual(body['data']['run_ids'], [run.id for run in runs])
 
     def test_worker_manifest_combines_resolver_and_composition_metadata(self):
         task = create_task(user_id=self.user.id, name='run', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id)
@@ -83,12 +116,13 @@ class SimcCoreClosureTests(TestCase):
             'talent_override': 'secret talent body',
         }
         task.save(update_fields=['mode_params'])
-        SimulationRun.objects.create(
-            task=task, sequence=1, status='failed', input_hash='a' * 64,
-            result_summary={'dps': 12, 'secret': 'drop'},
-            resource_manifest={'profile': {'id': self.profile.id}, 'content': 'drop'},
-            error_detail='Traceback: command=/private/path stderr=secret',
-        )
+        run = task.simulation_runs.get()
+        run.status = 'failed'
+        run.input_hash = 'a' * 64
+        run.result_summary = {'dps': 12, 'secret': 'drop'}
+        run.resource_manifest = {'profile': {'id': self.profile.id}, 'content': 'drop'}
+        run.error_detail = 'Traceback: command=/private/path stderr=secret'
+        run.save()
         request = self.factory.get('/api/simc-workbench/tasks/%s/' % task.id); request.user = self.user
         body = json.loads(SimcWorkbenchAPIView.as_view()(request, resource='tasks', object_id=task.id).content)['data']
         self.assertEqual(len(body['runs']), 1)
@@ -97,13 +131,13 @@ class SimcCoreClosureTests(TestCase):
         self.assertNotIn('error_detail', body['runs'][0])
         self.assertEqual(body['runs'][0]['error_summary'], '任务执行失败')
         self.assertEqual(body['mode_summary'], {
-            'candidate_type': 'gear_swap', 'is_base': False, 'batch_index': 1,
+            'candidate_type': 'gear_swap', 'is_base': False,
         })
         self.assertNotIn('mode_params', body)
 
     def test_artifact_can_be_bound_to_specific_run(self):
         task = create_task(user_id=self.user.id, name='artifact', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id)
-        run = SimulationRun.objects.create(task=task, sequence=1)
+        run = task.simulation_runs.get()
         artifact = SimcTaskArtifact.objects.create(task=task, run=run, artifact_type='html_report', file_path='simc_results/x.html')
         self.assertEqual(artifact.run_id, run.id)
 
@@ -114,7 +148,7 @@ class SimcCoreClosureTests(TestCase):
         from botend.services.simc_artifacts import upsert_task_html_artifact
 
         task = create_task(user_id=self.user.id, name='artifact-history', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id)
-        old_run = SimulationRun.objects.create(task=task, sequence=1)
+        old_run = task.simulation_runs.get()
         new_run = SimulationRun.objects.create(task=task, sequence=2)
         with NamedTemporaryFile() as report:
             validated_result.return_value = (Path(report.name), 'simc_results/simc_task_%s.html' % task.id)
@@ -129,11 +163,14 @@ class SimcCoreClosureTests(TestCase):
         task = create_task(user_id=self.user.id, name='old', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id, simulation_params={'iterations': 1000})
         task.current_status = 2; task.save(update_fields=['current_status'])
         new_apl = SimcApl.objects.create(name='new', spec='fury', content='actions=/rampage', owner_user_id=self.user.id, is_active=True, is_selectable=True)
+        mark_apl_valid(new_apl)
         rerun = create_rerun(task.id, self.user.id, {'name': 'new name', 'apl_id': new_apl.id, 'simulation_params': {'iterations': 2222, 'evil': 1}})
         self.assertEqual(rerun.name, 'new name')
         self.assertEqual(rerun.apl_id, new_apl.id)
         self.assertEqual(rerun.simulation_params, {'iterations': 2222})
-        self.assertIsNone(rerun.batch_id)
+        self.assertEqual(rerun.mode, 'normal')
+        self.assertEqual(rerun.simulation_runs.count(), 1)
+        self.assertEqual(rerun.simulation_runs.get().candidate_key, 'normal')
         task.refresh_from_db(); self.assertEqual(task.name, 'old')
         with self.assertRaises(TaskRerunError):
             create_rerun(task.id, self.user.id, {'evil': 'field'})

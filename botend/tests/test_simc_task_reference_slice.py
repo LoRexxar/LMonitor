@@ -10,10 +10,39 @@ Architecture:
 
 Run with: DJANGO_SETTINGS_MODULE=LMonitor.settings_test_sqlite python manage.py test botend.tests.test_simc_task_reference_slice
 """
+import hashlib
 import json
+from unittest.mock import patch
 from django.test import TestCase
 from django.utils import timezone
 from botend.models import SimcTask, SimcProfile, SimcApl, SimcContentTemplate
+
+
+TEST_VALIDATION_IDENTITY = ('test-simc-revision', 'test-game-build')
+
+
+def mark_apl_valid(apl):
+    values = {'validation_status': SimcApl.VALIDATION_VALID,
+              'validated_content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+              'validation_revision': TEST_VALIDATION_IDENTITY[0],
+              'validation_game_build': TEST_VALIDATION_IDENTITY[1], 'is_selectable': True}
+    SimcApl.objects.filter(pk=apl.pk).update(**values)
+    for key, value in values.items(): setattr(apl, key, value)
+
+
+def setUpModule():
+    from django.test import override_settings
+    global _validation_settings, _validation_mock
+    _validation_settings = override_settings(SIMC_APL_CURRENT_IDENTITY=TEST_VALIDATION_IDENTITY)
+    _validation_settings.enable()
+    _validation_mock = patch('botend.services.simc_task_service.validate_apl_for_profile', side_effect=lambda _p, apl: {
+        'valid': True, 'content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+        'revision': TEST_VALIDATION_IDENTITY[0], 'game_build': TEST_VALIDATION_IDENTITY[1]})
+    _validation_mock.start()
+
+
+def tearDownModule():
+    _validation_mock.stop(); _validation_settings.disable()
 
 
 class SimcResourceVersionModelTests(TestCase):
@@ -124,6 +153,7 @@ class SimcTaskServiceTests(TestCase):
             is_active=True,
             owner_user_id=self.user_id,
         )
+        mark_apl_valid(self.apl)
 
     def test_task_service_validates_ownership(self):
         """RED: create_task should validate owner/system permissions."""
@@ -305,21 +335,18 @@ class SimcTaskServiceTests(TestCase):
         self.assertIn("complete references", str(ctx.exception).lower())
 
     def test_task_service_requires_batch_for_candidate_modes(self):
-        """Comparison and attribute sweep tasks cannot exist outside a Batch."""
-        from botend.services.simc_task_service import create_task, TaskCreationError
+        """Candidate modes use one Task and one default Run when no candidates are supplied."""
+        from botend.services.simc_task_service import create_task
 
         for mode in ('comparison', 'attribute_sweep'):
             with self.subTest(mode=mode):
-                with self.assertRaises(TaskCreationError) as ctx:
-                    create_task(
-                        user_id=self.user_id,
-                        name="Task",
-                        profile_id=self.profile.id,
-                        template_id=self.template.id,
-                        apl_id=self.apl.id,
-                        mode=mode,
-                    )
-                self.assertIn("requires batch_id", str(ctx.exception).lower())
+                task = create_task(
+                    user_id=self.user_id, name="Task", profile_id=self.profile.id,
+                    template_id=self.template.id, apl_id=self.apl.id, mode=mode,
+                )
+                self.assertEqual(task.mode, mode)
+                self.assertEqual(task.simulation_runs.count(), 1)
+                self.assertEqual(task.simulation_runs.get().candidate_key, 'normal')
 
 
 class TaskResolverWithVersionsTests(TestCase):
@@ -350,6 +377,7 @@ class TaskResolverWithVersionsTests(TestCase):
             is_selectable=True,
             owner_user_id=self.user_id,
         )
+        mark_apl_valid(self.apl)
 
     def test_resolver_reads_version_payload_not_live_content(self):
         """RED: resolve_task should read version payload, ignoring live resource updates."""
@@ -449,6 +477,7 @@ class TaskRerunWithVersionsTests(TestCase):
             is_selectable=True,
             owner_user_id=self.user_id,
         )
+        mark_apl_valid(self.apl)
 
     def test_rerun_copies_version_fk_by_default(self):
         """RED: create_rerun should copy version FK, not regenerate."""
@@ -513,6 +542,7 @@ class TaskRerunWithVersionsTests(TestCase):
             is_selectable=True,
             owner_user_id=self.user_id,
         )
+        mark_apl_valid(new_apl)
 
         original.current_status = 2
         original.save(update_fields=['current_status'])
@@ -696,19 +726,20 @@ class TaskRerunWithVersionsTests(TestCase):
             self.assertIn("completed or failed", str(ctx.exception).lower())
 
     def test_non_normal_candidate_rerun_is_normal_and_detached_from_historical_batch(self):
-        from botend.models import SimcTaskBatch
+        from botend.models import SimulationRun
         from botend.services.simc_task_service import create_task
         from botend.services.task_rerun import create_rerun
 
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user_id, name='Historical comparison', batch_type='comparison', status=2,
-        )
         source = create_task(
             user_id=self.user_id, name='Candidate', profile_id=self.profile.id,
             template_id=self.template.id, apl_id=self.apl.id, mode='comparison',
             simulation_params={'iterations': 5000},
-            mode_params={'candidate_type': 'talent_override', 'talent_override': 'ABC'},
-            candidate_label='talent ABC', batch_id=batch.id,
+            mode_params={'request_manifest': {'kind': 'talent_candidates'}},
+            candidates=[{
+                'candidate_key': 'talent-abc', 'candidate_label': 'talent ABC',
+                'candidate_params': {'candidate_type': 'talent_override',
+                                     'talent_override': 'ABC'},
+            }],
         )
         source.current_status = 2
         source.save(update_fields=['current_status'])
@@ -716,15 +747,16 @@ class TaskRerunWithVersionsTests(TestCase):
         rerun = create_rerun(source.id, user_id=self.user_id)
 
         self.assertEqual(rerun.mode, 'normal')
-        self.assertIsNone(rerun.batch_id)
         self.assertEqual(rerun.simulation_params, source.simulation_params)
         self.assertEqual(rerun.mode_params, source.mode_params)
+        self.assertEqual(rerun.simulation_runs.count(), 1)
+        self.assertEqual(rerun.simulation_runs.get().candidate_key, 'normal')
         self.assertEqual(rerun.profile_version_id, source.profile_version_id)
         self.assertEqual(rerun.template_version_id, source.template_version_id)
         self.assertEqual(rerun.apl_version_id, source.apl_version_id)
         source.refresh_from_db()
         self.assertEqual(source.mode, 'comparison')
-        self.assertEqual(source.batch_id, batch.id)
+        self.assertEqual(source.simulation_runs.get().candidate_key, 'talent-abc')
 
 
 class SimulationRunModelTests(TestCase):
