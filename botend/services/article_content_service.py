@@ -236,11 +236,23 @@ def html_block_translate_texts(block: Dict[str, Any], translated_by_original: Di
             translated = translated_queue[queue_index]
             queue_index += 1
         if translated:
-            text_node.replace_with(translated)
+            _replace_with_safe_inline_translation(text_node, translated)
     new_block["html"] = str(soup)
     if block.get("html"):
         new_block["original_html"] = block.get("html")
     return new_block
+
+
+def _replace_with_safe_inline_translation(text_node, translated: str):
+    """Keep safe links/entities in translated HTML text without allowing raw HTML."""
+    if not BeautifulSoup:
+        text_node.replace_with(html.unescape(translated or ""))
+        return
+    from botend.services.wowhead_bbcode_renderer import render_wowhead_bbcode
+
+    rendered = render_wowhead_bbcode(translated or "", base_url="https://www.wowhead.com/")
+    fragment = BeautifulSoup(rendered, "html.parser")
+    text_node.replace_with(*list(fragment.contents))
 
 
 def html_block_text_nodes(html_text: str) -> List[str]:
@@ -280,6 +292,7 @@ def _html_block(root, *, base_url: str) -> Dict[str, Any]:
     _restore_empty_image_links(cloned, base_url=base_url)
     for tag in cloned.find_all(True):
         _sanitize_html_tag(tag, base_url=base_url)
+    _normalize_html_inline_markup(cloned, base_url=base_url)
     html_text = _clean_html_fragment("".join(str(child) for child in cloned.children))
     if not html_text:
         return {}
@@ -765,6 +778,26 @@ def _sanitize_html_tag(tag, *, base_url: str):
             # URL until the uploader rewrites it.
             if attr_lower != "data-source-src":
                 tag.attrs[attr] = urljoin(base_url, normalized)
+
+
+def _normalize_html_inline_markup(root, *, base_url: str):
+    """Normalize imported Markdown links and double-escaped entities in text nodes."""
+    if not BeautifulSoup:
+        return
+    from botend.services.wowhead_bbcode_renderer import render_wowhead_bbcode
+
+    for text_node in list(root.find_all(string=True)):
+        parent = getattr(text_node, "parent", None)
+        if not parent or parent.name in {"script", "style", "code", "pre"}:
+            continue
+        raw = str(text_node)
+        if "&" not in raw and not re.search(r"\[[^\]\r\n]+\]\([^)\r\n]+\)", raw):
+            continue
+        rendered = render_wowhead_bbcode(raw, base_url=base_url)
+        if rendered == raw:
+            continue
+        fragment = BeautifulSoup(rendered, "html.parser")
+        text_node.replace_with(*list(fragment.contents))
 
 
 def _clean_html_fragment(html_text: str) -> str:

@@ -199,7 +199,7 @@ def render_wowhead_bbcode(
     entities: Optional[Dict[Tuple[str, str], Dict[str, str]]] = None,
     screenshot_extensions: Optional[Dict[str, str]] = None,
 ) -> str:
-    root = parse_wowhead_bbcode(markup)
+    root = parse_wowhead_bbcode(_normalize_markdown_links(markup or "", base_url))
     context = {
         "base_url": base_url,
         "entities": entities or {},
@@ -212,7 +212,11 @@ def _render_node(node: BBNode, context: dict, ancestors: List[str]) -> str:
     if node.kind == "text":
         if ancestors and ancestors[-1] in _STRUCTURAL_CONTEXTS and not node.text.strip():
             return ""
-        escaped = html.escape(node.text, quote=False)
+        # Imported Wowhead fragments can contain Markdown links and HTML entities
+        # inside an otherwise HTML-rendered body. Decode entities first, then
+        # render only safe Markdown destinations.
+        decoded = html.unescape(html.unescape(node.text))
+        escaped = _render_inline_markdown_links(decoded, context["base_url"])
         return re.sub(r"\r\n|\r|\n", "<br/>", escaped)
 
     name = node.name
@@ -323,6 +327,37 @@ def _plain_children(node: BBNode) -> str:
         else:
             result.append(_plain_children(child))
     return "".join(result).strip()
+
+
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]\r\n]{1,2048})\]\(([^)\r\n]{1,4096})\)")
+
+
+def _normalize_markdown_links(value: str, base_url: str) -> str:
+    """Convert safe Markdown links to BBCode before token parsing."""
+    def replace(match):
+        safe_url = _safe_url(match.group(2).strip(), base_url)
+        if not safe_url:
+            return match.group(1)
+        return "[url={}]{}[/url]".format(safe_url, match.group(1))
+
+    return _MARKDOWN_LINK_RE.sub(replace, value or "")
+
+
+def _render_inline_markdown_links(value: str, base_url: str) -> str:
+    """Render the small Markdown subset found in imported Wowhead fragments."""
+    output = []
+    cursor = 0
+    for match in _MARKDOWN_LINK_RE.finditer(value or ""):
+        output.append(html.escape(value[cursor:match.start()], quote=False))
+        label = html.escape(match.group(1), quote=False)
+        safe_url = _safe_url(match.group(2).strip(), base_url)
+        if safe_url:
+            output.append('<a href="{}">{}</a>'.format(html.escape(safe_url, quote=True), label))
+        else:
+            output.append(label)
+        cursor = match.end()
+    output.append(html.escape(value[cursor:], quote=False))
+    return "".join(output)
 
 
 def _render_safe_html(value: str, base_url: str) -> str:

@@ -69,6 +69,20 @@ class WowheadBBCodeRendererTests(SimpleTestCase):
         self.assertNotIn("javascript:", rendered)
         self.assertNotIn("[/img]", rendered)
 
+    def test_renders_markdown_links_and_decodes_html_entities_in_text(self):
+        rendered = render_wowhead_bbcode(
+            "[收割](https://www.wowhead.com/spell=1226019) &nbsp;，"
+            "[危险](javascript:alert(1))",
+            base_url="https://www.wowhead.com/news/382254",
+        )
+
+        self.assertIn('href="https://www.wowhead.com/spell=1226019"', rendered)
+        self.assertIn(">收割</a>", rendered)
+        self.assertIn("\xa0，", rendered)
+        self.assertNotIn("&amp;nbsp;", rendered)
+        self.assertIn("危险", rendered)
+        self.assertNotIn("javascript:", rendered)
+
     def test_renders_safe_html_wrapper_as_html_instead_of_escaped_text(self):
         rendered = render_wowhead_bbcode(
             '[html]<table><tr><th colspan="4">Class Tools</th></tr>'
