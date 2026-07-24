@@ -1166,6 +1166,8 @@ main_hand=,id=222222
         validation = SimcMonitor.validate_simulation_semantics(stdout)
         self.assertTrue(validation['valid'])
         self.assertGreater(validation['non_auto_dps'], 0)
+        self.assertEqual(validation['dps_error'], 150.0)
+        self.assertEqual(validation['dps_error_pct'], 0.24)
 
     def test_attribute_search_rejects_any_non_50_step(self):
         self.profile.player_config_mode = 'attribute_only'
@@ -2461,6 +2463,36 @@ main_hand=,id=222
             'slot': 'head', 'raw_value': ',id=444,ilevel=650',
             'item_id': 444, 'source': 'manual',
         })
+
+    def test_gear_candidate_batch_accepts_full_simc_gear_line(self):
+        profile = self._create_profile('Full manual candidate', '''warrior="Batcher"
+spec=fury
+talents=ACTIVE_BUILD
+head=,id=111,ilevel=639
+main_hand=,id=222
+''')
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
+            'kind': 'gear_candidates', 'name': 'Fury 完整装备行对比',
+            'include_base': False,
+            'simc_profile_id': profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+            'candidates': [{
+                'slot': 'head', 'item_id': 444, 'source': 'manual',
+                'raw_value': 'head=手工候选头盔,id=444,ilevel=650',
+            }],
+        }), content_type='application/json')
+
+        self.assertTrue(response.json()['success'], response.json())
+        task = SimcTask.objects.get()
+        swap = task.mode_params['initial_candidates'][0]['candidate_params']['gear_swap']
+        self.assertEqual(swap['raw_value'], '手工候选头盔,id=444,ilevel=650')
+        rendered = SimcMonitor.apply_candidate_overrides(
+            {'player_equipment': profile.player_equipment},
+            {'candidate_type': 'gear_swap', 'gear_swap': swap},
+        )
+        self.assertIn('head=手工候选头盔,id=444,ilevel=650', rendered['player_equipment'])
+        self.assertNotIn('head=head=', rendered['player_equipment'])
 
     def test_gear_candidate_batch_rejects_manual_line_for_another_slot(self):
         profile = self._create_profile('Invalid manual candidate Test', '''warrior="Batcher"

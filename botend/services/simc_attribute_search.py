@@ -71,8 +71,13 @@ def _completed_round_rows(round_runs):
             raise ValueError('当前属性搜索轮次存在无法解析 DPS 或绿字的执行')
         if min(normalized.values()) < 0:
             raise ValueError('属性寻优绿字不能为负数')
+        try:
+            dps_error = max(0.0, float(summary['dps_error']))
+        except (KeyError, TypeError, ValueError):
+            dps_error = None
         rows.append({
-            'ratings': normalized, 'dps': dps, 'is_center': bool(params.get('is_base')),
+            'ratings': normalized, 'dps': dps, 'dps_error': dps_error,
+            'is_center': bool(params.get('is_base')),
             'move': ((params.get('search') or {}).get('move') or {}),
         })
     if len(rows) < 2:
@@ -125,7 +130,13 @@ def advance_attribute_search(task_id, expected_started_at=None):
         return {'appended': 0, 'converged': False, 'awaiting': True}
     rows, center = _completed_round_rows(round_runs)
     best_neighbor = max((row for row in rows if not row['is_center']), key=lambda row: row['dps'])
-    improved = best_neighbor['dps'] > center['dps'] + ATTRIBUTE_DPS_TOLERANCE
+    combined_error = (
+        center['dps_error'] + best_neighbor['dps_error']
+        if center['dps_error'] is not None and best_neighbor['dps_error'] is not None
+        else ATTRIBUTE_DPS_TOLERANCE
+    )
+    improvement_threshold = max(ATTRIBUTE_DPS_TOLERANCE, combined_error)
+    improved = best_neighbor['dps'] > center['dps'] + improvement_threshold
     winner = best_neighbor if improved else center
     recommendation = {
         'ratings': winner['ratings'], 'step': ATTRIBUTE_SEARCH_STEP,

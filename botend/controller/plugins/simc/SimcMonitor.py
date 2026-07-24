@@ -27,6 +27,7 @@ from botend.controller.BaseScan import BaseScan
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOT_ALIASES,
     authoritative_player_baseline,
+    normalize_gear_candidate_value,
     validate_player_baseline,
 )
 from botend.services.simc_composer import SimcComposer
@@ -427,7 +428,7 @@ class SimcMonitor(BaseScan):
         if candidate_type == 'gear_swap':
             swap = params.get('gear_swap') or {}
             slot = str(swap.get('slot') or '').strip().lower()
-            raw_value = str(swap.get('raw_value') or '').strip()
+            raw_value = normalize_gear_candidate_value(slot, swap.get('raw_value'))
             if not slot or not raw_value:
                 raise ValueError('装备候选缺少 slot 或 raw_value')
             lines = []
@@ -911,6 +912,11 @@ class SimcMonitor(BaseScan):
         """Reject reports that technically finish but never execute a real rotation."""
         text = str(stdout_text or '')
         dps_match = re.search(r'\bDPS=([0-9]+(?:\.[0-9]+)?)', text)
+        dps_error_match = re.search(
+            r'\bDPS-Error=([0-9]+(?:\.[0-9]+)?)/([0-9]+(?:\.[0-9]+)?)%',
+            text,
+            flags=re.IGNORECASE,
+        )
         action_rows = re.findall(
             r'^\s{2,}([a-z][a-z0-9_]*)\s+Count=.*?\bpDPS=\s*([0-9]+)',
             text,
@@ -966,6 +972,8 @@ class SimcMonitor(BaseScan):
         return {
             'valid': valid,
             'dps': float(dps_match.group(1)) if dps_match else 0.0,
+            'dps_error': float(dps_error_match.group(1)) if dps_error_match else None,
+            'dps_error_pct': float(dps_error_match.group(2)) if dps_error_match else None,
             'non_auto_dps': non_auto_dps,
             'action_row_count': len(action_rows),
             'failure_type': failure_type,

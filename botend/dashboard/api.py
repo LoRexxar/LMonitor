@@ -44,6 +44,7 @@ from botend.services.simc_player_config import (
     EQUIPMENT_SLOTS,
     authoritative_player_baseline,
     canonical_simc_spec_identity,
+    normalize_gear_candidate_value,
     parse_manual_player_config,
     resolve_attribute_player_baseline,
     validate_default_player_baseline,
@@ -2286,9 +2287,9 @@ class SimcComparisonTaskAPIView(View):
                         source = str(candidate.get('source') or '')
                         if source == 'manual':
                             slot = EQUIPMENT_SLOT_ALIASES.get(str(candidate.get('slot') or '').strip().lower(), str(candidate.get('slot') or '').strip().lower())
-                            raw_value = str(candidate.get('raw_value') or '').strip()
-                            if slot not in EQUIPMENT_SLOTS or not re.match(r'^,?\s*id=\d+(?:\s*,.*)?$', raw_value, re.IGNORECASE):
+                            if slot not in EQUIPMENT_SLOTS:
                                 raise ValueError('手工候选的槽位或 SimC 装备配置无效')
+                            raw_value = normalize_gear_candidate_value(slot, candidate.get('raw_value'))
                             item_match = re.search(r'(?:^|,)\s*id=(\d+)', raw_value, re.IGNORECASE)
                             candidate['slot'] = slot
                             candidate['item_id'] = int(item_match.group(1))

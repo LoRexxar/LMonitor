@@ -67,6 +67,30 @@ SECONDARY = ('crit', 'haste', 'mastery', 'versatility')
 PRIMARY = ('strength', 'agility', 'intellect', 'stamina')
 
 
+def normalize_gear_candidate_value(slot, raw_value):
+    """Normalize a manual SimC gear candidate to the value after ``slot=``."""
+    canonical_slot = EQUIPMENT_SLOT_ALIASES.get(
+        str(slot or '').strip().lower(), str(slot or '').strip().lower(),
+    )
+    value = str(raw_value or '').strip()
+    if not canonical_slot or not value or '\n' in value or '\r' in value:
+        raise ValueError('手工候选的槽位或 SimC 装备配置无效')
+    full_line_match = re.match(r'^([a-z][a-z0-9_]*)\s*=(.*)$', value, re.IGNORECASE)
+    if full_line_match and full_line_match.group(1).lower() not in ('id',):
+        submitted_slot = EQUIPMENT_SLOT_ALIASES.get(
+            full_line_match.group(1).lower(), full_line_match.group(1).lower(),
+        )
+        if submitted_slot != canonical_slot:
+            raise ValueError('手工候选的槽位与 SimC 装备行不一致')
+        value = full_line_match.group(2).strip()
+    if not re.match(r'^(?:[^,=]+,)?\s*,?\s*id=\d+(?:\s*,.*)?$', value, re.IGNORECASE):
+        raise ValueError('手工候选的槽位或 SimC 装备配置无效')
+    value = value.strip()
+    if re.match(r'^id=', value, re.IGNORECASE):
+        value = f',{value}'
+    return value
+
+
 def _number(value):
     try:
         return int(float(str(value).strip()))
