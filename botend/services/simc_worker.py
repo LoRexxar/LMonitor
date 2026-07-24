@@ -34,7 +34,7 @@ class SimcWorker:
         recovered = 0
         tasks = SimcTask.objects.filter(
             is_active=True, current_status=1,
-        ).filter(started_at__lt=threshold)
+        ).filter(modified_time__lt=threshold)
         for task in tasks:
             runs = list(SimulationRun.objects.filter(task=task).order_by('sequence'))
             running = [run for run in runs if run.status == 'running']
@@ -84,6 +84,27 @@ class SimcWorker:
                 current_status=3, error_detail=reason, completed_at=timezone.now()
             )
 
+    def _start_heartbeat(self, task_id):
+        """Refresh the task lease while one long SimC subprocess is blocking."""
+        stopped = threading.Event()
+        interval = max(1.0, min(float(self.stale_seconds) / 3.0, 30.0))
+
+        def beat():
+            while not stopped.wait(interval):
+                close_old_connections()
+                try:
+                    SimcTask.objects.filter(pk=task_id, current_status=1).update(
+                        modified_time=timezone.now(),
+                    )
+                except Exception:
+                    logger.exception('[SimC Worker] task %s heartbeat failed', task_id)
+                finally:
+                    close_old_connections()
+
+        thread = threading.Thread(target=beat, name=f'simc-heartbeat-{task_id}', daemon=True)
+        thread.start()
+        return stopped, thread
+
     def consume_once(self):
         """只领取一个 pending Task；返回是否发现任务。"""
         close_old_connections()
@@ -107,7 +128,12 @@ class SimcWorker:
             if claimed != 1:
                 return True
             task.refresh_from_db()
-            result = self.monitor.process_simc_task(task, already_claimed=True)
+            heartbeat_stop, heartbeat_thread = self._start_heartbeat(task.id)
+            try:
+                result = self.monitor.process_simc_task(task, already_claimed=True)
+            finally:
+                heartbeat_stop.set()
+                heartbeat_thread.join(timeout=2)
             # 测试替身或旧实现若只返回成功，不应让队列永久停在 running。
             if result and task.current_status == 1:
                 task.current_status = 2

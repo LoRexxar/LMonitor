@@ -51,7 +51,15 @@ from botend.services.simc_player_config import (
 )
 from botend.services.simc_composer import SimcComposer
 from botend.services.spec_stats_service import SpecStatsService
-from botend.services.simc_task_service import create_task, create_task_from_request, append_candidate_runs, TaskCreationError
+from botend.services.simc_task_service import create_task, create_task_from_request, TaskCreationError
+from botend.services.simc_attribute_search import (
+    ATTRIBUTE_DPS_TOLERANCE as SIMC_ATTRIBUTE_DPS_TOLERANCE,
+    ATTRIBUTE_SEARCH_STEP as SIMC_ATTRIBUTE_SEARCH_STEP,
+    ATTRIBUTE_STATS as SIMC_ATTRIBUTE_STATS,
+    MAX_ATTRIBUTE_SEARCH_ROUNDS as SIMC_MAX_ATTRIBUTE_SEARCH_ROUNDS,
+    advance_attribute_search,
+    attribute_variants,
+)
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
@@ -2146,11 +2154,11 @@ class SimcComparisonTaskAPIView(View):
     """Create a small, self-describing regular-task comparison batch."""
     MAX_TASKS = 8
     MAX_ATTRIBUTE_TASKS = 13
-    ATTRIBUTE_STATS = ('crit', 'haste', 'mastery', 'versatility')
-    MAX_ATTRIBUTE_SEARCH_ROUNDS = 20
-    ATTRIBUTE_SEARCH_STEP = 50
-    DEFAULT_MIN_ATTRIBUTE_STEP = ATTRIBUTE_SEARCH_STEP
-    ATTRIBUTE_DPS_TOLERANCE = 1.0
+    ATTRIBUTE_STATS = SIMC_ATTRIBUTE_STATS
+    MAX_ATTRIBUTE_SEARCH_ROUNDS = SIMC_MAX_ATTRIBUTE_SEARCH_ROUNDS
+    ATTRIBUTE_SEARCH_STEP = SIMC_ATTRIBUTE_SEARCH_STEP
+    DEFAULT_MIN_ATTRIBUTE_STEP = SIMC_ATTRIBUTE_SEARCH_STEP
+    ATTRIBUTE_DPS_TOLERANCE = SIMC_ATTRIBUTE_DPS_TOLERANCE
 
     @staticmethod
     def _int(value, field):
@@ -2164,41 +2172,14 @@ class SimcComparisonTaskAPIView(View):
 
     @classmethod
     def _attribute_variants(cls, values, step=None, round_number=1, mark_base=True):
-        """Measure the complete legal 50-rating directed pairwise neighborhood.
-
-        The four ratings keep their exact total. A 50-rating transfer from every legal
-        source stat to every other target stat is evaluated with real SimC. Therefore
-        a winning centre is a local optimum under the declared 50-rating neighborhood,
-        rather than merely under a versatility-anchored coordinate subset.
-        """
+        """Return the server-owned fixed 50-rating pairwise neighborhood."""
         try:
             step = int(step if step is not None else cls.ATTRIBUTE_SEARCH_STEP)
         except (TypeError, ValueError):
             raise ValueError('属性寻优步长无效')
         if step != cls.ATTRIBUTE_SEARCH_STEP:
             raise ValueError(f'四属性自动寻优固定使用 {cls.ATTRIBUTE_SEARCH_STEP} 绿字步长')
-        base = {stat: int(values[stat]) for stat in cls.ATTRIBUTE_STATS}
-        rows = [('基准属性', base, mark_base, {
-            'type': 'attribute', 'algorithm': 'four_stat_pairwise_hill_climb',
-            'algorithm_version': 2, 'round': round_number, 'step': step,
-            'total_rating': sum(base.values()), 'move': {'type': 'baseline'},
-        })]
-        for source in cls.ATTRIBUTE_STATS:
-            if base[source] < step:
-                continue
-            for target in cls.ATTRIBUTE_STATS:
-                if source == target:
-                    continue
-                variant = dict(base)
-                variant[source] -= step
-                variant[target] += step
-                rows.append((f'{source} -{step} / {target} +{step}', variant, False, {
-                    'type': 'attribute', 'algorithm': 'four_stat_pairwise_hill_climb',
-                    'algorithm_version': 2, 'round': round_number, 'step': step,
-                    'total_rating': sum(base.values()),
-                    'move': {'from': source, 'to': target, 'transfer': step},
-                }))
-        return rows
+        return attribute_variants(values, round_number=round_number, mark_base=mark_base)
 
     @classmethod
     def _next_attribute_search_center(cls, results, step, min_step=50):
@@ -2323,120 +2304,23 @@ class SimcComparisonTaskAPIView(View):
                 continue
         return history
 
-    @transaction.atomic
     def _continue_attribute_search(self, request, data, continue_task_id):
-        """Analyze only the highest complete run round and append its successor."""
+        """Compatibility helper; lifecycle decisions remain server-side."""
         try:
-            task = SimcTask.objects.select_for_update().select_related(
-                'profile_version', 'template_version', 'apl_version',
-            ).get(id=int(continue_task_id), user_id=request.user.id,
-                  is_active=True, mode='attribute_sweep')
+            task = SimcTask.objects.get(
+                id=int(continue_task_id), user_id=request.user.id,
+                is_active=True, mode='attribute_sweep',
+            )
         except (TypeError, ValueError, SimcTask.DoesNotExist):
             raise ValueError('当前属性搜索任务不存在或无权限访问')
-        if not all((task.profile_id, task.template_id, task.apl_id,
-                    task.profile_version_id, task.template_version_id, task.apl_version_id)):
-            raise ValueError('当前属性搜索任务引用不完整')
-        version_pairs = (
-            (task.profile_version, 'profile', task.profile_id),
-            (task.template_version, 'template', task.template_id),
-            (task.apl_version, 'apl', task.apl_id),
-        )
-        if any(version.resource_type != resource_type or version.resource_id != resource_id
-               for version, resource_type, resource_id in version_pairs):
-            raise ValueError('当前属性搜索任务资源版本不一致')
-
-        runs = list(task.simulation_runs.select_for_update().prefetch_related('artifacts').order_by('sequence'))
-        if not runs:
-            raise ValueError('当前属性搜索任务不存在或无权限访问')
-        current_round = max(run.round_number for run in runs)
-        round_runs = [run for run in runs if run.round_number == current_round]
-        if any(run.status != 'completed' for run in round_runs):
-            raise ValueError('当前属性搜索轮次必须全部成功后才能续轮')
-
-        source_rows = []
-        parser = SimcRegularCompareAPIView()
-        for run in round_runs:
-            params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
-            ratings = params.get('attribute_ratings') or {}
-            summary = run.result_summary if isinstance(run.result_summary, dict) else {}
-            dps = summary.get('dps')
-            if dps is None:
-                result_file = self._run_result_file(run)
-                html_content = parser._get_result_file_content(result_file) if result_file else None
-                dps = (parser._parse_regular_result(html_content) if html_content else {}).get('dps')
-            if dps is None or any(ratings.get(stat) is None for stat in self.ATTRIBUTE_STATS):
-                raise ValueError('当前属性搜索轮次存在无法解析 DPS 或绿字的执行')
-            try:
-                normalized_ratings = {stat: int(ratings[stat]) for stat in self.ATTRIBUTE_STATS}
-                normalized_dps = float(dps)
-            except (TypeError, ValueError):
-                raise ValueError('当前属性搜索轮次存在无法解析 DPS 或绿字的执行')
-            source_rows.append({
-                'ratings': normalized_ratings, 'dps': normalized_dps,
-                'is_center': bool(params.get('is_base')),
-                'move': ((params.get('search') or {}).get('move') or {}),
-            })
-        if len(source_rows) < 2:
-            raise ValueError('当前属性搜索轮次没有足够完成结果')
-        centers = [row for row in source_rows if row['is_center']]
-        if len(centers) != 1:
-            raise ValueError('当前属性搜索轮次必须包含且仅包含一个基准点')
-        center_run = next(run for run in round_runs if bool((run.candidate_params or {}).get('is_base')))
-        current_step = (((center_run.candidate_params or {}).get('search') or {}).get('step'))
-        expected_rows = self._attribute_variants(
-            centers[0]['ratings'], current_step, round_number=current_round, mark_base=True,
-        )
-
-        def neighborhood_signature(ratings, is_center, move):
-            move = move if isinstance(move, dict) else {}
-            return (tuple(int(ratings[stat]) for stat in self.ATTRIBUTE_STATS), bool(is_center),
-                    str(move.get('from') or ''), str(move.get('to') or ''),
-                    int(move.get('transfer') or 0), str(move.get('type') or ''))
-
-        actual_signatures = [neighborhood_signature(row['ratings'], row['is_center'], row['move']) for row in source_rows]
-        expected_signatures = [neighborhood_signature(ratings, is_base, candidate.get('move') or {})
-                               for _label, ratings, is_base, candidate in expected_rows]
-        if len(actual_signatures) != len(set(actual_signatures)) or set(actual_signatures) != set(expected_signatures):
-            raise ValueError('当前属性搜索轮次候选邻域不完整或存在重复')
-
-        recommendation = self._next_attribute_search_center(
-            source_rows, current_step, data.get('min_attribute_step', self.DEFAULT_MIN_ATTRIBUTE_STEP),
-        )
-        if not recommendation['converged']:
-            next_round = current_round + 1
-            stop_reason = self._attribute_search_stop_reason(
-                next_round, recommendation['ratings'], recommendation['step'],
-                self._attribute_search_history(runs), self.MAX_ATTRIBUTE_SEARCH_ROUNDS,
-            )
-            if stop_reason:
-                recommendation['converged'] = True
-                recommendation['stop_reason'] = stop_reason
-        if recommendation['converged']:
-            task.analysis_result = {
-                **(task.analysis_result if isinstance(task.analysis_result, dict) else {}),
-                'attribute_search': recommendation,
-            }
-            task.save(update_fields=['analysis_result', 'modified_time'])
-            return {'task_id': task.id, 'accepted': 0, 'run_ids': [],
-                    'converged': True, 'recommendation': recommendation}
-
-        next_round = current_round + 1
-        rows = self._attribute_variants(
-            recommendation['ratings'], recommendation['step'], round_number=next_round, mark_base=True,
-        )
-        candidates = [{
-            'candidate_key': f'round-{next_round}-candidate-{index}',
-            'candidate_label': label,
-            'round_number': next_round,
-            'candidate_params': {
-                'candidate_type': 'attribute_ratings', 'is_base': is_base,
-                'attribute_ratings': ratings, 'search': candidate,
-            },
-        } for index, (label, ratings, is_base, candidate) in enumerate(rows)]
-        created_runs = append_candidate_runs(task, candidates, round_number=next_round)
-        return {'task_id': task.id, 'accepted': len(created_runs),
-                'run_ids': [run.id for run in created_runs], 'converged': False,
-                'recommendation': recommendation}
+        result = advance_attribute_search(task.id)
+        return {
+            'task_id': task.id,
+            'accepted': int(result.get('appended') or 0),
+            'run_ids': result.get('run_ids') or [],
+            'converged': bool(result.get('converged')),
+            'recommendation': result.get('recommendation'),
+        }
 
     def _safe_error_summary(self, task):
         """安全错误摘要：从ext的simc_error_summary提取，或返回固定文案"""
@@ -2511,7 +2395,10 @@ class SimcComparisonTaskAPIView(View):
             data = json.loads(request.body or '{}')
             continue_task_id = str(data.get('continue_task_id') or data.get('task_id') or '').strip()
             if continue_task_id:
-                return JsonResponse({'success': True, 'data': self._continue_attribute_search(request, data, continue_task_id)})
+                return JsonResponse({
+                    'success': False,
+                    'error': '属性寻优续轮已由 SimC Worker 自动管理，无需客户端触发',
+                }, status=409)
 
             kind = str(data.get('kind') or '').strip()
             category = str(data.get('category') or '').strip()

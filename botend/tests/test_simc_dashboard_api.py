@@ -702,6 +702,15 @@ main_hand=,id=222222
         self.assertEqual(parsed['candidates']['gear'][0]['item_level'], 285)
         self.assertEqual(parsed['profile']['talents']['saved_loadouts'], [])
 
+    def test_attribute_continuation_endpoint_rejects_client_managed_rounds(self):
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
+            'continue_task_id': 123,
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('Worker', response.json()['error'])
+
     def test_auto_attribute_batch_creates_complete_50_rating_pairwise_neighborhood(self):
         base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
         rows = SimcComparisonTaskAPIView._attribute_variants(base, 50)

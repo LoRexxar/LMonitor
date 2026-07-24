@@ -69,6 +69,7 @@ class SimcWorkerTests(TestCase):
             status='running',
             started_at=stale_at,
         )
+        SimcTask.objects.filter(pk=task.pk).update(modified_time=stale_at)
         worker = SimcWorker(monitor=MagicMock(), poll_interval=0)
 
         self.assertEqual(worker.recover_stale_tasks(), 1)
@@ -111,6 +112,7 @@ class SimcWorkerTests(TestCase):
             task=task, sequence=2, candidate_key='same-candidate', status='running',
             started_at=stale_at,
         )
+        SimcTask.objects.filter(pk=task.pk).update(modified_time=stale_at)
         monitor = MagicMock()
         worker = SimcWorker(monitor=monitor, poll_interval=0)
 
@@ -121,6 +123,24 @@ class SimcWorkerTests(TestCase):
         self.assertIn('重试次数上限', task.error_detail)
         self.assertEqual(active_run.status, 'failed')
         self.assertEqual(task.simulation_runs.count(), 2)
+
+    @override_settings(SIMC_WORKER_STALE_SECONDS=60)
+    def test_recover_stale_running_uses_lease_heartbeat_not_original_start_time(self):
+        from botend.services.simc_worker import SimcWorker
+
+        stale_at = timezone.now() - timedelta(minutes=5)
+        task = self.make_task(status=1, started_at=stale_at)
+        SimulationRun.objects.create(
+            task=task, sequence=1, status='running', started_at=stale_at,
+        )
+        SimcTask.objects.filter(pk=task.pk).update(modified_time=timezone.now())
+
+        worker = SimcWorker(monitor=MagicMock(), poll_interval=0)
+
+        self.assertEqual(worker.recover_stale_tasks(), 0)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 1)
+        self.assertEqual(task.simulation_runs.get().status, 'running')
 
     def test_run_stops_claiming_after_stop_request(self):
         from botend.services.simc_worker import SimcWorker

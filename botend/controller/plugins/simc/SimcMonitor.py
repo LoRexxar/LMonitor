@@ -32,6 +32,7 @@ from botend.services.simc_player_config import (
 from botend.services.simc_composer import SimcComposer
 from botend.services.task_resolver import resolve_task, is_reference_task, TaskResolutionError
 from botend.models import SimulationRun
+from botend.services.simc_attribute_search import advance_attribute_search
 
 
 class SimcMonitor(BaseScan):
@@ -578,11 +579,12 @@ class SimcMonitor(BaseScan):
                     run.result_summary = result_summary
                     run.completed_at = timezone.now()
                     run.save(update_fields=['status', 'result_summary', 'completed_at'])
-                    # Mark task as completed and expose the same semantic summary.
-                    simc_task.current_status = 2
+                    # The request-level Task remains running until every Run and,
+                    # for attribute search, every server-generated round is terminal.
+                    simc_task.current_status = 1
                     simc_task.result_summary = json.dumps(result_summary, ensure_ascii=False)
                     simc_task.error_detail = None
-                    simc_task.completed_at = timezone.now()
+                    simc_task.completed_at = None
                     simc_task.save(update_fields=['current_status', 'result_summary', 'error_detail', 'completed_at'])
                     return True
                 else:
@@ -630,37 +632,66 @@ class SimcMonitor(BaseScan):
             return False
 
     def process_reference_task(self, simc_task):
-        """Drain all pending Runs; candidate failure never blocks its siblings."""
+        """Drain Runs and let the Worker own every attribute-search round."""
         if not SimulationRun.objects.filter(task=simc_task).exists():
             # Compatibility for pre-Run normal tasks and old callers.
             SimulationRun.objects.create(
                 task=simc_task, sequence=1, candidate_key='normal',
                 candidate_label='normal', candidate_params={}, status='pending',
             )
-        runs = list(SimulationRun.objects.filter(task=simc_task, status='pending').order_by('sequence'))
-        for run in runs:
-            simc_task.current_status = 1
-            simc_task.completed_at = None
-            simc_task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
-            try:
-                self.process_reference_run(simc_task, run)
-            except Exception as exc:
-                logger.exception('[SimC Monitor] run %s failed unexpectedly', run.id)
-                SimulationRun.objects.filter(pk=run.pk).update(
-                    status='failed', error_detail=str(exc), completed_at=timezone.now(),
-                )
 
+        while True:
+            runs = list(SimulationRun.objects.filter(
+                task=simc_task, status='pending',
+            ).order_by('sequence'))
+            for run in runs:
+                simc_task.current_status = 1
+                simc_task.completed_at = None
+                simc_task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
+                try:
+                    self.process_reference_run(simc_task, run)
+                except Exception as exc:
+                    logger.exception('[SimC Monitor] run %s failed unexpectedly', run.id)
+                    SimulationRun.objects.filter(pk=run.pk).update(
+                        status='failed', error_detail=str(exc), completed_at=timezone.now(),
+                    )
+
+            all_runs = list(SimulationRun.objects.filter(task=simc_task).order_by('sequence'))
+            nonterminal = [run for run in all_runs if run.status not in ('completed', 'failed')]
+            if nonterminal:
+                simc_task.current_status = 0
+                simc_task.completed_at = None
+                simc_task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
+                return False
+
+            # Attribute optimization is a server workflow, not a browser polling
+            # protocol.  Only a wholly successful highest round may advance.
+            if simc_task.mode == 'attribute_sweep' and all_runs:
+                current_round = max(run.round_number for run in all_runs)
+                current_runs = [run for run in all_runs if run.round_number == current_round]
+                if current_runs and all(run.status == 'completed' for run in current_runs):
+                    try:
+                        advancement = advance_attribute_search(simc_task.id)
+                    except ValueError as exc:
+                        logger.error('[SimC Monitor] invalid attribute search task %s: %s', simc_task.id, exc)
+                        simc_task.current_status = 3
+                        simc_task.error_detail = str(exc)
+                        simc_task.completed_at = timezone.now()
+                        simc_task.save(update_fields=[
+                            'current_status', 'error_detail', 'completed_at', 'modified_time',
+                        ])
+                        return False
+                    if advancement.get('appended') or advancement.get('awaiting'):
+                        simc_task.refresh_from_db()
+                        continue
+            break
+
+        simc_task.refresh_from_db()
         all_runs = list(SimulationRun.objects.filter(task=simc_task).order_by('sequence'))
-        nonterminal = [run for run in all_runs if run.status not in ('completed', 'failed')]
-        if nonterminal:
-            simc_task.current_status = 0
-            simc_task.completed_at = None
-            simc_task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
-            return False
-
         succeeded = [run for run in all_runs if run.status == 'completed']
         failed = [run for run in all_runs if run.status == 'failed']
         analysis = {
+            **(simc_task.analysis_result if isinstance(simc_task.analysis_result, dict) else {}),
             'total': len(all_runs), 'succeeded': len(succeeded), 'failed': len(failed),
             'failed_candidates': [
                 {'run_id': run.id, 'candidate_key': run.candidate_key,
@@ -677,7 +708,10 @@ class SimcMonitor(BaseScan):
         simc_task.analysis_result = analysis
         if simc_task.completed_at is None:
             simc_task.completed_at = timezone.now()
-        if succeeded:
+        if simc_task.mode == 'attribute_sweep' and failed:
+            simc_task.current_status = 3
+            simc_task.error_detail = '属性寻优当前轮存在失败候选，搜索未完成'
+        elif succeeded:
             simc_task.current_status = 2
             simc_task.error_detail = None
             # Keep the long-standing single-run contract (top-level dps, etc.)
@@ -697,7 +731,7 @@ class SimcMonitor(BaseScan):
             'current_status', 'error_detail', 'result_summary', 'analysis_result',
             'completed_at', 'modified_time',
         ])
-        return bool(succeeded)
+        return bool(succeeded) and not (simc_task.mode == 'attribute_sweep' and failed)
 
     def process_simc_task(self, simc_task, already_claimed=False):
         """

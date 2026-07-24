@@ -170,6 +170,50 @@ class SimcReferenceRunContractTests(TestCase):
         self.assertIsNotNone(task.completed_at)
         self.assertEqual(task.analysis_result['total'], 2)
 
+    def test_attribute_worker_appends_and_drains_search_rounds_without_client_callback(self):
+        """One queued attribute Task owns its complete server-side search lifecycle."""
+        from botend.dashboard.api import SimcComparisonTaskAPIView
+
+        rows = SimcComparisonTaskAPIView._attribute_variants(
+            {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 50,
+        )
+        candidates = [{
+            'candidate_key': f'round-1-candidate-{index}',
+            'candidate_label': label,
+            'round_number': 1,
+            'candidate_params': {
+                'candidate_type': 'attribute_ratings', 'is_base': is_base,
+                'attribute_ratings': ratings, 'search': candidate,
+            },
+        } for index, (label, ratings, is_base, candidate) in enumerate(rows)]
+        task = self.make_task(
+            name='automatic attribute search', mode='attribute_sweep', candidates=candidates,
+        )
+        monitor = SimcMonitor(None, task)
+
+        def complete_run(_task, run):
+            # Round one moves to its first neighbor; round two is already a local optimum.
+            run.status = 'completed'
+            run.result_summary = {
+                'dps': (101500 if run.sequence == 2 else 100000)
+                if run.round_number == 1 else (101500 if run.candidate_params.get('is_base') else 101000),
+            }
+            run.save(update_fields=['status', 'result_summary'])
+            return True
+
+        with patch.object(monitor, 'process_reference_run', side_effect=complete_run):
+            self.assertTrue(monitor.process_reference_task(task))
+
+        task.refresh_from_db()
+        self.assertEqual(task.simulation_runs.filter(round_number=1).count(), len(rows))
+        self.assertEqual(task.simulation_runs.filter(round_number=2).count(), len(rows))
+        self.assertFalse(task.simulation_runs.filter(status='pending').exists())
+        self.assertTrue(task.analysis_result['attribute_search']['converged'])
+        self.assertEqual(
+            task.analysis_result['attribute_search']['stop_reason'],
+            'local_optimum_50_pairwise',
+        )
+
     def test_success_persists_semantic_summary_on_run_and_task(self):
         task = self.make_task()
         summary = {'valid': True, 'dps': 123456.7, 'non_auto_dps': 120000, 'action_row_count': 7}
