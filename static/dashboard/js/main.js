@@ -1472,7 +1472,7 @@ function getTitleForDialogContent(contentType) {
         'apl-form': 'APL 管理',
 
         'task-detail': '任务详情',
-        'batch-detail': '批次详情'
+        'task-comparison': '任务对比'
     };
     return titles[contentType] || '详情';
 }
@@ -1505,7 +1505,7 @@ function initSimcWorkbench() {
             if (targetTab) {
                 const model = data.simcModel;
                 switchSimcWorkbenchTab(targetTab);
-                if ((model === 'tasks' || model === 'batches') && typeof window.simcWorkbenchLoadTaskResource === 'function') {
+                if (model === 'tasks' && typeof window.simcWorkbenchLoadTaskResource === 'function') {
                     window.simcWorkbenchLoadTaskResource(model);
                 }
                 if (data.ruleSubtab) switchRuleSubtab(model);
@@ -1627,7 +1627,6 @@ function switchSimcWorkbenchTab(tabName) {
     const parentPanels = {
         import: 'workflow',
         tasks: 'history',
-        batches: 'history',
         artifacts: 'history',
         profiles: 'workflow',
         templates: 'workflow',
@@ -3343,7 +3342,7 @@ async function startSelectedSimcCandidateComparisons() {
     const include_base = Boolean(document.querySelector('.simc-comparison-current:checked'));
     if (!selected.length) { showMessage('请至少选择一个候选', 'warning'); return; }
     const kinds = [...new Set(selected.map(element => element.dataset.kind))];
-    if (kinds.length !== 1) { showMessage('装备与天赋候选请分别创建 Batch', 'warning'); return; }
+    if (kinds.length !== 1) { showMessage('装备与天赋候选请分别创建任务', 'warning'); return; }
     const kind = kinds[0];
     const candidates = selected.map(element => kind === 'talent_candidates'
         ? { name: element.dataset.name, talent: element.dataset.talent, source: element.dataset.source }
@@ -3352,7 +3351,7 @@ async function startSelectedSimcCandidateComparisons() {
     const control = { generation: ++simcCandidateGeneration, controller: new AbortController() };
     simcCandidatePollControl = control;
     try {
-        const response = await fetch('/api/simc-task/batch/', {
+        const response = await fetch('/api/simc-task/comparison/', {
             method: 'POST', signal: control.controller.signal,
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
             body: JSON.stringify({
@@ -3363,9 +3362,9 @@ async function startSelectedSimcCandidateComparisons() {
             }),
         });
         const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较 Batch 失败');
+        if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较任务失败');
         if (!isCurrentSimcCandidateControl(control)) return;
-        showMessage('比较 Batch 已创建', 'success');
+        showMessage('比较任务已创建', 'success');
         switchSimcWorkbenchL1Tab('history');
     } catch (error) {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
@@ -3394,13 +3393,13 @@ function simcAttributeSearchRequestBody() {
 }
 
 async function submitSimcAttributeSearch(payload, signal) {
-    const response = await fetch('/api/simc-task/batch/', {
+    const response = await fetch('/api/simc-task/comparison/', {
         method: 'POST', signal,
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
         body: JSON.stringify(payload),
     });
     const result = await response.json();
-    if (!response.ok || !result.success) throw new Error(result.error || '创建属性寻优 Batch 失败');
+    if (!response.ok || !result.success) throw new Error(result.error || '创建属性寻优任务失败');
     return result.data;
 }
 
@@ -3417,7 +3416,7 @@ async function startSimcAttributeSearch() {
     try {
         const data = await submitSimcAttributeSearch(simcAttributeSearchRequestBody(), control.controller.signal);
         if (simcAttributeSearchControl !== control) return;
-        showMessage('属性寻优 Batch 已创建', 'success');
+        showMessage('属性寻优任务已创建', 'success');
         switchSimcWorkbenchL1Tab('history');
     } catch (error) {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
@@ -3426,7 +3425,7 @@ async function startSimcAttributeSearch() {
     }
 }
 
-async function createSimcAplCandidateBatch() {
+async function createSimcAplCandidateTask() {
     let references;
     try { references = requireSimcRunReferences(); }
     catch (error) { showMessage(String(error.message || error), 'warning'); return; }
@@ -3441,8 +3440,8 @@ async function createSimcAplCandidateBatch() {
         }),
     });
     const payload = await response.json();
-    if (!response.ok || !payload.success) throw new Error(payload.error || '创建 APL 候选 Batch 失败');
-    showMessage('APL 候选 Batch 已创建', 'success');
+    if (!response.ok || !payload.success) throw new Error(payload.error || '创建 APL 候选任务失败');
+    showMessage('APL 候选任务已创建', 'success');
     switchSimcWorkbenchL1Tab('history');
 }
 

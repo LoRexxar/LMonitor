@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 from pathlib import Path
@@ -17,12 +18,13 @@ from botend.models import (
     SimcProfile,
     SimcTask,
     SimcTaskArtifact,
-    SimcTaskBatch,
+    SimulationRun,
 )
 from botend.services.simc_artifacts import upsert_task_html_artifact
 from botend.services.simc_task_service import create_task
 
 
+@override_settings(SIMC_APL_CURRENT_IDENTITY=('test-simc-revision', 'test-game-build'))
 class SimcReviewFixTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="simc_review_owner")
@@ -49,20 +51,30 @@ class SimcReviewFixTests(TestCase):
             owner_user_id=self.user.id,
             is_active=True,
             is_selectable=True,
+            validation_status=SimcApl.VALIDATION_VALID,
+            validated_content_hash=hashlib.sha256(b"actions=/auto_attack").hexdigest(),
+            validation_revision='test-simc-revision',
+            validation_game_build='test-game-build',
         )
         self.factory = RequestFactory()
 
     def _task(self, **values):
-        batch = values.pop("batch", None)
-        task = create_task(
-            user_id=self.user.id,
-            name=values.pop("name", "review task"),
-            profile_id=self.profile.id,
-            template_id=self.template.id,
-            apl_id=self.apl.id,
-            candidate_label=values.pop("candidate_label", ""),
-            batch_id=batch.id if batch else None,
-        )
+        validation = {
+            'valid': True,
+            'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
+            'revision': 'test-simc-revision',
+            'game_build': 'test-game-build',
+        }
+        with patch('botend.services.simc_task_service.validate_apl_for_profile', return_value=validation):
+            task = create_task(
+                user_id=self.user.id,
+                name=values.pop("name", "review task"),
+                profile_id=self.profile.id,
+                template_id=self.template.id,
+                apl_id=self.apl.id,
+                mode=values.pop("mode", "normal"),
+                candidates=values.pop("candidates", None),
+            )
         for field, value in {"current_status": 2, **values}.items():
             setattr(task, field, value)
         task.save()
@@ -107,35 +119,54 @@ class SimcReviewFixTests(TestCase):
             self.assertEqual(artifact.file_path, f"simc_results/{filename}")
 
     def test_member_rerun_is_detached_from_immutable_batch(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name="finished comparison", batch_type="comparison", status=2,
+        original = self._task(
+            mode="comparison", result_file="simc_task_1.html",
+            candidates=[{
+                "candidate_key": "base", "candidate_label": "base",
+                "candidate_params": {"is_base": True},
+            }],
         )
-        original = self._task(batch=batch, candidate_label="base", result_file=f"simc_task_1.html")
         rerun = SimcWorkbenchAPIView().post
         request = self.factory.post(
             f"/api/simc-workbench/tasks/{original.id}/",
             data=json.dumps({"action": "rerun"}), content_type="application/json",
         )
         request.user = self.user
-        response = rerun(request, resource="tasks", object_id=original.id)
-        self.assertEqual(response.status_code, 200)
+        validation = {
+            'valid': True,
+            'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
+            'revision': 'test-simc-revision',
+            'game_build': 'test-game-build',
+        }
+        with patch('botend.services.simc_task_service.validate_apl_for_profile', return_value=validation):
+            response = rerun(request, resource="tasks", object_id=original.id)
+        self.assertEqual(response.status_code, 200, response.content.decode())
         new_id = json.loads(response.content)["data"]["id"]
-        self.assertIsNone(SimcTask.objects.get(id=new_id).batch_id)
-        self.assertEqual(SimcTask.objects.filter(batch=batch).count(), 1)
+        new_task = SimcTask.objects.get(id=new_id)
+        self.assertEqual(new_task.source_task_id, original.id)
+        self.assertEqual(new_task.mode, "normal")
+        self.assertEqual(new_task.simulation_runs.count(), 1)
+        self.assertEqual(SimcTask.objects.filter(source_task=original).count(), 1)
 
     def test_compare_is_safe_without_summary_flag_too(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name="safe", batch_type="comparison", status=2,
-        )
         task = self._task(
-            batch=batch,
+            mode="comparison",
+            candidates=[{
+                "candidate_key": "base", "candidate_label": "safe label",
+                "candidate_params": {
+                    "is_base": True, "apl_override": "actions=secret",
+                    "talent_candidate": {"name": "secret", "talent": "/srv/secret.simc"},
+                },
+            }],
             result_file="private/server/result.html",
-            ext=json.dumps({"batch_compare": {
-                "label": "safe label", "index": 0, "is_base": True,
-                "candidate": {"apl": "actions=secret", "internal_file": "/srv/secret.simc"},
-            }}),
         )
-        request = self.factory.get(f"/api/simc-regular-compare/?batch_id={batch.id}")
+        run = task.simulation_runs.get()
+        run.status = "completed"
+        run.result_summary = {
+            "dps": 123, "abilities": [{"raw": "secret body"}], "talents": {"apl": "secret"},
+        }
+        run.save(update_fields=["status", "result_summary"])
+        request = self.factory.get(f"/api/simc-regular-compare/?task_id={task.id}")
         request.user = self.user
         with patch.object(SimcRegularCompareAPIView, "_get_result_file_content", return_value="<html/>"), patch.object(
             SimcRegularCompareAPIView, "_parse_regular_result", return_value={
@@ -145,12 +176,15 @@ class SimcReviewFixTests(TestCase):
             response = SimcRegularCompareAPIView().get(request)
         payload = json.loads(response.content)
         self.assertTrue(payload["success"])
-        self.assertEqual(
-            set(payload["data"]["tasks"][0]),
-            {"id", "name", "label", "rank", "dps", "delta_dps", "delta_percent"},
-        )
+        self.assertEqual(set(payload["data"]["runs"][0]), {
+            "id", "name", "label", "rank", "dps", "delta_dps", "delta_percent", "candidate",
+        })
+        self.assertEqual(payload["data"]["runs"][0]["candidate"], {
+            "type": "talent", "name": "secret",
+        })
+        self.assertEqual(payload["data"]["runs"][0]["dps"], 123)
         serialized = json.dumps(payload, ensure_ascii=False)
-        for forbidden in ("result_file", "actions=secret", "internal_file", "/srv/", "abilities", "talents", "candidate"):
+        for forbidden in ("result_file", "actions=secret", "internal_file", "/srv/", "abilities", "talents", "candidate_params"):
             self.assertNotIn(forbidden, serialized)
 
     def test_backend_exception_is_logged_but_not_returned(self):

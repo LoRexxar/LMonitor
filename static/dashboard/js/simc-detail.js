@@ -2,7 +2,7 @@
   'use strict';
   const root = document.getElementById('simc-detail-root');
   if (!root) return;
-  const kind = root.dataset.simcDetailKind === 'batches' ? 'batches' : 'tasks';
+  const kind = 'tasks';
   const objectId = Number.parseInt(root.dataset.simcDetailId || '', 10);
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const number = value => Number.isFinite(Number(value)) ? Math.round(Number(value)).toLocaleString() : '-';
@@ -55,6 +55,7 @@
     const bonusValue = setBonuses.length ? `<div class="bonus-list">${setBonuses.map(item => `<span class="bonus-tag">${value(item)}</span>`).join('')}</div>` : '报告未解析到套装效果';
     root.innerHTML = `<section class="hero"><span class="pill">任务${statusClass(row)}</span><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-meta">${characterPills}<span class="pill">更新 ${value(row.updated_at)}</span></div>${nativeReportAction}</section>
       ${hasStructuredReport ? '' : '<div class="analysis-warning"><b>模拟已成功，结构化分析信息不完整</b><span>当前仅展示已确认的 DPS、参数、执行轮次和原生报告；缺失字段不会被猜测填充。</span></div>'}
+      ${renderTaskComparison(row)}
       <div class="grid">
         ${card('结果概览', `<div class="metrics"><div class="metric"><span>DPS</span><b>${number(report.dps ?? row.result_summary?.dps)}</b></div><div class="metric"><span>迭代次数</span><b>${number(simulation.iterations ?? params.iterations)}</b></div><div class="metric"><span>战斗时长</span><b>${value(simulation.fight_length ?? params.max_time)} 秒</b></div><div class="metric"><span>目标数</span><b>${value(params.desired_targets ?? params.target_count)}</b></div></div>`, true)}
         ${card('角色', `<dl><div><dt>名称</dt><dd>${value(character.name)}</dd></div><div><dt>职业 / 专精</dt><dd>${value(character.class)} / ${value(character.spec)}</dd></div><div><dt>种族</dt><dd>${value(character.race)}</dd></div><div><dt>等级</dt><dd>${value(character.level)}</dd></div></dl>`)}
@@ -71,17 +72,18 @@
       </div>`;
   }
 
-  function renderBatch(row) {
-    const members = Array.isArray(row.tasks) ? row.tasks : [];
+  function renderTaskComparison(row) {
+    if (row.mode !== 'comparison' && row.mode !== 'attribute_sweep') return '';
+    const runs = Array.isArray(row.runs) ? row.runs : [];
     const ranking = Array.isArray(row.ranking) ? [...row.ranking] : [];
     const attribute = row.attribute_report || null;
-    const isAttribute = row.batch_type === 'attribute_sweep' && attribute;
+    const isAttribute = row.mode === 'attribute_sweep' && attribute;
     const baseline = ranking.find(item => item.is_base === true) || null;
     const candidates = ranking.filter(item => item.is_base !== true).sort((a, b) => (a.rank || 9999) - (b.rank || 9999));
     const baselineDps = baseline?.is_complete === true ? Number(baseline.dps) : NaN;
     const signed = amount => Number.isFinite(Number(amount)) ? `${Number(amount) > 0 ? '+' : ''}${number(amount)}` : '—';
-    const memberRows = members.map(member => `<tr><td><a href="/dashboard/simc/tasks/${member.id}/">${value(member.name, `任务 #${member.id}`)}</a></td><td>${value(member.status_label || member.status)}</td><td>${value(member.updated_at)}</td></tr>`).join('');
-    const baselinePanel = baseline ? `<section class="comparison-baseline"><div><span>当前 Profile 基线</span><a href="/dashboard/simc/tasks/${baseline.id}/">${value(baseline.label || baseline.name)}</a></div><b>${baseline.is_complete === true ? number(baseline.dps) : '结果不完整'}</b></section>` : '<section class="comparison-baseline muted">本批次未包含 Profile 基线</section>';
+    const runRows = runs.map(run => `<tr><td>${value(run.candidate_label, `Run #${run.sequence}`)}</td><td>${runStatus(run.status)}</td><td class="right">${number(run.result_summary?.dps)}</td><td>${value(run.completed_at)}</td></tr>`).join('');
+    const baselinePanel = baseline ? `<section class="comparison-baseline"><div><span>当前 Profile 基线</span><b>${value(baseline.label || baseline.name)}</b></div><b>${baseline.is_complete === true ? number(baseline.dps) : '结果不完整'}</b></section>` : '<section class="comparison-baseline muted">此任务未包含 Profile 基线</section>';
     const rankRows = candidates.map(item => {
       const complete = item.is_complete === true && Number.isFinite(Number(item.dps));
       const delta = complete && Number.isFinite(baselineDps) ? Number(item.dps) - baselineDps : NaN;
@@ -89,7 +91,7 @@
       const deltaText = Number.isFinite(deltaPercent) ? `${signed(delta)} (${deltaPercent > 0 ? '+' : ''}${deltaPercent.toFixed(2)}%)` : '—';
       const talent = item.candidate?.talent;
       const candidateDetail = talent ? `<small class="incomplete-label">方案内容：${value(item.candidate?.name || item.label)} · 天赋字符串：<code>${value(talent)}</code></small>` : '';
-      return `<tr class="${item.rank === 1 ? 'rank-winner comparison-winner' : ''} ${complete ? '' : 'rank-incomplete'}"><td><span class="rank-medal">${complete ? (item.rank === 1 ? '🥇' : value(item.rank)) : '—'}</span></td><td><a href="/dashboard/simc/tasks/${item.id}/">${value(item.label || item.name)}</a>${candidateDetail}${complete ? '' : '<small class="incomplete-label">结果不完整，不参与排名</small>'}</td><td class="right"><b>${complete ? number(item.dps) : '—'}</b></td><td class="right delta comparison-delta ${Number(delta) > 0 ? 'positive' : Number(delta) < 0 ? 'negative' : ''}">${deltaText}</td></tr>`;
+      return `<tr class="${item.rank === 1 ? 'rank-winner comparison-winner' : ''} ${complete ? '' : 'rank-incomplete'}"><td><span class="rank-medal">${complete ? (item.rank === 1 ? '🥇' : value(item.rank)) : '—'}</span></td><td>${value(item.label || item.name)}${candidateDetail}${complete ? '' : '<small class="incomplete-label">结果不完整，不参与排名</small>'}</td><td class="right"><b>${complete ? number(item.dps) : '—'}</b></td><td class="right delta comparison-delta ${Number(delta) > 0 ? 'positive' : Number(delta) < 0 ? 'negative' : ''}">${deltaText}</td></tr>`;
     }).join('');
     const recommendation = attribute?.recommendation || null;
     const initial = attribute?.initial_ratings || {};
@@ -98,18 +100,22 @@
     const searchTrail = Array.isArray(attribute?.history) ? attribute.history : [];
     const trailRows = searchTrail.slice(-8).map((step, index) => `<span>第 ${index + 1} 步 · ${number(step.dps)}</span>`).join('');
     const attributePanel = isAttribute ? `<section class="card wide attribute-report attribute-landscape"><div class="report-kicker">ATTRIBUTE OPTIMIZATION</div><h2>属性寻优结论</h2><div class="report-summary"><div><span>推荐 DPS</span><b>${number(recommendation?.dps)}</b></div><div><span>搜索轮次</span><b>${number(attribute.rounds_completed)} / ${number(attribute.current_round)}</b></div><div><span>步进粒度</span><b>${number(attribute.step)}</b></div><div><span>结论</span><b>${attribute.local_optimum ? '局部最优' : '继续搜索'}</b></div></div><h3>推荐属性</h3><div class="attribute-grid">${attributeChanges || '<p class="muted">等待候选完成后生成属性变化。</p>'}</div><h3>搜索轨迹</h3><div class="search-trail">${trailRows || '<span class="muted">暂无轨迹数据</span>'}</div></section>` : '';
-    root.innerHTML = `<section class="hero ${isAttribute ? 'attribute-hero' : 'comparison-hero'}"><span class="pill">${statusClass(row)}</span><div class="report-kicker">${isAttribute ? '属性寻优报告' : '候选对比报告'}</div><h1>${value(row.name, `批次 #${objectId}`)}</h1><div class="hero-meta"><span class="pill">${number(row.percent)}% 完成</span><span class="pill">${number(row.total)} 个成员</span><span class="pill">更新 ${value(row.updated_at)}</span></div></section><div class="grid">
-      ${card('批次进度', `<div class="metrics"><div class="metric"><span>成功</span><b>${number(row.succeeded)}</b></div><div class="metric"><span>运行</span><b>${number(row.running)}</b></div><div class="metric"><span>等待</span><b>${number(row.pending)}</b></div><div class="metric"><span>失败</span><b>${number(row.failed)}</b></div></div>`, true)}
+    const succeeded = runs.filter(run => run.status === 'completed').length;
+    const running = runs.filter(run => run.status === 'running').length;
+    const pending = runs.filter(run => run.status === 'pending').length;
+    const failed = runs.filter(run => run.status === 'failed').length;
+    const progress = runs.length ? Math.round((succeeded + failed) / runs.length * 100) : 0;
+    return `<section class="hero ${isAttribute ? 'attribute-hero' : 'comparison-hero'}"><div class="report-kicker">${isAttribute ? '属性寻优报告' : '候选对比报告'}</div><div class="hero-meta"><span class="pill">${number(progress)}% 完成</span><span class="pill">${number(runs.length)} 个 Run</span></div></section><div class="grid">
+      ${card('任务进度', `<div class="metrics"><div class="metric"><span>成功</span><b>${number(succeeded)}</b></div><div class="metric"><span>运行</span><b>${number(running)}</b></div><div class="metric"><span>等待</span><b>${number(pending)}</b></div><div class="metric"><span>失败</span><b>${number(failed)}</b></div></div>`, true)}
       ${attributePanel}
       ${isAttribute ? '' : baselinePanel}
       ${card(isAttribute ? '候选测量排名' : '候选 DPS 排名与基线差值', `<div class="table-scroll"><table class="ranking-table"><thead><tr><th>排名</th><th>候选角色 / 方案</th><th class="right">DPS</th><th class="right">相对基线（数值 / 百分比）</th></tr></thead><tbody>${rankRows || '<tr><td colspan="4" class="empty">暂无可排名结果</td></tr>'}</tbody></table></div>`, true)}
-      ${card('批次成员', `<div class="table-scroll"><table><thead><tr><th>任务</th><th>状态</th><th>更新时间</th></tr></thead><tbody>${memberRows || '<tr><td colspan="3" class="empty">暂无成员</td></tr>'}</tbody></table></div>`, true)}
-      ${card('Artifact / 原生报告', `<p class="muted">产物和原生报告均保持鉴权访问。</p><div class="table-scroll"><table><tbody>${artifactRows(row.artifacts) || '<tr><td class="empty">暂无 Artifact</td></tr>'}</tbody></table></div>`, true)}
+      ${card('候选 Runs', `<div class="table-scroll"><table><thead><tr><th>候选</th><th>状态</th><th class="right">DPS</th><th>完成时间</th></tr></thead><tbody>${runRows || '<tr><td colspan="4" class="empty">暂无 Run</td></tr>'}</tbody></table></div>`, true)}
     </div>`;
   }
 
   fetch(`/api/simc-workbench/${kind}/${objectId}/`, {headers: {'Accept': 'application/json'}})
     .then(async response => { const payload = await response.json(); if (!response.ok || !payload.success) throw new Error(payload.error || '详情加载失败'); return payload.data || {}; })
-    .then(kind === 'tasks' ? renderTask : renderBatch)
+    .then(renderTask)
     .catch(() => { root.innerHTML = '<div class="error"><b>详情暂时无法加载</b><p>请返回工作台稍后重试。为避免泄露内部信息，此处不展示原始错误。</p></div>'; });
 })();

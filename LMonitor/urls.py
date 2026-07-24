@@ -24,7 +24,7 @@ from botend.webhook.gewechat import GeWechatWebhookView
 from botend.dashboard.dashboard import DashboardView, SimcWorkbenchDetailPageView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
 from botend.dashboard.api import (
     ConvertTextAPIView, AplStorageAPIView, AplDetailAPIView,
-    SimcTaskAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcPlayerConfigDetailAPIView,
+    SimcTaskAPIView, SimcComparisonTaskAPIView, SimcProfileAPIView, SimcPlayerConfigDetailAPIView,
     SimcTemplateAPIView, SimcAplCandidatesAPIView, SimcSpecOptionsAPIView,
     OssConfigAPIView, SimcResultProxyAPIView, SimcTaskPreviewAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView,
     SimcBattlenetPreflightAPIView, SimcBattlenetTopPlayersAPIView,
@@ -85,7 +85,6 @@ urlpatterns = [
     # Dashboard路由
     path('dashboard/', DashboardView.as_view(), name="dashboard"),
     path('dashboard/simc/tasks/<int:object_id>/', SimcWorkbenchDetailPageView.as_view(), {'kind': 'tasks'}, name='simc_task_detail_page'),
-    path('dashboard/simc/batches/<int:object_id>/', SimcWorkbenchDetailPageView.as_view(), {'kind': 'batches'}, name='simc_batch_detail_page'),
 
     # Portal API
     path('portal/api/blueposts/', csrf_exempt(PortalBluepostsAPIView.as_view()), name="portal_blueposts"),
@@ -120,7 +119,7 @@ urlpatterns = [
     path('api/apl-storage/', AplStorageAPIView.as_view(), name="apl_storage"),
     path('api/apl-storage/<int:apl_id>/', AplDetailAPIView.as_view(), name="apl_detail"),
     path('api/simc-task/', SimcTaskAPIView.as_view(), name="simc_task"),
-    path('api/simc-task/batch/', SimcBatchTaskAPIView.as_view(), name="simc_task_batch"),
+    path('api/simc-task/comparison/', SimcComparisonTaskAPIView.as_view(), name="simc_task_comparison"),
     path('api/simc-task/preview/', SimcTaskPreviewAPIView.as_view(), name="simc_task_preview"),
     path('api/simc-profile/', SimcProfileAPIView.as_view(), name="simc_profile"),
 

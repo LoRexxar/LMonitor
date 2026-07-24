@@ -42,9 +42,8 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         creation = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function bindSimcWorkbenchSimulationControls")]
         self.assertGreaterEqual(creation.count("switchSimcWorkbenchL1Tab('history')"), 3)
         self.assertNotIn("window.location.assign(`/dashboard/simc/tasks/", creation)
-        self.assertNotIn("window.location.assign(`/dashboard/simc/batches/", creation)
         self.assertNotIn("window.simcWorkbenchShowTaskDetail('tasks',", creation)
-        self.assertNotIn("window.simcWorkbenchShowTaskDetail('batches',", creation)
+        self.assertGreaterEqual(creation.count("/api/simc-task/comparison/"), 2)
         self.assertNotIn("switchSimcWorkbenchTab('artifacts')", creation)
         self.assertNotIn("loadArtifacts", creation)
 
@@ -118,9 +117,9 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn('data-copy-talent-code', editor)
         self.assertIn('navigator.clipboard.writeText', editor)
         self.assertIn('复制', editor)
-        self.assertIn("dashboard/js/main.js' %}?v=20260722b", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260723b", HTML)
 
-    def test_batch_detail_has_visual_comparison_and_attribute_analysis(self):
+    def test_task_detail_has_visual_comparison_and_attribute_analysis(self):
         for token in (
             'comparison-hero', 'comparison-winner', 'comparison-delta',
             'comparison-baseline', 'deltaPercent', '结果不完整',
@@ -146,18 +145,18 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         for forbidden in ("prompt(", "alert(", "confirm(", "window.open("):
             self.assertNotIn(forbidden, WB)
 
-    def test_batch_detail_is_permanent_result_home(self):
-        for token in ("批次进度", "批次成员", "DPS 排名", "Artifact / 原生报告"):
+    def test_task_detail_is_permanent_result_home(self):
+        for token in ("任务进度", "候选 Runs", "DPS 排名", "Artifact"):
             self.assertIn(token, DETAIL)
-        self.assertIn('/dashboard/simc/tasks/${member.id}/', DETAIL)
+        self.assertIn('row.runs', DETAIL)
         self.assertNotIn("function loadArtifacts", WB)
         self.assertNotIn("artifactPage", WB)
 
-    def test_batch_structured_result_never_parses_html_report_url_as_json(self):
-        comparison = WB[WB.index("async function showBatchComparison"):WB.index("async function resourceOptions")]
-        self.assertIn("/api/simc-regular-compare/?batch_id=", comparison)
+    def test_task_structured_result_never_parses_html_report_url_as_json(self):
+        comparison = WB[WB.index("async function showTaskComparison"):WB.index("async function resourceOptions")]
+        self.assertIn("/api/simc-regular-compare/?task_id=", comparison)
         self.assertIn("summary=1", comparison)
-        self.assertIn("data.data?.tasks", comparison)
+        self.assertIn("data.data?.runs", comparison)
         self.assertIn("data.data?.attribute_report", comparison)
         self.assertIn("renderAttributeReport", comparison)
         self.assertNotIn("report_url", comparison)
@@ -165,7 +164,7 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertNotIn("response.json", comparison)
 
     def test_task_run_audit_is_complete_and_does_not_render_raw_error_detail(self):
-        detail = WB[WB.index("async function showTaskDetail"):WB.index("async function showBatchComparison")]
+        detail = WB[WB.index("async function showTaskDetail"):WB.index("async function showTaskComparison")]
         for token in ("run.sequence", "run.status", "run.result_summary?.dps", "run.input_hash",
                       "run.started_at", "run.completed_at", "safeRunErrorSummary(run)"):
             self.assertIn(token, detail)

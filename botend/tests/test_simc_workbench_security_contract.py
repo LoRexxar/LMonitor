@@ -16,7 +16,7 @@ class SimcWorkbenchSecurityContractTests(TestCase):
         client.force_login(self.user)
         requests = (
             ("post", "/api/simc-task/", {"name": "csrf-task"}),
-            ("post", "/api/simc-task/batch/", {"name": "csrf-batch"}),
+            ("post", "/api/simc-task/comparison/", {"name": "csrf-comparison"}),
             ("post", "/api/simc-profile/", {"name": "csrf-profile"}),
             ("post", "/api/simc-player-config-detail/", {"player_config_mode": "manual_equipment"}),
             ("post", "/api/simc-battlenet-preflight/", {"region": "us", "realm": "x", "character": "y"}),
@@ -89,7 +89,7 @@ class SimcWorkbenchSecurityContractTests(TestCase):
     def test_generic_dashboard_cannot_read_any_simc_resource(self):
         self.client.force_login(self.user)
         simc_models = (
-            "SimcTask", "SimcTaskBatch", "SimcTaskArtifact", "SimcProfile",
+            "SimcTask", "SimcTaskArtifact", "SimcProfile",
             "SimcContentTemplate", "SimcSecondaryStatRule", "SimcMasteryCoefficient",
             "SimcApl", "SimcBackendBinary",
         )
@@ -111,7 +111,7 @@ class SimcWorkbenchSecurityContractTests(TestCase):
         self.assertEqual(response.status_code, 200)
         visible_tables = {row["name"] for row in response.context["tables_info"]}
         self.assertTrue(visible_tables.isdisjoint({
-            "SimcTask", "SimcTaskBatch", "SimcTaskArtifact", "SimcProfile",
+            "SimcTask", "SimcTaskArtifact", "SimcProfile",
             "SimcContentTemplate", "SimcSecondaryStatRule", "SimcMasteryCoefficient",
             "SimcBackendBinary",
         }))

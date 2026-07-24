@@ -62,11 +62,22 @@ def create_rerun(
             mode='normal',
             simulation_params=overrides.get('simulation_params', source.simulation_params),
             mode_params=overrides.get('mode_params', source.mode_params),
-            candidate_label=source.candidate_label,
+            candidates=[{
+                'candidate_key': 'normal',
+                'candidate_label': 'normal',
+                'candidate_params': {},
+            }],
         )
     except TaskCreationError as exc:
         raise TaskRerunError(str(exc)) from exc
 
     rerun.source_task_id = source.id
-    rerun.save(update_fields=['source_task_id'])
+    update_fields = ['source_task_id']
+    for resource_name in ('profile', 'template', 'apl'):
+        if f'{resource_name}_id' in overrides:
+            continue
+        version_field = f'{resource_name}_version_id'
+        setattr(rerun, version_field, getattr(source, version_field))
+        update_fields.append(version_field)
+    rerun.save(update_fields=update_fields)
     return rerun

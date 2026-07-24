@@ -28,7 +28,7 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask,
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask,
-                          RssArticle, WowArticle, SimcTask, SimcTaskBatch, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl)
+                          RssArticle, WowArticle, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl)
 
 from botend.services.simc_attribute_results import parse_attribute_result_filename
 
@@ -167,7 +167,7 @@ class DashboardView(View):
         return {model.__name__: model for model in apps.get_app_config('botend').get_models()}
 
     SIMC_DEDICATED_API_MODELS = {
-        'SimcTask', 'SimcTaskBatch', 'SimcTaskArtifact', 'SimcProfile',
+        'SimcTask', 'SimcTaskArtifact', 'SimcProfile',
         'SimcContentTemplate', 'SimcSecondaryStatRule',
         'SimcMasteryCoefficient',
         'SimcApl', 'SimcBackendBinary',
@@ -973,7 +973,7 @@ class DashboardView(View):
 class SimcWorkbenchDetailPageView(View):
     """Owner-scoped HTML shell; safe details are loaded through the existing API."""
 
-    model_by_kind = {'tasks': SimcTask, 'batches': SimcTaskBatch}
+    model_by_kind = {'tasks': SimcTask}
 
     def get(self, request, kind, object_id):
         model = self.model_by_kind.get(kind)

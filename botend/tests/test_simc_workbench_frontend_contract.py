@@ -90,7 +90,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn("throw new Error('请选择已有 Profile')", MAIN)
         self.assertEqual(workflow.count('id="simc-sim-player-detail-refresh-btn"'), 1)
         self.assertNotIn('simc-comparison-submit', MAIN)
-        self.assertNotIn('window.location.assign(`/dashboard/simc/batches/', SIMC_MAIN)
+        self.assertNotIn("batches: 'history'", SIMC_MAIN)
 
     def test_history_uses_one_task_list_without_batch_classification(self):
         history_start = HTML.index('data-simc-l1-panel="history"')
@@ -98,8 +98,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         history = HTML[history_start:history_end]
         self.assertIn('>任务列表<', history)
         self.assertNotIn('data-task-subtab=', history)
-        self.assertNotIn('任务与批次', history)
-        self.assertNotIn('>Batch<', history)
+        self.assertNotIn('data-task-subtab="comparison"', history)
         self.assertIn("resourceUrl('history')", JS)
         self.assertNotIn('syncTaskSubtabs', JS)
         self.assertIn("data.ruleSubtab", MAIN)
@@ -249,7 +248,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             "cancelDetailRequest",
         ):
             self.assertIn(token, JS)
-        for function_name in ("showTaskDetail", "showBatchComparison", "showTemplateDetail", "showManagedAplDetail"):
+        for function_name in ("showTaskDetail", "showTaskComparison", "showTemplateDetail", "showManagedAplDetail"):
             start = JS.index(f"async function {function_name}")
             body = JS[start:JS.index("\n    }", start) + 6]
             self.assertIn("beginDetailRequest", body)
@@ -557,7 +556,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('.spec', detail_body)
 
     def test_script_is_really_loaded(self):
-        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260722b", HTML)
+        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260723b", HTML)
         self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260722c", HTML)
         self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260722a", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
@@ -884,7 +883,7 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
 
     def test_simc_reports_open_as_standalone_authenticated_pages(self):
         detail_start = JS.index('async function showTaskDetail')
-        detail_end = JS.index('async function showBatchComparison', detail_start)
+        detail_end = JS.index('async function showTaskComparison', detail_start)
         detail = JS[detail_start:detail_end]
         self.assertIn('href="${esc(artifact.preview_url)}"', detail)
         self.assertIn('查看原生报告', detail)
@@ -939,11 +938,11 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertNotIn('<textarea name="apl_code"', apl_form)
 
 
-    def test_batch_dialog_renders_member_dps_and_delta_without_navigation(self):
-        start = JS.index('async function showBatchComparison')
+    def test_task_dialog_renders_run_dps_and_delta_without_navigation(self):
+        start = JS.index('async function showTaskComparison')
         end = JS.index('\n    async function', start + 20)
         body = JS[start:end]
-        self.assertIn("openSimcWorkbenchDialog('batch-detail'", body)
+        self.assertIn("openSimcWorkbenchDialog('task-comparison'", body)
         self.assertIn('.dps', body)
         self.assertIn('delta', body)
         self.assertNotIn('/simc-compare/', body)

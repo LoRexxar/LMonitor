@@ -13,7 +13,6 @@ from botend.models import (
     SimcProfile,
     SimcTask,
     SimcTaskArtifact,
-    SimcTaskBatch,
 )
 
 
@@ -166,31 +165,40 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertFalse(SimcTask.objects.filter(name='must fail').exists())
 
     def test_batch_detail_has_only_safe_owned_member_summaries(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Owned Batch', request_manifest='SECRET MANIFEST',
-            error_detail='SECRET TRACEBACK', status=1)
         task = SimcTask.objects.create(
-            user_id=self.user.id, batch=batch, name='Safe Task', simc_profile_id=0,
-            current_status=3, task_type=2,
+            user_id=self.user.id, name='Safe Task', simc_profile_id=0,
+            current_status=3, task_type=1, mode='comparison',
             error_detail='SECRET ERROR', ext='{"diagnostic":"SECRET EXT"}',
             result_file='/secret/server/path.html')
-        foreign_member = SimcTask.objects.create(
-            user_id=self.other.id, batch=batch, name='Foreign Member', simc_profile_id=0)
-        response = self.client.get(f'/api/simc-workbench/batches/{batch.id}/')
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='safe', candidate_label='Safe candidate',
+            status='failed', candidate_params={
+                'candidate_type': 'talent', 'is_base': True,
+                'request_manifest': 'SECRET MANIFEST', 'apl_override': 'SECRET APL',
+            }, resource_manifest={'path': 'SECRET RESOURCE PATH'},
+            error_detail='SECRET TRACEBACK', result_summary={'dps': 123, 'raw': 'SECRET RAW'},
+        )
+        foreign_task = SimcTask.objects.create(
+            user_id=self.other.id, name='Foreign Task', simc_profile_id=0, mode='comparison')
+        SimulationRun.objects.create(
+            task=foreign_task, sequence=1, candidate_label='Foreign Member', status='completed',
+            result_summary={'dps': 999999},
+        )
+        response = self.client.get(f'/api/simc-workbench/tasks/{task.id}/')
         self.assertEqual(response.status_code, 200)
         payload = response.json()['data']
-        self.assertEqual([row['id'] for row in payload['tasks']], [task.id])
-        member = payload['tasks'][0]
-        for field in ('id', 'name', 'status', 'status_label', 'task_type', 'updated_at', 'can_view'):
+        self.assertEqual([row['id'] for row in payload['runs']], [run.id])
+        member = payload['runs'][0]
+        for field in ('id', 'sequence', 'status', 'candidate_label', 'result_summary', 'error_summary'):
             self.assertIn(field, member)
         serialized = json.dumps(payload, ensure_ascii=False)
-        for secret in ('SECRET MANIFEST', 'SECRET TRACEBACK', 'SECRET ERROR', 'SECRET EXT', '/secret/server/path.html'):
+        for secret in ('SECRET MANIFEST', 'SECRET TRACEBACK', 'SECRET ERROR', 'SECRET EXT',
+                       'SECRET APL', 'SECRET RESOURCE PATH', 'SECRET RAW', '/secret/server/path.html'):
             self.assertNotIn(secret, serialized)
-        self.assertNotIn(foreign_member.id, [row['id'] for row in payload['tasks']])
+        self.assertNotIn('Foreign Member', serialized)
 
-        foreign_batch = SimcTaskBatch.objects.create(user_id=self.other.id, name='Foreign Batch')
         self.assertEqual(self.client.get(
-            f'/api/simc-workbench/batches/{foreign_batch.id}/').status_code, 404)
+            f'/api/simc-workbench/tasks/{foreign_task.id}/').status_code, 404)
 
     def test_artifact_list_is_paginated_filtered_and_owner_isolated(self):
         owner_task = SimcTask.objects.create(
