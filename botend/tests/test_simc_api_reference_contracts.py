@@ -6,11 +6,53 @@ for reference-based task creation with strict validation and transactional safet
 
 Run with: DJANGO_SETTINGS_MODULE=LMonitor.settings_test_sqlite python manage.py test botend.tests.test_simc_api_reference_contracts
 """
+import hashlib
+import inspect
 import json
+from unittest.mock import Mock, patch
 from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import User
 from botend.models import SimcTask, SimcProfile, SimcApl, SimcContentTemplate, SimcResourceVersion
-from botend.dashboard.api import SimcTaskAPIView, SimcProfileAPIView
+from botend.dashboard.api import (
+    SimcAplCandidatesAPIView,
+    SimcAttributeAnalysisAPIView,
+    SimcComparisonTaskAPIView,
+    SimcProfileAPIView,
+    SimcResultProxyAPIView,
+    SimcTaskAPIView,
+    SimcTaskPreviewAPIView,
+    SimcTaskReportPreviewAPIView,
+    SimcWorkbenchAPIView,
+)
+
+
+def mark_apl_current(test_case, apl):
+    """Keep API contract fixtures independent from the external SimC validator."""
+    identity = ('test-revision', 'test-build')
+    content_hash = hashlib.sha256(apl.content.encode('utf-8')).hexdigest()
+    SimcApl.objects.filter(pk=apl.pk).update(
+        validation_status=SimcApl.VALIDATION_VALID,
+        validated_content_hash=content_hash,
+        validation_revision=identity[0],
+        validation_game_build=identity[1],
+    )
+    apl.refresh_from_db()
+    identity_patcher = patch(
+        'botend.services.simc_task_service.current_validation_identity', return_value=identity,
+    )
+    validation_patcher = patch(
+        'botend.services.simc_task_service.validate_apl_for_profile',
+        side_effect=lambda profile, selected_apl: {
+            'valid': True,
+            'content_hash': hashlib.sha256(selected_apl.content.encode('utf-8')).hexdigest(),
+            'revision': identity[0],
+            'game_build': identity[1],
+        },
+    )
+    identity_patcher.start()
+    validation_patcher.start()
+    test_case.addCleanup(identity_patcher.stop)
+    test_case.addCleanup(validation_patcher.stop)
 
 
 class SimcTaskAPIReferenceContractsTests(TestCase):
@@ -49,6 +91,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             is_selectable=True,
             owner_user_id=self.user.id,
         )
+        mark_apl_current(self, self.apl)
 
     def test_api_rejects_raw_simc_code(self):
         """RED: API should reject raw_simc_code and require base_template_id + selected_apl_id."""
@@ -82,7 +125,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.name, 'legacy')
 
-    def test_put_keeps_task_type_2_rejection_boundary(self):
+    def test_put_rejects_legacy_attribute_task_without_reading_request_task_type(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='legacy-attr', simc_profile_id=self.profile.id,
             task_type=2, ext='crit_haste',
@@ -94,10 +137,10 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         request.user = self.user
         data = json.loads(SimcTaskAPIView().put(request).content)
         self.assertFalse(data['success'])
-        self.assertIn('task_type=2', data['error'])
+        self.assertIn('旧版冻结任务', data['error'])
 
-    def test_api_rejects_task_type_2(self):
-        """RED: API should reject task_type=2 (legacy attribute optimization)."""
+    def test_api_rejects_obsolete_task_type_parameter(self):
+        """New task creation is mode-based and must not interpret numeric task types."""
         request = self.factory.post(
             '/api/simc-task/',
             data=json.dumps({
@@ -114,7 +157,183 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         data = json.loads(response.content)
 
         self.assertFalse(data['success'])
-        self.assertIn('已停用', data['error'])
+        self.assertIn('task_type', data['error'])
+
+    def test_every_task_creating_route_rejects_obsolete_task_type(self):
+        cases = [
+            (
+                SimcTaskAPIView().post,
+                self.factory.post('/api/simc-task/', data=json.dumps({
+                    'action': 'rerun', 'id': 999999, 'task_type': 1,
+                }), content_type='application/json'),
+                (),
+            ),
+            (
+                SimcTaskAPIView().patch,
+                self.factory.patch('/api/simc-task/', data=json.dumps({
+                    'action': 'rerun', 'id': 999999, 'task_type': 1,
+                }), content_type='application/json'),
+                (),
+            ),
+            (
+                SimcComparisonTaskAPIView().post,
+                self.factory.post('/api/simc-comparison-task/', data=json.dumps({
+                    'kind': 'talent', 'task_type': 1,
+                }), content_type='application/json'),
+                (),
+            ),
+            (
+                SimcAplCandidatesAPIView().post,
+                self.factory.post('/api/simc-apl-candidates/', data=json.dumps({
+                    'task_type': 1,
+                }), content_type='application/json'),
+                (),
+            ),
+            (
+                SimcWorkbenchAPIView().post,
+                self.factory.post('/api/simc-workbench/tasks/999999/', data=json.dumps({
+                    'action': 'rerun', 'task_type': 1,
+                }), content_type='application/json'),
+                ('tasks', 999999),
+            ),
+        ]
+        before = SimcTask.objects.count()
+        for handler, request, args in cases:
+            with self.subTest(handler=handler.__qualname__):
+                request.user = self.user
+                response = handler(request, *args)
+                data = json.loads(response.content)
+                self.assertEqual(response.status_code, 400)
+                self.assertFalse(data['success'])
+                self.assertIn('task_type', data['error'])
+        self.assertEqual(SimcTask.objects.count(), before)
+
+    def test_successful_rerun_routes_publish_mode_without_legacy_fields(self):
+        from botend.services.simc_task_service import create_task
+
+        source = create_task(
+            user_id=self.user.id,
+            profile_id=self.profile.id,
+            template_id=self.template.id,
+            apl_id=self.apl.id,
+            name='Rerun source',
+        )
+        cases = [
+            (
+                SimcTaskAPIView().post,
+                self.factory.post('/api/simc-task/', data=json.dumps({
+                    'action': 'rerun', 'id': source.id,
+                }), content_type='application/json'),
+                (),
+            ),
+            (
+                SimcTaskAPIView().patch,
+                self.factory.patch('/api/simc-task/', data=json.dumps({
+                    'action': 'rerun', 'id': source.id,
+                }), content_type='application/json'),
+                (),
+            ),
+            (
+                SimcWorkbenchAPIView().post,
+                self.factory.post(f'/api/simc-workbench/tasks/{source.id}/', data=json.dumps({
+                    'action': 'rerun',
+                }), content_type='application/json'),
+                ('tasks', source.id),
+            ),
+        ]
+        for handler, request, args in cases:
+            with self.subTest(handler=handler.__qualname__):
+                request.user = self.user
+                response = handler(request, *args)
+                data = json.loads(response.content)
+                self.assertTrue(data['success'], data)
+                self.assertEqual(data['data']['mode'], 'normal')
+                self.assertNotIn('task_type', data['data'])
+                self.assertNotIn('result_file', data['data'])
+
+        candidate_request = self.factory.post('/api/simc-apl-candidates/', data=json.dumps({
+            'profile_id': self.profile.id,
+            'base_template_id': self.template.id,
+            'selected_apl_id': self.apl.id,
+            'candidate_count': 1,
+        }), content_type='application/json')
+        candidate_request.user = self.user
+        candidate_view = SimcAplCandidatesAPIView()
+        with patch.object(
+            candidate_view,
+            '_create_compare_preprocessing_task',
+            return_value=(Mock(id=12345, mode='comparison'), []),
+        ):
+            candidate_response = candidate_view.post(candidate_request)
+        candidate_data = json.loads(candidate_response.content)
+        self.assertTrue(candidate_data['success'], candidate_data)
+        self.assertEqual(candidate_data['data']['mode'], 'comparison')
+        self.assertNotIn('task_type', candidate_data['data'])
+        self.assertNotIn('result_file', candidate_data['data'])
+
+    def test_result_proxy_does_not_authorize_reference_task_result_file(self):
+        from botend.services.simc_task_service import create_task
+
+        task = create_task(
+            user_id=self.user.id,
+            profile_id=self.profile.id,
+            template_id=self.template.id,
+            apl_id=self.apl.id,
+            name='Reference report task',
+        )
+        task.result_file = 'reference-task-report.html'
+        task.save(update_fields=['result_file', 'modified_time'])
+
+        request = self.factory.get('/api/simc-result-proxy/', {'file': task.result_file})
+        request.user = self.user
+        response = SimcResultProxyAPIView().get(request)
+        data = json.loads(response.content)
+
+        self.assertFalse(data['success'])
+        self.assertIn('不存在或无权限', data['error'])
+
+        preview_request = self.factory.get(f'/api/simc-task/{task.id}/report/')
+        preview_request.user = self.user
+        preview_response = SimcTaskReportPreviewAPIView().get(preview_request, task.id)
+        preview_data = json.loads(preview_response.content)
+        self.assertEqual(preview_response.status_code, 404)
+        self.assertIn('Artifact', preview_data['error'])
+
+        SimcTask.objects.filter(id=task.id).update(task_type=2, mode='normal')
+        attribute_request = self.factory.get('/api/simc-attribute-analysis/', {'task_id': task.id})
+        attribute_request.user = self.user
+        attribute_data = json.loads(SimcAttributeAnalysisAPIView().get(attribute_request).content)
+        self.assertFalse(attribute_data['success'])
+        self.assertIn('不是属性模拟', attribute_data['error'])
+
+    def test_task_api_source_does_not_read_task_type_from_new_requests(self):
+        source = inspect.getsource(SimcTaskAPIView)
+        self.assertNotIn("data.get('task_type'", source)
+
+    def test_task_list_and_preview_responses_do_not_publish_task_type(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='Visible task', simc_profile_id=self.profile.id,
+            mode='normal', task_type=1,
+        )
+        list_request = self.factory.get('/api/simc-task/')
+        list_request.user = self.user
+        list_data = json.loads(SimcTaskAPIView().get(list_request).content)['data'][0]
+        self.assertEqual(list_data['reference'], {})
+        self.assertNotIn('task_type', list_data)
+
+        preview_request = self.factory.get('/api/simc-task/preview/', {'task_id': task.id})
+        preview_request.user = self.user
+        preview_data = json.loads(SimcTaskPreviewAPIView().get(preview_request).content)['data']
+        self.assertNotIn('task_type', preview_data)
+
+    def test_workbench_task_row_publishes_mode_without_task_type(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='Workbench task', simc_profile_id=self.profile.id,
+            mode='comparison', task_type=1,
+        )
+        row = SimcWorkbenchAPIView._task_row(task)
+        self.assertEqual(row['mode'], 'comparison')
+        self.assertNotIn('task_type', row)
 
     def test_api_rejects_base_template_content(self):
         """RED: API should reject base_template_content temporary text."""
@@ -207,7 +426,10 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         response = SimcTaskAPIView().post(request)
         data = json.loads(response.content)
 
-        self.assertTrue(data['success'])
+        self.assertTrue(data['success'], data)
+        self.assertEqual(data['data']['mode'], 'normal')
+        self.assertNotIn('task_type', data['data'])
+        self.assertNotIn('result_file', data['data'])
 
         task = SimcTask.objects.get(pk=data['data']['id'])
 
@@ -222,6 +444,16 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         # Verify live FKs match
         self.assertEqual(task.template_id, self.template.id)
         self.assertEqual(task.apl_id, self.apl.id)
+
+        list_request = self.factory.get('/api/simc-task/')
+        list_request.user = self.user
+        list_row = json.loads(SimcTaskAPIView().get(list_request).content)['data'][0]
+        self.assertNotIn('result_file', list_row)
+
+        preview_request = self.factory.get('/api/simc-task/preview/', {'task_id': task.id})
+        preview_request.user = self.user
+        preview = json.loads(SimcTaskPreviewAPIView().get(preview_request).content)['data']
+        self.assertNotIn('result_file', preview)
 
     def test_api_does_not_call_composer_at_creation(self):
         """RED: API creation should NOT call SimcComposer.compose."""
@@ -522,6 +754,34 @@ class SimcProfileAPISimulateNowContractsTests(TestCase):
             is_selectable=True,
             owner_user_id=self.user.id,
         )
+        mark_apl_current(self, self.apl)
+
+    def test_profile_api_rejects_obsolete_task_type_parameter(self):
+        request = self.factory.post(
+            '/api/simc-profile/',
+            data=json.dumps({'simc_profile_id': self.profile.id, 'simulate_now': True, 'task_type': 1}),
+            content_type='application/json',
+        )
+        request.user = self.user
+        response = SimcProfileAPIView().post(request)
+        data = json.loads(response.content)
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(data['success'])
+        self.assertIn('task_type', data['error'])
+
+        before = SimcTask.objects.count()
+        patch_request = self.factory.patch(
+            f'/api/simc-profile/{self.profile.id}/simulate/',
+            data=json.dumps({'task_type': 1}),
+            content_type='application/json',
+        )
+        patch_request.user = self.user
+        patch_response = SimcProfileAPIView().patch(patch_request, self.profile.id)
+        patch_data = json.loads(patch_response.content)
+        self.assertEqual(patch_response.status_code, 400)
+        self.assertFalse(patch_data['success'])
+        self.assertIn('task_type', patch_data['error'])
+        self.assertEqual(SimcTask.objects.count(), before)
 
     def test_simulate_now_requires_explicit_template_and_apl(self):
         """RED: simulate_now should require explicit base_template_id and selected_apl_id."""

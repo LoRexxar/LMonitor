@@ -23,6 +23,11 @@ SIMC_MAIN = MAIN[
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
+    def test_new_frontend_uses_task_mode_vocabulary_only(self):
+        self.assertNotIn('task_type:', SIMC_MAIN)
+        self.assertNotIn('任务组', SIMC_MAIN)
+        self.assertNotIn('基于 Batch', SIMC_MAIN)
+
     def test_dashboard_shell_contains_only_layout_and_shared_dialogs_are_body_level(self):
         soup = BeautifulSoup(HTML, "html.parser")
         shell = soup.select_one("body > .dashboard-shell")

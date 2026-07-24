@@ -1,12 +1,14 @@
+import hashlib
 import json
 import tempfile
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 
 from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask
 
@@ -109,6 +111,7 @@ class ImportSimcPlayerTemplatesTests(TestCase):
                 self.assertFalse(SimcContentTemplate.objects.exists())
 
 
+@override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.1.70000'))
 class DefaultPlayerReferenceContractTests(TestCase):
     """Default-player imports remain source material; Tasks only use explicit resources."""
 
@@ -130,7 +133,24 @@ class DefaultPlayerReferenceContractTests(TestCase):
             owner_user_id=self.user.id,
             spec='warrior_fury', name='Saved APL', content=APL_CONTENT,
             is_active=True, is_selectable=True,
+            validation_status=SimcApl.VALIDATION_VALID,
+            validated_content_hash=hashlib.sha256(APL_CONTENT.encode()).hexdigest(),
+            validation_revision='a' * 40,
+            validation_game_build='12.0.1.70000',
         )
+        validation = {
+            'valid': True,
+            'content_hash': hashlib.sha256(APL_CONTENT.encode()).hexdigest(),
+            'revision': 'a' * 40,
+            'game_build': '12.0.1.70000',
+            'diagnostics': [],
+        }
+        validator = patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value=validation,
+        )
+        validator.start()
+        self.addCleanup(validator.stop)
         self.profile = SimcProfile.objects.create(
             user_id=self.user.id,
             name='Fury explicit profile',
@@ -153,7 +173,6 @@ class DefaultPlayerReferenceContractTests(TestCase):
         payload = {
             'name': 'Fury reference task',
             'simc_profile_id': self.profile.id,
-            'task_type': 1,
             'base_template_id': self.template.id,
             'selected_apl_id': self.apl.id,
         }

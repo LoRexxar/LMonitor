@@ -1258,8 +1258,7 @@ class SimcTaskAPIView(View):
                     # New tasks keep their execution spec in ext; only old manifests fall back to the Profile.
                     'simc_profile_spec': ext_detail.get('spec') or profile_info.get('spec', ''),
                     'current_status': task.current_status,
-                    'result_file': self._task_result_file_summary(task),
-                    'task_type': task.task_type,
+                    'mode': task.mode,
                     # 任务列表只需安全的结构化摘要；原始 SimC 文本只能留在执行快照中，
                     # 不得通过列表或前端内嵌 JSON 回显给浏览器。
                     'reference': reference_detail,
@@ -1300,6 +1299,8 @@ class SimcTaskAPIView(View):
         """创建新的SimC任务，或通过 action=rerun 创建不可变任务的新执行。"""
         try:
             data = json.loads(request.body)
+            if 'task_type' in data:
+                return JsonResponse({'success': False, 'error': '不再支持 task_type 参数；请使用 SimC 工作台的任务模式入口。'}, status=400)
             if data.get('action') == 'rerun':
                 task_id = data.get('id')
                 if not task_id:
@@ -1327,6 +1328,7 @@ class SimcTaskAPIView(View):
                         'id': rerun.id,
                         'source_task_id': source.id,
                         'current_status': rerun.current_status,
+                        'mode': rerun.mode,
                         'profile_version_id': rerun.profile_version_id,
                         'template_version_id': rerun.template_version_id,
                         'apl_version_id': rerun.apl_version_id,
@@ -1335,7 +1337,6 @@ class SimcTaskAPIView(View):
             name = data.get('name', '').strip()
             simc_profile_id = data.get('simc_profile_id')
             raw_simc_code = str(data.get('raw_simc_code') or '')
-            task_type = data.get('task_type', 1)
             selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
             base_template_id = data.get('base_template_id')
             base_template_content = data.get('base_template_content') if 'base_template_content' in data else None
@@ -1376,14 +1377,7 @@ class SimcTaskAPIView(View):
                     'error': '不再支持直接 SimC 代码模式。请使用基础模板 + APL 引用方式创建任务。'
                 })
 
-            # 2. 拒绝 task_type=2（属性寻优）
-            if int(task_type or 1) == 2:
-                return JsonResponse({
-                    'success': False,
-                    'error': '旧版属性寻优（task_type=2）已停用。后续切片将提供基于 Batch 的新版属性寻优。'
-                })
-
-            # 3. 拒绝临时正文字段
+            # 2. 拒绝临时正文字段
             if base_template_content is not None:
                 return JsonResponse({
                     'success': False,
@@ -1543,8 +1537,7 @@ class SimcTaskAPIView(View):
                     'name': task.name,
                     'simc_profile_id': task.simc_profile_id,
                     'current_status': task.current_status,
-                    'result_file': self._task_result_file_summary(task),
-                    'task_type': task.task_type,
+                    'mode': task.mode,
                     'create_time': _fmt_dt(task.create_time),
                     'modified_time': _fmt_dt(task.modified_time),
                 }
@@ -1563,163 +1556,40 @@ class SimcTaskAPIView(View):
             })
     
     def put(self, request):
-        """更新SimC任务"""
+        """仅更新引用型 SimC Task 的显示名称；执行请求不可原地修改。"""
         try:
             data = json.loads(request.body)
             task_id = data.get('id')
-            name = data.get('name', '').strip()
-            simc_profile_id = data.get('simc_profile_id')
-            raw_simc_code = data.get('raw_simc_code', '').strip()
-            current_status = data.get('current_status', 0)
-            task_type = data.get('task_type', 1)
-            ext = data.get('ext', '')
-            regular_time = data.get('regular_time')
-            regular_target_count = data.get('regular_target_count')
-            selected_attributes = data.get('selected_attributes')
-            attribute_step = data.get('attribute_step')
-            selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
-            
+            name = str(data.get('name') or '').strip()
             if not task_id:
-                return JsonResponse({
-                    'success': False,
-                    'error': '任务ID不能为空'
-                })
-            
+                return JsonResponse({'success': False, 'error': '任务ID不能为空'}, status=400)
             if not name:
-                return JsonResponse({
-                    'success': False,
-                    'error': '任务名称不能为空'
-                })
-            
-            # 先按当前用户取得任务；之后所有编辑和 manifest 判定均以它为准。
+                return JsonResponse({'success': False, 'error': '任务名称不能为空'}, status=400)
             try:
                 task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
             except SimcTask.DoesNotExist:
-                return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'})
-
-            complete_reference = all((
-                task.profile_id, task.template_id, task.apl_id,
-                task.profile_version_id, task.template_version_id, task.apl_version_id,
-            ))
-            if complete_reference:
-                # A completed reference row is an immutable execution record. PUT
-                # remains useful for its display name only; edited inputs are sent
-                # to POST/PATCH action=rerun and become a new Task.
-                task.name = name
-                task.save(update_fields=['name', 'modified_time'])
-                return JsonResponse({
-                    'success': True,
-                    'message': '任务名称更新成功；执行输入和状态不可原地修改，请使用重跑创建新任务。',
-                    'data': {
-                        'id': task.id, 'name': task.name,
-                        'simc_profile_id': task.simc_profile_id,
-                        'current_status': task.current_status,
-                        'result_file': self._task_result_file_summary(task),
-                        'task_type': task.task_type,
-                        'create_time': _fmt_dt(task.create_time),
-                        'modified_time': _fmt_dt(task.modified_time),
-                    },
-                })
-
-            # 新版运行 manifest 是 Worker 的可信执行参数：普通编辑仅允许改显示名称。
-            existing_ext = self._normalize_task_ext(task.task_type, task.ext)
-            if existing_ext.get('player_config_mode'):
-                task.name = name
-                task.save(update_fields=['name', 'modified_time'])
-                return JsonResponse({
-                    'success': True,
-                    'message': '任务名称更新成功；运行配置由创建时快照保护，请使用重跑操作重新执行。',
-                    'data': {
-                        'id': task.id,
-                        'name': task.name,
-                        'simc_profile_id': task.simc_profile_id,
-                        'current_status': task.current_status,
-                        'result_file': self._task_result_file_summary(task),
-                        'task_type': task.task_type,
-                        'ext_detail': self._task_ext_summary(task.task_type, task.ext),
-                        'create_time': _fmt_dt(task.create_time),
-                        'modified_time': _fmt_dt(task.modified_time),
-                    }
-                })
-
-            if int(task_type or 1) == 2:
-                return JsonResponse({'success': False, 'error': '旧版属性寻优（task_type=2）已停用。后续切片将提供基于 Batch 的新版属性寻优。'})
-
-            # Legacy frozen tasks must never be rebuilt through the obsolete API.
-            if not (task.profile_id and task.template_id and task.apl_id and
-                    task.profile_version_id and task.template_version_id and task.apl_version_id):
-                return JsonResponse({'success': False, 'error': '旧版冻结任务不支持更新；请使用新的引用型任务流程'})
-
-            # 旧版任务才允许更新其运行字段。
-            if raw_simc_code and int(task_type or 1) == 2:
-                return JsonResponse({'success': False, 'error': '直接 SimC 代码不支持属性模拟，请选择 SimC 配置后再运行属性模拟'})
-            if raw_simc_code and int(task_type or 1) == 1:
-                return JsonResponse({'success': False, 'error': '不再支持直接 SimC 代码模式'})
-            elif not simc_profile_id:
-                return JsonResponse({'success': False, 'error': 'SimC配置不能为空'})
-            if not (raw_simc_code and int(task_type or 1) == 1):
-                try:
-                    SimcProfile.objects.get(id=simc_profile_id, user_id=request.user.id, is_active=True)
-                except SimcProfile.DoesNotExist:
-                    return JsonResponse({'success': False, 'error': '指定的SimC配置不存在'})
-
-            normalized_ext = self._build_task_ext(
-                task_type=task_type, ext=ext, regular_time=regular_time,
-                owner_user_id=request.user.id,
-                regular_target_count=regular_target_count, selected_attributes=selected_attributes,
-                attribute_step=attribute_step, raw_simc_code=raw_simc_code,
-                selected_apl_id=selected_apl_id,
-                fight_style=fight_style,
-                time=fight_time,
-                target_count=target_count,
-                player_config_mode=player_config_mode,
-                player_equipment=player_equipment,
-                gear_strength=gear_strength,
-                gear_crit=gear_crit,
-                gear_haste=gear_haste,
-                gear_mastery=gear_mastery,
-                gear_versatility=gear_versatility,
-                talent=talent,
-                spec=spec,
-                battlenet_region=battlenet_region,
-                battlenet_realm=battlenet_realm,
-                battlenet_character=battlenet_character,
-            )
+                return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'}, status=404)
+            complete_reference = all((task.profile_id, task.template_id, task.apl_id,
+                                      task.profile_version_id, task.template_version_id, task.apl_version_id))
+            if not complete_reference:
+                return JsonResponse({'success': False, 'error': '旧版冻结任务不支持更新；请使用新的引用型任务流程'}, status=400)
             task.name = name
-            task.simc_profile_id = simc_profile_id
-            task.current_status = current_status
-            task.task_type = task_type
-            task.ext = normalized_ext
-            task.save()
-            
+            task.save(update_fields=['name', 'modified_time'])
             return JsonResponse({
                 'success': True,
-                'message': 'SimC任务更新成功',
+                'message': '任务名称更新成功；执行输入和状态不可原地修改，请使用重跑创建新任务。',
                 'data': {
-                    'id': task.id,
-                    'name': task.name,
-                    'simc_profile_id': task.simc_profile_id,
-                    'current_status': task.current_status,
-                    'result_file': self._task_result_file_summary(task),
-                    'task_type': task.task_type,
-                    'ext_detail': self._task_ext_summary(task.task_type, task.ext),
-                    'create_time': _fmt_dt(task.create_time),
+                    'id': task.id, 'name': task.name, 'current_status': task.current_status,
+                    'mode': task.mode, 'create_time': _fmt_dt(task.create_time),
                     'modified_time': _fmt_dt(task.modified_time),
-                }
+                },
             })
-            
         except json.JSONDecodeError:
-            return JsonResponse({
-                'success': False,
-                'error': '无效的JSON数据'
-            })
+            return JsonResponse({'success': False, 'error': '无效的JSON数据'}, status=400)
         except Exception as e:
             logger.error(f"更新SimC任务错误: {str(e)}\n{traceback.format_exc()}")
-            return JsonResponse({
-                'success': False,
-                'error': f'更新任务失败: {str(e)}'
-            })
-    
+            return JsonResponse({'success': False, 'error': f'更新任务失败: {str(e)}'})
+
     def delete(self, request):
         """删除SimC任务（软删除）"""
         try:
@@ -1766,6 +1636,8 @@ class SimcTaskAPIView(View):
         """重跑SimC任务"""
         try:
             data = json.loads(request.body)
+            if 'task_type' in data:
+                return JsonResponse({'success': False, 'error': '不再支持 task_type 参数；请使用 SimC 工作台的任务模式入口。'}, status=400)
             task_id = data.get('id')
             action = data.get('action')
             
@@ -1804,6 +1676,7 @@ class SimcTaskAPIView(View):
                     return JsonResponse({'success': False, 'error': str(exc)}, status=400)
                 return JsonResponse({'success': True, 'message': '已创建新的引用型任务', 'data': {
                     'id': rerun_task.id, 'source_task_id': task.id, 'current_status': rerun_task.current_status,
+                    'mode': rerun_task.mode,
                     'profile_version_id': rerun_task.profile_version_id,
                     'template_version_id': rerun_task.template_version_id,
                     'apl_version_id': rerun_task.apl_version_id,
@@ -1833,8 +1706,7 @@ class SimcTaskAPIView(View):
                     'name': rerun_task.name,
                     'simc_profile_id': rerun_task.simc_profile_id,
                     'current_status': rerun_task.current_status,
-                    'result_file': self._task_result_file_summary(rerun_task),
-                    'task_type': rerun_task.task_type,
+                    'mode': rerun_task.mode,
                     'ext_detail': self._task_ext_summary(rerun_task.task_type, rerun_task.ext),
                     'create_time': _fmt_dt(rerun_task.create_time),
                     'modified_time': _fmt_dt(rerun_task.modified_time),
@@ -1859,7 +1731,7 @@ class SimcTaskAPIView(View):
         Create a rerun from an existing task.
 
         For reference-based tasks: delegates to unified rerun service.
-        For old frozen tasks: prevented - old Batch creation is frozen.
+        For old frozen tasks: prevented - legacy task creation is frozen.
         """
         # Check if this is a reference task or legacy frozen task
         if task.profile_id and task.template_id and task.apl_id and \
@@ -2150,7 +2022,7 @@ class SimcTaskAPIView(View):
 
 @method_decorator(login_required, name='dispatch')
 class SimcComparisonTaskAPIView(View):
-    """Create a small, self-describing regular-task comparison batch."""
+    """Create one self-describing comparison Task with multiple candidate Runs."""
     MAX_TASKS = 8
     MAX_ATTRIBUTE_TASKS = 13
     ATTRIBUTE_STATS = SIMC_ATTRIBUTE_STATS
@@ -2392,6 +2264,8 @@ class SimcComparisonTaskAPIView(View):
     def post(self, request):
         try:
             data = json.loads(request.body or '{}')
+            if 'task_type' in data:
+                return JsonResponse({'success': False, 'error': '不再支持 task_type 参数；请使用 SimC 工作台的任务模式入口。'}, status=400)
             continue_task_id = str(data.get('continue_task_id') or data.get('task_id') or '').strip()
             if continue_task_id:
                 return JsonResponse({
@@ -2526,17 +2400,17 @@ class SimcComparisonTaskAPIView(View):
             spec = str(profile.spec or '').strip().lower()
             mode = SimcProfileAPIView._profile_mode(profile)
             if kind not in ('attribute_variants', 'gear_candidates', 'talent_candidates'):
-                raise ValueError('不支持的批次类型')
+                raise ValueError('不支持的候选类型')
             if category and category not in ('trinket_candidates', 'gear_candidates', 'talent_candidates'):
                 raise ValueError('不支持的候选类别')
             if category == 'trinket_candidates' and kind != 'gear_candidates':
-                raise ValueError('饰品候选必须使用装备候选批次')
+                raise ValueError('饰品候选必须使用装备候选类型')
             if category in ('gear_candidates', 'talent_candidates') and category != kind:
-                raise ValueError('候选类别与批次类型不匹配')
+                raise ValueError('候选类别与任务类型不匹配')
             if not name or not spec:
                 raise ValueError('任务名称和 Profile 专精不能为空')
             if mode not in ('attribute_only', 'manual_equipment', 'battlenet'):
-                raise ValueError('批次仅支持 attribute_only、manual_equipment 或 battlenet Profile')
+                raise ValueError('比较任务仅支持 attribute_only、manual_equipment 或 battlenet Profile')
             fight_style = str(data.get('fight_style') or 'Patchwerk').strip()
             fight_time = max(1, self._int(data.get('time', 300), '战斗时长'))
             target_count = max(1, self._int(data.get('target_count', 1), '目标数量'))
@@ -2727,6 +2601,7 @@ class SimcComparisonTaskAPIView(View):
             )
             return JsonResponse({'success': True, 'data': {
                 'task_id': task.id, 'run_ids': [],
+                'mode': task.mode,
                 'accepted': len(candidates),
             }})
         except json.JSONDecodeError:
@@ -2734,8 +2609,8 @@ class SimcComparisonTaskAPIView(View):
         except ValueError as e:
             return JsonResponse({'success': False, 'error': str(e)})
         except Exception as e:
-            logger.error(f'创建 SimC 比较批次失败: {e}\n{traceback.format_exc()}')
-            return JsonResponse({'success': False, 'error': f'创建比较批次失败: {e}'})
+            logger.error(f'创建 SimC 比较任务失败: {e}\n{traceback.format_exc()}')
+            return JsonResponse({'success': False, 'error': f'创建比较任务失败: {e}'})
 
 
 @method_decorator(login_required, name='dispatch')
@@ -3047,7 +2922,7 @@ def inspect_raw_simc_code(raw_simc_code):
             'label': '常规模拟',
             'enabled': True,
             'checked': True,
-            'task_type': 1,
+            'mode': 'normal',
             'default_time': 300,
             'default_target_count': 1,
             'task_name': ' '.join(plan_name_parts) + ' 常规模拟',
@@ -3055,18 +2930,18 @@ def inspect_raw_simc_code(raw_simc_code):
         },
         {
             'id': 'attribute',
-            'label': '属性模拟',
+            'label': '属性寻优',
             'enabled': False,
             'checked': False,
-            'task_type': 2,
-            'reason': '属性模拟需要先保存为 SimC 配置，再基于配置生成属性变体',
+            'mode': 'attribute_sweep',
+            'reason': '属性寻优需要先保存为 SimC 配置，再基于配置生成候选 Run',
         },
         {
             'id': 'apl_compare',
             'label': 'APL候选对比',
             'enabled': False,
             'checked': False,
-            'task_type': 1,
+            'mode': 'comparison',
             'reason': 'APL候选对比需要配置化 Profile 和可替换 action_list，raw 代码首版仅开放常规模拟',
         },
     ]
@@ -3649,6 +3524,11 @@ class SimcProfileAPIView(View):
         """创建新的SimC配置或复制现有配置，或者为现有配置创建模拟任务"""
         try:
             data = json.loads(request.body)
+            if 'task_type' in data:
+                return JsonResponse({
+                    'success': False,
+                    'error': '不再支持 task_type 参数；请使用 SimC 工作台的任务模式入口。',
+                }, status=400)
             
             # 检查是否为一键模拟操作
             simulate_now = data.get('simulate_now', False)
@@ -3663,22 +3543,16 @@ class SimcProfileAPIView(View):
                         is_active=True
                     )
 
-                    task_type = data.get('task_type', 1)
-                    selected_attributes = data.get('selected_attributes')
                     regular_time = data.get('regular_time')
                     regular_target_count = data.get('regular_target_count')
-                    attribute_step = data.get('attribute_step')
                     base_template_id = data.get('base_template_id')
                     selected_apl_id = data.get('selected_apl_id')
 
                     task_result = self._create_simulation_task(
                         request.user.id,
                         profile,
-                        task_type=task_type,
-                        selected_attributes=selected_attributes,
                         regular_time=regular_time,
                         regular_target_count=regular_target_count,
-                        attribute_step=attribute_step,
                         base_template_id=base_template_id,
                         selected_apl_id=selected_apl_id
                     )
@@ -3767,7 +3641,7 @@ class SimcProfileAPIView(View):
                         'id': task.id,
                         'name': task.name,
                         'current_status': task.current_status,
-                        'result_file': task.result_file,
+                        'mode': task.mode,
                     },
                 })
             
@@ -3812,19 +3686,17 @@ class SimcProfileAPIView(View):
                     
                     # 如果需要立即模拟，创建SimcTask
                     if simulate_now:
-                        task_type = data.get('task_type', 1)
-                        selected_attributes = data.get('selected_attributes')
                         regular_time = data.get('regular_time')
                         regular_target_count = data.get('regular_target_count')
-                        attribute_step = data.get('attribute_step')
+                        base_template_id = data.get('base_template_id')
+                        selected_apl_id = data.get('selected_apl_id')
                         task_result = self._create_simulation_task(
-                            request.user.id, 
-                            profile, 
-                            task_type=task_type,
-                            selected_attributes=selected_attributes,
+                            request.user.id,
+                            profile,
                             regular_time=regular_time,
                             regular_target_count=regular_target_count,
-                            attribute_step=attribute_step
+                            base_template_id=base_template_id,
+                            selected_apl_id=selected_apl_id,
                         )
                         if task_result['success']:
                             response_data['message'] += '，模拟任务已创建'
@@ -3876,21 +3748,15 @@ class SimcProfileAPIView(View):
                 
                 # 如果需要立即模拟，创建SimcTask
                 if simulate_now:
-                    task_type = data.get('task_type', 1)
-                    selected_attributes = data.get('selected_attributes')
                     regular_time = data.get('regular_time')
                     regular_target_count = data.get('regular_target_count')
-                    attribute_step = data.get('attribute_step')
                     base_template_id = data.get('base_template_id')
                     selected_apl_id = data.get('selected_apl_id')
                     task_result = self._create_simulation_task(
                         request.user.id,
                         profile,
-                        task_type=task_type,
-                        selected_attributes=selected_attributes,
                         regular_time=regular_time,
                         regular_target_count=regular_target_count,
-                        attribute_step=attribute_step,
                         base_template_id=base_template_id,
                         selected_apl_id=selected_apl_id
                     )
@@ -3919,23 +3785,12 @@ class SimcProfileAPIView(View):
                 'error': f'创建SimC配置失败: {str(e)}'
             })
     
-    def _create_simulation_task(self, user_id, profile, task_type=1, selected_attributes=None, regular_time=None, regular_target_count=None, attribute_step=None, base_template_id=None, selected_apl_id=None):
+    def _create_simulation_task(self, user_id, profile, regular_time=None, regular_target_count=None, base_template_id=None, selected_apl_id=None):
         """创建模拟任务的辅助方法"""
         from botend.services.simc_task_service import create_task_from_request, TaskCreationError
 
         try:
-            # ========== 引用型任务切片：拒绝旧模式 ==========
-
-            task_type = int(task_type or 1)
-
-            # 1. 拒绝 task_type=2（属性寻优）
-            if task_type == 2:
-                raise ValueError('旧版属性寻优（task_type=2）已停用。后续切片将提供基于 Batch 的新版属性寻优。')
-
-            if task_type not in (1,):
-                raise ValueError('任务类型无效，当前只支持 task_type=1（常规模拟）')
-
-            # 2. 要求显式提供 template 和 APL
+            # 普通立即模拟要求显式提供 template 和 APL。
             if not base_template_id or not selected_apl_id:
                 raise ValueError(
                     'simulate_now 必须提供显式的 base_template_id 和 selected_apl_id。'
@@ -3986,7 +3841,7 @@ class SimcProfileAPIView(View):
                     'id': task.id,
                     'name': task.name,
                     'current_status': task.current_status,
-                    'result_file': task.result_file
+                    'mode': task.mode,
                 }
             }
 
@@ -4151,6 +4006,9 @@ class SimcProfileAPIView(View):
     def patch(self, request, profile_id=None):
         """一键模拟SimC配置"""
         try:
+            data = json.loads(request.body or '{}')
+            if 'task_type' in data:
+                return JsonResponse({'success': False, 'error': '不再支持 task_type 参数；请使用 SimC 工作台的任务模式入口。'}, status=400)
             # 从URL参数获取profile_id
             if not profile_id:
                 return JsonResponse({
@@ -4239,6 +4097,8 @@ class SimcAplCandidatesAPIView(View):
     def post(self, request):
         try:
             data = json.loads(request.body or '{}')
+            if 'task_type' in data:
+                return JsonResponse({'success': False, 'error': '不再支持 task_type 参数；请使用 SimC 工作台的任务模式入口。'}, status=400)
             profile_id = data.get('profile_id')
             include_base = bool(data.get('include_base', True))
             candidate_count = int(data.get('candidate_count', 5) or 5)
@@ -4289,6 +4149,7 @@ class SimcAplCandidatesAPIView(View):
                     'simulation_started': False,
                     'preprocessing_started': False,
                     'task_id': task.id,
+                    'mode': task.mode,
                     'run_ids': run_ids,
                     'runs': created
                 }
@@ -4583,7 +4444,7 @@ class SimcTaskPreviewAPIView(View):
         manifest = SimcTaskAPIView()._normalize_task_ext(task.task_type, task.ext)
         if task.profile_id and task.template_id and task.apl_id and task.profile_version_id and task.template_version_id and task.apl_version_id:
             return JsonResponse({'success': True, 'data': {
-                'id': task.id, 'name': task.name, 'task_type': task.task_type,
+                'id': task.id, 'name': task.name,
                 'mode': task.mode, 'status': task.current_status,
                 'profile_id': task.profile_id, 'template_id': task.template_id, 'apl_id': task.apl_id,
                 'profile_version_id': task.profile_version_id,
@@ -4592,7 +4453,6 @@ class SimcTaskPreviewAPIView(View):
                 'simulation_params': task.simulation_params or {},
                 'mode_params': task.mode_params or {},
                 'candidate_label': task.candidate_label,
-                'result_file': SimcTaskAPIView()._task_result_file_summary(task),
             }})
         profile = None
         if not manifest and task.simc_profile_id:
@@ -4600,7 +4460,7 @@ class SimcTaskPreviewAPIView(View):
         context = {
             'id': task.id,
             'name': task.name,
-            'task_type': task.task_type,
+            'mode': task.mode,
             'status': task.current_status,
             'result_file': SimcTaskAPIView()._task_result_file_summary(task),
             'spec': manifest.get('spec') or (profile.spec if profile else ''),
@@ -4649,7 +4509,18 @@ class SimcResultProxyAPIView(View):
             requested_files = [part.strip() for part in str(result_file).split(',') if part.strip()]
             if len(requested_files) != 1 or requested_files[0] != result_file.strip() or '/' in result_file or '\\' in result_file:
                 return JsonResponse({'success': False, 'error': '结果文件名无效'})
-            if not SimcTask.objects.filter(user_id=request.user.id, is_active=True).filter(
+            legacy_tasks = SimcTask.objects.filter(
+                user_id=request.user.id,
+                is_active=True,
+            ).exclude(
+                profile_id__isnull=False,
+                template_id__isnull=False,
+                apl_id__isnull=False,
+                profile_version_id__isnull=False,
+                template_version_id__isnull=False,
+                apl_version_id__isnull=False,
+            )
+            if not legacy_tasks.filter(
                 models.Q(result_file=result_file) | models.Q(result_file__startswith=result_file + ',') |
                 models.Q(result_file__endswith=',' + result_file) | models.Q(result_file__contains=',' + result_file + ',')
             ).exists():
@@ -4742,20 +4613,25 @@ class SimcAttributeAnalysisAPIView(View):
                 })
             
             is_attribute_sweep = task.mode == 'attribute_sweep'
-            if task.task_type != 2 and not is_attribute_sweep:
+            has_complete_references = all((
+                task.profile_id, task.template_id, task.apl_id,
+                task.profile_version_id, task.template_version_id, task.apl_version_id,
+            ))
+            is_legacy_attribute = task.task_type == 2 and not has_complete_references
+            if not is_legacy_attribute and not is_attribute_sweep:
                 return JsonResponse({
                     'success': False,
                     'error': '该任务不是属性模拟或四属性寻优任务'
                 })
-            if not task.result_file and not is_attribute_sweep:
+            if not task.result_file and is_legacy_attribute:
                 return JsonResponse({
                     'success': False,
                     'error': '任务尚未完成或无结果文件'
                 })
-            
-            # 旧式属性任务由一个任务持有多个受控属性报告；新式四属性寻优
-            # 直接聚合同一请求级任务下的候选 Runs。
-            result_files = task.result_file.split(',') if task.task_type == 2 else []
+
+            # 旧式且结构不完整的属性任务由一个任务持有多个受控属性报告；
+            # 新式四属性寻优只聚合同一请求级任务下的候选 Runs。
+            result_files = task.result_file.split(',') if is_legacy_attribute else []
             analysis_data = []
             
             # OSS配置
@@ -5167,101 +5043,6 @@ class SimcRegularCompareAPIView(View):
                 'attribute_report': self._safe_attribute_report(attribute_report),
                 'invalid': [{'id': item.get('id'), 'error': item.get('error', '')} for item in invalid],
             }})
-            task_ids_raw = request.GET.get('task_ids', '')
-            task_ids = []
-            for part in task_ids_raw.split(','):
-                part = part.strip()
-                if not part:
-                    continue
-                try:
-                    task_id = int(part)
-                except ValueError:
-                    continue
-                task_ids.append(task_id)
-            
-            unique_task_ids = []
-            seen = set()
-            for task_id in task_ids:
-                if task_id in seen:
-                    continue
-                seen.add(task_id)
-                unique_task_ids.append(task_id)
-            
-            if len(unique_task_ids) < 2:
-                return JsonResponse({
-                    'success': False,
-                    'error': '请至少选择2个任务进行对比'
-                })
-            
-            if len(unique_task_ids) > 8:
-                unique_task_ids = unique_task_ids[:8]
-            
-            tasks_data = []
-            invalid = []
-            
-            for task_id in unique_task_ids:
-                try:
-                    task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
-                except SimcTask.DoesNotExist:
-                    invalid.append({'id': task_id, 'error': '任务不存在或无权限访问'})
-                    continue
-                
-                if task.task_type != 1:
-                    invalid.append({'id': task.id, 'name': task.name, 'error': '仅支持常规模拟任务对比'})
-                    continue
-                
-                if task.current_status != 2:
-                    invalid.append({'id': task.id, 'name': task.name, 'error': '任务未完成'})
-                    continue
-                
-                if not task.result_file or not isinstance(task.result_file, str) or not task.result_file.endswith('.html') or '\n' in task.result_file:
-                    invalid.append({'id': task.id, 'name': task.name, 'error': '任务结果文件无效'})
-                    continue
-                
-                html_content = self._get_result_file_content(task.result_file)
-                if not html_content:
-                    invalid.append({'id': task.id, 'name': task.name, 'error': '无法获取结果文件内容'})
-                    continue
-                
-                parsed = self._parse_regular_result(html_content)
-                if not parsed.get('dps'):
-                    invalid.append({'id': task.id, 'name': task.name, 'error': '无法从结果文件中解析DPS'})
-                    continue
-
-                tasks_data.append({
-                    'id': task.id,
-                    'name': task.name,
-                    'label': task.name,
-                    'dps': parsed.get('dps'),
-                    'rank': None,
-                    'delta_dps': None,
-                    'delta_percent': None,
-                })
-            
-            if len(tasks_data) < 2:
-                return JsonResponse({
-                    'success': False,
-                    'error': '可用于对比的任务不足2个',
-                    'invalid': [{'id': item.get('id'), 'error': item.get('error', '')} for item in invalid],
-                    'data': {'tasks': tasks_data},
-                })
-            
-            ranked = sorted(tasks_data, key=lambda row: (-row['dps'], row['id']))
-            rank_by_id = {row['id']: index for index, row in enumerate(ranked, 1)}
-            baseline_dps = tasks_data[0]['dps']
-            for row in tasks_data:
-                row['rank'] = rank_by_id[row['id']]
-                row['delta_dps'] = row['dps'] - baseline_dps
-                row['delta_percent'] = round((row['delta_dps'] / baseline_dps) * 100, 2) if baseline_dps else None
-
-            return JsonResponse({
-                'success': True,
-                'data': {
-                    'tasks': tasks_data,
-                    'invalid': [{'id': item.get('id'), 'error': item.get('error', '')} for item in invalid]
-                }
-            })
-            
         except Exception as e:
             logger.error(f"常规模拟对比失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({
@@ -5972,7 +5753,7 @@ class SimcWorkbenchAPIView(View):
             'id': task.id, 'name': task.name, 'status': task.current_status,
             'status_label': SimcWorkbenchAPIView._task_status_label(task.current_status),
             'progress': SimcWorkbenchAPIView._task_progress(task),
-            'task_type': task.task_type, 'mode': task.mode,
+            'mode': task.mode,
             'candidate_label': task.candidate_label, 'result_summary': summary,
             'runs': [
                 SimcWorkbenchAPIView._run_row(run)
@@ -6316,6 +6097,8 @@ class SimcWorkbenchAPIView(View):
             data = self._json_body(request)
         except ValueError as exc:
             return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+        if 'task_type' in data:
+            return JsonResponse({'success': False, 'error': '不再支持 task_type 参数；请使用 SimC 工作台的任务模式入口。'}, status=400)
         action = str(data.get('action') or '').strip()
         if resource == 'tasks' and object_id:
             task = SimcTask.objects.filter(id=object_id, user_id=request.user.id).first()
@@ -6340,7 +6123,7 @@ class SimcWorkbenchAPIView(View):
                 object_id = task.id
             else:
                 return JsonResponse({'success': False, 'error': '当前状态不允许该操作'}, status=409)
-            return JsonResponse({'success': True, 'data': {'id': object_id}})
+            return JsonResponse({'success': True, 'data': {'id': object_id, 'mode': task.mode}})
         if resource == 'profiles' and object_id and action in ('archive', 'restore'):
             profile = SimcProfile.objects.filter(id=object_id, user_id=request.user.id).first()
             if not profile:
@@ -6700,6 +6483,9 @@ class SimcTaskReportPreviewAPIView(View):
         task = SimcTask.objects.filter(id=object_id, user_id=request.user.id).first()
         if not task or not task.result_file:
             return JsonResponse({'success': False, 'error': '任务报告不存在'}, status=404)
+        if all((task.profile_id, task.template_id, task.apl_id,
+                task.profile_version_id, task.template_version_id, task.apl_version_id)):
+            return JsonResponse({'success': False, 'error': '引用型任务报告请通过 Artifact 预览'}, status=404)
         from botend.services.simc_artifacts import _validated_result
         result_name = os.path.basename(str(task.result_file))
         artifact = SimcTaskArtifact.objects.filter(

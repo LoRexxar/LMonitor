@@ -487,7 +487,6 @@ class SimcRawInspectTests(TestCase):
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'Arcaneone arcane 常规模拟',
-                'task_type': 1,
                 'simc_profile_id': 0,
                 'raw_simc_code': raw_code,
                 'regular_time': 300,
@@ -507,7 +506,6 @@ class SimcRawInspectTests(TestCase):
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'bad attribute raw',
-                'task_type': 2,
                 'simc_profile_id': 0,
                 'raw_simc_code': 'paladin="Foo"\nspec=retribution\n',
             }),
@@ -755,6 +753,9 @@ main_hand=,id=222222
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
+        self.assertEqual(response.json()['data']['mode'], 'attribute_sweep')
+        self.assertNotIn('task_type', response.json()['data'])
+        self.assertNotIn('result_file', response.json()['data'])
         task = SimcTask.objects.get(id=response.json()['data']['task_id'])
         profile = task.profile_version.payload
         self.assertEqual(profile['player_config_mode'], 'attribute_only')
@@ -1025,7 +1026,7 @@ main_hand=,id=222222
     def test_attribute_task_rejects_nonempty_baseline_without_actor_or_equipped_slot(self):
         for baseline in ('head=,id=212048', 'warrior="No gear"\nspec=fury'):
             response = self.client.post('/api/simc-task/', data=json.dumps({
-                'name': 'Malformed baseline', 'task_type': 1, 'spec': 'fury',
+                'name': 'Malformed baseline', 'spec': 'fury',
                 'player_config_mode': 'attribute_only', 'player_equipment': baseline,
                 'talent': 'BUILD', 'gear_crit': 1, 'gear_haste': 2,
                 'gear_mastery': 3, 'gear_versatility': 4,
@@ -1432,10 +1433,10 @@ class SimcNewConfigModeTests(TestCase):
             }),
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
         payload = response.json()
         self.assertFalse(payload['success'])
-        self.assertIn('旧版属性寻优（task_type=2）已停用', payload['error'])
+        self.assertIn('task_type', payload['error'])
 
     def test_task_list_does_not_expose_raw_simc_code(self):
         task = SimcTask.objects.create(
@@ -1462,7 +1463,6 @@ class SimcNewConfigModeTests(TestCase):
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'new private raw code',
-                'task_type': 1,
                 'simc_profile_id': 0,
                 'raw_simc_code': 'warrior="create-secret"\nspec=fury\n',
                 'regular_time': 300,
@@ -1540,7 +1540,7 @@ class SimcNewConfigModeTests(TestCase):
         response = self.client.get('/api/simc-task/')
         self.assertEqual(response.status_code, 200)
         listed = next(row for row in response.json()['data'] if row['id'] == task.id)
-        self.assertEqual(listed['result_file'], '')
+        self.assertNotIn('result_file', listed)
         self.assertNotIn('result-secret', json.dumps(response.json(), ensure_ascii=False))
 
     def test_attribute_analysis_ssr_parses_task_owned_attribute_report(self):
@@ -1866,10 +1866,10 @@ html=simc_task_99.html
             }),
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
         payload = response.json()
         self.assertFalse(payload['success'], payload)
-        self.assertIn('旧版属性寻优（task_type=2）已停用', payload['error'])
+        self.assertIn('task_type', payload['error'])
 
 
 

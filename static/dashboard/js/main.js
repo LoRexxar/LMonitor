@@ -3216,8 +3216,8 @@ function updateSimcHomeMode() {
     const mode = document.getElementById('simc-sim-mode')?.value || 'normal';
     const descriptions = {
         normal: '普通模拟将创建一个引用型原子任务。',
-        attribute: '属性寻优将创建任务组，并生成只改变属性差异的候选任务。',
-        comparison: '候选对比将使用右侧玩家详情中勾选的同类候选创建任务组。',
+        attribute: '属性寻优将在一个任务中生成只改变属性差异的多个候选执行。',
+        comparison: '候选对比将在一个任务中执行右侧玩家详情里勾选的同类候选。',
     };
     const options = document.getElementById('simc-sim-mode-options');
     if (options) options.textContent = descriptions[mode] || '';
@@ -3452,7 +3452,6 @@ async function createSimcSimulationTask() {
     const requestBody = {
         name: `${spec} ${scenario.fight_style} ${scenario.time}s ${scenario.target_count}目标`,
         spec: simcResolvedCanonicalSpec,
-        task_type: 1,
         ...references,
         ...scenario,
     };
