@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
+from bs4 import BeautifulSoup
+
 
 _MAX_MARKUP_LENGTH = 2_000_000
 _MAX_TOKENS = 50_000
@@ -26,7 +28,7 @@ _CONTAINER_TAGS = {
     "b", "bold", "i", "italic", "u", "s", "strike", "del", "ins",
     "center", "left", "right", "quote", "code", "pre", "url", "color",
     "size", "img", "table", "thead", "tbody", "tfoot", "tr", "td", "th",
-    "ul", "ol", "list", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+    "ul", "ol", "list", "li", "html", "h1", "h2", "h3", "h4", "h5", "h6",
 }
 _VOID_TAGS = {"item", "spell", "npc", "object", "quest", "achievement", "screenshot", "br", "db"}
 _STRUCTURAL_CONTEXTS = {"center", "table", "thead", "tbody", "tfoot", "tr", "ul", "ol", "list"}
@@ -243,6 +245,8 @@ def _render_node(node: BBNode, context: dict, ancestors: List[str]) -> str:
     if name == "img":
         src = _safe_url(_plain_children(node), context["base_url"])
         return '<img src="{}"/>'.format(html.escape(src, quote=True)) if src else ""
+    if name == "html":
+        return _render_safe_html(_plain_children(node), context["base_url"])
     if name == "screenshot":
         return _render_screenshot(node, context)
     if name in {"item", "spell", "npc", "object", "quest", "achievement"}:
@@ -319,6 +323,35 @@ def _plain_children(node: BBNode) -> str:
         else:
             result.append(_plain_children(child))
     return "".join(result).strip()
+
+
+def _render_safe_html(value: str, base_url: str) -> str:
+    """Preserve Wowhead ``[html]`` structure while removing executable behavior."""
+    soup = BeautifulSoup(value or "", "html.parser")
+    for tag in soup.find_all("script"):
+        tag.decompose()
+    url_attrs = {"href", "src", "poster", "data-source-src"}
+    for tag in soup.find_all(True):
+        for attr in list(tag.attrs):
+            attr_lower = attr.lower()
+            attr_value = tag.get(attr)
+            if attr_lower.startswith("on") or attr_lower == "srcdoc":
+                del tag.attrs[attr]
+                continue
+            if attr_lower not in url_attrs:
+                continue
+            raw_value = " ".join(attr_value) if isinstance(attr_value, list) else str(attr_value or "")
+            normalized = raw_value.strip()
+            lowered = normalized.lower().lstrip()
+            if lowered.startswith(("javascript:", "vbscript:")):
+                del tag.attrs[attr]
+                continue
+            if lowered.startswith("data:") and not lowered.startswith(("data:image/", "data:video/", "data:audio/")):
+                del tag.attrs[attr]
+                continue
+            if normalized and attr_lower != "data-source-src":
+                tag.attrs[attr] = urljoin(base_url, normalized)
+    return "".join(str(child) for child in soup.contents)
 
 
 def _safe_url(value: str, base_url: str) -> str:

@@ -69,6 +69,34 @@ class WowheadBBCodeRendererTests(SimpleTestCase):
         self.assertNotIn("javascript:", rendered)
         self.assertNotIn("[/img]", rendered)
 
+    def test_renders_safe_html_wrapper_as_html_instead_of_escaped_text(self):
+        rendered = render_wowhead_bbcode(
+            '[html]<table><tr><th colspan="4">Class Tools</th></tr>'
+            '<tr><th>Blood</th><td><a href="/ptr/talent-calc/death-knight/blood">Talents</a></td></tr>'
+            '</table>[/html]',
+            base_url="https://www.wowhead.com/news/382254",
+        )
+        soup = BeautifulSoup(rendered, "html.parser")
+
+        self.assertIsNotNone(soup.find("table"))
+        self.assertEqual(soup.find("th")["colspan"], "4")
+        self.assertEqual(soup.find("a")["href"], "https://www.wowhead.com/ptr/talent-calc/death-knight/blood")
+        self.assertNotIn("&lt;table&gt;", rendered)
+
+    def test_html_wrapper_removes_executable_behavior_without_dropping_structure(self):
+        rendered = render_wowhead_bbcode(
+            '[html]<table onclick="alert(1)"><tr><td>Visible</td></tr></table>'
+            '<script>alert(2)</script><a href="javascript:alert(3)" srcdoc="bad">Unsafe link</a>[/html]',
+            base_url="https://www.wowhead.com/news/382254",
+        )
+        soup = BeautifulSoup(rendered, "html.parser")
+
+        self.assertEqual(soup.find("td").get_text(strip=True), "Visible")
+        self.assertIsNone(soup.find("script"))
+        self.assertNotIn("onclick", soup.find("table").attrs)
+        self.assertNotIn("href", soup.find("a").attrs)
+        self.assertNotIn("srcdoc", soup.find("a").attrs)
+
     def test_keeps_screenshot_in_original_article_position(self):
         rendered = render_wowhead_bbcode(
             'Before screenshot.\r\n[screenshot id=1290351 width=800 alt="Raid map"][/screenshot]\r\nAfter screenshot.',
