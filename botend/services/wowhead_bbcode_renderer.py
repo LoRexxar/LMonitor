@@ -127,7 +127,7 @@ def parse_wowhead_bbcode(markup: str) -> BBNode:
     token_count = 0
     cursor = 0
     source = (markup or "")[:_MAX_MARKUP_LENGTH]
-    for match in re.finditer(r"\[([^\]\r\n]{1,2048})\]", source):
+    for match in re.finditer(r"\[([^\[\]\r\n]{1,2048})\]", source):
         if token_count >= _MAX_TOKENS:
             break
         if match.start() > cursor:

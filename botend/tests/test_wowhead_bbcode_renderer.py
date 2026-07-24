@@ -83,6 +83,16 @@ class WowheadBBCodeRendererTests(SimpleTestCase):
         self.assertIn("危险", rendered)
         self.assertNotIn("javascript:", rendered)
 
+    def test_renders_del_with_attributes_inside_literal_formula_brackets(self):
+        rendered = render_wowhead_bbcode(
+            r"Damage: \\[(percentOfAttackPower_format, [del copy=true]241.5%[/del][ins]220%[/ins]) * 0.75]",
+            base_url="https://www.wowhead.com/news/382254",
+        )
+
+        self.assertIn("<del>241.5%</del><ins>220%</ins>", rendered)
+        self.assertNotIn("[del copy=true]", rendered)
+        self.assertIn(r"\\[(percentOfAttackPower_format, ", rendered)
+
     def test_renders_safe_html_wrapper_as_html_instead_of_escaped_text(self):
         rendered = render_wowhead_bbcode(
             '[html]<table><tr><th colspan="4">Class Tools</th></tr>'

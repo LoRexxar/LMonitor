@@ -460,6 +460,20 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn("36", blocks_to_plain_text(blocks))
         self.assertIn("30", blocks_to_plain_text(blocks))
 
+    def test_extract_wowhead_article_normalizes_del_with_copy_attribute_in_html_text(self):
+        html = '''
+        <div id="news-post"><div class="text">
+          <p>Damage: ([del copy=true]241.5%[/del]<ins>220%</ins>)</p>
+        </div></div>
+        '''
+
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
+        html_result = blocks[0]["html"]
+
+        self.assertIn("<del>241.5%</del><ins>220%</ins>", html_result)
+        self.assertNotIn("[del copy=true]", html_result)
+        self.assertNotIn("[/del]", html_result)
+
     def test_translate_blocks_translates_html_text_without_removing_tags(self):
         blocks = [{"type": "html", "html": '<h2>Patch Notes</h2><p>Class changes are live.</p><img src="https://example.com/a.png"/>'}]
         pairs = [

@@ -791,7 +791,9 @@ def _normalize_html_inline_markup(root, *, base_url: str):
         if not parent or parent.name in {"script", "style", "code", "pre"}:
             continue
         raw = str(text_node)
-        if "&" not in raw and not re.search(r"\[[^\]\r\n]+\]\([^)\r\n]+\)", raw):
+        has_markdown_link = re.search(r"\[[^\]\r\n]+\]\([^)\r\n]+\)", raw)
+        has_inline_bbcode = re.search(r"\[(?:del|ins|strike|s)(?:\s+[^\]]+)?\]", raw, re.I)
+        if "&" not in raw and not has_markdown_link and not has_inline_bbcode:
             continue
         rendered = render_wowhead_bbcode(raw, base_url=base_url)
         if rendered == raw:
