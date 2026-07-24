@@ -64,12 +64,12 @@ def validate_apl_for_profile(profile, apl):
     try:
         validation_input = SimcComposer(profile.user_id).compose_validation_input(profile, apl.content)
         context = SimcComposer.validation_context(
-            profile, catalog_revision=identity[0], binary_revision=backend.current_version,
+            profile, catalog_revision=identity[0], binary_revision=identity[0],
             validation_input=validation_input,
         )
         validator = RestrictedSimcValidator(
             backend.simc_path, catalog_revision=identity[0],
-            binary_revision=backend.current_version,
+            binary_revision=identity[0],
             temp_root=getattr(settings, 'SIMC_APL_VALIDATION_TEMP_ROOT', None),
         )
         payload = validate_payload(apl.content, mode='both',

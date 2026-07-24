@@ -9,7 +9,8 @@ from django.test import TestCase, override_settings
 from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary,
                            SimcContentTemplate, SimcProfile,
                            SimcResourceVersion, SimcTask)
-from botend.services.simc_apl.publish import current_validation_identity
+from botend.services.simc_apl.publish import (current_validation_identity,
+                                              validate_apl_for_profile)
 from botend.services.simc_task_service import TaskCreationError, create_task
 
 
@@ -37,6 +38,47 @@ class SimcAplCurrentIdentityTests(TestCase):
             current_validation_identity(),
             (full_revision, "12.0.7.68453"),
         )
+
+    @patch("botend.services.simc_apl.publish.validate_payload")
+    @patch("botend.services.simc_apl.publish.SimcComposer.compose_validation_input",
+           return_value='warrior="Player"\nspec=fury\nactions=/auto_attack')
+    def test_authoritative_validation_uses_resolved_full_binary_revision(
+            self, compose_validation_input, validate):
+        full_revision = "62ababb127bef2a35f96357968d455dde7de7616"
+        SimcBackendBinary.objects.create(
+            platform="linux64", current_version="1205-01-62ababb",
+            simc_path="/tmp/simc",
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision=full_revision, wow_build="12.0.7.68453",
+            token="bloodthirst", symbol_kind="action", is_active=True,
+        )
+        profile = SimcProfile.objects.create(
+            user_id=1, name="Player", spec="warrior_fury",
+            player_config_mode="manual_equipment",
+            player_equipment='warrior="Player"\nspec=fury\nmain_hand=,id=1',
+            is_active=True,
+        )
+        apl = SimcApl(name="APL", spec="warrior_fury", content=CONTENT)
+
+        def validation_result(content, **kwargs):
+            self.assertEqual(
+                kwargs["authoritative_validator"].binary_revision,
+                full_revision,
+            )
+            self.assertEqual(
+                kwargs["validation_context"]["binary_revision"],
+                full_revision,
+            )
+            return {
+                "structural_valid": True,
+                "authoritative_valid": True,
+                "diagnostics": [],
+            }
+
+        validate.side_effect = validation_result
+
+        self.assertTrue(validate_apl_for_profile(profile, apl)["valid"])
 
 
 @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, BUILD))
