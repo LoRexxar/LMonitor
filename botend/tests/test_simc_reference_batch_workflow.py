@@ -88,7 +88,7 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
         )
         mark_apl_valid(self.apl)
 
-    def test_comparison_task_uses_complete_references_and_keeps_candidate_params(self):
+    def test_comparison_task_freezes_candidates_without_creating_runs(self):
         task = create_task(
             user_id=self.user_id,
             name='Reference comparison · helm',
@@ -120,12 +120,13 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
         self.assertIsNotNone(task.profile_version_id)
         self.assertIsNotNone(task.template_version_id)
         self.assertIsNotNone(task.apl_version_id)
-        run = task.simulation_runs.get()
-        self.assertEqual(run.candidate_params['candidate_type'], 'gear_swap')
-        self.assertEqual(run.candidate_params['gear_swap']['slot'], 'head')
-        self.assertNotIn('untrusted_extra', run.candidate_params)
+        self.assertEqual(task.simulation_runs.count(), 0)
+        frozen = task.mode_params['initial_candidates'][0]
+        self.assertEqual(frozen['candidate_params']['candidate_type'], 'gear_swap')
+        self.assertEqual(frozen['candidate_params']['gear_swap']['slot'], 'head')
+        self.assertNotIn('untrusted_extra', frozen['candidate_params'])
 
-    def test_attribute_sweep_task_keeps_only_candidate_ratings_and_metadata(self):
+    def test_attribute_sweep_task_freezes_candidates_without_creating_runs(self):
         task = create_task(
             user_id=self.user_id,
             name='Reference attributes · crit -50 / haste +50',
@@ -146,9 +147,42 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
         )
 
         self.assertEqual(task.mode, 'attribute_sweep')
-        run = task.simulation_runs.get()
-        self.assertEqual(run.candidate_params['attribute_ratings']['crit'], 950)
-        self.assertEqual(run.candidate_params['search'], {'round': 1, 'step': 50})
+        self.assertEqual(task.simulation_runs.count(), 0)
+        frozen = task.mode_params['initial_candidates'][0]
+        self.assertEqual(frozen['candidate_params']['attribute_ratings']['crit'], 950)
+        self.assertEqual(frozen['candidate_params']['search'], {'round': 1, 'step': 50})
+
+    def test_backend_processing_initializes_frozen_runs_then_executes_them(self):
+        candidates = [{
+            'candidate_key': 'base', 'candidate_label': '基准配置',
+            'candidate_params': {'candidate_type': 'base', 'is_base': True},
+        }, {
+            'candidate_key': 'candidate-a', 'candidate_label': '候选 A',
+            'candidate_params': {
+                'candidate_type': 'gear_swap', 'is_base': False,
+                'gear_swap': {'slot': 'head', 'item_id': 299001, 'source': 'bags'},
+            },
+        }]
+        task = create_task(
+            user_id=self.user_id, name='backend-owned runs',
+            profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id,
+            mode='comparison', candidates=candidates,
+        )
+        self.assertEqual(task.simulation_runs.count(), 0)
+
+        def complete_run(_task, run):
+            run.status = 'completed'
+            run.result_summary = {'dps': 1000 + run.sequence}
+            run.save(update_fields=['status', 'result_summary'])
+            return True
+
+        monitor = SimcMonitor(None, task)
+        with patch.object(monitor, 'process_reference_run', side_effect=complete_run) as execute:
+            self.assertTrue(monitor.process_reference_task(task))
+
+        runs = list(task.simulation_runs.order_by('sequence'))
+        self.assertEqual([run.candidate_key for run in runs], ['base', 'candidate-a'])
+        self.assertEqual(execute.call_count, 2)
 
 
 class ReferenceBatchAPIViewTests(TestCase):
@@ -200,14 +234,15 @@ class ReferenceBatchAPIViewTests(TestCase):
         payload = response.json()
         self.assertTrue(payload['success'], payload)
         task = SimcTask.objects.get(id=payload['data']['task_id'])
-        runs = list(task.simulation_runs.order_by('sequence'))
+        frozen = task.mode_params['initial_candidates']
         self.assertEqual(SimcTask.objects.count(), 1)
-        self.assertEqual(len(runs), 2)
+        self.assertEqual(task.simulation_runs.count(), 0)
+        self.assertEqual(len(frozen), 2)
         self.assertEqual(task.mode, 'comparison')
         self.assertTrue(task.profile_id and task.template_id and task.apl_id)
-        self.assertEqual(runs[0].candidate_params['candidate_type'], 'base')
-        self.assertEqual(runs[1].candidate_params['candidate_type'], 'gear_swap')
-        self.assertEqual(runs[1].candidate_params['gear_swap']['item_id'], 299001)
+        self.assertEqual(frozen[0]['candidate_params']['candidate_type'], 'base')
+        self.assertEqual(frozen[1]['candidate_params']['candidate_type'], 'gear_swap')
+        self.assertEqual(frozen[1]['candidate_params']['gear_swap']['item_id'], 299001)
         self.profile.refresh_from_db()
         self.assertIn('### Gear from Bags', self.profile.player_equipment)
         frozen_player_block = task.profile_version.payload['player_equipment']
@@ -259,6 +294,8 @@ class ReferenceBatchAPIViewTests(TestCase):
         source_profile_version_id = task.profile_version_id
         source_template_version_id = task.template_version_id
         source_apl_version_id = task.apl_version_id
+        from botend.services.simc_task_service import initialize_task_runs
+        initialize_task_runs(task)
         for index, run in enumerate(task.simulation_runs.order_by('sequence')):
             run.status = 'completed'
             run.result_summary = {'dps': [100000, 101500][index] if index < 2 else 100100}
@@ -314,7 +351,8 @@ class ReferenceBatchAPIViewTests(TestCase):
             template_id=self.template.id, apl_id=self.apl.id,
             mode='attribute_sweep', candidates=candidates,
         )
-        runs = list(task.simulation_runs.order_by('sequence'))
+        from botend.services.simc_task_service import initialize_task_runs
+        runs = initialize_task_runs(task)
         for run in runs:
             run.status = 'completed'; run.result_summary = {'dps': 100000}
             run.save(update_fields=['status', 'result_summary'])
@@ -358,7 +396,7 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertEqual(task.profile_id, self.profile.id)
         self.assertEqual(task.simulation_params, {'iterations': 100})
 
-    def test_complete_reference_task_post_rerun_creates_new_edited_execution(self):
+    def test_complete_reference_task_post_rerun_copies_frozen_execution(self):
         task = create_task(
             user_id=self.user.id, name='Immutable source', profile_id=self.profile.id,
             template_id=self.template.id, apl_id=self.apl.id,
@@ -368,8 +406,7 @@ class ReferenceBatchAPIViewTests(TestCase):
         task.save(update_fields=['current_status'])
 
         response = self.client.post('/api/simc-task/', data=json.dumps({
-            'id': task.id, 'action': 'rerun', 'name': 'Edited rerun',
-            'simulation_params': {'iterations': 200},
+            'id': task.id, 'action': 'rerun',
         }), content_type='application/json')
 
         payload = response.json()
@@ -377,7 +414,7 @@ class ReferenceBatchAPIViewTests(TestCase):
         rerun = SimcTask.objects.get(id=payload['data']['id'])
         self.assertNotEqual(rerun.id, task.id)
         self.assertEqual(rerun.source_task_id, task.id)
-        self.assertEqual(rerun.simulation_params, {'iterations': 200})
+        self.assertEqual(rerun.simulation_params, {'iterations': 100})
         self.assertEqual(rerun.profile_version_id, task.profile_version_id)
         self.assertEqual(rerun.template_version_id, task.template_version_id)
         self.assertEqual(rerun.apl_version_id, task.apl_version_id)
@@ -420,8 +457,8 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertEqual(payload['data']['simulation_params']['iterations'], 100)
         self.assertNotIn('content', payload['data'])
 
-    def test_reference_task_rerun_accepts_component_overrides_without_mutating_source(self):
-        """Task rerun is a new task with validated component/parameter overrides."""
+    def test_reference_task_rerun_is_exact_copy_without_mutating_source(self):
+        """Task rerun copies frozen request and immutable versions exactly."""
         from botend.services.simc_task_service import create_task
         from botend.services.task_rerun import create_rerun
         profile = SimcProfile.objects.create(
@@ -444,16 +481,13 @@ class ReferenceBatchAPIViewTests(TestCase):
         )
         source.current_status = 2
         source.save(update_fields=['current_status'])
-        rerun = create_rerun(source.id, self.user.id, {
-            'name': 'Edited rerun', 'simulation_params': {'iterations': 200},
-            'mode_params': {'candidate_type': 'base', 'search': {'round': 2}},
-        })
+        rerun = create_rerun(source.id, self.user.id)
         source.refresh_from_db()
         self.assertNotEqual(rerun.id, source.id)
         self.assertEqual(rerun.profile_version_id, source.profile_version_id)
         self.assertEqual(rerun.template_version_id, source.template_version_id)
         self.assertEqual(rerun.apl_version_id, source.apl_version_id)
-        self.assertEqual(rerun.simulation_params['iterations'], 200)
+        self.assertEqual(rerun.simulation_params['iterations'], 100)
         self.assertEqual(source.simulation_params['iterations'], 100)
 class ReferenceBatchWorkerOverrideTests(TestCase):
     def test_candidate_composition_preserves_addon_omnium_metadata(self):

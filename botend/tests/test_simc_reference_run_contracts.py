@@ -122,6 +122,27 @@ class SimcReferenceRunContractTests(TestCase):
             mapped = {'max_time': 'time', 'desired_targets': 'target_count'}.get(key, key)
             self.assertEqual(captured[mapped], expected)
 
+    def test_real_run_completion_cannot_resurrect_a_recovered_task(self):
+        task = self.make_task()
+
+        def finish_after_recovery(_path, executing_task, _result):
+            from botend.models import SimcTask
+            SimcTask.objects.filter(pk=executing_task.pk).update(
+                current_status=3,
+                error_detail='stale execution recovered',
+            )
+            return True
+
+        with patch.object(SimcMonitor, 'execute_simc_command', side_effect=finish_after_recovery):
+            monitor = SimcMonitor(None, task)
+            monitor.result_path = '/tmp/simc_contract_results'
+            os.makedirs(monitor.result_path, exist_ok=True)
+            self.assertFalse(monitor.process_simc_task(task))
+
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 3)
+        self.assertEqual(task.error_detail, 'stale execution recovered')
+
     def test_composer_renders_supported_options_and_rejects_invalid_values(self):
         request = {
             'spec': 'fury', 'player_import_mode': 'manual_equipment',
@@ -146,6 +167,8 @@ class SimcReferenceRunContractTests(TestCase):
     def test_batch_does_not_finish_until_every_member_is_terminal(self):
         """The request Task lifecycle is aggregated from all of its Runs."""
         task = self.make_task(name='multi-run request')
+        from botend.services.simc_task_service import initialize_task_runs
+        initialize_task_runs(task)
         first = task.simulation_runs.get(sequence=1)
         first.status = 'failed'
         first.error_detail = 'candidate failed'
@@ -254,6 +277,8 @@ class SimcReferenceRunContractTests(TestCase):
 
     def test_run_sequence_is_unique_per_task(self):
         task = self.make_task()
+        from botend.services.simc_task_service import initialize_task_runs
+        initialize_task_runs(task)
         self.assertTrue(SimulationRun.objects.filter(task=task, sequence=1).exists())
         with self.assertRaises(IntegrityError):
             with __import__('django.db', fromlist=['transaction']).transaction.atomic():

@@ -57,8 +57,30 @@ class SimcWorkerTests(TestCase):
         self.assertEqual(second.current_status, 2)
         self.assertEqual(monitor.process_simc_task.call_count, 2)
 
+    def test_consume_once_does_not_complete_a_claim_recovered_as_stale(self):
+        from botend.services.simc_worker import SimcWorker
+
+        task = self.make_task()
+        monitor = MagicMock()
+
+        def recover_claim(*_args, **_kwargs):
+            SimcTask.objects.filter(pk=task.pk).update(
+                current_status=3,
+                error_detail='Worker 心跳超时，执行已中断',
+                completed_at=timezone.now(),
+            )
+            return True
+
+        monitor.process_simc_task.side_effect = recover_claim
+        worker = SimcWorker(monitor=monitor, poll_interval=0)
+
+        self.assertTrue(worker.consume_once())
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 3)
+        self.assertIn('心跳超时', task.error_detail)
+
     @override_settings(SIMC_WORKER_STALE_SECONDS=60, SIMC_WORKER_MAX_ATTEMPTS=2)
-    def test_recover_stale_running_preserves_old_run_and_requeues_with_new_sequence(self):
+    def test_recover_stale_running_fails_source_and_copies_pending_task_without_runs(self):
         from botend.services.simc_worker import SimcWorker
 
         stale_at = timezone.now() - timedelta(minutes=5)
@@ -72,44 +94,31 @@ class SimcWorkerTests(TestCase):
         SimcTask.objects.filter(pk=task.pk).update(modified_time=stale_at)
         worker = SimcWorker(monitor=MagicMock(), poll_interval=0)
 
-        self.assertEqual(worker.recover_stale_tasks(), 1)
+        retry = self.make_task(name='retry', status=0)
+        retry.source_task = task
+        retry.save(update_fields=['source_task'])
+        with patch('botend.services.simc_worker.create_rerun', return_value=retry) as rerun:
+            self.assertEqual(worker.recover_stale_tasks(), 1)
         task.refresh_from_db()
         old_run.refresh_from_db()
-        self.assertEqual(task.current_status, 0)
-        self.assertIsNone(task.started_at)
-        self.assertEqual(old_run.status, 'failed')
-        self.assertIn('Worker', old_run.error_detail)
-        self.assertIsNotNone(old_run.completed_at)
-
-        monitor = SimcMonitor(None, task)
-        monitor.result_path = '/tmp/simc_worker_results'
-        def complete_recovered_run(claimed):
-            recovered_run = SimulationRun.objects.get(
-                task=claimed, sequence=2, status='pending',
-            )
-            recovered_run.status = 'completed'
-            recovered_run.started_at = timezone.now()
-            recovered_run.completed_at = timezone.now()
-            recovered_run.save(update_fields=['status', 'started_at', 'completed_at'])
-            return True
-
-        with patch.object(monitor, 'is_reference_task', return_value=True), \
-             patch.object(monitor, 'process_reference_task', side_effect=complete_recovered_run):
-            self.assertTrue(monitor.process_simc_task(task))
-        self.assertEqual(list(task.simulation_runs.order_by('sequence').values_list('sequence', flat=True)), [1, 2])
+        self.assertEqual(task.current_status, 3)
+        self.assertIn('Worker', task.error_detail)
+        self.assertEqual(old_run.status, 'running')
+        rerun.assert_called_once_with(task.id, task.user_id)
+        self.assertEqual(retry.current_status, 0)
+        self.assertEqual(retry.simulation_runs.count(), 0)
 
     @override_settings(SIMC_WORKER_STALE_SECONDS=60, SIMC_WORKER_MAX_ATTEMPTS=2)
-    def test_recover_stale_running_stops_after_attempt_limit(self):
+    def test_recover_stale_running_stops_after_task_copy_attempt_limit(self):
         from botend.services.simc_worker import SimcWorker
 
         stale_at = timezone.now() - timedelta(minutes=5)
         task = self.make_task(status=1, started_at=stale_at)
-        SimulationRun.objects.create(
-            task=task, sequence=1, candidate_key='same-candidate', status='failed',
-            started_at=stale_at, completed_at=stale_at,
-        )
+        original = self.make_task(name='original', status=3)
+        task.source_task = original
+        task.save(update_fields=['source_task'])
         active_run = SimulationRun.objects.create(
-            task=task, sequence=2, candidate_key='same-candidate', status='running',
+            task=task, sequence=1, candidate_key='same-candidate', status='running',
             started_at=stale_at,
         )
         SimcTask.objects.filter(pk=task.pk).update(modified_time=stale_at)
@@ -121,8 +130,8 @@ class SimcWorkerTests(TestCase):
         active_run.refresh_from_db()
         self.assertEqual(task.current_status, 3)
         self.assertIn('重试次数上限', task.error_detail)
-        self.assertEqual(active_run.status, 'failed')
-        self.assertEqual(task.simulation_runs.count(), 2)
+        self.assertEqual(active_run.status, 'running')
+        self.assertEqual(task.simulation_runs.count(), 1)
 
     @override_settings(SIMC_WORKER_STALE_SECONDS=60)
     def test_recover_stale_running_uses_lease_heartbeat_not_original_start_time(self):

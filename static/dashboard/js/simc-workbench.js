@@ -166,7 +166,7 @@
             const statusClass = status === 2 ? 'is-success' : status === 3 ? 'is-failed' : status === 1 ? 'is-running' : 'is-pending';
             const statusIcon = status === 2 ? 'fa-check-circle' : status === 3 ? 'fa-exclamation-circle' : status === 1 ? 'fa-spinner fa-spin' : 'fa-clock';
             const typeLabel = row.mode === 'comparison' ? '候选对比' : row.mode === 'attribute_sweep' ? '属性寻优' : '普通模拟';
-            const rerunButton = [2, 3].includes(status) ? `<button type="button" data-task-rerun="${idOf(row.id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>` : '';
+            const rerunButton = `<button type="button" data-task-rerun="${idOf(row.id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>`;
             return `<article class="simc-task-card simc-responsive-row">
                 <div class="simc-task-card__main">
                     <div class="simc-task-card__eyebrow"><span class="simc-task-type">${typeLabel}</span><span class="simc-task-id">#${idOf(row.id)}</span></div>
@@ -333,49 +333,16 @@
         window.openSimcWorkbenchDialog('task-rerun', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
-        renderState(host, 'loading', '正在加载重跑表单…');
-        const task = (await json(resourceUrl('tasks', taskId))).data || {};
-        const [profiles, templates, apls] = await Promise.all([
-            resourceOptions('profiles', task.profile_id),
-            resourceOptions('templates', task.template_id),
-            resourceOptions('apls', task.apl_id),
-        ]);
-        const params = task.simulation_params || {};
         host.innerHTML = `<form data-task-rerun-form data-task-id="${idOf(taskId)}" class="space-y-4">
-            <div><h4 class="font-bold">编辑后重跑</h4><p class="text-sm text-gray-500">提交 allowedPatch，创建新 Task，不修改旧 Task。</p></div>
-            <label class="block text-sm">名称<input name="name" required value="${esc(task.name || '')} (rerun)" class="mt-1 w-full rounded border px-3 py-2"></label>
-            <div class="grid gap-3 md:grid-cols-2"><label class="text-sm">iterations<input name="iterations" type="number" min="1" value="${esc(params.iterations || '')}" class="mt-1 w-full rounded border px-3 py-2"></label><label class="text-sm">fight_style<input name="fight_style" value="${esc(params.fight_style || 'Patchwerk')}" class="mt-1 w-full rounded border px-3 py-2"></label><label class="text-sm">max_time<input name="max_time" type="number" min="1" value="${esc(params.max_time || 300)}" class="mt-1 w-full rounded border px-3 py-2"></label><label class="text-sm">desired_targets<input name="desired_targets" type="number" min="1" value="${esc(params.desired_targets || 1)}" class="mt-1 w-full rounded border px-3 py-2"></label></div>
-            <div class="grid gap-3 md:grid-cols-3"><label class="text-sm">Profile<select name="simc_profile_id" data-original-id="${idOf(task.profile_id)}" class="mt-1 w-full rounded border px-3 py-2">${profiles}</select><span class="block text-xs text-gray-500">未改选时复用 profile_version_id ${esc(task.profile_version_id)}</span></label><label class="text-sm">基础模板<select name="base_template_id" data-original-id="${idOf(task.template_id)}" class="mt-1 w-full rounded border px-3 py-2">${templates}</select><span class="block text-xs text-gray-500">未改选时复用 template_version_id ${esc(task.template_version_id)}</span></label><label class="text-sm">APL<select name="selected_apl_id" data-original-id="${idOf(task.apl_id)}" class="mt-1 w-full rounded border px-3 py-2">${apls}</select><span class="block text-xs text-gray-500">未改选时复用 apl_version_id ${esc(task.apl_version_id)}</span></label></div>
-            <div class="flex gap-2"><button type="submit" class="rounded bg-blue-600 px-4 py-2 text-white">创建新 Task</button><button type="button" data-task-rerun-cancel class="rounded border px-4 py-2">取消</button></div>
+            <div><h4 class="font-bold">复制任务重跑</h4><p class="mt-2 text-sm text-gray-500">完整复制该任务的冻结请求，创建一个新的 pending Task；不会读取、复制或追加旧 Run。</p></div>
+            <div class="flex gap-2"><button type="submit" class="rounded bg-blue-600 px-4 py-2 text-white">确认重跑</button><button type="button" data-task-rerun-cancel class="rounded border px-4 py-2">取消</button></div>
         </form>`;
     }
 
     async function submitTaskRerun(form) {
-        const values = new FormData(form);
-        const intOrNull = name => { const value = Number.parseInt(String(values.get(name) || ''), 10); return Number.isSafeInteger(value) && value > 0 ? value : null; };
-        const allowedPatch = {
-            name: String(values.get('name') || '').trim(),
-            simulation_params: {
-                iterations: intOrNull('iterations'), fight_style: String(values.get('fight_style') || '').trim(),
-                max_time: intOrNull('max_time'), desired_targets: intOrNull('desired_targets'),
-            },
-        };
-        const changedResource = inputName => {
-            const select = form.elements.namedItem(inputName);
-            const selected = intOrNull(inputName);
-            const original = idOf(select?.dataset.originalId);
-            return selected && selected !== original ? selected : null;
-        };
-        const profileOverride = changedResource('simc_profile_id');
-        const templateOverride = changedResource('base_template_id');
-        const aplOverride = changedResource('selected_apl_id');
-        if (profileOverride) allowedPatch.profile_id = profileOverride;
-        if (templateOverride) allowedPatch.template_id = templateOverride;
-        if (aplOverride) allowedPatch.apl_id = aplOverride;
-        Object.keys(allowedPatch.simulation_params).forEach(key => { if (allowedPatch.simulation_params[key] == null || allowedPatch.simulation_params[key] === '') delete allowedPatch.simulation_params[key]; });
         const result = await json(resourceUrl('tasks', idOf(form.dataset.taskId)), {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
-            body: JSON.stringify({ action: 'rerun', ...allowedPatch }),
+            body: JSON.stringify({ action: 'rerun' }),
         });
         window.showMessage('已创建新的引用型任务', 'success');
         state.dialogStack = [];

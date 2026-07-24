@@ -207,30 +207,74 @@ def _normalize_params(params: Optional[Dict[str, Any]], whitelist: set) -> Optio
     return {k: v for k, v in params.items() if k in whitelist}
 
 
-def append_candidate_runs(task, candidates, round_number=1):
-    """Append frozen candidate executions to one request-level Task."""
+def _normalize_candidates(candidates, round_number=1):
+    """Freeze only the controlled candidate fields needed by backend execution."""
     candidates = list(candidates or [])
     if not candidates:
         candidates = [{'candidate_key': 'normal', 'candidate_label': 'normal'}]
+    frozen = []
+    for index, candidate in enumerate(candidates, 1):
+        if not isinstance(candidate, dict):
+            raise TaskCreationError('candidate must be an object')
+        params = _normalize_params(
+            candidate.get('candidate_params') or candidate.get('params') or {},
+            CANDIDATE_PARAMS_WHITELIST,
+        ) or {}
+        key = str(candidate.get('candidate_key') or candidate.get('key') or f'candidate-{index}')[:200]
+        frozen.append({
+            'candidate_key': key,
+            'candidate_label': str(candidate.get('candidate_label') or candidate.get('label') or key)[:200],
+            'round_number': max(1, int(candidate.get('round_number') or round_number)),
+            'candidate_params': params,
+        })
+    return frozen
+
+
+def initialize_task_runs(task, expected_started_at=None):
+    """Create initial Runs when backend processing actually starts a Task."""
     with transaction.atomic():
         locked = SimcTask.objects.select_for_update().get(pk=task.pk)
+        if expected_started_at is not None and (
+            locked.current_status != 1 or locked.started_at != expected_started_at
+        ):
+            raise ValueError('SimC Task 执行租约已失效')
+        existing = list(SimulationRun.objects.filter(task=locked).order_by('sequence'))
+        if existing:
+            return existing
+        mode_params = locked.mode_params if isinstance(locked.mode_params, dict) else {}
+        candidates = _normalize_candidates(mode_params.get('initial_candidates'))
+        rows = [SimulationRun(
+            task=locked,
+            sequence=index,
+            candidate_key=candidate['candidate_key'],
+            candidate_label=candidate['candidate_label'],
+            round_number=candidate['round_number'],
+            candidate_params=candidate['candidate_params'],
+            status='pending',
+        ) for index, candidate in enumerate(candidates, 1)]
+        SimulationRun.objects.bulk_create(rows)
+        return rows
+
+
+def append_candidate_runs(task, candidates, round_number=1, expected_started_at=None):
+    """Append later-round candidate executions to a Task already being processed."""
+    candidates = _normalize_candidates(candidates, round_number=round_number)
+    with transaction.atomic():
+        locked = SimcTask.objects.select_for_update().get(pk=task.pk)
+        if expected_started_at is not None and (
+            locked.current_status != 1 or locked.started_at != expected_started_at
+        ):
+            raise ValueError('属性寻优执行租约已失效')
         next_sequence = (SimulationRun.objects.filter(task=locked).order_by('-sequence')
                          .values_list('sequence', flat=True).first() or 0) + 1
         rows = []
         for offset, candidate in enumerate(candidates):
-            if not isinstance(candidate, dict):
-                raise TaskCreationError('candidate must be an object')
-            params = _normalize_params(
-                candidate.get('candidate_params') or candidate.get('params') or {},
-                CANDIDATE_PARAMS_WHITELIST,
-            ) or {}
-            key = str(candidate.get('candidate_key') or candidate.get('key') or f'candidate-{next_sequence + offset}')[:200]
-            label = str(candidate.get('candidate_label') or candidate.get('label') or key)[:200]
             rows.append(SimulationRun(
-                task=locked, sequence=next_sequence + offset, candidate_key=key,
-                candidate_label=label,
-                round_number=max(1, int(candidate.get('round_number') or round_number)),
-                candidate_params=params, status='pending',
+                task=locked, sequence=next_sequence + offset,
+                candidate_key=candidate['candidate_key'],
+                candidate_label=candidate['candidate_label'],
+                round_number=candidate['round_number'],
+                candidate_params=candidate['candidate_params'], status='pending',
             ))
         SimulationRun.objects.bulk_create(rows)
         if locked.current_status in (2, 3):
@@ -495,7 +539,8 @@ def create_task(
 
     # Normalize params
     normalized_simulation_params = _normalize_params(simulation_params, SIMULATION_PARAMS_WHITELIST)
-    normalized_mode_params = _normalize_params(mode_params, MODE_PARAMS_WHITELIST)
+    normalized_mode_params = _normalize_params(mode_params, MODE_PARAMS_WHITELIST) or {}
+    normalized_mode_params['initial_candidates'] = _normalize_candidates(candidates)
 
     # Generate result_file name (UUID-based for reference tasks)
     import uuid
@@ -530,5 +575,4 @@ def create_task(
         is_active=True,
     )
 
-    append_candidate_runs(task, candidates)
     return task

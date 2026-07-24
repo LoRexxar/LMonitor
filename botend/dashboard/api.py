@@ -1787,22 +1787,21 @@ class SimcTaskAPIView(View):
             except SimcTask.DoesNotExist:
                 return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'})
 
-            if task.current_status not in [2, 3]:  # 2=已完成或3=失败的任务才能重跑
-                return JsonResponse({
-                    'success': False,
-                    'error': '只有已完成或失败的任务才能重跑'
-                })
-
             if action == 'rerun' and task.profile_id and task.profile_version_id:
-                from botend.services.task_rerun import create_rerun as service_create_rerun
+                from botend.services.task_rerun import (
+                    TaskRerunError,
+                    create_rerun as service_create_rerun,
+                )
                 overrides = {
-                    'name': data.get('name') or f'{task.name} (rerun)',
-                    'simulation_params': data.get('simulation_params', task.simulation_params or {}),
+                    key: data[key]
+                    for key in ('name', 'simulation_params', 'mode_params',
+                                'profile_id', 'template_id', 'apl_id')
+                    if key in data
                 }
-                for resource_key in ('profile_id', 'template_id', 'apl_id'):
-                    if resource_key in data:
-                        overrides[resource_key] = data[resource_key]
-                rerun_task = service_create_rerun(task.id, request.user.id, overrides)
+                try:
+                    rerun_task = service_create_rerun(task.id, request.user.id, overrides)
+                except TaskRerunError as exc:
+                    return JsonResponse({'success': False, 'error': str(exc)}, status=400)
                 return JsonResponse({'success': True, 'message': '已创建新的引用型任务', 'data': {
                     'id': rerun_task.id, 'source_task_id': task.id, 'current_status': rerun_task.current_status,
                     'profile_version_id': rerun_task.profile_version_id,
@@ -2726,10 +2725,9 @@ class SimcComparisonTaskAPIView(View):
                 }},
                 candidates=candidates,
             )
-            created_runs = list(task.simulation_runs.order_by('sequence'))
             return JsonResponse({'success': True, 'data': {
-                'task_id': task.id, 'run_ids': [run.id for run in created_runs],
-                'accepted': len(created_runs),
+                'task_id': task.id, 'run_ids': [],
+                'accepted': len(candidates),
             }})
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'error': '无效的JSON数据'})
@@ -4279,25 +4277,17 @@ class SimcAplCandidatesAPIView(View):
                 template_id=base_template_id,
                 apl_id=apl_template.id,
             )
-            run_ids = [x['run_id'] for x in created]
-            self._start_compare_preprocess_async(
-                user_id=request.user.id,
-                profile_id=profile.id,
-                task_id=task.id,
-                run_ids=run_ids,
-                include_base=include_base,
-                candidate_count=candidate_count
-            )
+            run_ids = []
             return JsonResponse({
                 'success': True,
-                'message': f'已创建包含 {len(run_ids)} 个候选的对比任务，进入预处理阶段',
+                'message': f'已创建包含 {len(created)} 个冻结候选的对比任务',
                 'data': {
                     'profile_id': profile.id,
                     'profile_name': profile.name,
                     'candidate_count': candidate_count,
                     'include_base': include_base,
                     'simulation_started': False,
-                    'preprocessing_started': True,
+                    'preprocessing_started': False,
                     'task_id': task.id,
                     'run_ids': run_ids,
                     'runs': created
@@ -4483,25 +4473,63 @@ class SimcAplCandidatesAPIView(View):
         total_count = int(candidate_count) + (1 if include_base else 0)
         if total_count <= 0:
             raise Exception('候选数量无效')
+
+        apl = SimcApl.objects.filter(id=apl_id, is_active=True).first()
+        base_apl = str(apl.content if apl else '').strip()
+        if not base_apl:
+            raise Exception('当前配置缺少基础APL')
+
+        plans = []
+        if include_base:
+            plans.append({
+                'name': '基础方案',
+                'apl_list': base_apl,
+                'reason': '当前配置中的原始APL',
+            })
+        plans.extend(self._generate_glm_candidates(profile, base_apl, int(candidate_count)))
+        if len(plans) != total_count:
+            raise Exception(f'候选方案数量不匹配（预期{total_count}，实际{len(plans)}）')
+
         candidates = []
-        for idx in range(total_count):
+        created = []
+        for idx, plan in enumerate(plans):
             is_base = bool(include_base and idx == 0)
-            plan_name = '基础方案' if is_base else f'候选方案{idx}'
+            plan_name = str(plan.get('name') or '').strip() or (
+                '基础方案' if is_base else f'候选方案{idx}'
+            )
+            plan_reason = str(plan.get('reason') or '').strip()
+            apl_list = str(plan.get('apl_list') or '').strip()
+            if not apl_list:
+                raise Exception(f'{plan_name} 的 APL 为空')
+            if (not self._is_valid_apl_format(apl_list)
+                    or (not is_base and not self._is_reorder_only(base_apl, apl_list))):
+                raise Exception(f'{plan_name} 未通过 APL 重排约束校验')
             candidates.append({
                 'candidate_key': f'apl-candidate-{idx}',
                 'candidate_label': plan_name,
                 'candidate_params': {
                     'candidate_type': 'apl_override',
+                    'apl_override': apl_list,
                     'is_base': is_base,
                     'search': {
                         'candidate_index': idx,
-                        'preprocess_stage': 'pending',
+                        'preprocess_stage': 'ready',
+                        'candidate_reason': plan_reason,
                     },
                 },
             })
+            created.append({
+                'task_id': None,
+                'run_id': None,
+                'candidate_name': plan_name,
+                'candidate_reason': plan_reason,
+                'is_base': is_base,
+                'preprocess_stage': 'ready',
+                'status': 'pending',
+            })
         task = create_task(
             user_id=user_id,
-            name=f'{profile.name} APL候选对比（预处理中）',
+            name=f'{profile.name} APL候选对比',
             profile_id=profile.id,
             template_id=template_id,
             apl_id=apl_id,
@@ -4510,164 +4538,10 @@ class SimcAplCandidatesAPIView(View):
             mode_params={'candidate_type': 'apl_override'},
             candidates=candidates,
         )
-        task.current_status = 4
-        task.save(update_fields=['current_status', 'modified_time'])
-        created = []
-        for run in task.simulation_runs.order_by('sequence'):
-            params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
-            created.append({
-                'task_id': task.id,
-                'run_id': run.id,
-                'candidate_name': run.candidate_label,
-                'candidate_reason': '等待预处理生成',
-                'is_base': bool(params.get('is_base')),
-                'preprocess_stage': 'pending',
-                'status': run.status,
-            })
+        for item in created:
+            item['task_id'] = task.id
         return task, created
 
-    def _start_compare_preprocess_async(self, user_id, profile_id, task_id, run_ids, include_base, candidate_count):
-        ids = [int(x) for x in (run_ids or []) if str(x).isdigit()]
-        if not ids:
-            return
-
-        def _runner():
-            try:
-                from django.db import close_old_connections
-                close_old_connections()
-
-                profile = SimcProfile.objects.filter(
-                    id=profile_id,
-                    user_id=user_id,
-                    is_active=True
-                ).first()
-                if not profile:
-                    self._mark_preprocess_failed(task_id, ids, '预处理失败: 配置不存在或已删除')
-                    close_old_connections()
-                    return
-
-                task = SimcTask.objects.filter(
-                    id=task_id, user_id=user_id, is_active=True,
-                ).select_related('apl').first()
-                base_apl = str(task.apl.content if task and task.apl else '').strip()
-                if not base_apl:
-                    self._mark_preprocess_failed(task_id, ids, '预处理失败: 当前配置缺少基础APL')
-                    close_old_connections()
-                    return
-
-                generated_candidates = self._generate_glm_candidates(profile, base_apl, int(candidate_count))
-                plans = []
-                if include_base:
-                    plans.append({
-                        'name': '基础方案',
-                        'apl_list': base_apl,
-                        'reason': '当前配置中的原始APL'
-                    })
-                plans.extend(generated_candidates)
-
-                if len(plans) != len(ids):
-                    self._mark_preprocess_failed(task_id, ids, f'预处理失败: 方案数量不匹配（执行{len(ids)}，方案{len(plans)}）')
-                    close_old_connections()
-                    return
-
-                for idx, run_id in enumerate(ids):
-                    run = SimulationRun.objects.filter(
-                        id=run_id, task_id=task_id, task__user_id=user_id, task__is_active=True,
-                    ).first()
-                    if not run:
-                        continue
-                    if run.status != 'pending':
-                        continue
-
-                    plan = plans[idx] if idx < len(plans) else {}
-                    plan_name = str(plan.get('name') or '').strip() or f'候选方案{idx}'
-                    plan_reason = str(plan.get('reason') or '').strip()
-                    apl_list = str(plan.get('apl_list') or '').strip()
-                    if not apl_list:
-                        params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
-                        search = params.get('search') if isinstance(params.get('search'), dict) else {}
-                        run.candidate_params = {**params, 'search': {**search, 'preprocess_stage': 'failed'}}
-                        run.status = 'failed'
-                        run.error_detail = '预处理失败: APL为空'
-                        run.completed_at = timezone.now()
-                        run.save(update_fields=['candidate_params', 'status', 'error_detail', 'completed_at'])
-                        continue
-                    if (not self._is_valid_apl_format(apl_list)
-                            or (idx > 0 or not include_base) and not self._is_reorder_only(base_apl, apl_list)):
-                        params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
-                        search = params.get('search') if isinstance(params.get('search'), dict) else {}
-                        run.candidate_params = {**params, 'search': {**search, 'preprocess_stage': 'failed'}}
-                        run.status = 'failed'
-                        run.error_detail = '预处理失败: 候选 APL 未通过重排约束校验'
-                        run.completed_at = timezone.now()
-                        run.save(update_fields=['candidate_params', 'status', 'error_detail', 'completed_at'])
-                        continue
-                    run.candidate_label = plan_name
-                    run.candidate_params = {
-                        'candidate_type': 'apl_override',
-                        'apl_override': apl_list,
-                        'is_base': bool(include_base and idx == 0),
-                        'search': {
-                            'candidate_index': idx,
-                            'preprocess_stage': 'ready',
-                            'candidate_reason': plan_reason,
-                        },
-                    }
-                    run.error_detail = None
-                    run.save(update_fields=['candidate_label', 'candidate_params', 'error_detail'])
-                task.name = f'{profile.name} APL候选对比'
-                task.save(update_fields=['name', 'modified_time'])
-                self._aggregate_preprocess_task(task.id)
-                # 预处理完成后仅置为待处理，由后端bot统一调度执行，避免本地重复触发模拟
-                close_old_connections()
-            except Exception as e:
-                logger.error(f"APL候选对比预处理失败: {str(e)}\n{traceback.format_exc()}")
-                self._mark_preprocess_failed(task_id, ids, f'预处理失败: {str(e)}')
-
-        t = threading.Thread(target=_runner, daemon=True)
-        t.start()
-
-    def _mark_preprocess_failed(self, task_id, run_ids, error_message):
-        ids = [int(x) for x in (run_ids or []) if str(x).isdigit()]
-        if not ids:
-            return
-        message = str(error_message or '预处理失败').strip()
-        reasoning_text = ''
-        m = re.search(r'reasoning_preview=(.*)$', message, re.S)
-        if m:
-            reasoning_text = m.group(1).strip()
-            message = message[:m.start()].strip().rstrip('|').strip()
-        if len(message) > 1500:
-            message = message[:1500] + ' ...'
-        if len(reasoning_text) > 5000:
-            reasoning_text = reasoning_text[:5000] + ' ...'
-        now = timezone.now()
-        for run in SimulationRun.objects.filter(id__in=ids, task_id=task_id, status='pending'):
-            params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
-            search = params.get('search') if isinstance(params.get('search'), dict) else {}
-            run.candidate_params = {**params, 'search': {**search, 'preprocess_stage': 'failed'}}
-            run.status = 'failed'
-            run.error_detail = message
-            run.completed_at = now
-            run.save(update_fields=['candidate_params', 'status', 'error_detail', 'completed_at'])
-        self._aggregate_preprocess_task(task_id, fallback_error=message)
-
-    @staticmethod
-    def _aggregate_preprocess_task(task_id, fallback_error=''):
-        task = SimcTask.objects.filter(id=task_id, is_active=True).first()
-        if not task:
-            return
-        statuses = list(task.simulation_runs.values_list('status', flat=True))
-        if any(status == 'running' for status in statuses):
-            task.current_status, task.completed_at = 1, None
-        elif any(status == 'pending' for status in statuses):
-            task.current_status, task.completed_at = 0, None
-        elif statuses and all(status == 'completed' for status in statuses):
-            task.current_status, task.completed_at = 2, timezone.now()
-        else:
-            task.current_status, task.completed_at = 3, timezone.now()
-        task.error_detail = fallback_error or None
-        task.save(update_fields=['current_status', 'completed_at', 'error_detail', 'modified_time'])
 
 class OssConfigAPIView(View):
     """
@@ -6453,7 +6327,7 @@ class SimcWorkbenchAPIView(View):
             elif action == 'restore' and task.current_status not in (1, 4):
                 task.is_active = True
                 task.save(update_fields=['is_active', 'modified_time'])
-            elif action == 'rerun' and task.current_status in (2, 3):
+            elif action == 'rerun':
                 from botend.services.task_rerun import create_rerun as service_create_rerun, TaskRerunError
                 overrides = {}
                 for key in ('name', 'simulation_params', 'profile_id', 'template_id', 'apl_id'):

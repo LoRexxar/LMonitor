@@ -94,13 +94,17 @@ def _completed_round_rows(round_runs):
 
 
 @transaction.atomic
-def advance_attribute_search(task_id):
+def advance_attribute_search(task_id, expected_started_at=None):
     """Advance one fully measured round; idempotent while the next round is pending."""
     task = SimcTask.objects.select_for_update().select_related(
         'profile_version', 'template_version', 'apl_version',
     ).get(
         pk=task_id, is_active=True, mode='attribute_sweep',
     )
+    if expected_started_at is not None and (
+        task.current_status != 1 or task.started_at != expected_started_at
+    ):
+        raise ValueError('属性寻优执行租约已失效')
     if not all((task.profile_id, task.template_id, task.apl_id,
                 task.profile_version_id, task.template_version_id, task.apl_version_id)):
         raise ValueError('当前属性搜索任务引用不完整')
@@ -170,7 +174,12 @@ def advance_attribute_search(task_id):
     } for index, (label, ratings, is_center, candidate) in enumerate(
         attribute_variants(winner['ratings'], next_round)
     )]
-    created = append_candidate_runs(task, candidates, round_number=next_round)
+    created = append_candidate_runs(
+        task,
+        candidates,
+        round_number=next_round,
+        expected_started_at=expected_started_at,
+    )
     return {
         'appended': len(created), 'converged': False,
         'run_ids': [run.id for run in created], 'recommendation': recommendation,

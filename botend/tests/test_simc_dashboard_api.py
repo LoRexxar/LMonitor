@@ -765,7 +765,8 @@ main_hand=,id=222222
             [1000, 2000, 3000, 4000],
         )
         self.assertNotIn('actions=', profile['player_equipment'])
-        self.assertEqual(task.simulation_runs.count(), 13)
+        self.assertEqual(task.simulation_runs.count(), 0)
+        self.assertEqual(len(task.mode_params['initial_candidates']), 13)
 
     @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
     def test_auto_attribute_batch_accepts_battlenet_source_with_frozen_ratings(self, preflight):
@@ -795,8 +796,10 @@ main_hand=,id=222222
         self.assertEqual(profile['player_config_mode'], 'attribute_only')
         self.assertIn('warrior="FrozenArmory"', profile['player_equipment'])
         self.assertEqual([profile['gear_crit'], profile['gear_haste'], profile['gear_mastery'], profile['gear_versatility']], [1000, 2000, 3000, 4000])
-        runs = list(task.simulation_runs.order_by('sequence'))
-        self.assertEqual(len(runs), 13)
+        self.assertEqual(task.simulation_runs.count(), 0)
+        self.assertEqual(len(task.mode_params['initial_candidates']), 13)
+        from botend.services.simc_task_service import initialize_task_runs
+        runs = initialize_task_runs(task)
         monitor = SimcMonitor(None, None)
         rendered = []
         for run in runs[:2]:
@@ -1820,17 +1823,6 @@ html=simc_task_99.html
             result_file='simc_task_completed.html',
         )
 
-        rejected = self.client.patch(
-            '/api/simc-task/',
-            data=json.dumps({'id': original.id, 'action': 'rerun'}),
-            content_type='application/json',
-        )
-        self.assertFalse(rejected.json()['success'])
-        self.assertIn('已完成或失败', rejected.json()['error'])
-        self.assertEqual(SimcTask.objects.count(), 1)
-        original.current_status = 2
-        original.save(update_fields=['current_status'])
-
         response = self.client.patch(
             '/api/simc-task/',
             data=json.dumps({'id': original.id, 'action': 'rerun'}),
@@ -1845,7 +1837,7 @@ html=simc_task_99.html
         self.assertEqual(SimcTask.objects.count(), 2)
 
         original.refresh_from_db()
-        self.assertEqual(original.current_status, 2)
+        self.assertEqual(original.current_status, 1)
         self.assertEqual(original.result_file, 'simc_task_completed.html')
 
         rerun = SimcTask.objects.get(id=rerun_id)
@@ -2312,7 +2304,8 @@ trinket1=,id=111,ilevel=639
         self.assertTrue(response.json()['success'], response.json())
         self.assertEqual(SimcTask.objects.count(), 1)
         task = SimcTask.objects.get()
-        self.assertEqual(task.simulation_runs.count(), 2)
+        self.assertEqual(task.simulation_runs.count(), 0)
+        self.assertEqual(len(task.mode_params['initial_candidates']), 2)
         self.assertIsNotNone(task.profile_id)
         self.assertIsNotNone(task.profile_version_id)
         self.assertIsNotNone(task.template_id)
@@ -2369,10 +2362,11 @@ trinket1=,id=111,ilevel=639
         profile = task.profile_version.payload
         self.assertEqual(profile['player_config_mode'], 'manual_equipment')
         self.assertEqual(profile['player_equipment'], player_snapshot)
-        runs = list(task.simulation_runs.order_by('sequence'))
-        self.assertEqual(len(runs), 3)
+        self.assertEqual(task.simulation_runs.count(), 0)
+        frozen = task.mode_params['initial_candidates']
+        self.assertEqual(len(frozen), 3)
         self.assertEqual(
-            [run.candidate_params.get('talent_override') for run in runs],
+            [row['candidate_params'].get('talent_override') for row in frozen],
             [None, 'RAID_BUILD', 'MPLUS_BUILD'],
         )
 
@@ -2397,11 +2391,12 @@ main_hand=,id=222
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
         task = SimcTask.objects.get()
-        candidate = task.simulation_runs.get()
-        self.assertEqual(candidate.candidate_label, '手工单体方案')
-        self.assertEqual(candidate.candidate_params['candidate_type'], 'talent_override')
-        self.assertEqual(candidate.candidate_params['talent_override'], 'MANUAL_TALENT_BUILD')
-        self.assertEqual(candidate.candidate_params['talent_candidate'], {
+        self.assertEqual(task.simulation_runs.count(), 0)
+        candidate = task.mode_params['initial_candidates'][0]
+        self.assertEqual(candidate['candidate_label'], '手工单体方案')
+        self.assertEqual(candidate['candidate_params']['candidate_type'], 'talent_override')
+        self.assertEqual(candidate['candidate_params']['talent_override'], 'MANUAL_TALENT_BUILD')
+        self.assertEqual(candidate['candidate_params']['talent_candidate'], {
             'name': '手工单体方案', 'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual',
         })
 
@@ -2494,8 +2489,9 @@ main_hand=,id=222
         self.assertTrue(response.json()['success'], response.json())
         self.assertEqual(SimcTask.objects.count(), 1)
         task = SimcTask.objects.get()
-        candidate = task.simulation_runs.get()
-        self.assertEqual(candidate.candidate_params['gear_swap'], {
+        self.assertEqual(task.simulation_runs.count(), 0)
+        candidate = task.mode_params['initial_candidates'][0]
+        self.assertEqual(candidate['candidate_params']['gear_swap'], {
             'slot': 'head', 'raw_value': ',id=444,ilevel=650',
             'item_id': 444, 'source': 'manual',
         })

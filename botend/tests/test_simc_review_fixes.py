@@ -144,8 +144,9 @@ class SimcReviewFixTests(TestCase):
         new_id = json.loads(response.content)["data"]["id"]
         new_task = SimcTask.objects.get(id=new_id)
         self.assertEqual(new_task.source_task_id, original.id)
-        self.assertEqual(new_task.mode, "normal")
-        self.assertEqual(new_task.simulation_runs.count(), 1)
+        self.assertEqual(new_task.mode, "comparison")
+        self.assertEqual(new_task.mode_params, original.mode_params)
+        self.assertEqual(new_task.simulation_runs.count(), 0)
         self.assertEqual(SimcTask.objects.filter(source_task=original).count(), 1)
 
     def test_compare_is_safe_without_summary_flag_too(self):
@@ -160,7 +161,8 @@ class SimcReviewFixTests(TestCase):
             }],
             result_file="private/server/result.html",
         )
-        run = task.simulation_runs.get()
+        from botend.services.simc_task_service import initialize_task_runs
+        run = initialize_task_runs(task)[0]
         run.status = "completed"
         run.result_summary = {
             "dps": 123, "abilities": [{"raw": "secret body"}], "talents": {"apl": "secret"},

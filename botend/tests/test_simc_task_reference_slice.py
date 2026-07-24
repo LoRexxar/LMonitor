@@ -334,8 +334,8 @@ class SimcTaskServiceTests(TestCase):
             )
         self.assertIn("complete references", str(ctx.exception).lower())
 
-    def test_task_service_requires_batch_for_candidate_modes(self):
-        """Candidate modes use one Task and one default Run when no candidates are supplied."""
+    def test_candidate_modes_freeze_default_request_without_creating_run(self):
+        """Candidate modes remain pending until backend processing starts."""
         from botend.services.simc_task_service import create_task
 
         for mode in ('comparison', 'attribute_sweep'):
@@ -345,8 +345,8 @@ class SimcTaskServiceTests(TestCase):
                     template_id=self.template.id, apl_id=self.apl.id, mode=mode,
                 )
                 self.assertEqual(task.mode, mode)
-                self.assertEqual(task.simulation_runs.count(), 1)
-                self.assertEqual(task.simulation_runs.get().candidate_key, 'normal')
+                self.assertEqual(task.simulation_runs.count(), 0)
+                self.assertEqual(task.mode_params['initial_candidates'][0]['candidate_key'], 'normal')
 
 
 class TaskResolverWithVersionsTests(TestCase):
@@ -521,40 +521,26 @@ class TaskRerunWithVersionsTests(TestCase):
         self.assertRegex(rerun.result_file, r'^[0-9a-f]{32}\.html$')
         self.assertNotEqual(rerun.result_file, original.result_file)
 
-    def test_rerun_with_override_generates_new_version(self):
-        """RED: create_rerun with override should generate new version for overridden resource."""
+    def test_rerun_rejects_resource_switch(self):
+        """Resource changes are new requests, not reruns of a frozen Task."""
         from botend.services.simc_task_service import create_task
-        from botend.services.task_rerun import create_rerun
+        from botend.services.task_rerun import create_rerun, TaskRerunError
 
         original = create_task(
-            user_id=self.user_id,
-            name="Original",
-            profile_id=self.profile.id,
-            template_id=self.template.id,
-            apl_id=self.apl.id,
+            user_id=self.user_id, name="Original", profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
         )
-
         new_apl = SimcApl.objects.create(
-            name="New APL",
-            spec="warrior_fury",
-            content="actions=/new_rotation",
-            is_active=True,
-            is_selectable=True,
-            owner_user_id=self.user_id,
+            name="New APL", spec="warrior_fury", content="actions=/new_rotation",
+            is_active=True, is_selectable=True, owner_user_id=self.user_id,
         )
         mark_apl_valid(new_apl)
 
-        original.current_status = 2
-        original.save(update_fields=['current_status'])
-        rerun = create_rerun(
-            original.id,
-            user_id=self.user_id,
-            overrides={'apl_id': new_apl.id},
-        )
-
-        # Rerun should have new APL version
-        self.assertNotEqual(rerun.apl_version_id, original.apl_version_id)
-        self.assertEqual(rerun.apl_id, new_apl.id)
+        with self.assertRaisesRegex(TaskRerunError, 'unsupported overrides'):
+            create_rerun(
+                original.id, user_id=self.user_id,
+                overrides={'apl_id': new_apl.id},
+            )
 
     def test_rerun_rejects_explicit_empty_resource_overrides(self):
         """An explicit null/zero override must not pair an old version with no live FK."""
@@ -578,9 +564,9 @@ class TaskRerunWithVersionsTests(TestCase):
                         )
         self.assertEqual(SimcTask.objects.count(), 1)
 
-    def test_profile_override_keeps_legacy_profile_id_in_sync(self):
+    def test_profile_override_is_not_part_of_rerun(self):
         from botend.services.simc_task_service import create_task
-        from botend.services.task_rerun import create_rerun
+        from botend.services.task_rerun import create_rerun, TaskRerunError
 
         original = create_task(
             user_id=self.user_id, name="Original", profile_id=self.profile.id,
@@ -589,16 +575,11 @@ class TaskRerunWithVersionsTests(TestCase):
         replacement = SimcProfile.objects.create(
             user_id=self.user_id, name='Replacement', spec='warrior_fury', is_active=True,
         )
-        original.current_status = 2
-        original.save(update_fields=['current_status'])
-
-        rerun = create_rerun(
-            original.id, user_id=self.user_id,
-            overrides={'profile_id': replacement.id},
-        )
-
-        self.assertEqual(rerun.profile_id, replacement.id)
-        self.assertEqual(rerun.simc_profile_id, replacement.id)
+        with self.assertRaisesRegex(TaskRerunError, 'unsupported overrides'):
+            create_rerun(
+                original.id, user_id=self.user_id,
+                overrides={'profile_id': replacement.id},
+            )
 
     def test_rerun_with_cross_user_apl_override_raises_error(self):
         """RED: create_rerun should reject APL override belonging to different user."""
@@ -630,7 +611,7 @@ class TaskRerunWithVersionsTests(TestCase):
                 user_id=self.user_id,
                 overrides={'apl_id': other_user_apl.id},
             )
-        self.assertIn("belongs to user", str(ctx.exception))
+        self.assertIn("unsupported overrides", str(ctx.exception))
 
     def test_rerun_with_inactive_apl_override_raises_error(self):
         """RED: create_rerun should reject inactive APL override."""
@@ -661,12 +642,12 @@ class TaskRerunWithVersionsTests(TestCase):
                 user_id=self.user_id,
                 overrides={'apl_id': inactive_apl.id},
             )
-        self.assertIn("not active", str(ctx.exception).lower())
+        self.assertIn("unsupported overrides", str(ctx.exception).lower())
 
-    def test_rerun_normalizes_simulation_params(self):
-        """RED: create_rerun should normalize simulation_params with whitelist."""
+    def test_rerun_rejects_simulation_param_override(self):
+        """Frozen Task reruns cannot change simulation parameters."""
         from botend.services.simc_task_service import create_task
-        from botend.services.task_rerun import create_rerun
+        from botend.services.task_rerun import create_rerun, TaskRerunError
 
         original = create_task(
             user_id=self.user_id,
@@ -678,19 +659,12 @@ class TaskRerunWithVersionsTests(TestCase):
 
         original.current_status = 2
         original.save(update_fields=['current_status'])
-        rerun = create_rerun(
-            original.id,
-            user_id=self.user_id,
-            overrides={
-                'simulation_params': {
-                    'iterations': 5000,
-                    'malicious_key': 'should_be_removed',
-                }
-            },
-        )
-
-        self.assertIn('iterations', rerun.simulation_params)
-        self.assertNotIn('malicious_key', rerun.simulation_params)
+        with self.assertRaises(TaskRerunError):
+            create_rerun(
+                original.id,
+                user_id=self.user_id,
+                overrides={'simulation_params': {'iterations': 5000}},
+            )
 
     def test_rerun_requires_complete_references(self):
         """create_rerun should reject tasks without complete references."""
@@ -710,7 +684,7 @@ class TaskRerunWithVersionsTests(TestCase):
 
         self.assertIn("complete references", str(ctx.exception).lower())
 
-    def test_rerun_rejects_pending_and_running_sources(self):
+    def test_rerun_accepts_pending_and_running_sources_as_task_copies(self):
         from botend.services.simc_task_service import create_task
         from botend.services.task_rerun import create_rerun, TaskRerunError
 
@@ -721,14 +695,14 @@ class TaskRerunWithVersionsTests(TestCase):
         for status in (0, 1):
             source.current_status = status
             source.save(update_fields=['current_status'])
-            with self.assertRaises(TaskRerunError) as ctx:
-                create_rerun(source.id, user_id=self.user_id)
-            self.assertIn("completed or failed", str(ctx.exception).lower())
+            rerun = create_rerun(source.id, user_id=self.user_id)
+            self.assertEqual(rerun.current_status, 0)
+            self.assertEqual(rerun.source_task_id, source.id)
+            self.assertEqual(rerun.simulation_runs.count(), 0)
 
-    def test_non_normal_candidate_rerun_is_normal_and_detached_from_historical_batch(self):
-        from botend.models import SimulationRun
+    def test_non_normal_task_rerun_copies_frozen_request_without_runs(self):
         from botend.services.simc_task_service import create_task
-        from botend.services.task_rerun import create_rerun
+        from botend.services.task_rerun import create_rerun, TaskRerunError
 
         source = create_task(
             user_id=self.user_id, name='Candidate', profile_id=self.profile.id,
@@ -746,17 +720,22 @@ class TaskRerunWithVersionsTests(TestCase):
 
         rerun = create_rerun(source.id, user_id=self.user_id)
 
-        self.assertEqual(rerun.mode, 'normal')
+        self.assertEqual(rerun.mode, 'comparison')
         self.assertEqual(rerun.simulation_params, source.simulation_params)
         self.assertEqual(rerun.mode_params, source.mode_params)
-        self.assertEqual(rerun.simulation_runs.count(), 1)
-        self.assertEqual(rerun.simulation_runs.get().candidate_key, 'normal')
+        self.assertEqual(rerun.simulation_runs.count(), 0)
         self.assertEqual(rerun.profile_version_id, source.profile_version_id)
         self.assertEqual(rerun.template_version_id, source.template_version_id)
         self.assertEqual(rerun.apl_version_id, source.apl_version_id)
         source.refresh_from_db()
         self.assertEqual(source.mode, 'comparison')
-        self.assertEqual(source.simulation_runs.get().candidate_key, 'talent-abc')
+        self.assertEqual(source.simulation_runs.count(), 0)
+        with self.assertRaises(TaskRerunError):
+            create_rerun(
+                source.id,
+                self.user_id,
+                overrides={'mode_params': {'initial_candidates': []}},
+            )
 
 
 class SimulationRunModelTests(TestCase):

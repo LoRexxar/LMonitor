@@ -115,11 +115,11 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('<i class="fas fa-chart-line', load_tasks)
         self.assertIn('<i class="fas fa-redo-alt', load_tasks)
 
-    def test_successful_regular_tasks_can_open_rerun_editor(self):
+    def test_all_task_states_can_open_frozen_copy_rerun_dialog(self):
         load_start = JS.index('async function loadTasks')
         load_end = JS.index('function scheduleTaskRefresh', load_start)
         load_tasks = JS[load_start:load_end]
-        self.assertIn("[2, 3].includes(status)", load_tasks)
+        self.assertNotIn("[2, 3].includes(status)", load_tasks)
         self.assertIn('data-task-rerun=', load_tasks)
         self.assertNotIn('data-wb-action="rerun"', load_tasks)
         self.assertIn('renderTaskRerunForm(rerunAction.dataset.taskRerun)', JS)

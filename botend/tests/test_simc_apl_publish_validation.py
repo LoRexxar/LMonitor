@@ -290,8 +290,8 @@ class SimcAplPublishValidationTests(TestCase):
             create_task(self.user.id, "Race", self.profile.id, self.template.id, apl.id)
 
     @patch("botend.services.simc_task_service.validate_apl_for_profile")
-    def test_rerun_revalidates_current_profile_apl_pair(self, validate):
-        from botend.services.task_rerun import create_rerun, TaskRerunError
+    def test_rerun_copies_frozen_versions_without_live_revalidation(self, validate):
+        from botend.services.task_rerun import create_rerun
 
         apl = SimcApl.objects.create(
             name="Published", spec="warrior_fury", content=CONTENT,
@@ -312,10 +312,11 @@ class SimcAplPublishValidationTests(TestCase):
             "valid": False, "content_hash": digest(CONTENT), "revision": REVISION,
             "game_build": BUILD, "diagnostics": [{"message": "profile changed"}],
         }
-        with self.assertRaises(TaskRerunError):
-            create_rerun(source.id, self.user.id)
-        validate.assert_called_once()
-        self.assertEqual(SimcTask.objects.count(), 1)
+        rerun = create_rerun(source.id, self.user.id)
+        validate.assert_not_called()
+        self.assertEqual(SimcTask.objects.count(), 2)
+        self.assertEqual(rerun.apl_version_id, source.apl_version_id)
+        self.assertEqual(rerun.simulation_runs.count(), 0)
 
     @patch("botend.services.simc_apl.publish.validate_apl_for_profile")
     def test_generated_candidate_must_publish_before_execution(self, validate):

@@ -251,15 +251,13 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
         self.assertEqual(old_run.input_hash, old_hash)
         self.assertEqual(old_run.resource_manifest, old_manifest)
         runs = list(SimulationRun.objects.filter(task=task).order_by('sequence'))
-        self.assertEqual(len(runs), 2)
+        self.assertEqual(len(runs), 1)
         self.assertEqual(runs[0].id, old_run_id)
         self.assertEqual(runs[0].status, 'completed')
-        self.assertEqual(runs[1].status, 'failed')
-        self.assertIn('Resolver explosion', runs[1].error_detail)
 
-        # C2: Task marked failed
+        # A terminal Task is idempotently aggregated; no retry Run is appended.
         task.refresh_from_db()
-        self.assertEqual(task.current_status, 3)
+        self.assertEqual(task.current_status, 2)
 
     def test_D_dynamic_content_from_version_payload_not_live(self):
         """RED D: Composed content must come from version payload, not live resources."""
@@ -364,10 +362,10 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
         # E4: Task marked failed
         task.refresh_from_db()
         self.assertEqual(task.current_status, 3)
-        self.assertIn('完整引用', task.result_file)
+        self.assertIn('完整引用', task.error_detail)
 
-    def test_F_retry_sequence_increments(self):
-        """RED F: Each retry creates new Run with sequence+1."""
+    def test_F_reprocessing_same_task_does_not_append_retry_run(self):
+        """Retry creates a new Task; reprocessing a terminal Task is idempotent."""
         task = SimcTask.objects.create(
             user_id=self.user_id,
             name="Retry Task",
@@ -416,17 +414,22 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
                 monitor.result_path = '/tmp/simc_test_results'
                 monitor.process_simc_task(task)
 
-        # F1: Two runs with sequence 1 and 2
+        # The same Task keeps one immutable initial execution Run.
         runs = SimulationRun.objects.filter(task=task).order_by('sequence')
-        self.assertEqual(runs.count(), 2)
+        self.assertEqual(runs.count(), 1)
         self.assertEqual(runs[0].sequence, 1)
-        self.assertEqual(runs[1].sequence, 2)
 
         # F2: First run unchanged
         run1.refresh_from_db()
         self.assertEqual(run1.status, 'completed')
 
     def _make_reference_candidate(self, name, mode_params=None, candidate_label='candidate'):
+        frozen_candidate = {
+            'candidate_key': candidate_label,
+            'candidate_label': candidate_label,
+            'round_number': 1,
+            'candidate_params': mode_params or {'candidate_type': 'base'},
+        }
         return SimcTask.objects.create(
             user_id=self.user_id,
             name=name,
@@ -440,7 +443,7 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
             apl_version=self.apl_version,
             simulation_params={'spec': 'fury'},
             mode='comparison',
-            mode_params=mode_params or {'candidate_type': 'base'},
+            mode_params={'initial_candidates': [frozen_candidate]},
             candidate_label=candidate_label,
             current_status=0,
             is_active=True,

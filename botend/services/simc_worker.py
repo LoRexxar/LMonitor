@@ -4,11 +4,12 @@ import time
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcTask, SimulationRun
+from botend.models import SimcTask
+from botend.services.task_rerun import create_rerun, TaskRerunError
 from utils.log import logger
 
 
@@ -29,62 +30,64 @@ class SimcWorker:
         self._stop.set()
 
     def recover_stale_tasks(self):
-        """回收无心跳的 Task，并按候选 Run 独立追加有限次重试。"""
+        """Fail stale Tasks and retry by copying the frozen Task request."""
         threshold = timezone.now() - timedelta(seconds=self.stale_seconds)
         recovered = 0
-        tasks = SimcTask.objects.filter(
+        task_ids = list(SimcTask.objects.filter(
             is_active=True, current_status=1,
-        ).filter(modified_time__lt=threshold)
-        for task in tasks:
-            runs = list(SimulationRun.objects.filter(task=task).order_by('sequence'))
-            running = [run for run in runs if run.status == 'running']
-            next_sequence = max((run.sequence for run in runs), default=0) + 1
-            retry_rows = []
-            for run in running:
-                run.status = 'failed'
-                run.error_detail = 'Worker 回收超时 running Run，原执行已中断'
-                run.completed_at = timezone.now()
-                run.save(update_fields=['status', 'error_detail', 'completed_at'])
-                attempts = sum(1 for item in runs if item.candidate_key == run.candidate_key)
-                if attempts < self.max_attempts:
-                    retry_rows.append(SimulationRun(
-                        task=task, sequence=next_sequence,
-                        candidate_key=run.candidate_key,
-                        candidate_label=run.candidate_label,
-                        round_number=run.round_number,
-                        candidate_params=run.candidate_params,
-                        status='pending',
-                    ))
-                    next_sequence += 1
-            if retry_rows:
-                SimulationRun.objects.bulk_create(retry_rows)
-            has_work = bool(retry_rows or any(run.status == 'pending' for run in runs))
-            if not has_work:
+        ).filter(modified_time__lt=threshold).values_list('id', flat=True))
+        for task_id in task_ids:
+            with transaction.atomic():
+                task = SimcTask.objects.select_for_update().filter(
+                    id=task_id, is_active=True, current_status=1,
+                    modified_time__lt=threshold,
+                ).first()
+                if task is None:
+                    continue
+
+                attempts = 1
+                ancestor_id = task.source_task_id
+                seen = {task.id}
+                while ancestor_id and ancestor_id not in seen:
+                    seen.add(ancestor_id)
+                    attempts += 1
+                    ancestor_id = SimcTask.objects.filter(
+                        id=ancestor_id,
+                    ).values_list('source_task_id', flat=True).first()
+
                 task.current_status = 3
-                task.error_detail = f'Worker 重试次数上限（{self.max_attempts}）'
                 task.completed_at = timezone.now()
-                task.save(update_fields=['current_status', 'error_detail', 'completed_at', 'modified_time'])
-            else:
-                task.current_status = 0
-                task.started_at = None
-                task.error_detail = 'Worker 回收超时任务，准备重试'
-                task.save(update_fields=['current_status', 'started_at', 'error_detail', 'modified_time'])
-            recovered += 1
+                if attempts >= self.max_attempts:
+                    task.error_detail = f'Worker 重试次数上限（{self.max_attempts}）'
+                else:
+                    task.error_detail = 'Worker 心跳超时，执行已中断；已复制 Task 重试'
+                task.save(update_fields=[
+                    'current_status', 'error_detail', 'completed_at', 'modified_time',
+                ])
+
+                if attempts < self.max_attempts:
+                    try:
+                        create_rerun(task.id, task.user_id)
+                    except TaskRerunError as exc:
+                        task.error_detail = f'Worker 心跳超时，Task 重试复制失败: {exc}'
+                        task.save(update_fields=['error_detail', 'modified_time'])
+                recovered += 1
         return recovered
 
-    def _mark_unexpected_failure(self, task, exc):
+    def _mark_unexpected_failure(self, task, exc, claimed_at):
         reason = f'Worker 单任务异常: {exc}'
-        try:
-            self.monitor.mark_task_failed(task, reason, exc)
-        except Exception:
-            pass
-        task.refresh_from_db()
-        if task.current_status == 1:
-            SimcTask.objects.filter(pk=task.pk).update(
-                current_status=3, error_detail=reason, completed_at=timezone.now()
-            )
+        SimcTask.objects.filter(
+            pk=task.pk,
+            current_status=1,
+            started_at=claimed_at,
+        ).update(
+            current_status=3,
+            error_detail=reason,
+            completed_at=timezone.now(),
+            modified_time=timezone.now(),
+        )
 
-    def _start_heartbeat(self, task_id):
+    def _start_heartbeat(self, task_id, claimed_at):
         """Refresh the task lease while one long SimC subprocess is blocking."""
         stopped = threading.Event()
         interval = max(1.0, min(float(self.stale_seconds) / 3.0, 30.0))
@@ -93,7 +96,11 @@ class SimcWorker:
             while not stopped.wait(interval):
                 close_old_connections()
                 try:
-                    SimcTask.objects.filter(pk=task_id, current_status=1).update(
+                    SimcTask.objects.filter(
+                        pk=task_id,
+                        current_status=1,
+                        started_at=claimed_at,
+                    ).update(
                         modified_time=timezone.now(),
                     )
                 except Exception:
@@ -113,6 +120,7 @@ class SimcWorker:
         ).order_by('modified_time', 'id').first()
         if task is None:
             return False
+        claimed_at = None
         try:
             claimed_at = timezone.now()
             claimed = SimcTask.objects.filter(
@@ -128,20 +136,26 @@ class SimcWorker:
             if claimed != 1:
                 return True
             task.refresh_from_db()
-            heartbeat_stop, heartbeat_thread = self._start_heartbeat(task.id)
+            heartbeat_stop, heartbeat_thread = self._start_heartbeat(task.id, claimed_at)
             try:
                 result = self.monitor.process_simc_task(task, already_claimed=True)
             finally:
                 heartbeat_stop.set()
                 heartbeat_thread.join(timeout=2)
             # 测试替身或旧实现若只返回成功，不应让队列永久停在 running。
-            if result and task.current_status == 1:
-                task.current_status = 2
-                task.completed_at = timezone.now()
-                task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
+            if result:
+                SimcTask.objects.filter(
+                    pk=task.pk,
+                    current_status=1,
+                    started_at=claimed_at,
+                ).update(
+                    current_status=2,
+                    completed_at=timezone.now(),
+                    modified_time=timezone.now(),
+                )
         except Exception as exc:
             logger.exception('[SimC Worker] task %s failed', task.id)
-            self._mark_unexpected_failure(task, exc)
+            self._mark_unexpected_failure(task, exc, claimed_at)
         return True
 
     def run(self):

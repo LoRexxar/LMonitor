@@ -230,6 +230,26 @@ class SimcMonitor(BaseScan):
         self._set_update_status(row, status=status, progress=100, is_updating=False, latest_version=latest_version, current_version=current_hash or row.current_version, last_error='')
         return True
 
+    def _save_task_fields(self, simc_task, field_names):
+        """Persist Task fields only while this monitor still owns its running lease."""
+        values = {field: getattr(simc_task, field) for field in field_names}
+        task_pk = getattr(simc_task, 'pk', None)
+        if task_pk is None:
+            return True
+        queryset = SimcTask.objects.filter(pk=task_pk)
+        claimed_at = getattr(self, '_active_claim_started_at', None)
+        claimed_task_id = getattr(self, '_active_claim_task_id', None)
+        if claimed_at is not None and claimed_task_id == task_pk:
+            queryset = queryset.filter(current_status=1, started_at=claimed_at)
+        return queryset.update(**values) == 1
+
+    def _active_task_claim_is_current(self, simc_task):
+        claimed_at = getattr(self, '_active_claim_started_at', None)
+        claimed_task_id = getattr(self, '_active_claim_task_id', None)
+        if claimed_at is None or claimed_task_id != getattr(simc_task, 'pk', None):
+            return True
+        return self._task_claim_is_current(simc_task, claimed_at)
+
     def mark_task_failed(self, simc_task, reason, exc=None, overwrite_when_has_error=False):
         """
         将任务标记为失败，并写入可见错误信息。
@@ -249,7 +269,10 @@ class SimcMonitor(BaseScan):
             simc_task.current_status = 3
             simc_task.error_detail = detail
             simc_task.completed_at = timezone.now()
-            simc_task.save()
+            self._save_task_fields(
+                simc_task,
+                ['current_status', 'error_detail', 'completed_at', 'ext'],
+            )
         except Exception as save_err:
             logger.error(f"[SimC Monitor] Failed to persist task error for task {getattr(simc_task, 'id', '-')}: {save_err}")
 
@@ -573,6 +596,8 @@ class SimcMonitor(BaseScan):
                 # Update THIS run based on execution result
                 if success:
                     simc_task.refresh_from_db()
+                    if not self._active_task_claim_is_current(simc_task):
+                        return False
                     ext_payload = self.parse_task_ext(simc_task.ext)
                     result_summary = ext_payload.get('semantic_validation') or {}
                     run.status = 'completed'
@@ -585,8 +610,10 @@ class SimcMonitor(BaseScan):
                     simc_task.result_summary = json.dumps(result_summary, ensure_ascii=False)
                     simc_task.error_detail = None
                     simc_task.completed_at = None
-                    simc_task.save(update_fields=['current_status', 'result_summary', 'error_detail', 'completed_at'])
-                    return True
+                    return self._save_task_fields(
+                        simc_task,
+                        ['current_status', 'result_summary', 'error_detail', 'completed_at'],
+                    )
                 else:
                     simc_task.refresh_from_db()
                     detail = str(simc_task.error_detail or '').strip()
@@ -594,7 +621,7 @@ class SimcMonitor(BaseScan):
                         ext_payload = self.parse_task_ext(simc_task.ext)
                         detail = str(ext_payload.get('simc_error_summary') or 'SimC execution failed')
                         simc_task.error_detail = detail
-                        simc_task.save(update_fields=['error_detail'])
+                        self._save_task_fields(simc_task, ['error_detail'])
                     run.status = 'failed'
                     run.error_detail = detail
                     run.completed_at = timezone.now()
@@ -604,7 +631,7 @@ class SimcMonitor(BaseScan):
                     simc_task.refresh_from_db()
                     if simc_task.current_status != 3:
                         simc_task.current_status = 3
-                        simc_task.save(update_fields=['current_status'])
+                        self._save_task_fields(simc_task, ['current_status'])
                     return False
 
             finally:
@@ -631,13 +658,43 @@ class SimcMonitor(BaseScan):
             self.mark_task_failed(simc_task, "引用型任务处理异常", e)
             return False
 
+    @staticmethod
+    def _task_claim_is_current(simc_task, claimed_at):
+        return SimcTask.objects.filter(
+            pk=simc_task.pk,
+            current_status=1,
+            started_at=claimed_at,
+        ).exists()
+
     def process_reference_task(self, simc_task):
         """Drain Runs and let the Worker own every attribute-search round."""
+        claimed_at = simc_task.started_at or timezone.now()
+        if simc_task.started_at is None:
+            claimed = SimcTask.objects.filter(
+                pk=simc_task.pk,
+                current_status__in=(0, 1, 4),
+                started_at__isnull=True,
+            ).update(
+                current_status=1,
+                started_at=claimed_at,
+                completed_at=None,
+                modified_time=timezone.now(),
+            )
+            if claimed != 1:
+                return False
+            simc_task.current_status = 1
+            simc_task.started_at = claimed_at
+        self._active_claim_task_id = simc_task.pk
+        self._active_claim_started_at = claimed_at
+        if not self._task_claim_is_current(simc_task, claimed_at):
+            return False
         if not SimulationRun.objects.filter(task=simc_task).exists():
-            # Compatibility for pre-Run normal tasks and old callers.
-            SimulationRun.objects.create(
-                task=simc_task, sequence=1, candidate_key='normal',
-                candidate_label='normal', candidate_params={}, status='pending',
+            # Run initialization belongs to backend Task processing. Request
+            # creation and Worker claim only create/claim the pending Task.
+            from botend.services.simc_task_service import initialize_task_runs
+            initialize_task_runs(
+                simc_task,
+                expected_started_at=claimed_at,
             )
 
         while True:
@@ -645,9 +702,8 @@ class SimcMonitor(BaseScan):
                 task=simc_task, status='pending',
             ).order_by('sequence'))
             for run in runs:
-                simc_task.current_status = 1
-                simc_task.completed_at = None
-                simc_task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
+                if not self._task_claim_is_current(simc_task, claimed_at):
+                    return False
                 try:
                     self.process_reference_run(simc_task, run)
                 except Exception as exc:
@@ -655,13 +711,26 @@ class SimcMonitor(BaseScan):
                     SimulationRun.objects.filter(pk=run.pk).update(
                         status='failed', error_detail=str(exc), completed_at=timezone.now(),
                     )
+                if not self._task_claim_is_current(simc_task, claimed_at):
+                    return False
 
             all_runs = list(SimulationRun.objects.filter(task=simc_task).order_by('sequence'))
             nonterminal = [run for run in all_runs if run.status not in ('completed', 'failed')]
             if nonterminal:
-                simc_task.current_status = 0
-                simc_task.completed_at = None
-                simc_task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
+                released = SimcTask.objects.filter(
+                    pk=simc_task.pk,
+                    current_status=1,
+                    started_at=claimed_at,
+                ).update(
+                    current_status=0,
+                    started_at=None,
+                    completed_at=None,
+                    modified_time=timezone.now(),
+                )
+                if released == 1:
+                    simc_task.current_status = 0
+                    simc_task.started_at = None
+                    simc_task.completed_at = None
                 return False
 
             # Attribute optimization is a server workflow, not a browser polling
@@ -671,15 +740,22 @@ class SimcMonitor(BaseScan):
                 current_runs = [run for run in all_runs if run.round_number == current_round]
                 if current_runs and all(run.status == 'completed' for run in current_runs):
                     try:
-                        advancement = advance_attribute_search(simc_task.id)
+                        advancement = advance_attribute_search(
+                            simc_task.id,
+                            expected_started_at=claimed_at,
+                        )
                     except ValueError as exc:
                         logger.error('[SimC Monitor] invalid attribute search task %s: %s', simc_task.id, exc)
-                        simc_task.current_status = 3
-                        simc_task.error_detail = str(exc)
-                        simc_task.completed_at = timezone.now()
-                        simc_task.save(update_fields=[
-                            'current_status', 'error_detail', 'completed_at', 'modified_time',
-                        ])
+                        SimcTask.objects.filter(
+                            pk=simc_task.pk,
+                            current_status=1,
+                            started_at=claimed_at,
+                        ).update(
+                            current_status=3,
+                            error_detail=str(exc),
+                            completed_at=timezone.now(),
+                            modified_time=timezone.now(),
+                        )
                         return False
                     if advancement.get('appended') or advancement.get('awaiting'):
                         simc_task.refresh_from_db()
@@ -687,6 +763,8 @@ class SimcMonitor(BaseScan):
             break
 
         simc_task.refresh_from_db()
+        if not self._task_claim_is_current(simc_task, claimed_at):
+            return False
         all_runs = list(SimulationRun.objects.filter(task=simc_task).order_by('sequence'))
         succeeded = [run for run in all_runs if run.status == 'completed']
         failed = [run for run in all_runs if run.status == 'failed']
@@ -727,11 +805,21 @@ class SimcMonitor(BaseScan):
             simc_task.error_detail = '; '.join(
                 filter(None, (run.error_detail for run in failed))
             ) or '所有候选执行失败'
-        simc_task.save(update_fields=[
-            'current_status', 'error_detail', 'result_summary', 'analysis_result',
-            'completed_at', 'modified_time',
-        ])
-        return bool(succeeded) and not (simc_task.mode == 'attribute_sweep' and failed)
+        updated = SimcTask.objects.filter(
+            pk=simc_task.pk,
+            current_status=1,
+            started_at=claimed_at,
+        ).update(
+            current_status=simc_task.current_status,
+            error_detail=simc_task.error_detail,
+            result_summary=simc_task.result_summary,
+            analysis_result=simc_task.analysis_result,
+            completed_at=simc_task.completed_at,
+            modified_time=timezone.now(),
+        )
+        return updated == 1 and bool(succeeded) and not (
+            simc_task.mode == 'attribute_sweep' and failed
+        )
 
     def process_simc_task(self, simc_task, already_claimed=False):
         """
@@ -755,8 +843,11 @@ class SimcMonitor(BaseScan):
                     logger.info(f"[SimC Monitor] Task {simc_task.id} was already claimed or no longer pending, skip")
                     return False
             simc_task.refresh_from_db()
+            self._active_claim_task_id = simc_task.pk
+            self._active_claim_started_at = simc_task.started_at
             self.clear_simc_error_details(simc_task)
-            simc_task.save(update_fields=['ext', 'modified_time'])
+            if not self._save_task_fields(simc_task, ['ext']):
+                return False
 
             # 引用型任务：新架构，动态 Composer + SimulationRun
             if self.is_reference_task(simc_task):
@@ -895,6 +986,18 @@ class SimcMonitor(BaseScan):
         simc_task.result_summary = json.dumps(validation, ensure_ascii=False)
         simc_task.save(update_fields=['ext', 'result_summary'])
 
+    def _persist_claimed_semantic_validation(self, simc_task, validation):
+        try:
+            manifest = json.loads(simc_task.ext) if simc_task.ext else {}
+        except (TypeError, ValueError):
+            manifest = {}
+        if not isinstance(manifest, dict):
+            manifest = {}
+        manifest['semantic_validation'] = validation
+        simc_task.ext = json.dumps(manifest, ensure_ascii=False)
+        simc_task.result_summary = json.dumps(validation, ensure_ascii=False)
+        return self._save_task_fields(simc_task, ['ext', 'result_summary'])
+
     def execute_simc_command(self, simc_file_path, simc_task, result_file_name=None, run=None):
         """
         执行SimC命令
@@ -951,16 +1054,22 @@ class SimcMonitor(BaseScan):
                     raise RuntimeError(f'SimC未生成预期结果文件: {target_result_file}')
 
                 semantic_validation = self.validate_simulation_semantics(result.stdout)
-                self.persist_semantic_validation(simc_task, semantic_validation)
+                if not self._persist_claimed_semantic_validation(simc_task, semantic_validation):
+                    return False
                 if not semantic_validation['valid']:
                     summary = semantic_validation.get('reason') or 'SimC结果语义校验失败'
                     self.save_simc_error_details(simc_task, summary, stdout_text=result.stdout)
+                    simc_task.error_detail = summary
+                    self._save_task_fields(simc_task, ['ext', 'error_detail'])
                     logger.error('[SimC Monitor] Task %s semantic validation failed: %s', simc_task.id, summary)
                     return False
 
                 if target_result_file != simc_task.result_file:
                     simc_task.result_file = target_result_file
-                    simc_task.save(update_fields=['result_file', 'modified_time'])
+                    if not self._save_task_fields(simc_task, ['result_file']):
+                        return False
+                if not self._active_task_claim_is_current(simc_task):
+                    return False
                 if isinstance(simc_task, SimcTask):
                     from botend.services.simc_artifacts import upsert_task_html_artifact
                     artifact = upsert_task_html_artifact(
@@ -1002,7 +1111,7 @@ class SimcMonitor(BaseScan):
                     stderr_text=result.stderr,
                     stdout_text=result.stdout
                 )
-                simc_task.save()
+                self._save_task_fields(simc_task, ['error_detail', 'ext'])
                 return False
                 
         except subprocess.TimeoutExpired:
@@ -1013,7 +1122,7 @@ class SimcMonitor(BaseScan):
                 simc_task,
                 summary="SimC执行超时（300秒）"
             )
-            simc_task.save()
+            self._save_task_fields(simc_task, ['error_detail', 'ext'])
             return False
         except Exception as e:
             error_info = f"SimC执行异常\n任务ID: {simc_task.id}\n异常信息: {str(e)}"
@@ -1024,7 +1133,7 @@ class SimcMonitor(BaseScan):
                 summary="SimC执行异常",
                 stderr_text=str(e)
             )
-            simc_task.save()
+            self._save_task_fields(simc_task, ['error_detail', 'ext'])
             return False
 
 

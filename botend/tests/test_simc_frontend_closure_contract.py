@@ -132,16 +132,16 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn(': NaN;\n      const deltaPercent', DETAIL)
         self.assertNotIn("Number.isFinite(Number(delta)) ?", DETAIL)
 
-    def test_rerun_form_has_full_whitelisted_reference_and_simulation_controls(self):
+    def test_rerun_form_explains_frozen_task_copy_without_edit_controls(self):
         start = WB.index("async function renderTaskRerunForm")
         end = WB.index("async function submitTaskRerun", start)
         form = WB[start:end]
-        for token in ("name=\"name\"", "name=\"iterations\"", "name=\"fight_style\"", "name=\"max_time\"",
-                      "name=\"desired_targets\"", "name=\"simc_profile_id\"", "name=\"base_template_id\"",
-                      "name=\"selected_apl_id\"", "profile_version_id", "template_version_id", "apl_version_id"):
-            self.assertIn(token, form)
+        self.assertIn('完整复制该任务的冻结请求', form)
+        for token in ('name="name"', 'name="iterations"', 'name="fight_style"',
+                      'name="simc_profile_id"', 'name="base_template_id"', 'name="selected_apl_id"'):
+            self.assertNotIn(token, form)
         submit = WB[WB.index("async function submitTaskRerun"):WB.index("async function", WB.index("async function submitTaskRerun") + 20)]
-        self.assertIn("const allowedPatch", submit)
+        self.assertIn("JSON.stringify({ action: 'rerun' })", submit)
         for forbidden in ("prompt(", "alert(", "confirm(", "window.open("):
             self.assertNotIn(forbidden, WB)
 
@@ -170,16 +170,12 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
             self.assertIn(token, detail)
         self.assertNotIn("run.error_detail", detail)
 
-    def test_rerun_only_sends_resource_overrides_when_the_user_changed_them(self):
+    def test_rerun_never_sends_frozen_request_overrides(self):
         form = WB[WB.index("async function renderTaskRerunForm"):WB.index("async function submitTaskRerun")]
         submit = WB[WB.index("async function submitTaskRerun"):WB.index("async function", WB.index("async function submitTaskRerun") + 20)]
-        self.assertIn("data-original-id", form)
-        for token in ("profile_id", "template_id", "apl_id"):
-            self.assertIn(f"allowedPatch.{token}", submit)
-        self.assertIn("selected !== original", submit)
-        self.assertNotIn("profile_id: intOrNull", submit)
-        self.assertNotIn("template_id: intOrNull", submit)
-        self.assertNotIn("apl_id: intOrNull", submit)
+        self.assertNotIn("data-original-id", form)
+        for token in ("allowedPatch", "simulation_params", "profile_id", "template_id", "apl_id"):
+            self.assertNotIn(token, submit)
 
     def test_profile_quick_switch_aborts_and_ignores_stale_resource_and_detail_results(self):
         profile = SIM[SIM.index("let simcProfileSwitchGeneration"):SIM.index("function renderSimcComparisonCandidates")]
