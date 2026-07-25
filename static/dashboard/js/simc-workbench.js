@@ -163,10 +163,11 @@
             const progress = hasProgress ? Math.max(0, Math.min(100, Number(row.progress))) : 0;
             const progressBar = hasProgress ? `<div class="simc-task-progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${progress}%"></div></div><span>${progress}%</span></div>` : '';
             const resource = 'tasks';
-            const statusClass = status === 2 ? 'is-success' : status === 3 ? 'is-failed' : status === 1 ? 'is-running' : 'is-pending';
-            const statusIcon = status === 2 ? 'fa-check-circle' : status === 3 ? 'fa-exclamation-circle' : status === 1 ? 'fa-spinner fa-spin' : 'fa-clock';
+            const statusClass = status === 2 ? 'is-success' : [3, 5].includes(status) ? 'is-failed' : status === 1 ? 'is-running' : 'is-pending';
+            const statusIcon = status === 2 ? 'fa-check-circle' : status === 3 ? 'fa-exclamation-circle' : status === 5 ? 'fa-ban' : status === 1 ? 'fa-spinner fa-spin' : 'fa-clock';
             const typeLabel = row.mode === 'comparison' ? '候选对比' : row.mode === 'attribute_sweep' ? '属性寻优' : '普通模拟';
             const rerunButton = `<button type="button" data-task-rerun="${idOf(row.id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>`;
+            const pendingActions = status === 0 ? `<button type="button" data-task-status="5" data-task-id="${idOf(row.id)}" title="取消任务" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-ban" aria-hidden="true"></i><span>取消</span></button><button type="button" data-task-status="3" data-task-id="${idOf(row.id)}" title="标记失败" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>失败</span></button>` : '';
             return `<article class="simc-task-card simc-responsive-row">
                 <div class="simc-task-card__main">
                     <div class="simc-task-card__eyebrow"><span class="simc-task-type">${typeLabel}</span><span class="simc-task-id">#${idOf(row.id)}</span></div>
@@ -174,7 +175,7 @@
                     <div class="simc-task-card__meta"><span class="simc-task-status ${statusClass}"><i class="fas ${statusIcon}" aria-hidden="true"></i>${esc(row.status_label)}</span><time><i class="far fa-calendar-alt" aria-hidden="true"></i>${esc(row.created_at)}</time></div>
                     ${progressBar}
                 </div>
-                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-chart-line" aria-hidden="true"></i><span>查看结果</span></a>${rerunButton}</div>
+                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-chart-line" aria-hidden="true"></i><span>查看结果</span></a>${pendingActions}${rerunButton}</div>
             </article>`;
         }).join('')}</div>` : empty('暂无记录');
 
@@ -901,6 +902,18 @@
         else if (resource === 'apl-storage') await loadApl(resource, 'simc-unified-apl-list');
         else if (resource === 'templates') await loadTemplates();
     }
+    async function updatePendingTaskStatus(id, currentStatus) {
+        const row = (state.rows.history || []).find(item => idOf(item.id) === id);
+        if (!row) throw new Error('任务不存在或列表已刷新');
+        const label = currentStatus === 5 ? '取消' : '标记为失败';
+        if (!window.confirm(`确认${label}任务 #${id}？`)) return;
+        await json('/api/simc-task/', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+            body: JSON.stringify({ id, name: row.name || `任务 #${id}`, current_status: currentStatus }),
+        });
+        await loadTasks(state.taskPage);
+    }
     async function fetchManagedAplDetail(id, options = {}) {
         const row = (await json(resourceUrl('apls', id), options)).data || {};
         return { ...row, title: row.name, apl_code: row.content };
@@ -1101,6 +1114,13 @@
             const rerunAction = event.target.closest('[data-task-rerun]');
             if (rerunAction) {
                 renderTaskRerunForm(rerunAction.dataset.taskRerun);
+                return;
+            }
+            const taskStatusAction = event.target.closest('[data-task-status]');
+            if (taskStatusAction) {
+                const id = idOf(taskStatusAction.dataset.taskId);
+                const status = Number.parseInt(taskStatusAction.dataset.taskStatus, 10);
+                if (id && [3, 5].includes(status)) updatePendingTaskStatus(id, status).catch(notify);
                 return;
             }
             if (event.target.closest('[data-task-rerun-cancel]')) {

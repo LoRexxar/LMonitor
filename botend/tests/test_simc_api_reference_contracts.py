@@ -740,6 +740,100 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         # Verify no task was created
         self.assertEqual(SimcTask.objects.count(), initial_task_count)
 
+    def _reference_task(self, **overrides):
+        versions = {}
+        for resource_type, resource in (
+            ('profile', self.profile), ('template', self.template), ('apl', self.apl),
+        ):
+            versions[f'{resource_type}_version'] = SimcResourceVersion.objects.create(
+                resource_type=resource_type,
+                resource_id=resource.id,
+                content_hash=f'{resource_type}-{resource.id}',
+                payload={'content': 'snapshot'},
+            )
+        values = {
+            'user_id': self.user.id,
+            'name': 'pending-task',
+            'simc_profile_id': self.profile.id,
+            'profile': self.profile,
+            'template': self.template,
+            'apl': self.apl,
+            'current_status': 0,
+            **versions,
+        }
+        values.update(overrides)
+        return SimcTask.objects.create(**values)
+
+    def test_put_can_cancel_pending_task(self):
+        task = self._reference_task()
+        request = self.factory.put('/api/simc-task/', data=json.dumps({
+            'id': task.id, 'name': task.name, 'current_status': 5,
+        }), content_type='application/json')
+        request.user = self.user
+
+        response = SimcTaskAPIView().put(request)
+        data = json.loads(response.content)
+
+        self.assertTrue(data['success'])
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 5)
+
+    def test_put_can_mark_pending_task_failed(self):
+        task = self._reference_task()
+        request = self.factory.put('/api/simc-task/', data=json.dumps({
+            'id': task.id, 'name': task.name, 'current_status': 3,
+        }), content_type='application/json')
+        request.user = self.user
+
+        response = SimcTaskAPIView().put(request)
+        data = json.loads(response.content)
+
+        self.assertTrue(data['success'])
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 3)
+
+    def test_put_cannot_change_running_task_status(self):
+        task = self._reference_task(current_status=1)
+        request = self.factory.put('/api/simc-task/', data=json.dumps({
+            'id': task.id, 'name': task.name, 'current_status': 5,
+        }), content_type='application/json')
+        request.user = self.user
+
+        response = SimcTaskAPIView().put(request)
+        data = json.loads(response.content)
+
+        self.assertFalse(data['success'])
+        self.assertEqual(response.status_code, 409)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 1)
+
+    def test_put_rejects_arbitrary_target_status(self):
+        task = self._reference_task()
+        request = self.factory.put('/api/simc-task/', data=json.dumps({
+            'id': task.id, 'name': task.name, 'current_status': 2,
+        }), content_type='application/json')
+        request.user = self.user
+
+        response = SimcTaskAPIView().put(request)
+
+        self.assertEqual(response.status_code, 400)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 0)
+
+    def test_put_cannot_change_another_users_task_status(self):
+        task = self._reference_task()
+        other_user = User.objects.create_user(username='other-user', password='testpass')
+        request = self.factory.put('/api/simc-task/', data=json.dumps({
+            'id': task.id, 'name': task.name, 'current_status': 5,
+        }), content_type='application/json')
+        request.user = other_user
+
+        response = SimcTaskAPIView().put(request)
+
+        self.assertEqual(response.status_code, 404)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 0)
+
 
 class SimcProfileAPISimulateNowContractsTests(TestCase):
     """Test SimcProfileAPIView simulate_now endpoint for reference-based task creation."""

@@ -38,6 +38,27 @@ class SimcWorkerTests(TestCase):
         self.assertIsNotNone(task.started_at)
         process.assert_called_once()
 
+    def test_consume_once_skips_cancelled_and_failed_tasks(self):
+        from botend.services.simc_worker import SimcWorker
+
+        cancelled = self.make_task(name='cancelled', status=5)
+        failed = self.make_task(name='failed', status=3)
+        pending = self.make_task(name='pending')
+        monitor = MagicMock()
+        monitor.process_simc_task.return_value = True
+        worker = SimcWorker(monitor=monitor, poll_interval=0)
+
+        self.assertTrue(worker.consume_once())
+
+        cancelled.refresh_from_db()
+        failed.refresh_from_db()
+        pending.refresh_from_db()
+        self.assertEqual(cancelled.current_status, 5)
+        self.assertEqual(failed.current_status, 3)
+        self.assertEqual(pending.current_status, 2)
+        monitor.process_simc_task.assert_called_once()
+        self.assertEqual(monitor.process_simc_task.call_args.args[0].id, pending.id)
+
     def test_consume_once_isolates_unexpected_task_failure_and_next_cycle_continues(self):
         from botend.services.simc_worker import SimcWorker
 

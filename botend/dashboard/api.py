@@ -1555,11 +1555,12 @@ class SimcTaskAPIView(View):
             })
     
     def put(self, request):
-        """仅更新引用型 SimC Task 的显示名称；执行请求不可原地修改。"""
+        """更新显示名称，或将仍为 pending 的任务原子终止。"""
         try:
             data = json.loads(request.body)
             task_id = data.get('id')
             name = str(data.get('name') or '').strip()
+            requested_status = data.get('current_status')
             if not task_id:
                 return JsonResponse({'success': False, 'error': '任务ID不能为空'}, status=400)
             if not name:
@@ -1572,6 +1573,35 @@ class SimcTaskAPIView(View):
                                       task.profile_version_id, task.template_version_id, task.apl_version_id))
             if not complete_reference:
                 return JsonResponse({'success': False, 'error': '旧版冻结任务不支持更新；请使用新的引用型任务流程'}, status=400)
+            if requested_status is not None:
+                try:
+                    requested_status = int(requested_status)
+                except (TypeError, ValueError):
+                    return JsonResponse({'success': False, 'error': '任务状态无效'}, status=400)
+                if requested_status not in (3, 5):
+                    return JsonResponse({'success': False, 'error': 'pending 任务只能标记为失败或取消'}, status=400)
+                now = timezone.now()
+                updated = SimcTask.objects.filter(
+                    id=task.id, user_id=request.user.id, is_active=True, current_status=0,
+                ).update(
+                    name=name, current_status=requested_status,
+                    completed_at=now, modified_time=now,
+                )
+                if not updated:
+                    return JsonResponse({
+                        'success': False,
+                        'error': '任务已被领取或状态已变化，不能再修改执行状态',
+                    }, status=409)
+                task.refresh_from_db()
+                return JsonResponse({
+                    'success': True,
+                    'message': '任务已取消' if requested_status == 5 else '任务已标记为失败',
+                    'data': {
+                        'id': task.id, 'name': task.name, 'current_status': task.current_status,
+                        'mode': task.mode, 'create_time': _fmt_dt(task.create_time),
+                        'modified_time': _fmt_dt(task.modified_time),
+                    },
+                })
             task.name = name
             task.save(update_fields=['name', 'modified_time'])
             return JsonResponse({
@@ -5531,7 +5561,7 @@ class SimcWorkbenchAPIView(View):
     @staticmethod
     def _task_status_label(status):
         """返回中文状态标签"""
-        labels = {0: '待运行', 1: '运行中', 2: '成功', 3: '失败', 4: '运行中'}
+        labels = {0: '待运行', 1: '运行中', 2: '成功', 3: '失败', 4: '运行中', 5: '已取消'}
         return labels.get(status, '未知')
 
     @staticmethod
