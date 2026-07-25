@@ -2814,7 +2814,9 @@ function requireSimcRunReferences() {
     if (!selected_apl_id) throw new Error('请选择 APL');
     if (!simcResolvedCanonicalSpec) throw new Error('请先完成来源预检并解析职业专精');
     const player_source = collectSimcPlayerSource();
-    const references = { base_template_id, selected_apl_id, player_source, spec: simcResolvedCanonicalSpec };
+    const backend_id = selectedSimcReferenceValue('#simc-sim-backend');
+    if (!backend_id) throw new Error('请选择 SimC 后端');
+    const references = { base_template_id, selected_apl_id, backend_id, player_source, spec: simcResolvedCanonicalSpec };
     if (player_source.type === 'saved_profile') references.simc_profile_id = player_source.profile_id;
     return references;
 }
@@ -3337,7 +3339,7 @@ async function startSelectedSimcCandidateComparisons() {
     let references;
     try { references = requireSimcRunReferences(); }
     catch (error) { showMessage(String(error.message || error), 'warning'); return; }
-    const { simc_profile_id, player_source, base_template_id, selected_apl_id } = references;
+    const { simc_profile_id, player_source, base_template_id, selected_apl_id, backend_id } = references;
     const selected = Array.from(document.querySelectorAll('.simc-comparison-candidate:checked'));
     const include_base = Boolean(document.querySelector('.simc-comparison-current:checked'));
     if (!selected.length) { showMessage('请至少选择一个候选', 'warning'); return; }
@@ -3357,7 +3359,7 @@ async function startSelectedSimcCandidateComparisons() {
             body: JSON.stringify({
                 kind, name: `${simcResolvedCanonicalSpec || 'SimC'} 候选对比`,
                 spec: simcResolvedCanonicalSpec,
-                simc_profile_id, player_source, base_template_id, selected_apl_id, candidates, include_base,
+                simc_profile_id, player_source, base_template_id, selected_apl_id, backend_id, candidates, include_base,
                 ...currentSimcScenario(),
             }),
         });
@@ -3436,6 +3438,7 @@ async function createSimcAplCandidateTask() {
             profile_id: references.simc_profile_id,
             base_template_id: references.base_template_id,
             selected_apl_id: references.selected_apl_id,
+            backend_id: references.backend_id,
             candidate_count: 5, include_base: true,
         }),
     });
@@ -3490,6 +3493,18 @@ async function submitSimcHomeCreation() {
     } catch (error) {
         showMessage(String(error.message || error), 'warning');
     }
+}
+
+async function loadSimcBackendOptions() {
+    const select = document.getElementById('simc-sim-backend');
+    if (!select) return;
+    const response = await fetch('/api/simc-backend-binary/');
+    const payload = await response.json();
+    if (!response.ok || !payload.success) throw new Error(payload.error || '加载 SimC 后端失败');
+    const backends = payload.data?.backends || [];
+    select.innerHTML = backends.map(backend => `<option value="${backend.id}" ${backend.is_default ? 'selected' : ''}>${escapeHtml(backend.name)}${backend.version ? ` · ${escapeHtml(backend.version)}` : ''}</option>`).join('');
+    select.disabled = backends.length === 0;
+    if (!backends.length) select.innerHTML = '<option value="">暂无可用后端</option>';
 }
 
 function bindSimcWorkbenchSimulationControls() {
@@ -3547,6 +3562,7 @@ function bindSimcWorkbenchSimulationControls() {
     });
     const preset = document.getElementById('simc-sim-fight-preset');
     preset?.addEventListener('change', () => applySimcFightPreset(preset.value));
+    loadSimcBackendOptions().catch(error => showMessage(String(error.message || error), 'error'));
     updateSimcHomeMode();
     switchSimcPlayerImportMode({ resolve: false });
 }

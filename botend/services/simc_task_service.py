@@ -19,6 +19,7 @@ from botend.models import (
     SimcContentTemplate,
     SimcApl,
     SimcResourceVersion,
+    SimcBackendBinary,
 )
 from botend.services.simc_apl.publish import (
     content_hash as apl_content_hash,
@@ -295,6 +296,7 @@ def create_task_from_request(
     mode: str = 'normal',
     mode_params: Optional[Dict[str, Any]] = None,
     candidates: Optional[list] = None,
+    backend_id: Optional[int] = None,
 ) -> SimcTask:
     """
     Unified entry for homepage "auto-save/update player config and create Task" atomic operation.
@@ -410,6 +412,7 @@ def create_task_from_request(
             simulation_params=normalized_simulation_params,
             mode_params=mode_params,
             candidates=candidates,
+            backend_id=backend_id,
         )
 
         return task
@@ -426,6 +429,7 @@ def create_task(
     simulation_params: Optional[Dict[str, Any]] = None,
     mode_params: Optional[Dict[str, Any]] = None,
     candidates: Optional[list] = None,
+    backend_id: Optional[int] = None,
 ) -> SimcTask:
     """
     Create a reference-based SimC task with immutable version snapshots.
@@ -451,6 +455,16 @@ def create_task(
     allowed_modes = {'normal', 'comparison', 'attribute_sweep'}
     if mode not in allowed_modes:
         raise TaskCreationError(f"Invalid mode '{mode}'. Allowed: {allowed_modes}")
+
+    backend_query = SimcBackendBinary.objects.select_for_update().filter(is_active=True)
+    if backend_id:
+        backend = backend_query.filter(pk=backend_id).first()
+        if backend is None:
+            raise TaskCreationError('Selected SimC backend does not exist or is disabled')
+    else:
+        backend = backend_query.filter(identifier='production').first()
+        if backend is None:
+            raise TaskCreationError('Default production SimC backend is unavailable')
 
     # Every executable mode is a complete reference task. Candidate-specific
     # differences live only in mode_params; resources and immutable versions
@@ -505,15 +519,15 @@ def create_task(
             raise TaskCreationError(f"APL {apl_id} does not exist")
 
         _validate_resource_ownership(apl, 'apl', user_id)
-        identity = current_validation_identity()
+        identity = current_validation_identity(backend=backend)
         stale_reason = apl.validation_staleness(identity)
         if stale_reason:
             raise TaskCreationError(f'APL validation is stale: {stale_reason}')
         # is_selectable and stored metadata are only a publication cache. Every
         # new Task gets a final authoritative check against the actual persisted
         # Profile; no client-provided validation result is accepted.
-        validation = validate_apl_for_profile(profile, apl)
-        final_identity = current_validation_identity()
+        validation = validate_apl_for_profile(profile, apl, backend=backend)
+        final_identity = current_validation_identity(backend=backend)
         current_apl = SimcApl.objects.select_for_update().get(pk=apl.pk)
         current_profile = SimcProfile.objects.select_for_update().get(pk=profile.pk)
         if (_build_profile_payload(current_profile) != _build_profile_payload(profile)
@@ -557,6 +571,7 @@ def create_task(
         profile=profile,
         template=template,
         apl=apl,
+        backend=backend,
 
         # Version FKs
         profile_version=profile_version,

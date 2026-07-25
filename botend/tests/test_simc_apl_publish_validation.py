@@ -27,8 +27,13 @@ def digest(value):
 class SimcAplCurrentIdentityTests(TestCase):
     def test_resolves_unique_full_revision_from_binary_version_suffix(self):
         full_revision = "62ababb127bef2a35f96357968d455dde7de7616"
-        SimcBackendBinary.objects.create(
-            platform="linux64", current_version="1205-01-62ababb")
+        backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': '正式服', 'platform': 'linux64',
+                'current_version': '1205-01-62ababb', 'is_active': True,
+            },
+        )
         SimcAplSymbol.objects.create(
             simc_revision=full_revision, wow_build="12.0.7.68453",
             token="bloodthirst", symbol_kind="action", is_active=True,
@@ -45,9 +50,13 @@ class SimcAplCurrentIdentityTests(TestCase):
     def test_authoritative_validation_uses_resolved_full_binary_revision(
             self, compose_validation_input, validate):
         full_revision = "62ababb127bef2a35f96357968d455dde7de7616"
-        SimcBackendBinary.objects.create(
-            platform="linux64", current_version="1205-01-62ababb",
-            simc_path="/tmp/simc",
+        backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': '正式服', 'platform': 'linux64',
+                'current_version': '1205-01-62ababb',
+                'simc_path': '/tmp/simc', 'is_active': True,
+            },
         )
         SimcAplSymbol.objects.create(
             simc_revision=full_revision, wow_build="12.0.7.68453",
@@ -84,6 +93,19 @@ class SimcAplCurrentIdentityTests(TestCase):
 @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, BUILD))
 class SimcAplPublishValidationTests(TestCase):
     def setUp(self):
+        self.backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': '正式服', 'platform': 'linux64',
+                'current_version': REVISION, 'simc_path': '/tmp/simc',
+                'is_active': True,
+            },
+        )
+        SimcAplSymbol.objects.get_or_create(
+            simc_revision=REVISION, wow_build=BUILD,
+            token='auto_attack', symbol_kind='action',
+            defaults={'is_active': True},
+        )
         self.user = User.objects.create_user(username="publisher", password="pwd")
         self.client.force_login(self.user)
         self.profile = SimcProfile.objects.create(
@@ -280,7 +302,7 @@ class SimcAplPublishValidationTests(TestCase):
             validation_game_build=BUILD,
         )
 
-        def mutate(_profile, locked_apl):
+        def mutate(_profile, locked_apl, **_kwargs):
             SimcApl.objects.filter(pk=locked_apl.pk).update(content=CONTENT + " changed")
             return {"valid": True, "content_hash": digest(CONTENT), "revision": REVISION,
                     "game_build": BUILD, "diagnostics": []}

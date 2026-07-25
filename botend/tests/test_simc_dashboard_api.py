@@ -15,7 +15,35 @@ from botend.management.commands.update_simc_binary import Command as UpdateSimcB
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import append_candidate_runs
-from botend.models import PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcContentTemplate, SimcProfile, SimcTask, SimulationRun, WowItemSnapshot
+from botend.models import PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcTask, SimulationRun, WowItemSnapshot
+
+
+TEST_SIMC_REVISION = 'a' * 40
+TEST_WOW_BUILD = 'test-build'
+
+
+def get_test_backend():
+    backend, _ = SimcBackendBinary.objects.update_or_create(
+        identifier='production',
+        defaults={
+            'name': '正式服', 'platform': 'linux64',
+            'simc_path': '/opt/simc', 'current_version': TEST_SIMC_REVISION,
+            'is_active': True,
+        },
+    )
+    SimcAplSymbol.objects.get_or_create(
+        simc_revision=TEST_SIMC_REVISION,
+        wow_build=TEST_WOW_BUILD,
+        token='auto_attack',
+        symbol_kind=SimcAplSymbol.KIND_ACTION,
+        defaults={'is_active': True},
+    )
+    return backend
+
+
+def create_test_task(**kwargs):
+    kwargs.setdefault('backend', get_test_backend())
+    return SimcTask.objects.create(**kwargs)
 
 
 class SimcAplCanonicalClassAliasTests(TestCase):
@@ -64,9 +92,10 @@ class SimcWorkerTaskRunLifecycleTests(TestCase):
 
     def setUp(self):
         self.monitor = SimcMonitor(None, None)
-        self.task = SimcTask.objects.create(
+        self.backend = get_test_backend()
+        self.task = create_test_task(
             user_id=801, name='worker lifecycle', simc_profile_id=0,
-            mode='comparison', current_status=0, is_active=True,
+            mode='comparison', current_status=0, is_active=True, backend=self.backend,
         )
 
     def _run(self, sequence, status='pending', dps=None, label=None):
@@ -127,7 +156,10 @@ class SimcWorkerTaskRunLifecycleTests(TestCase):
 
     def test_task_delete_cascades_runs_without_touching_other_task(self):
         own = self._run(1)
-        other = SimcTask.objects.create(user_id=802, name='other', simc_profile_id=0, mode='comparison')
+        other = create_test_task(
+            user_id=802, name='other', simc_profile_id=0,
+            mode='comparison', backend=self.backend,
+        )
         foreign = SimulationRun.objects.create(task=other, sequence=1, status='pending')
         self.task.delete()
         self.assertFalse(SimulationRun.objects.filter(id=own.id).exists())
@@ -177,9 +209,9 @@ class SimcWorkerTaskRunLifecycleTests(TestCase):
 
     def test_runs_from_inactive_other_task_do_not_affect_aggregation(self):
         self._run(1, 'completed', 100)
-        other = SimcTask.objects.create(
+        other = create_test_task(
             user_id=802, name='inactive other', simc_profile_id=0,
-            mode='comparison', current_status=0, is_active=False,
+            mode='comparison', current_status=0, is_active=False, backend=self.backend,
         )
         SimulationRun.objects.create(
             task=other, sequence=1, candidate_key='foreign', status='pending',
@@ -195,8 +227,9 @@ class SimcWorkerTaskRunLifecycleTests(TestCase):
         self.task.mode_params = {'legacy_batch_id': 999, 'batch_id': 802}
         self.task.save(update_fields=['mode_params'])
         run = self._run(1, 'completed', 100)
-        other = SimcTask.objects.create(
-            user_id=802, name='forged target', simc_profile_id=0, mode='comparison',
+        other = create_test_task(
+            user_id=802, name='forged target', simc_profile_id=0,
+            mode='comparison', backend=self.backend,
         )
 
         self.assertTrue(self.monitor.process_reference_task(self.task))
@@ -522,6 +555,7 @@ class SimcRawInspectTests(TestCase):
 @override_settings(SIMC_APL_CURRENT_IDENTITY=('test-revision', 'test-build'))
 class SimcBatchVariableCompareTests(TestCase):
     def setUp(self):
+        self.backend = get_test_backend()
         self.user = User.objects.create_user(username='comparison_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
@@ -546,13 +580,13 @@ class SimcBatchVariableCompareTests(TestCase):
             is_selectable=True,
             validation_status=SimcApl.VALIDATION_VALID,
             validated_content_hash=hashlib.sha256(b'actions=/auto_attack').hexdigest(),
-            validation_revision='test-revision', validation_game_build='test-build',
+            validation_revision=TEST_SIMC_REVISION, validation_game_build=TEST_WOW_BUILD,
         )
         self.apl_validation = patch(
             'botend.services.simc_task_service.validate_apl_for_profile',
             return_value={'valid': True,
                           'content_hash': hashlib.sha256(b'actions=/auto_attack').hexdigest(),
-                          'revision': 'test-revision', 'game_build': 'test-build'},
+                          'revision': TEST_SIMC_REVISION, 'game_build': TEST_WOW_BUILD},
         )
         self.apl_validation.start()
         self.addCleanup(self.apl_validation.stop)
@@ -1067,9 +1101,14 @@ main_hand=,id=222222
             task = SimpleNamespace(
                 id=88, result_file='simc_task_88.html', ext='{}',
                 result_summary='', error_detail='', save=lambda **kwargs: None,
+                backend=self.backend, backend_id=self.backend.id,
             )
             expected = os.path.join(tmpdir, task.result_file)
-            with patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
+            with patch(
+                    'botend.controller.plugins.simc.SimcMonitor.os.path.isfile',
+                    side_effect=lambda path: path == self.backend.simc_path or Path(path).is_file()), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
                 def execute_and_write_report(*args, **kwargs):
                     with open(expected, 'w', encoding='utf-8') as report:
                         report.write('<html></html>')
@@ -1102,9 +1141,14 @@ main_hand=,id=222222
                 ext=json.dumps({'spec': 'fury'}),
                 result_summary='', error_detail='',
                 save=lambda **kwargs: None,
+                backend=self.backend, backend_id=self.backend.id,
             )
             expected = os.path.join(tmpdir, task.result_file)
-            with patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
+            with patch(
+                    'botend.controller.plugins.simc.SimcMonitor.os.path.isfile',
+                    side_effect=lambda path: path == self.backend.simc_path or Path(path).is_file()), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
                 def execute_and_write_report(*args, **kwargs):
                     with open(expected, 'w', encoding='utf-8') as report:
                         report.write('<html></html>')
@@ -1236,7 +1280,7 @@ main_hand=,id=222222
         self.assertEqual(points, sorted(set(points)))
 
     def _comparison_task_with_runs(self, mode='comparison', rows=()):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id, name='comparison report', simc_profile_id=0,
             mode=mode, current_status=0,
         )
@@ -1377,7 +1421,7 @@ class SimcNewConfigModeTests(TestCase):
 
     def test_attribute_manifest_task_is_rejected_until_reference_architecture(self):
         """Legacy attribute tasks without 6-reference fields are rejected."""
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='Manifest attribute snapshot',
             task_type=2,
@@ -1433,7 +1477,7 @@ class SimcNewConfigModeTests(TestCase):
         self.assertIn('task_type', payload['error'])
 
     def test_task_list_does_not_expose_raw_simc_code(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='private raw code',
             task_type=1,
@@ -1522,7 +1566,7 @@ class SimcNewConfigModeTests(TestCase):
         self.assertNotIn('secret_action', serialized)
 
     def test_task_list_hides_failed_native_result_output(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='failed raw task',
             task_type=1,
@@ -1538,7 +1582,7 @@ class SimcNewConfigModeTests(TestCase):
         self.assertNotIn('result-secret', json.dumps(response.json(), ensure_ascii=False))
 
     def test_attribute_analysis_ssr_parses_task_owned_attribute_report(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='SSR attribute report',
             task_type=2,
@@ -1560,7 +1604,7 @@ class SimcNewConfigModeTests(TestCase):
         self.assertContains(response, 'gear_crit')
 
     def test_attribute_analysis_api_parses_only_current_task_owned_reports(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='API attribute report',
             task_type=2,
@@ -1587,7 +1631,7 @@ class SimcNewConfigModeTests(TestCase):
         self.assertEqual(payload['data']['results'][0]['dps'], 123456)
 
     def test_preview_returns_only_current_users_manifest_snapshot(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='Preview manifest task',
             task_type=1,
@@ -1698,7 +1742,7 @@ html=simc_task_99.html
         self.assertNotIn('SECRET_BUILD', json.dumps(summary))
 
     def test_worker_persists_final_execution_validation_in_task_manifest(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='Worker audit',
             simc_profile_id=0,
@@ -1722,7 +1766,7 @@ html=simc_task_99.html
             'equipment_count': 14, 'action_count': 112,
             'html_output_count': 1, 'placeholder_count': 0,
         }
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='Validated task',
             simc_profile_id=0,
@@ -1802,7 +1846,7 @@ html=simc_task_99.html
         )
 
         # Create completed reference task
-        original = SimcTask.objects.create(
+        original = create_test_task(
             user_id=self.user.id,
             name='Completed reference task',
             task_type=1,
@@ -2144,6 +2188,7 @@ class SimcPlayerConfigDetailTests(TestCase):
     """玩家详情只解析当前输入与本地快照，不渲染完整 SimC 执行配置。"""
 
     def setUp(self):
+        self.backend = get_test_backend()
         self.user = User.objects.create_user(username='player_detail_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
@@ -2165,14 +2210,14 @@ class SimcPlayerConfigDetailTests(TestCase):
             validation_status=SimcApl.VALIDATION_VALID,
             validated_content_hash=hashlib.sha256(
                 b'actions=/auto_attack\nactions+=/bloodthirst').hexdigest(),
-            validation_revision='test-revision', validation_game_build='test-build',
+            validation_revision=TEST_SIMC_REVISION, validation_game_build=TEST_WOW_BUILD,
         )
         self.apl_validation = patch(
             'botend.services.simc_task_service.validate_apl_for_profile',
             return_value={'valid': True,
                           'content_hash': hashlib.sha256(
                               b'actions=/auto_attack\nactions+=/bloodthirst').hexdigest(),
-                          'revision': 'test-revision', 'game_build': 'test-build'},
+                          'revision': TEST_SIMC_REVISION, 'game_build': TEST_WOW_BUILD},
         )
         self.apl_validation.start()
         self.addCleanup(self.apl_validation.stop)
@@ -3125,7 +3170,7 @@ class SimcComparisonTaskAPIViewGetTests(TestCase):
 
     def _task(self, user=None, mode='comparison', active=True, name='Comparison detail'):
         user = user or self.user
-        return SimcTask.objects.create(
+        return create_test_task(
             user_id=user.id, name=name, simc_profile_id=0, mode=mode,
             current_status=1, is_active=active,
         )

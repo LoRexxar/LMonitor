@@ -68,6 +68,18 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('提交时即时来源会原子固化为 Profile 不可变版本', workflow)
         self.assertNotIn('id="simc-sim-attribute-search-status"', workflow)
 
+    def test_home_creation_flow_requires_and_defaults_an_execution_backend(self):
+        workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        self.assertEqual(workflow.count('id="simc-sim-backend"'), 1)
+        self.assertIn("fetch('/api/simc-backend-binary/')", SIMC_MAIN)
+        self.assertIn("backend.is_default ? 'selected' : ''", SIMC_MAIN)
+        self.assertIn("selectedSimcReferenceValue('#simc-sim-backend')", SIMC_MAIN)
+        self.assertIn("if (!backend_id) throw new Error('请选择 SimC 后端')", SIMC_MAIN)
+        self.assertIn('const references = { base_template_id, selected_apl_id, backend_id,', SIMC_MAIN)
+        self.assertIn('selected_apl_id, backend_id, candidates, include_base', SIMC_MAIN)
+        self.assertIn('backend_id: references.backend_id', SIMC_MAIN)
+        self.assertIn('loadSimcBackendOptions().catch', SIMC_MAIN)
+
     def test_home_creation_flow_uses_backend_defaults_filters_profiles_and_opens_history(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
         self.assertIn('profile.spec', MAIN)

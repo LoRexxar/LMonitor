@@ -1512,6 +1512,7 @@ class SimcTaskAPIView(View):
                         selected_apl_id=selected_apl_id,
                         simulation_params=simulation_params if simulation_params else None,
                         name=name,
+                        backend_id=data.get('backend_id'),
                     )
                 else:
                     task = create_task(
@@ -1521,6 +1522,7 @@ class SimcTaskAPIView(View):
                         apl_id=selected_apl_id,
                         simulation_params=simulation_params if simulation_params else None,
                         name=name,
+                        backend_id=data.get('backend_id'),
                     )
             except TaskCreationError as e:
                 return JsonResponse({
@@ -2463,6 +2465,7 @@ class SimcComparisonTaskAPIView(View):
                     'kind': kind, 'category': category or kind, 'candidate_count': len(specs),
                 }},
                 candidates=candidates,
+                backend_id=data.get('backend_id'),
             )
             return JsonResponse({'success': True, 'data': {
                 'task_id': task.id, 'run_ids': [],
@@ -4001,6 +4004,7 @@ class SimcAplCandidatesAPIView(View):
                 candidate_count=candidate_count,
                 template_id=base_template_id,
                 apl_id=apl_template.id,
+                backend_id=data.get('backend_id'),
             )
             run_ids = []
             return JsonResponse({
@@ -4195,7 +4199,9 @@ class SimcAplCandidatesAPIView(View):
             return False
         return True
 
-    def _create_compare_preprocessing_task(self, user_id, profile, include_base, candidate_count, template_id, apl_id):
+    def _create_compare_preprocessing_task(
+            self, user_id, profile, include_base, candidate_count,
+            template_id, apl_id, backend_id=None):
         total_count = int(candidate_count) + (1 if include_base else 0)
         if total_count <= 0:
             raise Exception('候选数量无效')
@@ -4263,6 +4269,7 @@ class SimcAplCandidatesAPIView(View):
             simulation_params={'fight_style': 'Patchwerk', 'max_time': 300, 'desired_targets': 1},
             mode_params={'candidate_type': 'apl_override'},
             candidates=candidates,
+            backend_id=backend_id,
         )
         for item in created:
             item['task_id'] = task.id
@@ -6439,10 +6446,10 @@ class SimcBackendBinaryAPIView(View):
         except Exception:
             return '', ''
 
-    def _get_game_version(self):
-        """Return the WoW build paired with the current authoritative SimC catalog."""
+    def _get_game_version(self, backend=None):
+        """Return the WoW build paired with one execution backend."""
         try:
-            identity = _latest_catalog_identity()
+            identity = current_validation_identity(backend=backend)
         except Exception:
             return ''
         return identity[1] if identity else ''
@@ -6457,7 +6464,7 @@ class SimcBackendBinaryAPIView(View):
             'available': bool(binary_path and os.path.isfile(binary_path) and os.access(binary_path, os.X_OK)),
             'current_version': current_version,
             'latest_version': latest_version,
-            'game_version': self._get_game_version(),
+            'game_version': self._get_game_version(row),
             'need_update': bool(latest_version) and (latest_version != current_version),
             'auto_update': row.auto_update,
             'is_updating': row.is_updating,
@@ -6471,15 +6478,14 @@ class SimcBackendBinaryAPIView(View):
     def get(self, request):
         try:
             can_write = request.user.is_staff
-            runtime_platform = self._get_runtime_platform()
-            row = SimcBackendBinary.objects.filter(platform=runtime_platform).first()
+            row = SimcBackendBinary.objects.filter(identifier='production').first()
             source_dir, build_dir, binary_path = self._resolve_local_build_paths()
 
             if not row:
                 return JsonResponse({
                     'success': True,
                     'data': {
-                        'platform': runtime_platform,
+                        'platform': self._get_runtime_platform(),
                         'binary_name': os.path.basename(binary_path),
                         'available': bool(binary_path and os.path.isfile(binary_path) and os.access(binary_path, os.X_OK)),
                         'current_version': '',
@@ -6497,9 +6503,21 @@ class SimcBackendBinaryAPIView(View):
                     }
                 })
 
-            # 以本地编译配置路径为准；历史记录里的旧路径不能继续覆盖运行路径。
-            data = self._serialize_backend_row(row, source_dir, build_dir, binary_path)
+            data = self._serialize_backend_row(row, source_dir, build_dir, row.simc_path)
             data['can_write'] = can_write
+            data['backends'] = [
+                {
+                    'id': backend.id,
+                    'identifier': backend.identifier,
+                    'name': backend.name,
+                    'platform': backend.platform,
+                    'version': backend.current_version,
+                    'game_version': self._get_game_version(backend),
+                    'available': bool(backend.simc_path and os.path.isfile(backend.simc_path) and os.access(backend.simc_path, os.X_OK)),
+                    'is_default': backend.identifier == 'production',
+                }
+                for backend in SimcBackendBinary.objects.filter(is_active=True).order_by('id')
+            ]
             return JsonResponse({
                 'success': True,
                 'data': data
@@ -6523,9 +6541,9 @@ class SimcBackendBinaryAPIView(View):
                 return JsonResponse({'success': False, 'error': '不支持的后端操作'}, status=400)
 
             runtime_platform = self._get_runtime_platform()
-            row = SimcBackendBinary.objects.filter(platform=runtime_platform).first()
+            row = SimcBackendBinary.objects.filter(identifier='production').first()
             if not row:
-                row = SimcBackendBinary(platform=runtime_platform)
+                row = SimcBackendBinary(identifier='production', name='正式服', platform=runtime_platform)
                 row.simc_path = ''
                 row.current_version = ''
                 row.latest_version = ''
@@ -6580,7 +6598,7 @@ class SimcBackendBinaryAPIView(View):
                     close_old_connections()
                     err_msg = 'SimC 本地编译命令执行失败'
                     try:
-                        row_inner = SimcBackendBinary.objects.filter(platform=runtime_platform).first()
+                        row_inner = SimcBackendBinary.objects.filter(identifier='production').first()
                         if row_inner:
                             row_inner.is_updating = False
                             row_inner.update_status = 'SimC 本地编译失败'

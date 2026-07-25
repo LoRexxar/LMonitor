@@ -66,6 +66,7 @@ def create_rerun(
         simulation_params=copy.deepcopy(source.simulation_params) or {},
         mode_params=mode_params,
         source_task=source,
+        backend_id=source.backend_id,
         current_status=0,
         analysis_result={},
         is_active=True,

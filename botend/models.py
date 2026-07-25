@@ -1046,6 +1046,10 @@ class SimcTask(models.Model):
     simulation_params = models.JSONField(null=True, blank=True, help_text="模拟参数：iterations, fight_style等")
     mode_params = models.JSONField(null=True, blank=True, help_text="模式参数：对比项、寻优范围等")
     source_task = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='reruns', help_text="重跑来源任务")
+    backend = models.ForeignKey(
+        'SimcBackendBinary', on_delete=models.PROTECT,
+        related_name='tasks', help_text="本任务显式指定的 SimC 执行后端",
+    )
 
     error_detail = models.TextField(null=True, blank=True, help_text="创建或执行错误详情")
     result_summary = models.TextField(null=True, blank=True, help_text="结果摘要JSON：DPS/HPS等关键指标")
@@ -1266,8 +1270,11 @@ class SimcContentTemplate(models.Model):
 
 
 class SimcBackendBinary(models.Model):
+    identifier = models.SlugField(max_length=64, unique=True, help_text="稳定标识，如 production/ptr")
+    name = models.CharField(max_length=100, help_text="展示名称，如 正式服/PTR")
     platform = models.CharField(max_length=32, default="linux64", help_text="平台标识，如 linux64/linuxarm64")
     simc_path = models.CharField(max_length=500, default="", help_text="SimC本地编译产物路径")
+    is_active = models.BooleanField(default=True, help_text="是否允许新任务选择")
     current_version = models.CharField(max_length=128, default="", help_text="当前SimC版本号/构建标识")
     latest_version = models.CharField(max_length=128, default="", blank=True, help_text="检测到的源码上游版本/提交")
     auto_update = models.BooleanField(default=True, help_text="是否自动拉取并编译更新")
@@ -1282,6 +1289,9 @@ class SimcBackendBinary(models.Model):
         db_table = 'simc_backend_binary'
         verbose_name = 'SimC后端软件'
         verbose_name_plural = 'SimC后端软件'
+
+    def __str__(self):
+        return f'{self.name} ({self.identifier})'
 
 
 class WclAnalysisTask(models.Model):

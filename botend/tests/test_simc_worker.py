@@ -7,10 +7,20 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcTask, SimulationRun
+from botend.models import SimcBackendBinary, SimcTask, SimulationRun
 
 
 class SimcWorkerTests(TestCase):
+    def setUp(self):
+        self.backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': '正式服', 'platform': 'linux64',
+                'simc_path': '/tmp/simc', 'current_version': 'a' * 40,
+                'is_active': True,
+            },
+        )
+
     def make_task(self, *, name='worker task', status=0, started_at=None):
         return SimcTask.objects.create(
             user_id=9001,
@@ -18,9 +28,9 @@ class SimcWorkerTests(TestCase):
             simc_profile_id=0,
             task_type=1,
             current_status=status,
-
             started_at=started_at,
             is_active=True,
+            backend=self.backend,
         )
 
     def test_process_simc_task_claims_pending_task_once_and_records_start_time(self):
@@ -128,6 +138,7 @@ class SimcWorkerTests(TestCase):
         rerun.assert_called_once_with(task.id, task.user_id)
         self.assertEqual(retry.current_status, 0)
         self.assertEqual(retry.simulation_runs.count(), 0)
+        self.assertEqual(retry.backend_id, task.backend_id)
 
     @override_settings(SIMC_WORKER_STALE_SECONDS=60, SIMC_WORKER_MAX_ATTEMPTS=2)
     def test_recover_stale_running_stops_after_task_copy_attempt_limit(self):

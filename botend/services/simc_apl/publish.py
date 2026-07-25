@@ -1,6 +1,5 @@
 """Persisted APL publication state and authoritative final-gate helpers."""
 import hashlib
-import platform as py_platform
 import re
 
 from django.conf import settings
@@ -17,12 +16,12 @@ def content_hash(content):
     return hashlib.sha256(str(content or '').encode('utf-8')).hexdigest()
 
 
-def current_validation_identity():
+def current_validation_identity(backend=None):
     configured = getattr(settings, 'SIMC_APL_CURRENT_IDENTITY', None)
-    if configured and len(configured) == 2:
+    if backend is None and configured and len(configured) == 2:
         return tuple(configured)
-    platform = 'linuxarm64' if 'aarch64' in py_platform.machine().lower() else 'linux64'
-    backend = SimcBackendBinary.objects.filter(platform=platform).first()
+    if backend is None:
+        backend = SimcBackendBinary.objects.filter(identifier='production').first()
     if not backend or not backend.current_version:
         return None
     current = str(backend.current_version).strip()
@@ -45,9 +44,9 @@ def current_validation_identity():
     return revision, build
 
 
-def validate_apl_for_profile(profile, apl):
+def validate_apl_for_profile(profile, apl, backend=None):
     """Validate persisted APL content using the persisted Profile as authority."""
-    identity = current_validation_identity()
+    identity = current_validation_identity(backend=backend)
     result = {
         'valid': False, 'content_hash': content_hash(apl.content),
         'revision': identity[0] if identity else '',
@@ -56,8 +55,8 @@ def validate_apl_for_profile(profile, apl):
     if not identity:
         result['error'] = 'validation_context_unavailable'
         return result
-    platform = 'linuxarm64' if 'aarch64' in py_platform.machine().lower() else 'linux64'
-    backend = SimcBackendBinary.objects.filter(platform=platform).first()
+    if backend is None:
+        backend = SimcBackendBinary.objects.filter(identifier='production').first()
     if not backend:
         result['error'] = 'validation_backend_unavailable'
         return result

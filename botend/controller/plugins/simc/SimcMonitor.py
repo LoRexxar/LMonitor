@@ -74,10 +74,11 @@ class SimcMonitor(BaseScan):
         return source_dir, build_dir, binary_path
 
     def _get_backend_row(self):
-        platform = self._get_runtime_platform()
         row, _ = SimcBackendBinary.objects.get_or_create(
-            platform=platform,
+            identifier='production',
             defaults={
+                'name': '正式服',
+                'platform': self._get_runtime_platform(),
                 'simc_path': self.simc_path,
                 'current_version': '',
                 'latest_version': '',
@@ -1038,7 +1039,13 @@ class SimcMonitor(BaseScan):
             result_file_path = os.path.join(self.result_path, target_result_file)
             if os.path.isfile(result_file_path):
                 os.remove(result_file_path)
-            cmd = [self.simc_path, simc_file_path, f'html={result_file_path}']
+            if not simc_task.backend_id:
+                raise RuntimeError('SimC任务未绑定执行后端')
+            backend = simc_task.backend
+            binary_path = str(backend.simc_path or '').strip()
+            if not binary_path or not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
+                raise RuntimeError(f'SimC后端不可用: {backend.identifier}')
+            cmd = [binary_path, simc_file_path, f'html={result_file_path}']
             
             logger.info(f"[SimC Monitor] Executing command: {' '.join(cmd)}")
             

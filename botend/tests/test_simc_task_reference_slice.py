@@ -15,10 +15,30 @@ import json
 from unittest.mock import patch
 from django.test import TestCase
 from django.utils import timezone
-from botend.models import SimcTask, SimcProfile, SimcApl, SimcContentTemplate
+from botend.models import (
+    SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate,
+    SimcProfile, SimcTask,
+)
 
 
-TEST_VALIDATION_IDENTITY = ('test-simc-revision', 'test-game-build')
+TEST_VALIDATION_IDENTITY = ('a' * 40, 'test-game-build')
+
+
+def create_test_backend():
+    backend, _ = SimcBackendBinary.objects.update_or_create(
+        identifier='production',
+        defaults={
+            'name': '正式服', 'platform': 'linux64',
+            'simc_path': '/tmp/simc', 'current_version': TEST_VALIDATION_IDENTITY[0],
+            'is_active': True,
+        },
+    )
+    SimcAplSymbol.objects.get_or_create(
+        simc_revision=TEST_VALIDATION_IDENTITY[0], wow_build=TEST_VALIDATION_IDENTITY[1],
+        symbol_kind='action', token='auto_attack',
+        defaults={'is_active': True},
+    )
+    return backend
 
 
 def mark_apl_valid(apl):
@@ -35,7 +55,7 @@ def setUpModule():
     global _validation_settings, _validation_mock
     _validation_settings = override_settings(SIMC_APL_CURRENT_IDENTITY=TEST_VALIDATION_IDENTITY)
     _validation_settings.enable()
-    _validation_mock = patch('botend.services.simc_task_service.validate_apl_for_profile', side_effect=lambda _p, apl: {
+    _validation_mock = patch('botend.services.simc_task_service.validate_apl_for_profile', side_effect=lambda _p, apl, **_kwargs: {
         'valid': True, 'content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
         'revision': TEST_VALIDATION_IDENTITY[0], 'game_build': TEST_VALIDATION_IDENTITY[1]})
     _validation_mock.start()
@@ -94,6 +114,7 @@ class SimcTaskVersionFieldsTests(TestCase):
     """Test Task has version FK fields."""
 
     def setUp(self):
+        self.backend = create_test_backend()
         self.user_id = 1001
         self.profile = SimcProfile.objects.create(
             user_id=self.user_id,
@@ -118,6 +139,7 @@ class SimcTaskVersionFieldsTests(TestCase):
             name="Task",
             simc_profile_id=0,
             task_type=1,
+            backend=self.backend,
             profile=self.profile,
             profile_version_id=profile_version.id,
         )
@@ -130,6 +152,7 @@ class SimcTaskServiceTests(TestCase):
     """Test simc_task_service creates tasks with version snapshots."""
 
     def setUp(self):
+        self.backend = create_test_backend()
         self.user_id = 1001
         self.profile = SimcProfile.objects.create(
             user_id=self.user_id,
@@ -175,6 +198,40 @@ class SimcTaskServiceTests(TestCase):
                 apl_id=self.apl.id,
             )
         self.assertIn("belongs to user", str(ctx.exception))
+
+    def test_backend_defaults_to_production_and_accepts_explicit_enabled_backend(self):
+        from botend.services.simc_task_service import create_task
+
+        default_task = create_task(
+            user_id=self.user_id, name='Default backend', profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
+        )
+        self.assertEqual(default_task.backend_id, self.backend.id)
+
+        alternate = SimcBackendBinary.objects.create(
+            identifier='ptr', name='PTR', platform='linux64',
+            simc_path='/tmp/simc-ptr', current_version=TEST_VALIDATION_IDENTITY[0],
+            is_active=True,
+        )
+        explicit_task = create_task(
+            user_id=self.user_id, name='PTR backend', profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id, backend_id=alternate.id,
+        )
+        self.assertEqual(explicit_task.backend_id, alternate.id)
+
+    def test_task_service_rejects_disabled_backend(self):
+        from botend.services.simc_task_service import create_task, TaskCreationError
+
+        disabled = SimcBackendBinary.objects.create(
+            identifier='disabled', name='Disabled', platform='linux64',
+            simc_path='/tmp/simc-disabled', current_version=TEST_VALIDATION_IDENTITY[0],
+            is_active=False,
+        )
+        with self.assertRaisesRegex(TaskCreationError, 'disabled'):
+            create_task(
+                user_id=self.user_id, name='Disabled backend', profile_id=self.profile.id,
+                template_id=self.template.id, apl_id=self.apl.id, backend_id=disabled.id,
+            )
 
     def test_task_service_validates_active_and_selectable(self):
         """RED: create_task should require is_active=True and is_selectable=True."""
@@ -353,6 +410,7 @@ class TaskResolverWithVersionsTests(TestCase):
     """Test resolver reads version payload, not live content."""
 
     def setUp(self):
+        self.backend = create_test_backend()
         self.user_id = 1001
         self.profile = SimcProfile.objects.create(
             user_id=self.user_id,
@@ -455,6 +513,7 @@ class TaskRerunWithVersionsTests(TestCase):
     """Test rerun copies version FK by default, generates new version on override."""
 
     def setUp(self):
+        self.backend = create_test_backend()
         self.user_id = 1001
         self.profile = SimcProfile.objects.create(
             user_id=self.user_id,
@@ -500,6 +559,7 @@ class TaskRerunWithVersionsTests(TestCase):
         self.assertEqual(rerun.profile_version_id, original.profile_version_id)
         self.assertEqual(rerun.template_version_id, original.template_version_id)
         self.assertEqual(rerun.apl_version_id, original.apl_version_id)
+        self.assertEqual(rerun.backend_id, original.backend_id)
 
     def test_rerun_allocates_a_new_task_owned_html_result_base(self):
         """A rerun must not start without a base used for immutable Run reports."""
@@ -677,6 +737,7 @@ class TaskRerunWithVersionsTests(TestCase):
             simc_profile_id=999,
             task_type=1,
             current_status=2,
+            backend=self.backend,
         )
 
         with self.assertRaises(TaskRerunError) as ctx:

@@ -94,8 +94,10 @@ class Command(BaseCommand):
 
     def _get_row(self):
         row, _ = SimcBackendBinary.objects.get_or_create(
-            platform=self.platform,
+            identifier='production',
             defaults={
+                'name': '正式服',
+                'platform': self.platform,
                 'simc_path': self._stored_simc_path(),
                 'current_version': '',
                 'latest_version': '',
