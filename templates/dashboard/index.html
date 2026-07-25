@@ -199,6 +199,15 @@
         .simc-task-progress__track { height: .38rem; flex: 1; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
         .simc-task-progress__fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2563eb, #60a5fa); }
         .simc-task-card__actions { display: flex; align-items: center; justify-content: flex-end; gap: .55rem; }
+        /* 历史任务采用紧凑单行布局，避免每条任务占用过宽的纵向空间。 */
+        #simc-workbench .simc-task-card { grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; padding: .55rem .75rem; border-radius: .75rem; }
+        #simc-workbench .simc-task-card__main { display: flex; min-width: 0; align-items: center; gap: .65rem; }
+        #simc-workbench .simc-task-card__eyebrow { flex: 0 0 auto; margin-bottom: 0; }
+        #simc-workbench .simc-task-card__title { flex: 1 1 14rem; min-width: 5rem; font-size: .86rem; }
+        #simc-workbench .simc-task-card__meta { flex: 0 0 auto; margin-top: 0; gap: .45rem; white-space: nowrap; }
+        #simc-workbench .simc-task-progress { flex: 0 1 9rem; min-width: 5rem; margin-top: 0; }
+        #simc-workbench .simc-task-card__actions { flex: 0 0 auto; gap: .35rem; }
+        #simc-workbench .simc-task-card__actions .simc-touch-action { min-height: 32px; padding: .35rem .55rem; font-size: .7rem; }
         .simc-task-primary-action, .simc-task-secondary-action { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: .45rem; border-radius: .7rem; padding: .55rem .85rem; font-size: .78rem; font-weight: 800; transition: background .16s, border-color .16s, color .16s, box-shadow .16s; }
         .simc-task-primary-action { border: 1px solid #2563eb; background: #2563eb; color: #fff; box-shadow: 0 5px 14px rgba(37, 99, 235, .2); }
         .simc-task-primary-action:hover { border-color: #1d4ed8; background: #1d4ed8; color: #fff; }
@@ -246,11 +255,15 @@
             #simc-workbench .simc-template-table { min-width: 860px; }
             #simc-workbench .simc-template-row-actions .simc-touch-action { min-height: 38px; }
             .simc-template-detail-meta { grid-template-columns: minmax(0, 1fr); }
-            #simc-workbench .simc-task-card { gap: .85rem; padding: .9rem; }
-            #simc-workbench .simc-task-card__title { white-space: normal; overflow-wrap: anywhere; }
-            #simc-workbench .simc-task-card__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-            #simc-workbench .simc-task-card__actions > :only-child { grid-column: 1 / -1; }
-            #simc-workbench .simc-task-primary-action, #simc-workbench .simc-task-secondary-action { width: 100%; min-height: 42px; }
+            #simc-workbench .simc-task-card { grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; padding: .45rem .5rem; }
+            #simc-workbench .simc-task-card__main { gap: .35rem; }
+            #simc-workbench .simc-task-card__eyebrow { display: none; }
+            #simc-workbench .simc-task-card__title { flex-basis: 8rem; font-size: .78rem; }
+            #simc-workbench .simc-task-card__meta { display: none; }
+            #simc-workbench .simc-task-progress { display: none; }
+            #simc-workbench .simc-task-card__actions { display: flex; width: auto; }
+            #simc-workbench .simc-task-card__actions .simc-touch-action { width: auto; min-height: 32px; padding: .3rem .4rem; }
+            #simc-workbench .simc-task-card__actions .simc-touch-action span { display: none; }
             #simc-workbench .simc-responsive-table thead { display: none; }
             #simc-workbench .simc-responsive-table, #simc-workbench .simc-responsive-table tbody,
             #simc-workbench .simc-responsive-table tr, #simc-workbench .simc-responsive-table td { display: block; width: 100%; }
@@ -263,7 +276,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260722a";</script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260726b"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260722c"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260726b"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
