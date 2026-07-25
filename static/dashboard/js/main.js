@@ -3502,7 +3502,11 @@ async function loadSimcBackendOptions() {
     const payload = await response.json();
     if (!response.ok || !payload.success) throw new Error(payload.error || '加载 SimC 后端失败');
     const backends = payload.data?.backends || [];
-    select.innerHTML = backends.map(backend => `<option value="${backend.id}" ${backend.is_default ? 'selected' : ''}>${escapeHtml(backend.name)}${backend.version ? ` · ${escapeHtml(backend.version)}` : ''}</option>`).join('');
+    select.innerHTML = backends.map(backend => {
+        const identifier = escapeHtml(backend.identifier || backend.name || '');
+        const gameVersion = escapeHtml(backend.game_version || '-');
+        return `<option value="${backend.id}" ${backend.is_default ? 'selected' : ''}>${identifier} · WoW ${gameVersion}</option>`;
+    }).join('');
     select.disabled = backends.length === 0;
     if (!backends.length) select.innerHTML = '<option value="">暂无可用后端</option>';
 }
