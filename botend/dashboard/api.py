@@ -5570,7 +5570,7 @@ class SimcWorkbenchAPIView(View):
         status = task.current_status
         if status == 0:  # pending
             return 0
-        if status in (2, 3):  # success or failed
+        if status in (2, 3, 5):  # terminal
             return 100
         if status in (1, 4):  # running
             try:

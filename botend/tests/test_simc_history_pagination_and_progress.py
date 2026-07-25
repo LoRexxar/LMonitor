@@ -225,6 +225,20 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertTrue(data['success'])
         self.assertEqual(data['data'][0]['progress'], 100)
 
+    def test_task_cancelled_progress_is_100(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            simc_profile_id=self.profile.id,
+            name='Cancelled Task',
+            current_status=5,
+            is_active=True,
+        )
+        request = self.factory.get('/api/simc-workbench/tasks/')
+        request.user = self.user
+        data = json.loads(self.view.get(request, resource='tasks').content)
+        self.assertEqual(data['data'][0]['status_label'], '已取消')
+        self.assertEqual(data['data'][0]['progress'], 100)
+
     def test_task_running_without_progress_returns_null(self):
         SimcTask.objects.create(
             user_id=self.user.id, simc_profile_id=self.profile.id,
