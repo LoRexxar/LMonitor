@@ -1786,7 +1786,7 @@ function bindSimcWorkbenchProfilesControls() {
         specSel.dataset.loaded = '1';
         const specs = [
             'blood','frost_death_knight','unholy',
-            'havoc','vengeance',
+            'devourer','havoc','vengeance',
             'balance','feral','guardian','restoration_druid',
             'devastation','preservation','augmentation',
             'beast_mastery','marksmanship','survival',
@@ -2610,7 +2610,7 @@ function openSimcTableShortcut(tableName) {
 const SIMC_SPEC_CLASS_MAP = {
     arms: 'warrior', fury: 'warrior', protection: 'warrior',
     blood: 'death_knight', frost_dk: 'death_knight', unholy: 'death_knight',
-    havoc: 'demon_hunter', vengeance: 'demon_hunter',
+    devourer: 'demon_hunter', havoc: 'demon_hunter', vengeance: 'demon_hunter',
     balance: 'druid', feral: 'druid', guardian: 'druid', restoration: 'druid',
     devastation: 'evoker', preservation: 'evoker', augmentation: 'evoker',
     beast_mastery: 'hunter', marksmanship: 'hunter', survival: 'hunter',

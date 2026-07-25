@@ -47,6 +47,17 @@ BATTLETNET_CLASS_SLUGS = {
 }
 
 
+SECONDARY_RULE_CLASS_ALIASES = {
+    'deathknight': 'death_knight',
+    'demonhunter': 'demon_hunter',
+}
+
+
+def secondary_rule_class_key(value):
+    key = str(value or '').strip().lower()
+    return SECONDARY_RULE_CLASS_ALIASES.get(key, key)
+
+
 def normalize_battlenet_class_name(value):
     normalized = ' '.join(str(value or '').strip().lower().replace('_', ' ').split())
     return BATTLETNET_CLASS_SLUGS.get(normalized, normalized.replace(' ', ''))
@@ -490,7 +501,9 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
     if mode == 'attribute_only':
         detail = parse_manual_player_config(player_equipment, spec)
         class_name = detail['identity']['class_name'] or SPEC_CLASS.get(spec, '')
-        rule = SimcSecondaryStatRule.objects.filter(class_name=class_name).first()
+        rule = SimcSecondaryStatRule.objects.filter(
+            class_name=secondary_rule_class_key(class_name),
+        ).first()
         mastery = SimcMasteryCoefficient.objects.filter(spec=detail['identity']['spec'] or spec).first()
         conversion = {
             'crit': getattr(rule, 'crit_per_percent', None),
@@ -529,7 +542,9 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
         'talents': semantic_profile['candidates']['talents'],
     }
     class_name = detail['identity']['class_name'] or SPEC_CLASS.get(spec, '')
-    rule = SimcSecondaryStatRule.objects.filter(class_name=class_name).first()
+    rule = SimcSecondaryStatRule.objects.filter(
+        class_name=secondary_rule_class_key(class_name),
+    ).first()
     mastery = SimcMasteryCoefficient.objects.filter(spec=detail['identity']['spec'] or spec).first()
     conversion = {
         'crit': getattr(rule, 'crit_per_percent', None),

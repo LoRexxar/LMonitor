@@ -883,6 +883,32 @@ main_hand=,id=222222
         self.assertEqual(detail['stats']['secondary']['crit']['rating'], 1000)
         self.assertNotIn('无装备', detail['source']['label'])
 
+    def test_devourer_detail_uses_demon_hunter_rule_and_mastery_coefficient(self):
+        from botend.models import SimcMasteryCoefficient, SimcSecondaryStatRule
+
+        SimcSecondaryStatRule.objects.update_or_create(
+            class_name='demon_hunter',
+            defaults={
+                'crit_per_percent': 46, 'haste_per_percent': 44,
+                'mastery_per_percent': 46, 'versatility_per_percent': 54,
+            },
+        )
+        SimcMasteryCoefficient.objects.update_or_create(
+            spec='devourer', defaults={'mastery_coefficient': 1.0},
+        )
+
+        detail = build_player_config_detail(
+            'attribute_only', 'devourer',
+            player_equipment=(
+                'demonhunter="Devourer"\nlevel=90\nspec=devourer\n'
+                'talents=BASE\nhead=,id=212048'
+            ),
+            talent='BUILD', gear_mastery=460,
+        )
+
+        self.assertEqual(detail['identity']['class_name'], 'demonhunter')
+        self.assertEqual(detail['stats']['secondary']['mastery']['percent'], 10.0)
+
     def test_battlenet_template_selection_accepts_playerless_default_template(self):
         monitor = SimcMonitor(None, None)
         default_template = SimpleNamespace(
