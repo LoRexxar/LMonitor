@@ -3253,7 +3253,6 @@ class SimcProfileAPIView(View):
                     profile = SimcProfile.objects.get(
                         id=profile_id,
                         user_id=request.user.id,
-                        is_active=True
                     )
                     
                     return JsonResponse({
@@ -3282,9 +3281,7 @@ class SimcProfileAPIView(View):
                     })
             else:
                 # 获取配置列表
-                profile_filters = {'user_id': request.user.id}
-                if request.GET.get('include_inactive') not in ('1', 'true'):
-                    profile_filters['is_active'] = True
+                profile_filters = {'user_id': request.user.id, 'is_active': True}
                 profiles = SimcProfile.objects.filter(**profile_filters).order_by('-id')
                 
                 profile_list = []
@@ -3408,7 +3405,6 @@ class SimcProfileAPIView(View):
                     profile = SimcProfile.objects.get(
                         id=profile_id,
                         user_id=request.user.id,
-                        is_active=True
                     )
 
                     regular_time = data.get('regular_time')
@@ -3733,20 +3729,6 @@ class SimcProfileAPIView(View):
                     'error': '配置ID不能为空'
                 })
             
-            if data.get('status_only') is True:
-                if not isinstance(data.get('is_active'), bool):
-                    return JsonResponse({'success': False, 'error': 'is_active 必须是布尔值'})
-                profile = SimcProfile.objects.get(
-                    id=profile_id,
-                    user_id=request.user.id,
-                )
-                profile.is_active = data['is_active']
-                profile.save(update_fields=['is_active'])
-                return JsonResponse({
-                    'success': True,
-                    'message': 'SimC配置已恢复' if profile.is_active else 'SimC配置已停用',
-                })
-
             # 获取配置记录
             profile = SimcProfile.objects.get(
                 id=profile_id,
@@ -3803,7 +3785,7 @@ class SimcProfileAPIView(View):
             profile.gear_haste = numeric_values['gear_haste']
             profile.gear_mastery = numeric_values['gear_mastery']
             profile.gear_versatility = numeric_values['gear_versatility']
-            profile.is_active = data.get('is_active', profile.is_active)
+            profile.is_active = True
             profile.save()
             
             return JsonResponse({
@@ -3840,14 +3822,12 @@ class SimcProfileAPIView(View):
                     'error': '配置ID不能为空'
                 })
             
-            # 软删除配置
+            # 真实删除配置；历史任务使用冻结版本，不依赖此配置记录。
             profile = SimcProfile.objects.get(
                 id=profile_id,
                 user_id=request.user.id,
-                is_active=True
             )
-            profile.is_active = False
-            profile.save()
+            profile.delete()
             
             return JsonResponse({
                 'success': True,
@@ -5996,13 +5976,6 @@ class SimcWorkbenchAPIView(View):
             else:
                 return JsonResponse({'success': False, 'error': '当前状态不允许该操作'}, status=409)
             return JsonResponse({'success': True, 'data': {'id': object_id, 'mode': task.mode}})
-        if resource == 'profiles' and object_id and action in ('archive', 'restore'):
-            profile = SimcProfile.objects.filter(id=object_id, user_id=request.user.id).first()
-            if not profile:
-                return JsonResponse({'success': False, 'error': '配置不存在'}, status=404)
-            profile.is_active = action == 'restore'
-            profile.save(update_fields=['is_active'])
-            return JsonResponse({'success': True})
         if resource == 'apls' and object_id and action == 'publish':
             try:
                 profile_id = int(data.get('profile_id'))

@@ -1679,7 +1679,7 @@ function loadSimcWorkbenchProfiles(page) {
     const csrf = getCSRFToken();
     if (!csrf) { tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-red-500">无法获取 CSRF Token</td></tr>'; return; }
 
-    fetch('/api/simc-profile/?include_inactive=1', {
+    fetch('/api/simc-profile/', {
         method: 'GET',
         headers: { 'X-CSRFToken': csrf },
         signal: abortController.signal,
@@ -1725,12 +1725,9 @@ function loadSimcWorkbenchProfiles(page) {
                     : ('Battle.net ' + [row.battlenet_region, row.battlenet_realm, row.battlenet_character].filter(Boolean).join('/'));
             const sourceTitle = escapeHtml(sourceText || '-');
             const offset = startIdx + idx + 1;
-            const isActive = row.is_active !== false;
-            const managementActions = isActive
-                ? `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>
-                   <button class="text-red-600 hover:text-red-800 text-xs" data-profile-row-action="delete" data-profile-id="${id}" title="删除"><i class="fas fa-trash-alt"></i></button>`
-                : `<button class="text-green-600 hover:text-green-800 text-xs" data-profile-row-action="restore" data-profile-id="${id}" title="恢复"><i class="fas fa-rotate-left mr-1"></i>恢复</button>`;
-            return `<tr class="hover:bg-gray-50 border-b border-gray-100 ${isActive ? '' : 'opacity-70'}">
+            const managementActions = `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>
+                   <button class="text-red-600 hover:text-red-800 text-xs" data-profile-row-action="delete" data-profile-id="${id}" title="删除"><i class="fas fa-trash-alt"></i></button>`;
+            return `<tr class="hover:bg-gray-50 border-b border-gray-100">
                 <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
                 <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(spec)}</td>
@@ -1772,7 +1769,7 @@ function bindSimcWorkbenchProfilesControls() {
             const profileId = rowActionButton.dataset.profileId;
             if (rowAction === 'edit') simcWbEditProfile(profileId);
             if (rowAction === 'delete') simcWbDeleteProfile(profileId, rowActionButton);
-            if (rowAction === 'restore') simcWbSetProfileActive(profileId, true);
+
         });
         document.addEventListener('change', event => {
             if (event.target.matches('#simc-wb-profile-form select[name="player_config_mode"]')) {
@@ -2238,24 +2235,7 @@ async function simcWbSaveProfile() {
         btn.disabled = false; btn.innerHTML = oldHtml;
     }
 }
-async function simcWbSetProfileActive(id, isActive) {
-    try {
-        const resp = await fetch('/api/simc-profile/', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-            body: JSON.stringify({ id: Number(id), status_only: true, is_active: isActive })
-        });
-        const data = await resp.json();
-        if (data.success) {
-            showMessage(isActive ? '配置已恢复' : '配置已停用', 'success');
-            loadSimcWorkbenchProfiles(simcWbProfilePage);
-        } else {
-            showMessage((isActive ? '恢复失败: ' : '停用失败: ') + (data.message || data.error || '未知错误'), 'error');
-        }
-    } catch (e) {
-        showMessage((isActive ? '恢复失败: ' : '停用失败: ') + e.message, 'error');
-    }
-}
+
 async function simcWbDeleteProfile(id, trigger) {
     if (trigger && trigger.dataset.deleteConfirmed !== '1') {
         trigger.dataset.deleteConfirmed = '1';
@@ -2277,7 +2257,7 @@ async function simcWbDeleteProfile(id, trigger) {
         });
         const data = await resp.json();
         if (data.success) {
-            showMessage('配置已删除，可在列表中恢复', 'success');
+            showMessage('配置已永久删除', 'success');
             loadSimcWorkbenchProfiles(simcWbProfilePage);
         } else {
             showMessage('删除失败: ' + (data.message || data.error || '未知错误'), 'error');

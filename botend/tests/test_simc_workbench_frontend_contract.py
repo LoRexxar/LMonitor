@@ -590,9 +590,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         bind_body = MAIN[bind_start:bind_end]
         self.assertIn("closest('[data-profile-form-action]')", bind_body)
         self.assertIn("closest('[data-profile-row-action]')", bind_body)
-        self.assertIn("'/api/simc-profile/?include_inactive=1'", MAIN)
+        self.assertIn("'/api/simc-profile/'", MAIN)
         self.assertIn('data-profile-row-action="delete"', MAIN)
-        self.assertIn('data-profile-row-action="restore"', MAIN)
+        self.assertNotIn('data-profile-row-action="restore"', MAIN)
         self.assertIn("method: 'DELETE'", MAIN)
         self.assertIn('function simcWbDeleteProfile', MAIN)
 
