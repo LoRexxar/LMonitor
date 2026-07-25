@@ -781,8 +781,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
     def test_backend_panel_renders_operational_status_not_only_versions(self):
         """Backend panel must expose availability, progress, status and safe error state."""
         for field in ('available', 'need_update', 'is_updating', 'update_progress',
-                      'update_status', 'has_error', 'auto_update'):
+                      'update_status', 'has_error', 'auto_update', 'game_version'):
             self.assertIn(f'info.{field}', JS)
+        self.assertIn('魔兽世界版本', JS)
 
     def test_old_simc_task_modals_removed_from_html(self):
         """Old SimC task modals (add/edit/view) must be removed."""

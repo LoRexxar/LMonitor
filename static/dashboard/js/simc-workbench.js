@@ -870,6 +870,7 @@
         const progress = Number.isFinite(Number(info.update_progress)) ? Math.max(0, Math.min(100, Number(info.update_progress))) : 0;
         host.innerHTML = `<dl class="grid gap-3 md:grid-cols-3">
             <div class="rounded bg-slate-50 p-3">平台<br><b>${esc(info.platform)}</b></div>
+            <div class="rounded bg-slate-50 p-3">魔兽世界版本<br><b>${esc(info.game_version || '-')}</b></div>
             <div class="rounded bg-slate-50 p-3">本地源码版本<br><b>${esc(info.current_version || '-')}</b></div>
             <div class="rounded bg-slate-50 p-3">上游源码版本<br><b>${esc(info.latest_version || '-')}</b></div>
             <div class="rounded bg-slate-50 p-3">本地二进制<br><b>${esc(info.binary_name || '-')} · ${esc(availableLabel)}</b></div>

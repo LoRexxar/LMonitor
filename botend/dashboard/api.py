@@ -6439,6 +6439,14 @@ class SimcBackendBinaryAPIView(View):
         except Exception:
             return '', ''
 
+    def _get_game_version(self):
+        """Return the WoW build paired with the current authoritative SimC catalog."""
+        try:
+            identity = _latest_catalog_identity()
+        except Exception:
+            return ''
+        return identity[1] if identity else ''
+
     def _serialize_backend_row(self, row, source_dir, build_dir, binary_path):
         current_hash, upstream_hash = self._get_source_versions(source_dir)
         current_version = current_hash or str(row.current_version or '').strip()
@@ -6449,6 +6457,7 @@ class SimcBackendBinaryAPIView(View):
             'available': bool(binary_path and os.path.isfile(binary_path) and os.access(binary_path, os.X_OK)),
             'current_version': current_version,
             'latest_version': latest_version,
+            'game_version': self._get_game_version(),
             'need_update': bool(latest_version) and (latest_version != current_version),
             'auto_update': row.auto_update,
             'is_updating': row.is_updating,
@@ -6475,6 +6484,7 @@ class SimcBackendBinaryAPIView(View):
                         'available': bool(binary_path and os.path.isfile(binary_path) and os.access(binary_path, os.X_OK)),
                         'current_version': '',
                         'latest_version': '',
+                        'game_version': '',
                         'need_update': False,
                         'auto_update': True,
                         'is_updating': False,

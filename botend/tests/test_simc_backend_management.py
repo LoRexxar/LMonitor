@@ -51,6 +51,36 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
         self.assertIn('can_write', data['data'])
         self.assertFalse(data['data']['can_write'])
 
+    @patch('botend.dashboard.api.SimcBackendBinaryAPIView._get_game_version', return_value='12.0.1.70000')
+    @patch('botend.dashboard.api.SimcBackendBinary.objects')
+    def test_get_returns_supported_wow_version(self, mock_objects, _mock_game_version):
+        mock_row = Mock()
+        mock_row.platform = 'linux64'
+        mock_row.current_version = 'simc-revision'
+        mock_row.latest_version = 'simc-revision'
+        mock_row.auto_update = True
+        mock_row.is_updating = False
+        mock_row.update_progress = 100
+        mock_row.update_status = 'idle'
+        mock_row.last_error = ''
+        mock_row.last_checked_at = None
+        mock_row.last_updated_at = None
+        mock_objects.filter.return_value.first.return_value = mock_row
+
+        request = self.factory.get('/api/simc-backend-binary/')
+        request.user = self.regular_user
+        response = self.view_class().get(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['data']['game_version'], '12.0.1.70000')
+
+    @patch('botend.dashboard.api._latest_catalog_identity', return_value=('a' * 40, '12.0.1.70000'))
+    def test_supported_wow_version_uses_authoritative_catalog_identity(self, mock_identity):
+        version = self.view_class()._get_game_version()
+
+        self.assertEqual(version, '12.0.1.70000')
+        mock_identity.assert_called_once_with()
+
     @patch('botend.dashboard.api.SimcBackendBinary.objects')
     def test_get_returns_can_write_true_for_staff(self, mock_objects):
         """Staff users GET can_write=true."""
