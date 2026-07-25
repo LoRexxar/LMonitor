@@ -1,8 +1,10 @@
+import importlib
 import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from django.apps import apps
 from django.contrib.auth.models import User
 from django.test import TestCase
 
@@ -17,18 +19,21 @@ from botend.models import (
 
 
 class SimcWorkbenchTemplateResourceTests(TestCase):
+    BASE_CONTENT = 'iterations=100\n{player_config}\n'
+
     def setUp(self):
         self.owner = User.objects.create_user(username='wb-owner', password='pwd')
-        self.other = User.objects.create_user(username='wb-other', password='pwd')
         self.staff = User.objects.create_user(username='wb-staff', password='pwd', is_staff=True)
-        self.client.force_login(self.owner)
-
-    def _template(self, *, owner_id, name, template_type='custom_player', source='user', content='warrior="Test"'):
-        return SimcContentTemplate.objects.create(
-            owner_user_id=owner_id, name=name, template_type=template_type,
-            source=source, spec=name.lower().replace(' ', '_'), content=content,
+        self.system = SimcContentTemplate.objects.create(
+            owner_user_id=None,
+            name='System Base',
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='default',
+            content=self.BASE_CONTENT,
             is_active=True,
         )
+        self.client.force_login(self.owner)
 
     def _post(self, path, payload):
         return self.client.post(path, json.dumps(payload), content_type='application/json')
@@ -36,112 +41,113 @@ class SimcWorkbenchTemplateResourceTests(TestCase):
     def _put(self, path, payload):
         return self.client.put(path, json.dumps(payload), content_type='application/json')
 
-    def test_row_permissions_and_owner_isolation(self):
-        own = self._template(owner_id=self.owner.id, name='Own')
-        foreign = self._template(owner_id=self.other.id, name='Foreign')
-        system = self._template(owner_id=None, name='System')
-        upstream = self._template(owner_id=None, name='Upstream', source='simc_upstream')
-        default_player = self._template(
-            owner_id=None, name='Default Player', template_type='default_player', content='warrior="Base"')
+    def test_list_exposes_only_global_base_template(self):
+        private = SimcContentTemplate.objects.create(
+            owner_user_id=self.owner.id, name='Legacy Private', template_type='custom_player',
+            source='user', spec='legacy', content='warrior="Private"', is_active=True,
+        )
+        default_player = SimcContentTemplate.objects.create(
+            owner_user_id=None, name='Default Player', template_type='default_player',
+            source='simc_upstream', spec='warrior_fury', content='warrior="Base"', is_active=True,
+        )
 
         payload = self.client.get('/api/simc-workbench/templates/').json()
-        rows = {row['id']: row for row in payload['data']}
-        self.assertFalse(rows[own.id]['read_only'])
-        self.assertTrue(rows[system.id]['read_only'])
-        self.assertTrue(rows[upstream.id]['read_only'])
-        self.assertTrue(rows[default_player.id]['read_only'])
-        self.assertNotIn(foreign.id, rows)
+        self.assertEqual([row['id'] for row in payload['data']], [self.system.id])
+        self.assertTrue(payload['data'][0]['read_only'])
+        self.assertFalse(payload['can_write'])
+        self.assertNotIn(private.id, [row['id'] for row in payload['data']])
+        self.assertNotIn(default_player.id, [row['id'] for row in payload['data']])
+
+        self.client.force_login(self.staff)
+        payload = self.client.get('/api/simc-workbench/templates/').json()
+        self.assertEqual([row['id'] for row in payload['data']], [self.system.id])
+        self.assertFalse(payload['data'][0]['read_only'])
         self.assertTrue(payload['can_write'])
 
+    def test_create_archive_restore_and_delete_are_disabled(self):
         self.client.force_login(self.staff)
-        rows = {row['id']: row for row in self.client.get('/api/simc-workbench/templates/').json()['data']}
-        self.assertFalse(rows[system.id]['read_only'])
-        self.assertTrue(rows[upstream.id]['read_only'])
-        self.assertTrue(rows[default_player.id]['read_only'])
-        self.assertNotIn(foreign.id, rows)
-        self.assertEqual(self._put(
-            f'/api/simc-workbench/templates/{foreign.id}/', {'name': 'stolen'}).status_code, 404)
-
-    def test_regular_owner_create_edit_archive_restore_and_type_validation(self):
-        response = self._post('/api/simc-workbench/templates/', {
-            'name': 'Personal Base', 'template_type': 'base_template',
-            'spec': 'fury', 'content': 'iterations=100\n{player_config}\n',
-            'owner_user_id': None,
-        })
-        self.assertEqual(response.status_code, 200, response.content)
-        template = SimcContentTemplate.objects.get(id=response.json()['data']['id'])
-        self.assertEqual(template.owner_user_id, self.owner.id)
-        self.assertEqual(template.source, SimcContentTemplate.SOURCE_USER)
-
-        invalid = self._put(f'/api/simc-workbench/templates/{template.id}/', {
-            'template_type': 'base_template', 'content': 'iterations=200',
-        })
-        self.assertEqual(invalid.status_code, 400)
-        template.refresh_from_db()
-        self.assertIn('{player_config}', template.content)
-
-        update = self._put(f'/api/simc-workbench/templates/{template.id}/', {
-            'name': 'Personal Player', 'template_type': 'custom_player', 'content': 'warrior="test"',
-        })
-        self.assertEqual(update.status_code, 200, update.content)
-        template.refresh_from_db()
-        self.assertEqual(template.template_type, SimcContentTemplate.TYPE_CUSTOM_PLAYER)
-        self.assertEqual(template.content, 'warrior="test"')
-
-        for action, expected in (('archive', False), ('restore', True)):
-            response = self._post(
-                f'/api/simc-workbench/templates/{template.id}/', {'action': action})
-            self.assertEqual(response.status_code, 200, response.content)
-            template.refresh_from_db()
-            self.assertEqual(template.is_active, expected)
-
-    def test_protected_templates_and_invalid_types_are_rejected(self):
-        owned = self._template(owner_id=self.owner.id, name='Mutable')
-        upstream = self._template(owner_id=self.owner.id, name='Readonly Upstream', source='simc_upstream')
-        default_player = self._template(
-            owner_id=self.owner.id, name='Readonly Player', template_type='default_player', content='warrior="X"')
-
-        for template in (upstream, default_player):
-            self.assertEqual(self._put(
-                f'/api/simc-workbench/templates/{template.id}/', {'content': 'changed'}).status_code, 403)
-            self.assertEqual(self._post(
-                f'/api/simc-workbench/templates/{template.id}/', {'action': 'archive'}).status_code, 403)
-
         self.assertEqual(self._post('/api/simc-workbench/templates/', {
-            'name': 'Forbidden', 'template_type': 'default_player', 'content': 'warrior="X"'}).status_code, 403)
-        self.assertEqual(self._put(f'/api/simc-workbench/templates/{owned.id}/', {
-            'template_type': 'default_player', 'content': 'warrior="X"'}).status_code, 403)
-        self.assertEqual(self._put(f'/api/simc-workbench/templates/{owned.id}/', {
-            'template_type': 'not-real', 'content': 'actions=/x'}).status_code, 400)
+            'name': 'Extra', 'content': self.BASE_CONTENT,
+        }).status_code, 405)
+        for action in ('archive', 'restore'):
+            self.assertEqual(self._post(
+                f'/api/simc-workbench/templates/{self.system.id}/', {'action': action},
+            ).status_code, 405)
+        self.assertEqual(self.client.delete(
+            f'/api/simc-workbench/templates/{self.system.id}/',
+        ).status_code, 405)
+        self.system.refresh_from_db()
+        self.assertTrue(self.system.is_active)
 
-    def test_staff_can_manage_global_but_not_private_template(self):
-        system = self._template(owner_id=None, name='Managed System')
-        private = self._template(owner_id=self.other.id, name='Private')
+    def test_regular_user_cannot_edit_system_template(self):
+        response = self._put(
+            f'/api/simc-workbench/templates/{self.system.id}/',
+            {'content': 'iterations=200\n{player_config}\n'},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.system.refresh_from_db()
+        self.assertEqual(self.system.content, self.BASE_CONTENT)
+
+    def test_staff_can_edit_only_system_template_content(self):
         self.client.force_login(self.staff)
-        self.assertEqual(self._put(
-            f'/api/simc-workbench/templates/{system.id}/', {'content': 'actions=/system'}).status_code, 200)
-        self.assertEqual(self._post(
-            f'/api/simc-workbench/templates/{system.id}/', {'action': 'archive'}).status_code, 200)
-        self.assertEqual(self._put(
-            f'/api/simc-workbench/templates/{private.id}/', {'content': 'actions=/stolen'}).status_code, 404)
+        updated_content = 'iterations=200\n{player_config}\n'
+        response = self._put(
+            f'/api/simc-workbench/templates/{self.system.id}/',
+            {'content': updated_content},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.system.refresh_from_db()
+        self.assertEqual(self.system.content, updated_content)
 
-    def test_foreign_protected_templates_are_indistinguishable_from_missing(self):
-        foreign_upstream = self._template(
-            owner_id=self.other.id, name='Foreign Upstream', source='simc_upstream')
-        foreign_default_player = self._template(
-            owner_id=self.other.id, name='Foreign Default Player',
-            template_type='default_player', content='warrior="Foreign"')
+        for field, value in (
+            ('name', 'Renamed'),
+            ('template_type', 'default_player'),
+            ('spec', 'warrior_fury'),
+            ('class_name', 'warrior'),
+            ('source', 'simc_upstream'),
+        ):
+            response = self._put(
+                f'/api/simc-workbench/templates/{self.system.id}/',
+                {'content': updated_content, field: value},
+            )
+            self.assertEqual(response.status_code, 400, field)
 
-        for template in (foreign_upstream, foreign_default_player):
-            path = f'/api/simc-workbench/templates/{template.id}/'
-            self.assertEqual(self._put(path, {'content': 'actions=/stolen'}).status_code, 404)
-            self.assertEqual(self._post(path, {'action': 'archive'}).status_code, 404)
-
+    def test_internal_or_private_templates_are_not_workbench_resources(self):
+        private = SimcContentTemplate.objects.create(
+            owner_user_id=self.owner.id, name='Legacy Private', template_type='custom_player',
+            source='user', spec='legacy', content='warrior="Private"', is_active=True,
+        )
+        default_player = SimcContentTemplate.objects.create(
+            owner_user_id=None, name='Default Player', template_type='default_player',
+            source='simc_upstream', spec='warrior_fury', content='warrior="Base"', is_active=True,
+        )
         self.client.force_login(self.staff)
-        for template in (foreign_upstream, foreign_default_player):
+        for template in (private, default_player):
             path = f'/api/simc-workbench/templates/{template.id}/'
-            self.assertEqual(self._put(path, {'content': 'actions=/stolen'}).status_code, 404)
-            self.assertEqual(self._post(path, {'action': 'archive'}).status_code, 404)
+            self.assertEqual(self.client.get(path).status_code, 404)
+            self.assertEqual(self._put(path, {'content': self.BASE_CONTENT}).status_code, 404)
+
+    def test_prune_migration_keeps_system_base_and_internal_players(self):
+        duplicate = SimcContentTemplate.objects.create(
+            owner_user_id=None, name='Old Base', template_type='base_template',
+            source='user', spec='legacy', content=self.BASE_CONTENT, is_active=False,
+        )
+        default_player = SimcContentTemplate.objects.create(
+            owner_user_id=None, name='Default Player', template_type='default_player',
+            source='simc_upstream', spec='warrior_fury', content='warrior="Base"', is_active=True,
+        )
+        legacy_apl = SimcContentTemplate.objects.create(
+            owner_user_id=None, name='Legacy APL', template_type='default_apl',
+            source='user', spec='warrior_fury', content='actions=/x', is_active=False,
+        )
+
+        migration = importlib.import_module('botend.migrations.0127_prune_simc_content_templates')
+        migration.prune_content_templates(apps, None)
+
+        self.assertTrue(SimcContentTemplate.objects.filter(pk=self.system.pk).exists())
+        self.assertTrue(SimcContentTemplate.objects.filter(pk=default_player.pk).exists())
+        self.assertFalse(SimcContentTemplate.objects.filter(pk=duplicate.pk).exists())
+        self.assertFalse(SimcContentTemplate.objects.filter(pk=legacy_apl.pk).exists())
 
 
 class SimcWorkbenchHistoryResourceTests(TestCase):

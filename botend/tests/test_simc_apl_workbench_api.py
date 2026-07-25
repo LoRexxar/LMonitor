@@ -458,14 +458,17 @@ class SimcAplWorkbenchApiTests(TestCase):
             is_active=False,
             is_selectable=True,
         )
-        response = self.client.get("/api/simc-workbench/templates/?library=default_apl")
+        response = self.client.get("/api/simc-workbench/apls/")
         self.assertEqual(response.status_code, 200)
-        rows = response.json()["data"]
+        rows = [
+            row for row in response.json()["data"]
+            if row["is_system"] and row["is_active"] and row["is_selectable"]
+        ]
         self.assertEqual([row["id"] for row in rows], [visible.id])
         self.assertNotIn("content", rows[0])
 
         detail = self.client.get(
-            f"/api/simc-workbench/templates/{visible.id}/?library=default_apl"
+            f"/api/simc-workbench/apls/{visible.id}/"
         )
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["data"]["content"], "actions=/visible")

@@ -1191,16 +1191,16 @@ class SimcMasteryCoefficient(models.Model):
 
 class SimcContentTemplate(models.Model):
     """
-    SimC 统一内容模板：基础输入模板、默认玩家装备、个人玩家装备共用一张表。
-    APL 已迁移至 SimcApl 独立表。
+    SimC 基础输入模板。
+
+    默认玩家配置仍复用这张表作为系统内部导入资源，但不属于用户可管理的
+    “内容模板”资源；APL 使用独立的 SimcApl 表。
     """
     TYPE_BASE_TEMPLATE = 'base_template'
     TYPE_DEFAULT_PLAYER = 'default_player'
-    TYPE_CUSTOM_PLAYER = 'custom_player'
     TEMPLATE_TYPE_CHOICES = (
         (TYPE_BASE_TEMPLATE, '基础模板'),
         (TYPE_DEFAULT_PLAYER, '默认玩家装备模板'),
-        (TYPE_CUSTOM_PLAYER, '用户自定义装备'),
     )
     SOURCE_SIMC_UPSTREAM = 'simc_upstream'
     SOURCE_USER = 'user'
@@ -1233,7 +1233,7 @@ class SimcContentTemplate(models.Model):
         ]
 
     def _normalize_name(self):
-        """Normalize name for custom_player uniqueness check (lowercase, strip whitespace)."""
+        """Normalize the optional name used by active-template uniqueness keys."""
         if not self.name:
             return ''
         return self.name.lower().strip()
@@ -1255,9 +1255,6 @@ class SimcContentTemplate(models.Model):
                 return f'{template_type}:global:{spec}'
             else:
                 return f'{template_type}:{owner}:{spec}'
-        elif template_type == self.TYPE_CUSTOM_PLAYER:
-            return f'{template_type}:{owner}:{spec}'
-
         return None
 
     def save(self, *args, **kwargs):

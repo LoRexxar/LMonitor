@@ -7,7 +7,7 @@
         taskRequestSerial: 0, taskPollTimer: null, taskAbortController: null,
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
         dialogStack: [],
-        templateType: '', rows: Object.create(null),
+        rows: Object.create(null),
         aplQuery: '',
         aplLoadState: {
             personal: { loading: false, error: '' },
@@ -364,13 +364,9 @@
         }
         if (!isCurrentResourceRequest(request)) return;
         state.rows.templates = data.data || [];
-        state.canWriteTemplates = data.can_write === true;
-        const rows = state.templateType ? data.data.filter(row => row.template_type === state.templateType) : data.data;
-        document.querySelectorAll('[data-template-type]').forEach(button => {
-            button.setAttribute('aria-pressed', String((button.dataset.templateType || '') === state.templateType));
-        });
         const summary = document.querySelector('[data-template-filter-summary]');
-        if (summary) summary.textContent = state.templateType ? `共 ${data.data.length} 个模板 · 当前筛选 ${rows.length} 个` : `共 ${rows.length} 个模板`;
+        if (summary) summary.textContent = `共 ${data.data.length} 个基础模板`;
+        const rows = data.data;
         host.innerHTML = rows.length ? `<div class="simc-template-table-wrap"><table class="simc-template-table">
             <thead><tr><th>模板名称</th><th>类型</th><th class="simc-template-class-col">职业</th><th class="simc-template-spec-col">专精</th><th>来源</th><th>状态</th><th class="simc-template-actions-col">操作</th></tr></thead>
             <tbody>${rows.map(row => {
@@ -386,34 +382,23 @@
                     <td data-label="专精" class="simc-template-spec-col"><span class="simc-template-scope-value">${esc(row.spec || 'default')}</span></td>
                     <td data-label="来源"><span class="simc-template-badge ${sourceClass}">${esc(ownership)}</span></td>
                     <td data-label="状态"><span class="simc-template-badge ${statusClass}">${active ? '启用' : '已停用'}</span></td>
-                    <td data-label="操作" class="simc-template-actions-col"><div class="simc-template-row-actions">${!readOnly ? `<button data-wb-action="template-edit" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50"><i class="fas fa-pen mr-1"></i>编辑</button><button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action ${active ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}"><i class="fas fa-${active ? 'pause' : 'play'} mr-1"></i>${active ? '停用' : '恢复'}</button>` : ''}<button data-wb-action="template-detail" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100"><i class="fas fa-code mr-1"></i>查看</button></div></td>
+                    <td data-label="操作" class="simc-template-actions-col"><div class="simc-template-row-actions">${!readOnly ? `<button data-wb-action="template-edit" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50"><i class="fas fa-pen mr-1"></i>编辑</button>` : ''}<button data-wb-action="template-detail" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100"><i class="fas fa-code mr-1"></i>查看</button></div></td>
                 </tr>`;
             }).join('')}</tbody>
         </table></div>` : empty('此类型暂无模板');
-        document.querySelector('[data-inline-create="templates"]')?.classList.toggle('hidden', !state.canWriteTemplates);
+
     }
     function renderTemplateForm(row = null) {
         window.openSimcWorkbenchDialog('template-form', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
-        const typeOptions = [
-            { value: 'base_template', label: '基础模板' },
-            { value: 'default_apl', label: '默认 APL' },
-            { value: 'custom_apl', label: '自定义 APL' },
-            { value: 'custom_player', label: '用户自定义装备' },
-        ].map(opt => `<option value="${esc(opt.value)}" ${row?.template_type === opt.value ? 'selected' : ''}>${esc(opt.label)}</option>`).join('');
+
         const content = row?.content || '';
         host.innerHTML = `<form data-template-form class="simc-editor-form space-y-4">
             <input type="hidden" name="id" value="${idOf(row?.id)}">
-            <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><h4 class="text-lg font-bold">${row?.id ? '编辑内容模板' : '新建内容模板'}</h4><p class="mt-1 text-xs leading-5 text-indigo-100">模板按引用和不可变版本参与新任务；修改不会回写历史任务。</p></div>
+            <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><h4 class="text-lg font-bold">编辑基础模板</h4><p class="mt-1 text-xs leading-5 text-indigo-100">模板按引用和不可变版本参与新任务；修改不会回写历史任务。</p></div>
             <section class="simc-editor-section">
-                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">身份与适用范围</h5><p class="mt-1 text-xs text-slate-500">明确模板名称、类型和职业专精边界。</p></div><span class="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">ContentTemplate</span></div>
-                <div class="grid gap-4 p-4 sm:grid-cols-2">
-                    <label class="simc-editor-label sm:col-span-2">名称<input name="name" required maxlength="200" value="${esc(row?.name)}" class="simc-editor-input" placeholder="例如：通用基础模拟模板"></label>
-                    <label class="simc-editor-label">类型<select name="template_type" required class="simc-editor-input">${typeOptions}</select><span class="simc-editor-help">默认玩家配置由上游同步维护，不在此手工创建。</span></label>
-                    <label class="simc-editor-label">专精标识<input name="spec" maxlength="100" value="${esc(row?.spec || 'default')}" class="simc-editor-input" placeholder="default 或 warrior_fury"></label>
-                    <label class="simc-editor-label sm:col-span-2">职业<input name="class_name" maxlength="50" value="${esc(row?.class_name)}" class="simc-editor-input" placeholder="留空表示通用"></label>
-                </div>
+                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">系统基础模板</h5><p class="mt-1 text-xs text-slate-500">${esc(row?.name || '基础运行框架')} · 全局通用</p></div><span class="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">ContentTemplate</span></div>
             </section>
             <section class="simc-editor-section">
                 <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">模板内容</h5><p class="mt-1 text-xs text-slate-500">支持 Tab 缩进；按原始换行保存，不在浏览器端重排。</p></div><span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">SimC</span></div>
@@ -435,20 +420,22 @@
         const formData = new FormData(form);
         const id = idOf(formData.get('id'));
         const payload = {
-            name: String(formData.get('name') || '').trim(),
-            spec: String(formData.get('spec') || 'default').trim(),
-            class_name: String(formData.get('class_name') || '').trim(),
-            content: String(formData.get('content') || '').trim(),
+            content: String(formData.get('content') || ''),
         };
-        payload.template_type = String(formData.get('template_type') || '').trim();
         await json(resourceUrl('templates', id), {
-            method: id ? 'PUT' : 'POST',
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
             body: JSON.stringify(payload),
         });
         closeTemplateForm();
         await loadTemplates();
-        window.showMessage(id ? '模板已更新' : '模板已创建', 'success');
+        window.showMessage('模板已更新', 'success');
+    }
+    async function editTemplate(id) {
+        const detailRequest = beginDetailRequest(`template-edit:${id}`);
+        const data = await json(resourceUrl('templates', id), { signal: detailRequest.controller.signal });
+        if (!isCurrentDetailRequest(detailRequest)) return;
+        renderTemplateForm(data.data || {});
     }
     async function showTemplateDetail(id) {
         window.openSimcWorkbenchDialog('template-detail', null);
@@ -727,9 +714,8 @@
         state.aplLoadState.default = { loading: true, error: '' };
         renderUnifiedAplList();
         let data;
-        const params = new URLSearchParams({ library: 'default_apl' });
         try {
-            data = await json(`${resourceUrl('templates')}?${params.toString()}`, { signal: request.controller.signal });
+            data = await json(resourceUrl('apls'), { signal: request.controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') return;
             if (isCurrentResourceRequest(request)) {
@@ -739,7 +725,7 @@
             return;
         }
         if (!isCurrentResourceRequest(request)) return;
-        state.rows['default-apl'] = data.data || [];
+        state.rows['default-apl'] = (data.data || []).filter(row => row.is_system && row.is_active && row.is_selectable);
         state.aplLoadState.default = { loading: false, error: '' };
         renderUnifiedAplList();
     }
@@ -1012,8 +998,6 @@
         document.addEventListener('click', async event => {
             const aplCreate = event.target.closest('[data-inline-create="apl-storage"]');
             if (aplCreate) openNewAplStorageForm().catch(notify);
-            const templateCreate = event.target.closest('[data-inline-create="templates"]');
-            if (templateCreate) renderTemplateForm();
 
             const myAplAction = event.target.closest('[data-my-apl-action]');
             if (myAplAction) {
@@ -1110,8 +1094,7 @@
             if (event.target.closest('[data-wb-close-detail]')) {
                 if (!restoreDialogState()) closeDialog();
             }
-            const type = event.target.closest('[data-template-type]');
-            if (type) { state.templateType = type.dataset.templateType || ''; loadTemplates().catch(notify); }
+
             const rerunAction = event.target.closest('[data-task-rerun]');
             if (rerunAction) {
                 renderTaskRerunForm(rerunAction.dataset.taskRerun);
@@ -1139,10 +1122,7 @@
                 else if (name === 'compare' && resource === 'tasks') showTaskComparison(id).catch(notify);
                 else if (name === 'template-detail') showTemplateDetail(id).catch(notify);
 
-                else if (name === 'template-edit') {
-                    const row = (state.rows.templates || []).find(item => idOf(item.id) === id);
-                    if (row) renderTemplateForm(row);
-                }
+                else if (name === 'template-edit') editTemplate(id).catch(notify);
                 else if (name === 'archive' || name === 'restore' || name === 'rerun') lifecycle(resource, id, name).catch(notify);
             }
             const backendAction = event.target.closest('[data-backend-action]');

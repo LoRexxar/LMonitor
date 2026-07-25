@@ -3,7 +3,7 @@ SimC Model Contract Tests
 
 Tests for SimcContentTemplate active_unique_key logic and the request/run model:
 - Global templates: one active per (type, spec)
-- User templates: one active per (owner, type, spec) for base/default_player/custom_player
+- Legacy owner-scoped rows still obey the active uniqueness key
 - Different users don't conflict
 - Inactive templates can duplicate
 - One request is represented by one task (there is no batch model/FK)
@@ -16,7 +16,7 @@ Tests for SimcApl uniqueness and naming:
 """
 from django.test import TestCase
 from django.db import IntegrityError, transaction
-from botend.models import SimcApl, SimcContentTemplate, SimcTask, SimulationRun
+from botend.models import SimcApl, SimcBackendBinary, SimcContentTemplate, SimcTask, SimulationRun
 
 
 class SimcContentTemplateGlobalUniqueTests(TestCase):
@@ -97,56 +97,7 @@ class SimcContentTemplateInactiveAllowsDuplicateTests(TestCase):
 
 
 class SimcContentTemplateUserIsolationTests(TestCase):
-    """Test user-owned templates are isolated from global and other users."""
-
-    def test_different_users_can_have_same_spec_custom_player(self):
-        """Different users can have active custom_player for same spec."""
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_PLAYER,
-            spec='warrior_fury',
-            content='user1 content',
-            is_active=True,
-            owner_user_id=1001,
-        )
-
-        # Should succeed
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_PLAYER,
-            spec='warrior_fury',
-            content='user2 content',
-            is_active=True,
-            owner_user_id=1002,
-        )
-
-        # Verify both exist
-        self.assertEqual(
-            SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_CUSTOM_PLAYER,
-                spec='warrior_fury',
-                is_active=True,
-            ).count(),
-            2
-        )
-
-    def test_same_user_duplicate_custom_player_rejected(self):
-        """Same user cannot have two active custom_player for same spec."""
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_CUSTOM_PLAYER,
-            spec='warrior_fury',
-            content='first',
-            is_active=True,
-            owner_user_id=1001,
-        )
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                SimcContentTemplate.objects.create(
-                    template_type=SimcContentTemplate.TYPE_CUSTOM_PLAYER,
-                    spec='warrior_fury',
-                    content='second',
-                    is_active=True,
-                    owner_user_id=1001,
-                )
+    """Legacy owner-scoped base rows retain their database uniqueness behavior."""
 
     def test_same_user_duplicate_base_template_rejected(self):
         """Same user cannot have two active base_template for same spec."""
@@ -341,19 +292,25 @@ class SimcContentTemplateActiveUniqueKeyRecalculationTests(TestCase):
 
 
 class SimcRequestRunModelContractTests(TestCase):
+    def setUp(self):
+        self.backend, _ = SimcBackendBinary.objects.get_or_create(
+            identifier='production',
+            defaults={'name': '正式服', 'platform': 'linux64'},
+        )
+
     def test_task_has_analysis_result_but_no_batch_field(self):
         field_names = {field.name for field in SimcTask._meta.get_fields()}
         self.assertIn('analysis_result', field_names)
         self.assertNotIn('batch', field_names)
 
         task = SimcTask.objects.create(
-            user_id=1001, name='Request', simc_profile_id=1,
+            user_id=1001, name='Request', simc_profile_id=1, backend=self.backend,
         )
         self.assertEqual(task.analysis_result, {})
 
     def test_run_stores_candidate_contract(self):
         task = SimcTask.objects.create(
-            user_id=1001, name='Request', simc_profile_id=1,
+            user_id=1001, name='Request', simc_profile_id=1, backend=self.backend,
         )
         run = SimulationRun.objects.create(
             task=task,

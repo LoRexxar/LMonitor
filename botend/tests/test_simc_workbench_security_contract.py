@@ -42,17 +42,17 @@ class SimcWorkbenchSecurityContractTests(TestCase):
         )
         self.client.force_login(staff)
         requests = (
-            ("put", {"name": "Changed", "content": "iterations=5000"}),
-            ("patch", {"is_active": False}),
-            ("delete", {}),
+            ("put", {"name": "Changed", "content": "iterations=5000"}, 403),
+            ("patch", {"is_active": False}, 405),
+            ("delete", {}, 405),
         )
-        for method, payload in requests:
+        for method, payload, expected_status in requests:
             with self.subTest(method=method):
                 response = getattr(self.client, method)(
                     f"/api/simc-template/?id={upstream.id}",
                     data=json.dumps(payload), content_type="application/json",
                 )
-                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.status_code, expected_status)
                 upstream.refresh_from_db()
                 self.assertEqual(upstream.name, "Upstream")
                 self.assertEqual(upstream.content, "iterations=10000")

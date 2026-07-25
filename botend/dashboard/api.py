@@ -5069,33 +5069,22 @@ class SimcRegularCompareAPIView(View):
 
 @method_decorator(login_required, name='dispatch')
 class SimcTemplateAPIView(View):
-    """
-    SimC模板API
-    """
-
-    @staticmethod
-    def _protected_response():
-        return JsonResponse({'success': False, 'error': '默认玩家装备模板仅允许通过受控导入命令维护'}, status=403)
-
-    @staticmethod
-    def _is_protected(template):
-        return template.template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER
+    """Legacy compatibility API for the single global base template."""
 
     @staticmethod
     def _get_writable_template(request, template_id):
-        """Return a writable template without exposing another user's private row."""
-        template = SimcContentTemplate.objects.filter(id=template_id).first()
+        template = SimcContentTemplate.objects.filter(
+            id=template_id,
+            owner_user_id__isnull=True,
+            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+        ).first()
         if not template:
             return None, JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
         if template.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM:
             return None, JsonResponse({'success': False, 'error': '上游模板为只读资源'}, status=403)
-        if template.owner_user_id == request.user.id:
-            return template, None
-        if template.owner_user_id is None:
-            if request.user.is_staff or request.user.is_superuser:
-                return template, None
+        if not (request.user.is_staff or request.user.is_superuser):
             return None, JsonResponse({'success': False, 'error': '系统模板仅管理员可修改'}, status=403)
-        return None, JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
+        return template, None
 
     @staticmethod
     def _validate_base_template(content):
@@ -5113,77 +5102,52 @@ class SimcTemplateAPIView(View):
 
         return None
 
-    @staticmethod
-    def _validate_default_player_baseline(content):
-        """验证 default_player 内容必须是合法的玩家配置块。"""
-        # default_player 应该包含玩家定义，不应该包含全局配置如 fight_style/max_time
-        for line in content.split('\n'):
-            stripped = line.strip()
-            if stripped.startswith('fight_style=') or stripped.startswith('max_time=') or stripped.startswith('desired_targets='):
-                return f'默认玩家配置不允许包含全局运行参数（发现: {stripped[:50]}）'
-        return None
-    
     def get(self, request):
-        """获取SimC模板列表或单个模板内容"""
+        """Return only the global base template; internal resources stay hidden."""
         try:
             template_id = request.GET.get('id')
+            requested_type = request.GET.get('template_type')
+            if requested_type and requested_type != SimcContentTemplate.TYPE_BASE_TEMPLATE:
+                return JsonResponse({'success': False, 'error': '无效的模板类型'}, status=400)
+
+            templates = SimcContentTemplate.objects.filter(
+                owner_user_id__isnull=True,
+                template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            ).order_by('spec', '-id')
 
             if template_id:
-                # 获取单个模板的完整内容
-                try:
-                    template = SimcContentTemplate.objects.filter(
-                        models.Q(owner_user_id=request.user.id) | models.Q(owner_user_id__isnull=True),
-                        id=template_id,
-                    ).first()
-                    if not template:
-                        raise SimcContentTemplate.DoesNotExist
-                    return JsonResponse({
-                        'success': True,
-                        'id': template.id,
-                        'template_content': template.content,
-                        'content': template.content,
-                        'spec': template.spec,
-                        'class_name': template.class_name,
-                        'name': template.name,
-                        'template_type': template.template_type,
-                        'source': template.source,
-                        'is_active': template.is_active,
-                        'is_selectable': template.is_selectable,
-                    })
-                except SimcContentTemplate.DoesNotExist:
-                    return JsonResponse({
-                        'success': False,
-                        'error': '模板不存在'
-                    })
-            else:
-                # 模板管理支持四类内容：base_template、default_apl、custom_apl、default_player
-                template_type = request.GET.get('template_type') or SimcContentTemplate.TYPE_BASE_TEMPLATE
-                if template_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
-                    return JsonResponse({'success': False, 'error': '无效的模板类型'}, status=400)
-                templates = SimcContentTemplate.objects.filter(
-                    models.Q(owner_user_id=request.user.id) | models.Q(owner_user_id__isnull=True),
-                    template_type=template_type,
-                ).order_by('source', 'spec', '-id')
-                template_list = []
-
-                for template in templates:
-                    preview = template.content[:100] + '...' if len(template.content) > 100 else template.content
-                    template_list.append({
-                        'id': template.id,
-                        'preview': preview,
-                        'spec': template.spec,
-                        'class_name': template.class_name,
-                        'name': template.name,
-                        'template_type': template.template_type,
-                        'source': template.source,
-                        'is_active': template.is_active,
-                        'is_selectable': template.is_selectable,
-                    })
-
+                template = templates.filter(id=template_id).first()
+                if not template:
+                    return JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
                 return JsonResponse({
                     'success': True,
-                    'templates': template_list
+                    'id': template.id,
+                    'template_content': template.content,
+                    'content': template.content,
+                    'spec': template.spec,
+                    'class_name': template.class_name,
+                    'name': template.name,
+                    'template_type': template.template_type,
+                    'source': template.source,
+                    'is_active': template.is_active,
+                    'is_selectable': template.is_selectable,
                 })
+
+            template_list = []
+            for template in templates:
+                preview = template.content[:100] + '...' if len(template.content) > 100 else template.content
+                template_list.append({
+                    'id': template.id,
+                    'preview': preview,
+                    'spec': template.spec,
+                    'class_name': template.class_name,
+                    'name': template.name,
+                    'template_type': template.template_type,
+                    'source': template.source,
+                    'is_active': template.is_active,
+                    'is_selectable': template.is_selectable,
+                })
+            return JsonResponse({'success': True, 'templates': template_list})
 
         except Exception as e:
             logger.error(f"获取SimC模板失败: {str(e)}")
@@ -5193,103 +5157,31 @@ class SimcTemplateAPIView(View):
             })
     
     def put(self, request):
-        """更新SimC模板内容"""
+        """Allow administrators to update only base-template content."""
         try:
-            # 解析请求数据
             data = json.loads(request.body)
             template_id = request.GET.get('id') or data.get('id')
             template_content = data.get('template_content', '') or data.get('content', '') or data.get('template', '')
-            template_spec = (str(data.get('spec') or '').strip().lower() or None)
-            template_name = str(data.get('name') or '').strip()
-            template_type = data.get('template_type') or data.get('type')
-            source = data.get('source')
-            is_selectable = data.get('is_selectable')
-            is_active = data.get('is_active')
 
             if not template_id:
-                return JsonResponse({
-                    'success': False,
-                    'error': '模板ID不能为空'
-                })
+                return JsonResponse({'success': False, 'error': '模板ID不能为空'}, status=400)
 
-            if not template_content:
-                return JsonResponse({
-                    'success': False,
-                    'error': '模板内容不能为空'
-                })
+            if not str(template_content).strip():
+                return JsonResponse({'success': False, 'error': '模板内容不能为空'}, status=400)
 
-            # 获取并更新模板
-            try:
-                template, error_response = self._get_writable_template(request, template_id)
-                if error_response:
-                    return error_response
-                if self._is_protected(template):
-                    # 拒绝改 template_type、source、spec
-                    if template_type and template_type != template.template_type:
-                        return self._protected_response()
-                    if source and source != template.source:
-                        return self._protected_response()
-                    if template_spec is not None and template_spec != template.spec:
-                        return self._protected_response()
-
-                    # default_player 必须通过 validate_default_player_baseline 验证
-                    validation_error = self._validate_default_player_baseline(template_content)
-                    if validation_error:
-                        return JsonResponse({
-                            'success': False,
-                            'error': validation_error
-                        }, status=400)
-
-                    # 允许更新 content、name、is_selectable、is_active
-                    template.content = template_content
-                    if template_name:
-                        template.name = template_name
-                    if is_selectable is not None:
-                        template.is_selectable = bool(is_selectable)
-                    if is_active is not None:
-                        template.is_active = bool(is_active)
-                else:
-                    # 非 default_player 可以自由更新所有字段
-                    if template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER:
-                        return self._protected_response()
-
-                    # base_template 必须恰好一个 {player_config} 占位符，不允许 actor= 行
-                    final_type = template_type if template_type in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES) else template.template_type
-                    if final_type == SimcContentTemplate.TYPE_BASE_TEMPLATE:
-                        validation_error = self._validate_base_template(template_content)
-                        if validation_error:
-                            return JsonResponse({
-                                'success': False,
-                                'error': validation_error
-                            }, status=400)
-
-                    template.content = template_content
-                    if template_spec is not None:
-                        template.spec = template_spec
-                    if template_name:
-                        template.name = template_name
-                    if template_type in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
-                        template.template_type = template_type
-                    if source in dict(SimcContentTemplate.SOURCE_CHOICES):
-                        template.source = source
-                    if is_selectable is not None:
-                        template.is_selectable = bool(is_selectable)
-                    if is_active is not None:
-                        template.is_active = bool(is_active)
-
-                template.save()
-
-                logger.info(f"SimC模板/APL已更新: ID {template.id}")
-
-                return JsonResponse({
-                    'success': True,
-                    'message': '模板更新成功'
-                })
-            except SimcContentTemplate.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': '模板不存在'
-                })
+            template, error_response = self._get_writable_template(request, template_id)
+            if error_response:
+                return error_response
+            immutable_fields = ('name', 'template_type', 'type', 'source', 'spec', 'class_name')
+            if any(field in data and data[field] != getattr(template, 'template_type' if field == 'type' else field) for field in immutable_fields):
+                return JsonResponse({'success': False, 'error': '系统模板身份字段不可修改'}, status=400)
+            validation_error = self._validate_base_template(template_content)
+            if validation_error:
+                return JsonResponse({'success': False, 'error': validation_error}, status=400)
+            template.content = template_content
+            template.save(update_fields=['content', 'updated_at'])
+            logger.info(f"SimC基础模板已更新: ID {template.id}")
+            return JsonResponse({'success': True, 'message': '模板更新成功'})
 
         except Exception as e:
             logger.error(f"更新SimC模板失败: {str(e)}")
@@ -5299,145 +5191,14 @@ class SimcTemplateAPIView(View):
             })
     
     def patch(self, request):
-        """更新模板状态（启用/禁用）"""
-        try:
-            # 解析请求数据
-            data = json.loads(request.body)
-            template_id = request.GET.get('id') or data.get('id')
-            is_active = data.get('is_active')
-            
-            if not template_id:
-                return JsonResponse({
-                    'success': False,
-                    'error': '模板ID不能为空'
-                })
-            
-            if is_active is None:
-                return JsonResponse({
-                    'success': False,
-                    'error': '状态参数不能为空'
-                })
-            
-            # 获取并更新模板状态
-            try:
-                template, error_response = self._get_writable_template(request, template_id)
-                if error_response:
-                    return error_response
-                if self._is_protected(template):
-                    return self._protected_response()
-                template.is_active = is_active
-                if 'is_selectable' in data:
-                    template.is_selectable = bool(data.get('is_selectable'))
-                template.save()
-                
-                status_text = '启用' if is_active else '禁用'
-                logger.info(f"SimC模板/APL已{status_text}: ID {template.id}")
-                
-                return JsonResponse({
-                    'success': True,
-                    'message': f'模板{status_text}成功'
-                })
-            except SimcContentTemplate.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': '模板不存在'
-                })
-                
-        except Exception as e:
-            logger.error(f"更新模板状态失败: {str(e)}")
-            return JsonResponse({
-                'success': False,
-                'error': '更新模板状态失败'
-            })
+        return JsonResponse({'success': False, 'error': '系统基础模板不能停用'}, status=405)
     
     def post(self, request):
-        """新增SimC模板"""
-        try:
-            # 解析请求数据
-            data = json.loads(request.body)
-            template_content = data.get('template_content', '') or data.get('content', '') or data.get('template', '')
-            template_spec = (str(data.get('spec') or '').strip().lower() or 'default')
-            template_type = data.get('template_type') or data.get('type') or SimcContentTemplate.TYPE_BASE_TEMPLATE
-            if template_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
-                template_type = SimcContentTemplate.TYPE_BASE_TEMPLATE
-            if template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER:
-                return self._protected_response()
-            source = SimcContentTemplate.SOURCE_USER
-            template_name = str(data.get('name') or '').strip() or '基础模板'
-            class_name = str(data.get('class_name') or '').strip().lower()
-            is_selectable = data.get('is_selectable')
-
-            if not template_content:
-                return JsonResponse({
-                    'success': False,
-                    'error': '模板内容不能为空'
-                })
-
-            # 创建新模板/APL
-            template = SimcContentTemplate.objects.create(
-                name=template_name,
-                template_type=template_type,
-                source=source,
-                spec=template_spec,
-                class_name=class_name,
-                content=template_content,
-                is_active=False,  # 新创建的模板默认为禁用状态
-                is_selectable=True if is_selectable is None else bool(is_selectable),
-                owner_user_id=request.user.id,
-            )
-
-            logger.info(f"SimC模板/APL已创建: ID {template.id}")
-
-            return JsonResponse({
-                'success': True,
-                'message': '模板创建成功',
-                'template_id': template.id
-            })
-
-        except Exception as e:
-            logger.error(f"创建SimC模板失败: {str(e)}")
-            return JsonResponse({
-                'success': False,
-                'error': '创建SimC模板失败'
-            })
+        """基础模板是单一系统资源，不通过 API 新增。"""
+        return JsonResponse({'success': False, 'error': '基础模板不支持新增'}, status=405)
 
     def delete(self, request):
-        """删除SimC模板"""
-        try:
-            template_id = request.GET.get('id')
-
-            if not template_id:
-                return JsonResponse({
-                    'success': False,
-                    'error': '模板ID不能为空'
-                }, status=400)
-
-            try:
-                template, error_response = self._get_writable_template(request, template_id)
-                if error_response:
-                    return error_response
-                if self._is_protected(template):
-                    return self._protected_response()
-
-                template.delete()
-                logger.info(f"SimC模板/APL已删除: ID {template_id}")
-
-                return JsonResponse({
-                    'success': True,
-                    'message': '模板删除成功'
-                })
-            except SimcContentTemplate.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': '模板不存在'
-                }, status=404)
-
-        except Exception as e:
-            logger.error(f"删除SimC模板失败: {str(e)}")
-            return JsonResponse({
-                'success': False,
-                'error': '删除SimC模板失败'
-            })
+        return JsonResponse({'success': False, 'error': '系统基础模板不能删除'}, status=405)
 
 
 @method_decorator(login_required, name='dispatch')
@@ -5461,16 +5222,21 @@ class SimcWorkbenchAPIView(View):
     def _template_is_writable(cls, request, template):
         if cls._template_is_protected(template):
             return False
-        if template.owner_user_id == request.user.id:
-            return True
-        return template.owner_user_id is None and (request.user.is_staff or request.user.is_superuser)
+        return (
+            template.template_type == SimcContentTemplate.TYPE_BASE_TEMPLATE
+            and template.owner_user_id is None
+            and (request.user.is_staff or request.user.is_superuser)
+        )
 
     @classmethod
     def _get_writable_template(cls, request, object_id):
         template = SimcContentTemplate.objects.filter(id=object_id).first()
         if not template:
             return None, JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
-        if template.owner_user_id is not None and template.owner_user_id != request.user.id:
+        if (
+            template.template_type != SimcContentTemplate.TYPE_BASE_TEMPLATE
+            or template.owner_user_id is not None
+        ):
             return None, JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
         if cls._template_is_protected(template):
             return None, JsonResponse({'success': False, 'error': '受保护模板为只读资源'}, status=403)
@@ -5850,38 +5616,12 @@ class SimcWorkbenchAPIView(View):
             } for apl in qs], 'can_write': True})
 
         if resource == 'templates':
-            qs = SimcContentTemplate.objects.filter(models.Q(owner_user_id=request.user.id) | models.Q(owner_user_id__isnull=True)).order_by('template_type', 'spec', 'name')
-            default_apl_library = request.GET.get('library') == 'default_apl'
-            if default_apl_library:
-                # Redirect to SimcApl for default_apl library
-                apl_qs = SimcApl.objects.filter(
-                    models.Q(owner_user_id=request.user.id) | models.Q(owner_user_id__isnull=True),
-                    is_system=True,
-                    is_active=True,
-                    is_selectable=True,
-                ).order_by('spec', 'name')
-                if object_id:
-                    apl_qs = apl_qs.filter(id=object_id)
-                rows = []
-                for row in apl_qs:
-                    item = {
-                        'id': row.id, 'name': row.name, 'template_type': 'default_apl',
-                        'type_label': '默认APL', 'source': row.source, 'spec': row.spec,
-                        'class_name': row.class_name, 'is_active': row.is_active,
-                        'is_selectable': row.is_selectable, 'is_system': row.owner_user_id is None,
-                        'read_only': row.owner_user_id is None or row.owner_user_id != request.user.id,
-                        'can_copy': row.is_system and row.is_active and row.is_selectable,
-                    }
-                    if object_id:
-                        item['content'] = row.content
-                    rows.append(item)
-                if object_id:
-                    return JsonResponse(
-                        {'success': True, 'data': rows[0], 'can_write': not rows[0]['read_only']}
-                        if rows else {'success': False, 'error': '模板不存在'},
-                        status=200 if rows else 404,
-                    )
-                return JsonResponse({'success': True, 'data': rows, 'can_write': True})
+            # 工作台只展示和维护 SimC 输入框架；默认玩家配置是内部导入资源，
+            # APL 则由独立的 APL 资源库负责，不能混入内容模板列表。
+            qs = SimcContentTemplate.objects.filter(
+                owner_user_id__isnull=True,
+                template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            ).order_by('spec', 'name')
             if object_id:
                 qs = qs.filter(id=object_id)
             rows = []
@@ -5902,7 +5642,11 @@ class SimcWorkbenchAPIView(View):
                     if rows else {'success': False, 'error': '模板不存在'},
                     status=200 if rows else 404,
                 )
-            return JsonResponse({'success': True, 'data': rows, 'can_write': True})
+            return JsonResponse({
+                'success': True,
+                'data': rows,
+                'can_write': request.user.is_staff or request.user.is_superuser,
+            })
 
         if resource in ('secondary-rules', 'mastery-rules'):
             model = SimcSecondaryStatRule if resource == 'secondary-rules' else SimcMasteryCoefficient
@@ -6029,53 +5773,10 @@ class SimcWorkbenchAPIView(View):
             apl.save(update_fields=['is_active'])
             return JsonResponse({'success': True})
         if resource == 'templates':
-            if object_id and action in ('archive', 'restore'):
-                tpl, error_response = self._get_writable_template(request, object_id)
-                if error_response:
-                    return error_response
-                tpl.is_active = action == 'restore'
-                tpl.save(update_fields=['is_active', 'updated_at'])
-                return JsonResponse({'success': True})
             if not object_id:
-                try:
-                    name = str(data.get('name') or '').strip()
-                    template_type = str(data.get('template_type') or '').strip()
-                    spec = str(data.get('spec') or 'default').strip()
-                    content = str(data.get('content') or '').strip()
-                    if not template_type or template_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
-                        return JsonResponse({'success': False, 'error': '模板类型无效'}, status=400)
-                    if template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER:
-                        return JsonResponse({'success': False, 'error': '默认玩家模板为只读资源'}, status=403)
-                    if not content:
-                        return JsonResponse({'success': False, 'error': '模板内容不能为空'}, status=400)
-                    validation_error = self._validate_template_content(template_type, content)
-                    if validation_error:
-                        return JsonResponse({'success': False, 'error': validation_error}, status=400)
-                    owner_user_id = data.get('owner_user_id') if (request.user.is_staff or request.user.is_superuser) else request.user.id
-                    if owner_user_id is not None:
-                        try:
-                            owner_user_id = int(owner_user_id)
-                        except (TypeError, ValueError):
-                            return JsonResponse({'success': False, 'error': 'owner_user_id 必须是整数'}, status=400)
-                        if owner_user_id != request.user.id:
-                            return JsonResponse({'success': False, 'error': '不能为其他用户创建私有模板'}, status=403)
-                    tpl = SimcContentTemplate(
-                        name=name,
-                        template_type=template_type,
-                        spec=spec,
-                        content=content,
-                        owner_user_id=owner_user_id,
-                        source=SimcContentTemplate.SOURCE_USER,
-                        class_name=str(data.get('class_name') or '').strip(),
-                        is_active=True,
-                    )
-                    tpl.save()
-                    return JsonResponse({'success': True, 'data': {'id': tpl.id}})
-                except Exception as e:
-                    if 'active_unique_key' in str(e) or 'UNIQUE' in str(e):
-                        return JsonResponse({'success': False, 'error': '相同 owner/spec/type 的活跃模板已存在'}, status=409)
-                    logger.error(f"创建模板失败: {str(e)}")
-                    return JsonResponse({'success': False, 'error': '创建模板失败'}, status=500)
+                return JsonResponse({'success': False, 'error': '基础模板不支持新增'}, status=405)
+            if action in ('archive', 'restore'):
+                return JsonResponse({'success': False, 'error': '系统基础模板不能停用'}, status=405)
         if resource == 'apls' and not object_id:
             copy_template_id = data.get('copy_template_id')
             if copy_template_id is not None:
@@ -6227,31 +5928,18 @@ class SimcWorkbenchAPIView(View):
             if error_response:
                 return error_response
             try:
-                target_type = tpl.template_type
-                if 'template_type' in data:
-                    target_type = str(data.get('template_type') or '').strip()
-                    if target_type not in dict(SimcContentTemplate.TEMPLATE_TYPE_CHOICES):
-                        return JsonResponse({'success': False, 'error': '模板类型无效'}, status=400)
-                    if target_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER:
-                        return JsonResponse({'success': False, 'error': '默认玩家模板为只读资源'}, status=403)
-                if 'source' in data and data.get('source') != tpl.source:
-                    return JsonResponse({'success': False, 'error': '模板来源不可修改'}, status=400)
-                target_content = str(data['content'] or '').strip() if 'content' in data else tpl.content
-                if not target_content:
+                immutable_fields = ('name', 'template_type', 'source', 'spec', 'class_name')
+                if any(field in data and data[field] != getattr(tpl, field) for field in immutable_fields):
+                    return JsonResponse({'success': False, 'error': '系统模板身份字段不可修改'}, status=400)
+                target_content = str(data['content'] or '') if 'content' in data else tpl.content
+                if not target_content.strip():
                     return JsonResponse({'success': False, 'error': '模板内容不能为空'}, status=400)
-                validation_error = self._validate_template_content(target_type, target_content)
+                validation_error = self._validate_template_content(tpl.template_type, target_content)
                 if validation_error:
                     return JsonResponse({'success': False, 'error': validation_error}, status=400)
-                if 'name' in data:
-                    tpl.name = str(data['name'] or '').strip()
                 if 'content' in data:
                     tpl.content = target_content
-                if 'spec' in data:
-                    tpl.spec = str(data['spec'] or 'default').strip()
-                if 'class_name' in data:
-                    tpl.class_name = str(data['class_name'] or '').strip()
-                tpl.template_type = target_type
-                tpl.save()
+                tpl.save(update_fields=['content', 'updated_at'])
                 return JsonResponse({'success': True})
             except Exception as e:
                 if 'active_unique_key' in str(e) or 'UNIQUE' in str(e):
@@ -6304,7 +5992,7 @@ class SimcWorkbenchAPIView(View):
             apl.delete()
             return JsonResponse({'success': True})
         if resource == 'templates':
-            return JsonResponse({'success': False, 'error': '模板不支持真实删除，请使用停用操作'}, status=400)
+            return JsonResponse({'success': False, 'error': '系统基础模板不能删除'}, status=405)
 
         if resource in ('secondary-rules', 'mastery-rules'):
             if not request.user.is_staff:

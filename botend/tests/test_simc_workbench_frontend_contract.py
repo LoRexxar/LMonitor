@@ -142,38 +142,39 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('renderTaskRerunForm(rerunAction.dataset.taskRerun)', JS)
 
 
-    def test_template_permissions_and_type_round_trip(self):
+    def test_template_editor_only_submits_content(self):
         form_start = JS.index("function renderTemplateForm")
         form_end = JS.index("function closeTemplateForm", form_start)
         form_body = JS[form_start:form_end]
         self.assertNotIn("default_player", form_body)
-        self.assertIn("payload.template_type", JS)
+        self.assertNotIn("payload.template_type", JS)
         self.assertIn("!readOnly", JS)
-        self.assertIn("我的模板", JS)
         self.assertIn("系统内置", JS)
         self.assertIn("上游同步", JS)
-        for template_type in ("base_template", "default_apl", "custom_apl", "custom_player"):
-            self.assertIn(f"value: '{template_type}'", form_body)
+        for field in ('name="name"', 'name="template_type"', 'name="spec"', 'name="class_name"'):
+            self.assertNotIn(field, form_body)
+        self.assertIn("content: String(formData.get('content') || '')", JS)
+        self.assertIn("method: 'PUT'", JS)
         self.assertNotIn("report_template", form_body)
         self.assertNotIn("command_fragment", form_body)
         template_panel = HTML[HTML.index('id="simc-workbench-templates-panel"'):HTML.index('id="simc-workbench-apl-panel"')]
         self.assertNotIn("can_write", template_panel)
 
-    def test_content_templates_use_filter_tabs_and_structured_table(self):
+    def test_content_templates_use_single_structured_table(self):
         template_panel = HTML[HTML.index('id="simc-workbench-templates-panel"'):HTML.index('id="simc-workbench-apl-panel"')]
         load_start = JS.index('async function loadTemplates')
         load_end = JS.index('function renderTemplateForm', load_start)
         load_body = JS[load_start:load_end]
-        self.assertIn('内容模板', template_panel)
-        self.assertIn('data-template-type=""', template_panel)
-        self.assertIn('simc-template-filter', template_panel)
+        self.assertIn('基础模板', template_panel)
+        self.assertNotIn('data-template-type=', template_panel)
+        self.assertNotIn('simc-template-filter', template_panel)
         self.assertIn('simc-template-table-wrap', load_body)
         self.assertIn('simc-template-table', load_body)
         for heading in ('模板名称', '类型', '职业', '专精', '来源', '状态', '操作'):
             self.assertIn(heading, load_body)
         self.assertNotIn('simc-template-card', load_body)
         self.assertIn('data-wb-action="template-edit"', load_body)
-        self.assertIn('aria-pressed', JS)
+        self.assertNotIn('data-inline-create="templates"', template_panel)
         self.assertIn('data-template-filter-summary', template_panel)
 
     def test_apl_import_uses_external_select_and_explicit_load_button(self):
@@ -380,10 +381,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
 
     def test_dedicated_api_and_inline_sections(self):
         self.assertIn("const apiRoot = '/api/simc-workbench/'", JS)
-        for template_type in ("base_template", "default_apl", "custom_apl", "custom_player"):
-            self.assertIn(f'data-template-type="{template_type}"', HTML)
-        self.assertNotIn('data-template-type="report_template"', HTML)
-        self.assertNotIn('data-template-type="command_fragment"', HTML)
+        self.assertNotIn('data-template-type=', HTML)
         self.assertIn('id="simc-unified-apl-list"', HTML)
         self.assertNotIn("AplKeywordPair", HTML)
         self.assertIn('data-rule-subtab="secondary-rules"', HTML)
@@ -395,15 +393,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             start = HTML.index(marker)
             self.assertNotIn('></div>', HTML[start:start + len(marker) + 20])
 
-    def test_template_filters_include_default_player_and_default_apl(self):
-        """Template type filters must include both default_player (default player config) and default_apl."""
-        filters_start = HTML.index('id="simc-template-type-filters"')
-        filters_end = HTML.index('</div>', filters_start)
-        filters_section = HTML[filters_start:filters_end]
-        self.assertIn('data-template-type="default_player"', filters_section,
-                      "Template filters must include default_player button for default player configurations")
-        self.assertIn('data-template-type="default_apl"', filters_section,
-                      "Template filters must include default_apl button")
+    def test_content_templates_are_unfiltered_and_apl_uses_its_own_resource(self):
+        self.assertNotIn('id="simc-template-type-filters"', HTML)
+        self.assertNotIn("library: 'default_apl'", JS)
+        self.assertIn("data = await json(resourceUrl('apls')", JS)
 
     def test_workbench_controller_has_no_scripted_or_legacy_navigation(self):
         forbidden = (
@@ -518,9 +511,11 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('系统默认 APL 加载失败，已保留其他可用资源', JS)
 
     def test_default_apl_library_shows_active_selectable_templates_with_spec(self):
-        """Default APL library must show active+selectable default_apl templates with class/spec display."""
+        """Default APL library must use the independent APL resource and filter system rows."""
         self.assertIn('loadDefaultAplLibrary', JS)
-        self.assertIn("library: 'default_apl'", JS)
+        self.assertNotIn("library: 'default_apl'", JS)
+        self.assertIn("data = await json(resourceUrl('apls')", JS)
+        self.assertIn('row.is_system && row.is_active && row.is_selectable', JS)
         self.assertNotIn("template_type: 'default_apl'", JS)
         self.assertNotIn('is_active: true', JS)
         self.assertNotIn('is_selectable: true', JS)
@@ -743,17 +738,24 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("can_write", MAIN)
         self.assertIn("data-simc-inline-create", HTML)
 
-    def test_template_create_uses_shared_dialog_form(self):
-        """Templates panel keeps the entry; the form is rendered in the shared dialog."""
-        self.assertIn('data-inline-create="templates"', HTML)
+    def test_template_edit_uses_shared_dialog_form(self):
+        """The single system template can be edited in the shared dialog, but not created."""
+        self.assertNotIn('data-inline-create="templates"', HTML)
         self.assertNotIn('id="simc-wb-template-form"', HTML)
         self.assertIn("openSimcWorkbenchDialog('template-form'", JS)
+        self.assertIn('async function editTemplate(id)', JS)
+        self.assertIn("resourceUrl('templates', id)", JS)
 
 
     def test_template_click_handlers_exist(self):
-        """Template edit/archive/restore/detail handlers must exist."""
+        """Template edit and detail handlers must exist without lifecycle controls."""
         self.assertIn('data-wb-action="template-edit"', JS)
         self.assertIn('data-wb-action="template-detail"', JS)
+        load_start = JS.index('async function loadTemplates')
+        load_end = JS.index('function renderTemplateForm', load_start)
+        load_body = JS[load_start:load_end]
+        self.assertNotIn('data-wb-action="archive"', load_body)
+        self.assertNotIn('data-wb-action="restore"', load_body)
         self.assertIn('data-template-action="cancel"', JS)
         self.assertIn('function closeTemplateDetail()', JS)
 
