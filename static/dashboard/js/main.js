@@ -2946,10 +2946,19 @@ async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
         if (!isCurrentSimcResourceControl(control)) return;
         const normalizedSpec = normalizeSimcSpecKey(control?.spec || simcResolvedCanonicalSpec);
         const matchingProfiles = profiles.filter(profile => normalizeSimcSpecKey(profile.spec) === normalizedSpec);
-        select.innerHTML = '<option value="default">系统默认配置</option>' + matchingProfiles.map(profile =>
-            `<option value="${Number(profile.id) || ''}" data-spec="${escapeHtml(profile.spec || '')}">${escapeHtml(profile.name || `Profile #${profile.id}`)} (${escapeHtml(profile.spec || '-')})</option>`
-        ).join('');
-        if (matchingProfiles.some(profile => String(profile.id) === previous)) select.value = previous;
+        const defaultSystemProfile = matchingProfiles.find(profile => profile.is_system === true) || null;
+        const fallbackDefaultOption = defaultSystemProfile ? '' : '<option value="default">系统默认配置</option>';
+        select.innerHTML = fallbackDefaultOption + matchingProfiles.map(profile => {
+            const label = profile.is_system === true
+                ? `系统默认配置 · ${profile.name || `Profile #${profile.id}`}`
+                : (profile.name || `Profile #${profile.id}`);
+            return `<option value="${Number(profile.id) || ''}" data-spec="${escapeHtml(profile.spec || '')}">${escapeHtml(label)} (${escapeHtml(profile.spec || '-')})</option>`;
+        }).join('');
+        if (matchingProfiles.some(profile => String(profile.id) === previous)) {
+            select.value = previous;
+        } else if (defaultSystemProfile) {
+            select.value = String(defaultSystemProfile.id);
+        }
         if (select.value && select.value !== 'default') await onSimcProfileSelect();
     } catch (error) {
         if (error.name === 'AbortError' || !isCurrentSimcResourceControl(control)) return;
@@ -3009,8 +3018,7 @@ async function resolveSimcPlayerSource() {
         await loadSimcAplCandidates(canonicalSpec, control);
         if (type === 'specified_spec') {
             await loadSimcSimProfileSelect(0, control);
-            if (document.getElementById('simc-sim-profile-select')?.value !== 'default') await refreshSavedSimcPlayerDetail();
-            else renderSimcInstantPlayerDetail();
+            if (document.getElementById('simc-sim-profile-select')?.value === 'default') renderSimcInstantPlayerDetail();
         } else if (type !== 'specified_spec' && detail) {
             renderSimcSavedProfileDetail(detail);
             const comparisonEquipment = Array.isArray(detail.equipment) ? detail.equipment : [];

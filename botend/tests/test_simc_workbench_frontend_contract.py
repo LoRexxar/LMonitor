@@ -68,6 +68,24 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('提交时即时来源会原子固化为 Profile 不可变版本', workflow)
         self.assertNotIn('id="simc-sim-attribute-search-status"', workflow)
 
+    def test_system_default_profile_is_selected_as_a_real_profile_and_renders_detail(self):
+        loader = MAIN[
+            MAIN.index('async function loadSimcSimProfileSelect'):
+            MAIN.index('async function resolveSimcPlayerSource')
+        ]
+        self.assertIn("profile.is_system === true", loader)
+        self.assertIn("select.value = String(defaultSystemProfile.id)", loader)
+        self.assertIn("await onSimcProfileSelect()", loader)
+        self.assertNotIn("select.innerHTML = '<option value=\"default\">系统默认配置</option>'", loader)
+
+    def test_resolving_a_saved_profile_does_not_request_its_detail_twice(self):
+        resolver = MAIN[
+            MAIN.index('async function resolveSimcPlayerSource'):
+            MAIN.index('async function onSimcTargetSpecChange')
+        ]
+        self.assertIn('await loadSimcSimProfileSelect', resolver)
+        self.assertNotIn('refreshSavedSimcPlayerDetail', resolver)
+
     def test_home_creation_flow_requires_and_defaults_an_execution_backend(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
         self.assertEqual(workflow.count('id="simc-sim-backend"'), 1)
