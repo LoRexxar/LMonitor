@@ -109,19 +109,21 @@ test('visible APL list is a compact Wago bilingual row list and the whole row in
     assert.match(source, /error\.name !== 'AbortError' && !destroyed && controller === activeController/);
 });
 
-test('APL editor uses a light yellow code surface and desktop assistant stays sticky while the dialog scrolls', async () => {
+test('APL editor uses a light yellow code surface and desktop assistant fills the dialog viewport while the dialog scrolls', async () => {
     const source = await readFile(editorCssUrl, 'utf8');
     assert.match(source, /\.simc-apl-editor-shell\s*\{[^}]*background:\s*#fffbea/s);
     assert.match(source, /\.simc-apl-editor-mount \.cm-editor\s*\{[^}]*color:\s*#422006[^}]*background:\s*#fffbea/s);
     const desktop = source.slice(0, source.indexOf('@media (max-width: 900px)'));
-    assert.match(desktop, /\.simc-apl-assistant\s*\{[^}]*position:\s*sticky[^}]*top:\s*\.5rem[^}]*align-self:\s*start/s);
-    assert.match(desktop, /\.simc-apl-catalog\s*\{[^}]*overflow:\s*visible/s);
+    assert.match(desktop, /\.simc-apl-editor-form\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(26rem, 32rem\)/s);
+    assert.match(desktop, /\.simc-apl-editor-form > \.simc-apl-assistant\s*\{[^}]*position:\s*sticky[^}]*top:\s*4\.75rem[^}]*height:\s*calc\(90dvh - 5\.75rem\)[^}]*align-self:\s*start/s);
+    assert.match(desktop, /\.simc-apl-catalog\s*\{[^}]*flex:\s*1[^}]*overflow:\s*auto/s);
 });
 
 test('dashboard cache-busts the published light APL stylesheet', async () => {
     const dashboard = await readFile(new URL('../../../templates/dashboard/index.html', import.meta.url), 'utf8');
-    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260726g/);
+    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260727a/);
     assert.match(dashboard, /simc-apl-editor\.js[^\n]*\?v=20260726c/);
+    assert.match(dashboard, /simc-workbench\.js[^\n]*\?v=20260727a/);
 });
 
 test('document and catalog completions merge without duplicate insertions', () => {

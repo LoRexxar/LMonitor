@@ -472,30 +472,32 @@
         const specOptions = state.specOptions.length ? state.specOptions : [{ value: row?.spec || '', label: row?.spec || '请选择专精' }];
         const specHtml = specOptions.map(option => `<option value="${esc(option.value)}" ${option.value === row?.spec ? 'selected' : ''}>${esc(option.label)}</option>`).join('');
         const content = row?.apl_code || '';
-        host.innerHTML = `<form data-apl-storage-form data-managed-apl="${row?.id ? '1' : '0'}" data-system-apl="${row?.is_system ? '1' : '0'}" class="simc-editor-form space-y-4">
-            <input type="hidden" name="id" value="${idOf(row?.id)}">
-            <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><h4 class="text-lg font-bold">${row?.id ? '编辑 APL' : '新建 APL'}</h4><p class="mt-1 text-xs leading-5 text-indigo-100">维护名称、适用专精和完整 action priority list。历史 Task 继续绑定原资源版本。</p></div>
-            <section class="simc-editor-section">
-                <div class="grid gap-4 p-4 sm:grid-cols-2">
-                    <label class="simc-editor-label">名称<input name="title" required maxlength="200" value="${esc(row?.title)}" class="simc-editor-input" placeholder="例如：Fury 单目标"></label>
-                    <label class="simc-editor-label">适用专精<select name="spec" required class="simc-editor-input">${specHtml}</select><span class="simc-editor-help">统一使用“职业_专精”标识，便于任务引用与筛选。</span></label>
-                </div>
-            </section>
-            <section class="simc-apl-import-picker" data-apl-import-picker>
-                <div class="simc-apl-import-picker__copy"><strong>加载其他 APL 内容</strong><span data-apl-import-summary>请选择专精后选择可用 APL；仅点击“加载”后才会替换编辑区正文。</span></div>
-                <div class="simc-apl-import-picker__controls"><select data-apl-import-select class="simc-editor-input" aria-label="选择要加载的 APL"><option value="">请选择 APL</option></select><button type="button" data-apl-import-load disabled>加载</button></div>
-            </section>
-            <section class="simc-editor-section">
-                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">APL/中文共用一个可编辑正文；保存时会自动转换为权威 APL。</p></div><div class="simc-apl-editor-heading-actions"><div class="simc-apl-language-switch" role="group" aria-label="正文语言"><button type="button" data-apl-language="apl" aria-pressed="true">APL</button><button type="button" data-apl-language="cn" aria-pressed="false">中文</button></div><button type="button" data-apl-validate-now>立即结构检查</button></div></div>
-                <input type="hidden" name="apl_code" value="">
-                <div class="simc-apl-workspace">
-                    <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div></div>
-                    <aside class="simc-apl-assistant" data-apl-assistant aria-label="技能与 Buff 助手"><div data-apl-assistant-host></div></aside>
-                </div>
-                <button type="button" class="simc-apl-assistant-toggle" data-apl-assistant-toggle>技能与 Buff 助手</button>
-                <div class="simc-code-editor-toolbar"><span data-code-editor-stats>${codeStats(content)}</span><span data-apl-editor-status>准备检查</span></div>
-            </section>
-            <div class="simc-editor-actions"><span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后，新任务将引用新的不可变版本。</span><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2 text-sm text-slate-700">取消</button><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存 APL</button></div>
+        host.innerHTML = `<form data-apl-storage-form data-managed-apl="${row?.id ? '1' : '0'}" data-system-apl="${row?.is_system ? '1' : '0'}" class="simc-editor-form simc-apl-editor-form">
+            <div class="simc-apl-editor-main space-y-4">
+                <input type="hidden" name="id" value="${idOf(row?.id)}">
+                <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><h4 class="text-lg font-bold">${row?.id ? '编辑 APL' : '新建 APL'}</h4><p class="mt-1 text-xs leading-5 text-indigo-100">维护名称、适用专精和完整 action priority list。历史 Task 继续绑定原资源版本。</p></div>
+                <section class="simc-editor-section">
+                    <div class="grid gap-4 p-4 sm:grid-cols-2">
+                        <label class="simc-editor-label">名称<input name="title" required maxlength="200" value="${esc(row?.title)}" class="simc-editor-input" placeholder="例如：Fury 单目标"></label>
+                        <label class="simc-editor-label">适用专精<select name="spec" required class="simc-editor-input">${specHtml}</select><span class="simc-editor-help">统一使用“职业_专精”标识，便于任务引用与筛选。</span></label>
+                    </div>
+                </section>
+                <section class="simc-apl-import-picker" data-apl-import-picker>
+                    <div class="simc-apl-import-picker__copy"><strong>加载其他 APL 内容</strong><span data-apl-import-summary>请选择专精后选择可用 APL；仅点击“加载”后才会替换编辑区正文。</span></div>
+                    <div class="simc-apl-import-picker__controls"><select data-apl-import-select class="simc-editor-input" aria-label="选择要加载的 APL"><option value="">请选择 APL</option></select><button type="button" data-apl-import-load disabled>加载</button></div>
+                </section>
+                <section class="simc-editor-section">
+                    <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">APL/中文共用一个可编辑正文；保存时会自动转换为权威 APL。</p></div><div class="simc-apl-editor-heading-actions"><div class="simc-apl-language-switch" role="group" aria-label="正文语言"><button type="button" data-apl-language="apl" aria-pressed="true">APL</button><button type="button" data-apl-language="cn" aria-pressed="false">中文</button></div><button type="button" data-apl-validate-now>立即结构检查</button></div></div>
+                    <input type="hidden" name="apl_code" value="">
+                    <div class="simc-apl-workspace">
+                        <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div></div>
+                    </div>
+                    <button type="button" class="simc-apl-assistant-toggle" data-apl-assistant-toggle>技能与 Buff 助手</button>
+                    <div class="simc-code-editor-toolbar"><span data-code-editor-stats>${codeStats(content)}</span><span data-apl-editor-status>准备检查</span></div>
+                </section>
+                <div class="simc-editor-actions"><span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后，新任务将引用新的不可变版本。</span><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2 text-sm text-slate-700">取消</button><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存 APL</button></div>
+            </div>
+            <aside class="simc-apl-assistant" data-apl-assistant aria-label="技能与 Buff 助手"><div data-apl-assistant-host></div></aside>
         </form>`;
         setAplDialogLayout(true);
         const hiddenInput = host.querySelector('input[name="apl_code"]');

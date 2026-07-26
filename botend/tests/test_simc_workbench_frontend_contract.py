@@ -24,12 +24,19 @@ SIMC_MAIN = MAIN[
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
-    def test_apl_assistant_is_sticky_and_catalog_uses_page_navigation(self):
+    def test_apl_assistant_follows_dialog_scroll_and_fills_visible_height(self):
         desktop_css = APL_EDITOR_CSS[:APL_EDITOR_CSS.index("@media (max-width: 900px)")]
+        apl_form = JS[JS.index('<form data-apl-storage-form'):JS.index('setAplDialogLayout(true);')]
+        self.assertIn('simc-editor-form simc-apl-editor-form', apl_form)
+        self.assertIn('.simc-apl-editor-form {', desktop_css)
+        self.assertIn('grid-template-columns: minmax(0, 1fr) minmax(26rem, 32rem)', desktop_css)
+        self.assertIn('.simc-apl-editor-form > .simc-apl-assistant', desktop_css)
         self.assertIn("position: sticky", desktop_css)
-        self.assertIn("top: .5rem", desktop_css)
+        self.assertIn("top: 4.75rem", desktop_css)
+        self.assertIn("height: calc(90dvh - 5.75rem)", desktop_css)
         self.assertIn("align-self: start", desktop_css)
-        self.assertIn(".simc-apl-catalog { flex: none; min-height: 0; overflow: visible;", desktop_css)
+        self.assertIn(".simc-apl-assistant > div { display: flex; height: 100%;", desktop_css)
+        self.assertIn(".simc-apl-catalog { flex: 1; min-height: 0; overflow: auto;", desktop_css)
         self.assertIn(".simc-apl-catalog__pager", desktop_css)
 
     def test_new_frontend_uses_task_mode_vocabulary_only(self):
@@ -596,7 +603,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
 
     def test_script_is_really_loaded(self):
         self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260726c", HTML)
-        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260726b", HTML)
+        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260727a", HTML)
         self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260726c", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
 
