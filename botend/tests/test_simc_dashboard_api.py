@@ -239,6 +239,102 @@ class SimcWorkerTaskRunLifecycleTests(TestCase):
 
 
 
+class SimcProfileResourceListTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='profile_resource_user', password='pwd')
+        self.other_user = User.objects.create_user(username='profile_resource_other', password='pwd')
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_list_exposes_migrated_system_profiles_as_read_only_resources(self):
+        own = SimcProfile.objects.create(
+            user_id=self.user.id, name='我的狂暴配置', spec='fury',
+            player_config_mode='manual_equipment', player_equipment='warrior="Mine"\nhead=,id=1',
+        )
+        system = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury', class_name='warrior',
+            name='MID1 Fury player', spec='warrior_fury', sync_version='revision-1',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Default"\nspec=fury\nhead=,id=2',
+        )
+        foreign = SimcProfile.objects.create(
+            user_id=self.other_user.id, name='其他用户配置', spec='fury',
+            player_config_mode='manual_equipment', player_equipment='warrior="Other"',
+        )
+        inactive_system = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:inactive', name='停用系统配置', spec='mage_fire',
+            player_config_mode='manual_equipment', player_equipment='mage="Inactive"',
+            is_active=False,
+        )
+        unrelated_global = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_USER,
+            name='非上游全局配置', spec='mage_fire',
+            player_config_mode='manual_equipment', player_equipment='mage="Global"',
+        )
+
+        response = self.client.get('/api/simc-profile/')
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row['id']: row for row in response.json()['data']}
+        self.assertEqual(set(rows), {own.id, system.id})
+        self.assertNotIn(foreign.id, rows)
+        self.assertNotIn(inactive_system.id, rows)
+        self.assertNotIn(unrelated_global.id, rows)
+        self.assertFalse(rows[own.id]['is_system'])
+        self.assertTrue(rows[own.id]['can_edit'])
+        self.assertTrue(rows[own.id]['can_delete'])
+        self.assertTrue(rows[system.id]['is_system'])
+        self.assertFalse(rows[system.id]['can_edit'])
+        self.assertFalse(rows[system.id]['can_delete'])
+        self.assertEqual(rows[system.id]['source'], SimcProfile.SOURCE_SIMC_UPSTREAM)
+        self.assertEqual(rows[system.id]['sync_version'], 'revision-1')
+        self.assertEqual(rows[system.id]['equipment_line_count'], 3)
+
+    def test_system_profile_is_list_only_and_cannot_be_read_or_mutated_as_owned(self):
+        system = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:mage_frost', class_name='mage',
+            name='MID1 Frost player', spec='mage_frost',
+            player_config_mode='manual_equipment', player_equipment='mage="Default"',
+        )
+
+        detail = self.client.get(f'/api/simc-profile/{system.id}/')
+        update = self.client.put(
+            '/api/simc-profile/',
+            data=json.dumps({'id': system.id, 'name': '被篡改'}),
+            content_type='application/json',
+        )
+        delete = self.client.delete(
+            '/api/simc-profile/',
+            data=json.dumps({'id': system.id}),
+            content_type='application/json',
+        )
+
+        self.assertFalse(detail.json()['success'])
+        self.assertFalse(update.json()['success'])
+        self.assertFalse(delete.json()['success'])
+        system.refresh_from_db()
+        self.assertEqual(system.name, 'MID1 Frost player')
+        self.assertTrue(system.is_active)
+
+    def test_workbench_marks_system_profiles_read_only_and_shows_sync_metadata(self):
+        source = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text()
+
+        self.assertIn('row.is_system', source)
+        self.assertIn('row.can_edit', source)
+        self.assertIn('row.can_delete', source)
+        self.assertIn('系统默认配置', source)
+        self.assertIn('row.sync_version', source)
+        self.assertIn('row.equipment_line_count', source)
+        self.assertIn('simcProfileMatchesSpecFilter', source)
+        self.assertIn("frost_death_knight: ['deathknight', 'frost']", source)
+        self.assertIn("frost_mage: ['mage', 'frost']", source)
+        self.assertIn("protection_paladin: ['paladin', 'protection']", source)
+        self.assertIn("protection_warrior: ['warrior', 'protection']", source)
+
+
 class SimcTemplateAPIViewTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='template_user', password='pwd', is_staff=True)

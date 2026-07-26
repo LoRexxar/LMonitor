@@ -1663,6 +1663,37 @@ let simcWbProfilePage = 1;
 let simcWbProfileTotalPages = 1;
 let simcWbProfileListRequestSerial = 0;
 let simcWbProfileListAbortController = null;
+
+function simcProfileMatchesSpecFilter(row, requestedFilter) {
+    const filter = String(requestedFilter || '').trim().toLowerCase();
+    if (!filter) return true;
+
+    const profileSpec = String(row.spec || '').trim().toLowerCase();
+    if (profileSpec === filter) return true;
+
+    const className = String(row.class_name || '')
+        .trim().toLowerCase().replace(/[\s_-]+/g, '');
+    let specialization = profileSpec;
+    const systemPrefix = `${className}_`;
+    if (row.is_system === true && className && specialization.startsWith(systemPrefix)) {
+        specialization = specialization.slice(systemPrefix.length);
+    }
+
+    const disambiguatedSpecs = {
+        frost_death_knight: ['deathknight', 'frost'],
+        frost_mage: ['mage', 'frost'],
+        restoration_druid: ['druid', 'restoration'],
+        restoration_shaman: ['shaman', 'restoration'],
+        holy_paladin: ['paladin', 'holy'],
+        protection_paladin: ['paladin', 'protection'],
+        holy_priest: ['priest', 'holy'],
+        protection_warrior: ['warrior', 'protection'],
+    };
+    const target = disambiguatedSpecs[filter];
+    if (target) return className === target[0] && specialization === target[1];
+    return specialization === filter;
+}
+
 function loadSimcWorkbenchProfiles(page) {
     page = page || 1;
     simcWbProfilePage = page;
@@ -1691,13 +1722,10 @@ function loadSimcWorkbenchProfiles(page) {
         }
         let rows = data.data || [];
 
-        // Client-side spec filtering
+        // Client-side spec filtering. System profiles use class_spec while user
+        // profiles use the Dashboard canonical spec key, so compare normalized pairs.
         if (requestedFilter) {
-            rows = rows.filter(row => {
-                const spec = (row.spec || '').toLowerCase();
-                const filter = requestedFilter.toLowerCase();
-                return spec.includes(filter) || spec === filter;
-            });
+            rows = rows.filter(row => simcProfileMatchesSpecFilter(row, requestedFilter));
         }
 
         // Client-side pagination
@@ -1718,15 +1746,22 @@ function loadSimcWorkbenchProfiles(page) {
             const name = escapeHtml(row.name || '-');
             const spec = row.spec || '';
             const mode = row.player_config_mode || 'battlenet';
-            const sourceText = mode === 'manual_equipment'
-                ? ('手动配置 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : ''))
-                : mode === 'attribute_only'
-                    ? ('冻结玩家基线 + 绿字覆盖 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : '(历史配置缺少基线)'))
-                    : ('Battle.net ' + [row.battlenet_region, row.battlenet_realm, row.battlenet_character].filter(Boolean).join('/'));
+            const isSystem = row.is_system === true;
+            const equipmentLineCount = Number(row.equipment_line_count || 0);
+            const syncLabel = row.sync_version ? ` · 同步 ${row.sync_version}` : '';
+            const sourceText = isSystem
+                ? `系统默认配置${syncLabel}${equipmentLineCount ? ` · ${equipmentLineCount} 行` : ''}`
+                : mode === 'manual_equipment'
+                    ? ('手动配置 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : ''))
+                    : mode === 'attribute_only'
+                        ? ('冻结玩家基线 + 绿字覆盖 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : '(历史配置缺少基线)'))
+                        : ('Battle.net ' + [row.battlenet_region, row.battlenet_realm, row.battlenet_character].filter(Boolean).join('/'));
             const sourceTitle = escapeHtml(sourceText || '-');
             const offset = startIdx + idx + 1;
-            const managementActions = `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>
-                   <button class="text-red-600 hover:text-red-800 text-xs" data-profile-row-action="delete" data-profile-id="${id}" title="删除"><i class="fas fa-trash-alt"></i></button>`;
+            const managementActions = row.can_edit || row.can_delete
+                ? `${row.can_edit ? `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>` : ''}
+                   ${row.can_delete ? `<button class="text-red-600 hover:text-red-800 text-xs" data-profile-row-action="delete" data-profile-id="${id}" title="删除"><i class="fas fa-trash-alt"></i></button>` : ''}`
+                : '<span class="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500" title="由 SimC 上游同步维护">系统只读</span>';
             return `<tr class="hover:bg-gray-50 border-b border-gray-100">
                 <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>

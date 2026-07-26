@@ -3273,28 +3273,49 @@ class SimcProfileAPIView(View):
                         'error': '配置不存在或无权限访问'
                     })
             else:
-                # 获取配置列表
-                profile_filters = {'user_id': request.user.id, 'is_active': True}
-                profiles = SimcProfile.objects.filter(**profile_filters).order_by('-id')
+                # 用户配置与迁移后的 SimC 上游默认玩家属于同一 Profile 资源库。
+                # 系统记录只在列表中展示，写接口仍严格按 user_id 校验所有权。
+                profiles = SimcProfile.objects.filter(
+                    models.Q(user_id=request.user.id)
+                    | models.Q(
+                        user_id__isnull=True,
+                        source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+                    ),
+                    is_active=True,
+                ).order_by('user_id', 'class_name', 'spec', '-id')
                 
                 profile_list = []
                 for profile in profiles:
+                    is_system = (
+                        profile.user_id is None
+                        and profile.source == SimcProfile.SOURCE_SIMC_UPSTREAM
+                    )
+                    player_equipment = getattr(profile, 'player_equipment', '') or ''
                     profile_list.append({
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
+                        'class_name': getattr(profile, 'class_name', '') or '',
                         'player_config_mode': self._profile_mode(profile),
                         'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
                         'battlenet_realm': getattr(profile, 'battlenet_realm', '') or '',
                         'battlenet_character': getattr(profile, 'battlenet_character', '') or '',
-                        'player_equipment': getattr(profile, 'player_equipment', '') or '',
+                        'player_equipment': player_equipment,
                         'talent': profile.talent,
                         'gear_strength': profile.gear_strength,
                         'gear_crit': profile.gear_crit,
                         'gear_haste': profile.gear_haste,
                         'gear_mastery': profile.gear_mastery,
                         'gear_versatility': profile.gear_versatility,
-                        'is_active': profile.is_active
+                        'is_active': profile.is_active,
+                        'is_system': is_system,
+                        'can_edit': not is_system,
+                        'can_delete': not is_system,
+                        'source': profile.source,
+                        'sync_version': getattr(profile, 'sync_version', '') or '',
+                        'equipment_line_count': len([
+                            line for line in player_equipment.splitlines() if line.strip()
+                        ]),
                     })
                 
                 return JsonResponse({
