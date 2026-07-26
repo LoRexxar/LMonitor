@@ -136,6 +136,15 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn(': NaN;\n      const deltaPercent', DETAIL)
         self.assertNotIn("Number.isFinite(Number(delta)) ?", DETAIL)
 
+    def test_comparison_prioritizes_difference_and_dps_trend_before_baseline_details(self):
+        for token in ('comparison-line-chart', 'comparison-chart-point', 'DPS 趋势', '候选差异'):
+            self.assertIn(token, DETAIL)
+        return_block = DETAIL[DETAIL.index('return `<section class="hero ${isAttribute'):]
+        baseline_token = "${isAttribute ? '' : baselinePanel}"
+        self.assertLess(return_block.index('${isAttribute ? \'\' : comparisonChartPanel}'), return_block.index(baseline_token))
+        self.assertLess(return_block.index("card(isAttribute ? '候选测量排名' : '候选差异与 DPS 排名'"), return_block.index(baseline_token))
+        self.assertLess(return_block.index(baseline_token), return_block.index("card('任务进度'"))
+
     def test_rerun_form_explains_frozen_task_copy_without_edit_controls(self):
         start = WB.index("async function renderTaskRerunForm")
         end = WB.index("async function submitTaskRerun", start)

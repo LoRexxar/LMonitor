@@ -134,6 +134,37 @@
       const deltaText = Number.isFinite(deltaPercent) ? `${signed(delta)} (${deltaPercent > 0 ? '+' : ''}${deltaPercent.toFixed(2)}%)` : '—';
       return `<tr class="${item.rank === 1 ? 'rank-winner comparison-winner' : ''} ${complete ? '' : 'rank-incomplete'}"><td><span class="rank-medal">${complete ? (item.rank === 1 ? '🥇' : value(item.rank)) : '—'}</span></td><td><b>${value(item.label || item.name)}</b>${complete ? '' : '<small class="incomplete-label">结果不完整，不参与排名</small>'}</td><td>${changeDetail(item)}</td><td>${unchangedDetail(item)}</td><td class="right"><b>${complete ? number(item.dps) : '—'}</b></td><td class="right delta comparison-delta ${Number(delta) > 0 ? 'positive' : Number(delta) < 0 ? 'negative' : ''}">${deltaText}</td></tr>`;
     }).join('');
+    const chartItems = [baseline, ...candidates].filter(item => item && item.is_complete === true && Number.isFinite(Number(item.dps)));
+    let comparisonChartPanel = '';
+    if (!isAttribute) {
+      if (chartItems.length) {
+        const chartWidth = 900, chartHeight = 280, left = 72, right = 30, top = 28, bottom = 64;
+        const values = chartItems.map(item => Number(item.dps));
+        let minDps = Math.min(...values), maxDps = Math.max(...values);
+        const padding = minDps === maxDps ? Math.max(1, maxDps * .01) : (maxDps - minDps) * .18;
+        minDps -= padding;
+        maxDps += padding;
+        const xAt = index => left + (chartItems.length === 1 ? (chartWidth - left - right) / 2 : index * (chartWidth - left - right) / (chartItems.length - 1));
+        const yAt = dps => top + (maxDps - dps) / (maxDps - minDps) * (chartHeight - top - bottom);
+        const points = chartItems.map((item, index) => `${xAt(index).toFixed(1)},${yAt(Number(item.dps)).toFixed(1)}`).join(' ');
+        const grid = [0, .5, 1].map(ratio => {
+          const y = top + ratio * (chartHeight - top - bottom);
+          const dps = maxDps - ratio * (maxDps - minDps);
+          return `<g><line x1="${left}" y1="${y}" x2="${chartWidth - right}" y2="${y}" class="comparison-chart-grid"/><text x="${left - 10}" y="${y + 4}" text-anchor="end">${number(dps)}</text></g>`;
+        }).join('');
+        const pointNodes = chartItems.map((item, index) => {
+          const x = xAt(index), y = yAt(Number(item.dps));
+          const label = String(item.label || item.name || `方案 ${index + 1}`);
+          const shortLabel = label.length > 14 ? `${label.slice(0, 14)}…` : label;
+          const delta = Number.isFinite(baselineDps) ? Number(item.dps) - baselineDps : NaN;
+          return `<g class="comparison-chart-point ${item.is_base === true ? 'is-baseline' : ''}"><circle cx="${x}" cy="${y}" r="6"><title>${value(label)}：${number(item.dps)} DPS${item.is_base === true ? '（基准）' : `，相对基准 ${signed(delta)}`}</title></circle><text x="${x}" y="${y - 13}" text-anchor="middle" class="comparison-chart-value">${number(item.dps)}</text><text x="${x}" y="${chartHeight - 25}" text-anchor="middle" class="comparison-chart-label">${value(shortLabel)}</text></g>`;
+        }).join('');
+        const chartSvg = `<div class="comparison-chart-scroll"><svg class="comparison-line-chart" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="各候选方案 DPS 趋势折线图">${grid}<polyline points="${points}" class="comparison-chart-line"/>${pointNodes}</svg></div>`;
+        comparisonChartPanel = card('DPS 趋势', `${chartSvg}<p class="muted">折线按基准与候选排名顺序连接，用于快速观察 DPS 高低；精确差异以紧随其后的候选差异表为准。</p>`, true);
+      } else {
+        comparisonChartPanel = card('DPS 趋势', '<div class="empty">暂无完整 DPS，无法绘制折线图</div>', true);
+      }
+    }
     const recommendation = attribute?.recommendation || null;
     const initial = attribute?.initial_ratings || {};
     const statLabels = {crit_rating:'暴击',haste_rating:'急速',mastery_rating:'精通',versatility_rating:'全能'};
@@ -147,10 +178,11 @@
     const failed = runs.filter(run => run.status === 'failed').length;
     const progress = runs.length ? Math.round((succeeded + failed) / runs.length * 100) : 0;
     return `<section class="hero ${isAttribute ? 'attribute-hero' : 'comparison-hero'}"><div class="report-kicker">${isAttribute ? '属性寻优报告' : '候选对比报告'}</div><div class="hero-meta"><span class="pill">${number(progress)}% 完成</span><span class="pill">${number(runs.length)} 个 Run</span></div></section><div class="grid">
-      ${card('任务进度', `<div class="metrics"><div class="metric"><span>成功</span><b>${number(succeeded)}</b></div><div class="metric"><span>运行</span><b>${number(running)}</b></div><div class="metric"><span>等待</span><b>${number(pending)}</b></div><div class="metric"><span>失败</span><b>${number(failed)}</b></div></div>`, true)}
       ${attributePanel}
+      ${isAttribute ? '' : comparisonChartPanel}
+      ${card(isAttribute ? '候选测量排名' : '候选差异与 DPS 排名', `<div class="table-scroll"><table class="ranking-table comparison-diff-table"><thead><tr><th>排名</th><th>候选方案</th><th>实际变化</th><th>保持不变</th><th class="right">DPS</th><th class="right">相对基线（数值 / 百分比）</th></tr></thead><tbody>${rankRows || '<tr><td colspan="6" class="empty">暂无可排名结果</td></tr>'}</tbody></table></div>`, true)}
       ${isAttribute ? '' : baselinePanel}
-      ${card(isAttribute ? '候选测量排名' : '候选 DPS 排名、变化与基线差值', `<div class="table-scroll"><table class="ranking-table comparison-diff-table"><thead><tr><th>排名</th><th>候选方案</th><th>实际变化</th><th>保持不变</th><th class="right">DPS</th><th class="right">相对基线（数值 / 百分比）</th></tr></thead><tbody>${rankRows || '<tr><td colspan="6" class="empty">暂无可排名结果</td></tr>'}</tbody></table></div>`, true)}
+      ${card('任务进度', `<div class="metrics"><div class="metric"><span>成功</span><b>${number(succeeded)}</b></div><div class="metric"><span>运行</span><b>${number(running)}</b></div><div class="metric"><span>等待</span><b>${number(pending)}</b></div><div class="metric"><span>失败</span><b>${number(failed)}</b></div></div>`, true)}
       ${card('候选 Runs', `<div class="table-scroll"><table><thead><tr><th>候选</th><th>状态</th><th class="right">DPS</th><th>完成时间</th></tr></thead><tbody>${runRows || '<tr><td colspan="4" class="empty">暂无 Run</td></tr>'}</tbody></table></div>`, true)}
     </div>`;
   }
