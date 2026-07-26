@@ -9,6 +9,7 @@ HTML = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
 JS = (ROOT / "static/dashboard/js/simc-workbench.js").read_text(encoding="utf-8")
 MAIN = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
 DETAIL_JS = (ROOT / "static/dashboard/js/simc-detail.js").read_text(encoding="utf-8")
+APL_EDITOR_CSS = (ROOT / "static/dashboard/css/simc-apl-editor.css").read_text(encoding="utf-8")
 
 # Scope safety assertions to the complete SimC surfaces. The dashboard template
 # and main.js also contain unrelated legacy modules with their own navigation UI.
@@ -23,6 +24,12 @@ SIMC_MAIN = MAIN[
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
+    def test_apl_assistant_height_is_driven_by_the_editor_grid_row(self):
+        desktop_css = APL_EDITOR_CSS[:APL_EDITOR_CSS.index("@media (max-width: 900px)")]
+        self.assertIn("contain: size", desktop_css)
+        self.assertIn(".simc-apl-assistant > div { display: flex; height: 100%; min-height: 0;", desktop_css)
+        self.assertIn(".simc-apl-catalog { flex: 1; min-height: 0; overflow: auto;", desktop_css)
+
     def test_new_frontend_uses_task_mode_vocabulary_only(self):
         self.assertNotIn('task_type:', SIMC_MAIN)
         self.assertNotIn('任务组', SIMC_MAIN)

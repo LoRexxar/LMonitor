@@ -7,17 +7,20 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(26rem, 32rem);
     min-height: 34rem;
+    align-items: stretch;
 }
 
 .simc-apl-editor-column { min-width: 0; }
 
 .simc-apl-assistant {
+    min-height: 0;
     overflow: visible;
     border-left: 1px solid #dbe3ef;
     background: #f8fafc;
+    contain: size;
 }
 
-.simc-apl-assistant > div { display: flex; min-height: 100%; flex-direction: column; }
+.simc-apl-assistant > div { display: flex; height: 100%; min-height: 0; flex-direction: column; }
 .simc-apl-assistant__mobile-heading { display: none; }
 .simc-apl-assistant__toolbar { padding: .75rem; border-bottom: 1px solid #e2e8f0; }
 .simc-apl-assistant__search input { width: 100%; border: 1px solid #cbd5e1; border-radius: .6rem; padding: .55rem .7rem; background: #fff; font-size: .8rem; }
@@ -29,7 +32,7 @@
 .simc-apl-context strong { color: #0f172a; font-size: .8rem; }
 .simc-apl-context code { width: fit-content; color: #1d4ed8; }
 .simc-apl-context small { color: #64748b; }
-.simc-apl-catalog { flex: 1; overflow: auto; padding: .35rem 0; }
+.simc-apl-catalog { flex: 1; min-height: 0; overflow: auto; padding: .35rem 0; }
 .simc-apl-catalog__empty { padding: 1rem; color: #64748b; text-align: center; font-size: .75rem; }
 .simc-apl-skill {
     display: grid;
