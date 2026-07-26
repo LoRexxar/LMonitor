@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 from django.db import models
 from botend.models import SimcContentTemplate, SimcApl, SimcProfile
-from botend.services.simc_player_config import SPEC_CLASS
+from botend.services.simc_player_config import SPEC_CLASS, canonical_simc_spec_identity
 
 
 @dataclass
@@ -76,7 +76,7 @@ class CompositionManifest:
 
     # Composition metadata
     created_at: str = ''
-    user_id: int = 0
+    user_id: Optional[int] = None
 
     def to_json(self) -> str:
         return json.dumps(self.__dict__, ensure_ascii=False, indent=2)
@@ -85,7 +85,7 @@ class CompositionManifest:
 class SimcComposer:
     """Compose frozen SimC input from semantic slot resolution."""
 
-    def __init__(self, user_id: int):
+    def __init__(self, user_id: Optional[int]):
         self.user_id = user_id
         self.slots: Dict[str, SlotResolution] = {}
         self.manifest = CompositionManifest()
@@ -101,8 +101,10 @@ class SimcComposer:
             '{simulation_options}\n{player_identity}\n{talents}\n{equipment}\n'
             '{stat_overrides}\n{action_list}\n{output_options}'
         )
+        _, validation_spec = canonical_simc_spec_identity(profile.spec)
         request = {
-            'spec': profile.spec, 'player_import_mode': profile.player_config_mode,
+            'spec': validation_spec or profile.spec,
+            'player_import_mode': profile.player_config_mode,
             # Validation profiles are server-owned.  Carry their canonical class
             # separately so ambiguous short specs (frost/protection/holy/etc.) do
             # not fall back to SPEC_CLASS's legacy single-class interpretation.

@@ -113,6 +113,25 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
                 self.assertIn(f'{class_name}="Validator"', content)
                 self.assertIn(f'spec={spec}', content)
 
+    def test_authoritative_validation_accepts_canonical_system_profile_spec(self):
+        from types import SimpleNamespace
+
+        profile = SimpleNamespace(
+            spec='warrior_fury', class_name='warrior',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Validator"\nspec=fury\nhead=,id=212048',
+            talent='', battlenet_region='', battlenet_realm='',
+            battlenet_character='', gear_crit=0, gear_haste=0,
+            gear_mastery=0, gear_versatility=0,
+        )
+
+        content = SimcComposer(None).compose_validation_input(
+            profile, 'actions=/bloodthirst')
+
+        self.assertIn('warrior="Validator"', content)
+        self.assertIn('spec=fury', content)
+        self.assertIn('actions=/bloodthirst', content)
+
     def test_authoritative_validation_preserves_battlenet_actor_coordinates(self):
         from types import SimpleNamespace
 
