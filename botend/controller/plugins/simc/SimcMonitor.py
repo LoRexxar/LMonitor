@@ -941,7 +941,7 @@ class SimcMonitor(BaseScan):
         default_priority_text = default_priority_match.group(1) if default_priority_match else ''
         talent_dispatch_lists = []
         for action_list, condition in re.findall(
-            r'run_action_list,name=([a-z][a-z0-9_]*),if=([^\n]+)',
+            r'run_action_list,name=([a-z][a-z0-9_]*),((?:(?!/[a-z][a-z0-9_]*,)[^\n])*)',
             default_priority_text,
             flags=re.IGNORECASE,
         ):

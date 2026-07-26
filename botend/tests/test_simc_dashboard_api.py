@@ -1319,6 +1319,25 @@ main_hand=,id=222222
         self.assertEqual(validation['failure_type'], 'auto_attack_only')
         self.assertEqual(validation['unresolved_action_lists'], ['thane'])
 
+    def test_semantic_validation_accepts_active_talent_dispatch_in_slash_joined_priorities(self):
+        stdout = '''Player: Audit warrior arms 90
+  DPS=331722.2 DPS-Error=622.2/0.19%
+  Priorities (actions.default):
+    auto_attack/run_action_list,name=colossus_aoe,if=talent.demolish&active_enemies>2/run_action_list,name=colossus_st,if=talent.demolish/run_action_list,name=slayer_aoe,if=talent.slayers_dominance&active_enemies>2/run_action_list,name=slayer_st,if=talent.slayers_dominance
+  Priorities (actions.slayer_aoe):
+    bladestorm,if=0
+  Actions:
+    auto_attack_mh Count=125.0 pDPS=4762
+    whirlwind Count=35.9 pDPS=326960
+'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout)
+        self.assertTrue(validation['valid'])
+        self.assertEqual(validation['failure_type'], '')
+        self.assertEqual(
+            validation['unresolved_action_lists'],
+            ['colossus_aoe', 'colossus_st', 'slayer_st'],
+        )
+
     def test_semantic_validation_accepts_core_skill_damage(self):
         stdout = '''Player: Audit warrior fury 90
   DPS=62453.0 DPS-Error=150/0.24%
