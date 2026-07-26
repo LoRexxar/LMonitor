@@ -109,17 +109,24 @@
     };
     const unchangedDetail = item => `<div class="unchanged-list">${(Array.isArray(item.unchanged) ? item.unchanged : []).map(label => `<span>${value(label)}</span>`).join('') || '<span>未提供固定项摘要</span>'}</div>`;
     const baselineInfo = row.comparison_baseline || {};
+    const baselineCharacter = baselineInfo.character || {};
+    const baselineStats = baselineInfo.stats || {};
+    const baselineEquipment = Array.isArray(baselineInfo.equipment) ? baselineInfo.equipment : [];
     const simulationParams = baselineInfo.simulation_params || {};
     const parameterText = Object.entries(simulationParams).map(([key, item]) => `${value(key)}=${value(item)}`).join(' · ') || '默认模拟参数';
+    const baselineStatLabels = {strength:'力量',agility:'敏捷',intellect:'智力',crit:'暴击',haste:'急速',mastery:'精通',versatility:'全能'};
+    const baselineStatsHtml = Object.entries(baselineStats).map(([key, item]) => `<span><b>${value(baselineStatLabels[key] || key)}</b>${number(item)}</span>`).join('') || '<span class="muted">未冻结属性评分</span>';
+    const baselineEquipmentHtml = baselineEquipment.map(item => `<div class="baseline-equipment-item"><span>${value(slotLabels[item.slot] || item.slot, '装备')}</span><b>${itemText(item)}</b></div>`).join('') || '<p class="muted">未解析到冻结装备</p>';
     const baselineFacts = [
       ['玩家 Profile', `${value(baselineInfo.profile?.name, '未命名')} · ${value(baselineInfo.profile?.spec, '未知专精')}`],
+      ['角色', `${value(baselineCharacter.name, '未命名')} · ${value(baselineCharacter.class, '未知职业')} / ${value(baselineCharacter.spec, '未知专精')} · ${value(baselineCharacter.race, '未知种族')} · ${value(baselineCharacter.level, '?')} 级`],
       ['基础模板', value(baselineInfo.template?.name, '未指定')],
       ['APL', value(baselineInfo.apl?.name, '未指定')],
       ['执行后端', `${value(baselineInfo.backend?.name, '未指定')}${baselineInfo.backend?.version ? ` · ${value(baselineInfo.backend.version)}` : ''}`],
       ['模拟参数', parameterText],
     ].map(([label, item]) => `<div><span>${label}</span><b>${item}</b></div>`).join('');
     const runRows = runs.map(run => `<tr><td>${value(run.candidate_label, `Run #${run.sequence}`)}</td><td>${runStatus(run.status)}</td><td class="right">${number(run.result_summary?.dps)}</td><td>${value(run.completed_at)}</td></tr>`).join('');
-    const baselinePanel = baseline ? `<section class="comparison-baseline"><div class="baseline-heading"><div><span>对比基准</span><b>${value(baseline.label || baseline.name)}</b></div><strong>${baseline.is_complete === true ? number(baseline.dps) : '结果不完整'} <small>DPS</small></strong></div><div class="baseline-facts">${baselineFacts}</div><p>所有候选都从这份冻结基准开始；下方“实际变化”之外的项目保持不变。</p></section>` : '<section class="comparison-baseline muted">此任务未包含 Profile 基线，无法计算可靠差异。</section>';
+    const baselinePanel = baseline ? `<section class="comparison-baseline"><div class="baseline-heading"><div><span>对比基准</span><b>${value(baseline.label || baseline.name)}</b></div><strong>${baseline.is_complete === true ? number(baseline.dps) : '结果不完整'} <small>DPS</small></strong></div><div class="baseline-facts">${baselineFacts}</div><div class="baseline-content"><div><h3>基础属性</h3><div class="baseline-stats">${baselineStatsHtml}</div></div><div><h3>基准天赋</h3><code class="baseline-talent">${value(baselineInfo.talent?.value, '未冻结天赋')}</code></div><div class="baseline-equipment"><h3>基准装备</h3>${baselineEquipmentHtml}</div></div><p>所有候选都从这份冻结基准开始；下方“实际变化”逐项写明每个方案相对基准改了什么，其余项目保持不变。</p></section>` : '<section class="comparison-baseline muted">此任务未包含 Profile 基线，无法计算可靠差异。</section>';
     const rankRows = candidates.map(item => {
       const complete = item.is_complete === true && Number.isFinite(Number(item.dps));
       const delta = complete && Number.isFinite(baselineDps) ? Number(item.dps) - baselineDps : NaN;

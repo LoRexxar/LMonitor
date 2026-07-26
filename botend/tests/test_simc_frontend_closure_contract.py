@@ -125,6 +125,8 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
             'comparison-baseline', 'deltaPercent', '结果不完整',
             'comparison_baseline', '实际变化', '保持不变',
             'changeDetail', 'unchangedDetail', 'baseline-facts',
+            'baseline-content', 'baseline-stats', 'baseline-talent', 'baseline-equipment',
+            '基础属性', '基准天赋', '基准装备',
             'attribute-landscape', 'attribute-stat-delta',
             '搜索轨迹', '推荐属性',
         ):

@@ -5417,6 +5417,11 @@ class SimcWorkbenchAPIView(View):
         player = str(profile_payload.get('player_equipment') or '')
         equipped = {}
         talent = str(profile_payload.get('talent') or '')
+        character = {'name': '', 'class': '', 'spec': '', 'race': '', 'level': None}
+        actor_classes = {
+            'deathknight', 'demonhunter', 'druid', 'evoker', 'hunter', 'mage', 'monk',
+            'paladin', 'priest', 'rogue', 'shaman', 'warlock', 'warrior',
+        }
         in_candidate_section = False
         for line in player.splitlines():
             stripped = line.strip()
@@ -5426,12 +5431,39 @@ class SimcWorkbenchAPIView(View):
                 continue
             key, raw = stripped.split('=', 1)
             key = key.strip().lower()
+            raw = raw.strip()
+            if key in actor_classes:
+                character['class'] = key
+                character['name'] = raw.strip('"')
+                continue
+            if key in ('spec', 'race'):
+                character[key] = raw
+                continue
+            if key == 'level':
+                try:
+                    character['level'] = int(raw)
+                except (TypeError, ValueError):
+                    character['level'] = None
+                continue
             if key in ('talent', 'talents'):
-                talent = raw.strip()
+                talent = raw
                 continue
             parsed = cls._safe_simc_item(raw, key)
             if parsed.get('item_id'):
                 equipped[key] = parsed
+        character['spec'] = character['spec'] or str(
+            profile_payload.get('spec') or getattr(task.profile, 'spec', '') or ''
+        )
+        stats = {}
+        for payload_key, label in (
+            ('gear_strength', 'strength'), ('gear_agility', 'agility'),
+            ('gear_intellect', 'intellect'), ('gear_crit', 'crit'),
+            ('gear_haste', 'haste'), ('gear_mastery', 'mastery'),
+            ('gear_versatility', 'versatility'),
+        ):
+            value = profile_payload.get(payload_key)
+            if isinstance(value, (int, float)):
+                stats[label] = value
         return {
             'profile': {
                 **resource(profile_version, getattr(task.profile, 'name', '')),
@@ -5448,9 +5480,23 @@ class SimcWorkbenchAPIView(View):
                 if key in {'iterations', 'fight_style', 'max_time', 'vary_combat_length', 'threads'}
                 and isinstance(item, (str, int, float, bool))
             },
-            'talent': talent,
+            'character': character,
+            'stats': stats,
+            'talent': {'value': talent},
+            'equipment': list(equipped.values()),
+            '_talent': talent,
             'equipped': equipped,
         }
+
+    @staticmethod
+    def _comparison_candidate_params(params):
+        """Normalize candidates created before mode fields moved to the Run root."""
+        params = params if isinstance(params, dict) else {}
+        nested = {}
+        if isinstance(params.get('mode_params'), dict):
+            nested.update(params['mode_params'])
+        nested.update(params)
+        return nested
 
     @classmethod
     def _comparison_change_summary(cls, params, baseline):
@@ -5479,7 +5525,7 @@ class SimcWorkbenchAPIView(View):
             return {
                 'change': {
                     'kind': 'talent', 'field': 'talents',
-                    'before': {'name': '基准天赋', 'value': baseline.get('talent') or ''},
+                    'before': {'name': '基准天赋', 'value': baseline.get('_talent') or ''},
                     'after': {
                         'name': str(candidate.get('name') or '候选天赋'),
                         'value': str(candidate.get('talent') or params.get('talent_override') or ''),
@@ -5697,11 +5743,11 @@ class SimcWorkbenchAPIView(View):
                 baseline_context = self._comparison_baseline_summary(task)
                 row['comparison_baseline'] = {
                     key: item for key, item in baseline_context.items()
-                    if key not in {'equipped', 'talent'}
+                    if key not in {'equipped', '_talent'}
                 }
                 ranking = []
                 for run in ordered_runs:
-                    params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
+                    params = self._comparison_candidate_params(run.candidate_params)
                     summary = run.result_summary if isinstance(run.result_summary, dict) else {}
                     dps = summary.get('dps')
                     comparison = self._comparison_change_summary(params, baseline_context)

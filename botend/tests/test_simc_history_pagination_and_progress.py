@@ -398,6 +398,61 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertIn('天赋', row['unchanged'])
         self.assertNotIn('player_equipment', json.dumps(data['comparison_baseline']))
 
+    def test_comparison_detail_supports_legacy_nested_candidates_and_structured_baseline(self):
+        profile_version = SimcResourceVersion.objects.create(
+            resource_type='profile', resource_id=self.profile.id, content_hash='legacy-profile-baseline',
+            payload={
+                'name': 'Battle.net 玩家快照', 'spec': 'arms',
+                'gear_crit': 1234, 'gear_haste': 2345,
+                'player_equipment': (
+                    'warrior="Tester"\nlevel=80\nrace=highmountain_tauren\nspec=arms\n'
+                    'talents=BASE_TALENT\nhead=,id=111,ilevel=650,bonus_id=10/20\n'
+                    'main_hand=,id=222,ilevel=655,enchant_id=30'
+                ),
+            },
+        )
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            profile_version=profile_version, name='旧候选对比', mode='comparison',
+            current_status=2, is_active=True,
+        )
+        baseline = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='base', candidate_label='基准配置',
+            status='completed', candidate_params={
+                'mode_params': {'candidate_type': 'base', 'is_base': True},
+            }, result_summary={'dps': 1000},
+        )
+        candidate = SimulationRun.objects.create(
+            task=task, sequence=2, candidate_key='talent-1', candidate_label='天赋方案 1',
+            status='completed', candidate_params={
+                'mode_params': {
+                    'candidate_type': 'talent_override', 'is_base': False,
+                    'talent_override': 'CANDIDATE_TALENT',
+                    'talent_candidate': {'name': '天赋方案 1', 'talent': 'CANDIDATE_TALENT'},
+                },
+            }, result_summary={'dps': 1100},
+        )
+
+        request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
+        request.user = self.user
+        data = json.loads(self.view.get(request, resource='tasks', object_id=task.id).content)['data']
+        rows = {row['id']: row for row in data['ranking']}
+        base = data['comparison_baseline']
+
+        self.assertTrue(rows[baseline.id]['is_base'])
+        self.assertEqual(rows[candidate.id]['change']['kind'], 'talent')
+        self.assertEqual(rows[candidate.id]['change']['before']['value'], 'BASE_TALENT')
+        self.assertEqual(rows[candidate.id]['change']['after']['value'], 'CANDIDATE_TALENT')
+        self.assertEqual(base['character'], {
+            'name': 'Tester', 'class': 'warrior', 'spec': 'arms',
+            'race': 'highmountain_tauren', 'level': 80,
+        })
+        self.assertEqual(base['stats']['crit'], 1234)
+        self.assertEqual(base['stats']['haste'], 2345)
+        self.assertEqual([item['slot'] for item in base['equipment']], ['head', 'main_hand'])
+        self.assertEqual(base['equipment'][0]['item_id'], 111)
+        self.assertEqual(base['talent']['value'], 'BASE_TALENT')
+
     def test_batch_list_query_count_does_not_grow_per_batch(self):
         for index in range(6):
             task = SimcTask.objects.create(
