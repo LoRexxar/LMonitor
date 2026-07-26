@@ -1608,6 +1608,61 @@ class SimcNewConfigModeTests(TestCase):
         self.assertIn('不再支持直接 SimC 代码模式', payload['error'])
         self.assertNotIn('create-secret', json.dumps(payload, ensure_ascii=False))
 
+    @patch('botend.dashboard.api.create_task')
+    def test_normal_task_can_use_read_only_upstream_system_profile(self, create_task_mock):
+        from types import SimpleNamespace
+        from django.utils import timezone
+
+        system_profile = SimcProfile.objects.create(
+            user_id=None,
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            class_name='warrior',
+            name='MID1 Fury player',
+            spec='warrior_fury',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Default"\nlevel=90\nspec=fury\nmain_hand=,id=222222',
+        )
+        create_task_mock.return_value = SimpleNamespace(
+            id=901,
+            name='System profile smoke',
+            simc_profile_id=system_profile.id,
+            current_status=0,
+            mode='normal',
+            create_time=timezone.now(),
+            modified_time=timezone.now(),
+        )
+
+        detail_response = self.client.get(
+            f'/api/simc-player-config-detail/?profile_id={system_profile.id}'
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertTrue(detail_response.json()['success'], detail_response.json())
+
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'System profile smoke',
+                'spec': 'fury',
+                'simc_profile_id': system_profile.id,
+                'player_source': {'type': 'saved_profile', 'profile_id': system_profile.id},
+                'base_template_id': self.base_template.id,
+                'selected_apl_id': self.default_apl.id,
+                'fight_style': 'Patchwerk',
+                'time': 300,
+                'target_count': 1,
+                'backend_id': 7,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        self.assertEqual(
+            create_task_mock.call_args.kwargs['profile_id'],
+            system_profile.id,
+        )
+
 
     def test_task_ext_summary_drops_raw_simc_code_from_browser_response(self):
         summary = SimcTaskAPIView()._task_ext_summary(1, json.dumps({

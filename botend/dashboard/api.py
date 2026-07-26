@@ -77,6 +77,17 @@ from django.core.exceptions import SuspiciousOperation
 from collections import defaultdict, deque
 
 
+def _accessible_simc_profile_q(user_id):
+    """Profiles usable in read/execute flows: owner records plus global upstream defaults."""
+    return (
+        models.Q(user_id=user_id)
+        | models.Q(
+            user_id__isnull=True,
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+        )
+    )
+
+
 def _simc_spec_options():
     """统一返回所有 SimC 资源使用的 class_spec 专精标识。"""
     rows = []
@@ -1235,8 +1246,11 @@ class SimcTaskAPIView(View):
             profile_ids = [t.simc_profile_id for t in tasks if t.simc_profile_id]
             profile_map = {
                 p['id']: p
-                for p in SimcProfile.objects.filter(id__in=profile_ids, user_id=request.user.id, is_active=True)
-                .values('id', 'name', 'spec')
+                for p in SimcProfile.objects.filter(
+                    _accessible_simc_profile_q(request.user.id),
+                    id__in=profile_ids,
+                    is_active=True,
+                ).values('id', 'name', 'spec')
             }
             
             tasks_data = []
@@ -1411,7 +1425,9 @@ class SimcTaskAPIView(View):
             target_class, target_spec = canonical_simc_spec_identity(spec)
             if source_type == 'saved_profile' and simc_profile_id and not target_class:
                 existing_profile = SimcProfile.objects.filter(
-                    id=simc_profile_id, user_id=request.user.id, is_active=True,
+                    _accessible_simc_profile_q(request.user.id),
+                    id=simc_profile_id,
+                    is_active=True,
                 ).first()
                 if existing_profile:
                     target_class, target_spec = canonical_simc_spec_identity(existing_profile.spec)
@@ -1423,7 +1439,9 @@ class SimcTaskAPIView(View):
             if source_type == 'saved_profile':
                 profile_id = player_source.get('profile_id') or simc_profile_id
                 profile = SimcProfile.objects.filter(
-                    id=profile_id, user_id=request.user.id, is_active=True,
+                    _accessible_simc_profile_q(request.user.id),
+                    id=profile_id,
+                    is_active=True,
                 ).first()
                 if not profile:
                     return JsonResponse({'success': False, 'error': '玩家配置不存在或无权使用'}, status=400)
@@ -2482,12 +2500,14 @@ class SimcPlayerConfigDetailAPIView(View):
     """只解析工作台当前玩家输入，返回结构化配置详情；不渲染完整 SimC 执行文本。"""
 
     def get(self, request):
-        """Return structured detail for an existing owner Profile only."""
+        """Return structured detail for an owner or read-only upstream Profile."""
         profile_id = request.GET.get('profile_id')
         if not profile_id:
             return JsonResponse({'success': False, 'error': '请先选择已有 Profile'}, status=400)
         profile = SimcProfile.objects.filter(
-            id=profile_id, user_id=request.user.id, is_active=True,
+            _accessible_simc_profile_q(request.user.id),
+            id=profile_id,
+            is_active=True,
         ).first()
         if not profile:
             return JsonResponse({'success': False, 'error': 'Profile 不存在或无权使用'}, status=404)
