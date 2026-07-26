@@ -5504,8 +5504,51 @@ class SimcWorkbenchAPIView(View):
                 ), None)
                 report_summary = None
                 if report_artifact:
-                    from botend.services.simc_result_analysis import analyze_run_artifact
+                    from botend.services.simc_result_analysis import (
+                        analyze_run_artifact,
+                        localize_report_summary,
+                    )
                     report_summary = analyze_run_artifact(task, report_artifact)
+                    if report_summary:
+                        profile = task.profile
+                        class_name = (profile.class_name if profile else '') or report_summary.get('character', {}).get('class', '')
+                        spec_name = (profile.spec if profile else '') or report_summary.get('character', {}).get('spec', '')
+                        class_token = re.sub(r'[^a-z0-9]+', '_', str(class_name).casefold()).strip('_')
+                        spec_token = re.sub(r'[^a-z0-9]+', '_', str(spec_name).casefold()).strip('_')
+                        spec_key = spec_token if spec_token.startswith(class_token + '_') else '_'.join(
+                            part for part in (class_token, spec_token) if part
+                        )
+                        bilingual_pairs = []
+                        spell_names = {}
+                        try:
+                            if spec_key:
+                                bilingual_pairs = ConvertTextAPIView().bilingual_pairs(spec_key)[0]
+                            identity = _latest_catalog_identity()
+                            spell_ids = {
+                                int(row['spell_id'])
+                                for rows in (
+                                    report_summary.get('abilities') or [],
+                                    (report_summary.get('buffs') or {}).get('dynamic') or [],
+                                    (report_summary.get('buffs') or {}).get('constant') or [],
+                                )
+                                for row in rows
+                                if str(row.get('spell_id') or '').isdigit()
+                            }
+                            if identity and spell_ids:
+                                for localized_spell in WowSpellSnapshot.objects.filter(
+                                    branch='wow', locale='zhCN', snapshot_build=identity[1],
+                                    spell_id__in=spell_ids,
+                                ).exclude(name_zh='').values('spell_id', 'name_zh').order_by(
+                                    'spell_id', '-updated_at', '-id',
+                                ):
+                                    spell_names.setdefault(
+                                        localized_spell['spell_id'], localized_spell['name_zh'],
+                                    )
+                        except Exception:
+                            logger.warning('SimC report APL localization catalog unavailable', exc_info=True)
+                        report_summary = localize_report_summary(
+                            report_summary, bilingual_pairs, spell_names,
+                        )
                 row['report_summary'] = report_summary
                 row['report_artifact_id'] = report_artifact.id if report_artifact else None
                 row['artifacts'] = [self._artifact_row(item) for item in artifacts]

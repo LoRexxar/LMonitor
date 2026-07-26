@@ -9,6 +9,7 @@ from django.test import TestCase
 from botend.models import (
     SimulationRun,
 
+    SimcBackendBinary,
     SimcContentTemplate,
     SimcProfile,
     SimcTask,
@@ -148,6 +149,9 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.user = User.objects.create_user(username='history-owner', password='pwd')
         self.other = User.objects.create_user(username='history-other', password='pwd')
         self.client.force_login(self.user)
+        self.backend = SimcBackendBinary.objects.create(
+            identifier='test-history', name='Test History', simc_path='/tmp/simc',
+        )
         self.profile = SimcProfile.objects.create(
             user_id=self.user.id, name='Inactive Profile', spec='fury', is_active=False)
 
@@ -275,6 +279,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
     def test_task_detail_parses_summary_from_latest_run_bound_artifact(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='Detailed report', simc_profile_id=0,
+            backend=self.backend,
             current_status=2, result_file='latest-task-pointer.html')
         old_run = SimulationRun.objects.create(
             task=task, sequence=1, status='completed', result_summary={'dps': 111})
@@ -304,7 +309,10 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
             with patch(
                 'botend.services.simc_artifacts._validated_result',
                 return_value=(report_path, 'simc_results/current_run_2.html'),
-            ) as validated:
+            ) as validated, patch(
+                'botend.dashboard.api.ConvertTextAPIView.bilingual_pairs',
+                return_value=([('action', 'rampage', '暴怒')], []),
+            ) as bilingual_pairs:
                 response = self.client.get(f'/api/simc-workbench/tasks/{task.id}/')
 
         self.assertEqual(response.status_code, 200)
@@ -312,10 +320,14 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         detail = payload['report_summary']
         self.assertEqual(detail['dps'], 95132)
         self.assertEqual(detail['character'], {
-            'name': 'Zornfalte', 'race': 'Orc', 'class': 'Warrior',
-            'spec': 'Fury', 'level': '90'})
-        self.assertEqual(detail['simulation']['fight_style'], 'Patchwerk')
-        self.assertEqual(detail['top_abilities'][0]['name'], 'Rampage')
+            'name': 'Zornfalte', 'race': '兽人', 'race_en': 'Orc',
+            'class': '战士', 'class_en': 'Warrior',
+            'spec': '狂怒', 'spec_en': 'Fury', 'level': '90'})
+        self.assertEqual(detail['simulation']['fight_style'], '木桩战')
+        self.assertEqual(detail['simulation']['fight_style_en'], 'Patchwerk')
+        self.assertEqual(detail['top_abilities'][0]['name'], '暴怒')
+        self.assertEqual(detail['top_abilities'][0]['name_en'], 'Rampage')
+        bilingual_pairs.assert_called_once_with('warrior_fury')
         validated.assert_called_once_with(task, 'current_run_2.html', run=latest_run)
         self.assertEqual(payload['report_artifact_id'], latest_artifact.id)
 
