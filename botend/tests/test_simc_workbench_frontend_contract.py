@@ -9,6 +9,7 @@ HTML = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
 JS = (ROOT / "static/dashboard/js/simc-workbench.js").read_text(encoding="utf-8")
 MAIN = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
 DETAIL_JS = (ROOT / "static/dashboard/js/simc-detail.js").read_text(encoding="utf-8")
+APL_EDITOR_JS = (ROOT / "static/dashboard/js/simc-apl-editor.js").read_text(encoding="utf-8")
 APL_EDITOR_CSS = (ROOT / "static/dashboard/css/simc-apl-editor.css").read_text(encoding="utf-8")
 
 # Scope safety assertions to the complete SimC surfaces. The dashboard template
@@ -29,7 +30,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         apl_form = JS[JS.index('<form data-apl-storage-form'):JS.index('setAplDialogLayout(true);')]
         self.assertIn('simc-editor-form simc-apl-editor-form', apl_form)
         self.assertIn('.simc-apl-editor-form {', desktop_css)
-        self.assertIn('grid-template-columns: minmax(0, 1fr) minmax(26rem, 32rem)', desktop_css)
+        self.assertIn('grid-template-columns: minmax(0, 1fr) minmax(20rem, 24rem)', desktop_css)
+        self.assertIn('catalogPageSizeForHeight', APL_EDITOR_JS)
+        self.assertIn('new ResizeObserver', APL_EDITOR_JS)
         self.assertIn('.simc-apl-editor-form > .simc-apl-assistant', desktop_css)
         self.assertIn("position: sticky", desktop_css)
         self.assertIn("top: 4.75rem", desktop_css)

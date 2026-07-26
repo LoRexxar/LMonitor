@@ -5,7 +5,7 @@
 
 .simc-apl-editor-form {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(26rem, 32rem);
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 24rem);
     align-items: start;
     gap: 1rem;
 }

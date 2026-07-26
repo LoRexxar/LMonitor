@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import {
     catalogItemsToCompletionOptions,
+    catalogPageSizeForHeight,
     codePointColumnToOffset,
     completionItemsToOptions,
     completionReplacementFrom,
@@ -109,20 +110,20 @@ test('visible APL list is a compact Wago bilingual row list and the whole row in
     assert.match(source, /error\.name !== 'AbortError' && !destroyed && controller === activeController/);
 });
 
-test('APL editor uses a light yellow code surface and desktop assistant fills the dialog viewport while the dialog scrolls', async () => {
+test('APL editor uses a light yellow code surface and a compact desktop assistant', async () => {
     const source = await readFile(editorCssUrl, 'utf8');
     assert.match(source, /\.simc-apl-editor-shell\s*\{[^}]*background:\s*#fffbea/s);
     assert.match(source, /\.simc-apl-editor-mount \.cm-editor\s*\{[^}]*color:\s*#422006[^}]*background:\s*#fffbea/s);
     const desktop = source.slice(0, source.indexOf('@media (max-width: 900px)'));
-    assert.match(desktop, /\.simc-apl-editor-form\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(26rem, 32rem\)/s);
+    assert.match(desktop, /\.simc-apl-editor-form\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(20rem, 24rem\)/s);
     assert.match(desktop, /\.simc-apl-editor-form > \.simc-apl-assistant\s*\{[^}]*position:\s*sticky[^}]*top:\s*4\.75rem[^}]*height:\s*calc\(90dvh - 5\.75rem\)[^}]*align-self:\s*start/s);
     assert.match(desktop, /\.simc-apl-catalog\s*\{[^}]*flex:\s*1[^}]*overflow:\s*auto/s);
 });
 
 test('dashboard cache-busts the published light APL stylesheet', async () => {
     const dashboard = await readFile(new URL('../../../templates/dashboard/index.html', import.meta.url), 'utf8');
-    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260727a/);
-    assert.match(dashboard, /simc-apl-editor\.js[^\n]*\?v=20260726c/);
+    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260727b/);
+    assert.match(dashboard, /simc-apl-editor\.js[^\n]*\?v=20260727b/);
     assert.match(dashboard, /simc-workbench\.js[^\n]*\?v=20260727a/);
 });
 
@@ -177,13 +178,21 @@ test('cancel aborts the active request and advances document version', async () 
     assert.equal(await running, null);
 });
 
-test('catalog assistant requests one server page and renders page controls', async () => {
+test('catalog page size follows the visible list height within safe API bounds', () => {
+    assert.equal(catalogPageSizeForHeight(0), 10);
+    assert.equal(catalogPageSizeForHeight(360), 10);
+    assert.equal(catalogPageSizeForHeight(540), 15);
+    assert.equal(catalogPageSizeForHeight(2000), 30);
+});
+
+test('catalog assistant requests one adaptive server page and renders page controls', async () => {
     const source = await readFile(new URL('../../../static/dashboard/js/simc-apl-editor.js', import.meta.url), 'utf8');
     assert.match(source, /data-page-action="prev"/);
     assert.match(source, /data-page-action="next"/);
     assert.match(source, /data-page-summary/);
     assert.match(source, /page:\s*String\(page\)/);
-    assert.match(source, /page_size:\s*String\(CATALOG_PAGE_SIZE\)/);
+    assert.match(source, /page_size:\s*String\(pageSize\)/);
+    assert.match(source, /new ResizeObserver/);
     assert.doesNotMatch(source, /all:\s*'1'/);
     assert.match(source, /query = event\.target\.value\.trim\(\);\s*page = 1;/s);
 });
@@ -286,12 +295,12 @@ test('new APL form can list every active selectable system default for the selec
     assert.deepEqual(selectDefaultAplsForSpec(rows, 'warrior_fury').map(row => row.id), [2, 5]);
 });
 
-test('APL workspace contract uses a larger desktop dialog, tall editor, and independent wide assistant sidebar', async () => {
+test('APL workspace contract uses a larger desktop dialog, tall editor, and independent compact assistant sidebar', async () => {
     const [css, workbench] = await Promise.all([
         readFile(editorCssUrl, 'utf8'), readFile(workbenchSourceUrl, 'utf8'),
     ]);
     assert.match(css, /\.simc-workbench-dialog__panel\.is-apl-editor-layout\s*\{[^}]*width:\s*min\(96vw,\s*96rem\)/s);
-    assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(26rem,\s*32rem\)/);
+    assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(20rem,\s*24rem\)/);
     assert.match(css, /\.simc-apl-editor-mount\s*\{[^}]*min-height:\s*34rem/s);
     assert.match(workbench, /<aside class="simc-apl-assistant"[^>]*aria-label="技能与 Buff 助手"/);
     assert.match(css, /@media \(max-width:\s*900px\)[\s\S]*\.simc-apl-assistant[^}]*position:\s*fixed/);

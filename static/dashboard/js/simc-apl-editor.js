@@ -13,7 +13,10 @@ const VALIDATION_URL = '/api/simc-workbench/apl-validation/';
 const COMPLETION_URL = '/api/simc-workbench/apl-completions/';
 const SYMBOLS_URL = '/api/simc-workbench/apl-symbols/';
 const SPELLS_URL = '/api/simc-workbench/apl-spells/';
-const CATALOG_PAGE_SIZE = 10;
+const CATALOG_DEFAULT_PAGE_SIZE = 10;
+const CATALOG_MIN_PAGE_SIZE = 8;
+const CATALOG_MAX_PAGE_SIZE = 30;
+const CATALOG_ROW_HEIGHT = 36;
 
 const BILINGUAL_URL = '/api/convert-text/';
 
@@ -28,6 +31,15 @@ function catalogCategory(item) {
     if (item.scope === 'spec') return 'spec';
     if (item.scope === 'class') return 'class';
     return 'global';
+}
+
+export function catalogPageSizeForHeight(height) {
+    const availableHeight = Number(height) || 0;
+    if (availableHeight <= 0) return CATALOG_DEFAULT_PAGE_SIZE;
+    return Math.max(
+        CATALOG_MIN_PAGE_SIZE,
+        Math.min(CATALOG_MAX_PAGE_SIZE, Math.floor(availableHeight / CATALOG_ROW_HEIGHT)),
+    );
 }
 
 function tokenAt(state, position) {
@@ -49,6 +61,8 @@ function createCatalogAssistant(options) {
     let destroyed = false;
     let query = '';
     let page = 1;
+    let pageSize = CATALOG_DEFAULT_PAGE_SIZE;
+    let resizeTimer = null;
 
     host.innerHTML = `<div class="simc-apl-assistant__mobile-heading"><strong>技能列表</strong><button type="button" data-apl-assistant-close>关闭</button></div><div class="simc-apl-assistant__toolbar">
         <label class="simc-apl-assistant__search"><span class="sr-only">搜索技能</span><input type="search" data-apl-catalog-query placeholder="搜索英文或中文技能名"></label>
@@ -87,7 +101,7 @@ function createCatalogAssistant(options) {
         const total = Math.max(0, Number(pagination.total) || 0);
         const totalPages = Math.max(1, Number(pagination.total_pages) || 1);
         page = Math.min(totalPages, Math.max(1, Number(pagination.page) || page));
-        pageSummary.textContent = total ? `第 ${page}/${totalPages} 页 · 共 ${total} 项` : '第 1/1 页';
+        pageSummary.textContent = total ? `第 ${page}/${totalPages} 页 · 每页 ${pageSize} 项 · 共 ${total} 项` : '第 1/1 页';
         previousButton.disabled = page <= 1;
         nextButton.disabled = page >= totalPages;
         pager.hidden = totalPages <= 1;
@@ -101,7 +115,7 @@ function createCatalogAssistant(options) {
         replaceTextMessage(list, '列表加载中…');
         const params = new URLSearchParams({
             spec: String(options.getSpec?.() || ''),
-            page: String(page), page_size: String(CATALOG_PAGE_SIZE),
+            page: String(page), page_size: String(pageSize),
         });
         if (query) params.set('query', query);
         try {
@@ -136,6 +150,18 @@ function createCatalogAssistant(options) {
         page += 1;
         load();
     });
+    pageSize = catalogPageSizeForHeight(list.clientHeight);
+    const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            const nextPageSize = catalogPageSizeForHeight(list.clientHeight);
+            if (destroyed || nextPageSize === pageSize) return;
+            pageSize = nextPageSize;
+            page = 1;
+            load();
+        }, 120);
+    }) : null;
+    resizeObserver?.observe(list);
     load();
     return {
         reload: () => {
@@ -146,6 +172,8 @@ function createCatalogAssistant(options) {
         destroy() {
             destroyed = true;
             clearTimeout(searchTimer);
+            clearTimeout(resizeTimer);
+            resizeObserver?.disconnect();
             controller?.abort();
             host.replaceChildren();
         },
