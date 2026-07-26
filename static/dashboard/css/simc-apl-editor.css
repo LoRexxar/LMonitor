@@ -25,8 +25,7 @@
 .simc-apl-assistant__toolbar { padding: .75rem; border-bottom: 1px solid #e2e8f0; }
 .simc-apl-assistant__search input { width: 100%; border: 1px solid #cbd5e1; border-radius: .6rem; padding: .55rem .7rem; background: #fff; font-size: .8rem; }
 .simc-apl-assistant__categories { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .55rem; }
-.simc-apl-assistant__categories button,
-.simc-apl-catalog__pager button { border: 1px solid #cbd5e1; border-radius: 999px; padding: .25rem .55rem; color: #475569; background: #fff; font-size: .7rem; }
+.simc-apl-assistant__categories button { border: 1px solid #cbd5e1; border-radius: 999px; padding: .25rem .55rem; color: #475569; background: #fff; font-size: .7rem; }
 .simc-apl-assistant__categories button.is-active { border-color: #2563eb; color: #fff; background: #2563eb; }
 .simc-apl-context { display: grid; gap: .2rem; padding: .65rem .75rem; border-bottom: 1px solid #e2e8f0; color: #475569; background: #eff6ff; font-size: .72rem; }
 .simc-apl-context strong { color: #0f172a; font-size: .8rem; }
@@ -51,8 +50,6 @@
 .simc-apl-skill:focus-visible { background: #eaf2ff; outline: none; }
 .simc-apl-skill__english { overflow: hidden; color: #0f172a; font-size: .75rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .simc-apl-skill__chinese { overflow: hidden; color: #475569; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
-.simc-apl-catalog__pager { display: flex; align-items: center; justify-content: space-between; padding: .55rem .75rem; border-top: 1px solid #e2e8f0; color: #64748b; font-size: .7rem; }
-.simc-apl-catalog__pager button:disabled { opacity: .4; }
 .simc-apl-assistant-toggle { display: none; }
 
 .simc-apl-editor-heading-actions {

@@ -114,13 +114,13 @@ test('APL editor uses a light yellow code surface and desktop assistant follows 
     assert.match(source, /\.simc-apl-editor-shell\s*\{[^}]*background:\s*#fffbea/s);
     assert.match(source, /\.simc-apl-editor-mount \.cm-editor\s*\{[^}]*color:\s*#422006[^}]*background:\s*#fffbea/s);
     assert.doesNotMatch(source, /\.simc-apl-assistant\s*\{[^}]*max-height:\s*34rem/s);
-    assert.doesNotMatch(source, /\.simc-apl-assistant\s*>\s*div\s*\{[^}]*(?:^|[;\s])height:\s*100%/s);
-    assert.match(source, /\.simc-apl-assistant\s*>\s*div\s*\{[^}]*min-height:\s*100%/s);
+    assert.match(source, /\.simc-apl-assistant\s*\{[^}]*contain:\s*size/s);
+    assert.match(source, /\.simc-apl-assistant\s*>\s*div\s*\{[^}]*height:\s*100%[^}]*min-height:\s*0/s);
 });
 
 test('dashboard cache-busts the published light APL stylesheet', async () => {
     const dashboard = await readFile(new URL('../../../templates/dashboard/index.html', import.meta.url), 'utf8');
-    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260723d/);
+    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260726f/);
 });
 
 test('document and catalog completions merge without duplicate insertions', () => {
@@ -172,6 +172,12 @@ test('cancel aborts the active request and advances document version', async () 
     assert.equal(request.version, 2);
     pending.resolve(response({document_version: 1}));
     assert.equal(await running, null);
+});
+
+test('catalog assistant renders one scrollable list without page controls', async () => {
+    const source = await readFile(new URL('../../../static/dashboard/js/simc-apl-editor.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /data-page-action|data-page-summary|simc-apl-catalog__pager/);
+    assert.match(source, /all:\s*'1'/);
 });
 
 test('catalog errors are rendered as text instead of executable markup', () => {

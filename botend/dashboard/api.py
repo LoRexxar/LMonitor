@@ -765,7 +765,7 @@ class SimcAplSymbolsAPIView(SimcAplEditorAPIView):
 
 
 class SimcAplSpellsAPIView(SimcAplEditorAPIView):
-    """Paginated bilingual actions for the current authoritative spec catalog."""
+    """Bilingual actions for the current authoritative spec catalog."""
 
     def get(self, request):
         spec = _editor_spec(request.GET.get('spec'))
@@ -814,10 +814,17 @@ class SimcAplSpellsAPIView(SimcAplEditorAPIView):
                      or query in item['chinese'].casefold()]
         items.sort(key=lambda item: (item['english'].casefold(), item['token']))
         total = len(items)
-        total_pages = (total + page_size - 1) // page_size
-        start = (page - 1) * page_size
+        if request.GET.get('all') == '1':
+            page = 1
+            page_size = max(total, 1)
+            total_pages = 1
+            selected_items = items
+        else:
+            total_pages = (total + page_size - 1) // page_size
+            start = (page - 1) * page_size
+            selected_items = items[start:start + page_size]
         return JsonResponse({'success': True, 'data': {
-            'items': items[start:start + page_size],
+            'items': selected_items,
             'pagination': {'page': page, 'page_size': page_size, 'total': total, 'total_pages': total_pages},
         }})
 

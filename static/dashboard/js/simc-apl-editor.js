@@ -46,16 +46,12 @@ function createCatalogAssistant(options) {
     let controller = null;
     let searchTimer = null;
     let destroyed = false;
-    let page = 1;
-    let totalPages = 1;
     let query = '';
 
     host.innerHTML = `<div class="simc-apl-assistant__mobile-heading"><strong>技能列表</strong><button type="button" data-apl-assistant-close>关闭</button></div><div class="simc-apl-assistant__toolbar">
         <label class="simc-apl-assistant__search"><span class="sr-only">搜索技能</span><input type="search" data-apl-catalog-query placeholder="搜索英文或中文技能名"></label>
-    </div><div class="simc-apl-catalog" data-apl-catalog-list></div>
-    <div class="simc-apl-catalog__pager"><button type="button" data-page-action="previous">上一页</button><span data-page-summary>第 1 页</span><button type="button" data-page-action="next">下一页</button></div>`;
+    </div><div class="simc-apl-catalog" data-apl-catalog-list></div>`;
     const list = host.querySelector('[data-apl-catalog-list]');
-    const summary = host.querySelector('[data-page-summary]');
     host.querySelector('[data-apl-assistant-close]').addEventListener('click', () => options.close?.());
 
     function render(items) {
@@ -75,20 +71,16 @@ function createCatalogAssistant(options) {
             row.addEventListener('click', () => options.insert(item.token));
             list.append(row);
         });
-        summary.textContent = `第 ${page}/${Math.max(1, totalPages)} 页`;
-        host.querySelector('[data-page-action="previous"]').disabled = page <= 1;
-        host.querySelector('[data-page-action="next"]').disabled = page >= totalPages;
     }
 
-    async function load(resetPage = false) {
+    async function load() {
         if (destroyed) return;
-        if (resetPage) page = 1;
         controller?.abort();
         controller = new AbortController();
         const activeController = controller;
         replaceTextMessage(list, '列表加载中…');
         const params = new URLSearchParams({
-            spec: String(options.getSpec?.() || ''), page: String(page), page_size: '50',
+            spec: String(options.getSpec?.() || ''), all: '1',
         });
         if (query) params.set('query', query);
         try {
@@ -98,7 +90,6 @@ function createCatalogAssistant(options) {
             const body = await response.json();
             if (!response.ok || body.success !== true) throw new Error(body.error?.message || '技能列表不可用');
             if (destroyed || controller !== activeController) return;
-            totalPages = body.data?.pagination?.total_pages || 1;
             render(body.data?.items || []);
         } catch (error) {
             if (error.name !== 'AbortError' && !destroyed && controller === activeController) {
@@ -110,13 +101,11 @@ function createCatalogAssistant(options) {
     host.querySelector('[data-apl-catalog-query]').addEventListener('input', event => {
         query = event.target.value.trim();
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(() => load(true), 250);
+        searchTimer = setTimeout(() => load(), 250);
     });
-    host.querySelector('[data-page-action="previous"]').addEventListener('click', () => { if (page > 1) { page -= 1; load(); } });
-    host.querySelector('[data-page-action="next"]').addEventListener('click', () => { if (page < totalPages) { page += 1; load(); } });
     load();
     return {
-        reload: () => load(true),
+        reload: () => load(),
         updateContext() {},
         destroy() {
             destroyed = true;
