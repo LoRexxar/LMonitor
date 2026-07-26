@@ -657,7 +657,6 @@ class UpdateSimcBinaryCommandTests(TestCase):
             with override_settings(SIMC_CONFIG={'simc_template': str(template_path)}):
                 command._sync_default_template()
                 template = SimcContentTemplate.objects.get(
-                    template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
                     source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
                     spec='default',
                     name='基础模板 default',
@@ -677,7 +676,6 @@ class UpdateSimcBinaryCommandTests(TestCase):
         from botend.management.commands.update_simc_binary import Command
 
         legacy = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='fury',
             name='基础模板 fury',
@@ -698,7 +696,6 @@ class UpdateSimcBinaryCommandTests(TestCase):
 
         legacy.refresh_from_db()
         canonical = SimcContentTemplate.objects.get(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='default',
             name='基础模板 default',

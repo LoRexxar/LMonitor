@@ -24,7 +24,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 from django.db import models
-from botend.models import SimcContentTemplate, SimcApl
+from botend.models import SimcContentTemplate, SimcApl, SimcProfile
 from botend.services.simc_player_config import SPEC_CLASS
 
 
@@ -446,11 +446,11 @@ class SimcComposer:
             spec = request_data.get('spec', 'fury')
             default_equipment = self._load_default_equipment(spec)
             if default_equipment:
-                content_hash = hashlib.sha256(default_equipment.content.encode('utf-8')).hexdigest()
+                content_hash = hashlib.sha256(default_equipment.player_equipment.encode('utf-8')).hexdigest()
                 return SlotResolution(
                     slot_name='equipment',
                     value=SlotValue(
-                        content=default_equipment.content,
+                        content=default_equipment.player_equipment,
                         source='default_template',
                         source_id=default_equipment.id,
                         source_version=default_equipment.sync_version,
@@ -471,11 +471,11 @@ class SimcComposer:
             spec = request_data.get('spec', 'fury')
             default_equipment = self._load_default_equipment(spec)
             if default_equipment:
-                content_hash = hashlib.sha256(default_equipment.content.encode('utf-8')).hexdigest()
+                content_hash = hashlib.sha256(default_equipment.player_equipment.encode('utf-8')).hexdigest()
                 return SlotResolution(
                     slot_name='equipment',
                     value=SlotValue(
-                        content=default_equipment.content,
+                        content=default_equipment.player_equipment,
                         source='default_template',
                         source_id=default_equipment.id,
                         source_version=default_equipment.sync_version,
@@ -776,7 +776,7 @@ class SimcComposer:
             status='resolved'
         )
 
-    def _load_template_with_access_check(self, template_id: int, template_type: int) -> Optional[SimcContentTemplate]:
+    def _load_template_with_access_check(self, template_id: int) -> Optional[SimcContentTemplate]:
         """
         Load template with owner-based access control.
 
@@ -788,8 +788,7 @@ class SimcComposer:
         try:
             template = SimcContentTemplate.objects.get(
                 id=template_id,
-                template_type=template_type,
-                is_active=True
+                is_active=True,
             )
 
             # Check access: global (owner_user_id=None) or user-owned
@@ -819,10 +818,7 @@ class SimcComposer:
         # Explicit base_template_id with access control
         base_template_id = request_data.get('base_template_id')
         if base_template_id:
-            template = self._load_template_with_access_check(
-                base_template_id,
-                SimcContentTemplate.TYPE_BASE_TEMPLATE
-            )
+            template = self._load_template_with_access_check(base_template_id)
             if template:
                 return template.content, template.id, template.sync_version
             else:
@@ -838,7 +834,6 @@ class SimcComposer:
         from django.db.models import Q
         templates = SimcContentTemplate.objects.filter(
             Q(owner_user_id=None) | Q(owner_user_id=self.user_id),
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec=spec_key,
             is_active=True
         )
@@ -979,18 +974,18 @@ class SimcComposer:
 
         return count
 
-    def _load_default_equipment(self, spec: str) -> Optional[SimcContentTemplate]:
+    def _load_default_equipment(self, spec: str) -> Optional[SimcProfile]:
         """Load default equipment template by spec with proper isolation."""
         spec = spec.lower()
         class_name = SPEC_CLASS.get(spec, 'warrior')
         spec_key = f'{class_name}_{spec}'
 
         # Only load global defaults (SOURCE_SIMC_UPSTREAM), user-private equipment not supported yet
-        templates = SimcContentTemplate.objects.filter(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+        templates = SimcProfile.objects.filter(
+            user_id__isnull=True,
             spec=spec_key,
             is_active=True,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
         )
 
         count = templates.count()

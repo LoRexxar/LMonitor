@@ -239,23 +239,23 @@ def resolve_attribute_player_baseline(spec, player_equipment=''):
     if explicit:
         return validate_player_baseline(explicit)
 
-    from botend.models import SimcContentTemplate
+    from botend.models import SimcProfile
     spec_value = str(spec or '').strip().lower()
     class_name, canonical_spec = canonical_simc_spec_identity(spec_value)
     template_key = f'{class_name}_{canonical_spec}' if class_name else spec_value
-    queryset = SimcContentTemplate.objects.filter(
-        template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-        source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+    queryset = SimcProfile.objects.filter(
+        user_id__isnull=True,
+        source=SimcProfile.SOURCE_SIMC_UPSTREAM,
         is_active=True,
     )
     matches = list(queryset.filter(spec=template_key).order_by('id')[:2])
     if len(matches) > 1:
         raise ValueError(f'专精 {spec_value or "未知"} 存在重复的默认玩家装备模板，请先修复模板数据')
-    template = matches[0] if matches else None
-    if not template:
+    profile = matches[0] if matches else None
+    if not profile:
         raise ValueError(f'专精 {spec_value or "未知"} 未配置启用的默认玩家装备模板，无法生成玩家装备基线')
     try:
-        return validate_default_player_baseline(template_key, template.content)
+        return validate_default_player_baseline(template_key, profile.player_equipment)
     except ValueError as exc:
         raise ValueError(f'专精 {spec_value or "未知"} 的默认玩家装备模板无效: {exc}') from exc
 

@@ -1136,8 +1136,19 @@ class SimcProfile(models.Model):
     """
     SimC配置模型 - 玩家配置预设，绑定专精并保存 Battle.net 或手动装备块导入信息。
     """
-    user_id = models.IntegerField(help_text="用户ID")
+    SOURCE_USER = 'user'
+    SOURCE_SIMC_UPSTREAM = 'simc_upstream'
+    SOURCE_CHOICES = (
+        (SOURCE_USER, '用户维护'),
+        (SOURCE_SIMC_UPSTREAM, 'SimC源码同步'),
+    )
+
+    user_id = models.IntegerField(null=True, blank=True, help_text="用户ID，NULL表示系统玩家配置")
     name = models.CharField(max_length=200, help_text="配置名称")
+    source = models.CharField(max_length=32, choices=SOURCE_CHOICES, default=SOURCE_USER, help_text="配置来源")
+    system_key = models.CharField(max_length=200, null=True, blank=True, unique=True, help_text="系统配置稳定标识")
+    class_name = models.CharField(max_length=50, default='', blank=True, help_text="职业英文名，如 warrior")
+    sync_version = models.CharField(max_length=128, default='', blank=True, help_text="同步来源版本/提交")
     spec = models.CharField(max_length=100, default="fury", help_text="专精标识，如 fury/arms/fire")
     player_config_mode = models.CharField(max_length=50, default="battlenet", help_text="玩家配置来源：battlenet/manual_equipment")
     battlenet_region = models.CharField(max_length=20, default="", blank=True)
@@ -1156,6 +1167,15 @@ class SimcProfile(models.Model):
         db_table = 'simc_profile'
         verbose_name = 'SimC配置'
         verbose_name_plural = 'SimC配置'
+
+    def save(self, *args, **kwargs):
+        # The canonical key is derived rather than caller-controlled, so SQLite
+        # and MySQL both enforce one active upstream baseline per specialization.
+        if self.user_id is None and self.source == self.SOURCE_SIMC_UPSTREAM and self.is_active:
+            self.system_key = f'simc_upstream:{self.spec}'
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = set(kwargs['update_fields']) | {'system_key'}
+        super().save(*args, **kwargs)
 
 
 class SimcSecondaryStatRule(models.Model):
@@ -1193,15 +1213,9 @@ class SimcContentTemplate(models.Model):
     """
     SimC 基础输入模板。
 
-    默认玩家配置仍复用这张表作为系统内部导入资源，但不属于用户可管理的
-    “内容模板”资源；APL 使用独立的 SimcApl 表。
+    该表只保存用于拼装最终 SimC 输入的大基础模板；玩家配置和 APL
+    分别使用 SimcProfile 与 SimcApl 表。
     """
-    TYPE_BASE_TEMPLATE = 'base_template'
-    TYPE_DEFAULT_PLAYER = 'default_player'
-    TEMPLATE_TYPE_CHOICES = (
-        (TYPE_BASE_TEMPLATE, '基础模板'),
-        (TYPE_DEFAULT_PLAYER, '默认玩家装备模板'),
-    )
     SOURCE_SIMC_UPSTREAM = 'simc_upstream'
     SOURCE_USER = 'user'
     SOURCE_CHOICES = (
@@ -1210,7 +1224,6 @@ class SimcContentTemplate(models.Model):
     )
 
     name = models.CharField(max_length=200, default='', blank=True, help_text="展示名称")
-    template_type = models.CharField(max_length=32, choices=TEMPLATE_TYPE_CHOICES, default=TYPE_BASE_TEMPLATE, help_text="内容类型")
     source = models.CharField(max_length=32, choices=SOURCE_CHOICES, default=SOURCE_USER, help_text="内容来源")
     spec = models.CharField(max_length=100, default="default", help_text="专精标识，如 warrior_fury/default")
     class_name = models.CharField(max_length=50, default='', blank=True, help_text="职业英文名，如 warrior")
@@ -1228,8 +1241,8 @@ class SimcContentTemplate(models.Model):
         verbose_name = 'SimC模板'
         verbose_name_plural = 'SimC模板'
         indexes = [
-            models.Index(fields=['template_type', 'spec', 'is_active']),
-            models.Index(fields=['source', 'template_type']),
+            models.Index(fields=['spec', 'is_active']),
+            models.Index(fields=['source']),
         ]
 
     def _normalize_name(self):
@@ -1240,30 +1253,22 @@ class SimcContentTemplate(models.Model):
 
     def _compute_active_unique_key(self):
         """
-        Compute active_unique_key based on template_type, owner, spec, and name.
+        Compute active_unique_key based on owner and spec.
         Returns None if is_active=False.
         """
         if not self.is_active:
             return None
 
-        template_type = self.template_type
         owner = 'global' if self.owner_user_id is None else self.owner_user_id
         spec = self.spec or 'default'
-
-        if template_type in (self.TYPE_BASE_TEMPLATE, self.TYPE_DEFAULT_PLAYER):
-            if owner == 'global':
-                return f'{template_type}:global:{spec}'
-            else:
-                return f'{template_type}:{owner}:{spec}'
-        return None
+        return f'base_template:{owner}:{spec}'
 
     def save(self, *args, **kwargs):
         self.active_unique_key = self._compute_active_unique_key()
         super().save(*args, **kwargs)
 
     def __str__(self):
-        label = self.name or self.spec or self.template_type
-        return f'{self.get_template_type_display()} {label}'
+        return self.name or self.spec or f'基础模板 {self.pk}'
 
 
 class SimcBackendBinary(models.Model):

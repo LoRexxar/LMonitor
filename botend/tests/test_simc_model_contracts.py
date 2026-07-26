@@ -16,7 +16,42 @@ Tests for SimcApl uniqueness and naming:
 """
 from django.test import TestCase
 from django.db import IntegrityError, transaction
-from botend.models import SimcApl, SimcBackendBinary, SimcContentTemplate, SimcTask, SimulationRun
+from botend.models import (
+    SimcApl, SimcBackendBinary, SimcContentTemplate, SimcProfile,
+    SimcTask, SimulationRun,
+)
+
+
+class SimcResourceTableBoundaryTests(TestCase):
+    def test_base_template_table_has_no_resource_type_discriminator(self):
+        field_names = {field.name for field in SimcContentTemplate._meta.fields}
+        self.assertNotIn('template_type', field_names)
+
+    def test_system_default_player_is_a_profile(self):
+        profile = SimcProfile.objects.create(
+            user_id=None,
+            name='MID1 Fury player',
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            class_name='warrior',
+            spec='warrior_fury',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Default"\nspec=fury',
+        )
+        self.assertIsNone(profile.user_id)
+        self.assertEqual(profile.system_key, 'simc_upstream:warrior_fury')
+
+    def test_active_system_default_player_key_is_derived_from_spec(self):
+        SimcProfile.objects.create(
+            user_id=None, name='first', source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='caller-controlled-key', spec='warrior_fury',
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                SimcProfile.objects.create(
+                    user_id=None, name='second', source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+                    system_key='another-caller-controlled-key', spec='warrior_fury',
+                )
 
 
 class SimcContentTemplateGlobalUniqueTests(TestCase):
@@ -25,7 +60,6 @@ class SimcContentTemplateGlobalUniqueTests(TestCase):
     def test_global_base_template_second_active_same_spec_rejected(self):
         """Second active global base_template with same spec must fail."""
         SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='warrior_fury',
             content='first',
             is_active=True,
@@ -35,28 +69,7 @@ class SimcContentTemplateGlobalUniqueTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 SimcContentTemplate.objects.create(
-                    template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
-                    spec='warrior_fury',
-                    content='second',
-                    is_active=True,
-                    owner_user_id=None,
-                )
-
-    def test_global_default_player_second_active_same_spec_rejected(self):
-        """Second active global default_player with same spec must fail."""
-        SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            spec='warrior_fury',
-            content='first',
-            is_active=True,
-            owner_user_id=None,
-        )
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                SimcContentTemplate.objects.create(
-                    template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                    spec='warrior_fury',
+                            spec='warrior_fury',
                     content='second',
                     is_active=True,
                     owner_user_id=None,
@@ -69,7 +82,6 @@ class SimcContentTemplateInactiveAllowsDuplicateTests(TestCase):
     def test_inactive_templates_can_duplicate_same_spec(self):
         """Multiple inactive templates with same type+spec are allowed."""
         SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='warrior_fury',
             content='first',
             is_active=False,
@@ -78,7 +90,6 @@ class SimcContentTemplateInactiveAllowsDuplicateTests(TestCase):
 
         # Should succeed
         SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='warrior_fury',
             content='second',
             is_active=False,
@@ -88,8 +99,7 @@ class SimcContentTemplateInactiveAllowsDuplicateTests(TestCase):
         # Verify both exist
         self.assertEqual(
             SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
-                spec='warrior_fury',
+                    spec='warrior_fury',
                 is_active=False,
             ).count(),
             2
@@ -102,7 +112,6 @@ class SimcContentTemplateUserIsolationTests(TestCase):
     def test_same_user_duplicate_base_template_rejected(self):
         """Same user cannot have two active base_template for same spec."""
         SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='warrior_fury',
             content='first',
             is_active=True,
@@ -112,8 +121,7 @@ class SimcContentTemplateUserIsolationTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 SimcContentTemplate.objects.create(
-                    template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
-                    spec='warrior_fury',
+                            spec='warrior_fury',
                     content='second',
                     is_active=True,
                     owner_user_id=1001,
@@ -236,7 +244,6 @@ class SimcContentTemplateActiveUniqueKeyRecalculationTests(TestCase):
     def test_save_recalculates_active_unique_key(self):
         """Saving a template always recalculates active_unique_key."""
         tpl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='warrior_fury',
             content='content',
             is_active=True,
@@ -256,7 +263,6 @@ class SimcContentTemplateActiveUniqueKeyRecalculationTests(TestCase):
     def test_deactivating_template_sets_key_to_null(self):
         """Deactivating a template sets active_unique_key to NULL."""
         tpl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='warrior_fury',
             content='content',
             is_active=True,
@@ -274,7 +280,6 @@ class SimcContentTemplateActiveUniqueKeyRecalculationTests(TestCase):
     def test_reactivating_template_recalculates_key(self):
         """Reactivating a template recalculates active_unique_key."""
         tpl = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='warrior_fury',
             content='content',
             is_active=False,

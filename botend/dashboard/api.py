@@ -1432,9 +1432,9 @@ class SimcTaskAPIView(View):
                     return JsonResponse({'success': False, 'error': '已保存玩家配置专精与目标专精不一致'}, status=400)
             elif source_type == 'default':
                 default_key = f'{target_class}_{target_spec}'
-                default_rows = SimcContentTemplate.objects.filter(
-                    template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                    source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                default_rows = SimcProfile.objects.filter(
+                    user_id__isnull=True,
+                    source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                     spec=default_key, is_active=True,
                 )
                 count = default_rows.count()
@@ -1444,7 +1444,7 @@ class SimcTaskAPIView(View):
                         'error': f'专精 {default_key} 默认玩家配置{("缺少" if count == 0 else f"存在多个（{count} 个）")}，需要且只能解析到一个',
                     }, status=409)
                 try:
-                    baseline = validate_default_player_baseline(default_key, default_rows.get().content)
+                    baseline = validate_default_player_baseline(default_key, default_rows.get().player_equipment)
                 except ValueError as exc:
                     return JsonResponse({'success': False, 'error': str(exc)}, status=400)
                 profile_fields = {
@@ -1868,7 +1868,6 @@ class SimcTaskAPIView(View):
             if base_template_id not in (None, ''):
                 template_obj = _get_simc_content_by_id(
                     base_template_id,
-                    allowed_types=[SimcContentTemplate.TYPE_BASE_TEMPLATE],
                     owner_user_id=owner_user_id,
                 )
                 if not template_obj:
@@ -1878,7 +1877,6 @@ class SimcTaskAPIView(View):
         elif base_template_id not in (None, ''):
             template_obj = _get_simc_content_by_id(
                 base_template_id,
-                allowed_types=[SimcContentTemplate.TYPE_BASE_TEMPLATE],
                 owner_user_id=owner_user_id,
             )
             if not template_obj:
@@ -1888,7 +1886,6 @@ class SimcTaskAPIView(View):
         elif not base.get('base_template_content') and spec:
             # 先匹配专精模板；没有时再使用唯一全局默认模板。每一层都 fail closed。
             candidates = SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
                 is_active=True,
                 spec=spec,
             ).filter(models.Q(owner_user_id__isnull=True) | models.Q(owner_user_id=owner_user_id))
@@ -1896,7 +1893,6 @@ class SimcTaskAPIView(View):
                 raise Exception(f'专精 {spec} 有多个启用的基础模板，请明确选择一个')
             if candidates.count() == 0:
                 candidates = SimcContentTemplate.objects.filter(
-                    template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
                     is_active=True,
                     spec__in=['default', 'all', '*'],
                 ).filter(models.Q(owner_user_id__isnull=True) | models.Q(owner_user_id=owner_user_id))
@@ -2172,9 +2168,9 @@ class SimcComparisonTaskAPIView(View):
                     raise ValueError('必须选择有效的目标专精')
                 if source_type == 'default':
                     default_key = f'{target_class}_{target_spec}'
-                    default_rows = SimcContentTemplate.objects.filter(
-                        template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                        source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                    default_rows = SimcProfile.objects.filter(
+                        user_id__isnull=True,
+                        source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                         spec=default_key, is_active=True,
                     )
                     count = default_rows.count()
@@ -2182,7 +2178,7 @@ class SimcComparisonTaskAPIView(View):
                         raise ValueError(
                             f'专精 {default_key} 默认玩家配置{("缺少" if count == 0 else f"存在多个（{count} 个）")}，需要且只能解析到一个'
                         )
-                    baseline = validate_default_player_baseline(default_key, default_rows.get().content)
+                    baseline = validate_default_player_baseline(default_key, default_rows.get().player_equipment)
                     parsed = parse_manual_player_config(baseline, target_spec)
                     profile_fields = {
                         'name': f'本次默认配置 · {target_spec}', 'spec': target_spec,
@@ -2232,14 +2228,14 @@ class SimcComparisonTaskAPIView(View):
                         # Attribute variants use the stable upstream baseline so rating
                         # overrides are rendered into the final SimC input.
                         default_key = f'{target_class}_{target_spec}'
-                        default_rows = SimcContentTemplate.objects.filter(
-                            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+                        default_rows = SimcProfile.objects.filter(
+                            user_id__isnull=True,
+                            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                             spec=default_key, is_active=True,
                         )
                         if default_rows.count() != 1:
                             raise ValueError(f'专精 {default_key} 默认玩家配置需要且只能解析到一个')
-                        frozen_baseline = validate_default_player_baseline(default_key, default_rows.get().content)
+                        frozen_baseline = validate_default_player_baseline(default_key, default_rows.get().player_equipment)
                         frozen_parsed = parse_manual_player_config(frozen_baseline, target_spec)
                         profile_fields = {
                             **values,
@@ -2591,8 +2587,8 @@ def _normalize_simc_token(value):
     return re.sub(r'[^a-z0-9_]+', '_', str(value or '').strip().lower()).strip('_')
 
 
-def _get_active_simc_content(template_type, spec=None, source=None, class_name=None, selectable=None):
-    qs = SimcContentTemplate.objects.filter(template_type=template_type, is_active=True)
+def _get_active_simc_content(spec=None, source=None, class_name=None, selectable=None):
+    qs = SimcContentTemplate.objects.filter(is_active=True)
     if source:
         qs = qs.filter(source=source)
     if selectable is not None:
@@ -2655,7 +2651,6 @@ def _resolve_home_creation_defaults(spec_key, class_name='', owner_user_id=None)
     default_apl = default_apls.get()
 
     templates = SimcContentTemplate.objects.filter(
-        template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
         is_active=True, is_selectable=True,
     ).filter(models.Q(owner_user_id__isnull=True) | models.Q(owner_user_id=owner_user_id))
     if class_name:
@@ -2669,15 +2664,13 @@ def _resolve_home_creation_defaults(spec_key, class_name='', owner_user_id=None)
     return default_apl, candidates.get()
 
 
-def _get_simc_content_by_id(content_id, allowed_types=None, owner_user_id=None):
+def _get_simc_content_by_id(content_id, owner_user_id=None):
     if not content_id:
         return None
     try:
         qs = SimcContentTemplate.objects.filter(id=int(content_id), is_active=True)
     except (TypeError, ValueError):
         return None
-    if allowed_types:
-        qs = qs.filter(template_type__in=allowed_types)
     qs = qs.filter(models.Q(owner_user_id__isnull=True) | models.Q(owner_user_id=owner_user_id))
     return qs.first()
 
@@ -5076,7 +5069,6 @@ class SimcTemplateAPIView(View):
         template = SimcContentTemplate.objects.filter(
             id=template_id,
             owner_user_id__isnull=True,
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
         ).first()
         if not template:
             return None, JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
@@ -5107,12 +5099,11 @@ class SimcTemplateAPIView(View):
         try:
             template_id = request.GET.get('id')
             requested_type = request.GET.get('template_type')
-            if requested_type and requested_type != SimcContentTemplate.TYPE_BASE_TEMPLATE:
+            if requested_type and requested_type != 'base_template':
                 return JsonResponse({'success': False, 'error': '无效的模板类型'}, status=400)
 
             templates = SimcContentTemplate.objects.filter(
                 owner_user_id__isnull=True,
-                template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             ).order_by('spec', '-id')
 
             if template_id:
@@ -5127,7 +5118,7 @@ class SimcTemplateAPIView(View):
                     'spec': template.spec,
                     'class_name': template.class_name,
                     'name': template.name,
-                    'template_type': template.template_type,
+                    'template_type': 'base_template',
                     'source': template.source,
                     'is_active': template.is_active,
                     'is_selectable': template.is_selectable,
@@ -5142,7 +5133,7 @@ class SimcTemplateAPIView(View):
                     'spec': template.spec,
                     'class_name': template.class_name,
                     'name': template.name,
-                    'template_type': template.template_type,
+                    'template_type': 'base_template',
                     'source': template.source,
                     'is_active': template.is_active,
                     'is_selectable': template.is_selectable,
@@ -5172,8 +5163,16 @@ class SimcTemplateAPIView(View):
             template, error_response = self._get_writable_template(request, template_id)
             if error_response:
                 return error_response
-            immutable_fields = ('name', 'template_type', 'type', 'source', 'spec', 'class_name')
-            if any(field in data and data[field] != getattr(template, 'template_type' if field == 'type' else field) for field in immutable_fields):
+            immutable_fields = ('name', 'source', 'spec', 'class_name')
+            identity_changed = any(
+                field in data and data[field] != getattr(template, field)
+                for field in immutable_fields
+            )
+            identity_changed = identity_changed or any(
+                field in data and data[field] != 'base_template'
+                for field in ('template_type', 'type')
+            )
+            if identity_changed:
                 return JsonResponse({'success': False, 'error': '系统模板身份字段不可修改'}, status=400)
             validation_error = self._validate_base_template(template_content)
             if validation_error:
@@ -5213,18 +5212,14 @@ class SimcWorkbenchAPIView(View):
 
     @staticmethod
     def _template_is_protected(template):
-        return (
-            template.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM
-            or template.template_type == SimcContentTemplate.TYPE_DEFAULT_PLAYER
-        )
+        return template.source == SimcContentTemplate.SOURCE_SIMC_UPSTREAM
 
     @classmethod
     def _template_is_writable(cls, request, template):
         if cls._template_is_protected(template):
             return False
         return (
-            template.template_type == SimcContentTemplate.TYPE_BASE_TEMPLATE
-            and template.owner_user_id is None
+            template.owner_user_id is None
             and (request.user.is_staff or request.user.is_superuser)
         )
 
@@ -5233,10 +5228,7 @@ class SimcWorkbenchAPIView(View):
         template = SimcContentTemplate.objects.filter(id=object_id).first()
         if not template:
             return None, JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
-        if (
-            template.template_type != SimcContentTemplate.TYPE_BASE_TEMPLATE
-            or template.owner_user_id is not None
-        ):
+        if template.owner_user_id is not None:
             return None, JsonResponse({'success': False, 'error': '模板不存在'}, status=404)
         if cls._template_is_protected(template):
             return None, JsonResponse({'success': False, 'error': '受保护模板为只读资源'}, status=403)
@@ -5245,10 +5237,8 @@ class SimcWorkbenchAPIView(View):
         return None, JsonResponse({'success': False, 'error': '系统模板仅管理员可修改'}, status=403)
 
     @staticmethod
-    def _validate_template_content(template_type, content):
-        if template_type == SimcContentTemplate.TYPE_BASE_TEMPLATE:
-            return SimcTemplateAPIView._validate_base_template(content)
-        return None
+    def _validate_template_content(content):
+        return SimcTemplateAPIView._validate_base_template(content)
 
     @staticmethod
     def _is_unique_integrity_error(exc):
@@ -5620,15 +5610,14 @@ class SimcWorkbenchAPIView(View):
             # APL 则由独立的 APL 资源库负责，不能混入内容模板列表。
             qs = SimcContentTemplate.objects.filter(
                 owner_user_id__isnull=True,
-                template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             ).order_by('spec', 'name')
             if object_id:
                 qs = qs.filter(id=object_id)
             rows = []
             for row in qs:
                 item = {
-                    'id': row.id, 'name': row.name, 'template_type': row.template_type,
-                    'type_label': row.get_template_type_display(), 'source': row.source, 'spec': row.spec,
+                    'id': row.id, 'name': row.name, 'template_type': 'base_template',
+                    'type_label': '基础模板', 'source': row.source, 'spec': row.spec,
                     'class_name': row.class_name, 'is_active': row.is_active,
                     'is_selectable': row.is_selectable, 'is_system': row.owner_user_id is None,
                     'read_only': not self._template_is_writable(request, row),
@@ -5928,13 +5917,20 @@ class SimcWorkbenchAPIView(View):
             if error_response:
                 return error_response
             try:
-                immutable_fields = ('name', 'template_type', 'source', 'spec', 'class_name')
-                if any(field in data and data[field] != getattr(tpl, field) for field in immutable_fields):
+                immutable_fields = ('name', 'source', 'spec', 'class_name')
+                identity_changed = any(
+                    field in data and data[field] != getattr(tpl, field)
+                    for field in immutable_fields
+                )
+                identity_changed = identity_changed or (
+                    'template_type' in data and data['template_type'] != 'base_template'
+                )
+                if identity_changed:
                     return JsonResponse({'success': False, 'error': '系统模板身份字段不可修改'}, status=400)
                 target_content = str(data['content'] or '') if 'content' in data else tpl.content
                 if not target_content.strip():
                     return JsonResponse({'success': False, 'error': '模板内容不能为空'}, status=400)
-                validation_error = self._validate_template_content(tpl.template_type, target_content)
+                validation_error = self._validate_template_content(target_content)
                 if validation_error:
                     return JsonResponse({'success': False, 'error': validation_error}, status=400)
                 if 'content' in data:

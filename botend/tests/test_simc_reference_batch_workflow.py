@@ -74,7 +74,6 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name='Batch Base Template',
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='fury',
             content='{simulation_options}\n{player_config}\n{stat_overrides}\n{action_list}\n{output_options}',
             is_active=True,
@@ -207,7 +206,6 @@ class ReferenceBatchAPIViewTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name='API Batch Base Template',
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='fury',
             content='{simulation_options}\n{player_config}\n{stat_overrides}\n{action_list}\n{output_options}',
             is_active=True,
@@ -480,7 +478,7 @@ class ReferenceBatchAPIViewTests(TestCase):
             is_active=True,
         )
         template = SimcContentTemplate.objects.create(
-            name='Preview Template', template_type='base_template', spec='warrior_fury',
+            name='Preview Template', spec='warrior_fury',
             content='iterations=100', is_active=True, is_selectable=True,
         )
         apl = SimcApl.objects.create(
@@ -514,7 +512,7 @@ class ReferenceBatchAPIViewTests(TestCase):
             player_config_mode='manual_equipment', player_equipment='warrior="Rerun"', is_active=True,
         )
         template = SimcContentTemplate.objects.create(
-            name='Rerun Template', template_type='base_template', spec='warrior_fury',
+            name='Rerun Template', spec='warrior_fury',
             content='iterations=100', is_active=True, is_selectable=True,
         )
         apl = SimcApl.objects.create(

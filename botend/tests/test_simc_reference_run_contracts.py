@@ -84,7 +84,7 @@ class SimcReferenceRunContractTests(TestCase):
             is_active=True,
         )
         self.template = SimcContentTemplate.objects.create(
-            name='contract template', template_type='base_template', spec='fury',
+            name='contract template', spec='fury',
             content='{simulation_options}\n{player_config}\n{action_list}\n{output_options}',
             is_active=True, is_selectable=True,
         )

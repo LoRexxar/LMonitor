@@ -78,7 +78,12 @@ def _validate_resource_ownership(
     if resource_type == 'profile':
         if not isinstance(resource, SimcProfile):
             raise TaskCreationError(f"Invalid profile resource")
-        if resource.user_id != user_id:
+        is_system_default = (
+            resource.user_id is None
+            and resource.source == SimcProfile.SOURCE_SIMC_UPSTREAM
+            and bool(resource.system_key)
+        )
+        if resource.user_id != user_id and not is_system_default:
             raise TaskCreationError(
                 f"Profile {resource.id} belongs to user {resource.user_id}, not {user_id}"
             )
@@ -185,7 +190,6 @@ def _build_template_payload(template: SimcContentTemplate) -> dict:
     """Build immutable payload from SimcContentTemplate."""
     return {
         'name': template.name,
-        'template_type': template.template_type,
         'spec': template.spec,
         'content': template.content,
     }

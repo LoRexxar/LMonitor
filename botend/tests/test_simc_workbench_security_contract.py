@@ -35,7 +35,6 @@ class SimcWorkbenchSecurityContractTests(TestCase):
     def test_old_template_api_never_mutates_upstream_rows_even_for_staff(self):
         staff = User.objects.create_user(username="simc-staff", password="test-password", is_staff=True)
         upstream = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec="warrior_fury", name="Upstream", content="iterations=10000",
             is_active=True,

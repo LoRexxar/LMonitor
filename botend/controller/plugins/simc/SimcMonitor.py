@@ -1253,7 +1253,6 @@ class SimcMonitor(BaseScan):
 
         queryset = SimcContentTemplate.objects.filter(
             is_active=True,
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
         ).order_by('id')
         return self._select_template_from_queryset(queryset, spec_value, player_config_mode=import_mode)
 

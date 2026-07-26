@@ -4,7 +4,7 @@ import os
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from botend.models import SimcContentTemplate
+from botend.models import SimcProfile
 from botend.services.simc_player_config import validate_default_player_baseline, validate_player_baseline
 
 
@@ -110,21 +110,23 @@ class Command(BaseCommand):
             imported += 1
 
         if not options['dry_run'] and errors == 0:
-            active_specs = [row[0] for row in validated]
+            active_keys = [f'simc_upstream:{row[0]}' for row in validated]
             with transaction.atomic():
-                SimcContentTemplate.objects.filter(
-                    template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                    source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-                ).exclude(spec__in=active_specs).update(is_active=False)
+                SimcProfile.objects.filter(
+                    user_id__isnull=True,
+                    source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+                    system_key__startswith='simc_upstream:',
+                ).exclude(system_key__in=active_keys).update(is_active=False)
                 for spec_key, class_name, baseline in validated:
-                    SimcContentTemplate.objects.update_or_create(
-                        template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                        source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-                        spec=spec_key,
+                    SimcProfile.objects.update_or_create(
+                        system_key=f'simc_upstream:{spec_key}',
                         defaults={
+                            'user_id': None,
+                            'source': SimcProfile.SOURCE_SIMC_UPSTREAM,
                             'name': f'MID1 默认玩家 {spec_key}', 'class_name': class_name,
-                            'content': baseline, 'sync_version': options['sync_version'],
-                            'is_active': True, 'is_selectable': False,
+                            'spec': spec_key, 'player_config_mode': 'manual_equipment',
+                            'player_equipment': baseline, 'talent': '',
+                            'sync_version': options['sync_version'], 'is_active': True,
                         },
                     )
         action = '预览' if options['dry_run'] else '导入'

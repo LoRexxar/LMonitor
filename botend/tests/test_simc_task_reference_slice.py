@@ -164,7 +164,6 @@ class SimcTaskServiceTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name="Template",
-            template_type="base_template",
             spec="warrior_fury",
             content="iterations=1000\ntarget_error=0.1",
             is_active=True,
@@ -422,7 +421,6 @@ class TaskResolverWithVersionsTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name="Template",
-            template_type="base_template",
             spec="warrior_fury",
             content="iterations=1000",
             is_active=True,
@@ -523,7 +521,6 @@ class TaskRerunWithVersionsTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name="Template",
-            template_type="base_template",
             spec="warrior_fury",
             content="iterations=1000",
             is_active=True,

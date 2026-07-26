@@ -96,7 +96,6 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
 
         self.template = SimcContentTemplate.objects.create(
             name="Base Template",
-            template_type="base_template",
             spec="warrior_fury",
             content="iterations=1000\ntarget_error=0.1",
             is_active=True,
@@ -505,7 +504,6 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         """RED: API should reject template owned by other user."""
         other_template = SimcContentTemplate.objects.create(
             name="Other Template",
-            template_type="base_template",
             spec="warrior_fury",
             content="iterations=2000",
             is_active=True,
@@ -853,7 +851,6 @@ class SimcProfileAPISimulateNowContractsTests(TestCase):
 
         self.template = SimcContentTemplate.objects.create(
             name="Base Template",
-            template_type="base_template",
             spec="warrior_fury",
             content="iterations=1000",
             is_active=True,

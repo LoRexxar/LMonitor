@@ -114,7 +114,7 @@ class SimcAplPublishValidationTests(TestCase):
             player_equipment='warrior="Player"\nspec=fury\nmain_hand=,id=1', is_active=True,
         )
         self.template = SimcContentTemplate.objects.create(
-            name="Base", template_type="base_template", spec="warrior_fury",
+            name="Base", spec="warrior_fury",
             content="{simulation_options}\n{player_config}\n{action_list}\n{output_options}",
             owner_user_id=self.user.id, is_active=True, is_selectable=True,
         )

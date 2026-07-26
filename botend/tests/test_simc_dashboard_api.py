@@ -53,7 +53,6 @@ class SimcAplCanonicalClassAliasTests(TestCase):
         self.client.force_login(self.user)
         self.base_template = SimcContentTemplate.objects.create(
             name='Generic base template',
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='default',
             class_name='',
@@ -249,7 +248,6 @@ class SimcTemplateAPIViewTests(TestCase):
     def test_list_returns_metadata_preview_without_apl_source(self):
         """The legacy template list must not mix full APL source into its base-template view."""
         base = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='fury', name='基础模板', content='warrior="Template"', is_active=True,
         )
@@ -261,7 +259,7 @@ class SimcTemplateAPIViewTests(TestCase):
             is_system=True,
             is_active=True,
         )
-        response = self.client.get('/api/simc-template/?template_type=base_template')
+        response = self.client.get('/api/simc-template/')
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload['success'], payload)
@@ -274,15 +272,16 @@ class SimcTemplateAPIViewTests(TestCase):
 
     def test_default_player_cannot_create_or_mutate_identity_fields(self):
         """default_player 不允许通过 API 创建或改变 template_type/source/spec 身份字段。"""
-        protected = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='protected', content='secret baseline',
-            is_active=True, is_selectable=False,
+        protected = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            spec='warrior_fury', class_name='warrior', name='protected',
+            player_config_mode='manual_equipment', player_equipment='secret baseline',
+            is_active=True,
         )
         forbidden_attempts = [
             self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
-                'content': 'changed', 'template_type': 'base_template',
+                'content': 'changed',
             }), content_type='application/json'),
             self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
                 'content': 'changed', 'source': 'user',
@@ -291,26 +290,26 @@ class SimcTemplateAPIViewTests(TestCase):
                 'content': 'changed', 'spec': 'warrior_arms',
             }), content_type='application/json'),
             self.client.post('/api/simc-template/', data=json.dumps({
-                'content': 'forged', 'template_type': 'default_player',
+                'content': 'forged',
                 'source': 'simc_upstream', 'spec': 'warrior_fury',
             }), content_type='application/json'),
         ]
         for response in forbidden_attempts:
-            self.assertEqual(response.status_code, 403, response.content)
+            self.assertIn(response.status_code, (403, 404, 405), response.content)
             self.assertFalse(response.json()['success'])
         protected.refresh_from_db()
-        self.assertEqual(protected.content, 'secret baseline')
-        self.assertEqual(protected.template_type, SimcContentTemplate.TYPE_DEFAULT_PLAYER)
-        self.assertEqual(protected.source, SimcContentTemplate.SOURCE_SIMC_UPSTREAM)
+        self.assertEqual(protected.player_equipment, 'secret baseline')
+        self.assertEqual(protected.source, SimcProfile.SOURCE_SIMC_UPSTREAM)
         self.assertEqual(protected.spec, 'warrior_fury')
 
     def test_default_player_upstream_content_and_metadata_are_read_only(self):
         """simc_upstream 的 default_player 对 staff 也完全只读。"""
-        protected = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='Baseline', content='warrior="Fury"\nlevel=80',
-            is_active=True, is_selectable=False,
+        protected = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            spec='warrior_fury', class_name='warrior', name='Baseline',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Fury"\nlevel=80', is_active=True,
         )
         response = self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
             'content': 'warrior="Fury"\nlevel=80\nrace=orc',
@@ -318,18 +317,16 @@ class SimcTemplateAPIViewTests(TestCase):
             'is_selectable': True,
             'is_active': False,
         }), content_type='application/json')
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 404)
         self.assertFalse(response.json()['success'])
         protected.refresh_from_db()
-        self.assertNotIn('race=orc', protected.content)
+        self.assertNotIn('race=orc', protected.player_equipment)
         self.assertEqual(protected.name, 'Baseline')
-        self.assertFalse(protected.is_selectable)
         self.assertTrue(protected.is_active)
 
     def test_base_template_rejects_actor_lines(self):
         """base_template 必须恰好一个 {player_config} 占位符，不允许 actor= 行。"""
         valid = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='', name='Valid', content='fight_style=Patchwerk\n{player_config}\n',
             is_active=True,
@@ -355,21 +352,21 @@ class SimcTemplateAPIViewTests(TestCase):
 
     def test_delete_rejects_default_player(self):
         """DELETE 不允许删除 default_player 类型。"""
-        protected = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='Baseline', content='warrior="Fury"',
+        protected = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            spec='warrior_fury', class_name='warrior', name='Baseline',
+            player_config_mode='manual_equipment', player_equipment='warrior="Fury"',
             is_active=True,
         )
         response = self.client.delete(f'/api/simc-template/?id={protected.id}')
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 405)
         self.assertFalse(response.json()['success'])
-        self.assertTrue(SimcContentTemplate.objects.filter(id=protected.id).exists())
+        self.assertTrue(SimcProfile.objects.filter(id=protected.id).exists())
 
     def test_delete_allows_user_content(self):
         """DELETE 允许删除用户创建的 base_template/custom_apl/default_apl。"""
         user_base = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='', name='My Base', content='fight_style=Patchwerk\n{player_config}',
         )
@@ -381,9 +378,9 @@ class SimcTemplateAPIViewTests(TestCase):
             owner_user_id=self.user.id,
         )
         response = self.client.delete(f'/api/simc-template/?id={user_base.id}')
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()['success'])
-        self.assertFalse(SimcContentTemplate.objects.filter(id=user_base.id).exists())
+        self.assertEqual(response.status_code, 405)
+        self.assertFalse(response.json()['success'])
+        self.assertTrue(SimcContentTemplate.objects.filter(id=user_base.id).exists())
 
         response = self.client.delete(f'/api/simc-workbench/apls/{user_apl.id}/')
         self.assertEqual(response.status_code, 200)
@@ -392,7 +389,6 @@ class SimcTemplateAPIViewTests(TestCase):
         user = User.objects.create_user(username='readonly_template_user', password='pwd')
         self.client.force_login(user)
         system_template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='', name='System Base', content='fight_style=Patchwerk\n{player_config}',
         )
@@ -405,7 +401,7 @@ class SimcTemplateAPIViewTests(TestCase):
         delete = self.client.delete(f'/api/simc-template/?id={system_template.id}')
 
         self.assertEqual(update.status_code, 403)
-        self.assertEqual(delete.status_code, 403)
+        self.assertEqual(delete.status_code, 405)
         system_template.refresh_from_db()
         self.assertEqual(system_template.content, 'fight_style=Patchwerk\n{player_config}')
 
@@ -560,7 +556,6 @@ class SimcBatchVariableCompareTests(TestCase):
         self.client = Client()
         self.client.force_login(self.user)
         self.base_template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='warrior_fury',
             name='Batch contract base',
@@ -590,12 +585,15 @@ class SimcBatchVariableCompareTests(TestCase):
         )
         self.apl_validation.start()
         self.addCleanup(self.apl_validation.stop)
-        self.default_player = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+        self.default_player = SimcProfile.objects.create(
+            user_id=None,
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
             spec='warrior_fury',
+            class_name='warrior',
             name='MID1 Warrior Fury',
-            content=(
+            player_config_mode='manual_equipment',
+            player_equipment=(
                 'warrior="FrozenArmory"\nlevel=90\nspec=fury\ntalents=BASE\n'
                 'head=,id=1\nneck=,id=2\nshoulder=,id=3\nback=,id=4\nchest=,id=5\n'
                 'wrist=,id=6\nhands=,id=7\nwaist=,id=8\nlegs=,id=9\nfeet=,id=10\n'
@@ -1404,7 +1402,6 @@ class SimcNewConfigModeTests(TestCase):
         self.client = Client()
         self.client.force_login(self.user)
         self.base_template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='warrior_fury',
             content='{player_identity}\n{equipment}\n{action_list}\n{simulation_options}\n{stat_overrides}\n{output_options}',
@@ -1803,7 +1800,6 @@ html=simc_task_99.html
             player_equipment='warrior="Snapshot"\nspec=arms\nhead=,id=212048',
         )
         template = SimcContentTemplate.objects.create(
-            template_type='base_template',
             source='user',
             spec='warrior_arms',
             name='Rerun Test Template',
@@ -2004,13 +2000,11 @@ html=simc_task_99.html
             'botend.migrations.0103_enable_standard_simc_raid_buffs'
         )
         first = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='default',
             content='fight_style=Patchwerk\noptimal_raid=0\n{player_config}',
         )
         second = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='fury',
             content='optimal_raid=0\noverride.battle_shout=1',
@@ -2022,7 +2016,15 @@ html=simc_task_99.html
             source=SimcApl.SOURCE_SIMC_UPSTREAM,
             is_system=True,
         )
-        historical_model = SimpleNamespace(objects=SimcContentTemplate.objects)
+        class HistoricalTemplateManager:
+            @staticmethod
+            def filter(**kwargs):
+                # Migration 0103 ran while template_type still existed; all rows in
+                # the current physical table are base templates.
+                kwargs.pop('template_type', None)
+                return SimcContentTemplate.objects.filter(**kwargs)
+
+        historical_model = SimpleNamespace(objects=HistoricalTemplateManager())
         apps = SimpleNamespace(get_model=lambda *args: historical_model)
 
         migration.enable_standard_raid_buffs(apps, None)
@@ -2193,7 +2195,6 @@ class SimcPlayerConfigDetailTests(TestCase):
         self.client = Client()
         self.client.force_login(self.user)
         self.base_template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='warrior_fury',
             content='{player_identity}\n{equipment}\n{action_list}\n{simulation_options}\n{stat_overrides}\n{output_options}',

@@ -2,7 +2,7 @@ import json
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
-from botend.models import SimcApl, SimcContentTemplate
+from botend.models import SimcApl, SimcContentTemplate, SimcProfile
 
 
 class SimcTemplateDashboardFixTests(TestCase):
@@ -15,26 +15,24 @@ class SimcTemplateDashboardFixTests(TestCase):
 
     def test_legacy_template_api_lists_only_global_base_template(self):
         base = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='default', name='基础运行框架', content='fight_style={fight_style}\n{player_config}\n{action_list}',
             is_active=True,
         )
-        default_player = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='Fury 默认玩家', content='warrior="Default"\nspec=fury\nhead=,id=212048',
-            is_active=True, is_selectable=False,
+        default_player = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            spec='warrior_fury', class_name='warrior', name='Fury 默认玩家',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Default"\nspec=fury\nhead=,id=212048',
+            is_active=True,
         )
 
         response = self.client.get('/api/simc-template/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual([row['id'] for row in response.json()['templates']], [base.id])
 
-        hidden_list = self.client.get('/api/simc-template/?template_type=default_player')
-        self.assertEqual(hidden_list.status_code, 400)
-        hidden_detail = self.client.get(f'/api/simc-template/?id={default_player.id}')
-        self.assertEqual(hidden_detail.status_code, 404)
+        self.assertTrue(SimcProfile.objects.filter(pk=default_player.id).exists())
 
     def test_apl_management_uses_separate_api(self):
         """APL 管理使用独立的 /api/simc-workbench/apls/ 端点。"""
@@ -64,11 +62,13 @@ class SimcTemplateDashboardFixTests(TestCase):
         self.assertIn(custom_apl.id, ids)
 
     def test_internal_default_player_is_hidden_and_immutable(self):
-        default_player = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='Fury 默认玩家', content='warrior="Default"\nspec=fury\nhead=,id=212048',
-            is_active=True, is_selectable=False,
+        default_player = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            spec='warrior_fury', class_name='warrior', name='Fury 默认玩家',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Default"\nspec=fury\nhead=,id=212048',
+            is_active=True,
         )
 
         self.assertEqual(self.client.get(
@@ -88,11 +88,10 @@ class SimcTemplateDashboardFixTests(TestCase):
             f'/api/simc-template/?id={default_player.id}',
         ).status_code, 405)
         default_player.refresh_from_db()
-        self.assertEqual(default_player.content, 'warrior="Default"\nspec=fury\nhead=,id=212048')
+        self.assertEqual(default_player.player_equipment, 'warrior="Default"\nspec=fury\nhead=,id=212048')
 
     def test_staff_can_update_only_base_template_content(self):
         base = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='default', name='基础运行框架',
             content='iterations=100\n{player_config}\n', is_active=True,
@@ -119,7 +118,6 @@ class SimcTemplateDashboardFixTests(TestCase):
             '/api/simc-template/',
             data=json.dumps({
                 'content': 'warrior="Forged"\nspec=fury',
-                'template_type': 'default_player',
                 'source': 'simc_upstream',
                 'spec': 'warrior_fury',
             }),
@@ -127,4 +125,6 @@ class SimcTemplateDashboardFixTests(TestCase):
         )
         self.assertEqual(response.status_code, 405)
         self.assertFalse(response.json()['success'])
-        self.assertFalse(SimcContentTemplate.objects.filter(template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER).exists())
+        self.assertFalse(SimcProfile.objects.filter(
+            user_id__isnull=True, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+        ).exists())

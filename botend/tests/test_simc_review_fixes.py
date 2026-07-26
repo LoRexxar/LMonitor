@@ -38,7 +38,6 @@ class SimcReviewFixTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name="review template",
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec="fury",
             content="{player_config}\n{action_list}",
             is_active=True,

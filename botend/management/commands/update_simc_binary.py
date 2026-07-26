@@ -25,7 +25,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from botend.models import (SimcApl, SimcBackendBinary, SimcContentTemplate,
-                           WowSpellSnapshotState, WowTalentVersion)
+                           SimcProfile, WowSpellSnapshotState, WowTalentVersion)
 from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
 from botend.services.simc_apl.publish import content_hash
 from botend.services.simc_apl.validation import validate_payload
@@ -218,7 +218,6 @@ class Command(BaseCommand):
             return
 
         template, created = SimcContentTemplate.objects.update_or_create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='default',
             name='基础模板 default',
@@ -230,7 +229,6 @@ class Command(BaseCommand):
             }
         )
         SimcContentTemplate.objects.filter(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
         ).exclude(id=template.id).update(is_active=False, is_selectable=False)
         action = '创建' if created else '更新'
@@ -290,13 +288,16 @@ class Command(BaseCommand):
     def _validation_baseline_for_spec(spec, baselines):
         exact = baselines.get(spec)
         if exact is not None:
-            return exact
+            return type('ValidationBaseline', (), {
+                'content': exact.player_equipment, 'spec': exact.spec,
+                'class_name': exact.class_name,
+            })()
         class_name, short_spec = canonical_simc_spec_identity(spec)
         source = next((row for row in baselines.values()
                        if row.class_name == class_name), None)
         if source is None:
             return None
-        content = re.sub(r'(?m)^spec\s*=.*$', f'spec={short_spec}', source.content, count=1)
+        content = re.sub(r'(?m)^spec\s*=.*$', f'spec={short_spec}', source.player_equipment, count=1)
         content = re.sub(r'(?m)^talents\s*=.*\n?', '', content)
         return type('ValidationBaseline', (), {
             'content': content, 'spec': spec, 'class_name': class_name,
@@ -310,9 +311,9 @@ class Command(BaseCommand):
         if not apls:
             raise CommandError('本次 revision 没有可发布的系统 APL')
         baselines = {
-            row.spec: row for row in SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            row.spec: row for row in SimcProfile.objects.filter(
+                user_id__isnull=True,
+                source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                 is_active=True, sync_version=git_hash,
             )
         }
@@ -407,9 +408,9 @@ class Command(BaseCommand):
                     f'未找到可初始化的 MID1 profile: {profile_dir}',
                     progress=92,
                 )
-            baseline_rows = list(SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            baseline_rows = list(SimcProfile.objects.filter(
+                user_id__isnull=True,
+                source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                 is_active=True, sync_version=git_hash,
             ))
             baselines = {row.spec: row for row in baseline_rows}

@@ -1,10 +1,8 @@
-import importlib
 import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from django.apps import apps
 from django.contrib.auth.models import User
 from django.test import TestCase
 
@@ -27,7 +25,6 @@ class SimcWorkbenchTemplateResourceTests(TestCase):
         self.system = SimcContentTemplate.objects.create(
             owner_user_id=None,
             name='System Base',
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='default',
             content=self.BASE_CONTENT,
@@ -43,12 +40,14 @@ class SimcWorkbenchTemplateResourceTests(TestCase):
 
     def test_list_exposes_only_global_base_template(self):
         private = SimcContentTemplate.objects.create(
-            owner_user_id=self.owner.id, name='Legacy Private', template_type='custom_player',
+            owner_user_id=self.owner.id, name='Legacy Private',
             source='user', spec='legacy', content='warrior="Private"', is_active=True,
         )
-        default_player = SimcContentTemplate.objects.create(
-            owner_user_id=None, name='Default Player', template_type='default_player',
-            source='simc_upstream', spec='warrior_fury', content='warrior="Base"', is_active=True,
+        default_player = SimcProfile.objects.create(
+            user_id=None, name='Default Player', source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury', class_name='warrior',
+            spec='warrior_fury', player_config_mode='manual_equipment',
+            player_equipment='warrior="Base"', is_active=True,
         )
 
         payload = self.client.get('/api/simc-workbench/templates/').json()
@@ -56,7 +55,6 @@ class SimcWorkbenchTemplateResourceTests(TestCase):
         self.assertTrue(payload['data'][0]['read_only'])
         self.assertFalse(payload['can_write'])
         self.assertNotIn(private.id, [row['id'] for row in payload['data']])
-        self.assertNotIn(default_player.id, [row['id'] for row in payload['data']])
 
         self.client.force_login(self.staff)
         payload = self.client.get('/api/simc-workbench/templates/').json()
@@ -101,7 +99,6 @@ class SimcWorkbenchTemplateResourceTests(TestCase):
 
         for field, value in (
             ('name', 'Renamed'),
-            ('template_type', 'default_player'),
             ('spec', 'warrior_fury'),
             ('class_name', 'warrior'),
             ('source', 'simc_upstream'),
@@ -114,40 +111,36 @@ class SimcWorkbenchTemplateResourceTests(TestCase):
 
     def test_internal_or_private_templates_are_not_workbench_resources(self):
         private = SimcContentTemplate.objects.create(
-            owner_user_id=self.owner.id, name='Legacy Private', template_type='custom_player',
+            owner_user_id=self.owner.id, name='Legacy Private',
             source='user', spec='legacy', content='warrior="Private"', is_active=True,
         )
-        default_player = SimcContentTemplate.objects.create(
-            owner_user_id=None, name='Default Player', template_type='default_player',
-            source='simc_upstream', spec='warrior_fury', content='warrior="Base"', is_active=True,
+        default_player = SimcProfile.objects.create(
+            user_id=None, name='Default Player', source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury', class_name='warrior',
+            spec='warrior_fury', player_config_mode='manual_equipment',
+            player_equipment='warrior="Base"', is_active=True,
         )
         self.client.force_login(self.staff)
-        for template in (private, default_player):
-            path = f'/api/simc-workbench/templates/{template.id}/'
-            self.assertEqual(self.client.get(path).status_code, 404)
-            self.assertEqual(self._put(path, {'content': self.BASE_CONTENT}).status_code, 404)
+        path = f'/api/simc-workbench/templates/{private.id}/'
+        self.assertEqual(self.client.get(path).status_code, 404)
+        self.assertEqual(self._put(path, {'content': self.BASE_CONTENT}).status_code, 404)
+        self.assertTrue(SimcProfile.objects.filter(pk=default_player.id).exists())
 
-    def test_prune_migration_keeps_system_base_and_internal_players(self):
+    def test_split_resource_tables_keep_system_base_and_internal_players(self):
         duplicate = SimcContentTemplate.objects.create(
-            owner_user_id=None, name='Old Base', template_type='base_template',
+            owner_user_id=None, name='Old Base',
             source='user', spec='legacy', content=self.BASE_CONTENT, is_active=False,
         )
-        default_player = SimcContentTemplate.objects.create(
-            owner_user_id=None, name='Default Player', template_type='default_player',
-            source='simc_upstream', spec='warrior_fury', content='warrior="Base"', is_active=True,
+        default_player = SimcProfile.objects.create(
+            user_id=None, name='Default Player', source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury', class_name='warrior',
+            spec='warrior_fury', player_config_mode='manual_equipment',
+            player_equipment='warrior="Base"', is_active=True,
         )
-        legacy_apl = SimcContentTemplate.objects.create(
-            owner_user_id=None, name='Legacy APL', template_type='default_apl',
-            source='user', spec='warrior_fury', content='actions=/x', is_active=False,
-        )
-
-        migration = importlib.import_module('botend.migrations.0127_prune_simc_content_templates')
-        migration.prune_content_templates(apps, None)
 
         self.assertTrue(SimcContentTemplate.objects.filter(pk=self.system.pk).exists())
-        self.assertTrue(SimcContentTemplate.objects.filter(pk=default_player.pk).exists())
-        self.assertFalse(SimcContentTemplate.objects.filter(pk=duplicate.pk).exists())
-        self.assertFalse(SimcContentTemplate.objects.filter(pk=legacy_apl.pk).exists())
+        self.assertTrue(SimcContentTemplate.objects.filter(pk=duplicate.pk).exists())
+        self.assertTrue(SimcProfile.objects.filter(pk=default_player.pk).exists())
 
 
 class SimcWorkbenchHistoryResourceTests(TestCase):

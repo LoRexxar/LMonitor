@@ -65,7 +65,7 @@ class SimcHomeCreationResourceContractTests(TestCase):
 
     def _template(self, name='Base', **overrides):
         values = {
-            'name': name, 'template_type': SimcContentTemplate.TYPE_BASE_TEMPLATE,
+            'name': name,
             'source': SimcContentTemplate.SOURCE_SIMC_UPSTREAM, 'spec': 'warrior_fury',
             'class_name': 'warrior', 'content': '{player_config}\n{apl}\n',
             'is_active': True, 'is_selectable': True, 'owner_user_id': None,
@@ -111,12 +111,13 @@ class SimcHomeCreationResourceContractTests(TestCase):
     def _task_resources(self):
         template = self._template(content='{player_config}\n{apl}\n')
         apl = self._apl()
-        SimcContentTemplate.objects.create(
-            name='Default Fury player',
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', class_name='warrior', content=DEFAULT_PLAYER,
-            is_active=True, is_selectable=False,
+        SimcProfile.objects.create(
+            user_id=None, name='Default Fury player',
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            spec='warrior_fury', class_name='warrior',
+            player_config_mode='manual_equipment', player_equipment=DEFAULT_PLAYER,
+            is_active=True,
         )
         return template, apl
 

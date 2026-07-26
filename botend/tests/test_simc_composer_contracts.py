@@ -6,7 +6,7 @@ reference worker/API 测试覆盖；本模块不再制造保存正文、hash 或
 from django.contrib.auth.models import User
 from django.test import TestCase
 
-from botend.models import SimcApl, SimcContentTemplate
+from botend.models import SimcApl, SimcContentTemplate, SimcProfile
 from botend.services.simc_composer import SimcComposer
 
 
@@ -20,7 +20,6 @@ class ComposerTestCase(TestCase):
 
     def template(self, content="{player_identity}\n{talents}\n{equipment}\n{action_list}\n{output_options}", **kwargs):
         defaults = {
-            "template_type": SimcContentTemplate.TYPE_BASE_TEMPLATE,
             "source": SimcContentTemplate.SOURCE_USER,
             "spec": self.spec_key,
             "content": content,
@@ -31,15 +30,18 @@ class ComposerTestCase(TestCase):
 
     def default_equipment(self, content=None, **kwargs):
         defaults = {
-            "template_type": SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            "source": SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            "user_id": None,
+            "source": SimcProfile.SOURCE_SIMC_UPSTREAM,
+            "system_key": f"simc_upstream:{self.spec_key}",
             "spec": self.spec_key,
             "class_name": self.class_name,
-            "content": content or 'warrior="TemplateActor"\nspec=fury\nhead=,id=999999',
+            "name": "Default player",
+            "player_config_mode": "manual_equipment",
+            "player_equipment": content or 'warrior="TemplateActor"\nspec=fury\nhead=,id=999999',
             "is_active": True,
         }
         defaults.update(kwargs)
-        return SimcContentTemplate.objects.create(**defaults)
+        return SimcProfile.objects.create(**defaults)
 
     def apl(self, content="actions=/bloodthirst", **kwargs):
         defaults = {

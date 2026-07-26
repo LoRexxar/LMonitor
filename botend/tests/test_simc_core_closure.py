@@ -50,7 +50,7 @@ class SimcCoreClosureTests(TestCase):
         self.user = get_user_model().objects.create_user(username='closure', password='x')
         self.other = get_user_model().objects.create_user(username='other-closure', password='x')
         self.profile = SimcProfile.objects.create(user_id=self.user.id, name='P', spec='fury', player_config_mode='manual_equipment', player_equipment='warrior="x"\nspec=fury', is_active=True)
-        self.template = SimcContentTemplate.objects.create(name='T', template_type='base_template', spec='fury', content='{simulation_options}\n{player_config}\n{action_list}\n{output_options}', is_active=True, is_selectable=True)
+        self.template = SimcContentTemplate.objects.create(name='T', spec='fury', content='{simulation_options}\n{player_config}\n{action_list}\n{output_options}', is_active=True, is_selectable=True)
         self.apl = SimcApl.objects.create(name='A', spec='fury', content='actions=/bloodthirst', is_system=True, is_active=True, is_selectable=True)
         mark_apl_valid(self.apl)
         self.factory = RequestFactory()

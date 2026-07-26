@@ -47,7 +47,6 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
 
         self.template = SimcContentTemplate.objects.create(
             name="Base Template",
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec="fury",
             content="fight_style={fight_style}\nmax_time={time}\n{player_config}\n{action_list}",
             is_active=True,
@@ -83,7 +82,6 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
             content_hash='template_hash_v1',
             payload={
                 'name': 'Base Template V1',
-                'template_type': self.template.template_type,
                 'content': 'fight_style={fight_style}\nmax_time={time}\n{player_config}\n{action_list}',
             },
         )
