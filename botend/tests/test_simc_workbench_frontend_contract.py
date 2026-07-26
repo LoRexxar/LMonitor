@@ -24,11 +24,13 @@ SIMC_MAIN = MAIN[
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
-    def test_apl_assistant_height_is_driven_by_the_editor_grid_row(self):
+    def test_apl_assistant_is_sticky_and_catalog_uses_page_navigation(self):
         desktop_css = APL_EDITOR_CSS[:APL_EDITOR_CSS.index("@media (max-width: 900px)")]
-        self.assertIn("contain: size", desktop_css)
-        self.assertIn(".simc-apl-assistant > div { display: flex; height: 100%; min-height: 0;", desktop_css)
-        self.assertIn(".simc-apl-catalog { flex: 1; min-height: 0; overflow: auto;", desktop_css)
+        self.assertIn("position: sticky", desktop_css)
+        self.assertIn("top: .5rem", desktop_css)
+        self.assertIn("align-self: start", desktop_css)
+        self.assertIn(".simc-apl-catalog { flex: none; min-height: 0; overflow: visible;", desktop_css)
+        self.assertIn(".simc-apl-catalog__pager", desktop_css)
 
     def test_new_frontend_uses_task_mode_vocabulary_only(self):
         self.assertNotIn('task_type:', SIMC_MAIN)
@@ -595,7 +597,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
     def test_script_is_really_loaded(self):
         self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260726c", HTML)
         self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260726b", HTML)
-        self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260726b", HTML)
+        self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260726c", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
 
     def test_profile_inline_form_uses_delegated_actions_not_inline_handlers(self):

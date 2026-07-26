@@ -13,6 +13,7 @@ const VALIDATION_URL = '/api/simc-workbench/apl-validation/';
 const COMPLETION_URL = '/api/simc-workbench/apl-completions/';
 const SYMBOLS_URL = '/api/simc-workbench/apl-symbols/';
 const SPELLS_URL = '/api/simc-workbench/apl-spells/';
+const CATALOG_PAGE_SIZE = 10;
 
 const BILINGUAL_URL = '/api/convert-text/';
 
@@ -47,11 +48,20 @@ function createCatalogAssistant(options) {
     let searchTimer = null;
     let destroyed = false;
     let query = '';
+    let page = 1;
 
     host.innerHTML = `<div class="simc-apl-assistant__mobile-heading"><strong>技能列表</strong><button type="button" data-apl-assistant-close>关闭</button></div><div class="simc-apl-assistant__toolbar">
         <label class="simc-apl-assistant__search"><span class="sr-only">搜索技能</span><input type="search" data-apl-catalog-query placeholder="搜索英文或中文技能名"></label>
-    </div><div class="simc-apl-catalog" data-apl-catalog-list></div>`;
+    </div><div class="simc-apl-catalog" data-apl-catalog-list></div><nav class="simc-apl-catalog__pager" aria-label="技能列表分页">
+        <button type="button" data-page-action="prev">上一页</button>
+        <span data-page-summary>第 1/1 页</span>
+        <button type="button" data-page-action="next">下一页</button>
+    </nav>`;
     const list = host.querySelector('[data-apl-catalog-list]');
+    const pager = host.querySelector('.simc-apl-catalog__pager');
+    const pageSummary = host.querySelector('[data-page-summary]');
+    const previousButton = host.querySelector('[data-page-action="prev"]');
+    const nextButton = host.querySelector('[data-page-action="next"]');
     host.querySelector('[data-apl-assistant-close]').addEventListener('click', () => options.close?.());
 
     function render(items) {
@@ -73,6 +83,16 @@ function createCatalogAssistant(options) {
         });
     }
 
+    function renderPagination(pagination = {}) {
+        const total = Math.max(0, Number(pagination.total) || 0);
+        const totalPages = Math.max(1, Number(pagination.total_pages) || 1);
+        page = Math.min(totalPages, Math.max(1, Number(pagination.page) || page));
+        pageSummary.textContent = total ? `第 ${page}/${totalPages} 页 · 共 ${total} 项` : '第 1/1 页';
+        previousButton.disabled = page <= 1;
+        nextButton.disabled = page >= totalPages;
+        pager.hidden = totalPages <= 1;
+    }
+
     async function load() {
         if (destroyed) return;
         controller?.abort();
@@ -80,7 +100,8 @@ function createCatalogAssistant(options) {
         const activeController = controller;
         replaceTextMessage(list, '列表加载中…');
         const params = new URLSearchParams({
-            spec: String(options.getSpec?.() || ''), all: '1',
+            spec: String(options.getSpec?.() || ''),
+            page: String(page), page_size: String(CATALOG_PAGE_SIZE),
         });
         if (query) params.set('query', query);
         try {
@@ -91,6 +112,7 @@ function createCatalogAssistant(options) {
             if (!response.ok || body.success !== true) throw new Error(body.error?.message || '技能列表不可用');
             if (destroyed || controller !== activeController) return;
             render(body.data?.items || []);
+            renderPagination(body.data?.pagination || {});
         } catch (error) {
             if (error.name !== 'AbortError' && !destroyed && controller === activeController) {
                 replaceTextMessage(list, error.message || '技能列表暂不可用');
@@ -100,12 +122,26 @@ function createCatalogAssistant(options) {
 
     host.querySelector('[data-apl-catalog-query]').addEventListener('input', event => {
         query = event.target.value.trim();
+        page = 1;
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => load(), 250);
     });
+    previousButton.addEventListener('click', () => {
+        if (page <= 1) return;
+        page -= 1;
+        load();
+    });
+    nextButton.addEventListener('click', () => {
+        if (nextButton.disabled) return;
+        page += 1;
+        load();
+    });
     load();
     return {
-        reload: () => load(),
+        reload: () => {
+            page = 1;
+            return load();
+        },
         updateContext() {},
         destroy() {
             destroyed = true;
