@@ -123,6 +123,8 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         for token in (
             'comparison-hero', 'comparison-winner', 'comparison-delta',
             'comparison-baseline', 'deltaPercent', '结果不完整',
+            'comparison_baseline', '实际变化', '保持不变',
+            'changeDetail', 'unchangedDetail', 'baseline-facts',
             'attribute-landscape', 'attribute-stat-delta',
             '搜索轨迹', '推荐属性',
         ):

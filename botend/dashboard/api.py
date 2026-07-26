@@ -5347,7 +5347,147 @@ class SimcWorkbenchAPIView(View):
                 key: str(talent_candidate.get(key) or '')
                 for key in ('name', 'talent', 'source')
             }
+        gear_swap = value.get('gear_swap')
+        if isinstance(gear_swap, dict):
+            safe['gear_swap'] = SimcWorkbenchAPIView._safe_simc_item(
+                gear_swap.get('raw_value'), gear_swap.get('slot'), gear_swap,
+            )
         return safe
+
+    @staticmethod
+    def _safe_simc_item(raw_value, slot='', metadata=None):
+        """Return display-only item facts without exposing a complete player block."""
+        metadata = metadata if isinstance(metadata, dict) else {}
+        raw = str(raw_value or '').strip()
+        if '=' in raw and raw.partition('=')[0].strip().lower() == str(slot or '').strip().lower():
+            raw = raw.partition('=')[2].strip()
+        parts = [part.strip() for part in raw.split(',') if part.strip()]
+        properties = {}
+        name = ''
+        for index, part in enumerate(parts):
+            if '=' in part:
+                key, item = part.split('=', 1)
+                properties[key.strip().lower()] = item.strip()
+            elif index == 0:
+                name = part
+        def integer(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+        modifiers = {}
+        for key in ('bonus_id', 'gem_id', 'crafted_stats'):
+            if properties.get(key):
+                modifiers[key] = [item for item in properties[key].split('/') if item]
+        if properties.get('enchant_id'):
+            modifiers['enchant_id'] = properties['enchant_id']
+        return {
+            'slot': str(slot or metadata.get('slot') or ''),
+            'name': name,
+            'item_id': integer(metadata.get('item_id')) or integer(properties.get('id')),
+            'item_level': integer(properties.get('ilevel')),
+            'source': str(metadata.get('source') or ''),
+            'modifiers': modifiers,
+        }
+
+    @staticmethod
+    def _simc_item_signature(item):
+        item = item if isinstance(item, dict) else {}
+        return {
+            'item_id': item.get('item_id'),
+            'item_level': item.get('item_level'),
+            'modifiers': item.get('modifiers') or {},
+        }
+
+    @classmethod
+    def _comparison_baseline_summary(cls, task):
+        """Describe the frozen comparison baseline without returning executable bodies."""
+        def resource(version, fallback_name=''):
+            payload = version.payload if version and isinstance(version.payload, dict) else {}
+            return {
+                'name': str(payload.get('name') or fallback_name or ''),
+                'version_id': version.id if version else None,
+            }
+
+        profile_version = task.profile_version
+        profile_payload = (
+            profile_version.payload
+            if profile_version and isinstance(profile_version.payload, dict) else {}
+        )
+        player = str(profile_payload.get('player_equipment') or '')
+        equipped = {}
+        talent = str(profile_payload.get('talent') or '')
+        in_candidate_section = False
+        for line in player.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('###'):
+                in_candidate_section = True
+            if in_candidate_section or not stripped or stripped.startswith('#') or '=' not in stripped:
+                continue
+            key, raw = stripped.split('=', 1)
+            key = key.strip().lower()
+            if key in ('talent', 'talents'):
+                talent = raw.strip()
+                continue
+            parsed = cls._safe_simc_item(raw, key)
+            if parsed.get('item_id'):
+                equipped[key] = parsed
+        return {
+            'profile': {
+                **resource(profile_version, getattr(task.profile, 'name', '')),
+                'spec': str(profile_payload.get('spec') or getattr(task.profile, 'spec', '') or ''),
+            },
+            'template': resource(task.template_version, getattr(task.template, 'name', '')),
+            'apl': resource(task.apl_version, getattr(task.apl, 'name', '')),
+            'backend': {
+                'name': str(getattr(task.backend, 'name', '') or ''),
+                'version': str(getattr(task.backend, 'current_version', '') or ''),
+            },
+            'simulation_params': {
+                key: item for key, item in (task.simulation_params or {}).items()
+                if key in {'iterations', 'fight_style', 'max_time', 'vary_combat_length', 'threads'}
+                and isinstance(item, (str, int, float, bool))
+            },
+            'talent': talent,
+            'equipped': equipped,
+        }
+
+    @classmethod
+    def _comparison_change_summary(cls, params, baseline):
+        params = params if isinstance(params, dict) else {}
+        candidate_type = str(params.get('candidate_type') or 'base')
+        if candidate_type == 'gear_swap':
+            swap = params.get('gear_swap') if isinstance(params.get('gear_swap'), dict) else {}
+            slot = str(swap.get('slot') or '')
+            before = (baseline.get('equipped') or {}).get(slot)
+            after = cls._safe_simc_item(swap.get('raw_value'), slot, swap)
+            is_equivalent = bool(
+                before and after and before.get('item_id') and after.get('item_id')
+                and cls._simc_item_signature(before) == cls._simc_item_signature(after)
+            )
+            return {
+                'change': {
+                    'kind': 'gear', 'field': slot,
+                    'before': before,
+                    'after': after,
+                    'is_equivalent': is_equivalent,
+                },
+                'unchanged': ['玩家身份', '其他装备槽位', '天赋', '基础模板', 'APL', '模拟参数', '执行后端'],
+            }
+        if candidate_type in ('talent', 'talent_override'):
+            candidate = params.get('talent_candidate') if isinstance(params.get('talent_candidate'), dict) else {}
+            return {
+                'change': {
+                    'kind': 'talent', 'field': 'talents',
+                    'before': {'name': '基准天赋', 'value': baseline.get('talent') or ''},
+                    'after': {
+                        'name': str(candidate.get('name') or '候选天赋'),
+                        'value': str(candidate.get('talent') or params.get('talent_override') or ''),
+                    },
+                },
+                'unchanged': ['玩家身份', '全部装备', '基础模板', 'APL', '模拟参数', '执行后端'],
+            }
+        return {'change': None, 'unchanged': ['全部基准配置']}
 
     @staticmethod
     def _task_status_label(status):
@@ -5554,11 +5694,17 @@ class SimcWorkbenchAPIView(View):
                 row['artifacts'] = [self._artifact_row(item) for item in artifacts]
                 ordered_runs = list(reversed(runs))
                 row['runs'] = [self._run_row(run) for run in ordered_runs]
+                baseline_context = self._comparison_baseline_summary(task)
+                row['comparison_baseline'] = {
+                    key: item for key, item in baseline_context.items()
+                    if key not in {'equipped', 'talent'}
+                }
                 ranking = []
                 for run in ordered_runs:
                     params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
                     summary = run.result_summary if isinstance(run.result_summary, dict) else {}
                     dps = summary.get('dps')
+                    comparison = self._comparison_change_summary(params, baseline_context)
                     ranking.append({
                         'id': run.id,
                         'label': run.candidate_label or run.candidate_key,
@@ -5566,6 +5712,7 @@ class SimcWorkbenchAPIView(View):
                         'is_base': bool(params.get('is_base')),
                         'is_complete': run.status == 'completed' and isinstance(dps, (int, float)),
                         'candidate': self._safe_mode_summary(params),
+                        **comparison,
                     })
                 ranked = sorted(
                     (item for item in ranking if item['is_complete'] and not item['is_base']),

@@ -82,16 +82,50 @@
     const candidates = ranking.filter(item => item.is_base !== true).sort((a, b) => (a.rank || 9999) - (b.rank || 9999));
     const baselineDps = baseline?.is_complete === true ? Number(baseline.dps) : NaN;
     const signed = amount => Number.isFinite(Number(amount)) ? `${Number(amount) > 0 ? '+' : ''}${number(amount)}` : '—';
+    const slotLabels = {head:'头部',neck:'颈部',shoulder:'肩部',back:'披风',chest:'胸部',wrist:'手腕',hands:'手部',waist:'腰部',legs:'腿部',feet:'脚部',finger1:'戒指 1',finger2:'戒指 2',trinket1:'饰品 1',trinket2:'饰品 2',main_hand:'主手',off_hand:'副手'};
+    const itemText = item => {
+      if (!item) return '基准未解析到该字段';
+      const modifiers = item.modifiers || {};
+      const details = [
+        modifiers.enchant_id ? `附魔 #${value(modifiers.enchant_id)}` : '',
+        Array.isArray(modifiers.gem_id) && modifiers.gem_id.length ? `宝石 #${modifiers.gem_id.map(value).join('/#')}` : '',
+        Array.isArray(modifiers.bonus_id) && modifiers.bonus_id.length ? `Bonus #${modifiers.bonus_id.map(value).join('/')}` : '',
+        Array.isArray(modifiers.crafted_stats) && modifiers.crafted_stats.length ? `制作属性 #${modifiers.crafted_stats.map(value).join('/')}` : '',
+      ].filter(Boolean);
+      return `${value(item.name, '未命名物品')} · #${value(item.item_id)}${item.item_level ? ` · ${value(item.item_level)} 装等` : ''}${details.length ? ` · ${details.join(' · ')}` : ''}`;
+    };
+    const talentText = item => item?.value ? `${value(item.name)} · ${value(item.value)}` : value(item?.name, '未提供天赋信息');
+    const changeDetail = item => {
+      const change = item.change || null;
+      if (!change) return '<div class="change-block unchanged-block"><b>基准本身</b><span>没有应用候选覆盖</span></div>';
+      const isGear = change.kind === 'gear';
+      const before = isGear ? itemText(change.before) : talentText(change.before);
+      const after = isGear ? itemText(change.after) : talentText(change.after);
+      const field = isGear ? (slotLabels[change.field] || change.field || '装备') : '天赋方案';
+      if (change.is_equivalent === true) {
+        return `<div class="change-block unchanged-block"><b>${value(field)} · 无实际字段变化</b><div><span class="change-before">冻结基准：${before}</span><span class="change-arrow">＝</span><span class="change-after">候选等价配置：${after}</span></div></div>`;
+      }
+      return `<div class="change-block"><b>${value(field)}</b><div><span class="change-before">基准：${before}</span><span class="change-arrow">→</span><span class="change-after">候选：${after}</span></div></div>`;
+    };
+    const unchangedDetail = item => `<div class="unchanged-list">${(Array.isArray(item.unchanged) ? item.unchanged : []).map(label => `<span>${value(label)}</span>`).join('') || '<span>未提供固定项摘要</span>'}</div>`;
+    const baselineInfo = row.comparison_baseline || {};
+    const simulationParams = baselineInfo.simulation_params || {};
+    const parameterText = Object.entries(simulationParams).map(([key, item]) => `${value(key)}=${value(item)}`).join(' · ') || '默认模拟参数';
+    const baselineFacts = [
+      ['玩家 Profile', `${value(baselineInfo.profile?.name, '未命名')} · ${value(baselineInfo.profile?.spec, '未知专精')}`],
+      ['基础模板', value(baselineInfo.template?.name, '未指定')],
+      ['APL', value(baselineInfo.apl?.name, '未指定')],
+      ['执行后端', `${value(baselineInfo.backend?.name, '未指定')}${baselineInfo.backend?.version ? ` · ${value(baselineInfo.backend.version)}` : ''}`],
+      ['模拟参数', parameterText],
+    ].map(([label, item]) => `<div><span>${label}</span><b>${item}</b></div>`).join('');
     const runRows = runs.map(run => `<tr><td>${value(run.candidate_label, `Run #${run.sequence}`)}</td><td>${runStatus(run.status)}</td><td class="right">${number(run.result_summary?.dps)}</td><td>${value(run.completed_at)}</td></tr>`).join('');
-    const baselinePanel = baseline ? `<section class="comparison-baseline"><div><span>当前 Profile 基线</span><b>${value(baseline.label || baseline.name)}</b></div><b>${baseline.is_complete === true ? number(baseline.dps) : '结果不完整'}</b></section>` : '<section class="comparison-baseline muted">此任务未包含 Profile 基线</section>';
+    const baselinePanel = baseline ? `<section class="comparison-baseline"><div class="baseline-heading"><div><span>对比基准</span><b>${value(baseline.label || baseline.name)}</b></div><strong>${baseline.is_complete === true ? number(baseline.dps) : '结果不完整'} <small>DPS</small></strong></div><div class="baseline-facts">${baselineFacts}</div><p>所有候选都从这份冻结基准开始；下方“实际变化”之外的项目保持不变。</p></section>` : '<section class="comparison-baseline muted">此任务未包含 Profile 基线，无法计算可靠差异。</section>';
     const rankRows = candidates.map(item => {
       const complete = item.is_complete === true && Number.isFinite(Number(item.dps));
       const delta = complete && Number.isFinite(baselineDps) ? Number(item.dps) - baselineDps : NaN;
       const deltaPercent = Number.isFinite(delta) && baselineDps !== 0 ? delta / baselineDps * 100 : NaN;
       const deltaText = Number.isFinite(deltaPercent) ? `${signed(delta)} (${deltaPercent > 0 ? '+' : ''}${deltaPercent.toFixed(2)}%)` : '—';
-      const talent = item.candidate?.talent;
-      const candidateDetail = talent ? `<small class="incomplete-label">方案内容：${value(item.candidate?.name || item.label)} · 天赋字符串：<code>${value(talent)}</code></small>` : '';
-      return `<tr class="${item.rank === 1 ? 'rank-winner comparison-winner' : ''} ${complete ? '' : 'rank-incomplete'}"><td><span class="rank-medal">${complete ? (item.rank === 1 ? '🥇' : value(item.rank)) : '—'}</span></td><td>${value(item.label || item.name)}${candidateDetail}${complete ? '' : '<small class="incomplete-label">结果不完整，不参与排名</small>'}</td><td class="right"><b>${complete ? number(item.dps) : '—'}</b></td><td class="right delta comparison-delta ${Number(delta) > 0 ? 'positive' : Number(delta) < 0 ? 'negative' : ''}">${deltaText}</td></tr>`;
+      return `<tr class="${item.rank === 1 ? 'rank-winner comparison-winner' : ''} ${complete ? '' : 'rank-incomplete'}"><td><span class="rank-medal">${complete ? (item.rank === 1 ? '🥇' : value(item.rank)) : '—'}</span></td><td><b>${value(item.label || item.name)}</b>${complete ? '' : '<small class="incomplete-label">结果不完整，不参与排名</small>'}</td><td>${changeDetail(item)}</td><td>${unchangedDetail(item)}</td><td class="right"><b>${complete ? number(item.dps) : '—'}</b></td><td class="right delta comparison-delta ${Number(delta) > 0 ? 'positive' : Number(delta) < 0 ? 'negative' : ''}">${deltaText}</td></tr>`;
     }).join('');
     const recommendation = attribute?.recommendation || null;
     const initial = attribute?.initial_ratings || {};
@@ -109,7 +143,7 @@
       ${card('任务进度', `<div class="metrics"><div class="metric"><span>成功</span><b>${number(succeeded)}</b></div><div class="metric"><span>运行</span><b>${number(running)}</b></div><div class="metric"><span>等待</span><b>${number(pending)}</b></div><div class="metric"><span>失败</span><b>${number(failed)}</b></div></div>`, true)}
       ${attributePanel}
       ${isAttribute ? '' : baselinePanel}
-      ${card(isAttribute ? '候选测量排名' : '候选 DPS 排名与基线差值', `<div class="table-scroll"><table class="ranking-table"><thead><tr><th>排名</th><th>候选角色 / 方案</th><th class="right">DPS</th><th class="right">相对基线（数值 / 百分比）</th></tr></thead><tbody>${rankRows || '<tr><td colspan="4" class="empty">暂无可排名结果</td></tr>'}</tbody></table></div>`, true)}
+      ${card(isAttribute ? '候选测量排名' : '候选 DPS 排名、变化与基线差值', `<div class="table-scroll"><table class="ranking-table comparison-diff-table"><thead><tr><th>排名</th><th>候选方案</th><th>实际变化</th><th>保持不变</th><th class="right">DPS</th><th class="right">相对基线（数值 / 百分比）</th></tr></thead><tbody>${rankRows || '<tr><td colspan="6" class="empty">暂无可排名结果</td></tr>'}</tbody></table></div>`, true)}
       ${card('候选 Runs', `<div class="table-scroll"><table><thead><tr><th>候选</th><th>状态</th><th class="right">DPS</th><th>完成时间</th></tr></thead><tbody>${runRows || '<tr><td colspan="4" class="empty">暂无 Run</td></tr>'}</tbody></table></div>`, true)}
     </div>`;
   }
