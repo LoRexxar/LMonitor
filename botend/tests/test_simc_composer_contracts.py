@@ -230,6 +230,17 @@ class SimcComposerIdentitySlotResolutionTests(ComposerTestCase):
         self.assertEqual([line for line in final.splitlines() if line.startswith("armory=")],
                          ["armory=us,area-52,testchar"])
 
+    def test_class_qualified_spec_matches_short_spec_in_manual_export(self):
+        final, _, error = self.compose(
+            self.base,
+            spec="warrior_arms",
+            player_import_mode="manual_equipment",
+            player_equipment='warrior="Benchmark"\nspec=arms\nhead=,id=212048',
+        )
+        self.assertIsNone(error)
+        self.assertIn('warrior="Benchmark"', final)
+        self.assertIn("spec=arms", final)
+
     def test_battlenet_identity_replaces_static_actor_in_legacy_base_template(self):
         self.base.content = (
             'warrior="LMonitor_SimC"\n'

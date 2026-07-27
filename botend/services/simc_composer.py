@@ -268,11 +268,15 @@ class SimcComposer:
         NOTE: This is called AFTER equipment resolution, so we know if equipment has actor.
         """
         user_spec = (request_data.get('spec') or '').strip().lower()
+        canonical_class, canonical_spec = canonical_simc_spec_identity(user_spec)
         player_import_mode = request_data.get('player_import_mode', '').strip()
 
-        # Derive class from spec using authoritative SPEC_CLASS
+        # Dashboard resources use class-qualified keys (for example
+        # ``warrior_arms``), while executable SimC actor blocks use ``arms``.
+        # Compare and render the canonical SimC identity, not the storage key.
         trusted_class = str(request_data.get('_trusted_class_name') or '').strip().lower()
-        derived_class = trusted_class or (SPEC_CLASS.get(user_spec) if user_spec else None)
+        derived_class = trusted_class or canonical_class or (SPEC_CLASS.get(user_spec) if user_spec else None)
+        comparable_spec = canonical_spec or user_spec
 
         # For battlenet mode, prefer the frozen actor block. The Battle.net identity
         # is source metadata and is only an execution fallback for legacy rows.
@@ -282,7 +286,7 @@ class SimcComposer:
                 parsed = self._parse_player_export(player_equipment)
                 export_spec = parsed.get('spec', '').strip().lower()
                 export_class = parsed.get('class', '').strip().lower()
-                if user_spec and export_spec and user_spec != export_spec:
+                if comparable_spec and export_spec and comparable_spec != export_spec:
                     return SlotResolution(
                         slot_name='player_identity', value=None, status='conflict',
                         error=f'用户指定的专精 {user_spec} 与 Battle.net 快照专精 {export_spec} 冲突',
@@ -308,7 +312,7 @@ class SimcComposer:
             bnet_class = (bnet_char.get('class') or '').strip().lower()
 
             # Check spec conflict
-            if user_spec and bnet_spec and user_spec != bnet_spec:
+            if comparable_spec and bnet_spec and comparable_spec != bnet_spec:
                 return SlotResolution(
                     slot_name='player_identity',
                     value=None,
@@ -361,7 +365,7 @@ class SimcComposer:
                 export_class = parsed.get('class', '').strip().lower()
 
                 # Check spec conflict
-                if user_spec and export_spec and user_spec != export_spec:
+                if comparable_spec and export_spec and comparable_spec != export_spec:
                     return SlotResolution(
                         slot_name='player_identity',
                         value=None,
@@ -405,7 +409,7 @@ class SimcComposer:
                     )
 
         # No actor in equipment, generate standalone identity
-        final_spec = user_spec or 'fury'
+        final_spec = comparable_spec or 'fury'
         final_class = derived_class or 'warrior'
         player_name = request_data.get('battlenet_character') or 'Player'
 
