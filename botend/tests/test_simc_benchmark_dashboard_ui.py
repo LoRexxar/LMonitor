@@ -140,9 +140,20 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         for text in ('基础信息', '定时', '专精配置', '场景', '候选装备'):
             self.assertIn(text, CONFIG_PAGE)
         self.assertIn('simc-benchmark-dashboard.js', CONFIG_PAGE)
+        self.assertIn('?v=20260728a', CONFIG_PAGE)
+        self.assertIn('?v=20260728a', INDEX)
         self.assertIn("if(!configPage)document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
+
+    def test_panel_name_does_not_collide_with_nested_scenario_names(self):
+        for markup in (PARTIAL, CONFIG_PAGE):
+            soup = BeautifulSoup(markup, "html.parser")
+            form = cast(Tag, soup.select_one('[data-benchmark-form]'))
+            self.assertIsNotNone(form.select_one('input[name="panel_name"]'))
+            self.assertIsNone(form.select_one('input[name="name"]'))
+        self.assertIn('form.elements.panel_name.value', JS)
+        self.assertNotIn('form.elements.name.value', JS)
 
     def test_mobile_full_screen_and_local_table_overflow(self):
         self.assertIn('@media (max-width: 640px)', CSS)
