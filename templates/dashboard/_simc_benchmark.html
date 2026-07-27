@@ -30,15 +30,16 @@
         <form data-benchmark-form novalidate>
           <section class="simc-benchmark-form-section"><h3>基础信息</h3><div class="simc-benchmark-fields base-fields">
             <label>名称 *<input name="name" required maxlength="200"></label><label>slug *<input name="slug" required pattern="[a-z0-9][a-z0-9_-]*"></label>
-            <label class="wide">描述<textarea name="description" rows="3" maxlength="10000"></textarea></label>
-            <label class="check"><input type="checkbox" name="is_active" checked>启用</label><label class="check"><input type="checkbox" name="is_public">公开</label>
+            <label class="wide" data-configuration-only>描述<textarea name="description" rows="3" maxlength="10000"></textarea></label>
+            <label class="check" data-configuration-only><input type="checkbox" name="is_active" checked>启用</label><label class="check" data-configuration-only><input type="checkbox" name="is_public">公开</label>
           </div></section>
-          <section class="simc-benchmark-form-section"><h3>定时</h3><div class="simc-benchmark-fields schedule-fields">
+          <section class="simc-benchmark-form-section simc-benchmark-create-specs" data-create-only aria-labelledby="simc-benchmark-create-specs-title"><h3 id="simc-benchmark-create-specs-title">选择要启用的专精</h3><p class="field-help">新建时只选择专精；系统会自动使用默认 Backend、APL、Template、Profile 和 Patchwerk 场景。保存后可在“配置”中调整细节。</p><div data-editor-create-specs class="create-spec-picker" role="group" aria-labelledby="simc-benchmark-create-specs-title"></div></section>
+          <section class="simc-benchmark-form-section" data-configuration-only><h3>定时</h3><div class="simc-benchmark-fields schedule-fields">
             <label class="check"><input type="checkbox" name="schedule_enabled">启用定时</label><label>间隔（秒）<input type="number" name="interval_seconds" min="1" value="86400"></label><label>下次运行<input type="datetime-local" name="next_run_at"></label>
           </div></section>
-          <section class="simc-benchmark-form-section"><div class="section-title"><h3>专精卡</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="spec">添加专精</button></div><div data-editor-specs class="config-stack"></div></section>
-          <section class="simc-benchmark-form-section"><div class="section-title"><h3>场景</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="scenario">添加场景</button></div><p class="field-help">只接受结构化白名单参数，不提供任意 JSON 输入。</p><div data-editor-scenarios class="config-stack"></div></section>
-          <section class="simc-benchmark-form-section"><div class="section-title"><h3>候选装备</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="candidate">添加候选</button></div><p class="field-help">仅支持 gear_swap；baseline 由系统生成，不能配置。</p><div data-editor-candidates class="config-stack"></div></section>
+          <section class="simc-benchmark-form-section" data-configuration-only><div class="section-title"><h3>专精配置</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="spec">添加专精</button></div><div data-editor-specs class="config-stack"></div></section>
+          <section class="simc-benchmark-form-section" data-configuration-only><div class="section-title"><h3>场景</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="scenario">添加场景</button></div><p class="field-help">只接受结构化白名单参数，不提供任意 JSON 输入。</p><div data-editor-scenarios class="config-stack"></div></section>
+          <section class="simc-benchmark-form-section" data-configuration-only><div class="section-title"><h3>候选装备</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="candidate">添加候选</button></div><p class="field-help">仅支持 gear_swap；baseline 由系统生成，不能配置。</p><div data-editor-candidates class="config-stack"></div></section>
         </form>
         <aside class="simc-benchmark-summary" data-editor-summary aria-live="polite"></aside>
       </div>

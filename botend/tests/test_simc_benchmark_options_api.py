@@ -118,6 +118,25 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             'max_candidates': 50, 'max_cases': 100, 'max_runs_per_task': 51,
         })
 
+    def test_create_defaults_are_authoritative_and_reject_ambiguous_resources(self):
+        response = self.client.get('/api/simc-benchmarks/options/')
+        defaults = response.json()['data']['create_defaults']['warrior_fury']
+        self.assertTrue(defaults['available'])
+        production = SimcBackendBinary.objects.get(identifier='production')
+        self.assertEqual(defaults['backend_id'], production.id)
+        self.assertEqual(defaults['apl_id'], self.system_apl.id)
+        self.assertEqual(defaults['template_id'], self.template.id)
+        self.assertEqual(defaults['profile_id'], self.default_profile.id)
+
+        self.default_profile.is_active = False
+        self.default_profile.save(update_fields=['is_active'])
+        defaults = self.client.get('/api/simc-benchmarks/options/').json()['data'][
+            'create_defaults'
+        ]['warrior_fury']
+        self.assertFalse(defaults['available'])
+        self.assertIn('Profile', defaults['reason'])
+        self.assertNotIn('profile_id', defaults)
+
     def test_resources_expose_canonical_spec_keys_and_generic_template_key(self):
         """The browser must not guess whether a short or malformed spec is generic."""
         short_apl = SimcApl.objects.create(

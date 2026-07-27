@@ -8009,12 +8009,55 @@ def _benchmark_resource_spec_key(row, *, allow_generic=False):
     return ''
 
 
+def _benchmark_create_defaults(resources, specs):
+    """Resolve one authoritative default bundle per spec without browser guesswork."""
+    production_backends = [row for row in resources['backends'] if row.identifier == 'production']
+    result = {}
+    for spec in specs:
+        spec_key, class_name = spec['value'], spec['class_name']
+        apls = [row for row in resources['apls'] if (
+            row.is_system and row.owner_user_id is None
+            and _benchmark_resource_spec_key(row) == spec_key
+            and (not row.class_name or row.class_name == class_name)
+        )]
+        exact_templates = [row for row in resources['templates'] if (
+            _benchmark_resource_spec_key(row, allow_generic=True) == spec_key
+            and (not row.class_name or row.class_name == class_name)
+        )]
+        generic_templates = [row for row in resources['templates'] if (
+            _benchmark_resource_spec_key(row, allow_generic=True) == ''
+            and (not row.class_name or row.class_name == class_name)
+        )]
+        templates = exact_templates if exact_templates else generic_templates
+        profiles = [row for row in resources['profiles'] if (
+            row.user_id is None and row.source == SimcProfile.SOURCE_SIMC_UPSTREAM
+            and bool(row.system_key) and _benchmark_resource_spec_key(row) == spec_key
+        )]
+        problems = []
+        for label, rows in (('正式 Backend', production_backends), ('系统默认 APL', apls),
+                            ('基础 Template', templates), ('系统默认 Profile', profiles)):
+            if len(rows) != 1:
+                problems.append(f'{label}{"缺少" if not rows else "不唯一"}')
+        if problems:
+            result[spec_key] = {'available': False, 'reason': '、'.join(problems)}
+        else:
+            result[spec_key] = {
+                'available': True, 'backend_id': production_backends[0].pk,
+                'apl_id': apls[0].pk,
+                'template_id': templates[0].pk, 'profile_id': profiles[0].pk,
+                'profile_label': profiles[0].name,
+            }
+    return result
+
+
 def _benchmark_options_payload(owner_id, ownership_context):
     querysets = benchmark_resource_querysets(owner_id)
     resources = {name: list(queryset) for name, queryset in querysets.items()}
+    specs = _benchmark_spec_options()
     backend_game_versions = _benchmark_backend_game_versions(resources['backends'])
     return {
-        'specs': _benchmark_spec_options(),
+        'specs': specs,
+        'create_defaults': _benchmark_create_defaults(resources, specs),
         'resources': {
             'backends': [{
                 'id': row.pk, 'identifier': row.identifier, 'name': row.name,

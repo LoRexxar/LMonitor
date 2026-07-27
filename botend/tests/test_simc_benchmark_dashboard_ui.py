@@ -92,6 +92,25 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
     def test_gear_line_preserves_canonical_slot_and_raw_value_shape(self):
         self.assertIn("`${swap.slot}=${swap.raw_value}`", JS)
 
+    def test_create_is_lightweight_and_defers_detailed_fields_to_configuration(self):
+        soup = BeautifulSoup(PARTIAL, "html.parser")
+        create_only = soup.select_one('[data-create-only] [data-editor-create-specs]')
+        configuration_only = soup.select('[data-configuration-only]')
+        self.assertIsNotNone(create_only)
+        self.assertGreaterEqual(len(configuration_only), 4)
+        create_default = cast(Tag, create_only).parent
+        self.assertIsNotNone(create_default)
+        self.assertIn('选择要启用的专精', cast(Tag, create_default).get_text(' ', strip=True))
+        self.assertIn("'配置'", JS)
+        self.assertIn('createDefaultSpec', JS)
+        self.assertIn('renderCreateSpecPicker', JS)
+        self.assertIn("editingId===null", JS)
+        self.assertIn("key:'patchwerk'", JS)
+        self.assertIn("schedule_enabled:false", JS)
+        self.assertIn("resources?.create_defaults?.[specKey]", JS)
+        self.assertIn("create-spec-unavailable", JS)
+        self.assertIn("candidates:[]", JS)
+
     def test_mobile_full_screen_and_local_table_overflow(self):
         self.assertIn('@media (max-width: 640px)', CSS)
         self.assertIn('width: 100vw', CSS)
