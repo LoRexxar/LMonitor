@@ -19,6 +19,7 @@ kill_processes() {
 }
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+WOW_BUILD="${WOW_BUILD:-12.0.7.68887}"
 if [ -x .venv/bin/python ]; then
     PYTHON_BIN=".venv/bin/python"
 fi
@@ -34,7 +35,7 @@ echo "=== 3. Collectstatic ==="
 "$PYTHON_BIN" manage.py collectstatic --no-input
 
 echo "=== 4. 应用 SimC 本地补丁 ==="
-"$PYTHON_BIN" manage.py update_simc_binary --apply-patches --threads 2
+"$PYTHON_BIN" manage.py update_simc_binary --apply-patches --threads 2 --wow-build "$WOW_BUILD"
 
 echo "=== 5. 重启 lmweb ==="
 screen -S lmweb -X quit 2>/dev/null || true
