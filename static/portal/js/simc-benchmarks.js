@@ -138,7 +138,9 @@
       label.appendChild(node("span", "simc-benchmark-filter-label", allLabel.slice(2)));
       const select = node("select", "simc-benchmark-filter-select");
       select.dataset.dimension = coordinateKey;
-      select.appendChild(node("option", "", allLabel));
+      const allOption = node("option", "", allLabel);
+      allOption.value = "";
+      select.appendChild(allOption);
       const options = new Map();
       execution.cases.forEach((caseData) => {
         const key = caseData && caseData.coordinates ? String(caseData.coordinates[coordinateKey] || "") : "";

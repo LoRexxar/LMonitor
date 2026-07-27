@@ -10,6 +10,13 @@ class SimcWorkerIntegrationTests(SimpleTestCase):
         self.assertIs(Monitor_Type_BaseObject_List[15], DedicatedSimcWorkerSlot)
         self.assertTrue(DedicatedSimcWorkerSlot(None, None).scan())
 
+    def test_frozen_canonical_spec_is_converted_at_worker_composer_boundary(self):
+        from botend.controller.plugins.simc.SimcMonitor import _composer_identity
+
+        self.assertEqual(_composer_identity('warrior_arms'), ('arms', 'warrior'))
+        self.assertEqual(_composer_identity('fury'), ('fury', 'warrior'))
+        self.assertEqual(_composer_identity('paladin_protection'), ('protection', 'paladin'))
+
     def test_deploy_manages_dedicated_lmsimc_screen(self):
         with open('deploy.sh', 'r', encoding='utf-8') as handle:
             script = handle.read()

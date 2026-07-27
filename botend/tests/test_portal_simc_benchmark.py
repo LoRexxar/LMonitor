@@ -118,6 +118,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
                          '当前筛选条件下没有结果'):
             self.assertIn(contract, self.JS)
         self.assertIn('role", "meter', self.JS)
+        self.assertIn('allOption.value = ""', self.JS)
 
     def test_mobile_layout_and_no_scroll_snap(self):
         self.assertIn('@media (max-width: 640px)', self.CSS)

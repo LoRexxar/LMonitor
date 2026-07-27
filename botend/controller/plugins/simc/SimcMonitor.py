@@ -27,6 +27,7 @@ from botend.controller.BaseScan import BaseScan
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOT_ALIASES,
     authoritative_player_baseline,
+    canonical_simc_spec_identity,
     normalize_gear_candidate_value,
     validate_player_baseline,
 )
@@ -34,6 +35,12 @@ from botend.services.simc_composer import SimcComposer
 from botend.services.task_resolver import resolve_task, is_reference_task, TaskResolutionError
 from botend.models import SimulationRun
 from botend.services.simc_attribute_search import advance_attribute_search
+
+
+def _composer_identity(frozen_spec):
+    """Convert a frozen Dashboard spec key to SimC's actor-local identity."""
+    class_name, spec = canonical_simc_spec_identity(frozen_spec)
+    return spec, class_name
 
 
 class SimcMonitor(BaseScan):
@@ -516,10 +523,13 @@ class SimcMonitor(BaseScan):
             profile_metadata = resolved.resource_metadata.get('profile', {})
             profile_payload = resolved.profile_payload
             profile_spec = profile_metadata.get('spec', 'fury')
+            composer_spec, composer_class = _composer_identity(
+                resolved.simulation_params.get('spec') or profile_spec)
 
             # Build Composer input exclusively from immutable version payloads.
             composer_request = {
-                'spec': resolved.simulation_params.get('spec') or profile_spec,
+                'spec': composer_spec,
+                '_trusted_class_name': composer_class,
                 'fight_style': resolved.simulation_params.get('fight_style', 'Patchwerk'),
                 'time': resolved.simulation_params.get('max_time', 300),
                 'target_count': resolved.simulation_params.get('desired_targets', 1),
