@@ -13,6 +13,8 @@ from typing import Dict, Iterable, List, Mapping, Tuple
 CONTROL_ACTIONS = frozenset({
     "call_action_list", "cycling_variable", "pool_resource", "run_action_list",
     "snapshot_stats", "variable", "wait", "auto_attack", "potion", "use_item",
+    "use_items", "invoke_external_buff", "apply_poison", "summon_pet",
+    "retarget_auto_attack", "cancel_buff",
 })
 
 from .ast import ActionEntry, IdentifierExpression

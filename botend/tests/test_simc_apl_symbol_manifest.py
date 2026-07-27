@@ -321,3 +321,56 @@ class RuntimeBinaryManifestRegressionTests(TestCase):
             self.assertIsNone(identities[('druid', 'feral', 'dot', 'primal_wrath')])
             self.assertIsNone(
                 identities[('demonhunter', 'havoc', 'debuff', 'burning_wound')])
+
+    def test_real_binary_prefers_direct_action_identity_for_dot_and_cooldown(self):
+        profiles = [
+            Path(SIMC_CHECKOUT) / 'profiles' / 'MID1' / name
+            for name in (
+                'MID1_Druid_Balance.simc',
+                'MID1_Demon_Hunter_Havoc.simc',
+            )
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'manifest.json'
+            revision = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=SIMC_CHECKOUT, text=True).strip()
+            subprocess.run([
+                str(SIMC_BINARY), *(str(profile) for profile in profiles),
+                f'apl_metadata_export={output}', f'apl_metadata_revision={revision}',
+                'apl_metadata_game_build=test-build',
+            ], cwd=SIMC_CHECKOUT, check=True, capture_output=True, text=True)
+            symbols = json.loads(output.read_text(encoding='utf-8'))['symbols']
+            identities = {
+                (symbol['class'], symbol['spec'], symbol['kind'], symbol['token']): symbol['spell_id']
+                for symbol in symbols
+            }
+            self.assertEqual(identities[('druid', 'balance', 'dot', 'moonfire')], 8921)
+            self.assertEqual(identities[('druid', 'balance', 'dot', 'sunfire')], 93402)
+            self.assertEqual(identities[('demonhunter', 'havoc', 'cooldown', 'eye_beam')], 198013)
+            self.assertEqual(identities[('demonhunter', 'havoc', 'cooldown', 'blade_dance')], 188499)
+
+    def test_real_binary_resolves_racial_actions_from_simc_dbc(self):
+        profile = Path(SIMC_CHECKOUT) / 'profiles' / 'MID1' / 'MID1_Warrior_Arms.simc'
+        self.assertTrue(profile.is_file())
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'manifest.json'
+            revision = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=SIMC_CHECKOUT, text=True).strip()
+            subprocess.run([
+                str(SIMC_BINARY), str(profile),
+                f'apl_metadata_export={output}', f'apl_metadata_revision={revision}',
+                'apl_metadata_game_build=test-build',
+            ], cwd=SIMC_CHECKOUT, check=True, capture_output=True, text=True)
+            symbols = json.loads(output.read_text(encoding='utf-8'))['symbols']
+            actions = {
+                symbol['token']: symbol['spell_id'] for symbol in symbols
+                if symbol['class'] == 'warrior' and symbol['spec'] == 'arms'
+                and symbol['kind'] == 'action'
+            }
+            self.assertEqual(actions['blood_fury'], 20572)
+            self.assertEqual(actions['berserking'], 26297)
+            self.assertEqual(actions['arcane_torrent'], 69179)
+            self.assertEqual(actions['lights_judgment'], 255647)
+            self.assertEqual(actions['fireblood'], 265221)
+            self.assertEqual(actions['ancestral_call'], 274738)
+            self.assertEqual(actions['bag_of_tricks'], 312411)
