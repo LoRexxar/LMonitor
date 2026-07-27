@@ -952,7 +952,15 @@ class Command(BaseCommand):
 
     def _apply_patches_only(self, threads=2):
         changed = self._apply_local_patches()
-        if not changed and not self._binary_needs_patch_rebuild():
+        binary_stale = self._binary_needs_patch_rebuild()
+        revision_unpromoted = False
+        if not changed and not binary_stale:
+            current_version = getattr(getattr(self, 'row', None), 'current_version', None)
+            revision_unpromoted = (
+                isinstance(current_version, str)
+                and not self._revision_matches_git_hash(current_version, self._get_git_hash())
+            )
+        if not changed and not binary_stale and not revision_unpromoted:
             self.stdout.write('SimC 本地补丁已存在，无需重新编译')
             return False
         self._update_binary(do_pull=False, threads=threads, apply_patches=False)
