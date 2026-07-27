@@ -115,7 +115,8 @@ def resolve_default_benchmark_resources(spec_keys, user_id):
             is_system=True, owner_user_id__isnull=True,
         ), f'{spec_key} APL')
         template = exactly_one(
-            querysets['templates'].filter(spec=spec_key), f'{spec_key} Template',
+            querysets['templates'].filter(Q(spec=spec_key) | Q(spec__in=('default', 'all', '*'))),
+            f'{spec_key} Template',
         )
         profile = exactly_one(querysets['profiles'].filter(
             user_id__isnull=True, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
@@ -123,7 +124,7 @@ def resolve_default_benchmark_resources(spec_keys, user_id):
         ), f'{spec_key} system Profile')
         if not _same_spec(apl.spec, expected_class, expected_spec):
             _error(f'{spec_key}: APL specialization mismatch', 'resources')
-        if not _same_spec(template.spec, expected_class, expected_spec):
+        if not _same_spec(template.spec, expected_class, expected_spec, allow_generic=True):
             _error(f'{spec_key}: Template specialization mismatch', 'resources')
         profile_class = normalize_battlenet_class_name(profile.class_name)
         if profile_class and profile_class != expected_class:
