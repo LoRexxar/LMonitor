@@ -69,6 +69,9 @@ class SimcBenchmarkExecutionTests(TestCase):
                 'candidate_type': 'gear_swap', 'is_base': False,
                 'gear_swap': {'slot': 'trinket1', 'raw_value': ',id=123',
                               'item_id': 123, 'source': 'manual'},
+                'simc_options': [
+                    'midnight.crucible_of_erratic_energies_predation=1',
+                ],
             },
         )
         self.validation = {
@@ -191,6 +194,10 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(
             [row['candidate_key'] for row in task.mode_params['initial_candidates']],
             ['baseline', 'trinket'],
+        )
+        self.assertEqual(
+            task.mode_params['initial_candidates'][1]['candidate_params']['simc_options'],
+            ['midnight.crucible_of_erratic_energies_predation=1'],
         )
         self.assertEqual(
             [row['candidate_key'] for row in

@@ -14,6 +14,22 @@ from botend.models import (
 
 
 class SimcWorkerTests(TestCase):
+    def test_candidate_simc_options_are_composed_and_arbitrary_options_rejected(self):
+        monitor = SimcMonitor(None, None)
+        option = 'midnight.crucible_of_erratic_energies_predation=1'
+        request = monitor.apply_candidate_overrides({}, {
+            'candidate_type': 'base', 'simc_options': [option],
+        })
+        self.assertEqual(request['_candidate_simc_options'], [option])
+        from botend.services.simc_composer import SimcComposer
+        slot = SimcComposer(None)._resolve_simulation_options(request)
+        self.assertIsNotNone(slot.value)
+        self.assertIn(option, (slot.value.content if slot.value else '').splitlines())
+        with self.assertRaises(ValueError):
+            monitor.apply_candidate_overrides({}, {
+                'candidate_type': 'base', 'simc_options': ['iterations=1'],
+            })
+
     def setUp(self):
         self.backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',

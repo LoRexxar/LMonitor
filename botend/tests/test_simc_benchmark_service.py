@@ -59,7 +59,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
 
     def test_published_limits(self):
         self.assertEqual((MAX_SPECS, MAX_PROFILES_PER_SPEC, MAX_SCENARIOS), (40, 5, 8))
-        self.assertEqual((MAX_CANDIDATES, MAX_CASES, MAX_RUNS_PER_TASK), (50, 100, 51))
+        self.assertEqual((MAX_CANDIDATES, MAX_CASES, MAX_RUNS_PER_TASK), (66, 120, 67))
 
     def test_normalize_strict_shapes_unknown_options_and_types(self):
         for field in ('specs', 'scenarios', 'candidates'):
@@ -103,6 +103,20 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             'slot': 'trinket2', 'raw_value': ',id=456',
             'item_id': 456, 'source': 'manual',
         })
+
+    def test_simc_options_are_exact_allowlisted_assignments(self):
+        allowed = 'midnight.crucible_of_erratic_energies_predation=1'
+        candidate = dict(self.payload['candidates'][0], params={
+            'slot': 'trinket1', 'raw_value': 'id=264507', 'simc_options': [allowed],
+        })
+        normalized = normalize_panel_payload(dict(self.payload, candidates=[candidate]), self.user_id)
+        self.assertEqual(normalized['candidates'][0]['params']['simc_options'], [allowed])
+        for options in (["iterations=1"], [allowed + '\nactions=/kill'], [allowed, allowed], []):
+            candidate = dict(candidate, params={
+                'slot': 'trinket1', 'raw_value': 'id=264507', 'simc_options': options,
+            })
+            with self.subTest(options=options), self.assertRaises(ValidationError):
+                normalize_panel_payload(dict(self.payload, candidates=[candidate]), self.user_id)
 
     def test_simulation_params_reject_non_finite_json_numbers(self):
         for value in (math.nan, math.inf, -math.inf):
@@ -304,16 +318,16 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             SimcBenchmarkProfile.objects.create(panel_spec=spec, profile=profile, label=f'P{index}')
         for index in range(1, 8):
             SimcBenchmarkScenario.objects.create(panel=panel, key=f's{index}', name=f'S{index}')
-        # 5 profiles * 8 scenarios is still valid; make three specs directly to exceed 100.
-        for index in range(2):
+        # 5 profiles * 8 scenarios is still valid; make four specs directly to exceed 120.
+        for index in range(3):
             extra = SimcBenchmarkSpec.objects.create(
                 panel=panel, class_name='warrior', spec_key=f'warrior_fury_{index}', label='Fury',
                 apl=self.apl, template=self.template, backend=self.backend,
             )
             for profile in SimcProfile.objects.filter(user_id=self.user_id)[:5]:
                 SimcBenchmarkProfile.objects.create(panel_spec=extra, profile=profile, label=profile.name)
-        self.assertGreater(build_execution_plan(panel, validate_for_execution=False)['case_count'], 100)
-        with self.assertRaisesMessage(ValidationError, '100'):
+        self.assertGreater(build_execution_plan(panel, validate_for_execution=False)['case_count'], 120)
+        with self.assertRaisesMessage(ValidationError, '120'):
             build_execution_plan(panel, validate_for_execution=True)
 
     def test_plan_rejects_missing_enabled_axes_but_allows_no_enabled_candidates(self):

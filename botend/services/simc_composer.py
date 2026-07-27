@@ -736,6 +736,13 @@ class SimcComposer:
             options.append(f"vary_combat_length={request_data['vary_combat_length']}")
         if request_data.get('enemy_type'):
             options.append(f"enemy={request_data['enemy_type']}")
+        candidate_options = request_data.get('_candidate_simc_options')
+        if candidate_options is not None:
+            from botend.services.simc_candidate_options import normalize_controlled_simc_options
+            controlled_options = normalize_controlled_simc_options(
+                candidate_options, allow_absent=False,
+            )
+            options.extend(controlled_options or [])
         options.append('threads=4')
 
         content = '\n'.join(options)

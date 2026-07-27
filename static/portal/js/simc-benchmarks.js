@@ -33,27 +33,67 @@
     return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
   }
 
+  function safeIconUrl(value) {
+    if (!value) return null;
+    try {
+      const parsed = new URL(String(value), window.location.origin);
+      const protocol = parsed.protocol;
+      if (protocol === "https:" || protocol === "http:") return parsed.href;
+    } catch (error) {
+      return null;
+    }
+    return null;
+  }
+
+  function isBaseline(candidate) {
+    return candidate && (candidate.type === "baseline" || candidate.key === "baseline");
+  }
+
+  function sortCandidates(candidates) {
+    return candidates.slice().sort((left, right) => {
+      const leftValue = validDps(left && left.dps);
+      const rightValue = validDps(right && right.dps);
+      const leftDps = leftValue === null ? -1 : leftValue;
+      const rightDps = rightValue === null ? -1 : rightValue;
+      return rightDps - leftDps;
+    });
+  }
+
   function comparisonText(candidate, candidates, highest) {
     const dps = validDps(candidate.dps);
     if (dps === null) return "无有效结果";
-    const baseline = candidates.find((item) => item && item.key === "baseline");
+    const baseline = candidates.find(isBaseline);
     const baselineDps = baseline ? validDps(baseline.dps) : null;
+    const highestText = highest > 0 ? `${((dps / highest) * 100).toFixed(1)}% of highest` : "—";
     if (baselineDps !== null && baselineDps > 0) {
       const delta = ((dps - baselineDps) / baselineDps) * 100;
       const sign = delta > 0 ? "+" : "";
-      return `${sign}${delta.toFixed(1)}% vs baseline`;
+      return `${sign}${delta.toFixed(1)}% vs baseline · ${highestText}`;
     }
-    if (highest > 0) return `${((dps / highest) * 100).toFixed(1)}% of highest`;
-    return "—";
+    return highestText;
   }
 
   function renderCandidate(candidate, candidates, highest) {
-    const row = node("div", "simc-benchmark-candidate");
-    const heading = node("div", "simc-benchmark-candidate-heading");
-    heading.append(
-      node("span", "simc-benchmark-candidate-name", candidate.label || candidate.key || "候选方案"),
-      node("span", "simc-benchmark-candidate-value", validDps(candidate.dps) === null ? "—" : `${numberFormat.format(Number(candidate.dps))} DPS`)
-    );
+    const baseline = isBaseline(candidate);
+    const row = node("div", `simc-benchmark-candidate${baseline ? " simc-benchmark-candidate--baseline" : ""}`);
+    const grid = node("div", "simc-benchmark-candidate-grid");
+    const identity = node("div", "simc-benchmark-candidate-identity");
+    const iconUrl = safeIconUrl(candidate.icon_url);
+    if (iconUrl) {
+      const icon = node("img", "simc-benchmark-candidate-icon");
+      icon.src = iconUrl;
+      icon.alt = "";
+      icon.loading = "lazy";
+      icon.decoding = "async";
+      icon.referrerPolicy = "no-referrer";
+      icon.addEventListener("error", () => icon.remove(), { once: true });
+      identity.appendChild(icon);
+    }
+    const copy = node("div", "simc-benchmark-candidate-copy");
+    const name = node("div", "simc-benchmark-candidate-name", candidate.label || candidate.key || "候选方案");
+    if (baseline) name.appendChild(node("span", "simc-benchmark-baseline-badge", "Baseline"));
+    copy.append(name, node("div", "simc-benchmark-candidate-source", candidate.source_label || "—"));
+    identity.appendChild(copy);
 
     const track = node("div", "simc-benchmark-bar-track");
     const bar = node("div", "simc-benchmark-bar");
@@ -67,7 +107,13 @@
     track.setAttribute("aria-valuenow", ratio.toFixed(1));
     track.setAttribute("aria-label", `${candidate.label || candidate.key || "候选方案"}，相对最高 DPS ${ratio.toFixed(1)}%`);
 
-    row.append(heading, track, node("div", "simc-benchmark-relative", comparisonText(candidate, candidates, highest)));
+    const metrics = node("div", "simc-benchmark-candidate-metrics");
+    metrics.append(
+      node("div", "simc-benchmark-candidate-value", dps === null ? "—" : `${numberFormat.format(dps)} DPS`),
+      node("div", "simc-benchmark-relative", comparisonText(candidate, candidates, highest))
+    );
+    grid.append(identity, track, metrics);
+    row.appendChild(grid);
     return row;
   }
 
@@ -80,7 +126,7 @@
     });
     card.appendChild(title);
 
-    const candidates = Array.isArray(caseData && caseData.candidates) ? caseData.candidates : [];
+    const candidates = sortCandidates(Array.isArray(caseData && caseData.candidates) ? caseData.candidates : []);
     const highest = candidates.reduce((maximum, candidate) => {
       const dps = validDps(candidate && candidate.dps);
       return dps === null ? maximum : Math.max(maximum, dps);
@@ -128,19 +174,17 @@
     const filters = node("div", "simc-benchmark-filters");
     const cases = node("div", "simc-benchmark-cases");
     const dimensions = [
-      ["spec_key", "spec", "全部专精"],
-      ["scenario_key", "scenario", "全部场景"],
-      ["profile_key", "profile", "全部 Profile"],
+      ["spec_key", "spec", "专精"],
+      ["scenario_key", "scenario", "场景"],
+      ["profile_key", "profile", "Profile"],
     ];
     const selections = {};
-    dimensions.forEach(([coordinateKey, labelKey, allLabel]) => {
+    const firstCoordinates = execution.cases[0].coordinates || {};
+    dimensions.forEach(([coordinateKey, labelKey, filterLabel]) => {
       const label = node("label", "simc-benchmark-filter");
-      label.appendChild(node("span", "simc-benchmark-filter-label", allLabel.slice(2)));
+      label.appendChild(node("span", "simc-benchmark-filter-label", filterLabel));
       const select = node("select", "simc-benchmark-filter-select");
       select.dataset.dimension = coordinateKey;
-      const allOption = node("option", "", allLabel);
-      allOption.value = "";
-      select.appendChild(allOption);
       const options = new Map();
       execution.cases.forEach((caseData) => {
         const key = caseData && caseData.coordinates ? String(caseData.coordinates[coordinateKey] || "") : "";
@@ -153,24 +197,34 @@
         select.appendChild(option);
       });
       selections[coordinateKey] = select;
+      selections[coordinateKey].value = firstCoordinates[coordinateKey] || "";
       label.appendChild(select);
       filters.appendChild(label);
     });
-    const renderFilteredCases = () => {
-      const selectedCases = execution.cases.filter((caseData) => dimensions.every(([coordinateKey]) => {
-        const selected = selections[coordinateKey].value;
-        const actual = caseData && caseData.coordinates ? String(caseData.coordinates[coordinateKey] || "") : "";
-        return !selected || selected === actual;
-      }));
-      cases.replaceChildren();
-      if (!selectedCases.length) {
-        cases.appendChild(state("当前筛选条件下没有结果", "empty"));
+    const findSelectedCase = () => execution.cases.find((caseData) => dimensions.every(([coordinateKey]) => {
+      const selected = selections[coordinateKey].value;
+      const actual = caseData && caseData.coordinates ? String(caseData.coordinates[coordinateKey] || "") : "";
+      return selected === actual;
+    }));
+    const syncSelections = (caseData) => dimensions.forEach(([coordinateKey]) => {
+      selections[coordinateKey].value = String(caseData.coordinates[coordinateKey] || "");
+    });
+    const renderSelectedCase = (event) => {
+      let selectedCase = findSelectedCase();
+      if (!selectedCase && event && event.target) {
+        const changedKey = event.target.dataset.dimension;
+        selectedCase = execution.cases.find((caseData) => caseData.coordinates
+          && String(caseData.coordinates[changedKey] || "") === event.target.value);
+        if (selectedCase) syncSelections(selectedCase);
+      }
+      if (!selectedCase) {
+        cases.replaceChildren(state("当前筛选条件下没有结果", "empty"));
         return;
       }
-      selectedCases.forEach((caseData) => cases.appendChild(renderCase(caseData || {})));
+      cases.replaceChildren(renderCase(selectedCase));
     };
-    filters.addEventListener("change", renderFilteredCases);
-    renderFilteredCases();
+    filters.addEventListener("change", renderSelectedCase);
+    renderSelectedCase();
     shell.body.replaceChildren(meta, filters, cases);
   }
 

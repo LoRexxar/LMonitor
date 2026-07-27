@@ -31,13 +31,14 @@ from botend.services.simc_task_service import (
     SIMULATION_PARAMS_WHITELIST, TaskCreationError, validate_resource_ownership,
 )
 from botend.services.simc_composer import validate_simulation_options
+from botend.services.simc_candidate_options import normalize_controlled_simc_options
 
 MAX_SPECS = len(SUPPORTED_SIMC_SPEC_IDENTITIES)
 MAX_PROFILES_PER_SPEC = 5
 MAX_SCENARIOS = 8
-MAX_CANDIDATES = 50
-MAX_CASES = 100
-MAX_RUNS_PER_TASK = 51
+MAX_CANDIDATES = 66
+MAX_CASES = 120
+MAX_RUNS_PER_TASK = 67
 MAX_GEAR_RAW_VALUE_CHARS = 2048
 MAX_CANDIDATE_PARAMS_BYTES = 16 * 1024
 MAX_PANEL_CONFIG_BYTES = 2 * 1024 * 1024
@@ -88,6 +89,51 @@ def benchmark_resource_querysets(user_id):
         name: model.objects.filter(benchmark_resource_access_q(kind, user_id)).order_by('name', 'id')
         for name, (model, kind) in models_by_name.items()
     }
+
+
+def resolve_default_benchmark_resources(spec_keys, user_id):
+    """Resolve exactly one composer-compatible default resource set per spec."""
+    querysets = benchmark_resource_querysets(user_id)
+
+    def exactly_one(queryset, description):
+        rows = list(queryset[:2])
+        if len(rows) != 1:
+            state = 'missing' if not rows else 'duplicate'
+            _error(f'{description}: {state} default resource', 'resources')
+        return rows[0]
+
+    backend = exactly_one(
+        querysets['backends'].filter(identifier='production'), 'production Backend',
+    )
+    resolved = {}
+    for spec_key in spec_keys:
+        if not is_supported_simc_spec_identity(spec_key):
+            _error(f'{spec_key}: unsupported specialization', 'resources')
+        expected_class, expected_spec = canonical_simc_spec_identity(spec_key)
+        apl = exactly_one(querysets['apls'].filter(
+            spec=spec_key, source=SimcApl.SOURCE_SIMC_UPSTREAM,
+            is_system=True, owner_user_id__isnull=True,
+        ), f'{spec_key} APL')
+        template = exactly_one(
+            querysets['templates'].filter(spec=spec_key), f'{spec_key} Template',
+        )
+        profile = exactly_one(querysets['profiles'].filter(
+            user_id__isnull=True, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key=f'simc_upstream:{spec_key}', spec=spec_key,
+        ), f'{spec_key} system Profile')
+        if not _same_spec(apl.spec, expected_class, expected_spec):
+            _error(f'{spec_key}: APL specialization mismatch', 'resources')
+        if not _same_spec(template.spec, expected_class, expected_spec):
+            _error(f'{spec_key}: Template specialization mismatch', 'resources')
+        profile_class = normalize_battlenet_class_name(profile.class_name)
+        if profile_class and profile_class != expected_class:
+            _error(f'{spec_key}: Profile class mismatch', 'resources')
+        if not _same_spec(profile.spec, expected_class, expected_spec):
+            _error(f'{spec_key}: Profile specialization mismatch', 'resources')
+        resolved[spec_key] = {
+            'apl': apl, 'template': template, 'backend': backend, 'profile': profile,
+        }
+    return resolved
 
 
 def _error(message, field=None) -> NoReturn:
@@ -231,7 +277,7 @@ def _normalize_candidate_params(candidate_type, params):
         # Canonical snapshots may be resubmitted by the Dashboard, but their
         # executor-control fields must be asserted rather than silently repaired.
         if 'gear_swap' in params:
-            if set(params) - {'candidate_type', 'is_base', 'gear_swap'}:
+            if set(params) - {'candidate_type', 'is_base', 'gear_swap', 'simc_options'}:
                 _error('canonical gear params 包含未知字段', 'params')
             if params.get('candidate_type') != 'gear_swap':
                 _error('canonical candidate_type 必须是 gear_swap', 'params')
@@ -240,11 +286,11 @@ def _normalize_candidate_params(candidate_type, params):
             if not isinstance(params.get('gear_swap'), dict):
                 _error('gear_swap 必须是对象', 'params')
             swap = params['gear_swap']
-            if set(swap) - {'slot', 'raw_value', 'item_id', 'source'}:
+            if set(swap) - {'slot', 'raw_value', 'item_id', 'source', 'bonus_id'}:
                 _error('gear_swap 包含未知字段', 'params')
             slot, raw_value = swap.get('slot'), swap.get('raw_value')
         else:
-            unknown = set(params) - {'slot', 'raw_value'}
+            unknown = set(params) - {'slot', 'raw_value', 'simc_options'}
             if unknown:
                 _error(f'gear_swap 包含未知字段: {", ".join(sorted(unknown))}', 'params')
             slot, raw_value = params.get('slot'), params.get('raw_value')
@@ -271,6 +317,12 @@ def _normalize_candidate_params(candidate_type, params):
             'item_id': int(item_match.group(1)), 'source': 'manual',
         },
     }
+    options = params.get('simc_options') if isinstance(params, dict) else None
+    if options is not None:
+        try:
+            result['simc_options'] = normalize_controlled_simc_options(options)
+        except ValueError as exc:
+            _error(str(exc), 'params')
     size = len(json.dumps(result, sort_keys=True, separators=(',', ':'),
                           ensure_ascii=False).encode('utf-8'))
     if size > MAX_CANDIDATE_PARAMS_BYTES:

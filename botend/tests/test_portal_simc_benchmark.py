@@ -114,11 +114,33 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
 
     def test_each_panel_builds_independent_three_axis_filters(self):
         for contract in ('spec_key', 'scenario_key', 'profile_key',
-                         'simc-benchmark-filters', 'renderFilteredCases',
+                         'simc-benchmark-filters', 'renderSelectedCase',
                          '当前筛选条件下没有结果'):
             self.assertIn(contract, self.JS)
         self.assertIn('role", "meter', self.JS)
-        self.assertIn('allOption.value = ""', self.JS)
+
+    def test_defaults_to_one_complete_case_and_never_renders_the_matrix(self):
+        for contract in ('selectedCase = findSelectedCase()',
+                         'selections[coordinateKey].value = firstCoordinates[coordinateKey]',
+                         'cases.replaceChildren(renderCase(selectedCase))'):
+            self.assertIn(contract, self.JS)
+        self.assertNotIn('selectedCases.forEach', self.JS)
+        self.assertNotIn('全部专精', self.JS)
+
+    def test_bloodmallet_rows_are_sorted_and_show_safe_icons_source_and_comparisons(self):
+        for contract in ('sortCandidates', 'rightDps - leftDps',
+                         'simc-benchmark-candidate--baseline', 'candidate.type === "baseline"',
+                         'safeIconUrl', 'protocol === "https:"', 'protocol === "http:"',
+                         'simc-benchmark-candidate-icon', 'candidate.source_label',
+                         'vs baseline', 'of highest'):
+            self.assertIn(contract, self.JS)
+        self.assertNotIn('innerHTML', self.JS)
+
+    def test_dense_chart_and_mobile_rows_have_explicit_layout_contracts(self):
+        for contract in ('simc-benchmark-candidate-grid', 'simc-benchmark-candidate-source',
+                         'max-height: min(70vh, 64rem)', 'overflow-y: auto',
+                         '@media (max-width: 640px)', 'grid-template-areas'):
+            self.assertIn(contract, self.CSS)
 
     def test_mobile_layout_and_no_scroll_snap(self):
         self.assertIn('@media (max-width: 640px)', self.CSS)

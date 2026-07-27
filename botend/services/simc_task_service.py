@@ -149,6 +149,7 @@ MODE_PARAMS_WHITELIST = {
 CANDIDATE_PARAMS_WHITELIST = {
     'candidate_type', 'is_base', 'gear_swap', 'talent_override',
     'talent_candidate', 'apl_override', 'attribute_ratings', 'search',
+    'simc_options',
 }
 
 
@@ -326,6 +327,14 @@ def _normalize_candidates(candidates, round_number=1):
             candidate.get('candidate_params') or candidate.get('params') or {},
             CANDIDATE_PARAMS_WHITELIST,
         ) or {}
+        if 'simc_options' in params:
+            from botend.services.simc_candidate_options import normalize_controlled_simc_options
+            try:
+                params['simc_options'] = normalize_controlled_simc_options(
+                    params['simc_options'], allow_absent=False,
+                )
+            except ValueError as exc:
+                raise TaskCreationError(str(exc)) from exc
         key = str(candidate.get('candidate_key') or candidate.get('key') or f'candidate-{index}')[:200]
         frozen.append({
             'candidate_key': key,

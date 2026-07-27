@@ -431,6 +431,11 @@ class SimcMonitor(BaseScan):
         """
         request_data = dict(composer_request or {})
         params = mode_params or {}
+        if 'simc_options' in params:
+            from botend.services.simc_candidate_options import normalize_controlled_simc_options
+            request_data['_candidate_simc_options'] = normalize_controlled_simc_options(
+                params['simc_options'], allow_absent=False,
+            )
         candidate_type = params.get('candidate_type') or 'base'
 
         if candidate_type == 'gear_swap':
