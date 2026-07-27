@@ -24,8 +24,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from botend.models import (SimcApl, SimcBackendBinary, SimcContentTemplate,
-                           SimcProfile, WowSpellSnapshotState, WowTalentVersion)
+from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary,
+                           SimcContentTemplate, SimcProfile,
+                           WowSpellSnapshotState, WowTalentVersion)
 from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
 from botend.services.simc_apl.publish import content_hash
 from botend.services.simc_apl.validation import validate_payload
@@ -955,19 +956,31 @@ class Command(BaseCommand):
         binary_stale = self._binary_needs_patch_rebuild()
         revision_unpromoted = False
         publication_incomplete = False
+        catalog_build_differs = False
         if not changed and not binary_stale:
             row = getattr(self, 'row', None)
             current_version = getattr(row, 'current_version', None)
+            target_build = str(getattr(self, 'wow_build_override', '') or '').strip()
+            git_hash = (
+                self._get_git_hash()
+                if isinstance(current_version, str) or target_build else ''
+            )
             revision_unpromoted = (
                 isinstance(current_version, str)
-                and not self._revision_matches_git_hash(current_version, self._get_git_hash())
+                and not self._revision_matches_git_hash(current_version, git_hash)
             )
             update_progress = getattr(row, 'update_progress', None)
             publication_incomplete = (
                 getattr(row, 'is_updating', None) is True
                 or (isinstance(update_progress, int) and update_progress < 100)
             )
-        if not changed and not binary_stale and not revision_unpromoted and not publication_incomplete:
+            if target_build and re.fullmatch(r'[0-9a-fA-F]{40}', str(git_hash or '')):
+                active_builds = set(SimcAplSymbol.objects.filter(
+                    simc_revision=git_hash, is_active=True,
+                ).values_list('wow_build', flat=True).distinct())
+                catalog_build_differs = active_builds != {target_build}
+        if (not changed and not binary_stale and not revision_unpromoted
+                and not publication_incomplete and not catalog_build_differs):
             self.stdout.write('SimC 本地补丁已存在，无需重新编译')
             return False
         self._update_binary(do_pull=False, threads=threads, apply_patches=False)

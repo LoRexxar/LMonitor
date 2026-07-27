@@ -227,6 +227,50 @@ class UpdateSimcBinaryCommandTests(TestCase):
             self.assertTrue(command._apply_patches_only(threads=2))
             update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
 
+    def test_apply_patches_mode_rebuilds_when_catalog_build_differs(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        revision = 'a' * 40
+        SimcAplSymbol.objects.create(
+            simc_revision=revision, wow_build='old-build', token='bloodthirst',
+        )
+        command = Command()
+        command.stdout = StringIO()
+        command.wow_build_override = 'current-build'
+        command.row = mock.Mock(
+            current_version=revision,
+            is_updating=False,
+            update_progress=100,
+        )
+        with mock.patch.object(command, '_apply_local_patches', return_value=False), \
+                mock.patch.object(command, '_binary_needs_patch_rebuild', return_value=False), \
+                mock.patch.object(command, '_get_git_hash', return_value=revision), \
+                mock.patch.object(command, '_update_binary') as update_binary:
+            self.assertTrue(command._apply_patches_only(threads=2))
+            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
+
+    def test_apply_patches_mode_skips_when_catalog_build_matches(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        revision = 'a' * 40
+        SimcAplSymbol.objects.create(
+            simc_revision=revision, wow_build='current-build', token='bloodthirst',
+        )
+        command = Command()
+        command.stdout = StringIO()
+        command.wow_build_override = 'current-build'
+        command.row = mock.Mock(
+            current_version=revision,
+            is_updating=False,
+            update_progress=100,
+        )
+        with mock.patch.object(command, '_apply_local_patches', return_value=False), \
+                mock.patch.object(command, '_binary_needs_patch_rebuild', return_value=False), \
+                mock.patch.object(command, '_get_git_hash', return_value=revision), \
+                mock.patch.object(command, '_update_binary') as update_binary:
+            self.assertFalse(command._apply_patches_only(threads=2))
+            update_binary.assert_not_called()
+
     def test_binary_health_requires_simulationcraft_identity(self):
         from botend.management.commands.update_simc_binary import Command
 
