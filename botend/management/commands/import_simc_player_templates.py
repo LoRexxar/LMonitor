@@ -141,4 +141,6 @@ class Command(BaseCommand):
                         },
                     )
         action = '预览' if options['dry_run'] else '导入'
+        if errors:
+            raise CommandError(f'{action}失败: {imported} 成功, {skipped} 跳过, {errors} 错误')
         self.stdout.write(self.style.SUCCESS(f'{action}完成: {imported} 成功, {skipped} 跳过, {errors} 错误'))
