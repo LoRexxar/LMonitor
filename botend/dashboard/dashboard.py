@@ -28,7 +28,8 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask,
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask,
-                          RssArticle, WowArticle, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl)
+                          RssArticle, WowArticle, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl,
+                          SimcBenchmarkPanel)
 
 from botend.services.simc_attribute_results import parse_attribute_result_filename
 
@@ -987,6 +988,20 @@ class SimcWorkbenchDetailPageView(View):
             'detail_kind': kind,
             'detail_id': obj.id,
             'detail_title': obj.name,
+        })
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcBenchmarkConfigPageView(View):
+    """Staff-only full-page editor shell for every Benchmark Panel detail."""
+
+    def get(self, request, panel_id):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return HttpResponse(status=403)
+        panel = get_object_or_404(SimcBenchmarkPanel, pk=panel_id)
+        return render(request, 'dashboard/simc_benchmark_config.html', {
+            'panel_id': panel.pk,
+            'panel_name': panel.name,
         })
 
 

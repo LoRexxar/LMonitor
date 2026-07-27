@@ -8,6 +8,8 @@ from bs4 import BeautifulSoup, Tag
 ROOT = Path(__file__).resolve().parents[2]
 INDEX = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
 PARTIAL = (ROOT / "templates/dashboard/_simc_benchmark.html").read_text(encoding="utf-8")
+CONFIG_PATH = ROOT / "templates/dashboard/simc_benchmark_config.html"
+CONFIG_PAGE = CONFIG_PATH.read_text(encoding="utf-8") if CONFIG_PATH.exists() else ''
 JS = (ROOT / "static/dashboard/js/simc-benchmark-dashboard.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static/dashboard/css/simc-benchmark-dashboard.css").read_text(encoding="utf-8")
 
@@ -110,6 +112,18 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("resources?.create_defaults?.[specKey]", JS)
         self.assertIn("create-spec-unavailable", JS)
         self.assertIn("candidates:[]", JS)
+
+    def test_configuration_uses_a_dedicated_page_with_every_detail_section(self):
+        self.assertIn('dashboard/simc/benchmarks/', JS)
+        self.assertNotIn("if(action.dataset.action==='edit')openEditor(id)", JS)
+        self.assertIn('data-benchmark-config-page', CONFIG_PAGE)
+        self.assertIn('data-benchmark-panel-id', CONFIG_PAGE)
+        for text in ('基础信息', '定时', '专精配置', '场景', '候选装备'):
+            self.assertIn(text, CONFIG_PAGE)
+        self.assertIn('simc-benchmark-dashboard.js', CONFIG_PAGE)
+        self.assertIn("if(!configPage)document.body.classList.add", JS)
+        self.assertIn("data-benchmark-notification", JS)
+        self.assertNotIn('data-create-only', CONFIG_PAGE)
 
     def test_mobile_full_screen_and_local_table_overflow(self):
         self.assertIn('@media (max-width: 640px)', CSS)
