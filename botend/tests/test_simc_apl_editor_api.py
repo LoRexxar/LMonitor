@@ -688,6 +688,37 @@ class SimcAplEditorApiTests(TestCase):
         self.assertTrue(payload["items"][0]["authoritative"])
 
     @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, "12.0.5"))
+    def test_spell_catalog_never_exposes_control_actions_as_spells(self):
+        tokens = (
+            "apply_poison", "summon_pet", "retarget_auto_attack", "cancel_buff",
+        )
+        WowSpellSnapshot.objects.bulk_create([
+            WowSpellSnapshot(
+                branch="wow", locale="zhCN", spell_id=spell_id,
+                name=f"Control {spell_id}", name_zh="不应使用",
+                snapshot_build="12.0.5",
+            )
+            for spell_id in range(100, 100 + len(tokens))
+        ])
+        SimcAplSymbol.objects.bulk_create([
+            SimcAplSymbol(
+                simc_revision=self.REVISION, wow_build="12.0.5",
+                class_name="warrior", class_key="warrior",
+                spec="fury", spec_key="fury", token=token,
+                symbol_kind="action", spell_id=spell_id,
+            )
+            for token, spell_id in zip(tokens, range(100, 100 + len(tokens)))
+        ])
+
+        payload = self.client.get(
+            "/api/simc-workbench/apl-spells/",
+            {"spec": "warrior_fury", "all": 1},
+        ).json()["data"]
+
+        self.assertEqual(payload["items"], [])
+        self.assertEqual(payload["pagination"]["total"], 0)
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, "12.0.5"))
     def test_spell_catalog_searches_and_paginates_current_spec_in_database(self):
         fixtures = (
             (23881, "Bloodthirst", "嗜血", "bloodthirst"),

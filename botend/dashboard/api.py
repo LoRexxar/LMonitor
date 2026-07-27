@@ -536,7 +536,7 @@ def _authoritative_action_bindings(parsed_spec, identity):
     base = SimcAplSymbol.objects.filter(
         simc_revision=identity[0], wow_build=identity[1], is_active=True,
         symbol_kind=SimcAplSymbol.KIND_ACTION, hero_tree__isnull=True,
-    ).exclude(token='')
+    ).exclude(token='').exclude(token__in=CONTROL_ACTIONS)
     visible_scope = (
         models.Q(class_name__isnull=True, spec__isnull=True) |
         models.Q(class_name=class_name, spec__isnull=True) |
