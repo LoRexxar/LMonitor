@@ -271,6 +271,13 @@ class UpdateSimcBinaryCommandTests(TestCase):
             self.assertFalse(command._apply_patches_only(threads=2))
             update_binary.assert_not_called()
 
+    def test_deploy_pins_localized_catalog_build_against_ambient_environment(self):
+        script = Path('deploy.sh').read_text(encoding='utf-8')
+
+        self.assertIn('WOW_BUILD="12.0.7.68453"', script)
+        self.assertNotIn('WOW_BUILD="${WOW_BUILD:-', script)
+        self.assertIn('--wow-build "$WOW_BUILD"', script)
+
     def test_binary_health_requires_simulationcraft_identity(self):
         from botend.management.commands.update_simc_binary import Command
 
