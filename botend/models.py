@@ -755,6 +755,11 @@ class SimcAplSymbol(models.Model):
     source = models.CharField(
         max_length=32, choices=SOURCE_CHOICES, default=SOURCE_MANIFEST,
     )
+    # Keep the catalog provenance in ``source`` and the runtime exporter's
+    # typed identity evidence separately for diagnostics and coverage audits.
+    identity_source = models.CharField(max_length=64, default='', blank=True)
+    identity_reason = models.CharField(max_length=128, default='', blank=True)
+    identity_candidates = models.JSONField(default=list, blank=True)
     aliases = models.JSONField(default=list, blank=True)
     options = models.JSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=True)
@@ -867,6 +872,7 @@ class SimcAplSymbol(models.Model):
         )
         fact_fields = (
             'class_name', 'spec', 'hero_tree', 'spell_id', 'trait_id', 'source',
+            'identity_source', 'identity_reason', 'identity_candidates',
             'aliases', 'options',
         )
         prepared = {}
