@@ -88,6 +88,8 @@ class Command(BaseCommand):
             raise CommandError(f'MID1 目录不存在: {source_dir}')
         imported = skipped = errors = 0
         validated = []
+        expected = {(class_name, spec) for class_name, specs in KNOWN_SPECS.items() for spec in specs}
+        seen = set()
         for filename in sorted(os.listdir(source_dir)):
             parsed = self._parse_filename(filename)
             if not parsed:
@@ -95,6 +97,11 @@ class Command(BaseCommand):
                     skipped += 1
                 continue
             class_name, spec = parsed
+            if parsed in seen:
+                errors += 1
+                self.stderr.write(self.style.ERROR(f'{filename}: 重复专精基线'))
+                continue
+            seen.add(parsed)
             try:
                 with open(os.path.join(source_dir, filename), encoding='utf-8') as source:
                     baseline = self._extract_baseline(source.read())
@@ -109,6 +116,10 @@ class Command(BaseCommand):
                 self.stdout.write(f'[DRY] {spec_key}: {len(baseline.splitlines())} 行')
             imported += 1
 
+        if seen != expected:
+            missing = ', '.join(f'{class_name}_{spec}' for class_name, spec in sorted(expected - seen))
+            errors += len(expected - seen)
+            self.stderr.write(f'缺少专精基线: {missing}')
         if not options['dry_run'] and errors == 0:
             active_keys = [f'simc_upstream:{row[0]}' for row in validated]
             with transaction.atomic():
