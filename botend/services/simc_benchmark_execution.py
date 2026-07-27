@@ -756,7 +756,7 @@ def serialize_public_execution(panel_or_execution):
         _validation_error('必须提供 Panel 或 Execution')
 
     panel = SimcBenchmarkPanel.objects.filter(pk=panel_id).first()
-    if (panel is None or not panel.is_active or not panel.is_public or
+    if (panel is None or not panel.is_active or
             panel.published_execution_id is None or
             (requested_execution_id is not None and
              requested_execution_id != panel.published_execution_id)):

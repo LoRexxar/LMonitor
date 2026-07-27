@@ -32,15 +32,14 @@ class PortalSimcBenchmarkPanelListAPIView(View):
 
 
 class PortalSimcBenchmarkPanelDetailAPIView(View):
-    """Return the sealed aggregate of one published public panel."""
+    """Return a sealed aggregate by slug, including unlisted active panels."""
 
     http_method_names = ['get', 'head', 'options']
 
     def get(self, request, slug):
         panel = SimcBenchmarkPanel.objects.filter(
-            is_active=True, is_public=True, slug=slug,
+            is_active=True, slug=slug,
         ).first()
-        # Missing and non-public slugs deliberately have an identical response.
         payload = serialize_public_execution(panel) if panel is not None else _NOT_READY
         if payload.get('status') not in {'ready', 'not_ready'}:
             payload = _NOT_READY

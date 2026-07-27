@@ -75,13 +75,22 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertEqual(serializer.call_args.args[0].pk, self.public.pk)
 
     @patch('botend.portal.simc_benchmark_api.serialize_public_execution')
-    def test_private_and_missing_slugs_are_identical_not_ready(self, serializer):
+    def test_private_panel_is_hidden_from_list_but_addressable_by_slug(self, serializer):
+        serializer.return_value = {'status': 'not_ready', 'execution': None}
+
+        list_response = self.client.get('/portal/api/simc-benchmarks/panels/')
         private_response = self.client.get('/portal/api/simc-benchmarks/panels/secret-panel/')
+
+        self.assertNotIn('secret-panel', json.dumps(json.loads(list_response.content)))
+        self.assertEqual(json.loads(private_response.content), serializer.return_value)
+        self.assertEqual(serializer.call_args.args[0].pk, self.private.pk)
+
+    @patch('botend.portal.simc_benchmark_api.serialize_public_execution')
+    def test_disabled_and_missing_slugs_are_not_ready(self, serializer):
         disabled_response = self.client.get('/portal/api/simc-benchmarks/panels/disabled-panel/')
         missing_response = self.client.get('/portal/api/simc-benchmarks/panels/missing-panel/')
 
         expected = {'status': 'not_ready', 'execution': None}
-        self.assertEqual(json.loads(private_response.content), expected)
         self.assertEqual(json.loads(disabled_response.content), expected)
         self.assertEqual(json.loads(missing_response.content), expected)
         serializer.assert_not_called()
@@ -99,15 +108,21 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
 
     def test_portal_wires_an_independent_benchmark_region_and_assets(self):
         soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
-        self.assertIsNotNone(soup.select_one('#section-simc-benchmarks'))
+        self.assertIsNotNone(soup.select_one('#section-simc-benchmarks[hidden]'))
         self.assertIsNotNone(soup.select_one('#simc-benchmark-root[aria-live="polite"]'))
         self.assertIn('portal/css/simc-benchmarks.css', self.TEMPLATE)
         self.assertIn('portal/js/simc-benchmarks.js', self.TEMPLATE)
 
+    def test_private_benchmark_direct_link_bypasses_public_list_discovery(self):
+        self.assertIn('section.hidden = false', self.JS)
+        self.assertIn('if (requested)', self.JS)
+        self.assertIn('await loadPanel({ slug: requested, status: "ready" }, root)', self.JS)
+        self.assertNotIn('payload.panels.filter', self.JS)
+
     def test_ui_uses_safe_dom_and_supports_required_states(self):
         self.assertNotIn('innerHTML', self.JS)
         for contract in ('document.createElement', 'textContent', 'replaceChildren',
-                         '正在加载', '暂无公开', '加载失败', 'not_ready',
+                         '正在加载', '加载失败', 'not_ready',
                          'labels.spec', 'labels.scenario', 'labels.profile',
                          'candidate.dps', 'vs baseline', 'of highest'):
             self.assertIn(contract, self.JS)

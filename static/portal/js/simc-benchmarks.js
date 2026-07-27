@@ -253,19 +253,24 @@
   async function loadBenchmarks() {
     const root = document.getElementById("simc-benchmark-root");
     if (!root) return;
+    const section = document.getElementById("section-simc-benchmarks");
+    const requested = new URLSearchParams(window.location.search).get("benchmark");
     root.setAttribute("aria-busy", "true");
     try {
-      const payload = await requestJson(LIST_URL);
-      if (payload.status !== "ready" || !Array.isArray(payload.panels)) throw new Error("Invalid list");
-      const requested = new URLSearchParams(window.location.search).get("benchmark");
-      const panels = requested
-        ? payload.panels.filter((panel) => panel && String(panel.slug) === requested)
-        : payload.panels;
-      root.replaceChildren();
-      if (!panels.length) {
-        root.appendChild(state(requested ? "指定的 Benchmark Panel 尚未公开" : "暂无公开 Benchmark Panel", "empty"));
+      if (requested) {
+        if (section) section.hidden = false;
+        root.replaceChildren();
+        await loadPanel({ slug: requested, status: "ready" }, root);
         return;
       }
+      const payload = await requestJson(LIST_URL);
+      if (payload.status !== "ready" || !Array.isArray(payload.panels)) throw new Error("Invalid list");
+      const panels = payload.panels;
+      root.replaceChildren();
+      if (!panels.length) {
+        return;
+      }
+      if (section) section.hidden = false;
       await Promise.all(panels.map((panel) => loadPanel(panel || {}, root)));
     } catch (error) {
       root.replaceChildren(state("Benchmark 列表加载失败，请稍后重试", "error"));
