@@ -32,6 +32,9 @@ from botend.dashboard.api import (
     WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView,
     WowDailyReportGenerateAPIView, WagoHotfixReportListAPIView, WagoSkillDiffRerunAPIView,
     SimcAplValidationAPIView, SimcAplSymbolsAPIView, SimcAplSpellsAPIView, SimcAplCompletionsAPIView,
+    SimcBenchmarkPanelListAPIView, SimcBenchmarkPanelDetailAPIView,
+    SimcBenchmarkPanelRunAPIView, SimcBenchmarkPanelExecutionListAPIView,
+    SimcBenchmarkExecutionDetailAPIView, SimcBenchmarkExecutionReconcileAPIView,
 )
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
@@ -139,6 +142,12 @@ urlpatterns = [
     path('api/simc-workbench/<str:resource>/<int:object_id>/', SimcWorkbenchAPIView.as_view(), name="simc_workbench_detail"),
     path('api/simc-workbench/tasks/<int:object_id>/report-preview/', SimcTaskReportPreviewAPIView.as_view(), name="simc_task_report_preview"),
     path('api/simc-workbench/artifacts/<int:object_id>/preview/', SimcArtifactPreviewAPIView.as_view(), name="simc_artifact_preview"),
+    path('api/simc-benchmarks/panels/', SimcBenchmarkPanelListAPIView.as_view(), name='simc_benchmark_panels'),
+    path('api/simc-benchmarks/panels/<int:panel_id>/', SimcBenchmarkPanelDetailAPIView.as_view(), name='simc_benchmark_panel_detail'),
+    path('api/simc-benchmarks/panels/<int:panel_id>/run/', SimcBenchmarkPanelRunAPIView.as_view(), name='simc_benchmark_panel_run'),
+    path('api/simc-benchmarks/panels/<int:panel_id>/executions/', SimcBenchmarkPanelExecutionListAPIView.as_view(), name='simc_benchmark_panel_executions'),
+    path('api/simc-benchmarks/executions/<int:execution_id>/', SimcBenchmarkExecutionDetailAPIView.as_view(), name='simc_benchmark_execution_detail'),
+    path('api/simc-benchmarks/executions/<int:execution_id>/reconcile/', SimcBenchmarkExecutionReconcileAPIView.as_view(), name='simc_benchmark_execution_reconcile'),
     path('api/system-alert/', csrf_exempt(SystemAlertAPIView.as_view()), name="system_alert"),
     path('api/portal/peak/refresh/', csrf_exempt(PortalPeakSpecRankRefreshAPIView.as_view()), name="portal_peak_refresh"),
     path('api/wow-daily-report/list/', csrf_exempt(WowDailyReportListAPIView.as_view()), name="wow_daily_report_list"),

@@ -73,8 +73,17 @@ from botend.services.simc_apl.translation import (
     extract_translation_demands, resolve_demand_mappings, translate_apl_ranges,
     CONTROL_ACTIONS,
 )
-from django.core.exceptions import SuspiciousOperation
+from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
+from django.db.models.deletion import ProtectedError
 from collections import defaultdict, deque
+
+from botend.models import SimcBenchmarkExecution, SimcBenchmarkPanel
+from botend.services.simc_benchmark_config import replace_panel_config, serialize_panel_config
+from botend.services.simc_benchmark_execution import (
+    BenchmarkExecutionConflict, create_execution, reconcile_execution,
+    summarize_execution,
+)
+from botend.services.simc_task_service import TaskValidationUnavailable
 
 
 def _accessible_simc_profile_q(user_id):
@@ -7679,3 +7688,348 @@ class WclAnalysisTaskAPIView(View):
             'benchmark_pretty': json.dumps(benchmark_summary, ensure_ascii=False, indent=2)
         })
         return html_content, summary
+
+
+# Benchmark Dashboard APIs intentionally use a small, consistent and safe JSON
+# contract instead of inheriting legacy Dashboard exception/CSRF behaviour.
+def _benchmark_iso(value):
+    return value.isoformat() if value is not None else None
+
+
+def _benchmark_error(code, status, *, fields=None):
+    payload = {'success': False, 'error': code}
+    if fields:
+        payload['fields'] = fields
+    return JsonResponse(payload, status=status)
+
+
+def _benchmark_validation_fields(exc):
+    if hasattr(exc, 'message_dict'):
+        return {key: [str(item) for item in values]
+                for key, values in exc.message_dict.items()}
+    return {'non_field_errors': [str(item) for item in exc.messages]}
+
+
+class _BenchmarkAPIError(Exception):
+    def __init__(self, code, status):
+        self.code = code
+        self.status = status
+        super().__init__(code)
+
+
+def _benchmark_json_object(request, *, empty=False):
+    content_type = (request.META.get('CONTENT_TYPE') or '').split(';', 1)[0].strip().lower()
+    if content_type != 'application/json':
+        raise _BenchmarkAPIError('unsupported_media_type', 415)
+
+    def reject_non_json_constant(value):
+        raise ValueError(value)
+
+    try:
+        payload = json.loads(
+            request.body.decode('utf-8'), parse_constant=reject_non_json_constant,
+        )
+    except (UnicodeDecodeError, ValueError):
+        raise ValidationError({'body': ['请求体必须是有效 JSON 对象']})
+    if not isinstance(payload, dict):
+        raise ValidationError({'body': ['请求体必须是 JSON 对象']})
+    if empty and payload:
+        raise _BenchmarkAPIError('unknown_fields', 400)
+    return payload
+
+
+class _BenchmarkAdminAPIView(View):
+    """Anonymous users follow login redirect; authenticated non-admins get JSON 403."""
+
+    @method_decorator(login_required)
+    def dispatch(self, request, *args, **kwargs):
+        if not _is_simc_admin(request.user):
+            return _benchmark_error('forbidden', 403)
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        except _BenchmarkAPIError as exc:
+            return _benchmark_error(exc.code, exc.status)
+        except ValidationError as exc:
+            return _benchmark_error('validation_error', 400,
+                                    fields=_benchmark_validation_fields(exc))
+        except BenchmarkExecutionConflict:
+            return _benchmark_error('execution_conflict', 409)
+        except TaskValidationUnavailable:
+            return _benchmark_error('service_unavailable', 503)
+        except PermissionDenied:
+            return _benchmark_error('forbidden', 403)
+        except ProtectedError:
+            return _benchmark_error(
+                'protected_resource', 400,
+                fields={'panel': ['Panel 被受保护资源引用，无法删除']},
+            )
+        except Exception:
+            logger.exception('Benchmark Dashboard API unexpected failure')
+            return _benchmark_error('internal_error', 500)
+
+    def http_method_not_allowed(self, request, *args, **kwargs):
+        methods = self._allowed_methods()
+        response = _benchmark_error('method_not_allowed', 405)
+        response['Allow'] = ', '.join(methods)
+        return response
+
+    @staticmethod
+    def panel_or_404(panel_id):
+        panel = SimcBenchmarkPanel.objects.filter(pk=panel_id).first()
+        if panel is None:
+            return None, _benchmark_error('not_found', 404)
+        return panel, None
+
+
+def _benchmark_panel_summary(panel):
+    return {
+        'id': panel.pk, 'slug': panel.slug, 'name': panel.name,
+        'is_active': panel.is_active, 'is_public': panel.is_public,
+        'schedule_enabled': panel.schedule_enabled,
+        'interval_seconds': panel.interval_seconds,
+        'next_run_at': _benchmark_iso(panel.next_run_at),
+        'last_scheduled_at': _benchmark_iso(panel.last_scheduled_at),
+        'published_execution_id': panel.published_execution_id,
+        'counts': {
+            'specs': panel.spec_count, 'scenarios': panel.scenario_count,
+            'profiles': panel.profile_count, 'candidates': panel.candidate_count,
+        },
+    }
+
+
+def _benchmark_execution_summary(execution, *, published_id=None, case_count=None):
+    snapshot = execution.config_snapshot if isinstance(execution.config_snapshot, dict) else {}
+    snapshot_cases, snapshot_runs = snapshot.get('case_count'), snapshot.get('run_count')
+    return {
+        'id': execution.pk, 'panel_id': execution.panel_id, 'trigger': execution.trigger,
+        'status': 'completed' if execution.completed_at is not None else 'pending',
+        'scheduled_slot': _benchmark_iso(execution.scheduled_slot),
+        'created_at': _benchmark_iso(execution.created_at),
+        'completed_at': _benchmark_iso(execution.completed_at),
+        'case_count': (snapshot_cases if type(snapshot_cases) is int
+                       else (case_count if case_count is not None else 0)),
+        'run_count': snapshot_runs if type(snapshot_runs) is int else 0,
+        'is_published': execution.pk == published_id,
+    }
+
+
+def _benchmark_safe_string(value, *, limit=240):
+    """Return a bounded scalar with path/traceback details conservatively redacted."""
+    if not isinstance(value, str):
+        return None
+    text = ' '.join(value.split())
+    if not text:
+        return None
+    if re.search(r'(?i)traceback', text):
+        return '[redacted]'
+    text = re.sub(
+        r'(?:[A-Za-z]:[\\/]|/)(?:[^\s;:,]+[\\/])*[^\s;:,]*',
+        '[redacted]', text,
+    )
+    return text[:limit]
+
+
+def _benchmark_safe_key(value):
+    return _benchmark_safe_string(value, limit=200) or ''
+
+
+def _benchmark_safe_count(value):
+    return value if type(value) is int and value >= 0 else 0
+
+
+def _benchmark_safe_dps(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value != value or value in (float('inf'), float('-inf')):
+        return None
+    return value
+
+
+def _benchmark_safe_detail(summary, execution):
+    """Recursively project service output; no nested object is passed through."""
+    summary = summary if isinstance(summary, dict) else {}
+    cases = []
+    source_cases = summary.get('cases')
+    if not isinstance(source_cases, list):
+        source_cases = []
+    case_statuses = frozenset(('pending', 'running', 'success', 'partial', 'failed', 'cancelled'))
+    run_statuses = frozenset(('pending', 'running', 'success', 'failed', 'cancelled'))
+    for row in source_cases:
+        if not isinstance(row, dict):
+            continue
+        labels = row.get('labels') if isinstance(row.get('labels'), dict) else {}
+        source_runs = row.get('runs') if isinstance(row.get('runs'), list) else []
+        runs = []
+        for run in source_runs:
+            if not isinstance(run, dict):
+                continue
+            status = run.get('status')
+            runs.append({
+                'key': _benchmark_safe_key(run.get('key')),
+                'label': _benchmark_safe_key(run.get('label')),
+                'status': status if status in run_statuses else 'failed',
+                'dps': _benchmark_safe_dps(run.get('dps')),
+                'error': _benchmark_safe_string(run.get('error')),
+            })
+        status = row.get('status')
+        task_id = row.get('task_id')
+        cases.append({
+            'coordinate': {
+                'spec_key': _benchmark_safe_key(row.get('spec_key')),
+                'scenario_key': _benchmark_safe_key(row.get('scenario_key')),
+                'profile_key': _benchmark_safe_key(row.get('profile_key')),
+            },
+            'labels': {
+                'spec': _benchmark_safe_key(labels.get('spec')),
+                'scenario': _benchmark_safe_key(labels.get('scenario')),
+                'profile': _benchmark_safe_key(labels.get('profile')),
+            },
+            'status': status if status in case_statuses else 'failed',
+            'task_id': task_id if type(task_id) is int and task_id > 0 else None,
+            'error': _benchmark_safe_string(row.get('error')),
+            'runs': runs,
+        })
+    count_keys = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
+    run_count_keys = ('pending', 'running', 'success', 'failed', 'cancelled')
+    source_run_counts = summary.get('run_counts')
+    if not isinstance(source_run_counts, dict):
+        source_run_counts = {}
+    status = summary.get('status')
+    return {
+        'id': execution.pk, 'panel_id': execution.panel_id,
+        'trigger': execution.trigger,
+        'status': status if status in case_statuses else 'failed',
+        'scheduled_slot': _benchmark_iso(execution.scheduled_slot),
+        'created_at': _benchmark_iso(execution.created_at),
+        'completed_at': _benchmark_iso(execution.completed_at),
+        'total_cases': _benchmark_safe_count(summary.get('total_cases')),
+        'total_runs': _benchmark_safe_count(summary.get('total_runs')),
+        'counts': {key: _benchmark_safe_count(summary.get(key)) for key in count_keys},
+        'run_counts': {
+            key: _benchmark_safe_count(source_run_counts.get(key))
+            for key in run_count_keys
+        },
+        'is_published': execution.panel.published_execution_id == execution.pk,
+        'cases': cases,
+    }
+
+
+class SimcBenchmarkPanelListAPIView(_BenchmarkAdminAPIView):
+    def get(self, request):
+        rows = SimcBenchmarkPanel.objects.annotate(
+            spec_count=models.Count('specs', distinct=True),
+            scenario_count=models.Count('scenarios', distinct=True),
+            profile_count=models.Count('specs__profiles', distinct=True),
+            candidate_count=models.Count('candidates', distinct=True),
+        ).order_by('name', 'id')
+        return JsonResponse({'success': True,
+                             'data': [_benchmark_panel_summary(row) for row in rows]})
+
+    def post(self, request):
+        panel, _plan = replace_panel_config(_benchmark_json_object(request), request.user.id)
+        data = serialize_panel_config(panel)
+        data['next_run_at'] = _benchmark_iso(data['next_run_at'])
+        return JsonResponse({'success': True, 'data': data}, status=201)
+
+
+class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):
+    def get(self, request, panel_id):
+        panel, error = self.panel_or_404(panel_id)
+        if error:
+            return error
+        data = serialize_panel_config(panel)
+        data['next_run_at'] = _benchmark_iso(data['next_run_at'])
+        return JsonResponse({'success': True, 'data': data})
+
+    def put(self, request, panel_id):
+        payload = _benchmark_json_object(request)
+        panel, error = self.panel_or_404(panel_id)
+        if error:
+            return error
+        # The creator is immutable and remains the resource-ownership context even
+        # when another administrator maintains the configuration.
+        panel, _plan = replace_panel_config(payload, panel.created_by_id, panel=panel)
+        data = serialize_panel_config(panel)
+        data['next_run_at'] = _benchmark_iso(data['next_run_at'])
+        return JsonResponse({'success': True, 'data': data})
+
+    def delete(self, request, panel_id):
+        with transaction.atomic():
+            panel = SimcBenchmarkPanel.objects.select_for_update().filter(pk=panel_id).first()
+            if panel is None:
+                return _benchmark_error('not_found', 404)
+            panel.delete()
+        return HttpResponse(status=204)
+
+
+class SimcBenchmarkPanelRunAPIView(_BenchmarkAdminAPIView):
+    def post(self, request, panel_id):
+        _benchmark_json_object(request, empty=True)
+        panel, error = self.panel_or_404(panel_id)
+        if error:
+            return error
+        if not panel.is_active:
+            raise ValidationError({'panel': ['Panel 未启用，无法执行']})
+        execution = create_execution(panel, requested_by=request.user)
+        return JsonResponse({
+            'success': True,
+            'data': _benchmark_execution_summary(
+                execution, published_id=panel.published_execution_id,
+                case_count=execution.cases.count(),
+            ),
+        }, status=202)
+
+
+class SimcBenchmarkPanelExecutionListAPIView(_BenchmarkAdminAPIView):
+    def get(self, request, panel_id):
+        panel, error = self.panel_or_404(panel_id)
+        if error:
+            return error
+        try:
+            page, size = int(request.GET.get('page', '1')), int(request.GET.get('size', '20'))
+        except (TypeError, ValueError):
+            raise ValidationError({'pagination': ['page 和 size 必须是整数']})
+        if page < 1 or size < 1:
+            raise ValidationError({'pagination': ['page 和 size 必须是正整数']})
+        size = min(size, 50)
+        queryset = panel.executions.annotate(
+            dashboard_case_count=models.Count('cases'),
+        ).order_by('-created_at', '-id')
+        total = queryset.count()
+        offset = (page - 1) * size
+        rows = list(queryset[offset:offset + size])
+        return JsonResponse({'success': True, 'data': {
+            'items': [_benchmark_execution_summary(
+                row, published_id=panel.published_execution_id,
+                case_count=row.dashboard_case_count,
+            ) for row in rows],
+            'pagination': {'page': page, 'size': size, 'total': total,
+                           'has_next': offset + len(rows) < total},
+        }})
+
+
+class SimcBenchmarkExecutionDetailAPIView(_BenchmarkAdminAPIView):
+    def get(self, request, execution_id):
+        execution = SimcBenchmarkExecution.objects.select_related('panel').filter(
+            pk=execution_id,
+        ).first()
+        if execution is None:
+            return _benchmark_error('not_found', 404)
+        return JsonResponse({'success': True,
+                             'data': _benchmark_safe_detail(
+                                 summarize_execution(execution), execution)})
+
+
+class SimcBenchmarkExecutionReconcileAPIView(_BenchmarkAdminAPIView):
+    def post(self, request, execution_id):
+        _benchmark_json_object(request, empty=True)
+        execution = SimcBenchmarkExecution.objects.select_related('panel').filter(
+            pk=execution_id,
+        ).first()
+        if execution is None:
+            return _benchmark_error('not_found', 404)
+        reconciled = reconcile_execution(execution)
+        reconciled = SimcBenchmarkExecution.objects.select_related('panel').get(pk=reconciled.pk)
+        return JsonResponse({'success': True,
+                             'data': _benchmark_safe_detail(
+                                 summarize_execution(reconciled), reconciled)})

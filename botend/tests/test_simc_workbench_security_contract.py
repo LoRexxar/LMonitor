@@ -22,6 +22,9 @@ class SimcWorkbenchSecurityContractTests(TestCase):
             ("post", "/api/simc-battlenet-preflight/", {"region": "us", "realm": "x", "character": "y"}),
             ("post", "/api/simc-apl-candidates/", {"spec": "fury"}),
             ("post", "/api/simc-template/", {"name": "csrf-template"}),
+            ("post", "/api/simc-benchmarks/panels/", {}),
+            ("post", "/api/simc-benchmarks/panels/1/run/", {}),
+            ("post", "/api/simc-benchmarks/executions/1/reconcile/", {}),
         )
         for method, path, payload in requests:
             with self.subTest(path=path):
