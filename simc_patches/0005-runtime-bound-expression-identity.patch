@@ -1,0 +1,109 @@
+diff --git a/engine/buff/buff.cpp b/engine/buff/buff.cpp
+index d92fc49c69..18e2571c5f 100644
+--- a/engine/buff/buff.cpp
++++ b/engine/buff/buff.cpp
+@@ -84,6 +84,15 @@ struct buff_expr_t : public expr_t
+     return buff;
+   }
+ 
++  std::vector<unsigned> apl_metadata_spell_ids() override
++  {
++    buff_t* resolved = buff();
++    if ( !resolved || resolved->is_fallback ) return {};
++    const unsigned spell_id = resolved->data().id()
++      ? resolved->data().id() : resolved->data_reporting().id();
++    return spell_id ? std::vector<unsigned>{ spell_id } : std::vector<unsigned>{};
++  }
++
+   bool is_constant() override
+   {
+     return buff()->s_data != spell_data_t::nil() && !buff()->s_data->ok();
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index ed026f9eda..a4e1257165 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -11,6 +11,7 @@
+ #include "interfaces/sc_http.hpp"
+ #include "lib/fmt/format.h"
+ #include "player/player.hpp"
++#include "player/action_priority_list.hpp"
+ #include "player/unique_gear.hpp"
+ #include "action/action.hpp"
+ #include "action/dot.hpp"
+@@ -280,16 +281,35 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+     if ( kind == "buff" )
+     {
+       auto* mutable_player = const_cast<player_t*>( &player );
+-      mutable_player->get_target_data( mutable_player );
+-      buff_t* buff = buff_t::find_expressable( mutable_player->buff_list, token, mutable_player );
+-      if ( !buff ) buff = buff_t::find( mutable_player, token, mutable_player );
+-      if ( buff && !buff->is_fallback )
++      // Re-run the same class-specific player expression resolver used by APL
++      // parsing. The returned expression retains the concrete buff_t selected
++      // by aliases such as ca_inc/bs_inc/clearcasting; a token-only registry
++      // lookup loses that authoritative binding.
++      if ( auto resolved_expression = mutable_player->create_expression( full ) )
++        for ( unsigned spell_id : resolved_expression->apl_metadata_spell_ids() )
++          if ( spell_id ) object.candidates.insert( spell_id );
++      if ( object.candidates.size() == 1 )
++      {
++        object.spell_id = *object.candidates.begin();
++        object.source = "runtime_expression_binding";
++      }
++      else if ( object.candidates.size() > 1 )
++      {
++        object.reason = "ambiguous_expression_bindings";
++      }
++      else
+       {
+-        object.spell_id = buff->data().id()
+-          ? buff->data().id() : buff->data_reporting().id();
+-        if ( !object.spell_id ) object.reason = "unbound_buff";
++        mutable_player->get_target_data( mutable_player );
++        buff_t* buff = buff_t::find_expressable( mutable_player->buff_list, token, mutable_player );
++        if ( !buff ) buff = buff_t::find( mutable_player, token, mutable_player );
++        if ( buff && !buff->is_fallback )
++        {
++          object.spell_id = buff->data().id()
++            ? buff->data().id() : buff->data_reporting().id();
++          if ( !object.spell_id ) object.reason = "unbound_buff";
++        }
++        else object.reason = buff ? "fallback_buff_no_spell_data" : "buff_not_found";
+       }
+-      else object.reason = buff ? "fallback_buff_no_spell_data" : "buff_not_found";
+     }
+     else if ( kind == "debuff" )
+     {
+@@ -429,6 +449,13 @@ void export_apl_metadata( const sim_t& sim )
+     ++actor_count;
+     const std::string class_name = util::player_type_string( player->type );
+     const std::string spec = util::tokenize_fn( dbc::specialization_string( player->specialization() ) );
++    // Action option expressions such as variable value= are not retained in
++    // action_t::option. Scan the initialized APL entries as well so every
++    // dotted runtime demand is resolved through the same typed expression
++    // binding path.
++    for ( const action_priority_list_t* apl : player->action_priority_list )
++      for ( const auto& entry : apl->action_list )
++        add_apl_expression_symbols( symbols, *player, class_name, spec, entry.action_ );
+     for ( const action_t* action : player->action_list )
+     {
+       apl_metadata_symbol_t action_symbol{ class_name, spec, action->name_str, "action", "runtime_action",
+diff --git a/engine/sim/expressions.hpp b/engine/sim/expressions.hpp
+index f84f27ceaf..9e3a401630 100644
+--- a/engine/sim/expressions.hpp
++++ b/engine/sim/expressions.hpp
+@@ -99,6 +99,14 @@ protected:
+ public:
+   virtual ~expr_t() = default;
+ 
++  // Runtime metadata exporters may ask an already resolved expression for the
++  // authoritative spell identities bound by SimC. Most expression types do
++  // not represent a spell and therefore return no candidates.
++  virtual std::vector<unsigned> apl_metadata_spell_ids()
++  {
++    return {};
++  }
++
+   const char* name() const
+   {
+ #if !defined( NDEBUG )
