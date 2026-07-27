@@ -15,7 +15,7 @@ from botend.models import (
 from botend.services.simc_benchmark_config import (
     MAX_CANDIDATES, MAX_CASES, MAX_PROFILES_PER_SPEC, MAX_RUNS_PER_TASK,
     MAX_SCENARIOS, MAX_SPECS, build_execution_plan, normalize_panel_payload,
-    replace_panel_config, serialize_panel_config,
+    replace_panel_config, serialize_panel_config, _locked_panel_snapshot_queryset,
 )
 
 
@@ -132,6 +132,12 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             normalize_panel_payload(payload, self.user_id)
 
     def test_rejects_user_baseline_candidates_and_unsafe_canonical_gear_params(self):
+        for key in ('baseline', ' baseline ', 'BASELINE', 'Baseline'):
+            candidate = dict(self.payload['candidates'][0], key=key)
+            payload = dict(self.payload, candidates=[candidate])
+            with self.subTest(key=key), self.assertRaises(ValidationError):
+                normalize_panel_payload(payload, self.user_id)
+
         for type_field in ('candidate_type', 'type', 'kind'):
             candidate = dict(self.payload['candidates'][0])
             if type_field != 'candidate_type':
@@ -362,9 +368,38 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         with CaptureQueriesContext(connection) as captured:
             plan = build_execution_plan(stale)
         self.assertEqual(plan['cases'][0]['scenario_label'], 'DB current')
-        self.assertLessEqual(len(captured), 8)
+        one_spec_queries = len(captured)
+        # Locked planning is fixed at 11 statements under TestCase: savepoint pair,
+        # Panel + four config-axis reads, then four batched resource in_bulk reads.
+        self.assertLessEqual(one_spec_queries, 11)
 
-        spec = panel.specs.get()
+        mage_apl = SimcApl.objects.create(
+            name='Fire APL', spec='mage_fire', content='actions=/fireball',
+            owner_user_id=self.user_id, is_active=True, is_selectable=True,
+        )
+        mage_template = SimcContentTemplate.objects.create(
+            name='Fire template', spec='mage_fire', content='iterations=1000',
+            owner_user_id=self.user_id, is_active=True, is_selectable=True,
+        )
+        mage_spec = SimcBenchmarkSpec.objects.create(
+            panel=panel, class_name='mage', spec_key='mage_fire', label='Fire',
+            apl=mage_apl, template=mage_template, backend=self.backend,
+        )
+        for index in range(3):
+            profile = SimcProfile.objects.create(
+                user_id=self.user_id, name=f'Fire {index}', class_name='mage',
+                spec='mage_fire', is_active=True,
+            )
+            SimcBenchmarkProfile.objects.create(
+                panel_spec=mage_spec, profile=profile, label=profile.name,
+            )
+        with CaptureQueriesContext(connection) as captured:
+            expanded = build_execution_plan(stale)
+        self.assertEqual(len(expanded['specs']), 2)
+        self.assertEqual(len(captured), one_spec_queries)
+        self.assertLessEqual(len(captured), 11)
+
+        spec = panel.specs.get(spec_key='warrior_fury')
         for index in range(3):
             profile = SimcProfile.objects.create(
                 user_id=self.user_id, name=f'Extra {index}', spec='warrior_fury',
@@ -374,6 +409,40 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             serialized = serialize_panel_config(stale)
         self.assertLessEqual(len(captured), 5)
         self.assertEqual(len(serialized['specs'][0]['profiles']), 4)
+
+    def test_forty_spec_plan_keeps_batched_resource_queries_constant(self):
+        panel, _ = replace_panel_config(self.payload, self.user_id)
+        for index in range(1, MAX_SPECS):
+            spec = SimcBenchmarkSpec.objects.create(
+                panel=panel, class_name='warrior', spec_key=f'warrior_fury_{index}',
+                label=f'Fury {index}', apl=self.apl, template=self.template,
+                backend=self.backend,
+            )
+            SimcBenchmarkProfile.objects.create(
+                panel_spec=spec, profile=self.profile, label=self.profile.name,
+            )
+
+        with CaptureQueriesContext(connection) as captured:
+            plan = build_execution_plan(panel)
+
+        self.assertEqual(len(plan['specs']), MAX_SPECS)
+        self.assertEqual(plan['case_count'], MAX_SPECS)
+        # Resource FKs are loaded by four in_bulk statements, not per Spec/Profile.
+        self.assertLessEqual(len(captured), 11)
+
+    def test_execution_snapshot_queryset_locks_every_config_axis(self):
+        """SQLite ignores row locks at runtime, so assert the ORM lock contract itself."""
+        root = _locked_panel_snapshot_queryset()
+        self.assertTrue(root.query.select_for_update)
+        children = {item.prefetch_to: item.queryset
+                    for item in root._prefetch_related_lookups}
+        self.assertEqual(set(children), {'_snapshot_specs', '_snapshot_scenarios',
+                                         '_snapshot_candidates'})
+        for queryset in children.values():
+            self.assertTrue(queryset.query.select_for_update)
+        profile_prefetch = children['_snapshot_specs']._prefetch_related_lookups[0]
+        self.assertEqual(profile_prefetch.prefetch_to, '_snapshot_profiles')
+        self.assertTrue(profile_prefetch.queryset.query.select_for_update)
 
     def test_returned_json_is_deepcopy_isolated(self):
         panel, plan = replace_panel_config(self.payload, self.user_id)

@@ -12,6 +12,7 @@ Run with: DJANGO_SETTINGS_MODULE=LMonitor.settings_test_sqlite python manage.py 
 """
 import hashlib
 import json
+from dataclasses import replace
 from unittest.mock import patch
 from django.test import TestCase
 from django.utils import timezone
@@ -197,6 +198,108 @@ class SimcTaskServiceTests(TestCase):
                 apl_id=self.apl.id,
             )
         self.assertIn("belongs to user", str(ctx.exception))
+
+    def test_prepared_creation_validates_once_and_persistence_does_not_revalidate(self):
+        from botend.services.simc_task_service import (
+            create_task_from_prepared, prepare_task_creation,
+        )
+        validation = {
+            'valid': True,
+            'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
+            'revision': TEST_VALIDATION_IDENTITY[0],
+            'game_build': TEST_VALIDATION_IDENTITY[1],
+        }
+        with patch('botend.services.simc_task_service.validate_apl_for_profile',
+                   return_value=validation) as validator:
+            prepared = prepare_task_creation(
+                self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+                backend_id=self.backend.pk,
+            )
+            task = create_task_from_prepared(
+                prepared=prepared, user_id=self.user_id, name='Prepared',
+                profile_id=self.profile.pk, template_id=self.template.pk,
+                apl_id=self.apl.pk, backend_id=self.backend.pk,
+            )
+        validator.assert_called_once()
+        self.assertIsNotNone(task.pk)
+        self.assertNotIn(self.backend.simc_path, repr(task.mode_params))
+
+    def test_prepared_creation_rejects_forgery_and_every_stale_resource_token(self):
+        from botend.services.simc_task_service import (
+            TaskCreationError, create_task_from_prepared, prepare_task_creation,
+        )
+
+        def persist(prepared):
+            return create_task_from_prepared(
+                prepared=prepared, user_id=self.user_id, name='Prepared',
+                profile_id=self.profile.pk, template_id=self.template.pk,
+                apl_id=self.apl.pk, backend_id=self.backend.pk,
+            )
+
+        prepared = prepare_task_creation(
+            self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+            backend_id=self.backend.pk,
+        )
+        with self.assertRaisesRegex(TaskCreationError, 'stale'):
+            persist(replace(prepared, resource_token='forged'))
+
+        changes = (
+            (SimcProfile, self.profile.pk, {'player_equipment': 'warrior="Changed"'}),
+            (SimcApl, self.apl.pk, {'is_active': False}),
+            (SimcBackendBinary, self.backend.pk, {'current_version': 'b' * 40}),
+        )
+        for model, pk, values in changes:
+            with self.subTest(model=model.__name__, values=values):
+                prepared = prepare_task_creation(
+                    self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+                    backend_id=self.backend.pk,
+                )
+                original = {key: getattr(model.objects.get(pk=pk), key) for key in values}
+                model.objects.filter(pk=pk).update(**values)
+                with self.assertRaises(TaskCreationError):
+                    persist(prepared)
+                model.objects.filter(pk=pk).update(**original)
+        self.assertFalse(SimcTask.objects.exists())
+
+    def test_prepared_creation_rejects_backend_path_change_without_leaking_path(self):
+        from botend.services.simc_task_service import (
+            TaskCreationError, create_task_from_prepared, prepare_task_creation,
+        )
+        prepared = prepare_task_creation(
+            self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+            backend_id=self.backend.pk,
+        )
+        secret_path = '/srv/private/new-simc-binary'
+        SimcBackendBinary.objects.filter(pk=self.backend.pk).update(simc_path=secret_path)
+
+        with self.assertRaises(TaskCreationError) as caught:
+            create_task_from_prepared(
+                prepared=prepared, user_id=self.user_id, name='Prepared',
+                profile_id=self.profile.pk, template_id=self.template.pk,
+                apl_id=self.apl.pk, backend_id=self.backend.pk,
+            )
+
+        self.assertIn('stale', str(caught.exception))
+        self.assertNotIn(secret_path, str(caught.exception))
+        self.assertFalse(SimcTask.objects.exists())
+
+    def test_legacy_create_task_validates_exactly_once(self):
+        from botend.services.simc_task_service import create_task
+        validation = {
+            'valid': True,
+            'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
+            'revision': TEST_VALIDATION_IDENTITY[0],
+            'game_build': TEST_VALIDATION_IDENTITY[1],
+        }
+        with patch('botend.services.simc_task_service.validate_apl_for_profile',
+                   return_value=validation) as validator:
+            task = create_task(
+                user_id=self.user_id, name='Compatible', profile_id=self.profile.pk,
+                template_id=self.template.pk, apl_id=self.apl.pk,
+                backend_id=self.backend.pk,
+            )
+        validator.assert_called_once()
+        self.assertIsNotNone(task.pk)
 
     def test_backend_defaults_to_production_and_accepts_explicit_enabled_backend(self):
         from botend.services.simc_task_service import create_task

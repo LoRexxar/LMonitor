@@ -6,11 +6,13 @@ metadata. Executable resource bodies remain behind the existing task/version ser
 from __future__ import annotations
 
 import math
+import json
 import re
 from copy import deepcopy
 from typing import NoReturn
 
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch
 
@@ -36,6 +38,9 @@ MAX_SCENARIOS = 8
 MAX_CANDIDATES = 50
 MAX_CASES = 100
 MAX_RUNS_PER_TASK = 51
+MAX_GEAR_RAW_VALUE_CHARS = 2048
+MAX_CANDIDATE_PARAMS_BYTES = 16 * 1024
+MAX_PANEL_CONFIG_BYTES = 2 * 1024 * 1024
 
 _PANEL_FIELDS = {
     'name', 'slug', 'description', 'is_active', 'is_public', 'schedule_enabled',
@@ -81,12 +86,14 @@ def _order(value, field, default):
     return value
 
 
-def _text(value, field, *, required=True):
+def _text(value, field, *, required=True, max_length=None):
     if not isinstance(value, str):
         _error(f'{field} 必须是字符串', field)
     result = value.strip()
     if required and not result:
         _error(f'{field} 不能为空', field)
+    if max_length is not None and len(result) > max_length:
+        _error(f'{field} 最长 {max_length} 个字符', field)
     return result
 
 
@@ -98,6 +105,17 @@ def _id(value, field):
 
 def _key(value, field):
     value = _text(value, field)
+    if not _SAFE_KEY.fullmatch(value):
+        _error(f'{field} 格式无效', field)
+    return value
+
+
+def _candidate_key(value, field):
+    # ``baseline`` is an executor-owned synthetic candidate. Check the stripped,
+    # case-insensitive form before syntax validation so no spelling can shadow it.
+    value = _text(value, field)
+    if value.casefold() == 'baseline':
+        _error('candidate key baseline 由系统保留', field)
     if not _SAFE_KEY.fullmatch(value):
         _error(f'{field} 格式无效', field)
     return value
@@ -194,6 +212,8 @@ def _normalize_candidate_params(candidate_type, params):
     else:
         _error('gear_swap params 必须是装备行或对象', 'params')
 
+    if not isinstance(raw_value, str) or len(raw_value) > MAX_GEAR_RAW_VALUE_CHARS:
+        _error(f'gear raw_value 最长 {MAX_GEAR_RAW_VALUE_CHARS} 个字符', 'params')
     canonical_slot = EQUIPMENT_SLOT_ALIASES.get(str(slot or '').strip().lower(), str(slot or '').strip().lower())
     if canonical_slot not in EQUIPMENT_SLOTS:
         _error('gear_swap slot 必须是装备槽', 'params')
@@ -205,13 +225,18 @@ def _normalize_candidate_params(candidate_type, params):
     item_match = re.search(r'(?:^|,)\s*id=(\d+)(?:,|$)', normalized, re.IGNORECASE)
     if item_match is None:  # Defensive invariant behind normalize_gear_candidate_value.
         _error('装备候选缺少物品 ID', 'params')
-    return {
+    result = {
         'candidate_type': 'gear_swap', 'is_base': False,
         'gear_swap': {
             'slot': canonical_slot, 'raw_value': normalized,
             'item_id': int(item_match.group(1)), 'source': 'manual',
         },
     }
+    size = len(json.dumps(result, sort_keys=True, separators=(',', ':'),
+                          ensure_ascii=False).encode('utf-8'))
+    if size > MAX_CANDIDATE_PARAMS_BYTES:
+        _error(f'candidate params 超过 {MAX_CANDIDATE_PARAMS_BYTES} 字节', 'params')
+    return result
 
 
 def _default_profile(spec_key):
@@ -245,9 +270,10 @@ def normalize_panel_payload(payload, user_id, panel=None):
     if len(candidates) > MAX_CANDIDATES: _error(f'candidates 最多 {MAX_CANDIDATES} 项', 'candidates')
 
     normalized = {
-        'name': _text(payload.get('name'), 'name'),
+        'name': _text(payload.get('name'), 'name', max_length=200),
         'slug': _key(payload.get('slug'), 'slug'),
-        'description': _text(payload.get('description', ''), 'description', required=False),
+        'description': _text(payload.get('description', ''), 'description', required=False,
+                             max_length=10000),
         'is_active': _strict_bool(payload.get('is_active'), 'is_active', True),
         'is_public': _strict_bool(payload.get('is_public'), 'is_public', False),
         'schedule_enabled': _strict_bool(payload.get('schedule_enabled'), 'schedule_enabled', False),
@@ -308,13 +334,14 @@ def normalize_panel_payload(payload, user_id, panel=None):
             if not _same_spec(profile.spec, expected_class, expected_spec): _error('Profile 专精不一致', 'profiles')
             normalized_profiles.append({
                 'profile_id': profile.pk,
-                'label': _text(profile_raw.get('label', profile.name), 'profile.label'),
+                'label': _text(profile_raw.get('label', profile.name), 'profile.label',
+                               max_length=200),
                 'is_enabled': _strict_bool(profile_raw.get('is_enabled'), 'profile.is_enabled', True),
                 'display_order': _order(profile_raw.get('display_order'), 'profile.display_order', profile_index),
             })
         normalized['specs'].append({
             'class_name': class_name, 'spec_key': spec_key,
-            'label': _text(raw.get('label'), 'spec.label'),
+            'label': _text(raw.get('label'), 'spec.label', max_length=200),
             'apl_id': apl.pk, 'template_id': template.pk, 'backend_id': backend.pk,
             'profiles': normalized_profiles,
             'is_enabled': _strict_bool(raw.get('is_enabled'), 'spec.is_enabled', True),
@@ -330,7 +357,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
         if key in seen_scenarios: _error(f'重复 scenario key: {key}', 'scenarios')
         seen_scenarios.add(key)
         normalized['scenarios'].append({
-            'key': key, 'name': _text(raw.get('name'), 'scenario.name'),
+            'key': key, 'name': _text(raw.get('name'), 'scenario.name', max_length=200),
             'simulation_params': _normalize_simulation_params(raw.get('simulation_params', {})),
             'is_enabled': _strict_bool(raw.get('is_enabled'), 'scenario.is_enabled', True),
             'display_order': _order(raw.get('display_order'), 'scenario.display_order', index),
@@ -344,7 +371,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
             'source_label', 'is_enabled', 'display_order',
         }
         if unknown: _error('candidate 包含未知字段', 'candidates')
-        key = _key(raw.get('key'), 'candidate.key')
+        key = _candidate_key(raw.get('key'), 'candidate.key')
         if key in seen_candidates: _error(f'重复 candidate key: {key}', 'candidates')
         seen_candidates.add(key)
         candidate_type = _text(raw.get('candidate_type'), 'candidate_type')
@@ -353,16 +380,29 @@ def normalize_panel_payload(payload, user_id, panel=None):
             _error('spec_keys 只能包含字符串', 'spec_keys')
         spec_keys = [_key(item, 'spec_keys') for item in spec_keys]
         if len(set(spec_keys)) != len(spec_keys): _error('spec_keys 包含重复值', 'spec_keys')
+        icon_url = _text(raw.get('icon_url', ''), 'icon_url', required=False,
+                         max_length=500)
+        if icon_url:
+            try:
+                URLValidator()(icon_url)
+            except ValidationError:
+                _error('icon_url 必须是有效 URL', 'icon_url')
         normalized['candidates'].append({
-            'key': key, 'label': _text(raw.get('label'), 'candidate.label'),
+            'key': key,
+            'label': _text(raw.get('label'), 'candidate.label', max_length=200),
             'candidate_type': candidate_type,
             'params': _normalize_candidate_params(candidate_type, raw.get('params', {})),
             'spec_keys': spec_keys,
-            'icon_url': _text(raw.get('icon_url', ''), 'icon_url', required=False),
-            'source_label': _text(raw.get('source_label', ''), 'source_label', required=False),
+            'icon_url': icon_url,
+            'source_label': _text(raw.get('source_label', ''), 'source_label',
+                                  required=False, max_length=200),
             'is_enabled': _strict_bool(raw.get('is_enabled'), 'candidate.is_enabled', True),
             'display_order': _order(raw.get('display_order'), 'candidate.display_order', index),
         })
+    total_size = len(json.dumps(normalized, sort_keys=True, separators=(',', ':'),
+                                ensure_ascii=False, default=str).encode('utf-8'))
+    if total_size > MAX_PANEL_CONFIG_BYTES:
+        _error(f'Panel config snapshot 超过 {MAX_PANEL_CONFIG_BYTES} 字节', 'payload')
     return normalized
 
 
@@ -380,6 +420,21 @@ def replace_panel_config(payload, user_id, panel=None):
             panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=panel.pk)
         except SimcBenchmarkPanel.DoesNotExist:
             _error('Panel 不存在', 'panel')
+        # Match execution-plan lock order before destructive replacement. The Panel
+        # lock serializes normal writers; explicit child locks also make the contract
+        # safe against maintenance code that addresses child rows directly.
+        list(SimcBenchmarkSpec.objects.select_for_update().filter(
+            panel=panel,
+        ).order_by('id').values_list('id', flat=True))
+        list(SimcBenchmarkProfile.objects.select_for_update().filter(
+            panel_spec__panel=panel,
+        ).order_by('id').values_list('id', flat=True))
+        list(SimcBenchmarkScenario.objects.select_for_update().filter(
+            panel=panel,
+        ).order_by('id').values_list('id', flat=True))
+        list(SimcBenchmarkCandidate.objects.select_for_update().filter(
+            panel=panel,
+        ).order_by('id').values_list('id', flat=True))
     snapshot = normalize_panel_payload(payload, user_id, panel=panel)
     if panel is None:
         panel = SimcBenchmarkPanel(created_by_id=user_id)
@@ -419,6 +474,36 @@ def _candidate_snapshot(candidate):
     return {
         'candidate_key': candidate.key, 'candidate_label': candidate.label,
         'candidate_params': deepcopy(candidate.params),
+        'candidate_type': candidate.candidate_type, 'icon_url': candidate.icon_url,
+        'source_label': candidate.source_label,
+    }
+
+
+def _resource_display_snapshot(spec, selected):
+    """Freeze display/version identities, deliberately excluding bodies and paths."""
+    return {
+        'profile': {
+            'id': selected.profile_id, 'name': selected.profile.name,
+            'source': selected.profile.source, 'system_key': selected.profile.system_key,
+            'sync_version': selected.profile.sync_version,
+            'class_name': selected.profile.class_name, 'spec': selected.profile.spec,
+        },
+        'apl': {
+            'id': spec.apl_id, 'name': spec.apl.name, 'source': spec.apl.source,
+            'spec': spec.apl.spec, 'sync_version': spec.apl.sync_version,
+            'validation_revision': spec.apl.validation_revision,
+            'validation_game_build': spec.apl.validation_game_build,
+        },
+        'template': {
+            'id': spec.template_id, 'name': spec.template.name,
+            'source': spec.template.source, 'spec': spec.template.spec,
+            'sync_version': spec.template.sync_version,
+        },
+        'backend': {
+            'id': spec.backend_id, 'identifier': spec.backend.identifier,
+            'name': spec.backend.name, 'platform': spec.backend.platform,
+            'current_version': spec.backend.current_version,
+        },
     }
 
 
@@ -442,16 +527,65 @@ def _panel_snapshot_queryset(*, enabled_only):
     )
 
 
+def _locked_panel_snapshot_queryset():
+    """Lock only config rows in Panel→Spec→Profile→Scenario→Candidate order.
+
+    Resource FKs are deliberately not joined: ``SELECT .. FOR UPDATE`` plus
+    ``select_related`` can lock Backend/Profile/APL/Template implicitly and violate
+    the global task persistence order.
+    """
+    profiles = SimcBenchmarkProfile.objects.select_for_update().filter(
+        is_enabled=True,
+    ).order_by('display_order', 'id')
+    specs = SimcBenchmarkSpec.objects.select_for_update().filter(
+        is_enabled=True,
+    ).order_by('display_order', 'id').prefetch_related(Prefetch(
+        'profiles', queryset=profiles, to_attr='_snapshot_profiles',
+    ))
+    scenarios = SimcBenchmarkScenario.objects.select_for_update().filter(
+        is_enabled=True,
+    ).order_by('display_order', 'id')
+    candidates = SimcBenchmarkCandidate.objects.select_for_update().filter(
+        is_enabled=True,
+    ).order_by('display_order', 'id')
+    return SimcBenchmarkPanel.objects.select_for_update().prefetch_related(
+        Prefetch('specs', queryset=specs, to_attr='_snapshot_specs'),
+        Prefetch('scenarios', queryset=scenarios, to_attr='_snapshot_scenarios'),
+        Prefetch('candidates', queryset=candidates, to_attr='_snapshot_candidates'),
+    )
+
+
 @transaction.atomic
-def build_execution_plan(panel, validate_for_execution=True):
-    """Build a deterministic plan from one locked, freshly queried DB snapshot."""
+def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
+    """Build a deterministic plan from one freshly queried DB snapshot.
+
+    ``lock=False`` is the optimistic preflight view used before expensive binary
+    validation. The default remains the historical locked planning contract.
+    """
+    queryset = (_locked_panel_snapshot_queryset() if lock
+                else _panel_snapshot_queryset(enabled_only=True))
     try:
-        panel = _panel_snapshot_queryset(enabled_only=True).select_for_update().get(pk=panel.pk)
+        panel = queryset.get(pk=panel.pk)
     except SimcBenchmarkPanel.DoesNotExist:
         _error('Panel 不存在', 'panel')
     specs = panel._snapshot_specs
     scenarios = panel._snapshot_scenarios
     candidates = panel._snapshot_candidates
+    if lock:
+        # Locks above cover configuration only. Load display resources afterwards
+        # with ordinary batched reads; task persistence acquires their locks in the
+        # global Backend→Profile→APL→Template order.
+        apls = SimcApl.objects.in_bulk({row.apl_id for row in specs})
+        templates = SimcContentTemplate.objects.in_bulk({row.template_id for row in specs})
+        backends = SimcBackendBinary.objects.in_bulk({row.backend_id for row in specs})
+        profile_rows = [selected for row in specs for selected in row._snapshot_profiles]
+        profiles = SimcProfile.objects.in_bulk({row.profile_id for row in profile_rows})
+        for row in specs:
+            row.apl = apls[row.apl_id]
+            row.template = templates[row.template_id]
+            row.backend = backends[row.backend_id]
+        for row in profile_rows:
+            row.profile = profiles[row.profile_id]
     if not specs: _error('没有 enabled 专精，无法执行')
     if not scenarios: _error('没有 enabled 场景，无法执行')
     if any(item.candidate_type != 'gear_swap' for item in candidates):
@@ -460,6 +594,7 @@ def build_execution_plan(panel, validate_for_execution=True):
     baseline = {
         'candidate_key': 'baseline', 'candidate_label': 'Baseline',
         'candidate_params': {'candidate_type': 'base', 'is_base': True},
+        'candidate_type': 'base', 'icon_url': '', 'source_label': '',
     }
     cases = []
     for spec in specs:
@@ -477,18 +612,39 @@ def build_execution_plan(panel, validate_for_execution=True):
             for selected in profiles:
                 cases.append({
                     'spec_key': spec.spec_key, 'spec_label': spec.label,
+                    'class_name': spec.class_name,
                     'scenario_key': scenario.key, 'scenario_label': scenario.name,
                     'profile_key': str(selected.profile_id), 'profile_label': selected.label,
                     'profile_id': selected.profile_id, 'apl_id': spec.apl_id,
                     'template_id': spec.template_id, 'backend_id': spec.backend_id,
                     'simulation_params': deepcopy(scenario.simulation_params),
                     'candidates': deepcopy(case_candidates),
+                    'resources': _resource_display_snapshot(spec, selected),
                 })
     case_count = len(cases)
     run_count = sum(len(item['candidates']) for item in cases)
     if validate_for_execution and case_count > MAX_CASES:
         _error(f'执行 cases 超过 {MAX_CASES}（当前 {case_count}）')
-    return {'cases': cases, 'case_count': case_count, 'run_count': run_count}
+    return {
+        'panel': {
+            'id': panel.pk, 'name': panel.name, 'slug': panel.slug,
+            'description': panel.description,
+        },
+        'specs': [{
+            'id': row.pk, 'class_name': row.class_name, 'spec_key': row.spec_key,
+            'display_label': row.label,
+        } for row in specs],
+        'scenarios': [{
+            'id': row.pk, 'key': row.key, 'label': row.name,
+            'simulation_params': deepcopy(row.simulation_params),
+        } for row in scenarios],
+        'candidates': [{
+            'id': row.pk, 'key': row.key, 'label': row.label,
+            'candidate_type': row.candidate_type, 'icon_url': row.icon_url,
+            'source_label': row.source_label, 'params': deepcopy(row.params),
+        } for row in candidates],
+        'cases': cases, 'case_count': case_count, 'run_count': run_count,
+    }
 
 
 def serialize_panel_config(panel):
