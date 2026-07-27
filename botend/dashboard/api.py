@@ -49,6 +49,7 @@ from botend.services.simc_player_config import (
     resolve_attribute_player_baseline,
     validate_default_player_baseline,
     validate_player_baseline,
+    SUPPORTED_SIMC_SPEC_IDENTITIES,
 )
 from botend.services.simc_composer import SimcComposer
 from botend.services.spec_stats_service import SpecStatsService
@@ -78,7 +79,11 @@ from django.db.models.deletion import ProtectedError
 from collections import defaultdict, deque
 
 from botend.models import SimcBenchmarkExecution, SimcBenchmarkPanel
-from botend.services.simc_benchmark_config import replace_panel_config, serialize_panel_config
+from botend.services.simc_benchmark_config import (
+    MAX_CANDIDATES, MAX_CASES, MAX_PROFILES_PER_SPEC, MAX_RUNS_PER_TASK,
+    MAX_SCENARIOS, MAX_SPECS, benchmark_resource_querysets,
+    replace_panel_config, serialize_panel_config,
+)
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, create_execution, reconcile_execution,
     summarize_execution,
@@ -7930,6 +7935,119 @@ class SimcBenchmarkPanelListAPIView(_BenchmarkAdminAPIView):
         data = serialize_panel_config(panel)
         data['next_run_at'] = _benchmark_iso(data['next_run_at'])
         return JsonResponse({'success': True, 'data': data}, status=201)
+
+
+def _benchmark_spec_options():
+    """Project the maintained WoW catalog, constrained by the executable spec set."""
+    rows = []
+    for class_display, spec_displays in CLASS_SPEC_MAP.items():
+        for spec_display in spec_displays:
+            spec_input = re.sub(r'(?<!^)(?=[A-Z])', '_', spec_display).lower()
+            class_name, spec_name = canonical_simc_spec_identity(
+                f'{class_display}_{spec_input}',
+            )
+            value = f'{class_name}_{spec_name}'
+            if (class_name, spec_name) not in SUPPORTED_SIMC_SPEC_IDENTITIES:
+                continue
+            class_label = CLASS_CN.get(class_display, class_display)
+            spec_label = SPEC_CN.get(spec_display, spec_display)
+            rows.append({
+                'value': value, 'spec_key': value, 'class_name': class_name,
+                'class_label': class_label, 'spec_label': spec_label,
+                'label': f'{class_label} · {spec_label}',
+            })
+    return rows
+
+
+def _benchmark_backend_game_versions(backends):
+    """Resolve all backend WoW builds with one catalog query (never one per row)."""
+    selectors = {}
+    catalog_q = models.Q()
+    for backend in backends:
+        current = str(backend.current_version or '').strip()
+        if re.fullmatch(r'[0-9a-f]{40}', current):
+            selectors[backend.pk] = ('exact', current)
+            catalog_q |= models.Q(simc_revision=current)
+            continue
+        suffix = re.search(r'(?:^|-)([0-9a-f]{7,39})$', current)
+        if suffix:
+            selectors[backend.pk] = ('prefix', suffix.group(1))
+            catalog_q |= models.Q(simc_revision__startswith=suffix.group(1))
+    if not selectors:
+        return {}
+    identities = list(SimcAplSymbol.objects.filter(
+        catalog_q, is_active=True,
+    ).order_by().values_list('simc_revision', 'wow_build').distinct())
+    result = {}
+    for backend_id, (mode, revision) in selectors.items():
+        matches = [row for row in identities if (
+            row[0] == revision if mode == 'exact' else row[0].startswith(revision)
+        )]
+        if len(matches) == 1 and re.fullmatch(r'[0-9a-f]{40}', matches[0][0]):
+            result[backend_id] = matches[0][1]
+    return result
+
+
+def _benchmark_options_payload(owner_id, ownership_context):
+    querysets = benchmark_resource_querysets(owner_id)
+    resources = {name: list(queryset) for name, queryset in querysets.items()}
+    backend_game_versions = _benchmark_backend_game_versions(resources['backends'])
+    return {
+        'specs': _benchmark_spec_options(),
+        'resources': {
+            'backends': [{
+                'id': row.pk, 'identifier': row.identifier, 'name': row.name,
+                'platform': row.platform, 'version': row.current_version,
+                'game_version': backend_game_versions.get(row.pk, ''),
+                'is_default': row.identifier == 'production',
+            } for row in resources['backends']],
+            'templates': [{
+                'id': row.pk, 'name': row.name, 'spec': row.spec,
+                'class_name': row.class_name, 'source': row.source,
+                'is_system': row.owner_user_id is None,
+            } for row in resources['templates']],
+            'apls': [{
+                'id': row.pk, 'name': row.name, 'spec': row.spec,
+                'class_name': row.class_name, 'source': row.source,
+                'is_system': bool(row.is_system or row.owner_user_id is None),
+                'validation_status': row.validation_status,
+            } for row in resources['apls']],
+            'profiles': [{
+                'id': row.pk, 'name': row.name, 'spec': row.spec,
+                'class_name': row.class_name, 'source': row.source,
+                'is_system': row.user_id is None,
+                'is_default': row.user_id is None,
+            } for row in resources['profiles']],
+        },
+        'limits': {
+            'max_specs': MAX_SPECS,
+            'max_profiles_per_spec': MAX_PROFILES_PER_SPEC,
+            'max_scenarios': MAX_SCENARIOS,
+            'max_candidates': MAX_CANDIDATES,
+            'max_cases': MAX_CASES,
+            'max_runs_per_task': MAX_RUNS_PER_TASK,
+        },
+        'ownership_context': ownership_context,
+    }
+
+
+class SimcBenchmarkOptionsAPIView(_BenchmarkAdminAPIView):
+    def get(self, request):
+        return JsonResponse({
+            'success': True,
+            'data': _benchmark_options_payload(request.user.id, 'current_user'),
+        })
+
+
+class SimcBenchmarkPanelOptionsAPIView(_BenchmarkAdminAPIView):
+    def get(self, request, panel_id):
+        panel, error = self.panel_or_404(panel_id)
+        if error:
+            return error
+        return JsonResponse({
+            'success': True,
+            'data': _benchmark_options_payload(panel.created_by_id, 'panel_creator'),
+        })
 
 
 class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):

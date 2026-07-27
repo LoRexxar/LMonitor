@@ -14,7 +14,7 @@ from typing import NoReturn
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
@@ -52,6 +52,42 @@ _ITEM_OPTION_KEYS = {
     'content_tuning', 'suffix', 'upgrade',
 }
 _SAFE_KEY = re.compile(r'^[a-z0-9][a-z0-9_-]{0,99}$')
+
+
+def benchmark_resource_access_q(kind, user_id):
+    """Return the single access policy used by benchmark writes and option lists."""
+    if kind == 'backend':
+        return Q(is_active=True)
+    if kind == 'template':
+        return Q(is_active=True, is_selectable=True) & (
+            Q(owner_user_id=user_id) | Q(owner_user_id__isnull=True)
+        )
+    if kind == 'apl':
+        return Q(is_active=True, is_selectable=True) & (
+            Q(owner_user_id=user_id) | Q(owner_user_id__isnull=True) | Q(is_system=True)
+        )
+    if kind == 'profile':
+        system_profile = (
+            Q(user_id__isnull=True, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+              is_active=True, system_key__isnull=False)
+            & ~Q(system_key='')
+        )
+        return Q(user_id=user_id, is_active=True) | system_profile
+    raise ValueError(f'unknown benchmark resource kind: {kind}')
+
+
+def benchmark_resource_querysets(user_id):
+    """Query resources selectable by a panel whose immutable owner is ``user_id``."""
+    models_by_name = {
+        'backends': (SimcBackendBinary, 'backend'),
+        'templates': (SimcContentTemplate, 'template'),
+        'apls': (SimcApl, 'apl'),
+        'profiles': (SimcProfile, 'profile'),
+    }
+    return {
+        name: model.objects.filter(benchmark_resource_access_q(kind, user_id)).order_by('name', 'id')
+        for name, (model, kind) in models_by_name.items()
+    }
 
 
 def _error(message, field=None) -> NoReturn:
@@ -132,7 +168,10 @@ def _same_spec(actual, expected_class, expected_spec, *, allow_generic=False):
 
 def _resource(model, resource_id, kind, user_id):
     try:
-        resource = model.objects.get(pk=_id(resource_id, f'{kind}_id'))
+        resource = model.objects.get(
+            benchmark_resource_access_q(kind, user_id),
+            pk=_id(resource_id, f'{kind}_id'),
+        )
     except model.DoesNotExist:
         _error(f'{kind} 资源不存在', f'{kind}_id')
     try:
@@ -303,10 +342,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
             _error('class_name/spec_key 不一致', 'spec_key')
         apl = _resource(SimcApl, raw.get('apl_id'), 'apl', user_id)
         template = _resource(SimcContentTemplate, raw.get('template_id'), 'template', user_id)
-        try:
-            backend = SimcBackendBinary.objects.get(pk=_id(raw.get('backend_id'), 'backend_id'), is_active=True)
-        except SimcBackendBinary.DoesNotExist:
-            _error('Backend 不存在或未启用', 'backend_id')
+        backend = _resource(SimcBackendBinary, raw.get('backend_id'), 'backend', user_id)
         if not _same_spec(apl.spec, expected_class, expected_spec): _error('APL 专精不一致', 'apl_id')
         if not _same_spec(template.spec, expected_class, expected_spec, allow_generic=True):
             _error('Template 专精不一致', 'template_id')
