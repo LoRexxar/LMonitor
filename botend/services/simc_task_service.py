@@ -26,6 +26,7 @@ from botend.services.simc_apl.publish import (
     current_validation_identity,
     validate_apl_for_profile,
 )
+from botend.services.simc_composer import validate_simulation_options
 
 
 class TaskCreationError(Exception):
@@ -63,7 +64,7 @@ def _compute_content_hash(payload: dict) -> str:
     return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
 
-def _validate_resource_ownership(
+def validate_resource_ownership(
     resource,
     resource_type: str,
     user_id: int,
@@ -114,6 +115,12 @@ def _validate_resource_ownership(
             raise TaskCreationError(f"APL {resource.id} is not active")
         if not resource.is_selectable:
             raise TaskCreationError(f"APL {resource.id} is not selectable")
+
+
+# Compatibility for existing imports/call sites. Keep forwarding dynamically so
+# monkeypatches and future fixes to the public policy are consistently observed.
+def _validate_resource_ownership(resource, resource_type: str, user_id: int) -> None:
+    return validate_resource_ownership(resource, resource_type, user_id)
 
 
 def _create_or_reuse_version(
@@ -460,6 +467,11 @@ def create_task(
     if mode not in allowed_modes:
         raise TaskCreationError(f"Invalid mode '{mode}'. Allowed: {allowed_modes}")
 
+    normalized_simulation_params = _normalize_params(simulation_params, SIMULATION_PARAMS_WHITELIST)
+    options_error = validate_simulation_options(normalized_simulation_params or {})
+    if options_error:
+        raise TaskCreationError(options_error)
+
     backend_query = SimcBackendBinary.objects.select_for_update().filter(is_active=True)
     if backend_id:
         backend = backend_query.filter(pk=backend_id).first()
@@ -487,7 +499,7 @@ def create_task(
         except SimcProfile.DoesNotExist:
             raise TaskCreationError(f"Profile {profile_id} does not exist")
 
-        _validate_resource_ownership(profile, 'profile', user_id)
+        validate_resource_ownership(profile, 'profile', user_id)
         payload = _build_profile_payload(profile)
         profile_version = _create_or_reuse_version('profile', profile.id, payload)
 
@@ -503,7 +515,7 @@ def create_task(
         except SimcContentTemplate.DoesNotExist:
             raise TaskCreationError(f"Template {template_id} does not exist")
 
-        _validate_resource_ownership(template, 'template', user_id)
+        validate_resource_ownership(template, 'template', user_id)
         template_class, template_spec = canonical_simc_spec_identity(template.spec)
         template_is_generic = str(template.spec or '').strip().lower() in ('', 'default', 'all', '*')
         if canonical_resource_spec and not template_is_generic and (
@@ -522,7 +534,7 @@ def create_task(
         except SimcApl.DoesNotExist:
             raise TaskCreationError(f"APL {apl_id} does not exist")
 
-        _validate_resource_ownership(apl, 'apl', user_id)
+        validate_resource_ownership(apl, 'apl', user_id)
         identity = current_validation_identity(backend=backend)
         stale_reason = apl.validation_staleness(identity)
         if stale_reason:
@@ -556,7 +568,6 @@ def create_task(
         apl_version = _create_or_reuse_version('apl', apl.id, payload)
 
     # Normalize params
-    normalized_simulation_params = _normalize_params(simulation_params, SIMULATION_PARAMS_WHITELIST)
     normalized_mode_params = _normalize_params(mode_params, MODE_PARAMS_WHITELIST) or {}
     normalized_mode_params['initial_candidates'] = _normalize_candidates(candidates)
 

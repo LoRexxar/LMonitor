@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 
+from botend.constants.wow import CLASS_SPEC_MAP
 from botend.models import SimcMasteryCoefficient, SimcSecondaryStatRule, WowItemSnapshot
 
 
@@ -74,6 +75,20 @@ SUPPORTED_ACTORS = {
     'warrior', 'paladin', 'hunter', 'rogue', 'priest', 'deathknight', 'shaman',
     'mage', 'warlock', 'monk', 'druid', 'demonhunter', 'evoker',
 }
+
+
+def _simc_spec_slug(value):
+    """Convert display tokens such as BeastMastery to SimC's beast_mastery."""
+    return re.sub(r'(?<!^)(?=[A-Z])', '_', str(value or '')).lower()
+
+
+# Single legal specialization set derived from the maintained product catalog.
+# The normalization helper remains permissive for legacy stored values.
+SUPPORTED_SIMC_SPEC_IDENTITIES = frozenset(
+    (class_name.lower(), _simc_spec_slug(spec_name))
+    for class_name, spec_names in CLASS_SPEC_MAP.items()
+    for spec_name in spec_names
+)
 SECONDARY = ('crit', 'haste', 'mastery', 'versatility')
 PRIMARY = ('strength', 'agility', 'intellect', 'stamina')
 
@@ -203,6 +218,11 @@ def canonical_simc_spec_identity(spec):
         if value.startswith(prefix) and len(value) > len(prefix):
             return candidate, value[len(prefix):]
     return '', value
+
+
+def is_supported_simc_spec_identity(spec):
+    """Return whether a key/short spec resolves to a real supported class/spec."""
+    return canonical_simc_spec_identity(spec) in SUPPORTED_SIMC_SPEC_IDENTITIES
 
 
 def validate_default_player_baseline(spec, player_equipment):

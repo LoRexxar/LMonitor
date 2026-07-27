@@ -28,6 +28,52 @@ from botend.models import SimcContentTemplate, SimcApl, SimcProfile
 from botend.services.simc_player_config import SPEC_CLASS, canonical_simc_spec_identity
 
 
+def validate_simulation_options(params: Dict[str, Any]) -> str:
+    """Validate canonical persisted options, with request-name compatibility."""
+    def value(canonical_name, request_name, default):
+        return params[canonical_name] if canonical_name in params else params.get(request_name, default)
+
+    def integer(name, item, minimum, maximum):
+        if isinstance(item, bool) or not isinstance(item, int) or not minimum <= item <= maximum:
+            return f'{name} 必须是 {minimum} 到 {maximum} 之间的整数'
+        return ''
+
+    def number(name, minimum, maximum):
+        item = params.get(name)
+        if item is None:
+            return ''
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            return f'{name} 必须是数字'
+        item = float(item)
+        if not math.isfinite(item) or not minimum <= item <= maximum:
+            return f'{name} 必须在 {minimum} 到 {maximum} 之间'
+        return ''
+
+    errors = [
+        integer('iterations', params.get('iterations', 10000), 1, 100000000),
+        integer('max_time', value('max_time', 'time', 300), 1, 86400),
+        integer('desired_targets', value('desired_targets', 'target_count', 1), 1, 1000),
+        number('target_error', 0, 1),
+        number('vary_combat_length', 0, 1),
+    ]
+    # If callers submit both schemas, also validate the request-side value that
+    # Composer will render; canonical aliases must never mask an unsafe value.
+    if 'max_time' in params and 'time' in params:
+        errors.append(integer('time', params['time'], 1, 86400))
+    if 'desired_targets' in params and 'target_count' in params:
+        errors.append(integer('target_count', params['target_count'], 1, 1000))
+    for error in errors:
+        if error:
+            return error
+    for name, default in (('fight_style', 'Patchwerk'), ('enemy_type', '')):
+        item = params.get(name, default)
+        if item is None and name == 'enemy_type':
+            item = ''
+        if not isinstance(item, str) or (item and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', item)):
+            return f'{name} 包含无效值'
+    return ''
+
+
 @dataclass
 class SlotValue:
     """Resolved slot value with source tracking."""
@@ -699,40 +745,8 @@ class SimcComposer:
 
     @staticmethod
     def _validate_simulation_options(request_data: Dict[str, Any]) -> str:
-        """Reject invalid values rather than allowing persisted options to become code."""
-        def integer(name, default, minimum, maximum):
-            value = request_data.get(name, default)
-            if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-                return f'{name} 必须是 {minimum} 到 {maximum} 之间的整数'
-            return ''
-
-        def number(name, minimum, maximum):
-            value = request_data.get(name)
-            if value is None:
-                return ''
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                return f'{name} 必须是数字'
-            value = float(value)
-            if not math.isfinite(value) or not minimum <= value <= maximum:
-                return f'{name} 必须在 {minimum} 到 {maximum} 之间'
-            return ''
-
-        for error in (
-            integer('iterations', 10000, 1, 100000000),
-            integer('time', 300, 1, 86400),
-            integer('target_count', 1, 1, 1000),
-            number('target_error', 0, 1),
-            number('vary_combat_length', 0, 1),
-        ):
-            if error:
-                return error
-        for name, default in (('fight_style', 'Patchwerk'), ('enemy_type', '')):
-            value = request_data.get(name, default)
-            if value is None and name == 'enemy_type':
-                value = ''
-            if not isinstance(value, str) or (value and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', value)):
-                return f'{name} 包含无效值'
-        return ''
+        """Compatibility entry point; policy lives in the public validator."""
+        return validate_simulation_options(request_data)
 
     def _resolve_stat_overrides(self, request_data: Dict[str, Any]) -> SlotResolution:
         """Resolve stat_overrides slot (gear_crit, gear_haste, etc)."""
