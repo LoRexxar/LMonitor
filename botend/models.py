@@ -1,5 +1,7 @@
 import hashlib
 
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import connection, models, transaction
 from django.utils import timezone
 
@@ -1300,6 +1302,253 @@ class SimcBackendBinary(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.identifier})'
+
+
+class SimcBenchmarkPanel(models.Model):
+    """A reusable benchmark definition; execution remains owned by SimcTask/SimulationRun."""
+
+    name = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=200, unique=True)
+    description = models.TextField(default='', blank=True)
+    created_by_id = models.BigIntegerField()
+    is_active = models.BooleanField(default=True)
+    is_public = models.BooleanField(default=False)
+    schedule_enabled = models.BooleanField(default=False)
+    interval_seconds = models.PositiveIntegerField(
+        default=86400, validators=[MinValueValidator(1)],
+    )
+    next_run_at = models.DateTimeField(null=True, blank=True)
+    last_scheduled_at = models.DateTimeField(null=True, blank=True)
+    published_execution = models.ForeignKey(
+        'SimcBenchmarkExecution', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='published_by_panels',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'simc_benchmark_panel'
+        ordering = ['name', 'id']
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(interval_seconds__gt=0),
+                name='simc_bench_interval_gt0_ck',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['schedule_enabled', 'is_active', 'next_run_at'],
+                name='simc_bench_due_idx',
+            ),
+            models.Index(fields=['is_active', 'is_public'], name='simc_bench_vis_idx'),
+        ]
+
+
+class SimcBenchmarkSpec(models.Model):
+    """Specialization and immutable-resource selection within a benchmark panel."""
+
+    panel = models.ForeignKey(
+        SimcBenchmarkPanel, on_delete=models.CASCADE, related_name='specs',
+    )
+    class_name = models.CharField(max_length=50)
+    spec_key = models.CharField(max_length=100)
+    label = models.CharField(max_length=200)
+    apl = models.ForeignKey(
+        SimcApl, on_delete=models.PROTECT, related_name='benchmark_specs',
+    )
+    template = models.ForeignKey(
+        SimcContentTemplate, on_delete=models.PROTECT, related_name='benchmark_specs',
+    )
+    backend = models.ForeignKey(
+        SimcBackendBinary, on_delete=models.PROTECT, related_name='benchmark_specs',
+    )
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'simc_benchmark_spec'
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['panel', 'spec_key'], name='simc_bench_panel_spec_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['panel', 'is_enabled'], name='simc_bench_spec_en_idx'),
+        ]
+
+
+class SimcBenchmarkProfile(models.Model):
+    """Player profile selected for one specialization in a benchmark panel."""
+
+    panel_spec = models.ForeignKey(
+        SimcBenchmarkSpec, on_delete=models.CASCADE, related_name='profiles',
+    )
+    profile = models.ForeignKey(
+        SimcProfile, on_delete=models.PROTECT, related_name='benchmark_profiles',
+    )
+    label = models.CharField(max_length=200)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'simc_benchmark_profile'
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['panel_spec', 'profile'], name='simc_bench_spec_profile_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['panel_spec', 'is_enabled'], name='simc_bench_prof_en_idx',
+            ),
+        ]
+
+
+class SimcBenchmarkScenario(models.Model):
+    """Simulation parameter coordinate configured for a panel."""
+
+    panel = models.ForeignKey(
+        SimcBenchmarkPanel, on_delete=models.CASCADE, related_name='scenarios',
+    )
+    key = models.CharField(max_length=100)
+    name = models.CharField(max_length=200)
+    simulation_params = models.JSONField(default=dict, blank=True)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'simc_benchmark_scenario'
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['panel', 'key'], name='simc_bench_panel_scenario_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['panel', 'is_enabled'], name='simc_bench_scen_en_idx'),
+        ]
+
+
+class SimcBenchmarkCandidate(models.Model):
+    """A report candidate definition; it does not represent a SimC process run."""
+
+    panel = models.ForeignKey(
+        SimcBenchmarkPanel, on_delete=models.CASCADE, related_name='candidates',
+    )
+    key = models.CharField(max_length=100)
+    label = models.CharField(max_length=200)
+    candidate_type = models.CharField(max_length=50)
+    params = models.JSONField(default=dict, blank=True)
+    spec_keys = models.JSONField(default=list, blank=True)
+    icon_url = models.URLField(max_length=500, default='', blank=True)
+    source_label = models.CharField(max_length=200, default='', blank=True)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'simc_benchmark_candidate'
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['panel', 'key'], name='simc_bench_panel_candidate_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['panel', 'is_enabled'], name='simc_bench_cand_en_idx'),
+        ]
+
+
+class SimcBenchmarkExecution(models.Model):
+    """Frozen benchmark orchestration snapshot and completion metadata."""
+
+    TRIGGER_MANUAL = 'manual'
+    TRIGGER_SCHEDULE = 'schedule'
+    TRIGGER_CHOICES = (
+        (TRIGGER_MANUAL, 'Manual'),
+        (TRIGGER_SCHEDULE, 'Schedule'),
+    )
+
+    panel = models.ForeignKey(
+        SimcBenchmarkPanel, on_delete=models.CASCADE, related_name='executions',
+    )
+    trigger = models.CharField(
+        max_length=16, choices=TRIGGER_CHOICES, default=TRIGGER_MANUAL,
+    )
+    scheduled_slot = models.DateTimeField(null=True, blank=True)
+    config_snapshot = models.JSONField(default=dict, blank=True)
+    config_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'simc_benchmark_execution'
+        ordering = ['-created_at', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['panel', 'scheduled_slot'], name='simc_bench_panel_slot_uniq',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(trigger='schedule', scheduled_slot__isnull=False)
+                    | models.Q(trigger='manual', scheduled_slot__isnull=True)
+                ),
+                name='simc_bench_trigger_slot_ck',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['panel', '-created_at'], name='simc_bench_exec_cr_idx'),
+            models.Index(fields=['panel', 'completed_at'], name='simc_bench_exec_co_idx'),
+            models.Index(fields=['config_hash'], name='simc_bench_cfg_hash_idx'),
+        ]
+
+
+class SimcBenchmarkCase(models.Model):
+    """Maps one benchmark coordinate to its durable SimcTask execution history."""
+
+    execution = models.ForeignKey(
+        SimcBenchmarkExecution, on_delete=models.CASCADE, related_name='cases',
+    )
+    task = models.OneToOneField(
+        SimcTask, on_delete=models.PROTECT, related_name='benchmark_case',
+    )
+    spec_key = models.CharField(max_length=100)
+    scenario_key = models.CharField(max_length=100)
+    profile_key = models.CharField(max_length=100)
+    spec_label = models.CharField(max_length=200)
+    scenario_label = models.CharField(max_length=200)
+    profile_label = models.CharField(max_length=200)
+    coordinate_hash = models.CharField(max_length=64)
+
+    class Meta:
+        db_table = 'simc_benchmark_case'
+        ordering = ['execution', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['execution', 'spec_key', 'scenario_key', 'profile_key'],
+                name='simc_bench_exec_keys_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['execution', 'spec_key'], name='simc_bench_case_spec_idx'),
+            models.Index(fields=['coordinate_hash'], name='simc_bench_coord_hash_idx'),
+        ]
+
+    def clean(self):
+        super().clean()
+        if not self.task_id:
+            return
+        try:
+            task = SimcTask.objects.only('mode').get(pk=self.task_id)
+        except (SimcTask.DoesNotExist, ValueError, TypeError):
+            raise ValidationError({
+                'task': 'The selected SimC task does not exist.',
+            })
+        if task.mode != 'comparison':
+            raise ValidationError({
+                'task': 'Benchmark cases require a task in comparison mode.',
+            })
 
 
 class WclAnalysisTask(models.Model):
