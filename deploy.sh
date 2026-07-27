@@ -19,7 +19,7 @@ kill_processes() {
 }
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-WOW_BUILD="${WOW_BUILD:-12.0.7.68887}"
+WOW_BUILD="${WOW_BUILD:-12.0.7.68453}"
 if [ -x .venv/bin/python ]; then
     PYTHON_BIN=".venv/bin/python"
 fi

@@ -860,7 +860,7 @@ class SimcAplSymbol(models.Model):
 
     @classmethod
     def sync_revision_catalog(cls, simc_revision, wow_build, facts):
-        """Atomically upsert a revision catalog and deactivate missing identities."""
+        """Atomically upsert the current build catalog for one SimC revision."""
         identity_fields = (
             'simc_revision', 'wow_build', 'class_key', 'spec_key',
             'hero_tree_key', 'token', 'symbol_kind',
@@ -895,7 +895,7 @@ class SimcAplSymbol(models.Model):
         update_fields = (*fact_fields, 'is_active', 'updated_at')
         with transaction.atomic():
             cls.objects.filter(
-                simc_revision=simc_revision, wow_build=wow_build,
+                simc_revision=simc_revision,
             ).update(is_active=False)
             if rows:
                 bulk_kwargs = {
