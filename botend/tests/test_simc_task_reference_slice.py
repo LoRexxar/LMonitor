@@ -224,6 +224,101 @@ class SimcTaskServiceTests(TestCase):
         self.assertIsNotNone(task.pk)
         self.assertNotIn(self.backend.simc_path, repr(task.mode_params))
 
+    def test_validation_failures_are_classified_from_structured_result(self):
+        from botend.services.simc_task_service import (
+            TaskCreationError, TaskValidationUnavailable, _validation_failure_is_retryable,
+        )
+
+        for code in (
+            'stale_binary', 'binary_unavailable', 'temp_directory_error',
+            'timeout', 'output_too_large',
+        ):
+            with self.subTest(code=code):
+                result = {
+                    'valid': False,
+                    'details': {
+                        'structural_valid': True,
+                        'authoritative_valid': False,
+                        'authoritative_status': 'error',
+                        'authoritative_error': {'code': code, 'message': 'not inspected'},
+                    },
+                }
+                self.assertTrue(_validation_failure_is_retryable(result))
+
+        for error in (
+            'validation_context_unavailable', 'validation_backend_unavailable',
+            'validation_failed',
+        ):
+            with self.subTest(error=error):
+                self.assertTrue(_validation_failure_is_retryable({
+                    'valid': False, 'error': error,
+                }))
+
+        permanent = (
+            {'valid': False, 'details': {'structural_valid': False,
+                                         'authoritative_status': 'skipped_structural_errors'}},
+            {'valid': False, 'details': {'structural_valid': True,
+                                         'authoritative_status': 'invalid'}},
+            {'valid': False, 'details': {'structural_valid': True,
+                                         'authoritative_status': 'error',
+                                         'authoritative_error': {'code': 'source_too_large'}}},
+            {'valid': False, 'details': {'structural_valid': True,
+                                         'authoritative_status': 'error',
+                                         'authoritative_error': {'code': 'validation_input_too_large'}}},
+            {'valid': False, 'details': {'structural_valid': True,
+                                         'authoritative_status': 'error',
+                                         'authoritative_error': {'code': 'profile_directive_forbidden'}}},
+        )
+        for result in permanent:
+            with self.subTest(result=result):
+                self.assertFalse(_validation_failure_is_retryable(result))
+
+        # Unknown authoritative failures and malformed false results fail safe:
+        # a scheduled slot must remain available for a later retry.
+        self.assertTrue(_validation_failure_is_retryable({
+            'valid': False,
+            'details': {'structural_valid': True, 'authoritative_status': 'error',
+                        'authoritative_error': {'code': 'future_validator_failure'}},
+        }))
+        self.assertTrue(_validation_failure_is_retryable({'valid': False, 'unexpected': True}))
+        self.assertTrue(issubclass(TaskValidationUnavailable, TaskCreationError))
+
+    def test_prepare_raises_retryable_subclass_only_for_validator_unavailability(self):
+        from botend.services.simc_task_service import (
+            TaskCreationError, TaskValidationUnavailable, prepare_task_creation,
+        )
+
+        base = {
+            'valid': False,
+            'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
+            'revision': TEST_VALIDATION_IDENTITY[0],
+            'game_build': TEST_VALIDATION_IDENTITY[1],
+        }
+        retryable = dict(base, details={
+            'structural_valid': True, 'authoritative_valid': False,
+            'authoritative_status': 'error',
+            'authoritative_error': {'code': 'timeout'},
+        })
+        permanent = dict(base, details={
+            'structural_valid': True, 'authoritative_valid': False,
+            'authoritative_status': 'invalid',
+        })
+        for result, exception in (
+            (retryable, TaskValidationUnavailable),
+            (permanent, TaskCreationError),
+        ):
+            with self.subTest(exception=exception.__name__), patch(
+                'botend.services.simc_task_service.validate_apl_for_profile',
+                return_value=result,
+            ):
+                with self.assertRaises(exception) as caught:
+                    prepare_task_creation(
+                        self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+                        backend_id=self.backend.pk,
+                    )
+                if exception is TaskCreationError:
+                    self.assertNotIsInstance(caught.exception, TaskValidationUnavailable)
+
     def test_prepared_creation_rejects_forgery_and_every_stale_resource_token(self):
         from botend.services.simc_task_service import (
             TaskCreationError, create_task_from_prepared, prepare_task_creation,

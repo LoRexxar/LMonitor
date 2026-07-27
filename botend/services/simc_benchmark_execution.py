@@ -25,7 +25,8 @@ from botend.services.simc_benchmark_config import (
     MAX_PANEL_CONFIG_BYTES, build_execution_plan,
 )
 from botend.services.simc_task_service import (
-    TaskCreationError, create_task, prepare_task_creation,
+    TaskCreationError, TaskPreparedResourceChanged, TaskValidationUnavailable,
+    create_task, prepare_task_creation,
 )
 
 TASK_PENDING = 0
@@ -46,6 +47,10 @@ _ERROR_LIMIT = 240
 _ABSOLUTE_PATH = re.compile(
     r'(?:[A-Za-z]:[\\/]|/)(?:[^\s;:,]+[\\/])*[^\s;:,]*'
 )
+
+
+class BenchmarkExecutionConflict(RuntimeError):
+    """Retryable preflight unavailability or resource drift during creation."""
 
 
 def _validation_error(message, field=None):
@@ -177,6 +182,10 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                     coordinate['template_id'], coordinate['apl_id'],
                     backend_id=coordinate['backend_id'],
                 )
+    except (TaskPreparedResourceChanged, TaskValidationUnavailable) as exc:
+        raise BenchmarkExecutionConflict(
+            'Benchmark execution preflight is temporarily unavailable'
+        ) from exc
     except TaskCreationError as exc:
         _validation_error(str(exc))
 
@@ -200,7 +209,9 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
 
         locked_plan = build_execution_plan(locked_panel, lock=True)
         if _canonical_hash(locked_plan) != optimistic_identity:
-            _validation_error('Panel configuration changed during execution preflight')
+            raise BenchmarkExecutionConflict(
+                'Panel configuration changed during execution preflight'
+            )
         snapshot = _safe_snapshot(locked_panel, locked_plan)
         config_hash = _canonical_hash(snapshot)
 
@@ -248,6 +259,8 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                 )
                 case.full_clean()
                 case.save()
+        except (TaskPreparedResourceChanged, TaskValidationUnavailable) as exc:
+            raise BenchmarkExecutionConflict('Prepared task resources changed') from exc
         except TaskCreationError as exc:
             _validation_error(str(exc))
         return execution

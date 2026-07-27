@@ -8,7 +8,8 @@ from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcTask
+from botend.models import SimcBenchmarkCase, SimcTask
+from botend.services import simc_benchmark_scheduler
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from utils.log import logger
 
@@ -16,7 +17,7 @@ from utils.log import logger
 class SimcWorker:
     """持久化 SimC 队列的单进程消费者。"""
 
-    def __init__(self, monitor=None, poll_interval=None):
+    def __init__(self, monitor=None, poll_interval=None, maintenance_interval=None):
         self.monitor = monitor or SimcMonitor(None, None)
         self.poll_interval = float(
             poll_interval if poll_interval is not None
@@ -24,6 +25,10 @@ class SimcWorker:
         )
         self.stale_seconds = int(getattr(settings, 'SIMC_WORKER_STALE_SECONDS', 900) or 900)
         self.max_attempts = int(getattr(settings, 'SIMC_WORKER_MAX_ATTEMPTS', 3) or 3)
+        self.maintenance_interval = float(
+            maintenance_interval if maintenance_interval is not None
+            else getattr(settings, 'SIMC_WORKER_MAINTENANCE_INTERVAL', 30)
+        )
         self._stop = threading.Event()
 
     def request_stop(self, *_args):
@@ -37,52 +42,72 @@ class SimcWorker:
             is_active=True, current_status=1,
         ).filter(modified_time__lt=threshold).values_list('id', flat=True))
         for task_id in task_ids:
-            with transaction.atomic():
-                task = SimcTask.objects.select_for_update().filter(
-                    id=task_id, is_active=True, current_status=1,
-                    modified_time__lt=threshold,
-                ).first()
-                if task is None:
-                    continue
+            is_benchmark = False
+            try:
+                with transaction.atomic():
+                    task = SimcTask.objects.select_for_update().filter(
+                        id=task_id, is_active=True, current_status=1,
+                        modified_time__lt=threshold,
+                    ).first()
+                    if task is None:
+                        continue
+                    benchmark_case = SimcBenchmarkCase.objects.select_for_update().filter(
+                        task_id=task.id,
+                    ).first()
+                    is_benchmark = benchmark_case is not None
 
-                attempts = 1
-                ancestor_id = task.source_task_id
-                seen = {task.id}
-                while ancestor_id and ancestor_id not in seen:
-                    seen.add(ancestor_id)
-                    attempts += 1
-                    ancestor_id = SimcTask.objects.filter(
-                        id=ancestor_id,
-                    ).values_list('source_task_id', flat=True).first()
+                    attempts = 1
+                    ancestor_id = task.source_task_id
+                    seen = {task.id}
+                    while ancestor_id and ancestor_id not in seen:
+                        seen.add(ancestor_id)
+                        attempts += 1
+                        ancestor_id = SimcTask.objects.filter(
+                            id=ancestor_id,
+                        ).values_list('source_task_id', flat=True).first()
 
-                task.current_status = 3
-                task.completed_at = timezone.now()
-                if attempts >= self.max_attempts:
-                    task.error_detail = f'Worker 重试次数上限（{self.max_attempts}）'
-                else:
-                    task.error_detail = 'Worker 心跳超时，执行已中断；已复制 Task 重试'
-                task.save(update_fields=[
-                    'current_status', 'error_detail', 'completed_at', 'modified_time',
-                ])
+                    task.current_status = 3
+                    task.completed_at = timezone.now()
+                    if attempts >= self.max_attempts:
+                        task.error_detail = f'Worker 重试次数上限（{self.max_attempts}）'
+                    else:
+                        task.error_detail = 'Worker 心跳超时，执行已中断；已复制 Task 重试'
+                    task.save(update_fields=[
+                        'current_status', 'error_detail', 'completed_at', 'modified_time',
+                    ])
 
-                if attempts < self.max_attempts:
-                    try:
-                        create_rerun(task.id, task.user_id)
-                    except TaskRerunError as exc:
-                        task.error_detail = f'Worker 心跳超时，Task 重试复制失败: {exc}'
-                        task.save(update_fields=['error_detail', 'modified_time'])
-                recovered += 1
+                    if attempts < self.max_attempts:
+                        try:
+                            new_task = create_rerun(task.id, task.user_id)
+                            if benchmark_case is not None:
+                                rebound = SimcBenchmarkCase.objects.filter(
+                                    pk=benchmark_case.pk, task_id=task.id,
+                                ).update(task_id=new_task.id)
+                                if rebound != 1:
+                                    raise RuntimeError(
+                                        'benchmark Case authority changed during stale retry'
+                                    )
+                        except TaskRerunError as exc:
+                            task.error_detail = f'Worker 心跳超时，Task 重试复制失败: {exc}'
+                            task.save(update_fields=['error_detail', 'modified_time'])
+                    recovered += 1
+            except Exception:
+                # A failed benchmark rebind rolls back stale marking and Task creation,
+                # so no retry can be orphaned from its Execution. Preserve historical
+                # propagation for unrelated Tasks.
+                if not is_benchmark:
+                    raise
+                logger.exception('[SimC Worker] stale task %s recovery failed', task_id)
         return recovered
 
     def _mark_unexpected_failure(self, task, exc, claimed_at):
-        reason = f'Worker 单任务异常: {exc}'
         SimcTask.objects.filter(
             pk=task.pk,
             current_status=1,
             started_at=claimed_at,
         ).update(
             current_status=3,
-            error_detail=reason,
+            error_detail='Unexpected worker error.',
             completed_at=timezone.now(),
             modified_time=timezone.now(),
         )
@@ -117,10 +142,11 @@ class SimcWorker:
         close_old_connections()
         task = SimcTask.objects.filter(
             is_active=True, current_status=0,
-        ).order_by('modified_time', 'id').first()
+        ).order_by('create_time', 'id').first()
         if task is None:
             return False
         claimed_at = None
+        claimed = 0
         try:
             claimed_at = timezone.now()
             claimed = SimcTask.objects.filter(
@@ -156,14 +182,36 @@ class SimcWorker:
         except Exception as exc:
             logger.exception('[SimC Worker] task %s failed', task.id)
             self._mark_unexpected_failure(task, exc, claimed_at)
+        if claimed == 1:
+            try:
+                simc_benchmark_scheduler.reconcile_execution_for_task(task.id)
+            except Exception:
+                # Reconciliation is projection/metadata maintenance and can never
+                # alter the already committed Task result.
+                logger.exception('[SimC Worker] task %s benchmark reconcile failed', task.id)
         return True
 
     def run(self):
+        next_maintenance = time.monotonic()
         while not self._stop.is_set():
+            current = time.monotonic()
+            if current >= next_maintenance:
+                try:
+                    self.recover_stale_tasks()
+                except Exception:
+                    logger.exception('[SimC Worker] stale task recovery failed')
+                try:
+                    simc_benchmark_scheduler.schedule_due_panels()
+                except Exception:
+                    logger.exception('[SimC Worker] benchmark scheduler failed')
+                try:
+                    simc_benchmark_scheduler.reconcile_pending_executions()
+                except Exception:
+                    logger.exception('[SimC Worker] benchmark reconcile sweep failed')
+                next_maintenance = current + max(self.maintenance_interval, 0)
             try:
-                self.recover_stale_tasks()
                 if not self.consume_once():
                     self._stop.wait(self.poll_interval)
             except Exception:
-                logger.exception('[SimC Worker] recover/consume loop error')
+                logger.exception('[SimC Worker] consume loop error')
                 self._stop.wait(min(max(self.poll_interval, 1), 10))

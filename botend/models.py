@@ -1077,6 +1077,14 @@ class SimcTask(models.Model):
         ordering = ['-modified_time']
         indexes = [
             models.Index(fields=['user_id', '-create_time']),
+            models.Index(
+                fields=['is_active', 'current_status', 'create_time', 'id'],
+                name='simctask_pending_q_idx',
+            ),
+            models.Index(
+                fields=['is_active', 'current_status', 'modified_time'],
+                name='simctask_stale_q_idx',
+            ),
         ]
 
 

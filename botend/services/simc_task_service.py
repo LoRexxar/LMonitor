@@ -36,7 +36,76 @@ class TaskCreationError(Exception):
     pass
 
 
+class TaskValidationUnavailable(TaskCreationError):
+    """Authoritative validation could not currently produce a reliable verdict."""
+
+
+class TaskPreparedResourceChanged(TaskCreationError):
+    """A valid preflight token became stale because a locked resource changed."""
+
+
 _PREPARED_SEAL = object()
+
+_VALIDATION_TOP_LEVEL_RETRYABLE = frozenset({
+    'validation_context_unavailable',
+    'validation_backend_unavailable',
+    'validation_failed',
+})
+_AUTHORITATIVE_CONTENT_FAILURES = frozenset({
+    'source_too_large',
+    'validation_input_too_large',
+    'profile_directive_forbidden',
+})
+_AUTHORITATIVE_RETRYABLE_FAILURES = frozenset({
+    'stale_binary',
+    'binary_unavailable',
+    'temp_directory_error',
+    'timeout',
+    'output_too_large',
+})
+
+
+def _validation_failure_is_retryable(validation):
+    """Classify a failed validator result using fields, never diagnostic text.
+
+    Definite content/input rejection is permanent. Unknown or malformed failed
+    results are retryable so a scheduled slot is not lost merely because a newer or
+    broken validator response could not be classified.
+    """
+    if not isinstance(validation, dict):
+        return True
+
+    if validation.get('error') in _VALIDATION_TOP_LEVEL_RETRYABLE:
+        return True
+
+    details = validation.get('details')
+    if not isinstance(details, dict):
+        return True
+
+    # Structural parsing is local and deterministic, so it is authoritative even if
+    # the remainder of a malformed response contains contradictory fields.
+    if details.get('structural_valid') is False:
+        return False
+
+    status = details.get('authoritative_status')
+    authoritative_error = details.get('authoritative_error')
+    code = authoritative_error.get('code') if isinstance(authoritative_error, dict) else None
+    if code in _AUTHORITATIVE_CONTENT_FAILURES:
+        return False
+    if code in _AUTHORITATIVE_RETRYABLE_FAILURES:
+        return True
+    if status == 'invalid':
+        return False
+    if status == 'error':
+        # Unknown authoritative errors deliberately fail safe as retryable.
+        return True
+
+    # A structural skip is a definite content failure even if structural_valid was
+    # omitted by an older validator response.
+    if status == 'skipped_structural_errors':
+        return False
+
+    return True
 
 
 @dataclass(frozen=True)
@@ -567,18 +636,30 @@ def prepare_task_creation(user_id: int, profile_id: int, template_id: int,
     current = _load_resources(user_id, profile_id, template_id, apl_id, backend.pk, lock=False)
     final_identity = current_validation_identity(backend=current[0])
     if not final_identity:
-        raise TaskCreationError(
+        raise TaskPreparedResourceChanged(
             'Profile, APL, Template, or Backend changed during authoritative validation'
         )
     after = _resource_token(user_id, *current, final_identity)
     if before != after or final_identity != identity:
-        raise TaskCreationError('Profile, APL, Template, or Backend changed during authoritative validation')
+        raise TaskPreparedResourceChanged(
+            'Profile, APL, Template, or Backend changed during authoritative validation'
+        )
     backend, profile, apl, template = current
-    if (not validation.get('valid')
-            or validation.get('content_hash') != apl_content_hash(apl.content)
+    if not isinstance(validation, dict) or not validation.get('valid'):
+        error_class = (
+            TaskValidationUnavailable
+            if _validation_failure_is_retryable(validation)
+            else TaskCreationError
+        )
+        raise error_class('APL failed authoritative validation for the selected Profile')
+    if (validation.get('content_hash') != apl_content_hash(apl.content)
             or validation.get('revision') != identity[0]
             or validation.get('game_build') != identity[1]):
-        raise TaskCreationError('APL failed authoritative validation for the selected Profile')
+        # A successful verdict which is not bound to this exact request is unusable,
+        # not proof that the APL content is invalid.
+        raise TaskValidationUnavailable(
+            'Authoritative validation returned a mismatched result'
+        )
     return PreparedTaskCreation(
         user_id=user_id, backend_id=backend.pk, profile_id=profile.pk,
         apl_id=apl.pk, template_id=template.pk,
@@ -612,12 +693,17 @@ def create_task_from_prepared(*, prepared, user_id: int, name: str,
     normalized_mode_params['initial_candidates'] = _normalize_candidates(candidates)
 
     with transaction.atomic():
-        backend, profile, apl, template = _load_resources(
-            user_id, profile_id, template_id, apl_id, prepared.backend_id, lock=True,
-        )
+        try:
+            backend, profile, apl, template = _load_resources(
+                user_id, profile_id, template_id, apl_id, prepared.backend_id, lock=True,
+            )
+        except TaskCreationError as exc:
+            # The opaque token proves these resources were valid at preflight time.
+            # A locked re-read failure is therefore concurrent drift, not bad input.
+            raise TaskPreparedResourceChanged('Prepared task creation is stale') from exc
         identity = current_validation_identity(backend=backend)
         if not identity:
-            raise TaskCreationError('Prepared task creation is stale')
+            raise TaskPreparedResourceChanged('Prepared task creation is stale')
         token = _resource_token(user_id, backend, profile, apl, template, identity)
         payloads = (
             _canonical_json(_build_profile_payload(profile)),
@@ -628,7 +714,7 @@ def create_task_from_prepared(*, prepared, user_id: int, name: str,
                 or tuple(identity) != prepared.validation_identity
                 or payloads != (prepared.profile_payload_json, prepared.apl_payload_json,
                                 prepared.template_payload_json)):
-            raise TaskCreationError('Prepared task creation is stale')
+            raise TaskPreparedResourceChanged('Prepared task creation is stale')
         profile_payload, apl_payload, template_payload = map(json.loads, payloads)
         profile_version = _create_or_reuse_version('profile', profile.pk, profile_payload)
         apl_version = _create_or_reuse_version('apl', apl.pk, apl_payload)

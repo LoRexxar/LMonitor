@@ -7,7 +7,10 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcBackendBinary, SimcTask, SimulationRun
+from botend.models import (
+    SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
+    SimcBenchmarkPanel, SimcTask, SimulationRun,
+)
 
 
 class SimcWorkerTests(TestCase):
@@ -75,13 +78,18 @@ class SimcWorkerTests(TestCase):
         first = self.make_task(name='first')
         second = self.make_task(name='second')
         monitor = MagicMock()
-        monitor.process_simc_task.side_effect = [RuntimeError('broken candidate'), True]
+        monitor.process_simc_task.side_effect = [
+            RuntimeError('/srv/private/input.simc token=secret-value broken candidate'), True,
+        ]
         worker = SimcWorker(monitor=monitor, poll_interval=0)
 
         self.assertTrue(worker.consume_once())
         first.refresh_from_db()
         self.assertEqual(first.current_status, 3)
-        self.assertIn('broken candidate', first.error_detail)
+        self.assertEqual(first.error_detail, 'Unexpected worker error.')
+        self.assertNotIn('broken candidate', first.error_detail)
+        self.assertNotIn('/srv/private', first.error_detail)
+        self.assertNotIn('secret-value', first.error_detail)
 
         self.assertTrue(worker.consume_once())
         second.refresh_from_db()
@@ -191,6 +199,102 @@ class SimcWorkerTests(TestCase):
         with patch.object(worker, 'consume_once') as consume:
             worker.run()
         consume.assert_not_called()
+
+    def test_long_loop_maintenance_failures_are_isolated_from_sweep_and_consume(self):
+        from botend.services.simc_worker import SimcWorker
+
+        worker = SimcWorker(monitor=MagicMock(), poll_interval=0, maintenance_interval=30)
+        with patch.object(worker, 'recover_stale_tasks') as recover, patch.object(
+            worker, 'consume_once', side_effect=lambda: worker.request_stop() or False,
+        ) as consume, patch(
+            'botend.services.simc_worker.simc_benchmark_scheduler.schedule_due_panels',
+            side_effect=RuntimeError('scheduler down'),
+        ) as schedule, patch(
+            'botend.services.simc_worker.simc_benchmark_scheduler.reconcile_pending_executions',
+        ) as sweep:
+            worker.run()
+        recover.assert_called_once_with()
+        schedule.assert_called_once_with()
+        sweep.assert_called_once_with()
+        consume.assert_called_once_with()
+
+    def test_fast_consume_loop_throttles_all_maintenance_including_stale_recovery(self):
+        from botend.services.simc_worker import SimcWorker
+
+        worker = SimcWorker(monitor=MagicMock(), poll_interval=0, maintenance_interval=30)
+        cycles = iter([True, True, False])
+
+        def consume():
+            found = next(cycles)
+            if not found:
+                worker.request_stop()
+            return found
+
+        with patch('botend.services.simc_worker.time.monotonic', side_effect=[0, 0, 1, 2]), patch.object(
+            worker, 'recover_stale_tasks', side_effect=RuntimeError('recovery failed'),
+        ) as recover, patch.object(worker, 'consume_once', side_effect=consume) as consume_mock, patch(
+            'botend.services.simc_worker.simc_benchmark_scheduler.schedule_due_panels',
+            side_effect=RuntimeError('scheduler failed'),
+        ) as schedule, patch(
+            'botend.services.simc_worker.simc_benchmark_scheduler.reconcile_pending_executions',
+            side_effect=RuntimeError('sweep failed'),
+        ) as sweep:
+            worker.run()
+        recover.assert_called_once_with()
+        schedule.assert_called_once_with()
+        sweep.assert_called_once_with()
+        self.assertEqual(consume_mock.call_count, 3)
+
+    def test_consume_terminal_task_targets_reconcile_without_changing_result_on_failure(self):
+        from botend.services.simc_worker import SimcWorker
+
+        task = self.make_task()
+        monitor = MagicMock()
+        monitor.process_simc_task.return_value = True
+        worker = SimcWorker(monitor=monitor, poll_interval=0)
+        with patch(
+            'botend.services.simc_worker.simc_benchmark_scheduler.reconcile_execution_for_task',
+            side_effect=RuntimeError('projection failed'),
+        ) as reconcile:
+            self.assertTrue(worker.consume_once())
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 2)
+        reconcile.assert_called_once_with(task.id)
+
+    @override_settings(SIMC_WORKER_STALE_SECONDS=60, SIMC_WORKER_MAX_ATTEMPTS=2)
+    def test_benchmark_stale_retry_atomically_rebinds_case_authority(self):
+        from botend.services.simc_worker import SimcWorker
+
+        stale_at = timezone.now() - timedelta(minutes=5)
+        old = self.make_task(status=1, started_at=stale_at)
+        old.mode = 'comparison'
+        old.save(update_fields=['mode'])
+        SimcTask.objects.filter(pk=old.pk).update(modified_time=stale_at)
+        panel = SimcBenchmarkPanel.objects.create(
+            name='stale', slug='stale', created_by_id=old.user_id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_hash='0' * 64,
+        )
+        case = SimcBenchmarkCase.objects.create(
+            execution=execution, task=old,
+            spec_key='s', scenario_key='c', profile_key='p',
+            spec_label='s', scenario_label='c', profile_label='p',
+            coordinate_hash='1' * 64,
+        )
+        retry = self.make_task(name='retry')
+        retry.mode = 'comparison'
+        retry.source_task = old
+        retry.save(update_fields=['mode', 'source_task'])
+
+        worker = SimcWorker(monitor=MagicMock(), poll_interval=0)
+        with patch('botend.services.simc_worker.create_rerun', return_value=retry):
+            self.assertEqual(worker.recover_stale_tasks(), 1)
+        old.refresh_from_db()
+        case.refresh_from_db()
+        self.assertEqual(old.current_status, 3)
+        self.assertEqual(case.task_id, retry.id)
+        self.assertEqual(retry.source_task_id, old.id)
 
     def test_management_command_runs_worker_once(self):
         worker = MagicMock()

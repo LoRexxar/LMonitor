@@ -16,8 +16,8 @@ from botend.models import (
     SimcTask, SimulationRun,
 )
 from botend.services.simc_benchmark_execution import (
-    create_execution, reconcile_execution, serialize_public_execution,
-    summarize_execution,
+    BenchmarkExecutionConflict, create_execution, reconcile_execution,
+    serialize_public_execution, summarize_execution,
 )
 
 
@@ -247,6 +247,60 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(events, [('plan', False), ('validator', None), ('plan', True)])
         self.assertEqual(execution.cases.count(), 2)
 
+    def test_validator_unavailability_is_conflict_but_content_rejection_is_validation(self):
+        retryable_results = [{
+            'valid': False, 'content_hash': self.validation['content_hash'],
+            'revision': 'a' * 40, 'game_build': '12.0.1', 'error': error,
+        } for error in (
+            'validation_context_unavailable', 'validation_backend_unavailable',
+            'validation_failed',
+        )] + [{
+            'valid': False, 'content_hash': self.validation['content_hash'],
+            'revision': 'a' * 40, 'game_build': '12.0.1',
+            'details': {
+                'structural_valid': True, 'authoritative_status': 'error',
+                'authoritative_error': {'code': code},
+            },
+        } for code in (
+            'stale_binary', 'binary_unavailable', 'temp_directory_error',
+            'timeout', 'output_too_large', 'unknown_future_error',
+        )] + [{'valid': False, 'malformed': True}]
+
+        for validation in retryable_results:
+            with self.subTest(validation=validation), patch(
+                'botend.services.simc_task_service.current_validation_identity',
+                return_value=('a' * 40, '12.0.1'),
+            ), patch(
+                'botend.services.simc_task_service.validate_apl_for_profile',
+                return_value=validation,
+            ):
+                with self.assertRaises(BenchmarkExecutionConflict):
+                    create_execution(self.panel, requested_by=self.user_id)
+                self.assertFalse(SimcBenchmarkExecution.objects.exists())
+                self.assertFalse(SimcTask.objects.exists())
+
+        permanent_results = (
+            {'valid': False, 'details': {
+                'structural_valid': False,
+                'authoritative_status': 'skipped_structural_errors',
+            }},
+            {'valid': False, 'details': {
+                'structural_valid': True, 'authoritative_status': 'invalid',
+            }},
+        )
+        for validation in permanent_results:
+            with self.subTest(validation=validation), patch(
+                'botend.services.simc_task_service.current_validation_identity',
+                return_value=('a' * 40, '12.0.1'),
+            ), patch(
+                'botend.services.simc_task_service.validate_apl_for_profile',
+                return_value=validation,
+            ):
+                with self.assertRaises(ValidationError):
+                    create_execution(self.panel, requested_by=self.user_id)
+                self.assertFalse(SimcBenchmarkExecution.objects.exists())
+                self.assertFalse(SimcTask.objects.exists())
+
     def test_resource_change_after_preflight_rolls_back_the_whole_execution(self):
         from botend.services.simc_benchmark_config import build_execution_plan as real_build
 
@@ -263,7 +317,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             return_value=('a' * 40, '12.0.1'),
         ), patch('botend.services.simc_task_service.validate_apl_for_profile',
                  return_value=self.validation):
-            with self.assertRaisesMessage(ValidationError, 'stale'):
+            with self.assertRaises(BenchmarkExecutionConflict):
                 create_execution(self.panel, requested_by=self.user_id)
 
         self.assertFalse(SimcBenchmarkExecution.objects.exists())
