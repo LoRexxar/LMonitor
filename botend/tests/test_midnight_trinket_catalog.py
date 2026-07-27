@@ -12,7 +12,8 @@ class MidnightTrinketCatalogTests(TestCase):
     def test_fixture_is_audited_mid1_and_covers_all_specs_and_items(self):
         catalog = parse_mid1_catalog(json.loads(FIXTURE.read_text()))
         self.assertEqual(catalog.tier, 'MID1')
-        self.assertEqual(len(catalog.spec_keys), 40)
+        self.assertEqual(len(catalog.spec_keys), 32)
+        self.assertNotIn('evoker_augmentation', catalog.spec_keys)
         self.assertEqual(len({item.item_id for item in catalog.items}), 57)
         self.assertEqual(len(catalog.items), 66)
         self.assertGreater(len(catalog.variants), 57)

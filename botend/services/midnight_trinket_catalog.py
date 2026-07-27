@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from typing import Any
 from botend.services.simc_player_config import SUPPORTED_SIMC_SPEC_IDENTITIES
 MID1='MID1'
+MID1_EXCLUDED_SPEC_KEYS = frozenset({
+ 'druid_restoration', 'evoker_augmentation', 'evoker_preservation',
+ 'monk_mistweaver', 'paladin_holy', 'priest_discipline', 'priest_holy',
+ 'shaman_restoration',
+})
 MID1_DEFAULT_SCENARIOS = (
  {'key':'castingpatchwerk','name':'Casting Patchwerk (1 Target)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':1}},
  {'key':'castingpatchwerk3','name':'Casting Patchwerk (3 Targets)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':3}},
@@ -22,8 +27,8 @@ class TrinketItem: item_id:int; name:str; source_label:str
 class MidnightTrinketCatalog: tier:str; spec_keys:tuple[str,...]; items:tuple[TrinketItem,...]; variants:tuple[TrinketVariant,...]
 def _key(item_id,option,ilevel): return 'trinket-'+hashlib.sha256(f'mid1:{item_id}:{option}:{ilevel}'.encode()).hexdigest()[:24]
 def parse_mid1_catalog(payload:dict[str,Any])->MidnightTrinketCatalog:
- docs=payload.get('documents') if isinstance(payload,dict) else None; expected=tuple(sorted(f'{c}_{s}' for c,s in SUPPORTED_SIMC_SPEC_IDENTITIES))
- if not isinstance(docs,dict) or tuple(sorted(docs))!=expected: raise ValueError('MID1 catalog must contain exactly all supported specialization documents')
+ docs=payload.get('documents') if isinstance(payload,dict) else None; expected=tuple(sorted(f'{c}_{s}' for c,s in SUPPORTED_SIMC_SPEC_IDENTITIES if f'{c}_{s}' not in MID1_EXCLUDED_SPEC_KEYS))
+ if not isinstance(docs,dict) or not set(expected).issubset(docs): raise ValueError('MID1 catalog must contain all enabled specialization documents')
  rows=[]; identities={}; item_records={}
  for spec in expected:
   doc=docs[spec]
