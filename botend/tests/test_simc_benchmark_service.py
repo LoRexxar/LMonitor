@@ -346,6 +346,12 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             )])
             with self.subTest(simulation_params=simulation_params), self.assertRaises(ValidationError):
                 normalize_panel_payload(payload, self.user_id)
+        valid = dict(self.payload, scenarios=[dict(
+            self.payload['scenarios'][0],
+            simulation_params={'iterations': 1000, 'desired_targets': 2, 'max_time': 12.5},
+        )])
+        normalized = normalize_panel_payload(valid, self.user_id)
+        self.assertEqual(normalized['scenarios'][0]['simulation_params']['max_time'], 12.5)
         self.assertFalse(SimcBenchmarkPanel.objects.exists())
 
     def test_slug_unique_integrity_error_is_field_validation_error(self):

@@ -280,6 +280,8 @@ class SimcBenchmarkDashboardApiTests(TestCase):
                 panel=panel,
                 config_snapshot={'case_count': index, 'run_count': index + 1},
                 config_hash=f'{index:064x}',
+                status=('failed' if index % 2 else 'cancelled'),
+                completed_at=timezone.now(),
             )
         response = self.client.get(
             f'/api/simc-benchmarks/panels/{panel.id}/executions/?page=1&size=100',
@@ -292,6 +294,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         ids = [row['id'] for row in data['items']]
         self.assertEqual(ids, sorted(ids, reverse=True))
         self.assertTrue(all(row['panel_id'] == panel.id for row in data['items']))
+        self.assertEqual({row['status'] for row in data['items']}, {'failed', 'cancelled'})
 
     def test_detail_and_reconcile_use_safe_summary_projection(self):
         panel = self._create_panel()

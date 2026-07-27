@@ -38,10 +38,7 @@ def validate_simulation_options(params: Dict[str, Any]) -> str:
             return f'{name} 必须是 {minimum} 到 {maximum} 之间的整数'
         return ''
 
-    def number(name, minimum, maximum):
-        item = params.get(name)
-        if item is None:
-            return ''
+    def bounded_number(name, item, minimum, maximum):
         if isinstance(item, bool) or not isinstance(item, (int, float)):
             return f'{name} 必须是数字'
         item = float(item)
@@ -49,9 +46,15 @@ def validate_simulation_options(params: Dict[str, Any]) -> str:
             return f'{name} 必须在 {minimum} 到 {maximum} 之间'
         return ''
 
+    def number(name, minimum, maximum):
+        item = params.get(name)
+        if item is None:
+            return ''
+        return bounded_number(name, item, minimum, maximum)
+
     errors = [
         integer('iterations', params.get('iterations', 10000), 1, 100000000),
-        integer('max_time', value('max_time', 'time', 300), 1, 86400),
+        bounded_number('max_time', value('max_time', 'time', 300), 1, 86400),
         integer('desired_targets', value('desired_targets', 'target_count', 1), 1, 1000),
         number('target_error', 0, 1),
         number('vary_combat_length', 0, 1),
@@ -59,7 +62,7 @@ def validate_simulation_options(params: Dict[str, Any]) -> str:
     # If callers submit both schemas, also validate the request-side value that
     # Composer will render; canonical aliases must never mask an unsafe value.
     if 'max_time' in params and 'time' in params:
-        errors.append(integer('time', params['time'], 1, 86400))
+        errors.append(bounded_number('time', params['time'], 1, 86400))
     if 'desired_targets' in params and 'target_count' in params:
         errors.append(integer('target_count', params['target_count'], 1, 1000))
     for error in errors:

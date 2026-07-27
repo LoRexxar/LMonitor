@@ -1,17 +1,21 @@
 """TDD contracts for benchmark execution orchestration and safe publication."""
 from copy import deepcopy
+from datetime import timedelta
 import hashlib
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import IntegrityError
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import botend.services.simc_benchmark_execution as benchmark_execution_service
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkCase,
     SimcBenchmarkExecution, SimcBenchmarkPanel, SimcBenchmarkProfile,
+    SimcBenchmarkResult,
     SimcBenchmarkScenario, SimcBenchmarkSpec, SimcContentTemplate, SimcProfile,
     SimcTask, SimulationRun,
 )
@@ -102,6 +106,70 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.panel.save(update_fields=['is_public'])
         return execution
 
+    def test_success_is_persisted_and_frozen_from_task_run_mutation(self):
+        execution = self._published_success()
+        execution.refresh_from_db()
+        self.assertEqual(execution.status, 'success')
+        self.assertEqual(SimcBenchmarkResult.objects.filter(
+            case__execution=execution,
+        ).count(), 2)
+        self.assertEqual(len(execution.result_hash), 64)
+        self.assertIsNotNone(execution.results_finalized_at)
+
+        before = summarize_execution(execution)
+        task = execution.cases.get().task
+        SimulationRun.objects.filter(task=task).delete()
+        task.current_status = 3
+        task.save(update_fields=['current_status'])
+        with CaptureQueriesContext(connection) as captured:
+            after = summarize_execution(execution)
+            public = serialize_public_execution(execution)
+        self.assertEqual(after, before)
+        self.assertEqual(public['status'], 'ready')
+        sql = ' '.join(query['sql'].lower() for query in captured.captured_queries)
+        self.assertNotIn('simulation_run', sql)
+        self.assertNotIn('simc_task', sql)
+
+        original_hash = execution.result_hash
+        reconcile_execution(execution)
+        execution.refresh_from_db()
+        self.assertEqual(execution.result_hash, original_hash)
+        self.assertEqual(SimcBenchmarkResult.objects.filter(
+            case__execution=execution,
+        ).count(), 2)
+
+        result = SimcBenchmarkResult.objects.filter(case__execution=execution).first()
+        SimcBenchmarkResult.objects.filter(pk=result.pk).update(dps=result.dps + 1)
+        self.assertEqual(serialize_public_execution(execution)['status'], 'not_ready')
+
+    def test_invalid_dps_finalizes_failed_without_results_or_publication(self):
+        invalid_values = (None, True, 0, -1, float('nan'), float('inf'), float('-inf'))
+        for value in invalid_values:
+            with self.subTest(value=value):
+                execution = self._create()
+                task = execution.cases.get().task
+                task.current_status = 2
+                task.save(update_fields=['current_status'])
+                self._run(task, 1, 'completed', 'baseline', dps=1)
+                self._run(task, 2, 'completed', 'trinket', dps=1)
+                live = benchmark_execution_service._summarize_live_execution(execution)
+                live['cases'][0]['runs'][0]['_raw_dps'] = value
+                with patch(
+                    'botend.services.simc_benchmark_execution._summarize_live_execution',
+                    return_value=live,
+                ):
+                    reconcile_execution(execution)
+                execution.refresh_from_db()
+                self.panel.refresh_from_db()
+                self.assertEqual(execution.status, 'failed')
+                self.assertIsNotNone(execution.completed_at)
+                self.assertFalse(execution.result_hash)
+                self.assertIsNone(execution.results_finalized_at)
+                self.assertFalse(SimcBenchmarkResult.objects.filter(
+                    case__execution=execution,
+                ).exists())
+                self.assertNotEqual(self.panel.published_execution_id, execution.pk)
+
     def _replace_snapshot(self, execution, mutate, *, update_hash=True):
         snapshot = deepcopy(execution.config_snapshot)
         mutate(snapshot)
@@ -187,35 +255,13 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(SimcBenchmarkCase.objects.count(), 1)
         self.assertEqual(SimcTask.objects.count(), 1)
 
-    def test_scheduled_unique_race_returns_the_winning_execution(self):
-        """The unique race is caught outside its savepoint before reading the winner."""
+    def test_active_execution_slot_blocks_a_different_scheduled_slot(self):
         slot = timezone.now().replace(microsecond=0)
         winner = self._create(trigger='schedule', scheduled_slot=slot)
-        first_query = MagicMock()
-        first_query.first.return_value = None
-        locked_query = MagicMock()
-        locked_query.first.return_value = None
-        winner_query = MagicMock()
-        winner_query.first.return_value = winner
-
-        with patch(
-            'botend.services.simc_benchmark_execution.SimcBenchmarkExecution.objects.filter',
-            # Miss both the optimistic lookup and the lookup under the Panel lock.
-            # The winner only becomes visible after the Execution slot insert loses.
-            side_effect=[first_query, locked_query, winner_query],
-        ), patch(
-            'botend.services.simc_benchmark_execution.SimcBenchmarkExecution.objects.create',
-            side_effect=IntegrityError('scheduled slot race'),
-        ), patch(
-            'botend.services.simc_task_service.current_validation_identity',
-            return_value=('a' * 40, '12.0.1'),
-        ), patch(
-            'botend.services.simc_task_service.validate_apl_for_profile',
-            return_value=self.validation,
-        ):
-            resolved = create_execution(self.panel, trigger='schedule', scheduled_slot=slot)
-
-        self.assertEqual(resolved.pk, winner.pk)
+        self.panel.refresh_from_db()
+        self.assertEqual(self.panel.active_execution_id, winner.pk)
+        with self.assertRaises(BenchmarkExecutionConflict):
+            self._create(trigger='schedule', scheduled_slot=slot + timedelta(seconds=60))
 
     def test_preflight_deduplicates_resources_and_runs_between_unlocked_and_locked_plans(self):
         SimcBenchmarkScenario.objects.create(
@@ -350,7 +396,7 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertFalse(SimcTask.objects.exists())
         self.assertFalse(SimulationRun.objects.exists())
 
-    def test_summary_derives_status_counts_runs_dps_and_safe_error(self):
+    def test_live_summary_derives_status_counts_without_exposing_dps(self):
         execution = self._create()
         task = execution.cases.get().task
         task.current_status = 1
@@ -364,13 +410,13 @@ class SimcBenchmarkExecutionTests(TestCase):
             task=task, sequence=2, candidate_key='trinket',
             candidate_label='Trinket', status='running',
         )
+        reconcile_execution(execution)
         result = summarize_execution(execution)
         self.assertEqual(result['status'], 'running')
-        self.assertEqual((result['total_cases'], result['total_runs']), (1, 2))
+        self.assertEqual((result['total_cases'], result['total_runs']), (1, 0))
         self.assertEqual(result['running'], 1)
-        self.assertEqual(result['cases'][0]['runs'][0]['dps'], 1234.5)
-        self.assertNotIn('/srv/private', repr(result))
-        self.assertLessEqual(len(result['cases'][0]['error']), 240)
+        self.assertEqual(result['cases'][0]['runs'], [])
+        self.assertIsNone(result['cases'][0]['error'])
         self.assertNotIn('file_path', repr(result))
 
     def test_success_task_with_mixed_terminal_runs_is_partial_and_not_published(self):
@@ -381,6 +427,7 @@ class SimcBenchmarkExecutionTests(TestCase):
         self._run(task, 1, 'completed', 'baseline')
         self._run(task, 2, 'failed', 'trinket')
 
+        reconcile_execution(execution)
         summary = summarize_execution(execution)
         self.assertEqual(summary['status'], 'partial')
         self.assertEqual(summary['partial'], 1)
@@ -401,10 +448,11 @@ class SimcBenchmarkExecutionTests(TestCase):
                 task.save(update_fields=['current_status'])
                 if run_status:
                     self._run(task, 1, run_status, 'baseline')
-                self.assertEqual(summarize_execution(execution)['status'], expected)
                 reconcile_execution(execution)
+                self.assertEqual(summarize_execution(execution)['status'], expected)
                 execution.refresh_from_db()
                 self.assertIsNone(execution.completed_at)
+                execution.delete()
 
     def test_zero_runs_fold_failed_and_cancelled_task_terminal_status(self):
         for task_status, expected in ((3, 'failed'), (5, 'cancelled')):
@@ -414,6 +462,7 @@ class SimcBenchmarkExecutionTests(TestCase):
                 task.current_status = task_status
                 task.save(update_fields=['current_status'])
 
+                reconcile_execution(execution)
                 summary = summarize_execution(execution)
                 self.assertEqual(summary['status'], expected)
                 self.assertEqual(summary['cases'][0]['status'], expected)
@@ -424,6 +473,24 @@ class SimcBenchmarkExecutionTests(TestCase):
                 self.assertIsNotNone(execution.completed_at)
                 self.assertIsNone(self.panel.published_execution_id)
 
+    def test_deleted_task_finalizes_case_failed_and_releases_active_slot(self):
+        execution = self._create()
+        task = execution.cases.get().task
+        task.delete()
+
+        reconciled = reconcile_execution(execution)
+        execution.refresh_from_db()
+        case = execution.cases.get()
+        self.panel.refresh_from_db()
+
+        self.assertEqual(reconciled.status, 'failed')
+        self.assertEqual(execution.status, 'failed')
+        self.assertIsNotNone(execution.completed_at)
+        self.assertEqual(case.status, 'failed')
+        self.assertIsNone(case.task_id)
+        self.assertIsNone(self.panel.active_execution_id)
+        self.assertIsNone(self.panel.published_execution_id)
+
     def test_zero_runs_keep_nonterminal_tasks_nonterminal_and_success_conservative(self):
         for task_status, expected in ((0, 'pending'), (1, 'running'), (2, 'pending')):
             with self.subTest(task_status=task_status):
@@ -432,6 +499,7 @@ class SimcBenchmarkExecutionTests(TestCase):
                 task.current_status = task_status
                 task.save(update_fields=['current_status'])
 
+                reconcile_execution(execution)
                 summary = summarize_execution(execution)
                 self.assertEqual(summary['status'], expected)
                 self.assertEqual(summary['cases'][0]['status'], expected)
@@ -449,9 +517,11 @@ class SimcBenchmarkExecutionTests(TestCase):
                 task.current_status = task_status
                 task.save(update_fields=['current_status'])
                 self._run(task, 1, 'pending', 'baseline')
+                reconcile_execution(execution)
                 summary = summarize_execution(execution)
                 self.assertEqual(summary['status'], expected)
-                self.assertEqual(summary['cases'][0]['runs'][0]['status'], expected)
+                self.assertEqual(summary['cases'][0]['status'], expected)
+                self.assertEqual(summary['cases'][0]['runs'], [])
                 reconcile_execution(execution)
                 execution.refresh_from_db()
                 self.assertIsNotNone(execution.completed_at)
@@ -461,18 +531,18 @@ class SimcBenchmarkExecutionTests(TestCase):
         task = execution.cases.get().task
         task.current_status = 2
         task.save(update_fields=['current_status'])
-        self._run(task, 1, 'completed', 'baseline')
+        self._run(task, 1, 'completed', 'baseline', dps=1234)
 
-        self.assertEqual(summarize_execution(execution)['status'], 'pending')
         reconcile_execution(execution)
+        self.assertEqual(summarize_execution(execution)['status'], 'pending')
         self.panel.refresh_from_db()
         execution.refresh_from_db()
         self.assertIsNone(self.panel.published_execution_id)
         self.assertIsNone(execution.completed_at)
 
-        self._run(task, 2, 'completed', 'trinket')
-        self.assertEqual(summarize_execution(execution)['status'], 'success')
+        self._run(task, 2, 'completed', 'trinket', dps=1300)
         reconcile_execution(execution)
+        self.assertEqual(summarize_execution(execution)['status'], 'success')
         self.panel.refresh_from_db()
         self.assertEqual(self.panel.published_execution_id, execution.id)
 
@@ -486,8 +556,8 @@ class SimcBenchmarkExecutionTests(TestCase):
                 self._run(task, 1, 'completed', 'baseline')
                 self._run(task, 2, 'completed', 'trinket')
 
-                self.assertEqual(summarize_execution(execution)['status'], expected)
                 reconcile_execution(execution)
+                self.assertEqual(summarize_execution(execution)['status'], expected)
                 self.panel.refresh_from_db()
                 self.assertNotEqual(self.panel.published_execution_id, execution.id)
 
@@ -506,8 +576,8 @@ class SimcBenchmarkExecutionTests(TestCase):
                 for sequence, key in enumerate(keys, 1):
                     self._run(task, sequence, 'completed', key)
 
-                self.assertEqual(summarize_execution(execution)['status'], 'failed')
                 reconcile_execution(execution)
+                self.assertEqual(summarize_execution(execution)['status'], 'failed')
                 self.panel.refresh_from_db()
                 self.assertNotEqual(self.panel.published_execution_id, execution.id)
 
@@ -529,8 +599,8 @@ class SimcBenchmarkExecutionTests(TestCase):
                 self._run(task, 1, 'completed', 'baseline')
                 self._run(task, 2, 'completed', 'trinket')
 
-                self.assertEqual(summarize_execution(execution)['status'], 'failed')
                 reconcile_execution(execution)
+                self.assertEqual(summarize_execution(execution)['status'], 'failed')
                 self.panel.refresh_from_db()
                 self.assertNotEqual(self.panel.published_execution_id, execution.id)
 
@@ -539,15 +609,18 @@ class SimcBenchmarkExecutionTests(TestCase):
         old_task = older.cases.get().task
         old_task.current_status = 2
         old_task.save(update_fields=['current_status'])
-        self._run(old_task, 1, 'completed', 'baseline')
-        self._run(old_task, 2, 'completed', 'trinket')
+        self._run(old_task, 1, 'completed', 'baseline', dps=1234)
+        self._run(old_task, 2, 'completed', 'trinket', dps=1300)
+        reconcile_execution(older)
+        self.panel.refresh_from_db()
+        self.assertEqual(self.panel.published_execution_id, older.id)
 
         newer = self._create()
         new_task = newer.cases.get().task
         new_task.current_status = 2
         new_task.save(update_fields=['current_status'])
-        self._run(new_task, 1, 'completed', 'baseline')
-        self._run(new_task, 2, 'completed', 'trinket')
+        self._run(new_task, 1, 'completed', 'baseline', dps=1234)
+        self._run(new_task, 2, 'completed', 'trinket', dps=1300)
         reconcile_execution(newer)
         self.panel.refresh_from_db()
         self.assertEqual(self.panel.published_execution_id, newer.id)
@@ -609,7 +682,7 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.panel.save(update_fields=['is_public'])
         public = serialize_public_execution(execution)
         self.assertEqual(public['status'], 'ready')
-        self.assertEqual(public['execution']['id'], execution.id)
+        self.assertNotIn('id', public['execution'])
         self.assertNotIn('id', public['panel'])
         self.assertEqual(public['execution']['cases'][0]['candidates'][0]['label'], 'Baseline')
         gear = public['execution']['cases'][0]['candidates'][1]
@@ -632,13 +705,11 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertTrue({'task_id', 'error', 'error_detail', 'config_hash',
                          'config_snapshot', 'path'}.isdisjoint(keys))
 
-        # A publication pointer is not itself proof of readiness. Recompute Task/Run
-        # state and return the same opaque not_ready envelope if it has regressed.
+        # Finalized aggregate data is immutable product state. Later mutation of the
+        # internal execution Task cannot change or invalidate the published result.
         task.current_status = 3
         task.save(update_fields=['current_status'])
-        self.assertEqual(serialize_public_execution(execution), {
-            'status': 'not_ready', 'execution': None,
-        })
+        self.assertEqual(serialize_public_execution(execution), public)
         task.current_status = 2
         task.save(update_fields=['current_status'])
 
@@ -658,7 +729,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             'status': 'not_ready', 'execution': None,
         })
 
-    def test_public_serializer_uses_only_frozen_snapshot_axis_labels(self):
+    def test_public_serializer_rejects_mutated_case_axis_labels(self):
         execution = self._published_success()
         SimcBenchmarkCase.objects.filter(execution=execution).update(
             spec_label='EVIL mutable spec',
@@ -666,13 +737,19 @@ class SimcBenchmarkExecutionTests(TestCase):
             profile_label='EVIL mutable profile',
         )
 
-        public_case = serialize_public_execution(execution)['execution']['cases'][0]
-        self.assertEqual(public_case['labels'], {
-            'spec': 'Fury',
-            'scenario': 'Patchwerk',
-            'profile': 'Raid profile',
+        self.assertEqual(serialize_public_execution(execution), {
+            'status': 'not_ready', 'execution': None,
         })
-        self.assertNotIn('EVIL', repr(public_case))
+
+    def test_public_serializer_rejects_mutated_completed_at(self):
+        execution = self._published_success()
+        execution.refresh_from_db()
+        execution.completed_at = execution.completed_at + timedelta(seconds=1)
+        execution.save(update_fields=['completed_at'])
+
+        self.assertEqual(serialize_public_execution(execution), {
+            'status': 'not_ready', 'execution': None,
+        })
 
     def test_public_serializer_rejects_snapshot_label_changed_without_matching_hash(self):
         execution = self._published_success()

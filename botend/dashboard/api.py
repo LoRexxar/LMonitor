@@ -7807,7 +7807,7 @@ def _benchmark_execution_summary(execution, *, published_id=None, case_count=Non
     snapshot_cases, snapshot_runs = snapshot.get('case_count'), snapshot.get('run_count')
     return {
         'id': execution.pk, 'panel_id': execution.panel_id, 'trigger': execution.trigger,
-        'status': 'completed' if execution.completed_at is not None else 'pending',
+        'status': execution.status,
         'scheduled_slot': _benchmark_iso(execution.scheduled_slot),
         'created_at': _benchmark_iso(execution.created_at),
         'completed_at': _benchmark_iso(execution.completed_at),
@@ -7988,6 +7988,27 @@ def _benchmark_backend_game_versions(backends):
     return result
 
 
+def _benchmark_resource_spec_key(row, *, allow_generic=False):
+    """Return a supported full class/spec key; only templates may be generic."""
+    raw_spec = str(row.spec or '').strip().lower()
+    if allow_generic and raw_spec in {'', 'generic', 'default', 'all', '*'}:
+        return ''
+    class_name = str(row.class_name or '').strip().lower()
+    raw_identity = canonical_simc_spec_identity(raw_spec)
+    if class_name:
+        if raw_identity in SUPPORTED_SIMC_SPEC_IDENTITIES:
+            candidates = [raw_spec] if raw_identity[0] == class_name else []
+        else:
+            candidates = [f'{class_name}_{raw_spec}']
+    else:
+        candidates = [raw_spec]
+    for candidate in candidates:
+        resolved = canonical_simc_spec_identity(candidate)
+        if resolved in SUPPORTED_SIMC_SPEC_IDENTITIES:
+            return f'{resolved[0]}_{resolved[1]}'
+    return ''
+
+
 def _benchmark_options_payload(owner_id, ownership_context):
     querysets = benchmark_resource_querysets(owner_id)
     resources = {name: list(queryset) for name, queryset in querysets.items()}
@@ -8003,17 +8024,20 @@ def _benchmark_options_payload(owner_id, ownership_context):
             } for row in resources['backends']],
             'templates': [{
                 'id': row.pk, 'name': row.name, 'spec': row.spec,
+                'spec_key': _benchmark_resource_spec_key(row, allow_generic=True),
                 'class_name': row.class_name, 'source': row.source,
                 'is_system': row.owner_user_id is None,
             } for row in resources['templates']],
             'apls': [{
                 'id': row.pk, 'name': row.name, 'spec': row.spec,
+                'spec_key': _benchmark_resource_spec_key(row),
                 'class_name': row.class_name, 'source': row.source,
                 'is_system': bool(row.is_system or row.owner_user_id is None),
                 'validation_status': row.validation_status,
             } for row in resources['apls']],
             'profiles': [{
                 'id': row.pk, 'name': row.name, 'spec': row.spec,
+                'spec_key': _benchmark_resource_spec_key(row),
                 'class_name': row.class_name, 'source': row.source,
                 'is_system': row.user_id is None,
                 'is_default': row.user_id is None,

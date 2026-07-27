@@ -122,9 +122,8 @@ class SimcBenchmarkSchedulerTests(TestCase):
 
     def test_reconcile_cursor_reaches_rows_beyond_a_permanently_pending_batch(self):
         now = timezone.now().replace(microsecond=0)
-        panel = self.panel('fair', now)
         executions = [SimcBenchmarkExecution.objects.create(
-            panel=panel, config_hash=f'{number:064x}',
+            panel=self.panel(f'fair-{number}', now), config_hash=f'{number:064x}',
         ) for number in range(5)]
         calls = []
         with patch('botend.services.simc_benchmark_scheduler._reconcile_cursor', 0), patch(
@@ -140,9 +139,12 @@ class SimcBenchmarkSchedulerTests(TestCase):
 
     def test_reconcile_sweep_isolates_failures_and_target_lookup(self):
         now = timezone.now().replace(microsecond=0)
-        panel = self.panel('reconcile', now)
-        first = SimcBenchmarkExecution.objects.create(panel=panel, config_hash='1' * 64)
-        second = SimcBenchmarkExecution.objects.create(panel=panel, config_hash='2' * 64)
+        first = SimcBenchmarkExecution.objects.create(
+            panel=self.panel('reconcile-first', now), config_hash='1' * 64,
+        )
+        second = SimcBenchmarkExecution.objects.create(
+            panel=self.panel('reconcile-second', now), config_hash='2' * 64,
+        )
         calls = []
 
         def reconcile(execution):

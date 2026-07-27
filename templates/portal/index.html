@@ -8,6 +8,7 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_news_index">
+    <link rel="stylesheet" href="{% static 'portal/css/simc-benchmarks.css' %}?v=20260727">
 </head>
 <body class="portal-bg font-sans">
     <header class="portal-header">
@@ -127,6 +128,18 @@
             <div id="wow-skill-diff-list" class="mt-3 text-sm"></div>
         </div>
 
+        <section id="section-simc-benchmarks" class="mt-6" aria-labelledby="simc-benchmarks-title">
+            <div class="simc-benchmark-heading">
+                <div>
+                    <h2 id="simc-benchmarks-title">SimC Benchmark</h2>
+                    <p>已发布候选方案 DPS 聚合对比</p>
+                </div>
+            </div>
+            <div id="simc-benchmark-root" class="simc-benchmark-panels" aria-live="polite" aria-busy="true">
+                <div class="simc-benchmark-state" role="status">正在加载 Benchmark…</div>
+            </div>
+        </section>
+
         <div id="section-nga" class="snap-section mt-4 portal-card portal-card-accent portal-accent-amber shadow-sm border border-slate-200/70 p-4">
             <div class="flex items-center justify-between gap-3">
                 <div class="flex items-center gap-2">
@@ -227,5 +240,6 @@
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
     <script src="{% static 'portal/js/main.js' %}?v=20260703_daily_report_card"></script>
+    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260727"></script>
 </body>
 </html>

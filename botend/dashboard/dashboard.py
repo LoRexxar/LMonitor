@@ -171,6 +171,9 @@ class DashboardView(View):
         'SimcContentTemplate', 'SimcSecondaryStatRule',
         'SimcMasteryCoefficient',
         'SimcApl', 'SimcBackendBinary',
+        'SimcBenchmarkPanel', 'SimcBenchmarkSpec', 'SimcBenchmarkProfile',
+        'SimcBenchmarkScenario', 'SimcBenchmarkCandidate',
+        'SimcBenchmarkExecution', 'SimcBenchmarkCase', 'SimcBenchmarkResult',
     }
     
     def get(self, request):

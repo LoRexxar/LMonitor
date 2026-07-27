@@ -65,6 +65,10 @@ from botend.portal.api import (
     PortalDailyReportLatestAPIView,
     PortalArticleDetailAPIView,
 )
+from botend.portal.simc_benchmark_api import (
+    PortalSimcBenchmarkPanelListAPIView,
+    PortalSimcBenchmarkPanelDetailAPIView,
+)
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
@@ -111,6 +115,8 @@ urlpatterns = [
     path('portal/api/hotfix-reports/', csrf_exempt(PortalHotfixReportsAPIView.as_view()), name="portal_hotfix_reports"),
     path('portal/api/daily-report/latest/', csrf_exempt(PortalDailyReportLatestAPIView.as_view()), name="portal_daily_report_latest"),
     path('portal/api/article/<int:article_id>/', csrf_exempt(PortalArticleDetailAPIView.as_view()), name="portal_article_detail"),
+    path('portal/api/simc-benchmarks/panels/', PortalSimcBenchmarkPanelListAPIView.as_view(), name='portal_simc_benchmark_panels'),
+    path('portal/api/simc-benchmarks/panels/<slug:slug>/', PortalSimcBenchmarkPanelDetailAPIView.as_view(), name='portal_simc_benchmark_panel_detail'),
     path('portal/api/talents/simulator/', csrf_exempt(PortalTalentSimulatorAPIView.as_view()), name="portal_talent_simulator_api"),
     path('portal/api/talents/simulator/encode/', csrf_exempt(PortalTalentSimulatorEncodeAPIView.as_view()), name="portal_talent_simulator_encode"),
     path('portal/reports/<path:report_path>', PortalReportFileView.as_view(), name="portal_report_file"),

@@ -118,6 +118,35 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             'max_candidates': 50, 'max_cases': 100, 'max_runs_per_task': 51,
         })
 
+    def test_resources_expose_canonical_spec_keys_and_generic_template_key(self):
+        """The browser must not guess whether a short or malformed spec is generic."""
+        short_apl = SimcApl.objects.create(
+            name='Short Fury APL', spec='fury', class_name='warrior', content='x',
+            owner_user_id=self.owner.id, is_active=True, is_selectable=True,
+        )
+        short_profile = SimcProfile.objects.create(
+            user_id=self.owner.id, name='Short Fury profile', spec='fury',
+            class_name='warrior', is_active=True,
+        )
+        invalid_apl = SimcApl.objects.create(
+            name='Invalid APL', spec='generic', content='x',
+            owner_user_id=self.owner.id, is_active=True, is_selectable=True,
+        )
+        data = self.client.get('/api/simc-benchmarks/options/').json()['data']['resources']
+
+        def by_id(kind, resource_id):
+            return next(row for row in data[kind] if row['id'] == resource_id)
+
+        self.assertEqual(by_id('templates', self.template.id)['spec_key'], 'warrior_fury')
+        self.assertEqual(by_id('apls', self.apl.id)['spec_key'], 'warrior_fury')
+        self.assertEqual(by_id('profiles', self.profile.id)['spec_key'], 'warrior_fury')
+        self.assertEqual(by_id('apls', short_apl.id)['spec_key'], 'warrior_fury')
+        self.assertEqual(by_id('profiles', short_profile.id)['spec_key'], 'warrior_fury')
+        self.assertEqual(by_id('templates', self.system_template.id)['spec_key'], '')
+        # Empty only means generic to the template picker. Invalid APL/profile rows
+        # remain visible in options but cannot match a specialization in the UI.
+        self.assertEqual(by_id('apls', invalid_apl.id)['spec_key'], '')
+
     def test_nonstaff_forbidden_missing_panel_not_found_and_methods_are_strict(self):
         regular = Client()
         regular.force_login(self.other)

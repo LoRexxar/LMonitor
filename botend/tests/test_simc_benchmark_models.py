@@ -10,6 +10,7 @@ from botend.models import (
     SimcBenchmarkCandidate,
     SimcBenchmarkCase,
     SimcBenchmarkExecution,
+    SimcBenchmarkResult,
     SimcBenchmarkPanel,
     SimcBenchmarkProfile,
     SimcBenchmarkScenario,
@@ -47,7 +48,8 @@ class SimcBenchmarkModelContractTests(TestCase):
             SimcBenchmarkPanel: {
                 'id', 'name', 'slug', 'description', 'created_by_id', 'is_active',
                 'is_public', 'schedule_enabled', 'interval_seconds', 'next_run_at',
-                'last_scheduled_at', 'published_execution', 'created_at', 'updated_at',
+                'last_scheduled_at', 'published_execution', 'active_execution',
+                'created_at', 'updated_at',
             },
             SimcBenchmarkSpec: {
                 'id', 'panel', 'class_name', 'spec_key', 'label', 'apl', 'template',
@@ -66,11 +68,15 @@ class SimcBenchmarkModelContractTests(TestCase):
             },
             SimcBenchmarkExecution: {
                 'id', 'panel', 'trigger', 'scheduled_slot', 'config_snapshot',
-                'config_hash', 'created_at', 'completed_at',
+                'config_hash', 'status', 'result_hash', 'results_finalized_at',
+                'created_at', 'completed_at',
             },
             SimcBenchmarkCase: {
                 'id', 'execution', 'task', 'spec_key', 'scenario_key', 'profile_key',
-                'spec_label', 'scenario_label', 'profile_label', 'coordinate_hash',
+                'spec_label', 'scenario_label', 'profile_label', 'coordinate_hash', 'status',
+            },
+            SimcBenchmarkResult: {
+                'id', 'case', 'candidate_key', 'dps', 'created_at',
             },
         }
         forbidden_statistics = {'avg', 'average', 'median', 'p25', 'p75'}
@@ -225,12 +231,26 @@ class SimcBenchmarkModelContractTests(TestCase):
             user_id=1, name='Benchmark task', simc_profile_id=self.profile.pk,
             backend=self.backend, mode='comparison',
         )
-        SimcBenchmarkCase.objects.create(
+        case = SimcBenchmarkCase.objects.create(
             execution=execution, task=task, spec_key='warrior_fury',
             scenario_key='patchwerk', profile_key=str(self.profile.pk),
             spec_label='Fury', scenario_label='Patchwerk', profile_label='Default',
             coordinate_hash='d' * 64,
         )
+        result = SimcBenchmarkResult.objects.create(
+            case=case, candidate_key='baseline', dps=1234.5,
+        )
+        self.assertEqual(result.case.results.get().dps, 1234.5)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                SimcBenchmarkResult.objects.create(
+                    case=case, candidate_key='baseline', dps=1500,
+                )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                SimcBenchmarkResult.objects.create(
+                    case=case, candidate_key='invalid', dps=0,
+                )
         for field_name in ('spec_label', 'scenario_label', 'profile_label'):
             self.assertIsInstance(
                 SimcBenchmarkCase._meta.get_field(field_name),
@@ -252,7 +272,8 @@ class SimcBenchmarkModelContractTests(TestCase):
                 )
         task_field = SimcBenchmarkCase._meta.get_field('task')
         self.assertIsInstance(task_field, models.OneToOneField)
-        self.assertIs(task_field.remote_field.on_delete, models.PROTECT)
+        self.assertIs(task_field.remote_field.on_delete, models.SET_NULL)
+        self.assertTrue(task_field.null)
 
         self.panel.published_execution = execution
         self.panel.save(update_fields=['published_execution'])

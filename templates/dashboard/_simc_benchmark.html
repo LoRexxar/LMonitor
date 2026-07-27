@@ -1,0 +1,55 @@
+<div class="content-section" id="simc-benchmarks" data-simc-benchmark-root style="display:none;">
+  <div class="simc-benchmark-heading">
+    <h2>SimC 基准面板</h2>
+  </div>
+  <div class="simc-benchmark-toolbar" aria-label="基准面板工具栏">
+    <label class="simc-benchmark-search"><span class="sr-only">搜索基准面板</span><i class="fas fa-search" aria-hidden="true"></i><input type="search" data-benchmark-search placeholder="搜索名称或 slug" autocomplete="off"></label>
+    <label><span class="sr-only">筛选状态</span><select data-benchmark-status><option value="all">全部状态</option><option value="active">已启用</option><option value="inactive">未启用</option><option value="published">已发布</option></select></label>
+    <button type="button" class="simc-benchmark-btn secondary" data-benchmark-action="refresh"><i class="fas fa-rotate-right" aria-hidden="true"></i>刷新</button>
+    <button type="button" class="simc-benchmark-btn primary" data-benchmark-action="create"><i class="fas fa-plus" aria-hidden="true"></i>新建</button>
+  </div>
+  <div class="simc-benchmark-state" data-benchmark-list-state role="status" aria-live="polite">进入面板后加载数据</div>
+  <div class="simc-benchmark-table-wrap" data-benchmark-table-wrap hidden>
+    <table class="simc-benchmark-table">
+      <thead><tr><th>名称 / slug</th><th>维度</th><th>定时 / 下次</th><th>发布状态</th><th>操作</th></tr></thead>
+      <tbody data-benchmark-list></tbody>
+    </table>
+  </div>
+  <div class="simc-benchmark-cards" data-benchmark-cards></div>
+</div>
+
+<div class="simc-benchmark-editor" data-benchmark-editor hidden role="dialog" aria-modal="true" aria-labelledby="simc-benchmark-editor-title" aria-describedby="simc-benchmark-editor-errors">
+  <div class="simc-benchmark-editor-panel">
+    <header class="simc-benchmark-editor-header">
+      <div><span class="simc-benchmark-eyebrow">BENCHMARK CONFIG</span><h2 id="simc-benchmark-editor-title">新建基准面板</h2></div>
+      <button type="button" class="simc-benchmark-icon-btn" data-editor-close aria-label="关闭编辑工作台"><i class="fas fa-times" aria-hidden="true"></i></button>
+    </header>
+    <div class="simc-benchmark-editor-body">
+      <div id="simc-benchmark-editor-errors" class="simc-benchmark-errors" data-editor-errors role="alert" tabindex="-1" hidden></div>
+      <div class="simc-benchmark-editor-grid">
+        <form data-benchmark-form novalidate>
+          <section class="simc-benchmark-form-section"><h3>基础信息</h3><div class="simc-benchmark-fields base-fields">
+            <label>名称 *<input name="name" required maxlength="200"></label><label>slug *<input name="slug" required pattern="[a-z0-9][a-z0-9_-]*"></label>
+            <label class="wide">描述<textarea name="description" rows="3" maxlength="10000"></textarea></label>
+            <label class="check"><input type="checkbox" name="is_active" checked>启用</label><label class="check"><input type="checkbox" name="is_public">公开</label>
+          </div></section>
+          <section class="simc-benchmark-form-section"><h3>定时</h3><div class="simc-benchmark-fields schedule-fields">
+            <label class="check"><input type="checkbox" name="schedule_enabled">启用定时</label><label>间隔（秒）<input type="number" name="interval_seconds" min="1" value="86400"></label><label>下次运行<input type="datetime-local" name="next_run_at"></label>
+          </div></section>
+          <section class="simc-benchmark-form-section"><div class="section-title"><h3>专精卡</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="spec">添加专精</button></div><div data-editor-specs class="config-stack"></div></section>
+          <section class="simc-benchmark-form-section"><div class="section-title"><h3>场景</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="scenario">添加场景</button></div><p class="field-help">只接受结构化白名单参数，不提供任意 JSON 输入。</p><div data-editor-scenarios class="config-stack"></div></section>
+          <section class="simc-benchmark-form-section"><div class="section-title"><h3>候选装备</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="candidate">添加候选</button></div><p class="field-help">仅支持 gear_swap；baseline 由系统生成，不能配置。</p><div data-editor-candidates class="config-stack"></div></section>
+        </form>
+        <aside class="simc-benchmark-summary" data-editor-summary aria-live="polite"></aside>
+      </div>
+    </div>
+    <footer class="simc-benchmark-editor-footer"><button type="button" class="simc-benchmark-btn secondary" data-editor-close>取消</button><button type="button" class="simc-benchmark-btn primary" data-editor-save><i class="fas fa-save" aria-hidden="true"></i>保存</button></footer>
+  </div>
+</div>
+
+<div class="simc-benchmark-history" data-benchmark-history hidden role="dialog" aria-modal="true" aria-labelledby="simc-benchmark-history-title">
+  <div class="simc-benchmark-history-panel">
+    <header><div><span class="simc-benchmark-eyebrow">EXECUTIONS</span><h2 id="simc-benchmark-history-title">执行历史</h2></div><button type="button" class="simc-benchmark-icon-btn" data-history-close aria-label="关闭执行历史"><i class="fas fa-times" aria-hidden="true"></i></button></header>
+    <div class="simc-benchmark-history-body"><div data-history-state role="status" aria-live="polite"></div><div data-history-list class="history-list"></div><div data-history-pagination class="history-pagination"></div><div data-history-detail class="history-detail" hidden></div></div>
+  </div>
+</div>

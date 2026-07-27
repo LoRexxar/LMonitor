@@ -94,6 +94,9 @@ class SimcWorkbenchSecurityContractTests(TestCase):
             "SimcTask", "SimcTaskArtifact", "SimcProfile",
             "SimcContentTemplate", "SimcSecondaryStatRule", "SimcMasteryCoefficient",
             "SimcApl", "SimcBackendBinary",
+            "SimcBenchmarkPanel", "SimcBenchmarkSpec", "SimcBenchmarkProfile",
+            "SimcBenchmarkScenario", "SimcBenchmarkCandidate",
+            "SimcBenchmarkExecution", "SimcBenchmarkCase", "SimcBenchmarkResult",
         )
         for model_name in simc_models:
             with self.subTest(model_name=model_name):
@@ -116,4 +119,7 @@ class SimcWorkbenchSecurityContractTests(TestCase):
             "SimcTask", "SimcTaskArtifact", "SimcProfile",
             "SimcContentTemplate", "SimcSecondaryStatRule", "SimcMasteryCoefficient",
             "SimcBackendBinary",
+            "SimcBenchmarkPanel", "SimcBenchmarkSpec", "SimcBenchmarkProfile",
+            "SimcBenchmarkScenario", "SimcBenchmarkCandidate",
+            "SimcBenchmarkExecution", "SimcBenchmarkCase", "SimcBenchmarkResult",
         }))

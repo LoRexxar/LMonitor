@@ -1,13 +1,13 @@
 """Transactional benchmark execution orchestration and safe result projection.
 
-A benchmark Case owns no execution state of its own.  Task and SimulationRun remain
-the source of truth, while an Execution only freezes safe configuration metadata and
-completion/publication metadata.
+Task/Run are private execution inputs. Execution/Case/Result are the durable aggregate
+and the only source used by dashboard and public read paths.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from copy import deepcopy
 from datetime import timezone as datetime_timezone
@@ -18,8 +18,8 @@ from django.db.models import Prefetch
 from django.utils import timezone
 
 from botend.models import (
-    SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel, SimcTask,
-    SimulationRun,
+    SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel,
+    SimcBenchmarkResult, SimcTask, SimulationRun,
 )
 from botend.services.simc_benchmark_config import (
     MAX_PANEL_CONFIG_BYTES, build_execution_plan,
@@ -166,6 +166,12 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         ).first()
         if winner is not None:
             return winner
+    if trigger == SimcBenchmarkExecution.TRIGGER_MANUAL:
+        active = SimcBenchmarkExecution.objects.filter(
+            panel=current_panel, completed_at__isnull=True,
+        ).first()
+        if active is not None:
+            return active
 
     # No row locks are held while SimC is executed. Deduplication intentionally
     # ignores scenario/candidate differences because APL validity is resource-bound.
@@ -206,6 +212,17 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             ).first()
             if existing is not None:
                 return existing
+        active = locked_panel.active_execution
+        if active is not None and active.completed_at is not None:
+            locked_panel.active_execution = None
+            locked_panel.save(update_fields=['active_execution'])
+            active = None
+        if active is not None:
+            if trigger == SimcBenchmarkExecution.TRIGGER_MANUAL:
+                return active
+            raise BenchmarkExecutionConflict(
+                'Panel already has an unfinished benchmark execution'
+            )
 
         locked_plan = build_execution_plan(locked_panel, lock=True)
         if _canonical_hash(locked_plan) != optimistic_identity:
@@ -223,6 +240,8 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                     panel=locked_panel, trigger=trigger, scheduled_slot=slot,
                     config_snapshot=snapshot, config_hash=config_hash,
                 )
+                locked_panel.active_execution = execution
+                locked_panel.save(update_fields=['active_execution'])
         except IntegrityError:
             if slot is not None:
                 winner = SimcBenchmarkExecution.objects.filter(
@@ -230,6 +249,11 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                 ).first()
                 if winner is not None:
                     return winner
+            winner = SimcBenchmarkExecution.objects.filter(
+                panel=locked_panel, completed_at__isnull=True,
+            ).first()
+            if trigger == SimcBenchmarkExecution.TRIGGER_MANUAL and winner is not None:
+                return winner
             raise
 
         try:
@@ -366,7 +390,7 @@ def _effective_run_status(task_status, raw_status):
     return status
 
 
-def summarize_execution(execution):
+def _summarize_live_execution(execution):
     """Derive state from Runs, using Task for abandoned Runs and zero-run terminal edges."""
     execution = _load_execution(execution)
     cases = execution._benchmark_cases
@@ -378,6 +402,17 @@ def summarize_execution(execution):
 
     for case in cases:
         task = case.task
+        if task is None:
+            counts['failed'] += 1
+            rows.append({
+                'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
+                'profile_key': case.profile_key, '_case_id': case.pk,
+                'labels': {'spec': case.spec_label, 'scenario': case.scenario_label,
+                           'profile': case.profile_label},
+                'status': 'failed', 'task_id': None, 'task_status': 'failed',
+                'error': None, 'runs': [],
+            })
+            continue
         task_status = TASK_STATUS_NAMES.get(task.current_status, 'failed')
         expected_keys = _expected_candidate_keys(task)
         run_rows, effective_statuses = [], []
@@ -389,12 +424,10 @@ def summarize_execution(execution):
             run_counts[run_status] += 1
             errors.append(run.error_detail)
             summary = run.result_summary if isinstance(run.result_summary, dict) else {}
-            dps = summary.get('dps')
-            if isinstance(dps, bool) or not isinstance(dps, (int, float)):
-                dps = None
             run_rows.append({
                 'key': run.candidate_key, 'label': run.candidate_label,
-                'status': run_status, 'dps': dps,
+                # Live DPS is internal reconciliation input, never display output.
+                'status': run_status, 'dps': None, '_raw_dps': summary.get('dps'),
             })
         actual_keys = [run.candidate_key for run in task._benchmark_runs]
         case_status = _case_status(
@@ -405,7 +438,7 @@ def summarize_execution(execution):
         error = next((item for item in safe_errors if item), None)
         rows.append({
             'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
-            'profile_key': case.profile_key,
+            'profile_key': case.profile_key, '_case_id': case.pk,
             'labels': {
                 'spec': case.spec_label, 'scenario': case.scenario_label,
                 'profile': case.profile_label,
@@ -436,8 +469,181 @@ def summarize_execution(execution):
     }
 
 
+def _result_seal(rows, completed_at):
+    completed_value = completed_at.isoformat() if completed_at is not None else None
+    return _canonical_hash({'completed_at': completed_value, 'rows': [{
+        'spec_key': row['spec_key'], 'scenario_key': row['scenario_key'],
+        'profile_key': row['profile_key'], 'spec_label': row['spec_label'],
+        'scenario_label': row['scenario_label'], 'profile_label': row['profile_label'],
+        'status': row['status'], 'candidate_key': row['candidate_key'],
+        'dps': float(row['dps']),
+    } for row in rows]})
+
+
+def _snapshot_layout(execution):
+    snapshot = execution.config_snapshot
+    try:
+        hash_valid = (isinstance(snapshot, dict) and bool(execution.config_hash)
+                      and execution.config_hash == _canonical_hash(snapshot))
+    except (TypeError, ValueError):
+        hash_valid = False
+    if (not hash_valid or snapshot.get('version') != 2
+            or not isinstance(snapshot.get('cases'), list)):
+        return None
+    layout = []
+    for item in snapshot['cases']:
+        if (not isinstance(item, dict)
+                or not all(isinstance(item.get(key), str) and item[key]
+                           for key in ('spec_key', 'scenario_key', 'profile_key'))
+                or not isinstance(item.get('candidate_keys'), list)
+                or not item['candidate_keys']
+                or any(not isinstance(key, str) or not key for key in item['candidate_keys'])
+                or len(item['candidate_keys']) != len(set(item['candidate_keys']))):
+            return None
+        layout.append(((item['spec_key'], item['scenario_key'], item['profile_key']),
+                       item['candidate_keys']))
+    if (len({coordinate for coordinate, _keys in layout}) != len(layout)
+            or type(snapshot.get('case_count')) is not int
+            or type(snapshot.get('run_count')) is not int
+            or snapshot['case_count'] != len(layout)
+            or snapshot['run_count'] != sum(len(keys) for _coordinate, keys in layout)):
+        return None
+    return layout
+
+
+def _summarize_persisted_execution(execution):
+    """Build terminal output solely from Execution/Case/Result aggregate tables."""
+    result_qs = SimcBenchmarkResult.objects.order_by('case_id', 'id')
+    cases = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).prefetch_related(
+        Prefetch('results', queryset=result_qs, to_attr='_persisted_results'),
+    ).order_by('id'))
+    definitions = execution.config_snapshot.get('candidates', []) \
+        if isinstance(execution.config_snapshot, dict) else []
+    labels = {item.get('key'): item.get('label') for item in definitions
+              if isinstance(item, dict)}
+    rows, total_runs = [], 0
+    for case in cases:
+        run_rows = [{
+            'key': result.candidate_key,
+            'label': labels.get(result.candidate_key, result.candidate_key),
+            'status': 'success', 'dps': result.dps,
+        } for result in case._persisted_results]
+        total_runs += len(run_rows)
+        rows.append({
+            'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
+            'profile_key': case.profile_key,
+            'labels': {'spec': case.spec_label, 'scenario': case.scenario_label,
+                       'profile': case.profile_label},
+            'status': case.status,
+            'task_id': None, 'task_status': None, 'error': None, 'runs': run_rows,
+        })
+    names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
+    counts = {name: 0 for name in names}
+    for case in cases:
+        counts[case.status if case.status in counts else 'failed'] += 1
+    run_counts = {name: 0 for name in ('pending', 'running', 'success', 'failed', 'cancelled')}
+    if execution.status == 'success':
+        run_counts['success'] = total_runs
+    return {
+        'id': execution.pk, 'status': execution.status,
+        'created_at': execution.created_at, 'completed_at': execution.completed_at,
+        'total_cases': len(cases), 'total_runs': total_runs,
+        **counts, 'run_counts': run_counts, 'cases': rows,
+    }
+
+
+def summarize_execution(execution):
+    """Read the durable aggregate only; this function must never touch Task/Run."""
+    current = SimcBenchmarkExecution.objects.get(pk=execution.pk)
+    summary = _summarize_persisted_execution(current)
+    layout = _snapshot_layout(current)
+    if layout is None:
+        summary['status'] = SimcBenchmarkExecution.STATUS_FAILED
+        summary['run_counts']['success'] = 0
+        summary['total_runs'] = 0
+        for case in summary['cases']:
+            case['runs'] = []
+        return summary
+    if current.status == SimcBenchmarkExecution.STATUS_SUCCESS:
+        seal_rows = []
+        expected = {coordinate: keys for coordinate, keys in layout}
+        seen = set()
+        valid = (current.completed_at is not None
+                 and current.results_finalized_at is not None
+                 and isinstance(current.result_hash, str)
+                 and len(current.result_hash) == 64)
+        for case in summary['cases']:
+            coordinate = (case['spec_key'], case['scenario_key'], case['profile_key'])
+            keys = [run['key'] for run in case['runs']]
+            valid = valid and coordinate not in seen and expected.get(coordinate) == keys
+            seen.add(coordinate)
+            for run in case['runs']:
+                seal_rows.append({
+                    'spec_key': coordinate[0], 'scenario_key': coordinate[1],
+                    'profile_key': coordinate[2],
+                    'spec_label': case['labels']['spec'],
+                    'scenario_label': case['labels']['scenario'],
+                    'profile_label': case['labels']['profile'],
+                    'status': case['status'], 'candidate_key': run['key'],
+                    'dps': run['dps'],
+                })
+        valid = valid and seen == set(expected)
+        try:
+            valid = valid and _result_seal(seal_rows, current.completed_at) == current.result_hash
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
+            summary['status'] = SimcBenchmarkExecution.STATUS_FAILED
+            summary['success'] = 0
+            summary['failed'] = len(summary['cases'])
+            summary['run_counts']['success'] = 0
+            summary['total_runs'] = 0
+            for case in summary['cases']:
+                case['status'] = SimcBenchmarkExecution.STATUS_FAILED
+                case['runs'] = []
+    return summary
+
+
+def _collect_success_results(execution, live):
+    """Validate snapshot → Case → Task manifest → Run, then extract DPS once."""
+    layout = _snapshot_layout(execution)
+    if layout is None or live['status'] != 'success' or len(layout) != len(live['cases']):
+        return None
+    live_by_coordinate = {}
+    for case in live['cases']:
+        coordinate = (case['spec_key'], case['scenario_key'], case['profile_key'])
+        if coordinate in live_by_coordinate:
+            return None
+        live_by_coordinate[coordinate] = case
+    if set(live_by_coordinate) != {coordinate for coordinate, _keys in layout}:
+        return None
+
+    rows = []
+    for coordinate, candidate_keys in layout:
+        case = live_by_coordinate[coordinate]
+        if ([run['key'] for run in case['runs']] != candidate_keys
+                or type(case.get('_case_id')) is not int):
+            return None
+        for run in case['runs']:
+            dps = run.get('_raw_dps')
+            if (isinstance(dps, bool) or not isinstance(dps, (int, float))
+                    or not math.isfinite(dps) or dps <= 0):
+                return None
+            rows.append({
+                'case_id': case['_case_id'],
+                'spec_key': coordinate[0], 'scenario_key': coordinate[1],
+                'profile_key': coordinate[2],
+                'spec_label': case['labels']['spec'],
+                'scenario_label': case['labels']['scenario'],
+                'profile_label': case['labels']['profile'],
+                'status': case['status'], 'candidate_key': run['key'],
+                'dps': float(dps),
+            })
+    return rows
+
+
 def reconcile_execution(execution):
-    """Mark terminal executions complete and monotonically publish full successes."""
+    """Finalize exactly once under Execution/Panel locks and publish monotonically."""
     with transaction.atomic():
         try:
             locked = SimcBenchmarkExecution.objects.select_for_update().get(pk=execution.pk)
@@ -451,21 +657,90 @@ def reconcile_execution(execution):
             if published is None or published.panel_id != panel.pk:
                 _validation_error('published_execution 不属于当前 Panel', 'published_execution')
 
-        summary = summarize_execution(locked)
-        if summary['status'] not in ('success', 'partial', 'failed', 'cancelled'):
+        # Completion is the durable idempotency boundary: never inspect Tasks/Runs again.
+        if locked.completed_at is not None:
+            if panel.active_execution_id == locked.pk:
+                panel.active_execution = None
+                panel.save(update_fields=['active_execution'])
             return locked
-        if locked.completed_at is None:
-            locked.completed_at = timezone.now()
-            locked.save(update_fields=['completed_at'])
+        live = _summarize_live_execution(locked)
+        live_status = live['status']
+        case_statuses = {
+            row['_case_id']: row['status'] for row in live['cases']
+            if type(row.get('_case_id')) is int
+        }
+        for status in ('pending', 'running', 'success', 'partial', 'failed', 'cancelled'):
+            ids = [case_id for case_id, value in case_statuses.items() if value == status]
+            if ids:
+                SimcBenchmarkCase.objects.filter(
+                    execution_id=locked.pk, pk__in=ids,
+                ).update(status=status)
+        if live_status in ('pending', 'running'):
+            if locked.status != live_status:
+                locked.status = live_status
+                locked.save(update_fields=['status'])
+            return locked
 
-        if summary['status'] == 'success':
-            published = panel.published_execution
-            newer_already_published = published is not None and (
-                published.created_at, published.pk
-            ) > (locked.created_at, locked.pk)
-            if not newer_already_published and panel.published_execution_id != locked.pk:
-                panel.published_execution = locked
-                panel.save(update_fields=['published_execution'])
+        now = timezone.now()
+        if live_status != 'success':
+            SimcBenchmarkResult.objects.filter(case__execution_id=locked.pk).delete()
+            locked.status = live_status
+            locked.completed_at = now
+            locked.result_hash = ''
+            locked.results_finalized_at = None
+            locked.save(update_fields=[
+                'status', 'completed_at', 'result_hash', 'results_finalized_at',
+            ])
+            if panel.active_execution_id == locked.pk:
+                panel.active_execution = None
+                panel.save(update_fields=['active_execution'])
+            return locked
+
+        rows = _collect_success_results(locked, live)
+        if rows is None:
+            # Bad/missing/non-finite/non-positive DPS is terminal aggregate failure,
+            # rather than an exception that leaves the scheduler retrying forever.
+            SimcBenchmarkResult.objects.filter(case__execution_id=locked.pk).delete()
+            SimcBenchmarkCase.objects.filter(execution_id=locked.pk).update(
+                status=SimcBenchmarkExecution.STATUS_FAILED,
+            )
+            locked.status = SimcBenchmarkExecution.STATUS_FAILED
+            locked.completed_at = now
+            locked.result_hash = ''
+            locked.results_finalized_at = None
+            locked.save(update_fields=[
+                'status', 'completed_at', 'result_hash', 'results_finalized_at',
+            ])
+            if panel.active_execution_id == locked.pk:
+                panel.active_execution = None
+                panel.save(update_fields=['active_execution'])
+            return locked
+
+        SimcBenchmarkResult.objects.bulk_create([
+            SimcBenchmarkResult(case_id=row['case_id'], candidate_key=row['candidate_key'],
+                                dps=row['dps'])
+            for row in rows
+        ])
+        locked.status = SimcBenchmarkExecution.STATUS_SUCCESS
+        locked.result_hash = _result_seal(rows, now)
+        locked.results_finalized_at = now
+        locked.completed_at = now
+        locked.save(update_fields=[
+            'status', 'result_hash', 'results_finalized_at', 'completed_at',
+        ])
+        published = panel.published_execution
+        newer_already_published = published is not None and (
+            published.created_at, published.pk
+        ) > (locked.created_at, locked.pk)
+        panel_fields = []
+        if panel.active_execution_id == locked.pk:
+            panel.active_execution = None
+            panel_fields.append('active_execution')
+        if not newer_already_published and panel.published_execution_id != locked.pk:
+            panel.published_execution = locked
+            panel_fields.append('published_execution')
+        if panel_fields:
+            panel.save(update_fields=panel_fields)
         return locked
 
 
@@ -481,7 +756,7 @@ def serialize_public_execution(panel_or_execution):
         _validation_error('必须提供 Panel 或 Execution')
 
     panel = SimcBenchmarkPanel.objects.filter(pk=panel_id).first()
-    if (panel is None or not panel.is_public or
+    if (panel is None or not panel.is_active or not panel.is_public or
             panel.published_execution_id is None or
             (requested_execution_id is not None and
              requested_execution_id != panel.published_execution_id)):
@@ -507,9 +782,14 @@ def serialize_public_execution(panel_or_execution):
     if not snapshot_hash_valid:
         return {'status': 'not_ready', 'execution': None}
 
-    summary = summarize_execution(execution)
+    if (execution.status != SimcBenchmarkExecution.STATUS_SUCCESS
+            or execution.completed_at is None
+            or execution.results_finalized_at is None
+            or not isinstance(execution.result_hash, str)
+            or len(execution.result_hash) != 64):
+        return {'status': 'not_ready', 'execution': None}
+    summary = _summarize_persisted_execution(execution)
     if summary['status'] != 'success':
-        # Revalidate stale/corrupt pointers without exposing internal task/run state.
         return {'status': 'not_ready', 'execution': None}
     panel_snapshot = snapshot.get('panel') if isinstance(snapshot.get('panel'), dict) else {}
     snapshot_cases = snapshot.get('cases') if isinstance(snapshot.get('cases'), list) else []
@@ -614,15 +894,26 @@ def serialize_public_execution(panel_or_execution):
         return {'status': 'not_ready', 'execution': None}
 
     public_cases = []
+    seal_rows = []
     for row in summary['cases']:
         coordinate = (row['spec_key'], row['scenario_key'], row['profile_key'])
         frozen = frozen_by_coordinate[coordinate]
         run_keys = [run['key'] for run in row['runs']]
-        if frozen['candidate_keys'] != run_keys:
+        if (row['status'] != SimcBenchmarkExecution.STATUS_SUCCESS
+                or frozen['candidate_keys'] != run_keys):
             return {'status': 'not_ready', 'execution': None}
         candidates = []
         for run in row['runs']:
             candidate = candidate_metadata[run['key']]
+            seal_rows.append({
+                'spec_key': row['spec_key'], 'scenario_key': row['scenario_key'],
+                'profile_key': row['profile_key'],
+                'spec_label': row['labels']['spec'],
+                'scenario_label': row['labels']['scenario'],
+                'profile_label': row['labels']['profile'],
+                'status': row['status'], 'candidate_key': run['key'],
+                'dps': run['dps'],
+            })
             candidates.append({
                 'key': run['key'],
                 'label': candidate['label'],
@@ -644,6 +935,8 @@ def serialize_public_execution(panel_or_execution):
             'status': row['status'],
             'candidates': candidates,
         })
+    if _result_seal(seal_rows, execution.completed_at) != execution.result_hash:
+        return {'status': 'not_ready', 'execution': None}
     return {
         'status': 'ready',
         'panel': {
@@ -651,7 +944,7 @@ def serialize_public_execution(panel_or_execution):
             'description': panel_snapshot['description'],
         },
         'execution': {
-            'id': summary['id'], 'status': summary['status'],
+            'status': summary['status'],
             'completed_at': summary['completed_at'],
             'total_cases': summary['total_cases'], 'total_runs': summary['total_runs'],
             'success': summary['success'], 'partial': summary['partial'],

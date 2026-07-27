@@ -1331,6 +1331,10 @@ class SimcBenchmarkPanel(models.Model):
         'SimcBenchmarkExecution', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='published_by_panels',
     )
+    active_execution = models.OneToOneField(
+        'SimcBenchmarkExecution', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='active_for_panel',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1469,7 +1473,7 @@ class SimcBenchmarkCandidate(models.Model):
 
 
 class SimcBenchmarkExecution(models.Model):
-    """Frozen benchmark orchestration snapshot and completion metadata."""
+    """Independent benchmark aggregate job; Tasks are internal execution details."""
 
     TRIGGER_MANUAL = 'manual'
     TRIGGER_SCHEDULE = 'schedule'
@@ -1477,6 +1481,16 @@ class SimcBenchmarkExecution(models.Model):
         (TRIGGER_MANUAL, 'Manual'),
         (TRIGGER_SCHEDULE, 'Schedule'),
     )
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCESS = 'success'
+    STATUS_PARTIAL = 'partial'
+    STATUS_FAILED = 'failed'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = tuple((value, value.title()) for value in (
+        STATUS_PENDING, STATUS_RUNNING, STATUS_SUCCESS, STATUS_PARTIAL,
+        STATUS_FAILED, STATUS_CANCELLED,
+    ))
 
     panel = models.ForeignKey(
         SimcBenchmarkPanel, on_delete=models.CASCADE, related_name='executions',
@@ -1487,6 +1501,9 @@ class SimcBenchmarkExecution(models.Model):
     scheduled_slot = models.DateTimeField(null=True, blank=True)
     config_snapshot = models.JSONField(default=dict, blank=True)
     config_hash = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    result_hash = models.CharField(max_length=64, blank=True, default='')
+    results_finalized_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -1519,7 +1536,12 @@ class SimcBenchmarkCase(models.Model):
         SimcBenchmarkExecution, on_delete=models.CASCADE, related_name='cases',
     )
     task = models.OneToOneField(
-        SimcTask, on_delete=models.PROTECT, related_name='benchmark_case',
+        SimcTask, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='benchmark_case',
+    )
+    status = models.CharField(
+        max_length=16, choices=SimcBenchmarkExecution.STATUS_CHOICES,
+        default=SimcBenchmarkExecution.STATUS_PENDING,
     )
     spec_key = models.CharField(max_length=100)
     scenario_key = models.CharField(max_length=100)
@@ -1558,6 +1580,28 @@ class SimcBenchmarkCase(models.Model):
                 'task': 'Benchmark cases require a task in comparison mode.',
             })
 
+
+class SimcBenchmarkResult(models.Model):
+    """One immutable raw DPS value in a finalized benchmark aggregate."""
+
+    case = models.ForeignKey(
+        SimcBenchmarkCase, on_delete=models.CASCADE, related_name='results',
+    )
+    candidate_key = models.CharField(max_length=100)
+    dps = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'simc_benchmark_result'
+        ordering = ['case_id', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['case', 'candidate_key'], name='simc_bench_result_cand_uniq',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(dps__gt=0), name='simc_bench_result_dps_gt0_ck',
+            ),
+        ]
 
 class WclAnalysisTask(models.Model):
     wcl_url = models.CharField(max_length=2000, help_text="WCL原始链接")
