@@ -157,6 +157,10 @@
         state.rows.history = data.data || [];
 
         host.innerHTML = data.data.length ? `<div class="simc-task-list">${data.data.map(row => {
+            if (row.row_type === 'benchmark_execution') {
+                const cases = (row.cases || []).map(item => `<div class="simc-benchmark-task-case"><span>${esc(item.labels?.spec || item.coordinate?.spec_key || '—')} / ${esc(item.labels?.scenario || item.coordinate?.scenario_key || '—')} / ${esc(item.labels?.profile || item.coordinate?.profile_key || '—')}</span><span>${esc(item.status_label || '未知')}</span>${item.progress == null ? '' : `<span>${item.progress}%</span>`}</div>`).join('');
+                return `<article class="simc-task-card simc-benchmark-task-group"><div class="simc-task-card__main"><div class="simc-task-card__eyebrow"><span class="simc-task-type">基准面板</span><span class="simc-task-id">#${idOf(row.execution_id)}</span></div><h4 class="simc-task-card__title">${esc(row.name)}</h4><div class="simc-task-card__meta"><span class="simc-task-status">${esc(row.status_label)}</span><span>${esc(row.case_count)} 个独立任务</span></div>${row.progress == null ? '' : `<div class="simc-task-progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${row.progress}%"></div></div><span>${row.progress}%</span></div>`}</div><button type="button" data-benchmark-task-toggle="${idOf(row.execution_id)}" aria-expanded="false" aria-controls="simc-benchmark-task-cases-${idOf(row.execution_id)}" class="simc-touch-action">查看独立任务状态</button><div id="simc-benchmark-task-cases-${idOf(row.execution_id)}" data-benchmark-task-cases="${idOf(row.execution_id)}" hidden>${cases || '暂无独立任务'}</div></article>`;
+            }
             const status = Number(row.status);
             const isActive = [0, 1, 4].includes(status);
             const hasProgress = isActive && row.progress !== null && row.progress !== '' && Number.isFinite(Number(row.progress));
@@ -180,7 +184,7 @@
         }).join('')}</div>` : empty('暂无记录');
 
         renderPagination(data.pagination || {}, requestedPage);
-        const hasActive = data.data.some(row => [0, 1, 4].includes(Number(row.status)));
+        const hasActive = data.data.some(row => row.row_type === 'benchmark_execution' ? ['pending', 'running'].includes(row.status) : [0, 1, 4].includes(Number(row.status)));
         scheduleTaskRefresh(hasActive);
     }
 
@@ -1111,6 +1115,14 @@
             }
             if (event.target.closest('[data-task-rerun-cancel]')) {
                 if (!restoreDialogState()) closeDialog();
+                return;
+            }
+            const benchmarkToggle = event.target.closest('[data-benchmark-task-toggle]');
+            if (benchmarkToggle) {
+                const cases = document.getElementById(benchmarkToggle.getAttribute('aria-controls'));
+                const expanded = benchmarkToggle.getAttribute('aria-expanded') === 'true';
+                benchmarkToggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+                if (cases) cases.hidden = expanded;
                 return;
             }
             const action = event.target.closest('[data-wb-action]');

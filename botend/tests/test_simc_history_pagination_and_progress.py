@@ -7,7 +7,7 @@ from unittest.mock import patch
 from pathlib import Path
 from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import User
-from botend.models import SimcBackendBinary, SimcResourceVersion, SimcTask, SimulationRun
+from botend.models import SimcBackendBinary, SimcResourceVersion, SimcTask, SimulationRun, SimcBenchmarkPanel, SimcBenchmarkExecution, SimcBenchmarkCase
 from botend.dashboard.api import SimcRegularCompareAPIView, SimcWorkbenchAPIView
 import json
 
@@ -110,6 +110,24 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(rows[grouped.name]['detail_resource'], 'tasks')
         self.assertEqual(rows[grouped.name]['status_label'], '运行中')
         self.assertIsNone(rows[grouped.name]['progress'])
+
+    def test_history_groups_benchmark_tasks_as_one_expandable_execution(self):
+        panel = SimcBenchmarkPanel.objects.create(name='基准', slug='history-benchmark', created_by_id=self.user.id)
+        execution = SimcBenchmarkExecution.objects.create(panel=panel, config_snapshot={}, config_hash='a' * 64)
+        task = SimcTask.objects.create(user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+                                       name='内部基准任务', current_status=1,
+                                       ext=json.dumps({'progress': 37}), is_active=True)
+        SimcBenchmarkCase.objects.create(execution=execution, task=task, spec_key='warrior_fury',
+                                         scenario_key='patchwerk', profile_key='raid', spec_label='狂怒',
+                                         scenario_label='木桩', profile_label='Raid', coordinate_hash='b' * 64)
+        request = self.factory.get('/api/simc-workbench/history/')
+        request.user = self.user
+        rows = json.loads(self.view.get(request, resource='history').content)['data']
+        benchmark_rows = [row for row in rows if row.get('row_type') == 'benchmark_execution']
+        self.assertEqual(len(benchmark_rows), 1)
+        self.assertFalse(any(row.get('id') == task.id for row in rows if row.get('row_type') != 'benchmark_execution'))
+        self.assertEqual(benchmark_rows[0]['cases'][0]['task_id'], task.id)
+        self.assertEqual(benchmark_rows[0]['cases'][0]['progress'], 37)
 
     def test_page_defaults_to_1_if_not_provided(self):
         """page 参数未提供时默认为 1"""

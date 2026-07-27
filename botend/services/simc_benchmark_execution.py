@@ -39,6 +39,10 @@ TASK_STATUS_NAMES = {
     TASK_PENDING: 'pending', TASK_RUNNING: 'running', TASK_SUCCESS: 'success',
     TASK_FAILED: 'failed', TASK_CANCELLED: 'cancelled',
 }
+TASK_STATUS_LABELS = {
+    'pending': '待运行', 'running': '运行中', 'success': '成功',
+    'failed': '失败', 'cancelled': '已取消',
+}
 RUN_STATUS_NAMES = {
     'pending': 'pending', 'running': 'running', 'completed': 'success',
     'failed': 'failed', 'cancelled': 'cancelled', 'canceled': 'cancelled',
@@ -390,6 +394,26 @@ def _effective_run_status(task_status, raw_status):
     return status
 
 
+def task_progress(task):
+    """Return only trusted lifecycle progress persisted by the worker."""
+    if task is None:
+        return None
+    status = getattr(task, 'current_status', None)
+    if status == TASK_PENDING:
+        return 0
+    if status in TASK_TERMINAL:
+        return 100
+    if status == TASK_RUNNING:
+        try:
+            ext = json.loads(task.ext) if isinstance(task.ext, str) else (task.ext or {})
+            progress = ext.get('progress') if isinstance(ext, dict) else None
+            if isinstance(progress, (int, float)) and not isinstance(progress, bool) and 0 <= progress <= 100:
+                return int(progress)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+    return None
+
+
 def _summarize_live_execution(execution):
     """Derive state from Runs, using Task for abandoned Runs and zero-run terminal edges."""
     execution = _load_execution(execution)
@@ -410,6 +434,7 @@ def _summarize_live_execution(execution):
                 'labels': {'spec': case.spec_label, 'scenario': case.scenario_label,
                            'profile': case.profile_label},
                 'status': 'failed', 'task_id': None, 'task_status': 'failed',
+                'task_status_label': '失败', 'task_progress': None,
                 'error': None, 'runs': [],
             })
             continue
@@ -444,6 +469,8 @@ def _summarize_live_execution(execution):
                 'profile': case.profile_label,
             },
             'status': case_status, 'task_id': task.pk, 'task_status': task_status,
+            'task_status_label': TASK_STATUS_LABELS.get(task_status, '未知'),
+            'task_progress': task_progress(task),
             'error': error, 'runs': run_rows,
         })
 
@@ -514,7 +541,7 @@ def _snapshot_layout(execution):
 def _summarize_persisted_execution(execution):
     """Build terminal output solely from Execution/Case/Result aggregate tables."""
     result_qs = SimcBenchmarkResult.objects.order_by('case_id', 'id')
-    cases = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).prefetch_related(
+    cases = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).select_related('task').prefetch_related(
         Prefetch('results', queryset=result_qs, to_attr='_persisted_results'),
     ).order_by('id'))
     definitions = execution.config_snapshot.get('candidates', []) \
@@ -531,11 +558,19 @@ def _summarize_persisted_execution(execution):
         total_runs += len(run_rows)
         rows.append({
             'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
-            'profile_key': case.profile_key,
+            'profile_key': case.profile_key, '_case_id': case.pk,
             'labels': {'spec': case.spec_label, 'scenario': case.scenario_label,
                        'profile': case.profile_label},
             'status': case.status,
-            'task_id': None, 'task_status': None, 'error': None, 'runs': run_rows,
+            'task_id': case.task_id, 'task_status': (
+                TASK_STATUS_NAMES.get(case.task.current_status, 'failed') if case.task else None
+            ),
+            'task_status_label': (
+                TASK_STATUS_LABELS.get(TASK_STATUS_NAMES.get(case.task.current_status), '未知')
+                if case.task else '失败'
+            ),
+            'task_progress': task_progress(case.task) if case.task else None,
+            'error': None, 'runs': run_rows,
         })
     names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
     counts = {name: 0 for name in names}

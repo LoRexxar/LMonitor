@@ -331,7 +331,8 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         data = response.json()['data']
         case = data['cases'][0]
         self.assertEqual(set(case), {
-            'coordinate', 'labels', 'status', 'task_id', 'error', 'runs',
+            'coordinate', 'labels', 'status', 'task_id', 'task_status',
+            'task_status_label', 'task_progress', 'error', 'runs',
         })
         self.assertEqual(set(case['coordinate']), {
             'spec_key', 'scenario_key', 'profile_key',
@@ -343,8 +344,11 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(set(data['run_counts']), {
             'pending', 'running', 'success', 'failed', 'cancelled',
         })
+        self.assertEqual(case['task_status'], 'failed')
+        self.assertIsNone(case['task_status_label'])
+        self.assertIsNone(case['task_progress'])
         for forbidden in (
-            'config_snapshot', 'mode_params', 'task_status', 'top_secret',
+            'config_snapshot', 'mode_params', 'top_secret',
             '/tmp/raw.simc', '/srv/', '/tmp/', 'traceback', 'secret',
         ):
             self.assertNotIn(forbidden, serialized)

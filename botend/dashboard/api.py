@@ -78,7 +78,7 @@ from django.core.exceptions import PermissionDenied, SuspiciousOperation, Valida
 from django.db.models.deletion import ProtectedError
 from collections import defaultdict, deque
 
-from botend.models import SimcBenchmarkExecution, SimcBenchmarkPanel
+from botend.models import SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel
 from botend.services.simc_benchmark_config import (
     MAX_CANDIDATES, MAX_CASES, MAX_PROFILES_PER_SPEC, MAX_RUNS_PER_TASK,
     MAX_SCENARIOS, MAX_SPECS, benchmark_resource_querysets,
@@ -5593,6 +5593,41 @@ class SimcWorkbenchAPIView(View):
         }
 
     @staticmethod
+    def _benchmark_history_row(execution):
+        summary = summarize_execution(execution)
+        status = summary.get('status', execution.status)
+        status_labels = {
+            'pending': '待运行', 'running': '运行中', 'success': '成功',
+            'partial': '部分完成', 'failed': '失败', 'cancelled': '已取消',
+        }
+        cases = []
+        progress_values = []
+        for case in summary.get('cases') or []:
+            progress = case.get('task_progress')
+            if progress is not None:
+                progress_values.append(progress)
+            cases.append({
+                'case_id': case.get('_case_id'), 'task_id': case.get('task_id'),
+                'coordinate': {key: case.get(key) for key in ('spec_key', 'scenario_key', 'profile_key')},
+                'labels': case.get('labels') or {}, 'status': case.get('task_status', case.get('status')),
+                'status_label': case.get('task_status_label', status_labels.get(case.get('task_status'), '未知')),
+                'progress': progress,
+                'case_status': case.get('status'),
+            })
+        progress = (int(sum(progress_values) / len(progress_values))
+                    if progress_values and len(progress_values) == len(cases) else None)
+        return {
+            'row_type': 'benchmark_execution', 'id': execution.pk,
+            'execution_id': execution.pk, 'panel_id': execution.panel_id,
+            'name': f'{execution.panel.name} · 执行 #{execution.pk}',
+            'status': status, 'status_label': status_labels.get(status, '未知'),
+            'progress': progress, 'case_count': len(cases),
+            'created_at': execution.created_at,
+            'detail_resource': 'benchmark_executions',
+            'run_count': summary.get('total_runs', 0), 'cases': cases,
+        }
+
+    @staticmethod
     def _task_row(task):
         summary = {}
         latest_run = task.simulation_runs.filter(status='completed').order_by('-sequence').first()
@@ -5650,7 +5685,14 @@ class SimcWorkbenchAPIView(View):
             page_size = max(1, min(50, page_size))
 
             rows = []
-            for task in SimcTask.objects.filter(user_id=request.user.id).order_by('-modified_time'):
+            benchmark_task_ids = set(
+                SimcBenchmarkCase.objects.filter(task__user_id=request.user.id).values_list('task_id', flat=True)
+            )
+            # Benchmark executions are already grouped into one history row; their
+            # individual Case/Task status is exposed through the expandable payload.
+            for task in SimcTask.objects.filter(user_id=request.user.id).exclude(
+                id__in=benchmark_task_ids
+            ).order_by('-modified_time'):
                 rows.append({
                     'id': task.id,
                     'name': task.name,
@@ -5661,6 +5703,13 @@ class SimcWorkbenchAPIView(View):
                     'detail_resource': 'tasks',
                 })
 
+
+            for execution in SimcBenchmarkExecution.objects.filter(
+                cases__task__user_id=request.user.id
+            ).select_related('panel').prefetch_related(
+                'cases__task__simulation_runs'
+            ).distinct():
+                rows.append(self._benchmark_history_row(execution))
 
             rows.sort(key=lambda row: row['created_at'], reverse=True)
             total = len(rows)
@@ -7891,6 +7940,9 @@ def _benchmark_safe_detail(summary, execution):
             },
             'status': status if status in case_statuses else 'failed',
             'task_id': task_id if type(task_id) is int and task_id > 0 else None,
+            'task_status': row.get('task_status') if row.get('task_status') in run_statuses else None,
+            'task_status_label': _benchmark_safe_key(row.get('task_status_label')) or None,
+            'task_progress': row.get('task_progress') if type(row.get('task_progress')) is int and 0 <= row.get('task_progress') <= 100 else None,
             'error': _benchmark_safe_string(row.get('error')),
             'runs': runs,
         })
