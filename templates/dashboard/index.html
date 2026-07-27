@@ -273,9 +273,9 @@
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260726c"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260727d"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260727a"></script>
-    <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260727a"></script>
+    <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260727b"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -403,20 +403,29 @@
                             日志文件
                         </a>
                     </li>
-                    <li class="nav-item" data-section="simc-workbench">
-                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu" data-section="simc">
+                        <a href="#" aria-expanded="false" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-microchip mr-3"></i>
-                            SimC工具台
+                            SimC
+                            <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
+                        <ul id="simc-sidebar-submenu" class="submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                            <li class="submenu-item" data-dashboard-section="simc-workbench">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-screwdriver-wrench mr-2 text-xs"></i>
+                                    SimC 工具台
+                                </a>
+                            </li>
+                            {% if user.is_staff or user.is_superuser %}
+                            <li class="submenu-item" data-dashboard-section="simc-benchmarks">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-gauge-high mr-2 text-xs"></i>
+                                    基准面板
+                                </a>
+                            </li>
+                            {% endif %}
+                        </ul>
                     </li>
-                    {% if user.is_staff or user.is_superuser %}
-                    <li class="nav-item" data-section="simc-benchmarks">
-                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
-                            <i class="fas fa-gauge-high mr-3"></i>
-                            SimC 基准面板
-                        </a>
-                    </li>
-                    {% endif %}
                     <li class="nav-item has-submenu" data-section="tools">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-tools mr-3"></i>

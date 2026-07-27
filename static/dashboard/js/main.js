@@ -242,6 +242,7 @@ function initSubmenuToggle() {
             event.preventDefault();
             const willOpen = !item.classList.contains('open');
             item.classList.toggle('open', willOpen);
+            mainLink.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
             submenu.style.maxHeight = willOpen ? `${submenu.scrollHeight}px` : '0';
             if (chevron) chevron.classList.toggle('rotate-180', willOpen);
         });
@@ -339,9 +340,8 @@ function initNavigation() {
                 return;
             }
 
-            // 如果点击的是有子菜单的项，切换子菜单的显示/隐藏
+            // 可折叠菜单由 initSubmenuToggle 统一处理，避免同一次点击重复切换。
             if (this.classList.contains('has-submenu')) {
-                this.classList.toggle('open');
                 e.preventDefault();
                 return;
             }
@@ -406,7 +406,8 @@ function initNavigation() {
         item.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation(); // 阻止事件冒泡到父级菜单项
-            deactivateSimcWorkbench();
+            const dashboardSection = this.getAttribute('data-dashboard-section');
+            if (dashboardSection !== 'simc-workbench') deactivateSimcWorkbench();
 
             // 移除所有子菜单项的active类
             submenuItems.forEach(i => i.classList.remove('active'));
@@ -423,7 +424,24 @@ function initNavigation() {
             const toolName = this.getAttribute('data-tool');
             const tableName = this.getAttribute('data-table');
 
-            if (toolName) {
+            if (dashboardSection) {
+                contentSections.forEach(section => {
+                    section.style.display = 'none';
+                    section.classList.remove('active');
+                });
+                const targetSection = document.getElementById(dashboardSection);
+                if (targetSection) {
+                    targetSection.style.display = 'block';
+                    targetSection.classList.add('active');
+                    if (dashboardSection === 'simc-workbench') {
+                        switchSimcWorkbenchL1Tab('workflow');
+                        switchSimcPlayerImportMode();
+                    }
+                    document.dispatchEvent(new CustomEvent('dashboard-section-changed', {
+                        detail: { section: dashboardSection },
+                    }));
+                }
+            } else if (toolName) {
                 // 处理工具菜单项
                 const toolTitle = this.querySelector('a').textContent;
 

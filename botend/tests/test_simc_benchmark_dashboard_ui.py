@@ -15,8 +15,27 @@ CSS = (ROOT / "static/dashboard/css/simc-benchmark-dashboard.css").read_text(enc
 
 
 class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
+    def test_simc_sidebar_entries_share_one_parent_group(self):
+        soup = BeautifulSoup(INDEX, "html.parser")
+        group = soup.select_one('.nav-item.has-submenu[data-section="simc"]')
+        self.assertIsNotNone(group)
+        children = cast(Tag, group).select('.submenu-item[data-dashboard-section]')
+        self.assertEqual(
+            [child.get('data-dashboard-section') for child in children],
+            ['simc-workbench', 'simc-benchmarks'],
+        )
+        self.assertEqual(
+            [child.get_text(' ', strip=True) for child in children],
+            ['SimC 工具台', '基准面板'],
+        )
+        self.assertEqual(len(soup.select('.nav-item[data-section="simc-workbench"]')), 0)
+        self.assertEqual(len(soup.select('.nav-item[data-section="simc-benchmarks"]')), 0)
+        self.assertIn("dashboard-section-changed", (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8"))
+        self.assertIn("dashboard-section-changed", JS)
+        self.assertIn("e.detail?.section==='simc-benchmarks'", JS)
+
     def test_staff_entry_section_partial_and_assets_are_wired(self):
-        self.assertIn('data-section="simc-benchmarks"', INDEX)
+        self.assertIn('data-dashboard-section="simc-benchmarks"', INDEX)
         self.assertIn('user.is_staff', INDEX)
         self.assertIn('dashboard/_simc_benchmark.html', INDEX)
         self.assertIn('simc-benchmark-dashboard.css', INDEX)
