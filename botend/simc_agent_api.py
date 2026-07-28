@@ -30,7 +30,9 @@ METADATA_MAX_BYTES = 3 * 1024 * 1024 + 8192
 
 
 def _error_response(exc):
-    response = JsonResponse({'success': False, 'error': exc.message}, status=exc.status)
+    response = JsonResponse({
+        **exc.details, 'success': False, 'error': exc.message,
+    }, status=exc.status)
     response['Cache-Control'] = 'no-store'
     response['Pragma'] = 'no-cache'
     return response

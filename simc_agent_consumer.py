@@ -14,9 +14,11 @@ import json
 import math
 import os
 import platform as platform_module
+import re
 import signal
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -29,11 +31,16 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 PROTOCOL_VERSION = 1
 MAX_REPORT_BYTES = 20 * 1024 * 1024
 COMPLETION_TEXT_MAX_BYTES = 256 * 1024
 COMPLETION_ATTEMPTS = 3
+TRUSTED_REPOSITORY_URLS = {
+    'git@github.com:LoRexxar/LMonitor.git',
+    'https://github.com/LoRexxar/LMonitor.git',
+}
+UPDATE_BRANCH = 'master'
 
 
 def _utf8_tail(value: str, max_bytes: int) -> str:
@@ -48,8 +55,10 @@ class ConfigError(ValueError):
 
 
 class APIError(RuntimeError):
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None,
+                 details: dict[str, Any] | None = None):
         self.status = status
+        self.details = details or {}
         super().__init__(message)
 
 
@@ -79,6 +88,8 @@ class AgentConfig:
     request_timeout_seconds: float = 30.0
     max_run_seconds: float = 7200.0
     allow_insecure_http: bool = False
+    auto_update: bool = True
+    repository_path: str = ''
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> 'AgentConfig':
@@ -94,13 +105,14 @@ class AgentConfig:
             raise ConfigError(f'missing configuration field: {sorted(missing)[0]}')
         string_fields = {
             'server_url', 'backend_identifier', 'simc_path', 'token_path',
-            'enrollment_token', 'name', 'platform', 'host_identifier',
+            'enrollment_token', 'name', 'platform', 'host_identifier', 'repository_path',
         }
         for field in string_fields & set(values):
             if type(values[field]) is not str:
                 raise ConfigError(f'{field} must be a string')
-        if 'allow_insecure_http' in values and type(values['allow_insecure_http']) is not bool:
-            raise ConfigError('allow_insecure_http must be a boolean')
+        for field in ('allow_insecure_http', 'auto_update'):
+            if field in values and type(values[field]) is not bool:
+                raise ConfigError(f'{field} must be a boolean')
         for field in ('poll_interval_seconds', 'request_timeout_seconds', 'max_run_seconds'):
             if field in values:
                 value = values[field]
@@ -163,7 +175,15 @@ class HTTPTransport:
                 return response.read()
         except HTTPError as exc:
             detail = exc.read(65536).decode('utf-8', errors='replace')
-            raise APIError(f'control plane returned HTTP {exc.code}: {detail}', exc.code) from exc
+            try:
+                parsed_detail = json.loads(detail)
+            except (json.JSONDecodeError, TypeError):
+                parsed_detail = None
+            details = parsed_detail if isinstance(parsed_detail, dict) else {}
+            message = details.get('error') if isinstance(details.get('error'), str) else detail
+            raise APIError(
+                f'control plane returned HTTP {exc.code}: {message}', exc.code, details,
+            ) from exc
         except (URLError, TimeoutError, OSError) as exc:
             raise APIError(f'control plane request failed: {exc}') from exc
 
@@ -332,8 +352,78 @@ class SimcAgentConsumer:
 
     def claim(self) -> dict[str, Any] | None:
         return self.transport.json(path='/api/simc-agent/v1/jobs/claim/',
-                                   payload={'instance_id': self.instance_id},
+                                   payload={
+                                       'instance_id': self.instance_id,
+                                       'agent_version': VERSION,
+                                       'protocol_version': PROTOCOL_VERSION,
+                                   },
                                    authorization=self.authorization)
+
+    def _self_update(self, required_version: Any) -> None:
+        if not self.config.auto_update:
+            raise APIError(
+                f'agent {VERSION} must be updated to {required_version}; automatic updates are disabled',
+            )
+        if (type(required_version) is not str
+                or not re.fullmatch(r'[0-9A-Za-z][0-9A-Za-z._+-]{0,63}', required_version)):
+            raise APIError('control plane returned an invalid required agent version')
+        repository = Path(
+            self.config.repository_path or Path(__file__).resolve().parent
+        ).expanduser().resolve()
+        target = repository / 'simc_agent_consumer.py'
+        if (not repository.is_dir() or not (repository / '.git').exists()
+                or not target.is_file() or target.is_symlink()):
+            raise APIError(
+                'automatic update requires a Git checkout containing simc_agent_consumer.py; '
+                'set repository_path or update the Agent manually',
+            )
+        if Path(__file__).resolve() != target.resolve():
+            raise APIError(
+                'automatic update refused because the running Agent is not the managed '
+                'simc_agent_consumer.py checkout entry point',
+            )
+
+        def git(*arguments: str, timeout: float) -> subprocess.CompletedProcess[str]:
+            try:
+                result = subprocess.run(
+                    ['git', '-C', str(repository), *arguments],
+                    capture_output=True, text=True, timeout=timeout, check=False,
+                    stdin=subprocess.DEVNULL,
+                    env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'},
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise APIError(f'automatic Agent update failed: {exc}') from exc
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout).strip()
+                raise APIError(f'automatic Agent update failed: {detail or "git exited unsuccessfully"}')
+            return result
+
+        status = git('status', '--porcelain', '--untracked-files=all', timeout=30)
+        if status.stdout.strip():
+            raise APIError('automatic Agent update refused because the Git checkout has local changes')
+        remote_url = git('config', '--get', 'remote.origin.url', timeout=30).stdout.strip()
+        if remote_url not in TRUSTED_REPOSITORY_URLS:
+            raise APIError('automatic Agent update refused because origin is not the trusted repository')
+        branch = git('branch', '--show-current', timeout=30).stdout.strip()
+        if branch != UPDATE_BRANCH:
+            raise APIError(f'automatic Agent update requires the {UPDATE_BRANCH} branch')
+        print(f'[simc-agent] updating {VERSION} -> {required_version}', flush=True)
+        git('pull', '--ff-only', 'origin', UPDATE_BRANCH, timeout=120)
+        try:
+            source = target.read_text(encoding='utf-8')
+        except (OSError, UnicodeError) as exc:
+            raise APIError(f'cannot verify updated Agent: {exc}') from exc
+        match = re.search(r"^VERSION\s*=\s*['\"]([^'\"]+)['\"]\s*$", source, re.MULTILINE)
+        if not match or match.group(1) != required_version:
+            actual = match.group(1) if match else 'unknown'
+            raise APIError(
+                f'Git update completed but Agent version is {actual}, expected {required_version}',
+            )
+        print('[simc-agent] update verified; restarting', flush=True)
+        try:
+            os.execv(sys.executable, [sys.executable, str(target), *sys.argv[1:]])
+        except OSError as exc:
+            raise APIError(f'updated Agent could not restart: {exc}') from exc
 
     @staticmethod
     def _stop_process(process: subprocess.Popen[Any]) -> None:
@@ -600,6 +690,8 @@ class SimcAgentConsumer:
                     return
             except APIError as exc:
                 print(f'[simc-agent] {exc}', flush=True)
+                if exc.status == 426 and exc.details.get('code') == 'agent_update_required':
+                    self._self_update(exc.details.get('required_version'))
                 if once:
                     raise
             if once:

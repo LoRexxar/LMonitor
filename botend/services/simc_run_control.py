@@ -119,8 +119,9 @@ def runtime_threads(task):
 
 
 def claim_run(payload, authorization):
-    if set(payload) != {'instance_id'}:
-        unknown = set(payload) - {'instance_id'}
+    allowed_fields = {'instance_id', 'agent_version', 'protocol_version'}
+    if set(payload) - allowed_fields or 'instance_id' not in payload:
+        unknown = set(payload) - allowed_fields
         raise AgentAPIError('Unknown field: ' + sorted(unknown)[0] if unknown else 'Missing field: instance_id')
     instance_id = payload.get('instance_id')
     if not isinstance(instance_id, str) or not instance_id or len(instance_id) > 128:
@@ -129,6 +130,43 @@ def claim_run(payload, authorization):
     # Authentication outside the mutation transaction discovers the backend. It
     # is repeated under the Agent lock after Task -> Run locks are acquired.
     discovered_agent = authenticate_bearer(authorization, lock=False)
+    agent_version = payload.get('agent_version')
+    protocol_version = payload.get('protocol_version')
+    if agent_version is not None and (not isinstance(agent_version, str) or len(agent_version) > 64):
+        raise AgentAPIError('agent_version has invalid length')
+    if (protocol_version is not None and (
+            isinstance(protocol_version, bool) or not isinstance(protocol_version, int)
+            or protocol_version < 1)):
+        raise AgentAPIError('protocol_version must be a positive integer')
+    # Legacy 1.0 Agents did not send claim-time version fields and do not contain
+    # the updater. They remain claim-compatible for the one-time bootstrap rollout;
+    # updater-capable Agents always send both fields and are strictly gated.
+    if (agent_version is None) != (protocol_version is None):
+        raise AgentAPIError('agent_version and protocol_version must be sent together')
+    required_version = str(getattr(settings, 'SIMC_AGENT_REQUIRED_VERSION', '1.1.0'))
+    required_protocol = int(getattr(settings, 'SIMC_AGENT_PROTOCOL_VERSION', 1))
+    mismatch = None
+    if agent_version is not None and agent_version != required_version:
+        mismatch = AgentAPIError('Agent update required', 426, {
+            'code': 'agent_update_required',
+            'current_version': agent_version,
+            'required_version': required_version,
+        })
+    elif protocol_version is not None and protocol_version != required_protocol:
+        mismatch = AgentAPIError('Agent protocol version is incompatible', 426, {
+            'code': 'agent_protocol_mismatch',
+            'current_protocol_version': protocol_version,
+            'required_protocol_version': required_protocol,
+            'required_version': required_version,
+        })
+    if mismatch is not None:
+        # Never tell a process to replace/re-exec its code while this Agent identity
+        # still owns a live fenced Run (including uncertain completion responses).
+        if SimulationRun.objects.filter(
+            lease_agent=discovered_agent, status='running', lease_expires_at__gt=timezone.now(),
+        ).exists():
+            return None
+        raise mismatch
     _check_agent_ready(discovered_agent, timezone.now())
     with transaction.atomic():
         now = timezone.now()

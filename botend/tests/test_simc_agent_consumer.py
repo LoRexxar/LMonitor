@@ -110,7 +110,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertNotIn('enroll-secret', request.kwargs['payload'])
 
     def test_existing_token_registration_and_claim_use_bearer_identity(self):
-        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+        from simc_agent_consumer import AgentConfig, PROTOCOL_VERSION, SimcAgentConsumer, VERSION
 
         with tempfile.TemporaryDirectory() as root:
             values = self.config(root)
@@ -131,7 +131,72 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(transport.json.call_args_list[1].kwargs['authorization'], 'Bearer ' + token)
             self.assertEqual(transport.json.call_args_list[1].kwargs['payload'], {
                 'instance_id': consumer.instance_id,
+                'agent_version': VERSION,
+                'protocol_version': PROTOCOL_VERSION,
             })
+
+    def test_update_required_claim_triggers_ff_only_git_update_and_reexec(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['repository_path'] = root
+            self.write_token(values, 'token-id.' + ('u' * 43))
+            (Path(root) / '.git').mkdir()
+            (Path(root) / 'simc_agent_consumer.py').write_text(
+                "VERSION = '1.2.0'\n", encoding='utf-8',
+            )
+            transport = MagicMock()
+            transport.json.side_effect = [
+                {'success': True, 'heartbeat_interval_seconds': 20, 'lease_seconds': 60},
+                None,
+                APIError(
+                    'Agent update required', 426,
+                    {'code': 'agent_update_required', 'required_version': '1.2.0'},
+                ),
+            ]
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+
+            def git_result(command, **kwargs):
+                stdout = ''
+                if command[-3:] == ['config', '--get', 'remote.origin.url']:
+                    stdout = 'https://github.com/LoRexxar/LMonitor.git\n'
+                elif command[-2:] == ['branch', '--show-current']:
+                    stdout = 'master\n'
+                return MagicMock(returncode=0, stdout=stdout, stderr='')
+
+            with patch('simc_agent_consumer.__file__', str(Path(root) / 'simc_agent_consumer.py')), patch(
+                'simc_agent_consumer.subprocess.run', side_effect=git_result,
+            ) as run_git, patch(
+                'simc_agent_consumer.os.execv', side_effect=RuntimeError('reexec'),
+            ) as execv:
+                with self.assertRaisesRegex(RuntimeError, 'reexec'):
+                    consumer.run(once=True)
+
+            commands = [call.args[0] for call in run_git.call_args_list]
+            self.assertIn(['git', '-C', root, 'status', '--porcelain', '--untracked-files=all'], commands)
+            self.assertIn(['git', '-C', root, 'pull', '--ff-only', 'origin', 'master'], commands)
+            execv.assert_called_once()
+
+    def test_self_update_refuses_dirty_tracked_checkout(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['repository_path'] = root
+            self.write_token(values, 'token-id.' + ('d' * 43))
+            (Path(root) / '.git').mkdir()
+            (Path(root) / 'simc_agent_consumer.py').write_text(
+                "VERSION = '1.0.0'\n", encoding='utf-8',
+            )
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+            dirty = MagicMock(returncode=0, stdout=' M simc_agent_consumer.py\n', stderr='')
+
+            with patch('simc_agent_consumer.__file__', str(Path(root) / 'simc_agent_consumer.py')), patch(
+                'simc_agent_consumer.subprocess.run', return_value=dirty,
+            ):
+                with self.assertRaisesRegex(APIError, 'local changes'):
+                    consumer._self_update('1.1.0')
 
     def test_existing_token_with_group_or_other_permissions_is_rejected(self):
         from simc_agent_consumer import AgentConfig, ConfigError, SimcAgentConsumer

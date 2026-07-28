@@ -40,6 +40,7 @@ class SimcAgentJobAPITests(TestCase):
         agent = SimcAgent.objects.create(
             backend=backend, host_identifier=(name.encode().hex() * 64)[:64], name=name,
             is_active=True, binary_available=True, status=SimcAgent.STATUS_ONLINE,
+            agent_version='1.1.0', protocol_version=1,
             last_seen_at=timezone.now(),
         )
         token = _issue_token(agent)
@@ -90,7 +91,62 @@ class SimcAgentJobAPITests(TestCase):
                                 HTTP_AUTHORIZATION='Bearer ' + (token or self.token))
 
     def claim(self, token=None, instance='instance-a'):
-        return self.post_json(CLAIM, {'instance_id': instance}, token)
+        return self.post_json(CLAIM, {
+            'instance_id': instance, 'agent_version': '1.1.0', 'protocol_version': 1,
+        }, token)
+
+    @override_settings(SIMC_AGENT_REQUIRED_VERSION='1.1.0', SIMC_AGENT_PROTOCOL_VERSION=1)
+    def test_claim_rejects_outdated_agent_before_mutating_task(self):
+        task = self.task()
+
+        response = self.post_json(CLAIM, {
+            'instance_id': 'old-instance', 'agent_version': '1.0.0', 'protocol_version': 1,
+        })
+
+        self.assertEqual(response.status_code, 426, response.content)
+        self.assertEqual(response.json()['code'], 'agent_update_required')
+        self.assertEqual(response.json()['required_version'], '1.1.0')
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 0)
+        self.assertFalse(SimulationRun.objects.filter(task=task).exists())
+
+    @override_settings(SIMC_AGENT_REQUIRED_VERSION='1.1.0', SIMC_AGENT_PROTOCOL_VERSION=2)
+    def test_claim_rejects_incompatible_protocol_before_mutating_task(self):
+        task = self.task()
+
+        response = self.post_json(CLAIM, {
+            'instance_id': 'old-protocol', 'agent_version': '1.1.0', 'protocol_version': 1,
+        })
+
+        self.assertEqual(response.status_code, 426, response.content)
+        self.assertEqual(response.json()['code'], 'agent_protocol_mismatch')
+        self.assertEqual(response.json()['required_protocol_version'], 2)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 0)
+
+    @override_settings(SIMC_AGENT_REQUIRED_VERSION='1.1.0', SIMC_AGENT_PROTOCOL_VERSION=1)
+    def test_outdated_agent_with_live_lease_is_not_told_to_reexec(self):
+        self.task()
+        first = self.claim(instance='lease-owner')
+        self.assertEqual(first.status_code, 200, first.content)
+        run = SimulationRun.objects.get(pk=first.json()['run_id'])
+
+        response = self.post_json(CLAIM, {
+            'instance_id': 'lease-owner', 'agent_version': '1.0.0', 'protocol_version': 1,
+        })
+
+        self.assertEqual(response.status_code, 204, response.content)
+        run.refresh_from_db()
+        self.assertEqual(run.status, 'running')
+        self.assertEqual(run.lease_agent, self.agent)
+
+    def test_legacy_claim_without_version_fields_remains_bootstrap_compatible(self):
+        task = self.task()
+
+        response = self.post_json(CLAIM, {'instance_id': 'legacy-instance'})
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['task_id'], task.pk)
 
     def test_claim_initializes_and_freezes_safe_input(self):
         task = self.task()

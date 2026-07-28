@@ -30,8 +30,8 @@ REPORT_FIELDS = ('platform', 'agent_version', 'protocol_version', 'capabilities'
 
 
 class AgentAPIError(Exception):
-    def __init__(self, message, status=400):
-        self.message, self.status = message, status
+    def __init__(self, message, status=400, details=None):
+        self.message, self.status, self.details = message, status, details or {}
         super().__init__(message)
 
 
