@@ -260,6 +260,7 @@
             #simc-workbench .simc-pagination { justify-content: space-between; gap: .5rem; }
         }
     </style>
+    {% block dashboard_extra_head %}{% endblock %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260722a";</script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260723b"></script>
@@ -391,6 +392,26 @@
                             日志文件
                         </a>
                     </li>
+                    <li>
+                        <a href="/dashboard/mythic-planner/" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-route mr-3"></i>
+                            大秘境规划器
+                        </a>
+                        <ul class="mt-1 ml-6 space-y-1 border-l border-gray-200 pl-3">
+                            <li>
+                                <a href="/dashboard/mythic-planner/" class="block px-3 py-2 text-sm rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200 {% if page_name == 'mythic-planner' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600{% endif %}">
+                                    <i class="fas fa-database mr-2 text-xs"></i>
+                                    数据与配置
+                                </a>
+                            </li>
+                            <li>
+                                <a href="/dashboard/mythic-planner/routes/" class="block px-3 py-2 text-sm rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200 {% if page_name == 'mythic-planner-routes' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600{% endif %}">
+                                    <i class="fas fa-share-nodes mr-2 text-xs"></i>
+                                    账号路线 / MDT 字符串
+                                </a>
+                            </li>
+                        </ul>
+                    </li>
                     <li class="nav-item" data-section="simc-workbench">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-microchip mr-3"></i>
@@ -441,6 +462,7 @@
         
         <!-- 右侧内容区域 -->
         <div class="main-content p-8 bg-gray-50">
+            {% block dashboard_content %}
             <!-- 首页内容区域 -->
             <div class="content-section" id="dashboard-home" style="display: none;">
                 <div class="mb-8">
@@ -1684,6 +1706,8 @@
                     </div>
 
      </div>
+        </div>
+            {% endblock %}
         </div>
     </div>
     </div>

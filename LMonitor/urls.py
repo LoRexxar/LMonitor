@@ -61,6 +61,19 @@ from botend.portal.api import (
     PortalDailyReportLatestAPIView,
     PortalArticleDetailAPIView,
 )
+from botend.mythic_planner.api import (
+    DashboardMythicPlannerAPIView,
+    MythicPlannerCatalogAPIView,
+    MythicPlannerDungeonAPIView,
+    MythicPlannerRouteShareAPIView,
+    MythicPlannerShareCodeAPIView,
+    MythicPlannerSharedRouteAPIView,
+)
+from botend.mythic_planner.views import (
+    DashboardMythicPlannerRoutesView,
+    DashboardMythicPlannerView,
+    PortalMythicPlannerView,
+)
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
@@ -71,6 +84,8 @@ urlpatterns = [
     path('portal/specs/', PortalSpecsView.as_view(), name='portal_specs'),
     path('portal/article/<int:article_id>/', PortalArticleView.as_view(), name='portal_article'),
     path('portal/talents/', PortalTalentSimulatorView.as_view(), name='portal_talent_simulator'),
+    path('portal/mythic-planner/', PortalMythicPlannerView.as_view(), name='portal_mythic_planner'),
+    path('m/<slug:share_token>', PortalMythicPlannerView.as_view(), name='portal_mythic_planner_short_link'),
 
     # 认证相关路由
     path('auth/login/', LoginView.as_view(), name='login'),
@@ -84,6 +99,8 @@ urlpatterns = [
 
     # Dashboard路由
     path('dashboard/', DashboardView.as_view(), name="dashboard"),
+    path('dashboard/mythic-planner/', DashboardMythicPlannerView.as_view(), name='dashboard_mythic_planner'),
+    path('dashboard/mythic-planner/routes/', DashboardMythicPlannerRoutesView.as_view(), name='dashboard_mythic_planner_routes'),
     path('dashboard/simc/tasks/<int:object_id>/', SimcWorkbenchDetailPageView.as_view(), {'kind': 'tasks'}, name='simc_task_detail_page'),
     path('dashboard/simc/batches/<int:object_id>/', SimcWorkbenchDetailPageView.as_view(), {'kind': 'batches'}, name='simc_batch_detail_page'),
 
@@ -110,12 +127,20 @@ urlpatterns = [
     path('portal/api/article/<int:article_id>/', csrf_exempt(PortalArticleDetailAPIView.as_view()), name="portal_article_detail"),
     path('portal/api/talents/simulator/', csrf_exempt(PortalTalentSimulatorAPIView.as_view()), name="portal_talent_simulator_api"),
     path('portal/api/talents/simulator/encode/', csrf_exempt(PortalTalentSimulatorEncodeAPIView.as_view()), name="portal_talent_simulator_encode"),
+    path('portal/api/mythic-planner/catalog/', MythicPlannerCatalogAPIView.as_view(), name='mythic_planner_catalog'),
+    path('portal/api/mythic-planner/dungeons/<slug:dungeon_key>/', MythicPlannerDungeonAPIView.as_view(), name='mythic_planner_dungeon'),
+    path('portal/api/mythic-planner/share-code/', MythicPlannerShareCodeAPIView.as_view(), name='mythic_planner_share_code'),
+    path('portal/api/mythic-planner/share-links/', MythicPlannerRouteShareAPIView.as_view(), name='mythic_planner_route_share_create'),
+    path('portal/api/mythic-planner/share-links/<slug:share_token>/', MythicPlannerRouteShareAPIView.as_view(), name='mythic_planner_route_share_detail'),
+    path('portal/api/mythic-planner/shared/<uuid:share_id>/', MythicPlannerSharedRouteAPIView.as_view(), name='mythic_planner_shared_route'),
     path('portal/reports/<path:report_path>', PortalReportFileView.as_view(), name="portal_report_file"),
     path('portal/wow-hotfix-report/<int:report_id>/', PortalWowHotfixReportView.as_view(), name="portal_wow_hotfix_report"),
     path('portal/wow-skill-diff/<int:report_id>/', PortalWowSkillDiffReportView.as_view(), name="portal_wow_skill_diff_report"),
 
     # API路由
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),
+    path('api/mythic-planner/manage/', DashboardMythicPlannerAPIView.as_view(), name='dashboard_mythic_planner_api'),
+    path('api/mythic-planner/manage/<int:object_id>/', DashboardMythicPlannerAPIView.as_view(), name='dashboard_mythic_planner_detail_api'),
 
     path('api/apl-storage/', AplStorageAPIView.as_view(), name="apl_storage"),
     path('api/apl-storage/<int:apl_id>/', AplDetailAPIView.as_view(), name="apl_detail"),

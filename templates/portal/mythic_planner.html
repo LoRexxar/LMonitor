@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title>大秘境路线规划器（开发预览）</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'portal/css/mythic_planner.css' %}?v=20260728_1">
+</head>
+<body class="mdt-page" data-share-token="{{ planner_share_token|escape }}">
+    <div id="planner-app" class="mdt-app" aria-busy="true">
+        <header class="mdt-topbar">
+            <div class="mdt-brand">
+                <img
+                    class="mdt-brand-logo"
+                    src="{% static 'portal/mythic_planner/vendor/mdt-6.2.0-alpha3/assets/mdt-full.png' %}"
+                    alt=""
+                    aria-hidden="true"
+                >
+                <div>
+                    <strong>大秘境路线规划器</strong>
+                    <span id="dataset-label">正在读取数据版本…</span>
+                </div>
+            </div>
+            <label class="mdt-field mdt-season-field">
+                <span>赛季</span>
+                <select id="season-select" aria-label="选择大秘境赛季"></select>
+            </label>
+            <label class="mdt-field mdt-dungeon-field">
+                <span>地下城</span>
+                <select id="dungeon-select" aria-label="选择地下城"></select>
+            </label>
+            <div id="floor-tabs" class="mdt-floor-tabs" role="tablist" aria-label="地下城楼层"></div>
+            <div class="mdt-route-title">
+                <span class="mdt-route-title-label">当前路线</span>
+                <button id="route-name-button" type="button" title="重命名路线">未命名路线</button>
+            </div>
+            <div class="mdt-top-actions">
+                <button id="open-route-library" type="button" title="本地路线库">路线库</button>
+                <a href="/" class="mdt-icon-button" title="返回 Portal 首页" aria-label="返回 Portal 首页">⌂</a>
+                <button id="open-help" class="mdt-icon-button" type="button" title="操作说明" aria-label="操作说明">?</button>
+            </div>
+        </header>
+
+        <main class="mdt-workspace">
+            <aside class="mdt-toolbar" aria-label="地图工具">
+                <div class="mdt-tool-group">
+                    <button type="button" data-command="undo" title="撤销 (Ctrl+Z)">↶</button>
+                    <button type="button" data-command="redo" title="重做 (Ctrl+Y)">↷</button>
+                </div>
+                <label class="mdt-color-control" title="标注颜色">
+                    <input id="annotation-color" type="color" value="#facc15">
+                    <span aria-hidden="true"></span>
+                </label>
+                <div class="mdt-tool-group">
+                    <button type="button" data-command="zoom-in" title="放大">＋</button>
+                    <output id="zoom-output">100%</output>
+                    <button type="button" data-command="zoom-out" title="缩小">−</button>
+                    <button type="button" data-command="zoom-reset" title="重置视图">⌗</button>
+                </div>
+                <div class="mdt-tool-group mdt-main-tools">
+                    <button type="button" data-tool="select" class="is-active" title="选择怪物 (V)">●</button>
+                    <button type="button" data-tool="pan" title="拖动画布 (H)">✋</button>
+                    <button type="button" data-tool="box" title="框选怪物 (B)">□</button>
+                    <button type="button" data-tool="pencil" title="自由绘制 (P)">✎</button>
+                    <button type="button" data-tool="line" title="直线 (L)">╱</button>
+                    <button type="button" data-tool="arrow" title="箭头 (A)">→</button>
+                    <button type="button" data-tool="note" title="文字标注 (N)">T</button>
+                    <button type="button" data-tool="erase" title="擦除标注 (E)">◇</button>
+                </div>
+                <button type="button" data-command="clear-annotations" class="mdt-danger-tool" title="清空当前楼层标注">🗑</button>
+            </aside>
+
+            <section id="map-viewport" class="mdt-map-viewport" aria-label="地下城地图">
+                <div id="map-empty" class="mdt-map-empty" hidden>
+                    <strong>尚未初始化地下城数据</strong>
+                    <span>请在项目目录运行：</span>
+                    <code>python manage.py import_mythic_dungeon_data --activate</code>
+                </div>
+                <div id="map-content" class="mdt-map-content">
+                    <div class="mdt-map-texture" aria-hidden="true"></div>
+                    <svg id="patrol-layer" class="mdt-map-svg mdt-patrol-layer" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+                    <svg id="route-lines-layer" class="mdt-map-svg mdt-route-layer" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+                    <div id="poi-layer" class="mdt-poi-layer"></div>
+                    <div id="spawn-layer" class="mdt-spawn-layer"></div>
+                    <svg id="annotation-layer" class="mdt-map-svg mdt-annotation-layer" viewBox="0 0 100 100" preserveAspectRatio="none">
+                        <defs>
+                            <marker id="annotation-arrow-head" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto" markerUnits="strokeWidth">
+                                <path d="M0,0 L5,2.5 L0,5 z" fill="context-stroke"></path>
+                            </marker>
+                        </defs>
+                        <g id="annotation-shapes"></g>
+                    </svg>
+                    <div id="annotation-notes" class="mdt-note-layer"></div>
+                    <div id="selection-box" class="mdt-selection-box" hidden></div>
+                </div>
+                <div class="mdt-map-overlays">
+                    <div>
+                        <strong id="map-dungeon-name">—</strong>
+                        <span id="map-floor-name">—</span>
+                    </div>
+                    <div id="map-cursor-info">选择工具：左键怪物增删拉怪，右键查看详情</div>
+                </div>
+            </section>
+
+            <aside class="mdt-sidebar">
+                <section class="mdt-route-actions">
+                    <div class="mdt-action-grid">
+                        <button id="new-route" type="button">新建</button>
+                        <button id="rename-route" type="button">重命名</button>
+                        <button id="delete-route" type="button">删除</button>
+                        <button id="share-route" type="button">分享</button>
+                        <button id="export-route" type="button">导出</button>
+                        <button id="import-route" type="button">导入</button>
+                    </div>
+                    <div class="mdt-live-row">
+                        <button id="live-sync" type="button" aria-pressed="false">
+                            <span class="mdt-live-dot"></span>
+                            同浏览器实时协作
+                        </button>
+                    </div>
+                </section>
+
+                <section class="mdt-level-panel">
+                    <div class="mdt-section-heading">
+                        <label for="dungeon-level">地下城层数</label>
+                        <output id="dungeon-level-output">10</output>
+                    </div>
+                    <input id="dungeon-level" type="range" min="2" max="35" value="10">
+                    <div class="mdt-level-labels"><span>2</span><span>10</span><span>20</span><span>35</span></div>
+                </section>
+
+                <section class="mdt-progress-panel" aria-label="敌方部队进度">
+                    <div class="mdt-progress-track">
+                        <div id="forces-progress-bar" class="mdt-progress-bar"></div>
+                        <strong id="forces-progress-text">0 / 0（0.00%）</strong>
+                    </div>
+                    <div class="mdt-progress-meta">
+                        <span id="selected-enemy-count">已选择 0 个怪物</span>
+                        <span id="route-warning"></span>
+                    </div>
+                </section>
+
+                <section class="mdt-pulls-panel">
+                    <div class="mdt-section-heading">
+                        <div>
+                            <strong>拉怪路线</strong>
+                            <span>点击地图怪物增删</span>
+                        </div>
+                        <button id="add-pull" type="button">＋ 新拉怪组</button>
+                    </div>
+                    <div id="pull-list" class="mdt-pull-list"></div>
+                </section>
+
+            </aside>
+        </main>
+
+        <footer class="mdt-statusbar">
+            <span id="status-message">正在初始化路线规划器…</span>
+            <span>
+                开发预览直达页 · 尚未加入 Portal 导航 ·
+                数据与贴图来源
+                <a
+                    href="https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.0-alpha3"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >MythicDungeonTools 6.2.0-alpha3（GPLv2）</a>
+            </span>
+        </footer>
+    </div>
+
+    <div id="enemy-detail-modal" class="mdt-enemy-modal" hidden>
+        <div class="mdt-enemy-modal-backdrop" data-close-enemy-detail></div>
+        <section class="mdt-enemy-dialog" role="dialog" aria-modal="true" aria-labelledby="enemy-detail-title">
+            <header>
+                <div>
+                    <span>MYTHIC DUNGEON TOOLS · 敌人信息</span>
+                    <strong id="enemy-detail-title">怪物详情</strong>
+                </div>
+                <button type="button" data-close-enemy-detail aria-label="关闭怪物详情">×</button>
+            </header>
+            <div id="enemy-detail" class="mdt-enemy-detail-content"></div>
+        </section>
+    </div>
+
+    <div id="planner-modal" class="mdt-modal" hidden>
+        <div class="mdt-modal-backdrop" data-close-modal></div>
+        <section class="mdt-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <header>
+                <div>
+                    <strong id="modal-title">路线数据</strong>
+                    <span id="modal-subtitle"></span>
+                </div>
+                <button type="button" data-close-modal aria-label="关闭">×</button>
+            </header>
+            <div id="modal-content" class="mdt-modal-content"></div>
+            <footer id="modal-actions"></footer>
+        </section>
+    </div>
+
+    <div id="planner-toast" class="mdt-toast" role="status" hidden></div>
+
+    <script src="{% static 'portal/js/mythic_planner.js' %}?v=20260728_1" defer></script>
+</body>
+</html>

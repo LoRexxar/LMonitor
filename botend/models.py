@@ -1,5 +1,8 @@
 import hashlib
+import secrets
+import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import connection, models, transaction
 from django.utils import timezone
 
@@ -947,7 +950,7 @@ class SimcApl(models.Model):
     validation_diagnostics = models.JSONField(default=list, blank=True)
     validated_at = models.DateTimeField(null=True, blank=True)
     active_unique_key = models.CharField(
-        max_length=255, null=True, blank=True, unique=True,
+        max_length=191, null=True, blank=True, unique=True,
         help_text="活跃 APL 唯一键；停用时为 NULL",
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1622,3 +1625,581 @@ class WowItemSnapshot(models.Model):
 
     def __str__(self):
         return f"{self.item_id}: {self.name_zh or self.name}"
+
+
+class MythicDungeonDataVersion(models.Model):
+    """大秘境路线规划器的数据版本。"""
+
+    key = models.CharField(max_length=80, unique=True)
+    label = models.CharField(max_length=160)
+    game_version = models.CharField(max_length=40, default='', blank=True)
+    season = models.CharField(max_length=80, default='', blank=True)
+    schema_version = models.PositiveIntegerField(default=1)
+    source_name = models.CharField(max_length=160, default='', blank=True)
+    source_reference = models.CharField(max_length=500, default='', blank=True)
+    source_hash = models.CharField(max_length=64, default='', blank=True)
+    is_active = models.BooleanField(default=False)
+    notes = models.TextField(default='', blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    imported_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_data_version'
+        ordering = ['-is_active', '-imported_at', 'key']
+        indexes = [
+            models.Index(fields=['is_active', 'imported_at'], name='md_data_active_idx'),
+        ]
+
+    def __str__(self):
+        return self.label or self.key
+
+
+class MythicDungeonSelectionGroup(models.Model):
+    """某个数据版本下可独立维护的地下城赛季或分类标签。"""
+
+    data_version = models.ForeignKey(
+        MythicDungeonDataVersion,
+        on_delete=models.CASCADE,
+        related_name='selection_groups',
+    )
+    key = models.SlugField(max_length=100)
+    name = models.CharField(max_length=160)
+    name_zh = models.CharField(max_length=160, default='', blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_selection_group'
+        ordering = ['order', 'name_zh', 'name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['data_version', 'key'],
+                name='uniq_md_select_group_version_key',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['data_version', 'is_active', 'order'],
+                name='md_sel_group_ver_order_idx',
+            ),
+        ]
+
+    @property
+    def display_name(self):
+        return self.name_zh or self.name or self.key
+
+    def clean(self):
+        super().clean()
+        if (
+            self.pk
+            and self.memberships.exclude(
+                dungeon__data_version_id=self.data_version_id,
+            ).exists()
+        ):
+            raise ValidationError({
+                'data_version': '分类已有其他数据版本的地下城成员，不能直接更换数据版本。',
+            })
+
+    def __str__(self):
+        return self.display_name
+
+
+class MythicDungeonSpell(models.Model):
+    """某个 MDT 数据版本使用的法术公共资料快照。"""
+
+    data_version = models.ForeignKey(
+        MythicDungeonDataVersion,
+        on_delete=models.CASCADE,
+        related_name='spells',
+    )
+    spell_id = models.BigIntegerField()
+    source_branch = models.CharField(max_length=32, default='', blank=True)
+    source_locale = models.CharField(max_length=8, default='zhCN', blank=True)
+    snapshot_build = models.CharField(max_length=64, default='', blank=True)
+    name = models.CharField(max_length=255, default='', blank=True)
+    name_zh = models.CharField(max_length=255, default='', blank=True)
+    description = models.TextField(default='', blank=True)
+    description_zh = models.TextField(default='', blank=True)
+    aura_description = models.TextField(default='', blank=True)
+    aura_description_zh = models.TextField(default='', blank=True)
+    icon_file_data_id = models.BigIntegerField(null=True, blank=True)
+    icon_name = models.CharField(max_length=255, default='', blank=True)
+    icon_url = models.CharField(max_length=1000, default='', blank=True)
+    is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_spell'
+        ordering = ['spell_id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['data_version', 'spell_id'],
+                name='uniq_md_spell_version_id',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['data_version', 'is_active', 'spell_id'],
+                name='md_spell_ver_active_idx',
+            ),
+            models.Index(fields=['spell_id'], name='md_spell_id_idx'),
+            models.Index(
+                fields=['source_branch', 'snapshot_build'],
+                name='md_spell_source_idx',
+            ),
+        ]
+
+    @property
+    def display_name(self):
+        return self.name_zh or self.name or f'技能 #{self.spell_id}'
+
+    def __str__(self):
+        return self.display_name
+
+
+class MythicDungeon(models.Model):
+    """某个数据版本内的一座地下城。"""
+
+    data_version = models.ForeignKey(
+        MythicDungeonDataVersion,
+        on_delete=models.CASCADE,
+        related_name='dungeons',
+    )
+    key = models.SlugField(max_length=100)
+    external_index = models.IntegerField(null=True, blank=True)
+    name = models.CharField(max_length=160)
+    name_zh = models.CharField(max_length=160, default='', blank=True)
+    short_name = models.CharField(max_length=32, default='', blank=True)
+    map_id = models.IntegerField(null=True, blank=True)
+    total_enemy_forces = models.PositiveIntegerField(default=0)
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon'
+        ordering = ['order', 'name_zh', 'name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['data_version', 'key'],
+                name='uniq_md_dungeon_version_key',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['data_version', 'is_active', 'order'],
+                name='md_dungeon_ver_order_idx',
+            ),
+        ]
+
+    @property
+    def display_name(self):
+        return self.name_zh or self.name
+
+    def __str__(self):
+        return self.display_name
+
+
+class MythicDungeonSelectionMembership(models.Model):
+    """地下城在独立赛季或分类标签中的归属及顺序。"""
+
+    selection_group = models.ForeignKey(
+        MythicDungeonSelectionGroup,
+        on_delete=models.CASCADE,
+        related_name='memberships',
+    )
+    dungeon = models.ForeignKey(
+        MythicDungeon,
+        on_delete=models.CASCADE,
+        related_name='selection_memberships',
+    )
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_selection_membership'
+        ordering = ['selection_group__order', 'order', 'dungeon__order']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['selection_group', 'dungeon'],
+                name='uniq_md_select_group_dungeon',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['selection_group', 'is_active', 'order'],
+                name='md_sel_member_group_idx',
+            ),
+            models.Index(
+                fields=['dungeon', 'is_active'],
+                name='md_sel_member_dungeon_idx',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if (
+            self.selection_group_id
+            and self.dungeon_id
+            and self.selection_group.data_version_id != self.dungeon.data_version_id
+        ):
+            raise ValidationError({
+                'dungeon': '地下城与分类必须属于同一个数据版本。',
+            })
+
+    def __str__(self):
+        return f'{self.selection_group.display_name} / {self.dungeon.display_name}'
+
+
+class MythicDungeonFloor(models.Model):
+    """地下城楼层和可替换的 Web 地图底图配置。"""
+
+    dungeon = models.ForeignKey(
+        MythicDungeon,
+        on_delete=models.CASCADE,
+        related_name='floors',
+    )
+    key = models.SlugField(max_length=100)
+    floor_index = models.PositiveIntegerField(default=1)
+    name = models.CharField(max_length=160)
+    name_zh = models.CharField(max_length=160, default='', blank=True)
+    background_url = models.CharField(max_length=1000, default='', blank=True)
+    background_color = models.CharField(max_length=32, default='#66533f', blank=True)
+    map_width = models.PositiveIntegerField(default=1000)
+    map_height = models.PositiveIntegerField(default=700)
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_floor'
+        ordering = ['order', 'floor_index']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['dungeon', 'key'],
+                name='uniq_md_floor_dungeon_key',
+            ),
+            models.UniqueConstraint(
+                fields=['dungeon', 'floor_index'],
+                name='uniq_md_floor_dungeon_index',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['dungeon', 'is_active', 'order'],
+                name='md_floor_dungeon_order_idx',
+            ),
+        ]
+
+    @property
+    def display_name(self):
+        return self.name_zh or self.name
+
+    def __str__(self):
+        return f'{self.dungeon.display_name} / {self.display_name}'
+
+
+class MythicDungeonEnemy(models.Model):
+    """地下城怪物原型；多个地图点共享同一组属性和技能。"""
+
+    dungeon = models.ForeignKey(
+        MythicDungeon,
+        on_delete=models.CASCADE,
+        related_name='enemies',
+    )
+    key = models.SlugField(max_length=120)
+    npc_id = models.BigIntegerField(null=True, blank=True)
+    name = models.CharField(max_length=160)
+    name_zh = models.CharField(max_length=160, default='', blank=True)
+    enemy_forces = models.PositiveIntegerField(default=0)
+    base_health = models.PositiveBigIntegerField(default=0)
+    level = models.PositiveIntegerField(default=0)
+    creature_type = models.CharField(max_length=80, default='', blank=True)
+    icon_url = models.CharField(max_length=1000, default='', blank=True)
+    marker_color = models.CharField(max_length=32, default='#94a3b8', blank=True)
+    is_boss = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    traits = models.JSONField(default=dict, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_enemy'
+        ordering = ['is_boss', 'name_zh', 'name', 'key']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['dungeon', 'key'],
+                name='uniq_md_enemy_dungeon_key',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['dungeon', 'is_active', 'name'],
+                name='md_enemy_dungeon_name_idx',
+            ),
+            models.Index(fields=['npc_id'], name='md_enemy_npc_idx'),
+        ]
+
+    @property
+    def display_name(self):
+        return self.name_zh or self.name
+
+    def __str__(self):
+        return self.display_name
+
+
+class MythicDungeonAbility(models.Model):
+    """怪物技能和可打断、驱散、危险度等路线决策信息。"""
+
+    enemy = models.ForeignKey(
+        MythicDungeonEnemy,
+        on_delete=models.CASCADE,
+        related_name='abilities',
+    )
+    spell_record = models.ForeignKey(
+        MythicDungeonSpell,
+        on_delete=models.SET_NULL,
+        related_name='ability_links',
+        null=True,
+        blank=True,
+    )
+    spell_id = models.BigIntegerField()
+    name = models.CharField(max_length=160)
+    name_zh = models.CharField(max_length=160, default='', blank=True)
+    description = models.TextField(default='', blank=True)
+    description_zh = models.TextField(default='', blank=True)
+    icon_url = models.CharField(max_length=1000, default='', blank=True)
+    interruptible = models.BooleanField(default=False)
+    dispel_type = models.CharField(max_length=40, default='', blank=True)
+    danger_level = models.PositiveSmallIntegerField(default=1)
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_ability'
+        ordering = ['order', '-danger_level', 'name_zh', 'name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['enemy', 'spell_id'],
+                name='uniq_md_ability_enemy_spell',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['enemy', 'is_active', 'order'],
+                name='md_ability_enemy_order_idx',
+            ),
+        ]
+
+    @property
+    def display_name(self):
+        return self.name_zh or self.name
+
+    def __str__(self):
+        return f'{self.enemy.display_name} / {self.display_name}'
+
+
+class MythicDungeonSpawn(models.Model):
+    """怪物在某楼层上的刷新点，可携带分组和巡逻路径。"""
+
+    enemy = models.ForeignKey(
+        MythicDungeonEnemy,
+        on_delete=models.CASCADE,
+        related_name='spawns',
+    )
+    floor = models.ForeignKey(
+        MythicDungeonFloor,
+        on_delete=models.CASCADE,
+        related_name='spawns',
+    )
+    key = models.SlugField(max_length=120)
+    x = models.FloatField(default=50.0)
+    y = models.FloatField(default=50.0)
+    group_key = models.CharField(max_length=100, default='', blank=True)
+    scale = models.FloatField(default=1.0)
+    patrol = models.JSONField(default=list, blank=True)
+    is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_spawn'
+        ordering = ['floor__order', 'y', 'x', 'key']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['enemy', 'key'],
+                name='uniq_md_spawn_enemy_key',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['floor', 'is_active'],
+                name='md_spawn_floor_idx',
+            ),
+            models.Index(fields=['group_key'], name='md_spawn_group_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.enemy.display_name} / {self.key}'
+
+
+class MythicDungeonPoi(models.Model):
+    """入口、出口、传送点、Boss 门等地图兴趣点。"""
+
+    floor = models.ForeignKey(
+        MythicDungeonFloor,
+        on_delete=models.CASCADE,
+        related_name='pois',
+    )
+    key = models.SlugField(max_length=120)
+    poi_type = models.CharField(max_length=60, default='note')
+    x = models.FloatField(default=50.0)
+    y = models.FloatField(default=50.0)
+    label = models.CharField(max_length=160, default='', blank=True)
+    icon_url = models.CharField(max_length=1000, default='', blank=True)
+    target_floor_key = models.CharField(max_length=100, default='', blank=True)
+    is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_poi'
+        ordering = ['poi_type', 'label', 'key']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['floor', 'key'],
+                name='uniq_md_poi_floor_key',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['floor', 'is_active'], name='md_poi_floor_idx'),
+        ]
+
+    def __str__(self):
+        return self.label or self.key
+
+
+class MythicDungeonRoute(models.Model):
+    """用户保存或公开分享的一条路线。"""
+
+    share_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    owner_user_id = models.IntegerField(null=True, blank=True)
+    dungeon = models.ForeignKey(
+        MythicDungeon,
+        on_delete=models.PROTECT,
+        related_name='routes',
+    )
+    name = models.CharField(max_length=160)
+    dungeon_level = models.PositiveIntegerField(default=10)
+    route_data = models.JSONField(default=dict, blank=True)
+    share_code = models.TextField(default='', blank=True)
+    revision = models.PositiveIntegerField(default=1)
+    is_public = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_route'
+        ordering = ['-updated_at', '-id']
+        indexes = [
+            models.Index(
+                fields=['owner_user_id', 'is_active', 'updated_at'],
+                name='md_route_owner_updated_idx',
+            ),
+            models.Index(
+                fields=['share_id', 'is_public', 'is_active'],
+                name='md_route_share_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+def generate_mythic_route_share_token():
+    """生成约 72 bit 熵的 URL-safe 短链接令牌。"""
+
+    return secrets.token_urlsafe(9)
+
+
+class MythicDungeonRouteShare(models.Model):
+    """不依赖账号的只读路线分享快照。"""
+
+    token = models.CharField(
+        max_length=16,
+        unique=True,
+        default=generate_mythic_route_share_token,
+        editable=False,
+    )
+    dungeon = models.ForeignKey(
+        MythicDungeon,
+        on_delete=models.PROTECT,
+        related_name='route_shares',
+    )
+    name = models.CharField(max_length=160)
+    dungeon_level = models.PositiveIntegerField(default=10)
+    route_data = models.JSONField(default=dict, blank=True)
+    content_hash = models.CharField(max_length=64, unique=True, editable=False)
+    is_active = models.BooleanField(default=True)
+    view_count = models.PositiveBigIntegerField(default=0)
+    last_accessed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_route_share'
+        ordering = ['-created_at', '-id']
+        indexes = [
+            models.Index(
+                fields=['is_active', 'created_at'],
+                name='md_share_active_created_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.name} / {self.token}'
+
+
+class MythicPlannerConfig(models.Model):
+    """路线规划器的可维护运行配置。"""
+
+    key = models.CharField(max_length=80, unique=True, default='default')
+    default_dungeon_key = models.CharField(max_length=100, default='', blank=True)
+    default_dungeon_level = models.PositiveIntegerField(default=10)
+    min_dungeon_level = models.PositiveIntegerField(default=2)
+    max_dungeon_level = models.PositiveIntegerField(default=35)
+    group_selection_default = models.BooleanField(default=True)
+    live_sync_enabled = models.BooleanField(default=True)
+    allow_public_route_share = models.BooleanField(default=True)
+    settings = models.JSONField(default=dict, blank=True)
+    updated_by_user_id = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_planner_config'
+        ordering = ['key']
+
+    def __str__(self):
+        return self.key

@@ -181,7 +181,7 @@ class Migration(migrations.Migration):
                 ('is_active', models.BooleanField(default=True, help_text='是否启用')),
                 ('is_selectable', models.BooleanField(default=True, help_text='任务发起时是否可选择')),
                 ('sync_version', models.CharField(blank=True, default='', help_text='同步来源版本/提交', max_length=128)),
-                ('active_unique_key', models.CharField(blank=True, help_text='活跃 APL 唯一键；停用时为 NULL', max_length=255, null=True, unique=True)),
+                ('active_unique_key', models.CharField(blank=True, help_text='活跃 APL 唯一键；停用时为 NULL', max_length=191, null=True, unique=True)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
             ],

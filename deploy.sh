@@ -30,31 +30,42 @@ echo "=== 2. Migrate ==="
 
 "$PYTHON_BIN" manage.py migrate --no-input
 
-echo "=== 3. Collectstatic ==="
+echo "=== 3. 初始化/更新大秘境规划器数据 ==="
+if [ "${IMPORT_MDT_DATA:-0}" = "1" ]; then
+    "$PYTHON_BIN" manage.py import_mythic_dungeon_data --activate --replace
+elif ! "$PYTHON_BIN" manage.py shell -c \
+    "from botend.models import MythicDungeonDataVersion; raise SystemExit(0 if MythicDungeonDataVersion.objects.filter(is_active=True).exists() else 1)"
+then
+    "$PYTHON_BIN" manage.py import_mythic_dungeon_data --activate
+else
+    echo "已存在活动的大秘境数据版本，跳过导入。"
+fi
+
+echo "=== 4. Collectstatic ==="
 "$PYTHON_BIN" manage.py collectstatic --no-input
 
-echo "=== 4. 应用 SimC 本地补丁 ==="
+echo "=== 5. 应用 SimC 本地补丁 ==="
 "$PYTHON_BIN" manage.py update_simc_binary --apply-patches --threads 2
 
-echo "=== 5. 重启 lmweb ==="
+echo "=== 6. 重启 lmweb ==="
 screen -S lmweb -X quit 2>/dev/null || true
 kill_processes 'manage.py runserver 0.0.0.0:18000'
 sleep 2
 screen -dmS lmweb bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py runserver 0.0.0.0:18000"
 
-echo "=== 6. 重启 lmback ==="
+echo "=== 7. 重启 lmback ==="
 screen -S lmback -X quit 2>/dev/null || true
 kill_processes 'LMonitorCoreBackend'
 sleep 2
 screen -dmS lmback bash -lc 'cd ~/LMonitor && ./start.sh'
 
-echo "=== 7. 重启 lmsimc ==="
+echo "=== 8. 重启 lmsimc ==="
 screen -S lmsimc -X quit 2>/dev/null || true
 kill_processes 'manage.py simc_worker'
 sleep 2
 screen -dmS lmsimc bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py simc_worker"
 
-echo "=== 8. 检查 screen 会话 ==="
+echo "=== 9. 检查 screen 会话 ==="
 screen -list | grep -E '\.(lmweb|lmback|lmsimc)'
 
 echo "=== 部署完成 ==="

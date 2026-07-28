@@ -171,48 +171,48 @@ class DashboardView(View):
         'SimcContentTemplate', 'SimcSecondaryStatRule',
         'SimcMasteryCoefficient',
         'SimcApl', 'SimcBackendBinary',
+        'MythicDungeonDataVersion', 'MythicDungeon', 'MythicDungeonFloor',
+        'MythicDungeonEnemy', 'MythicDungeonSpell', 'MythicDungeonAbility',
+        'MythicDungeonSpawn',
+        'MythicDungeonPoi', 'MythicDungeonRoute', 'MythicPlannerConfig',
     }
-    
+
+    def get_context_data(self, *, title='后台', page_name='dashboard', include_stats=True):
+        """构建可供 Dashboard 主页面和站内子页面复用的统一外壳上下文。"""
+        tables_info = []
+        models = list(self._get_model_map().values())
+        total_records = 0
+        visible_models = [
+            model for model in models
+            if model.__name__ not in self.SIMC_DEDICATED_API_MODELS
+        ]
+        for model in visible_models:
+            model_name = model.__name__
+            try:
+                record_count = model.objects.count()
+            except (OperationalError, ProgrammingError):
+                record_count = 0
+            total_records += record_count
+            tables_info.append({
+                'name': model_name,
+                'description': MODEL_DESCRIPTIONS.get(model_name) or str(getattr(model._meta, 'verbose_name', '')) or model_name,
+                'count': record_count,
+            })
+        return {
+            'title': title,
+            'page_name': page_name,
+            'tables_info': tables_info,
+            'total_tables': len(visible_models),
+            'total_records': total_records,
+            'stats': self.calculate_dashboard_stats() if include_stats else {},
+        }
+
     def get(self, request):
         """
         处理GET请求，渲染仪表盘页面
         """
         try:
-            # 获取所有数据库表信息
-            tables_info = []
-            
-            # 获取所有已定义的模型
-            models = list(self._get_model_map().values())
-            
-            total_records = 0
-            visible_models = [
-                model for model in models
-                if model.__name__ not in self.SIMC_DEDICATED_API_MODELS
-            ]
-            for model in visible_models:
-                model_name = model.__name__
-                try:
-                    record_count = model.objects.count()
-                except (OperationalError, ProgrammingError):
-                    record_count = 0
-                total_records += record_count
-                tables_info.append({
-                    'name': model_name,
-                    'description': MODEL_DESCRIPTIONS.get(model_name) or str(getattr(model._meta, 'verbose_name', '')) or model_name,
-                    'count': record_count
-                })
-            
-            # 计算更有意义的统计数据
-            stats = self.calculate_dashboard_stats()
-            
-            context = {
-                'title': '后台',
-                'page_name': 'dashboard',
-                'tables_info': tables_info,
-                'total_tables': len(visible_models),
-                'total_records': total_records,
-                'stats': stats
-            }
+            context = self.get_context_data()
             return render(request, 'dashboard/index.html', context)
         except Exception as e:
             logger.error(f"Dashboard view error: {str(e)}\n{traceback.format_exc()}")

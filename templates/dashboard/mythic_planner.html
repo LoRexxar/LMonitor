@@ -1,0 +1,160 @@
+{% extends 'dashboard/index.html' %}
+{% load static %}
+{% block dashboard_extra_head %}
+<link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260727_3">
+<script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260728_1" defer></script>
+{% endblock %}
+{% block dashboard_content %}
+{% include 'dashboard/_mythic_planner_config_content.html' %}
+{% endblock %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title>大秘境规划器管理 · LMonitor</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260727_1">
+</head>
+<body>
+    <header class="mp-admin-header">
+        <div>
+            <a href="/dashboard/" class="mp-admin-back">← 返回后台</a>
+            <span class="mp-admin-divider"></span>
+            <div class="mp-admin-title">
+                <strong>大秘境规划器管理</strong>
+                <span>MDT 数据版本、运行配置、地下城、地图、怪物技能与刷新点</span>
+            </div>
+        </div>
+        <div class="mp-admin-actions">
+            <button id="import-package" type="button">导入 / 更新数据包</button>
+            <button id="refresh-data" type="button">刷新</button>
+            <a href="/portal/mythic-planner/" target="_blank" rel="noopener">打开规划器预览 ↗</a>
+        </div>
+    </header>
+
+    <main class="mp-admin-shell">
+        <aside class="mp-admin-sidebar">
+            <section class="mp-admin-version-card">
+                <span>当前生效版本</span>
+                <strong id="active-version-label">尚未初始化</strong>
+                <small id="active-version-meta">运行初始化命令或导入数据包</small>
+            </section>
+            <nav id="resource-nav" aria-label="数据资源">
+                <button type="button" data-resource="versions" class="is-active"><span>数据版本</span><b id="count-versions">0</b></button>
+                <button type="button" data-resource="configs"><span>运行配置</span><b id="count-configs">0</b></button>
+                <button type="button" data-resource="selection_groups"><span>赛季分类</span><b id="count-selection_groups">0</b></button>
+                <button type="button" data-resource="selection_memberships"><span>地下城分配</span><b id="count-selection_memberships">0</b></button>
+                <button type="button" data-resource="dungeons"><span>地下城</span><b id="count-dungeons">0</b></button>
+                <button type="button" data-resource="floors"><span>楼层 / 地图</span><b id="count-floors">0</b></button>
+                <button type="button" data-resource="enemies"><span>怪物原型</span><b id="count-enemies">0</b></button>
+                <button type="button" data-resource="spells"><span>技能资料库</span><b id="count-spells">0</b></button>
+                <button type="button" data-resource="abilities"><span>怪物技能</span><b id="count-abilities">0</b></button>
+                <button type="button" data-resource="spawns"><span>怪物刷新点</span><b id="count-spawns">0</b></button>
+                <button type="button" data-resource="pois"><span>地图兴趣点</span><b id="count-pois">0</b></button>
+            </nav>
+            <section class="mp-admin-help">
+                <strong>数据更新策略</strong>
+                <p>重复导入相同版本会按稳定 key 更新，不产生重复项。开启“替换模式”只会停用缺失项，不会物理删除数据。</p>
+                <code>python manage.py sync_mythic_dungeon_tools --activate --replace</code>
+                <p>内置副本数据与贴图来自固定版本 MythicDungeonTools 6.2.0-alpha3，并保留 GPLv2 来源。</p>
+            </section>
+        </aside>
+
+        <section class="mp-admin-content">
+            <div class="mp-admin-toolbar">
+                <div>
+                    <h1 id="resource-title">数据版本</h1>
+                    <p id="resource-description">管理可切换的数据包版本，任意时刻只有一个版本生效。</p>
+                </div>
+                <button id="add-resource" type="button" class="is-primary">＋ 新增数据版本</button>
+            </div>
+
+            <div class="mp-admin-filters">
+                <label>
+                    <span>数据版本</span>
+                    <select id="version-filter"><option value="">全部版本</option></select>
+                </label>
+                <label>
+                    <span>地下城</span>
+                    <select id="dungeon-filter"><option value="">全部地下城</option></select>
+                </label>
+                <label class="mp-admin-search">
+                    <span>搜索</span>
+                    <input id="resource-search" type="search" placeholder="按名称、key、ID 搜索">
+                </label>
+                <label class="mp-admin-toggle">
+                    <input id="show-inactive" type="checkbox">
+                    <span>显示已停用项</span>
+                </label>
+            </div>
+
+            <div id="resource-summary" class="mp-admin-summary"></div>
+
+            <div class="mp-admin-table-wrap">
+                <table>
+                    <thead id="resource-table-head"></thead>
+                    <tbody id="resource-table-body">
+                        <tr><td class="mp-admin-loading">正在加载数据…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <div id="editor-modal" class="mp-admin-modal" hidden>
+        <div class="mp-admin-modal-backdrop" data-close-editor></div>
+        <section class="mp-admin-dialog" role="dialog" aria-modal="true" aria-labelledby="editor-title">
+            <header>
+                <div>
+                    <strong id="editor-title">编辑数据</strong>
+                    <span id="editor-subtitle"></span>
+                </div>
+                <button type="button" data-close-editor aria-label="关闭">×</button>
+            </header>
+            <form id="resource-form">
+                <div id="editor-fields" class="mp-admin-form-grid"></div>
+                <footer>
+                    <button type="button" data-close-editor>取消</button>
+                    <button type="submit" class="is-primary">保存修改</button>
+                </footer>
+            </form>
+        </section>
+    </div>
+
+    <div id="import-modal" class="mp-admin-modal" hidden>
+        <div class="mp-admin-modal-backdrop" data-close-import></div>
+        <section class="mp-admin-dialog mp-admin-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="import-title">
+            <header>
+                <div>
+                    <strong id="import-title">导入或更新数据包</strong>
+                    <span>支持 schema_version=1 的 LMonitor 大秘境 JSON 数据包</span>
+                </div>
+                <button type="button" data-close-import aria-label="关闭">×</button>
+            </header>
+            <form id="import-form">
+                <div class="mp-admin-import-body">
+                    <label>
+                        <span>数据包 JSON</span>
+                        <textarea id="import-json" required spellcheck="false" placeholder='{"schema_version":1,"data_version":{...},"dungeons":[...]}'></textarea>
+                    </label>
+                    <div class="mp-admin-import-options">
+                        <label><input id="import-activate" type="checkbox" checked> 导入后设为当前生效版本</label>
+                        <label><input id="import-replace" type="checkbox"> 替换模式：停用数据包中缺失的同版本实体</label>
+                    </div>
+                </div>
+                <footer>
+                    <button type="button" id="load-demo-json">载入 JSON 模板</button>
+                    <span class="mp-admin-spacer"></span>
+                    <button type="button" data-close-import>取消</button>
+                    <button type="submit" class="is-primary">校验并导入</button>
+                </footer>
+            </form>
+        </section>
+    </div>
+
+    <div id="admin-toast" class="mp-admin-toast" role="status" hidden></div>
+    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260727_6" defer></script>
+</body>
+</html>

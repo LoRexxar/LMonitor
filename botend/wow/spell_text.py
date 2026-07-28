@@ -43,6 +43,7 @@ class SpellTextResolver:
 
     locale: str = "zhCN"
     branch: str = "wow"
+    dump_dir: str | Path | None = None
     _spell_cache: dict[int, dict[str, str]] = field(default_factory=dict)
     _effect_cache: dict[int, dict[int, dict[str, str]]] = field(default_factory=dict)
     _missing_spells: set[int] = field(default_factory=set)
@@ -244,7 +245,7 @@ class SpellTextResolver:
     def _load_duration_table(self) -> dict[int, int]:
         if self._duration_cache is not None:
             return self._duration_cache
-        path = _dump_file('SpellDuration.csv')
+        path = self._dump_file('SpellDuration.csv')
         out: dict[int, int] = {}
         if path.exists():
             try:
@@ -259,7 +260,7 @@ class SpellTextResolver:
     def _load_radius_table(self) -> dict[int, float]:
         if self._radius_cache is not None:
             return self._radius_cache
-        path = _dump_file('SpellRadius.csv')
+        path = self._dump_file('SpellRadius.csv')
         out: dict[int, float] = {}
         if path.exists():
             try:
@@ -276,7 +277,7 @@ class SpellTextResolver:
     def _load_misc_index(self) -> dict[int, tuple[int, int]]:
         if self._misc_index_cache is not None:
             return self._misc_index_cache
-        path = _dump_file('spell_misc_index.csv')
+        path = self._dump_file('spell_misc_index.csv')
         out: dict[int, tuple[int, int]] = {}
         if path.exists():
             try:
@@ -329,6 +330,11 @@ class SpellTextResolver:
         if yards is None or yards <= 0:
             return ""
         return _fmt(yards)
+
+    def _dump_file(self, filename: str) -> Path:
+        if self.dump_dir:
+            return Path(self.dump_dir) / filename
+        return _dump_file(filename)
 
     def _resolve_expr(self, expr: str, current_spell_id: int) -> str:
         unresolved = False

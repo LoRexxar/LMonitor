@@ -3,6 +3,12 @@
 from django.db import migrations, models
 
 
+def use_innodb_for_mysql(apps, schema_editor):
+    """确保长复合索引及后续外键表使用支持 3072 字节索引的 InnoDB。"""
+    if schema_editor.connection.vendor == 'mysql':
+        schema_editor.execute('SET SESSION default_storage_engine = InnoDB')
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,6 +16,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(
+            use_innodb_for_mysql,
+            migrations.RunPython.noop,
+            atomic=False,
+        ),
         migrations.CreateModel(
             name='SimcAplSymbol',
             fields=[

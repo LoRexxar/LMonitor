@@ -1,0 +1,116 @@
+{% extends 'dashboard/index.html' %}
+{% load static %}
+{% block dashboard_extra_head %}
+<link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260727_3">
+<script src="{% static 'dashboard/js/mythic_planner_routes.js' %}?v=20260727_2" defer></script>
+{% endblock %}
+{% block dashboard_content %}
+{% include 'dashboard/_mythic_planner_routes_content.html' %}
+{% endblock %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title>账号路线 / MDT 字符串 · LMonitor</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260727_2">
+</head>
+<body>
+    <header class="mp-admin-header">
+        <div>
+            <a href="/dashboard/" class="mp-admin-back">← 返回后台</a>
+            <span class="mp-admin-divider"></span>
+            <div class="mp-admin-title">
+                <strong>账号路线 / MDT 字符串</strong>
+                <span>独立管理账号保存的路线、分享字符串、公开状态和停用记录</span>
+            </div>
+        </div>
+        <div class="mp-admin-actions">
+            <a href="/dashboard/mythic-planner/">MDT 数据与配置</a>
+            <button id="refresh-routes" type="button">刷新路线</button>
+            <a href="/portal/mythic-planner/" target="_blank" rel="noopener">打开规划器预览 ↗</a>
+        </div>
+    </header>
+
+    <main class="mp-admin-content mp-route-admin-page">
+        <div class="mp-admin-toolbar">
+            <div>
+                <h1>账号保存记录</h1>
+                <p>路线内容只读；管理员可以查看 MDT 分享字符串、调整公开状态以及停用或恢复记录。</p>
+            </div>
+        </div>
+
+        <div class="mp-admin-filters mp-route-admin-filters">
+            <label>
+                <span>所属账号</span>
+                <select id="route-owner-filter"><option value="">全部账号</option></select>
+            </label>
+            <label>
+                <span>地下城</span>
+                <select id="route-dungeon-filter"><option value="">全部地下城</option></select>
+            </label>
+            <label>
+                <span>分享状态</span>
+                <select id="route-share-filter">
+                    <option value="">全部状态</option>
+                    <option value="public">公开路线</option>
+                    <option value="private">私有路线</option>
+                </select>
+            </label>
+            <label class="mp-admin-search">
+                <span>搜索</span>
+                <input id="route-search" type="search" placeholder="路线名称、账号、邮箱、分享 ID">
+            </label>
+            <label class="mp-admin-toggle">
+                <input id="route-show-inactive" type="checkbox">
+                <span>显示已停用路线</span>
+            </label>
+        </div>
+
+        <div id="route-summary" class="mp-admin-summary"></div>
+
+        <div class="mp-admin-table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>路线</th>
+                        <th>账号</th>
+                        <th>地下城</th>
+                        <th>路线内容</th>
+                        <th>分享状态</th>
+                        <th>修订</th>
+                        <th>更新时间</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="route-table-body">
+                    <tr><td colspan="9" class="mp-admin-loading">正在加载账号路线…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <div id="route-detail-modal" class="mp-admin-modal" hidden>
+        <div class="mp-admin-modal-backdrop" data-close-route-detail></div>
+        <section class="mp-admin-dialog mp-admin-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="route-detail-title">
+            <header>
+                <div>
+                    <strong id="route-detail-title">路线详情</strong>
+                    <span id="route-detail-subtitle"></span>
+                </div>
+                <button type="button" data-close-route-detail aria-label="关闭">×</button>
+            </header>
+            <div id="route-detail-body" class="mp-route-detail-body"></div>
+            <footer id="route-detail-actions" class="mp-route-detail-footer">
+                <button type="button" data-close-route-detail>关闭</button>
+            </footer>
+        </section>
+    </div>
+
+    <div id="admin-toast" class="mp-admin-toast" role="status" hidden></div>
+    <script src="{% static 'dashboard/js/mythic_planner_routes.js' %}?v=20260727_1" defer></script>
+</body>
+</html>

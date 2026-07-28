@@ -54,6 +54,12 @@ docs/_build/
 # docs
 docs/
 
+# 本地项目复盘与会话过程文档（禁止上传）
+/docs/项目架构复盘.md
+/task_plan.md
+/findings.md
+/progress.md
+
 # PyBuilder
 target/
 
