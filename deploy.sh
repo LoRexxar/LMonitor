@@ -19,6 +19,7 @@ kill_processes() {
 }
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+MANAGE_SIMC_WORKER="${MANAGE_SIMC_WORKER:-1}"
 WOW_BUILD="12.0.7.68453"
 if [ -x .venv/bin/python ]; then
     PYTHON_BIN=".venv/bin/python"
@@ -46,7 +47,11 @@ echo "=== 4. Collectstatic ==="
 "$PYTHON_BIN" manage.py collectstatic --no-input
 
 echo "=== 5. 应用 SimC 本地补丁 ==="
-"$PYTHON_BIN" manage.py update_simc_binary --apply-patches --threads 2 --wow-build "$WOW_BUILD"
+if [ "$MANAGE_SIMC_WORKER" = "1" ]; then
+    "$PYTHON_BIN" manage.py update_simc_binary --apply-patches --threads 2 --wow-build "$WOW_BUILD"
+else
+    echo "SimC Worker 由独立部署管理，跳过二进制更新。"
+fi
 
 echo "=== 6. 重启 lmweb ==="
 screen -S lmweb -X quit 2>/dev/null || true
@@ -61,12 +66,20 @@ sleep 2
 screen -dmS lmback bash -lc 'cd ~/LMonitor && ./start.sh'
 
 echo "=== 8. 重启 lmsimc ==="
-screen -S lmsimc -X quit 2>/dev/null || true
-kill_processes 'manage.py simc_worker'
-sleep 2
-screen -dmS lmsimc bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py simc_worker"
+if [ "$MANAGE_SIMC_WORKER" = "1" ]; then
+    screen -S lmsimc -X quit 2>/dev/null || true
+    kill_processes 'simc_worker.py|manage.py simc_worker'
+    sleep 2
+    screen -dmS lmsimc bash -lc 'cd ~/LMonitor && exec ./start_simc_worker.sh'
+else
+    echo "SimC Worker 由独立部署管理，跳过重启。"
+fi
 
 echo "=== 9. 检查 screen 会话 ==="
-screen -list | grep -E '\.(lmweb|lmback|lmsimc)'
+if [ "$MANAGE_SIMC_WORKER" = "1" ]; then
+    screen -list | grep -E '\.(lmweb|lmback|lmsimc)'
+else
+    screen -list | grep -E '\.(lmweb|lmback)'
+fi
 
 echo "=== 部署完成 ==="

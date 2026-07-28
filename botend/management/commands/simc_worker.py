@@ -1,8 +1,6 @@
-import signal
-
 from django.core.management.base import BaseCommand
 
-from botend.services.simc_worker import SimcWorker
+from botend.simc_worker_entry import run_worker
 
 
 class Command(BaseCommand):
@@ -13,11 +11,7 @@ class Command(BaseCommand):
         parser.add_argument('--poll-interval', type=float, default=None)
 
     def handle(self, *args, **options):
-        worker = SimcWorker(poll_interval=options.get('poll_interval'))
-        signal.signal(signal.SIGINT, worker.request_stop)
-        signal.signal(signal.SIGTERM, worker.request_stop)
-        if options.get('once'):
-            worker.recover_stale_tasks()
-            worker.consume_once()
-            return
-        worker.run()
+        run_worker(
+            once=options.get('once', False),
+            poll_interval=options.get('poll_interval'),
+        )
