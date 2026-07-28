@@ -5722,11 +5722,29 @@ class SimcWorkbenchAPIView(View):
             page = max(1, page)
             page_size = max(1, min(50, page_size))
 
+            benchmark_ancestor_ids = set()
+            ancestor_frontier = set(
+                SimcBenchmarkCase.objects.filter(
+                    task__user_id=request.user.id,
+                    task__source_task_id__isnull=False,
+                ).values_list('task__source_task_id', flat=True)
+            )
+            while ancestor_frontier:
+                benchmark_ancestor_ids.update(ancestor_frontier)
+                ancestor_frontier = set(
+                    SimcTask.objects.filter(
+                        pk__in=ancestor_frontier,
+                        source_task_id__isnull=False,
+                    ).values_list('source_task_id', flat=True)
+                ) - benchmark_ancestor_ids
+
             ordinary_refs = [
                 ('task', task_id, modified_time)
                 for task_id, modified_time in SimcTask.objects.filter(
                     user_id=request.user.id,
                     benchmark_case__isnull=True,
+                ).exclude(
+                    pk__in=benchmark_ancestor_ids,
                 ).values_list('id', 'modified_time')
             ]
             execution_refs = [

@@ -150,6 +150,43 @@ class SimcHistoryBackendPaginationTests(TestCase):
             'pending': 0, 'running': 1, 'success': 0, 'failed': 0, 'cancelled': 0,
         })
 
+    def test_history_keeps_rebound_benchmark_retry_lineage_inside_execution(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='重试基准', slug='history-benchmark-retry-lineage', created_by_id=self.user.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status=SimcBenchmarkExecution.STATUS_RUNNING,
+            config_snapshot={}, config_hash='c' * 64,
+        )
+        stale_task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='内部基准旧任务', current_status=3, is_active=True,
+        )
+        retry_task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='内部基准重试任务', current_status=0, is_active=True,
+            source_task=stale_task,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=retry_task, status=SimcBenchmarkExecution.STATUS_PENDING,
+            spec_key='warrior_fury', scenario_key='patchwerk', profile_key='raid',
+            spec_label='狂怒', scenario_label='木桩', profile_label='Raid',
+            coordinate_hash='d' * 64,
+        )
+        request = self.factory.get('/api/simc-workbench/history/')
+        request.user = self.user
+
+        data = json.loads(self.view.get(request, resource='history').content)
+
+        self.assertEqual(data['pagination']['total'], 1)
+        self.assertEqual(len(data['data']), 1)
+        row = data['data'][0]
+        self.assertEqual(row['row_type'], 'benchmark_execution')
+        self.assertEqual(row['execution_id'], execution.id)
+        self.assertEqual(row['status'], SimcBenchmarkExecution.STATUS_RUNNING)
+        self.assertEqual(row['task_counts']['pending'], 1)
+        self.assertEqual(row['task_counts']['failed'], 0)
+
     def test_history_expands_only_benchmark_executions_on_requested_page(self):
         panel = SimcBenchmarkPanel.objects.create(
             name='分页基准', slug='history-benchmark-page-first', created_by_id=self.user.id,
