@@ -259,6 +259,21 @@ class SimcMonitor(BaseScan):
             return True
         return self._task_claim_is_current(simc_task, claimed_at)
 
+    def _persist_reference_progress(self, simc_task):
+        """Persist trusted Run completion progress while the Task lease is current."""
+        statuses = list(SimulationRun.objects.filter(
+            task=simc_task,
+        ).values_list('status', flat=True))
+        if not statuses:
+            return True
+        terminal = sum(status in ('completed', 'failed') for status in statuses)
+        payload = self.parse_task_ext(simc_task.ext)
+        if not isinstance(payload, dict):
+            payload = {}
+        payload['progress'] = int(terminal * 100 / len(statuses))
+        simc_task.ext = json.dumps(payload, ensure_ascii=False)
+        return self._save_task_fields(simc_task, ['ext'])
+
     def mark_task_failed(self, simc_task, reason, exc=None, overwrite_when_has_error=False):
         """
         将任务标记为失败，并写入可见错误信息。
@@ -728,6 +743,8 @@ class SimcMonitor(BaseScan):
                     SimulationRun.objects.filter(pk=run.pk).update(
                         status='failed', error_detail=str(exc), completed_at=timezone.now(),
                     )
+                if not self._persist_reference_progress(simc_task):
+                    return False
                 if not self._task_claim_is_current(simc_task, claimed_at):
                     return False
 

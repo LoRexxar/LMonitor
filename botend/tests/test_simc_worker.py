@@ -265,6 +265,16 @@ class SimcWorkerTests(TestCase):
         sweep.assert_called_once_with()
         consume.assert_called_once_with()
 
+    def test_heartbeat_cycle_runs_maintenance_while_task_is_still_claimed(self):
+        from botend.services.simc_worker import SimcWorker
+
+        task = self.make_task(status=1, started_at=timezone.now())
+        worker = SimcWorker(monitor=MagicMock(), poll_interval=0)
+        with patch.object(worker, '_perform_maintenance') as maintenance:
+            worker._heartbeat_cycle(task.id, task.started_at)
+
+        maintenance.assert_called_once_with()
+
     def test_fast_consume_loop_throttles_all_maintenance_including_stale_recovery(self):
         from botend.services.simc_worker import SimcWorker
 

@@ -113,6 +113,30 @@ class SimcWorker:
             modified_time=timezone.now(),
         )
 
+    def _perform_maintenance(self):
+        """Run isolated queue maintenance from idle and long-running task paths."""
+        try:
+            self.recover_stale_tasks()
+        except Exception:
+            logger.exception('[SimC Worker] stale task recovery failed')
+        try:
+            simc_benchmark_scheduler.schedule_due_panels()
+        except Exception:
+            logger.exception('[SimC Worker] benchmark scheduler failed')
+        try:
+            simc_benchmark_scheduler.reconcile_pending_executions()
+        except Exception:
+            logger.exception('[SimC Worker] benchmark reconcile sweep failed')
+
+    def _heartbeat_cycle(self, task_id, claimed_at):
+        """Refresh the active lease and keep maintenance alive while SimC blocks."""
+        SimcTask.objects.filter(
+            pk=task_id,
+            current_status=1,
+            started_at=claimed_at,
+        ).update(modified_time=timezone.now())
+        self._perform_maintenance()
+
     def _start_heartbeat(self, task_id, claimed_at):
         """Refresh the task lease while one long SimC subprocess is blocking."""
         stopped = threading.Event()
@@ -122,13 +146,7 @@ class SimcWorker:
             while not stopped.wait(interval):
                 close_old_connections()
                 try:
-                    SimcTask.objects.filter(
-                        pk=task_id,
-                        current_status=1,
-                        started_at=claimed_at,
-                    ).update(
-                        modified_time=timezone.now(),
-                    )
+                    self._heartbeat_cycle(task_id, claimed_at)
                 except Exception:
                     logger.exception('[SimC Worker] task %s heartbeat failed', task_id)
                 finally:
@@ -202,18 +220,7 @@ class SimcWorker:
         while not self._stop.is_set():
             current = time.monotonic()
             if current >= next_maintenance:
-                try:
-                    self.recover_stale_tasks()
-                except Exception:
-                    logger.exception('[SimC Worker] stale task recovery failed')
-                try:
-                    simc_benchmark_scheduler.schedule_due_panels()
-                except Exception:
-                    logger.exception('[SimC Worker] benchmark scheduler failed')
-                try:
-                    simc_benchmark_scheduler.reconcile_pending_executions()
-                except Exception:
-                    logger.exception('[SimC Worker] benchmark reconcile sweep failed')
+                self._perform_maintenance()
                 next_maintenance = current + max(self.maintenance_interval, 0)
             try:
                 if not self.consume_once():

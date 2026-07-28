@@ -153,6 +153,23 @@ class SimcWorkerTaskRunLifecycleTests(TestCase):
             self.assertTrue(self.monitor.process_reference_task(self.task))
         self.assertEqual(observed, [(1, first.id), (1, second.id)])
 
+    def test_draining_runs_persists_progress_after_each_terminal_run(self):
+        self._run(1)
+        self._run(2)
+        observed_progress = []
+
+        def execute(task, run):
+            task.refresh_from_db()
+            observed_progress.append(json.loads(task.ext or '{}').get('progress'))
+            run.status = 'completed'
+            run.result_summary = {'dps': 100 + run.sequence}
+            run.save(update_fields=['status', 'result_summary'])
+
+        with patch.object(self.monitor, 'process_reference_run', side_effect=execute):
+            self.assertTrue(self.monitor.process_reference_task(self.task))
+
+        self.assertEqual(observed_progress, [None, 50])
+
     def test_task_delete_cascades_runs_without_touching_other_task(self):
         own = self._run(1)
         other = create_test_task(
