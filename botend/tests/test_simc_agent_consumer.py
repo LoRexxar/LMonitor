@@ -45,6 +45,50 @@ class SimcAgentConsumerTests(SimpleTestCase):
             with self.assertRaises(ConfigError):
                 AgentConfig.from_dict({**values, 'server_url': 'http://control.example'})
 
+    def test_minimal_config_only_requires_enrollment_token_and_simc_path(self):
+        from simc_agent_consumer import AgentConfig
+
+        with tempfile.TemporaryDirectory() as root:
+            simc = Path(root) / 'simc'
+            simc.write_text('#!/bin/sh\n', encoding='utf-8')
+            simc.chmod(0o755)
+            config_path = Path(root) / 'agent.json'
+            config_path.write_text(json.dumps({
+                'enrollment_token': 'enroll-secret',
+                'simc_path': str(simc),
+            }), encoding='utf-8')
+
+            config = AgentConfig.load(str(config_path))
+
+            self.assertEqual(config.server_url, 'https://wowdaily.cn')
+            self.assertEqual(config.simc_path, str(simc))
+            self.assertEqual(config.token_path, str(Path(root) / 'agent.token'))
+            self.assertEqual(config.enrollment_token, 'enroll-secret')
+            self.assertEqual(config.backend_identifier, '')
+
+    def test_minimal_config_registration_does_not_send_redundant_backend_identifier(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            simc = Path(root) / 'simc'
+            simc.write_text('#!/bin/sh\n', encoding='utf-8')
+            simc.chmod(0o755)
+            config = AgentConfig.from_dict({
+                'enrollment_token': 'enroll-secret',
+                'simc_path': str(simc),
+                'token_path': str(Path(root) / 'agent.token'),
+            })
+            transport = MagicMock()
+            transport.json.return_value = {
+                'success': True, 'agent_token': 'token-id.' + ('x' * 43),
+                'heartbeat_interval_seconds': 30, 'lease_seconds': 90,
+            }
+
+            SimcAgentConsumer(config, transport=transport).register()
+
+            payload = transport.json.call_args.kwargs['payload']
+            self.assertNotIn('backend_identifier', payload)
+
     def test_first_registration_persists_separate_agent_token_with_0600_mode(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 

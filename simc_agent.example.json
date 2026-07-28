@@ -1,12 +1,4 @@
 {
-  "server_url": "https://wowdaily.cn",
-  "backend_identifier": "midnight-linux64",
   "simc_path": "/opt/simc/simc",
-  "token_path": "/var/lib/lmonitor-simc-agent/agent.token",
-  "enrollment_token": "REPLACE_FOR_FIRST_REGISTRATION_ONLY",
-  "name": "simc-node-01",
-  "platform": "linux64",
-  "poll_interval_seconds": 5,
-  "request_timeout_seconds": 30,
-  "max_run_seconds": 7200
+  "enrollment_token": "REPLACE_FOR_FIRST_REGISTRATION_ONLY"
 }

@@ -57,10 +57,10 @@ def _stable_host_identifier() -> str:
 
 @dataclass(frozen=True)
 class AgentConfig:
-    server_url: str
-    backend_identifier: str
     simc_path: str
-    token_path: str
+    server_url: str = 'https://wowdaily.cn'
+    backend_identifier: str = ''
+    token_path: str = ''
     enrollment_token: str = ''
     name: str = ''
     platform: str = ''
@@ -78,7 +78,7 @@ class AgentConfig:
         unknown = set(values) - allowed
         if unknown:
             raise ConfigError(f'unknown configuration field: {sorted(unknown)[0]}')
-        required = {'server_url', 'backend_identifier', 'simc_path', 'token_path'}
+        required = {'simc_path'}
         missing = required - set(values)
         if missing:
             raise ConfigError(f'missing configuration field: {sorted(missing)[0]}')
@@ -97,12 +97,17 @@ class AgentConfig:
                 if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
                     raise ConfigError(f'{field} must be a positive finite number')
         config = cls(**values)
+        if not config.token_path:
+            config = cls(**{
+                **config.__dict__,
+                'token_path': str(Path.home() / '.local/state/lmonitor-simc-agent/agent.token'),
+            })
         parsed = urlparse(config.server_url)
         if parsed.scheme not in ({'https'} if not config.allow_insecure_http else {'http', 'https'}):
             raise ConfigError('server_url must use HTTPS (or explicitly enable allow_insecure_http)')
         if not parsed.netloc or parsed.query or parsed.fragment:
             raise ConfigError('server_url is invalid')
-        if not config.backend_identifier or len(config.backend_identifier) > 64:
+        if len(config.backend_identifier) > 64:
             raise ConfigError('backend_identifier is invalid')
         if not Path(config.simc_path).is_file() or not os.access(config.simc_path, os.X_OK):
             raise ConfigError('simc_path must be an executable file')
@@ -121,6 +126,8 @@ class AgentConfig:
             raise ConfigError(f'cannot load configuration: {exc}') from exc
         if not isinstance(raw, dict):
             raise ConfigError('configuration root must be a JSON object')
+        if 'token_path' not in raw:
+            raw['token_path'] = str(Path(path).resolve().with_suffix('.token'))
         return cls.from_dict(raw)
 
 
@@ -290,8 +297,9 @@ class SimcAgentConsumer:
 
     def register(self) -> None:
         payload = {**self._report(), 'host_identifier': self.config.host_identifier,
-                   'backend_identifier': self.config.backend_identifier,
                    'name': self.config.name}
+        if self.config.backend_identifier:
+            payload['backend_identifier'] = self.config.backend_identifier
         payload.pop('status')
         authorization = self.authorization if self.agent_token else 'Enrollment ' + self.config.enrollment_token
         if not self.agent_token and not self.config.enrollment_token:

@@ -22,7 +22,7 @@ DUMMY_TOKEN_HASH = TOKEN_HASH_PREFIX + ('0' * 64)
 STATUSES = {'online', 'busy', 'degraded'}
 REGISTER_FIELDS = {'host_identifier', 'backend_identifier', 'name', 'platform', 'agent_version',
                    'protocol_version', 'capabilities', 'instance_id', 'current_version', 'binary_available'}
-REGISTER_REQUIRED = REGISTER_FIELDS - {'name'}
+REGISTER_REQUIRED = REGISTER_FIELDS - {'name', 'backend_identifier'}
 HEARTBEAT_FIELDS = {'status', 'platform', 'agent_version', 'protocol_version', 'capabilities',
                     'instance_id', 'current_version', 'binary_available'}
 REPORT_FIELDS = ('platform', 'agent_version', 'protocol_version', 'capabilities', 'instance_id',
@@ -100,10 +100,11 @@ def _capabilities(payload):
 
 def validate_registration_payload(payload):
     _strict_fields(payload, REGISTER_FIELDS, REGISTER_REQUIRED)
-    host, identifier = _string(payload, 'host_identifier', 128), _string(payload, 'backend_identifier', 64)
+    host = _string(payload, 'host_identifier', 128)
+    identifier = _string(payload, 'backend_identifier', 64, required=False)
     if not HOST_RE.fullmatch(host):
         raise AgentAPIError('host_identifier must be 32-128 lowercase hexadecimal characters')
-    if not SLUG_RE.fullmatch(identifier):
+    if identifier is not None and not SLUG_RE.fullmatch(identifier):
         raise AgentAPIError('backend_identifier has invalid format')
     return {'host_identifier': host, 'backend_identifier': identifier,
             'name': _string(payload, 'name', 100, required=False),
@@ -232,7 +233,7 @@ def _authenticate_enrollment(authorization, identifier, now):
         raise AgentAPIError('Invalid enrollment code', 401)
     if row.expires_at <= now:
         raise AgentAPIError('Invalid enrollment code', 401)
-    if row.backend.identifier != identifier:
+    if identifier is not None and row.backend.identifier != identifier:
         raise AgentAPIError('Invalid enrollment code', 401)
     return row
 
@@ -264,7 +265,8 @@ def register_agent(payload, authorization):
             agent = authenticate_bearer(authorization, lock=True)
             if agent.host_identifier != values['host_identifier']:
                 raise AgentAPIError('Agent token does not match host_identifier', 409)
-            if agent.backend.identifier != values['backend_identifier']:
+            if (values['backend_identifier'] is not None
+                    and agent.backend.identifier != values['backend_identifier']):
                 raise AgentAPIError('Host is bound to a different backend_identifier', 409)
             token, first = None, False
         else:

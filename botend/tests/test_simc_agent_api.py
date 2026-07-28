@@ -119,6 +119,29 @@ class SimcAgentAPITests(TestCase):
         self.assertEqual(agent.name, 'Independent Node')
         self.assertEqual(SimcBackendBinary.objects.count(), 1)
 
+    def test_enrollment_code_selects_backend_without_payload_identifier(self):
+        code = self.enrollment_code('production')
+        payload = self.register_payload()
+        payload.pop('backend_identifier')
+
+        response = self.post_json(REGISTER_URL, payload, f'Enrollment {code}')
+
+        self.assertEqual(response.status_code, 201, response.content)
+        agent = SimcAgent.objects.get(host_identifier=HOST_A)
+        self.assertEqual(agent.backend.identifier, 'production')
+
+    def test_bearer_registration_does_not_require_backend_identifier(self):
+        token = self.enroll().json()['agent_token']
+        payload = self.register_payload(name='Renamed')
+        payload.pop('backend_identifier')
+
+        response = self.post_json(REGISTER_URL, payload, f'Bearer {token}')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        agent = SimcAgent.objects.get(host_identifier=HOST_A)
+        self.assertEqual(agent.backend.identifier, 'production')
+        self.assertEqual(agent.name, 'Renamed')
+
     def test_two_hosts_can_enroll_same_backend_with_independent_tokens(self):
         first = self.enroll(host_identifier=HOST_A, name='Node A')
         second = self.enroll(host_identifier=HOST_B, name='Node B')
