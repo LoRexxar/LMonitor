@@ -5606,8 +5606,10 @@ class SimcWorkbenchAPIView(View):
         for case in summary.get('cases') or []:
             progress = case.get('task_progress')
             task_status = case.get('task_status', case.get('status'))
-            if progress is not None:
-                progress_values.append(progress)
+            effective_progress = progress
+            if effective_progress is None:
+                effective_progress = 100 if task_status in {'success', 'failed', 'cancelled'} else 0
+            progress_values.append(effective_progress)
             if task_status in task_counts:
                 task_counts[task_status] += 1
             cases.append({

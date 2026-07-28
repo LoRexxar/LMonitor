@@ -144,6 +144,28 @@ class SimcHistoryBackendPaginationTests(TestCase):
             'pending': 0, 'running': 1, 'success': 0, 'failed': 0, 'cancelled': 0,
         })
 
+    def test_benchmark_overall_progress_does_not_disappear_before_first_worker_update(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='基准', slug='history-benchmark-no-progress', created_by_id=self.user.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={}, config_hash='c' * 64,
+        )
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='刚领取的内部任务', current_status=1, ext=None, is_active=True,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, spec_key='warrior_fury',
+            scenario_key='patchwerk', profile_key='raid', spec_label='狂怒',
+            scenario_label='木桩', profile_label='Raid', coordinate_hash='d' * 64,
+        )
+
+        row = self.view._benchmark_history_row(execution)
+
+        self.assertEqual(row['progress'], 0)
+        self.assertIsNone(row['cases'][0]['progress'])
+
     def test_page_defaults_to_1_if_not_provided(self):
         """page 参数未提供时默认为 1"""
         request = self.factory.get('/api/simc-workbench/tasks/')
