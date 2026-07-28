@@ -88,6 +88,37 @@ class SimcWorkerTests(TestCase):
         monitor.process_simc_task.assert_called_once()
         self.assertEqual(monitor.process_simc_task.call_args.args[0].id, pending.id)
 
+    def test_consume_once_prioritizes_regular_task_over_older_benchmark_backlog(self):
+        from botend.services.simc_worker import SimcWorker
+
+        benchmark = self.make_task(name='older benchmark')
+        benchmark.mode = 'comparison'
+        benchmark.save(update_fields=['mode'])
+        panel = SimcBenchmarkPanel.objects.create(
+            name='bulk benchmark', slug='bulk-benchmark', created_by_id=benchmark.user_id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_hash='0' * 64,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=benchmark,
+            spec_key='spec', scenario_key='scenario', profile_key='profile',
+            spec_label='spec', scenario_label='scenario', profile_label='profile',
+            coordinate_hash='1' * 64,
+        )
+        regular = self.make_task(name='newer regular')
+        monitor = MagicMock()
+        monitor.process_simc_task.return_value = True
+        worker = SimcWorker(monitor=monitor, poll_interval=0)
+
+        self.assertTrue(worker.consume_once())
+
+        benchmark.refresh_from_db()
+        regular.refresh_from_db()
+        self.assertEqual(benchmark.current_status, 0)
+        self.assertEqual(regular.current_status, 2)
+        self.assertEqual(monitor.process_simc_task.call_args.args[0].id, regular.id)
+
     def test_consume_once_isolates_unexpected_task_failure_and_next_cycle_continues(self):
         from botend.services.simc_worker import SimcWorker
 

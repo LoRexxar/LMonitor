@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
+from django.db.models import Case, IntegerField, Value, When
 from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
@@ -142,7 +143,12 @@ class SimcWorker:
         close_old_connections()
         task = SimcTask.objects.filter(
             is_active=True, current_status=0,
-        ).order_by('create_time', 'id').first()
+        ).annotate(
+            queue_priority=Case(
+                When(benchmark_case__isnull=True, then=Value(0)),
+                default=Value(1), output_field=IntegerField(),
+            ),
+        ).order_by('queue_priority', 'create_time', 'id').first()
         if task is None:
             return False
         claimed_at = None
