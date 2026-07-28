@@ -354,7 +354,10 @@ class SimcWorkerTests(TestCase):
         self.assertEqual(retry.source_task_id, old.id)
 
     def test_management_command_runs_worker_once(self):
+        worker = MagicMock()
         stdout = StringIO()
-        with patch('botend.management.commands.simc_worker.run_worker') as run_worker:
+        with patch('botend.management.commands.simc_worker.SimcWorker', return_value=worker):
             call_command('simc_worker', '--once', stdout=stdout)
-        run_worker.assert_called_once_with(once=True, poll_interval=None)
+        worker.recover_stale_tasks.assert_called_once_with()
+        worker.consume_once.assert_called_once_with()
+        worker.run.assert_not_called()
