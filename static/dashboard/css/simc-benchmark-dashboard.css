@@ -37,6 +37,7 @@
 .simc-benchmark-editor[hidden], .simc-benchmark-history[hidden] { display: none; }
 .simc-benchmark-config-body { margin: 0; min-height: 100vh; background: #eef2f7; color: #0f172a; font-family: system-ui,-apple-system,"Segoe UI",sans-serif; }
 .simc-benchmark-config-page { width: min(1500px,100%); margin: 0 auto; padding: 1.25rem; box-sizing: border-box; }
+.simc-benchmark-config-page *, .simc-benchmark-config-page *::before, .simc-benchmark-config-page *::after { box-sizing: border-box; }
 .simc-benchmark-config-topbar { margin-bottom: 1rem; padding: 1rem 1.25rem; border: 1px solid #dbe4ef; border-radius: 1rem; background: #fff; }
 .simc-benchmark-config-topbar a { color: #2563eb; text-decoration: none; font-weight: 700; }.simc-benchmark-config-topbar h1 { margin: .35rem 0 .15rem; }.simc-benchmark-config-topbar p { margin: 0; color: #64748b; }
 .simc-benchmark-config-page .simc-benchmark-notification { position: sticky; top: .5rem; z-index: 20; margin-bottom: .75rem; border-radius: .75rem; padding: .75rem 1rem; background: #dbeafe; color: #1e3a8a; font-weight: 700; }
@@ -71,6 +72,71 @@
 .simc-benchmark-history { display: flex; justify-content: flex-end; }.simc-benchmark-history-panel { width: min(52rem,100vw); height: 100dvh; display: flex; flex-direction: column; background: #f8fafc; box-shadow: -20px 0 60px rgba(0,0,0,.25); }.simc-benchmark-history-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 1rem; border-bottom: 1px solid #e2e8f0; background: #fff; }.simc-benchmark-history-body { min-height: 0; overflow-y: auto; padding: 1rem; }.history-list { display: grid; gap: .5rem; }.history-row { min-height: 44px; border: 1px solid #e2e8f0; border-radius: .6rem; padding: .55rem; background: #fff; font-size: .75rem; }.history-row-head { display: grid; grid-template-columns: auto 1fr auto auto auto; align-items: center; gap: .5rem; margin-bottom: .5rem; }.history-row button { min-height: 36px; color: #2563eb; }.history-pagination { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .75rem; }.history-detail { margin-top: 1rem; border-top: 2px solid #cbd5e1; padding-top: 1rem; }.history-case { margin-bottom: .6rem; border: 1px solid #e2e8f0; border-radius: .6rem; padding: .65rem; background: #fff; font-size: .75rem; }.history-runs-scroll { max-width:100%;overflow-x:auto; }.history-runs { min-width:36rem;width: 100%; margin-top: .4rem; border-collapse: collapse; }.history-runs td { border-top: 1px solid #e2e8f0; padding: .3rem;overflow-wrap:anywhere; }
 body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 
+/* Dedicated configuration page: compact first layer, progressive disclosure below. */
+.simc-benchmark-config-body { --config-border:#dfe5ec; --config-muted:#667085; --config-ink:#172033; background:#f4f6f8; }
+.simc-benchmark-config-page { width:min(1240px,100%); margin:0 auto; padding:1rem 1.25rem 3rem; }
+.simc-benchmark-config-toolbar { position:sticky; top:0; z-index:40; display:flex; align-items:center; justify-content:space-between; gap:1.25rem; margin-bottom:.85rem; border:1px solid rgba(210,218,229,.9); border-radius:1rem; padding:.85rem 1rem; background:rgba(255,255,255,.94); box-shadow:0 8px 30px rgba(15,23,42,.08); backdrop-filter:blur(14px); }
+.simc-benchmark-config-identity { display:flex; min-width:0; align-items:center; gap:1rem; }
+.simc-benchmark-back-link { flex:0 0 auto; border-right:1px solid #e2e8f0; padding:.65rem 1rem .65rem .15rem; color:#3659a7; font-size:.78rem; font-weight:750; text-decoration:none; white-space:nowrap; }
+.simc-benchmark-config-identity h1 { max-width:42rem; margin:.12rem 0 0; overflow:hidden; color:var(--config-ink); font-size:1.12rem; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.simc-benchmark-config-identity p { margin:.14rem 0 0; color:var(--config-muted); font-size:.72rem; }
+.simc-benchmark-config-actions { display:flex; flex:0 0 auto; align-items:center; gap:.75rem; }
+.simc-benchmark-save-status { color:#667085; font-size:.72rem; font-weight:650; white-space:nowrap; }
+.config-save-button { min-width:7.5rem; box-shadow:0 5px 14px rgba(37,99,235,.2); }
+.simc-benchmark-config-page .simc-benchmark-notification { top:5.8rem; z-index:35; }
+.simc-benchmark-editor.page-editor .simc-benchmark-editor-panel { min-height:0; border-radius:0; background:transparent; box-shadow:none; }
+.simc-benchmark-editor.page-editor .simc-benchmark-editor-body { padding:0; }
+.simc-benchmark-config-page [data-benchmark-form] { display:grid; gap:.85rem; }
+.simc-benchmark-config-page .simc-benchmark-form-section { margin:0; border-color:var(--config-border); border-radius:1rem; padding:1.2rem; box-shadow:0 1px 2px rgba(16,24,40,.025); }
+.simc-benchmark-primary-section { display:grid; grid-template-columns:minmax(13rem,.65fr) minmax(0,1.35fr); align-items:center; gap:1.5rem; border-color:#cbd9ee !important; background:linear-gradient(135deg,#f8fbff 0%,#fff 55%) !important; }
+.section-heading-copy { min-width:0; }
+.section-heading-copy h2 { margin:.15rem 0 .18rem; color:var(--config-ink); font-size:1rem; line-height:1.35; }
+.section-heading-copy p { max-width:44rem; margin:0; color:var(--config-muted); font-size:.72rem; line-height:1.55; }
+.section-kicker { color:#4264a9; font-size:.62rem; font-weight:850; letter-spacing:.09em; }
+.simc-benchmark-primary-section .base-fields { grid-template-columns:minmax(0,1.5fr) minmax(12rem,.8fr); align-items:end; }
+.simc-benchmark-config-page .simc-benchmark-fields label,.simc-benchmark-config-page .config-card label { display:grid; gap:.34rem; color:#4b5565; font-size:.7rem; letter-spacing:.01em; }
+.simc-benchmark-config-page input,.simc-benchmark-config-page select,.simc-benchmark-config-page textarea { border-color:#d7dee8; border-radius:.6rem; box-shadow:0 1px 2px rgba(15,23,42,.025); transition:border-color .15s ease,box-shadow .15s ease,background .15s ease; }
+.simc-benchmark-config-page input:focus,.simc-benchmark-config-page select:focus,.simc-benchmark-config-page textarea:focus { outline:none; border-color:#6e8ed2; box-shadow:0 0 0 3px rgba(72,104,174,.12); }
+.config-toggle { display:flex !important; min-height:44px; grid-template-columns:none !important; align-items:center; gap:.65rem !important; border:1px solid #dce3ec; border-radius:.65rem; padding:.55rem .7rem; background:#fff; cursor:pointer; }
+.config-toggle input { width:1rem !important; min-height:1rem !important; accent-color:#315db6; }
+.config-toggle span { display:grid; gap:.08rem; }.config-toggle strong { color:#344054; font-size:.74rem; }.config-toggle small { color:#8490a2; font-size:.63rem; font-weight:500; }
+.simc-benchmark-advanced-section { overflow:hidden; border:1px solid var(--config-border); border-radius:1rem; background:#fff; }
+.simc-benchmark-advanced-section > summary,.config-card-advanced > summary { display:flex; align-items:center; justify-content:space-between; gap:1rem; list-style:none; cursor:pointer; user-select:none; }
+.simc-benchmark-advanced-section > summary::-webkit-details-marker,.config-card-advanced > summary::-webkit-details-marker { display:none; }
+.simc-benchmark-advanced-section > summary { min-height:4rem; padding:.75rem 1.2rem; }
+.simc-benchmark-advanced-section > summary:hover,.config-card-advanced > summary:hover { background:#f8fafc; }
+.simc-benchmark-advanced-section summary > span:first-child,.config-card-advanced summary > span:first-child { display:grid; gap:.16rem; }
+.simc-benchmark-advanced-section summary strong { color:#27334a; font-size:.86rem; }.simc-benchmark-advanced-section summary small,.config-card-advanced summary small { color:#7a8699; font-size:.66rem; font-weight:500; }
+.advanced-chevron { color:#74819a; font-size:1rem; transition:transform .18s ease; }.simc-benchmark-advanced-section[open] > summary .advanced-chevron,.config-card-advanced[open] > summary .advanced-chevron { transform:rotate(180deg); }
+.advanced-section-body { display:grid; grid-template-columns:1fr 1fr; gap:1rem; border-top:1px solid #e7ebf0; padding:1rem 1.2rem 1.2rem; background:#fbfcfd; }
+.advanced-section-body > section { min-width:0; border:1px solid #e4e9ef; border-radius:.75rem; padding:.9rem; background:#fff; }.advanced-section-body h3 { margin:0 0 .75rem; color:#344054; font-size:.76rem; }
+.simc-benchmark-config-page .section-title { align-items:flex-start; }.simc-benchmark-config-page .section-title > .simc-benchmark-btn { flex:0 0 auto; }
+.simc-benchmark-config-page .config-stack:empty::before { content:'尚未添加'; display:block; border:1px dashed #d7dee8; border-radius:.75rem; padding:1rem; color:#8a95a5; text-align:center; font-size:.72rem; }
+.simc-benchmark-config-page .config-card { overflow:hidden; border-color:#dce3eb; border-radius:.85rem; padding:0; background:#fff; box-shadow:0 1px 3px rgba(16,24,40,.035); }
+.simc-benchmark-config-page .config-card-head { min-height:2.65rem; margin:0; border-bottom:1px solid #edf0f4; padding:.45rem .65rem .45rem .85rem; background:#fafbfc; }
+.config-card-title { color:#4b5870; font-size:.68rem; font-weight:800; letter-spacing:.04em; text-transform:uppercase; }
+.simc-benchmark-config-page .config-card-head .danger { min-height:32px; border:0; padding:.25rem .5rem; background:transparent; font-size:.68rem; }
+.config-card-primary { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) minmax(7rem,.45fr); align-items:end; gap:.7rem; padding:.8rem; }
+.candidate-primary { grid-template-columns:minmax(8rem,.65fr) minmax(10rem,1fr) minmax(7rem,.4fr) minmax(16rem,1.5fr); }
+.config-card-primary > .config-check { display:flex !important; min-height:44px; grid-template-columns:none !important; align-items:center; gap:.45rem !important; border:1px solid #e0e6ed; border-radius:.6rem; padding:.55rem .65rem; background:#f9fafb; }
+.config-card-primary > .config-check input[type="checkbox"],.simc-benchmark-config-page .profile-choice input[type="checkbox"],.simc-benchmark-config-page .candidate-spec-picker input[type="checkbox"] { width:auto !important; min-height:auto; box-shadow:none; accent-color:#315db6; }
+.config-card-advanced { border-top:1px solid #edf0f4; background:#fbfcfd; }
+.config-card-advanced > summary { min-height:2.75rem; padding:.55rem .8rem; color:#4b5870; }.config-card-advanced summary strong { font-size:.7rem; }
+.config-card-advanced-body { border-top:1px solid #e8ecf1; padding:.8rem; background:#f7f9fb; }
+.simc-benchmark-config-page .config-card-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.simc-benchmark-config-page .profile-picker,.simc-benchmark-config-page .candidate-spec-picker { border-color:#dfe5ec; background:#fff; }
+.simc-benchmark-config-page .profile-choice { border-bottom:1px solid #edf0f3; padding:.45rem .2rem; }.simc-benchmark-config-page .profile-choice:last-child { border-bottom:0; }
+.simc-benchmark-config-page .structured-params { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.simc-benchmark-config-page .simc-benchmark-summary { position:static; display:flex; align-items:center; flex-wrap:wrap; gap:.35rem .8rem; margin-bottom:.85rem; border-color:#c9d8ef; border-radius:.8rem; padding:.7rem .9rem; background:#f5f8fd; color:#40547b; box-shadow:none; }
+.simc-benchmark-config-page .simc-benchmark-summary strong { margin:0 .25rem 0 0; color:#26457e; font-size:.76rem; }.simc-benchmark-config-page .simc-benchmark-summary > div { font-size:.68rem; }.simc-benchmark-config-page .simc-benchmark-summary .summary-error { flex-basis:100%; margin:.2rem 0 0; border-top:1px solid #efcaca; padding-top:.45rem; color:#a23636; }
+
+@media (max-width: 900px) {
+  .simc-benchmark-primary-section { grid-template-columns:1fr; gap:.85rem; }
+  .advanced-section-body { grid-template-columns:1fr; }
+  .candidate-primary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .candidate-primary > label:last-child { grid-column:1/-1; }
+}
+
 @media (max-width: 640px) {
   .main-content:has(#simc-benchmarks.active) { padding: .75rem !important; overflow-x: hidden; }
   #simc-benchmarks { width: 100%; max-width: 100vw; }
@@ -80,4 +146,22 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
   .simc-benchmark-editor { padding: 0; }.simc-benchmark-editor-panel { width: 100vw; height: 100dvh; border-radius: 0; }.simc-benchmark-editor-body { padding: .7rem; }.simc-benchmark-editor-grid { display: flex; flex-direction: column; }.simc-benchmark-summary { position: sticky; top: -.7rem; z-index: 3; order: -1; width: 100%; }.simc-benchmark-fields, .config-card-grid, .structured-params { grid-template-columns: minmax(0,1fr); }.config-card-grid .span-2, .config-card-grid .span-all { grid-column: auto; }.simc-benchmark-editor-footer { padding-bottom: max(.85rem,env(safe-area-inset-bottom)); }.simc-benchmark-editor-footer .simc-benchmark-btn { flex: 1; }
   .profile-choice { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }.profile-choice > span,.profile-choice > input[type=text] { grid-column:1/-1; }
   .simc-benchmark-history-panel { width: 100vw; }.history-row-head { grid-template-columns: auto 1fr auto; }.history-row-head .history-secondary { display: none; }.benchmark-execution-progress.compact { min-width: 0; }
+  .simc-benchmark-config-page { padding:.5rem .5rem 2rem; }
+  .simc-benchmark-config-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.6rem; border-radius:.75rem; padding:.65rem; }
+  .simc-benchmark-config-identity { display:grid; gap:.28rem; }.simc-benchmark-back-link { display:flex; width:max-content; min-height:44px; align-items:center; border:0; padding:0 .25rem; font-size:.72rem; }.simc-benchmark-config-identity h1 { max-width:13rem; font-size:.94rem; }.simc-benchmark-config-identity p,.simc-benchmark-save-status { display:none; }
+  .simc-benchmark-config-actions { align-self:end; }.config-save-button { min-width:6.5rem; min-height:44px; padding:.5rem .7rem; }
+  .simc-benchmark-config-page .simc-benchmark-notification { top:4.8rem; }
+  .simc-benchmark-config-page .simc-benchmark-editor-panel { width:100% !important; height:auto !important; }
+  .simc-benchmark-config-page .simc-benchmark-editor-body { padding:0; }
+  .simc-benchmark-config-page .simc-benchmark-summary { position:static; order:initial; margin-bottom:.6rem; }
+  .simc-benchmark-config-page .simc-benchmark-form-section { padding:.85rem; }
+  .simc-benchmark-primary-section,.simc-benchmark-primary-section .base-fields,.config-card-primary,.candidate-primary { grid-template-columns:minmax(0,1fr); }
+  .candidate-primary > label:last-child { grid-column:auto; }
+  .simc-benchmark-config-page .section-title { align-items:stretch; flex-direction:column; gap:.7rem; }.simc-benchmark-config-page .section-title > .simc-benchmark-btn { width:100%; min-height:44px; }
+  .simc-benchmark-config-page .section-heading-copy p { font-size:.75rem; }.simc-benchmark-config-page .section-kicker { font-size:.68rem; }
+  .simc-benchmark-config-page .config-card-head .danger { min-width:44px; min-height:44px; }
+  .advanced-section-body { padding:.75rem; }.advanced-section-body > section { padding:.75rem; }
+  .simc-benchmark-advanced-section > summary { padding:.7rem .85rem; }
+  .simc-benchmark-config-page .config-card-grid,.simc-benchmark-config-page .structured-params { grid-template-columns:minmax(0,1fr); }
+  .simc-benchmark-config-page .config-card-grid .span-all,.simc-benchmark-config-page .candidate-spec-picker.span-all { grid-column:auto; }
 }

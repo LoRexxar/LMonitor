@@ -161,14 +161,52 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertNotIn("if(action.dataset.action==='edit')openEditor(id)", JS)
         self.assertIn('data-benchmark-config-page', CONFIG_PAGE)
         self.assertIn('data-benchmark-panel-id', CONFIG_PAGE)
-        for text in ('基础信息', '定时', '专精配置', '场景', '候选装备'):
+        for text in ('面板概览', '高级配置', '定时策略', '专精配置', '场景', '候选装备'):
             self.assertIn(text, CONFIG_PAGE)
         self.assertIn('simc-benchmark-dashboard.js', CONFIG_PAGE)
-        self.assertIn('?v=20260728a', CONFIG_PAGE)
-        self.assertIn('?v=20260728a', INDEX)
-        self.assertIn("if(!configPage)document.body.classList.add", JS)
+        self.assertIn('?v=20260728b', CONFIG_PAGE)
+        self.assertIn('?v=20260728b', INDEX)
+        self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
+
+    def test_config_page_keeps_the_primary_save_action_in_the_sticky_header(self):
+        soup = BeautifulSoup(CONFIG_PAGE, "html.parser")
+        header = cast(Tag, soup.select_one('.simc-benchmark-config-toolbar'))
+        self.assertIsNotNone(header)
+        self.assertIsNotNone(header.select_one('[data-editor-save]'))
+        self.assertIsNotNone(header.select_one('[data-save-status][aria-live="polite"]'))
+        self.assertIsNone(soup.select_one('.simc-benchmark-editor-footer [data-editor-save]'))
+        self.assertIn('position: sticky', CSS)
+        self.assertIn('.simc-benchmark-config-toolbar', CSS)
+        self.assertIn('savedPayloadFingerprint', JS)
+        self.assertIn("'配置已保存'", JS)
+        self.assertIn("'有未保存的修改'", JS)
+        self.assertIn('const requestFingerprint=JSON.stringify(payload)', JS)
+        self.assertIn('JSON.stringify(collectPayload())===requestFingerprint', JS)
+        self.assertIn('savedPayloadFingerprint=requestFingerprint', JS)
+        self.assertIn('.simc-benchmark-config-page *', CSS)
+        self.assertIn('box-sizing: border-box', CSS)
+
+    def test_config_page_keeps_only_frequent_fields_open_and_folds_advanced_fields(self):
+        soup = BeautifulSoup(CONFIG_PAGE, "html.parser")
+        form = cast(Tag, soup.select_one('[data-benchmark-form]'))
+        primary = cast(Tag, form.select_one('[data-primary-settings]'))
+        advanced = cast(Tag, form.select_one('details[data-advanced-section]'))
+        self.assertIsNotNone(primary.select_one('input[name="panel_name"]'))
+        self.assertIsNotNone(primary.select_one('input[name="is_active"]'))
+        for field_name in ('slug', 'description', 'is_public', 'schedule_enabled', 'interval_seconds', 'next_run_at'):
+            self.assertIsNone(primary.select_one(f'[name="{field_name}"]'))
+            self.assertIsNotNone(advanced.select_one(f'[name="{field_name}"]'))
+        self.assertFalse(advanced.has_attr('open'))
+        self.assertIn('高级配置', cast(Tag, advanced.select_one('summary')).get_text(' ', strip=True))
+
+    def test_nested_resources_and_simulation_metadata_are_collapsed_per_card(self):
+        self.assertIn("advancedGroup('资源与 Profiles'", JS)
+        self.assertIn("advancedGroup('SimC 参数'", JS)
+        self.assertIn("advancedGroup('展示与适用范围'", JS)
+        self.assertIn("class:'config-card-primary'", JS)
+        self.assertIn("class:'config-card-advanced'", JS)
 
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
         for markup in (PARTIAL, CONFIG_PAGE):

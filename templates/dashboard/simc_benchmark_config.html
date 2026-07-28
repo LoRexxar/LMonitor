@@ -6,44 +6,60 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{{ panel_name }} · Benchmark 配置</title>
-  <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260727b">
+  <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260728b">
 </head>
 <body class="simc-benchmark-config-body">
 <main class="simc-benchmark-config-page" data-benchmark-config-page data-benchmark-panel-id="{{ panel_id }}">
-  <header class="simc-benchmark-config-topbar">
-    <div><a href="/dashboard/#simc-benchmarks">← 返回基准面板</a><span class="simc-benchmark-eyebrow">BENCHMARK CONFIG</span><h1>{{ panel_name }}</h1><p>详细配置面板的资源、执行场景、Profiles 和候选方案。</p></div>
+  <header class="simc-benchmark-config-toolbar">
+    <div class="simc-benchmark-config-identity">
+      <a class="simc-benchmark-back-link" href="/dashboard/#simc-benchmarks">← 返回基准面板</a>
+      <div><span class="simc-benchmark-eyebrow">BENCHMARK CONFIG</span><h1 id="simc-benchmark-editor-title">{{ panel_name }}</h1><p>保留常用配置在首屏，低频资源和执行参数按需展开。</p></div>
+    </div>
+    <div class="simc-benchmark-config-actions">
+      <span class="simc-benchmark-save-status" data-save-status aria-live="polite">正在载入配置…</span>
+      <button type="button" class="simc-benchmark-btn primary config-save-button" data-editor-save disabled>保存配置</button>
+    </div>
   </header>
   <div data-benchmark-notification class="simc-benchmark-notification" role="status" aria-live="polite" hidden></div>
   <div data-editor-create-specs hidden></div>
   <div class="simc-benchmark-editor page-editor" data-benchmark-editor aria-labelledby="simc-benchmark-editor-title" aria-describedby="simc-benchmark-editor-errors">
     <div class="simc-benchmark-editor-panel">
-      <header class="simc-benchmark-editor-header">
-        <div><span class="simc-benchmark-eyebrow">完整任务配置</span><h2 id="simc-benchmark-editor-title">配置基准面板</h2></div>
-        <a class="simc-benchmark-btn secondary" href="/dashboard/#simc-benchmarks">返回列表</a>
-      </header>
       <div class="simc-benchmark-editor-body">
         <div id="simc-benchmark-editor-errors" class="simc-benchmark-errors" data-editor-errors role="alert" tabindex="-1" hidden></div>
-        <div class="simc-benchmark-editor-grid">
-          <form data-benchmark-form novalidate>
-            <section class="simc-benchmark-form-section"><h3>基础信息</h3><div class="simc-benchmark-fields base-fields">
-              <label>名称 *<input name="panel_name" required maxlength="200"></label><label>slug *<input name="slug" required pattern="[a-z0-9][a-z0-9_-]*"></label>
-              <label class="wide">描述<textarea name="description" rows="3" maxlength="10000"></textarea></label>
-              <label class="check"><input type="checkbox" name="is_active">启用</label><label class="check"><input type="checkbox" name="is_public">公开</label>
-            </div></section>
-            <section class="simc-benchmark-form-section"><h3>定时</h3><div class="simc-benchmark-fields schedule-fields">
-              <label class="check"><input type="checkbox" name="schedule_enabled">启用定时</label><label>间隔（秒）<input type="number" name="interval_seconds" min="1" value="86400"></label><label>下次运行<input type="datetime-local" name="next_run_at"></label>
-            </div></section>
-            <section class="simc-benchmark-form-section"><div class="section-title"><h3>专精配置</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="spec">添加专精</button></div><p class="field-help">为每个专精选择 APL、Template、Backend 以及一个或多个 Profile。</p><div data-editor-specs class="config-stack"></div></section>
-            <section class="simc-benchmark-form-section"><div class="section-title"><h3>场景</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="scenario">添加场景</button></div><p class="field-help">配置 iterations、target_error、fight_style、max_time、vary_combat_length、enemy_type 和 desired_targets。</p><div data-editor-scenarios class="config-stack"></div></section>
-            <section class="simc-benchmark-form-section"><div class="section-title"><h3>候选装备</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="candidate">添加候选</button></div><p class="field-help">配置 gear_swap、来源、图标及适用专精；baseline 由系统生成。</p><div data-editor-candidates class="config-stack"></div></section>
-          </form>
-          <aside class="simc-benchmark-summary" data-editor-summary aria-live="polite"></aside>
-        </div>
+        <aside class="simc-benchmark-summary" data-editor-summary aria-live="polite"></aside>
+        <form data-benchmark-form novalidate>
+          <section class="simc-benchmark-form-section simc-benchmark-primary-section" data-primary-settings>
+            <div class="section-heading-copy"><span class="section-kicker">常用设置</span><h2>面板概览</h2><p>这里只保留日常最常修改的名称和启用状态。</p></div>
+            <div class="simc-benchmark-fields base-fields">
+              <label>面板名称 *<input name="panel_name" required maxlength="200"></label>
+              <label class="config-toggle"><input type="checkbox" name="is_active"><span><strong>启用面板</strong><small>允许定时或手动创建新的基准执行</small></span></label>
+            </div>
+          </section>
+
+          <details class="simc-benchmark-advanced-section" data-advanced-section>
+            <summary><span><strong>高级配置</strong><small>标识、描述、Portal 可见性与定时策略</small></span><span class="advanced-chevron" aria-hidden="true">⌄</span></summary>
+            <div class="advanced-section-body">
+              <section><h3>标识与说明</h3><div class="simc-benchmark-fields">
+                <label>slug *<input name="slug" required pattern="[a-z0-9][a-z0-9_-]*"></label>
+                <label class="config-toggle"><input type="checkbox" name="is_public"><span><strong>Portal 公开</strong><small>允许从 Portal 发现已发布结果</small></span></label>
+                <label class="wide">描述<textarea name="description" rows="3" maxlength="10000"></textarea></label>
+              </div></section>
+              <section><h3>定时策略</h3><div class="simc-benchmark-fields schedule-fields">
+                <label class="config-toggle"><input type="checkbox" name="schedule_enabled"><span><strong>启用定时</strong><small>由后台按间隔自动创建执行</small></span></label>
+                <label>间隔（秒）<input type="number" name="interval_seconds" min="1" value="86400"></label>
+                <label>下次运行<input type="datetime-local" name="next_run_at"></label>
+              </div></section>
+            </div>
+          </details>
+
+          <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">01 · MATRIX</span><h2>专精配置</h2><p>首层选择专精；APL、Template、Backend 和 Profiles 在每张卡片内按需展开。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="spec">＋ 添加专精</button></div><div data-editor-specs class="config-stack"></div></section>
+          <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">02 · SCENARIOS</span><h2>场景</h2><p>只在首层维护场景身份，SimC 详细参数默认折叠。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="scenario">＋ 添加场景</button></div><div data-editor-scenarios class="config-stack"></div></section>
+          <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">03 · CANDIDATES</span><h2>候选装备</h2><p>装备行保持可见，来源、图标和适用专精收进高级配置；baseline 由系统生成。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="candidate">＋ 添加候选</button></div><div data-editor-candidates class="config-stack"></div></section>
+        </form>
       </div>
-      <footer class="simc-benchmark-editor-footer"><a class="simc-benchmark-btn secondary" href="/dashboard/#simc-benchmarks">取消</a><button type="button" class="simc-benchmark-btn primary" data-editor-save>保存全部配置</button></footer>
     </div>
   </div>
 </main>
-<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260728a"></script>
+<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260728b"></script>
 </body>
 </html>
