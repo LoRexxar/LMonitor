@@ -5,11 +5,11 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
-from django.db.models import Case, IntegerField, Value, When
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcBenchmarkCase, SimcTask
+from botend.models import SimcAgent, SimcBenchmarkCase, SimcTask, SimulationRun
 from botend.services import simc_benchmark_scheduler
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from utils.log import logger
@@ -37,20 +37,39 @@ class SimcWorker:
 
     def recover_stale_tasks(self):
         """Fail stale Tasks and retry by copying the frozen Task request."""
-        threshold = timezone.now() - timedelta(seconds=self.stale_seconds)
+        now = timezone.now()
+        threshold = now - timedelta(seconds=self.stale_seconds)
         recovered = 0
         task_ids = list(SimcTask.objects.filter(
             is_active=True, current_status=1,
-        ).filter(modified_time__lt=threshold).values_list('id', flat=True))
+        ).filter(
+            Q(modified_time__lt=threshold) | Q(
+                simulation_runs__status='running',
+                simulation_runs__lease_agent__isnull=False,
+                simulation_runs__lease_expires_at__lte=now,
+            )
+        ).values_list('id', flat=True).distinct())
         for task_id in task_ids:
             is_benchmark = False
             try:
                 with transaction.atomic():
-                    task = SimcTask.objects.select_for_update().filter(
+                    task = SimcTask.objects.select_for_update().select_related('backend').filter(
                         id=task_id, is_active=True, current_status=1,
-                        modified_time__lt=threshold,
                     ).first()
                     if task is None:
+                        continue
+                    # Global control-plane lock order is Task -> Run -> Agent.
+                    # Lock every sibling Run because an expired lease invalidates
+                    # and retries the whole frozen Task, not just one candidate.
+                    task_runs = list(SimulationRun.objects.select_for_update().filter(
+                        task=task,
+                    ).order_by('id'))
+                    expired_agent_lease = any(
+                        run.status == 'running' and run.lease_agent_id is not None
+                        and run.lease_expires_at is not None and run.lease_expires_at <= now
+                        for run in task_runs
+                    )
+                    if task.modified_time >= threshold and not expired_agent_lease:
                         continue
                     benchmark_case = SimcBenchmarkCase.objects.select_for_update().filter(
                         task_id=task.id,
@@ -68,14 +87,52 @@ class SimcWorker:
                         ).values_list('source_task_id', flat=True).first()
 
                     task.current_status = 3
-                    task.completed_at = timezone.now()
+                    task.completed_at = now
                     if attempts >= self.max_attempts:
                         task.error_detail = f'Worker 重试次数上限（{self.max_attempts}）'
+                    elif expired_agent_lease:
+                        task.error_detail = 'Agent 租约过期，执行已中断；已复制 Task 重试'
                     else:
                         task.error_detail = 'Worker 心跳超时，执行已中断；已复制 Task 重试'
                     task.save(update_fields=[
                         'current_status', 'error_detail', 'completed_at', 'modified_time',
                     ])
+
+                    if expired_agent_lease:
+                        affected_agent_ids = sorted({
+                            run.lease_agent_id for run in task_runs if run.lease_agent_id
+                        })
+                        agents = list(SimcAgent.objects.select_for_update().filter(
+                            pk__in=affected_agent_ids,
+                        ).order_by('pk'))
+                        SimulationRun.objects.filter(task=task, status='running').update(
+                            status='failed', completed_at=now,
+                            error_detail='Agent 租约过期', lease_token_hash='',
+                            lease_expires_at=None, lease_heartbeat_at=None,
+                            lease_instance_id='', lease_agent=None,
+                        )
+                        SimulationRun.objects.filter(task=task, status='pending').update(
+                            status='failed', completed_at=now,
+                            error_detail='Agent 同级租约已失效',
+                        )
+                        # Recovery fences every prior holder, including a sibling
+                        # that may already be terminal, before publishing the retry.
+                        SimulationRun.objects.filter(task=task).update(
+                            lease_token_hash='', lease_expires_at=None,
+                            lease_heartbeat_at=None, lease_instance_id='', lease_agent=None,
+                        )
+                        online_cutoff = now - timedelta(seconds=max(
+                            1, int(getattr(settings, 'SIMC_AGENT_ONLINE_TIMEOUT_SECONDS', 90)),
+                        ))
+                        for agent in agents:
+                            has_other_lease = SimulationRun.objects.filter(
+                                lease_agent=agent, status='running', lease_expires_at__gt=now,
+                            ).exists()
+                            if not has_other_lease and agent.status == agent.STATUS_BUSY:
+                                agent.status = (agent.STATUS_ONLINE if agent.last_seen_at
+                                                and agent.last_seen_at >= online_cutoff
+                                                else agent.STATUS_DEGRADED)
+                                agent.save(update_fields=['status', 'updated_at'])
 
                     if attempts < self.max_attempts:
                         try:
@@ -159,33 +216,33 @@ class SimcWorker:
     def consume_once(self):
         """只领取一个 pending Task；返回是否发现任务。"""
         close_old_connections()
-        task = SimcTask.objects.filter(
-            is_active=True, current_status=0,
-        ).annotate(
-            queue_priority=Case(
-                When(benchmark_case__isnull=True, then=Value(0)),
-                default=Value(1), output_field=IntegerField(),
-            ),
-        ).order_by('queue_priority', 'create_time', 'id').first()
-        if task is None:
-            return False
         claimed_at = None
         claimed = 0
         try:
-            claimed_at = timezone.now()
-            claimed = SimcTask.objects.filter(
-                id=task.id,
-                is_active=True,
-                current_status=0,
-            ).update(
-                current_status=1,
-                started_at=claimed_at,
-                completed_at=None,
-                modified_time=claimed_at,
-            )
-            if claimed != 1:
-                return True
-            task.refresh_from_db()
+            with transaction.atomic():
+                task = SimcTask.objects.select_for_update().filter(
+                    is_active=True, current_status=0,
+                    execution_owner__in=(SimcTask.EXECUTION_OWNER_UNASSIGNED,
+                                         SimcTask.EXECUTION_OWNER_LOCAL),
+                ).annotate(
+                    queue_priority=Case(
+                        When(benchmark_case__isnull=True, then=Value(0)),
+                        default=Value(1), output_field=IntegerField(),
+                    ),
+                ).order_by('queue_priority', 'create_time', 'id').first()
+                if task is None:
+                    return False
+                claimed_at = timezone.now()
+                task.current_status = 1
+                task.execution_owner = SimcTask.EXECUTION_OWNER_LOCAL
+                task.started_at = claimed_at
+                task.completed_at = None
+                task.modified_time = claimed_at
+                task.save(update_fields=[
+                    'current_status', 'execution_owner', 'started_at',
+                    'completed_at', 'modified_time',
+                ])
+                claimed = 1
             heartbeat_stop, heartbeat_thread = self._start_heartbeat(task.id, claimed_at)
             try:
                 result = self.monitor.process_simc_task(task, already_claimed=True)

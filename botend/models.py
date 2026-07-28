@@ -1,6 +1,7 @@
 import hashlib
 import secrets
 import uuid
+from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
@@ -1060,6 +1061,19 @@ class SimcTask(models.Model):
         'SimcBackendBinary', on_delete=models.PROTECT,
         related_name='tasks', help_text="本任务显式指定的 SimC 执行后端",
     )
+    EXECUTION_OWNER_UNASSIGNED = ''
+    EXECUTION_OWNER_LOCAL = 'local'
+    EXECUTION_OWNER_AGENT = 'agent'
+    EXECUTION_OWNER_CHOICES = (
+        (EXECUTION_OWNER_UNASSIGNED, '未分配'),
+        (EXECUTION_OWNER_LOCAL, '本地 Worker'),
+        (EXECUTION_OWNER_AGENT, '独立 Agent'),
+    )
+    execution_owner = models.CharField(
+        max_length=8, choices=EXECUTION_OWNER_CHOICES,
+        default=EXECUTION_OWNER_UNASSIGNED, blank=True,
+        help_text="首次领取时原子确定的执行面；确定后不可跨执行面领取",
+    )
 
     error_detail = models.TextField(null=True, blank=True, help_text="创建或执行错误详情")
     result_summary = models.TextField(null=True, blank=True, help_text="结果摘要JSON：DPS/HPS等关键指标")
@@ -1087,6 +1101,16 @@ class SimcTask(models.Model):
                 fields=['is_active', 'current_status', 'modified_time'],
                 name='simctask_stale_q_idx',
             ),
+            models.Index(
+                fields=['execution_owner', 'is_active', 'current_status', 'create_time'],
+                name='simctask_owner_queue_idx',
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(execution_owner__in=('', 'local', 'agent')),
+                name='simctask_execution_owner_ck',
+            ),
         ]
 
 
@@ -1107,6 +1131,12 @@ class SimcTaskArtifact(models.Model):
         indexes = [
             models.Index(fields=['task', 'artifact_type']),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['task', 'run', 'artifact_type'],
+                name='simc_artifact_task_run_type_uniq',
+            ),
+        ]
 
 
 class SimulationRun(models.Model):
@@ -1124,6 +1154,15 @@ class SimulationRun(models.Model):
     status = models.CharField(max_length=20, default='pending', help_text="状态：pending/running/completed/failed")
     input_hash = models.CharField(max_length=64, default='', blank=True, help_text="本次输入的SHA256")
     resource_manifest = models.JSONField(null=True, blank=True, help_text="本次执行时解析的资源版本元数据")
+    lease_token_hash = models.CharField(max_length=80, default='', blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    lease_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    lease_instance_id = models.CharField(max_length=128, default='', blank=True)
+    lease_agent = models.ForeignKey(
+        'SimcAgent', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='leased_runs',
+    )
+    completion_id = models.CharField(max_length=64, default='', blank=True)
 
     result_summary = models.JSONField(null=True, blank=True, help_text="结果摘要：DPS/HPS等关键指标")
     error_detail = models.TextField(null=True, blank=True, help_text="执行错误详情")
@@ -1141,6 +1180,7 @@ class SimulationRun(models.Model):
             models.Index(fields=['task', 'sequence']),
             models.Index(fields=['status']),
             models.Index(fields=['input_hash']),
+            models.Index(fields=['status', 'lease_expires_at'], name='simc_run_lease_q_idx'),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -1313,6 +1353,54 @@ class SimcBackendBinary(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.identifier})'
+
+
+class SimcAgent(models.Model):
+    STATUS_UNREGISTERED = 'unregistered'
+    STATUS_ONLINE = 'online'
+    STATUS_BUSY = 'busy'
+    STATUS_DEGRADED = 'degraded'
+    STATUS_CHOICES = (
+        (STATUS_UNREGISTERED, 'Unregistered'), (STATUS_ONLINE, 'Online'),
+        (STATUS_BUSY, 'Busy'), (STATUS_DEGRADED, 'Degraded'),
+    )
+
+    backend = models.ForeignKey(SimcBackendBinary, on_delete=models.PROTECT, related_name='agents')
+    host_identifier = models.CharField(max_length=128, unique=True)
+    name = models.CharField(max_length=100, default='', blank=True)
+    is_active = models.BooleanField(default=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_UNREGISTERED)
+    platform = models.CharField(max_length=32, default='')
+    agent_version = models.CharField(max_length=64, default='', blank=True)
+    protocol_version = models.PositiveIntegerField(default=1)
+    capabilities = models.JSONField(default=dict, blank=True)
+    instance_id = models.CharField(max_length=128, default='', blank=True)
+    current_version = models.CharField(max_length=128, default='', blank=True)
+    binary_available = models.BooleanField(default=False)
+    token_id = models.CharField(max_length=32, null=True, blank=True, unique=True)
+    token_hash = models.CharField(max_length=255, default='', blank=True)
+    registered_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'simc_agent'
+        constraints = [
+            models.CheckConstraint(condition=models.Q(status__in=(
+                'unregistered', 'online', 'busy', 'degraded',
+            )), name='simc_agent_status_ck'),
+            models.CheckConstraint(condition=(
+                models.Q(token_hash='') & (models.Q(token_id__isnull=True) | models.Q(token_id=''))
+            ) | (
+                ~models.Q(token_hash='') & models.Q(token_id__isnull=False) & ~models.Q(token_id='')
+            ), name='simc_agent_token_pair_ck'),
+        ]
+
+    def is_online(self, timeout_seconds=90, now=None):
+        if self.status not in {self.STATUS_ONLINE, self.STATUS_BUSY, self.STATUS_DEGRADED} or not self.last_seen_at:
+            return False
+        return self.last_seen_at >= (now or timezone.now()) - timedelta(seconds=timeout_seconds)
 
 
 class SimcBenchmarkPanel(models.Model):

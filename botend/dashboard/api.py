@@ -6477,8 +6477,9 @@ class SimcArtifactPreviewAPIView(View):
             id=object_id, task__user_id=request.user.id,
         ).select_related('task', 'run').first()
         artifact_path = str(artifact.file_path or '').replace('\\', '/') if artifact else ''
+        allowed_prefixes = ('simc_results/', 'simc_agent_results/')
         if (not artifact or artifact.artifact_type != 'html_report'
-                or not artifact_path.startswith('simc_results/')):
+                or not artifact_path.startswith(allowed_prefixes)):
             return JsonResponse({'success': False, 'error': '产物不存在'}, status=404)
         from botend.services.simc_artifacts import _validated_result
         validated = _validated_result(

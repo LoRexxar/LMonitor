@@ -35,8 +35,15 @@ def result_filename_for_run(task, run):
         return None
     base = _task_result_base(task)
     if not base:
-        return None
+        base = f"simc_task_{task.pk}"
     return f"{base}_run_{run.pk}.html"
+
+
+def agent_result_filename_for_run(task, run):
+    """Return the Agent protocol filename with explicit Task/Run binding."""
+    if run is None or int(run.task_id) != int(task.pk):
+        return None
+    return f"simc_task_{task.pk}_run_{run.pk}.html"
 
 
 def _validated_result(task, result_file, run=None):
@@ -45,8 +52,21 @@ def _validated_result(task, result_file, run=None):
     if not filename or filename != os.path.basename(filename) or "\n" in filename or "\r" in filename:
         return None
 
+    agent_relative_path = f"simc_agent_results/{filename}"
+    is_agent_artifact = bool(
+        run is not None
+        and SimcTaskArtifact.objects.filter(
+            task=task, run=run, artifact_type="html_report",
+            file_path=agent_relative_path,
+        ).exists()
+    )
+
     if run is not None:
-        if filename != result_filename_for_run(task, run):
+        expected = (
+            agent_result_filename_for_run(task, run)
+            if is_agent_artifact else result_filename_for_run(task, run)
+        )
+        if filename != expected:
             return None
     else:
         regular_match = _REGULAR_RESULT_NAME_RE.fullmatch(filename)
@@ -61,7 +81,13 @@ def _validated_result(task, result_file, run=None):
         if not uuid_owned and (not bound_id or int(bound_id) != int(task.pk)):
             return None
 
-    result_root = (Path(settings.BASE_DIR) / "static" / "simc_results").resolve()
+    if is_agent_artifact:
+        configured = getattr(settings, "SIMC_AGENT_RESULT_ROOT", "")
+        result_root = Path(
+            configured or (Path(settings.BASE_DIR) / "var" / "simc_agent_results")
+        ).resolve()
+    else:
+        result_root = (Path(settings.BASE_DIR) / "static" / "simc_results").resolve()
     full_path = (result_root / filename).resolve()
     try:
         full_path.relative_to(result_root)
@@ -69,7 +95,8 @@ def _validated_result(task, result_file, run=None):
         return None
     if not full_path.is_file():
         return None
-    return full_path, f"simc_results/{filename}"
+    relative_path = agent_relative_path if is_agent_artifact else f"simc_results/{filename}"
+    return full_path, relative_path
 
 
 def upsert_task_html_artifact(task, result_file, run=None):

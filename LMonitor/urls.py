@@ -83,6 +83,12 @@ from botend.portal.simc_benchmark_api import (
     PortalSimcBenchmarkPanelListAPIView,
     PortalSimcBenchmarkPanelDetailAPIView,
 )
+from botend.simc_agent_api import (
+    SimcAgentHeartbeatAPIView, SimcAgentRegisterAPIView,
+    SimcAgentJobClaimAPIView, SimcAgentJobHeartbeatAPIView,
+    SimcAgentJobCompleteAPIView,
+    SimcAgentManagementListAPIView, SimcAgentManagementActiveAPIView,
+)
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
@@ -150,6 +156,13 @@ urlpatterns = [
     path('portal/wow-skill-diff/<int:report_id>/', PortalWowSkillDiffReportView.as_view(), name="portal_wow_skill_diff_report"),
 
     # API路由
+    path('api/simc-agent/v1/register/', SimcAgentRegisterAPIView.as_view(), name='simc_agent_register'),
+    path('api/simc-agent/v1/heartbeat/', SimcAgentHeartbeatAPIView.as_view(), name='simc_agent_heartbeat'),
+    path('api/simc-agent/v1/jobs/claim/', SimcAgentJobClaimAPIView.as_view(), name='simc_agent_job_claim'),
+    path('api/simc-agent/v1/jobs/<int:run_id>/heartbeat/', SimcAgentJobHeartbeatAPIView.as_view(), name='simc_agent_job_heartbeat'),
+    path('api/simc-agent/v1/jobs/<int:run_id>/complete/', SimcAgentJobCompleteAPIView.as_view(), name='simc_agent_job_complete'),
+    path('api/simc-workbench/agents/', SimcAgentManagementListAPIView.as_view(), name='simc_agent_management_list'),
+    path('api/simc-workbench/agents/<int:agent_id>/active/', SimcAgentManagementActiveAPIView.as_view(), name='simc_agent_management_active'),
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),
     path('api/mythic-planner/manage/', DashboardMythicPlannerAPIView.as_view(), name='dashboard_mythic_planner_api'),
     path('api/mythic-planner/manage/<int:object_id>/', DashboardMythicPlannerAPIView.as_view(), name='dashboard_mythic_planner_detail_api'),

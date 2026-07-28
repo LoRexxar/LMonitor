@@ -696,6 +696,7 @@ class SimcMonitor(BaseScan):
             pk=simc_task.pk,
             current_status=1,
             started_at=claimed_at,
+            execution_owner=SimcTask.EXECUTION_OWNER_LOCAL,
         ).exists()
 
     def process_reference_task(self, simc_task):
@@ -706,8 +707,11 @@ class SimcMonitor(BaseScan):
                 pk=simc_task.pk,
                 current_status__in=(0, 1, 4),
                 started_at__isnull=True,
+                execution_owner__in=(SimcTask.EXECUTION_OWNER_UNASSIGNED,
+                                     SimcTask.EXECUTION_OWNER_LOCAL),
             ).update(
                 current_status=1,
+                execution_owner=SimcTask.EXECUTION_OWNER_LOCAL,
                 started_at=claimed_at,
                 completed_at=None,
                 modified_time=timezone.now(),
@@ -715,6 +719,7 @@ class SimcMonitor(BaseScan):
             if claimed != 1:
                 return False
             simc_task.current_status = 1
+            simc_task.execution_owner = SimcTask.EXECUTION_OWNER_LOCAL
             simc_task.started_at = claimed_at
         self._active_claim_task_id = simc_task.pk
         self._active_claim_started_at = claimed_at
@@ -866,9 +871,12 @@ class SimcMonitor(BaseScan):
                 claimed = SimcTask.objects.filter(
                     id=simc_task.id,
                     is_active=True,
-                    current_status=0
+                    current_status=0,
+                    execution_owner__in=(SimcTask.EXECUTION_OWNER_UNASSIGNED,
+                                         SimcTask.EXECUTION_OWNER_LOCAL),
                 ).update(
                     current_status=1,
+                    execution_owner=SimcTask.EXECUTION_OWNER_LOCAL,
                     started_at=claimed_at,
                     completed_at=None,
                     modified_time=claimed_at,
@@ -877,6 +885,10 @@ class SimcMonitor(BaseScan):
                     logger.info(f"[SimC Monitor] Task {simc_task.id} was already claimed or no longer pending, skip")
                     return False
             simc_task.refresh_from_db()
+            if simc_task.execution_owner != SimcTask.EXECUTION_OWNER_LOCAL:
+                logger.info('[SimC Monitor] Task %s is owned by %s execution',
+                            simc_task.id, simc_task.execution_owner or 'unassigned')
+                return False
             self._active_claim_task_id = simc_task.pk
             self._active_claim_started_at = simc_task.started_at
             self.clear_simc_error_details(simc_task)

@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.models import (
-    SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
+    SimcAgent, SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
     SimcBenchmarkPanel, SimcTask, SimulationRun,
 )
 
@@ -87,6 +87,50 @@ class SimcWorkerTests(TestCase):
         self.assertEqual(pending.current_status, 2)
         monitor.process_simc_task.assert_called_once()
         self.assertEqual(monitor.process_simc_task.call_args.args[0].id, pending.id)
+
+    def test_active_agent_does_not_toctou_preempt_local_claim(self):
+        from botend.services.simc_worker import SimcWorker
+
+        SimcAgent.objects.create(
+            backend=self.backend, host_identifier='remote-agent',
+            platform='linux64', is_active=True,
+        )
+        agent_task = self.make_task(name='agent')
+        local_backend = SimcBackendBinary.objects.create(
+            identifier='local', name='Local',
+        )
+        local_task = SimcTask.objects.create(
+            user_id=9001, name='local', simc_profile_id=0, task_type=1,
+            backend=local_backend,
+        )
+        monitor = MagicMock()
+        monitor.process_simc_task.return_value = True
+
+        self.assertTrue(SimcWorker(monitor=monitor, poll_interval=0).consume_once())
+
+        agent_task.refresh_from_db()
+        local_task.refresh_from_db()
+        self.assertEqual(agent_task.current_status, 2)
+        self.assertEqual(agent_task.execution_owner, SimcTask.EXECUTION_OWNER_LOCAL)
+        self.assertEqual(local_task.current_status, 0)
+        self.assertEqual(monitor.process_simc_task.call_args.args[0].pk, agent_task.pk)
+
+    def test_consume_once_never_claims_agent_owned_task(self):
+        from botend.services.simc_worker import SimcWorker
+
+        agent_task = self.make_task(name='agent-owned')
+        agent_task.execution_owner = SimcTask.EXECUTION_OWNER_AGENT
+        agent_task.save(update_fields=['execution_owner'])
+        local_task = self.make_task(name='local')
+        monitor = MagicMock()
+        monitor.process_simc_task.return_value = True
+
+        self.assertTrue(SimcWorker(monitor=monitor, poll_interval=0).consume_once())
+        agent_task.refresh_from_db()
+        local_task.refresh_from_db()
+        self.assertEqual(agent_task.current_status, 0)
+        self.assertEqual(local_task.current_status, 2)
+        self.assertEqual(local_task.execution_owner, SimcTask.EXECUTION_OWNER_LOCAL)
 
     def test_consume_once_prioritizes_regular_task_over_older_benchmark_backlog(self):
         from botend.services.simc_worker import SimcWorker
@@ -237,6 +281,81 @@ class SimcWorkerTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.current_status, 1)
         self.assertEqual(task.simulation_runs.get().status, 'running')
+
+    @override_settings(SIMC_WORKER_STALE_SECONDS=900, SIMC_WORKER_MAX_ATTEMPTS=3)
+    def test_expired_agent_lease_fails_all_running_runs_and_copies_task_once(self):
+        from botend.services.simc_worker import SimcWorker
+
+        agent_a = SimcAgent.objects.create(
+            backend=self.backend, host_identifier='agent-a', platform='linux64',
+            status=SimcAgent.STATUS_BUSY, last_seen_at=timezone.now(),
+        )
+        agent_b = SimcAgent.objects.create(
+            backend=self.backend, host_identifier='agent-b', platform='linux64',
+            status=SimcAgent.STATUS_BUSY, last_seen_at=timezone.now(),
+        )
+        task = self.make_task(status=1, started_at=timezone.now())
+        expired = SimulationRun.objects.create(
+            task=task, sequence=1, status='running', lease_token_hash='sha256$old',
+            lease_agent=agent_a,
+            lease_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        sibling = SimulationRun.objects.create(
+            task=task, sequence=2, status='running', lease_token_hash='sha256$new',
+            lease_agent=agent_b,
+            lease_expires_at=timezone.now() + timedelta(minutes=1),
+        )
+        retry = self.make_task(name='retry')
+        retry.source_task = task
+        retry.save(update_fields=['source_task'])
+
+        with patch('botend.services.simc_worker.create_rerun', return_value=retry) as rerun:
+            self.assertEqual(SimcWorker(monitor=MagicMock()).recover_stale_tasks(), 1)
+
+        task.refresh_from_db()
+        retry.refresh_from_db()
+        expired.refresh_from_db()
+        sibling.refresh_from_db()
+        self.assertEqual(task.current_status, 3)
+        self.assertEqual(retry.source_task_id, task.pk)
+        self.assertEqual(retry.backend_id, self.backend.pk)
+        self.assertEqual([expired.status, sibling.status], ['failed', 'failed'])
+        self.assertEqual(expired.error_detail, 'Agent 租约过期')
+        self.assertIsNotNone(expired.completed_at)
+        self.assertIsNone(expired.lease_expires_at)
+        self.assertEqual(expired.lease_token_hash, '')
+        self.assertEqual(expired.lease_instance_id, '')
+        self.assertIsNone(expired.lease_agent_id)
+        self.assertIsNone(sibling.lease_agent_id)
+        agent_a.refresh_from_db()
+        agent_b.refresh_from_db()
+        self.assertEqual(agent_a.status, SimcAgent.STATUS_ONLINE)
+        self.assertEqual(agent_b.status, SimcAgent.STATUS_ONLINE)
+        rerun.assert_called_once_with(task.pk, task.user_id)
+
+    @override_settings(SIMC_WORKER_STALE_SECONDS=900)
+    def test_agent_unexpired_lease_and_local_empty_lease_are_not_recovered_early(self):
+        from botend.services.simc_worker import SimcWorker
+
+        agent = SimcAgent.objects.create(
+            backend=self.backend, host_identifier='healthy-agent', platform='linux64',
+        )
+        agent_task = self.make_task(status=1, started_at=timezone.now())
+        SimulationRun.objects.create(
+            task=agent_task, sequence=1, status='running', lease_token_hash='sha256$x',
+            lease_agent=agent,
+            lease_expires_at=timezone.now() + timedelta(minutes=1),
+        )
+        local_backend = SimcBackendBinary.objects.create(identifier='local-stale', name='Local')
+        local_task = SimcTask.objects.create(
+            user_id=1, name='local', simc_profile_id=0, backend=local_backend,
+            current_status=1, started_at=timezone.now(),
+        )
+        SimulationRun.objects.create(task=local_task, sequence=1, status='running')
+
+        self.assertEqual(SimcWorker(monitor=MagicMock()).recover_stale_tasks(), 0)
+        self.assertEqual(SimcTask.objects.get(pk=agent_task.pk).current_status, 1)
+        self.assertEqual(SimcTask.objects.get(pk=local_task.pk).current_status, 1)
 
     def test_run_stops_claiming_after_stop_request(self):
         from botend.services.simc_worker import SimcWorker

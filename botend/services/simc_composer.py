@@ -944,11 +944,20 @@ class SimcComposer:
             '{fight_style}': request_data.get('fight_style', 'Patchwerk'),
             '{time}': str(request_data.get('time', 300)),
             '{target_count}': str(request_data.get('target_count', 1)),
+            '{iterations}': str(request_data.get('iterations', 10000)),
             '{result_file}': request_data.get('_result_file_path', 'result.html'),
         }
 
         for placeholder, value in placeholders.items():
             result = result.replace(placeholder, str(value))
+
+        # A selected/overridden APL is an authoritative semantic slot, not an
+        # optional decoration of the base template. Older templates commonly
+        # predate ``{action_list}``; append the resolved slot so local and remote
+        # execution cannot silently omit the frozen APL or candidate override.
+        action_content = self._get_slot_content('action_list')
+        if '{action_list}' not in template_content and action_content:
+            result = result.rstrip() + '\n' + action_content
 
         # Legacy templates may omit the output placeholder. The system-owned
         # output slot is mandatory, so append it exactly once when absent.
